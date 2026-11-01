@@ -11337,8 +11337,8 @@ export class GameSessionAdapter implements GameSession {
       // premiere (the house whispers about the returning player) and early-social week 1 (the talk is
       // still fresh). Only the legend gist crosses; the reputation FACETS / the day-one biases never
       // leave the engine. Vault-free by construction — open-set string[] only.
-      ...((this.phase === "premiere" || (this.phase === "social" && this.week === 1)) && this.notorietySummary()?.legendBeats.length
-        ? { notorietyLegend: this.notorietySummary()!.legendBeats }
+      ...((this.phase === "premiere" || (this.phase === "social" && this.week === 1)) && this.notoriety?.legendBeats.length
+        ? { notorietyLegend: [...this.notoriety.legendBeats] }
         : {}),
       // 0013 §5 / PG-14 / PS-4: the producer's Diary-Room invitation at the current dramatic beat.
       ...(drPrompt.invite ? { diaryRoomInvite: drPrompt as { invite: true; reason?: string } } : {}),

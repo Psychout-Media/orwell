@@ -44,6 +44,9 @@ describe("MCP tool boundary — every tool is Vault-free across seeds", () => {
             (out) => JSON.stringify(out),
             (err: unknown) => String((err as Error).message ?? err),
           );
+          // A tool must return a JSON value: `undefined` serializes to nothing, which once crashed this
+          // sweep mid-loop (#1901 playerDossier) and left every later tool unscanned. Name the tool.
+          expect(blob, `seed ${seed} tool ${t.name} returned undefined (no JSON) — unscannable`).toBeTypeOf("string");
           for (const s of sb.sentinels) {
             expect(blob.includes(s), `seed ${seed} tool ${t.name} leaked ${s}`).toBe(false);
           }

@@ -191,6 +191,8 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
           ? scrubMomentPrompt(result as Record<string, unknown>)
           : result;
         const blob = JSON.stringify(scrubbed);
+        // A tool must return a JSON value — `undefined` crashed this sweep (#1901) and hid the rest.
+        expect(blob, `seed ${seed}: tool ${name} returned undefined (no JSON) — unscannable`).toBeTypeOf("string");
         for (const s of sentinelsFor(name)) expect(blob.includes(s), `seed ${seed}: tool ${name} leaked ${s}`).toBe(false);
       };
 
