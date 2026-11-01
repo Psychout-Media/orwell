@@ -5438,6 +5438,8 @@ async def do_player_dossier(content: str, owner: Optional[str] = None) -> Dict:
         args = _parse_tool_args(content) if content and content.strip() else {}
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
+    if not isinstance(args, dict):
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
     subject_id = str(args.get("subjectId") or "").strip() or None
     try:
         res = await orwell_engine.player_dossier(subject_id, user=owner)

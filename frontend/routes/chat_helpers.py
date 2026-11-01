@@ -2965,6 +2965,23 @@ _KW_SOURCE_LAST_GOOD: dict = {}
 _KW_CACHE_TTL = 5.0
 
 
+def forget_knowledge_wall(user) -> None:
+    """Drop this game's knowledge-wall caches (the TTL manifest AND every source's last-good list).
+    Runs on every season create/reset (orwell_engine.on_season_reset) so a previous season's sealed
+    facts can never be served as a new season's last-good when a source fails (PR #1910 review)."""
+    key = _kw_key(user)
+    _KW_SEALED_CACHE.pop(key, None)
+    for k in [k for k in _KW_SOURCE_LAST_GOOD if k[0] == key]:
+        _KW_SOURCE_LAST_GOOD.pop(k, None)
+
+
+try:  # register at import; fail-soft so a missing engine module never breaks chat_helpers
+    from src import orwell_engine as _oe_for_reset
+    _oe_for_reset.on_season_reset(forget_knowledge_wall)
+except Exception:
+    pass
+
+
 def _kw_key(user):
     """The stable per-game key for the knowledge-wall cache — the shared desync key with a hard
     sentinel default so a userless (single-tenant) turn is NOT silently inert (NAR-1)."""

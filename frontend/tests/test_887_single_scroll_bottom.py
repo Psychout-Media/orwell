@@ -120,9 +120,12 @@ def test_click_uses_smooth_scroll_honoring_reduced_motion():
 def test_circle_is_composer_anchored():
     assert "function reposition" in OSB
     assert ".chat-input-bar" in OSB
-    # The squircle's exact anchoring math, ported: bottom = innerHeight - rect.top + 16,
-    # right = innerWidth - rect.right + 8.
-    assert "window.innerHeight - rect.top + 16" in OSB
+    # The squircle's anchoring math, ported: bottom = innerHeight - top + 16, right = innerWidth -
+    # rect.right + 8. `top` starts at the composer's top and lifts to the room strip's top when the
+    # strip sits directly above the composer (so the fab never paints over the room chips).
+    assert "var top = rect.top;" in OSB
+    assert 'getElementById("orwell-room-strip")' in OSB
+    assert "window.innerHeight - top + 16" in OSB
     assert "window.innerWidth - rect.right + 8" in OSB
 
 

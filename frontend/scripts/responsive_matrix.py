@@ -409,8 +409,26 @@ def audit_page(page, vp_name, width, height, coarse, with_game):
                 "(node, other) => node === other || node.contains(other) || other.contains(node)",
                 els[c],
             )
-            if not nested:
-                report("fail", f"{vp_name} overlap:{a} intersects {c}")
+            if nested:
+                continue
+            # #1875 registered `#chat-history` (the transcript) as a surface. The transcript is the
+            # scroll CANVAS: a FLOATING overlay — a non-docked .ow-window (finale, retro on the
+            # no-rail tier) or a fixed/absolute fab (the jump-to-latest button, which exists to
+            # float over the transcript) — paints above it BY DESIGN, exactly like the #740 open-
+            # drawer exemption. Only an IN-FLOW surface (a docked panel, the room strip) colliding
+            # with the transcript is a real layout bug, so that is still reported.
+            if "chat-history" in (a, c):
+                other = els[c] if a == "chat-history" else els[a]
+                floats = other.evaluate(
+                    "(n) => { const w = n.closest('.ow-window');"
+                    " if (w && !w.classList.contains('ow-docked')) return true;"
+                    " for (let e = n; e && e !== document.body; e = e.parentElement) {"
+                    "   const p = getComputedStyle(e).position; if (p === 'fixed' || p === 'absolute') return true; }"
+                    " return false; }"
+                )
+                if floats:
+                    continue
+            report("fail", f"{vp_name} overlap:{a} intersects {c}")
     report("pass", f"{vp_name} overlap sweep ({len(boxes)} surfaces)")
 
     # --- #740: the gadget RAIL / cast-PIN card never sits over the composer ----

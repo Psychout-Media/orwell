@@ -71,7 +71,19 @@
     if (!btn) return;
     if (!bar) return; // no composer yet → leave defaults; reposition() reruns on resize/scroll
     var rect = bar.getBoundingClientRect();
-    btn.style.bottom = (window.innerHeight - rect.top + 16) + "px";
+    // The room strip (M3-1) sits directly above the composer: anchor above whichever is higher so
+    // the fab never paints over the room chips (responsive-matrix overlap at <=390px).
+    var top = rect.top;
+    try {
+      var strip = document.getElementById("orwell-room-strip");
+      if (strip) {
+        var sr = strip.getBoundingClientRect();
+        var scs = getComputedStyle(strip);
+        if (sr.height > 0 && sr.width > 0 && scs.display !== "none" && scs.visibility !== "hidden" &&
+            sr.top < top && sr.bottom > top - 80) top = sr.top;
+      }
+    } catch (_) {}
+    btn.style.bottom = (window.innerHeight - top + 16) + "px";
     btn.style.right = (window.innerWidth - rect.right + 8) + "px";
   }
 
@@ -97,14 +109,18 @@
       // state (#887). Only the unread badge keeps the sanctioned accent.
       "  border: 1px solid var(--ow-glass-rim-border, rgba(255,255,255,0.12));" +
       "  box-shadow: 0 2px 10px rgba(0,0,0,.35); cursor: pointer;" +
-      "  opacity: 0; transform: translateY(6px); pointer-events: none;" +
-      "  transition: opacity .18s ease, transform .18s ease; }" +
-      "#" + BTN_ID + ".osb-show { opacity: .92; transform: translateY(0); pointer-events: auto; }" +
+      // Hidden = visibility:hidden too (R-RSP-6 #1877): opacity:0 + pointer-events:none still left the
+      // button keyboard-focusable and announced. visibility flips only AFTER the fade-out (delayed),
+      // and immediately on show, so the fade animation is unchanged.
+      "  opacity: 0; transform: translateY(6px); pointer-events: none; visibility: hidden;" +
+      "  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s; }" +
+      "#" + BTN_ID + ".osb-show { opacity: .92; transform: translateY(0); pointer-events: auto;" +
+      "  visibility: visible; transition-delay: 0s; }" +
       "#" + BTN_ID + ":hover, #" + BTN_ID + ":focus-visible { opacity: 1; outline: none; }" +
       "#" + BTN_ID + " svg { width: 18px; height: 18px; }" +
       "#" + BTN_ID + " .osb-badge {" +
       "  position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px;" +
-      "  padding: 0 4px; border-radius: 999px; font: 600 10px/16px 'Fira Code', ui-monospace, monospace;" +
+      "  padding: 0 4px; border-radius: 999px; font: 600 max(11px, var(--fs-2xs, 11px))/16px 'Fira Code', ui-monospace, monospace;" +
       "  text-align: center; color: var(--on-accent, #fff);" +
       "  background: var(--accent, var(--red, #e06c75)); display: none; }" +
       "#" + BTN_ID + " .osb-badge.osb-has { display: block; }" +

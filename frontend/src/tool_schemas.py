@@ -2040,6 +2040,10 @@ ORWELL_GAME_TOOLS = frozenset({
 # Converter: native function call -> ToolBlock
 # ---------------------------------------------------------------------------
 
+# Lowercase → registered spelling, for the parsers that lowercase tool names (see below).
+_TOOL_TAGS_BY_LOWER = {t.lower(): t for t in TOOL_TAGS}
+
+
 def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock]:
     """Convert a native function call into a ToolBlock for the existing execution pipeline."""
     try:
@@ -2070,6 +2074,11 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
                             "archive_email", "delete_email", "mark_email_read", "bulk_email", "download_attachment"}
     if name in _BUILTIN_EMAIL_TOOLS:
         return ToolBlock(f"mcp__email__{name}", json.dumps(args) if args else "{}")
+    if tool_type not in TOOL_TAGS:
+        # The XML/DSML and <tool_code> parsers LOWERCASE the invoke name (models capitalize
+        # `Bash`), which made every camelCase game tool (`seasonRecap`, `advanceGame`, …) miss
+        # TOOL_TAGS and vanish silently. Recover the registered spelling case-insensitively.
+        tool_type = _TOOL_TAGS_BY_LOWER.get(str(tool_type).lower(), tool_type)
     if tool_type not in TOOL_TAGS:
         logger.warning(f"Unknown function call: {name}")
         return None

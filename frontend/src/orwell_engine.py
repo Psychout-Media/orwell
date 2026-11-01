@@ -413,9 +413,33 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
     global _CREATING_IN_FLIGHT
     _CREATING_IN_FLIGHT += 1  # G8: /health reports busy="creating" while this runs
     try:
-        return await _call("createCharacter", args, user=user)
+        res = await _call("createCharacter", args, user=user)
     finally:
         _CREATING_IN_FLIGHT -= 1
+    _notify_season_reset(user)  # a created character is a NEW season: drop per-season FE caches
+    return res
+
+
+# ── season-reset listeners ──────────────────────────────────────────────────────────────────────
+# Every season start (first game, confirmed restart, next season) goes through createCharacter, and
+# a God-Mode sandbox reset wipes the season too. FE modules that keep PER-SEASON state keyed only by
+# user (e.g. the knowledge wall's last-good sealed manifest) register a clearer here, so a previous
+# season's state can never bleed into the next one. Listeners are fail-soft and never raise.
+_SEASON_RESET_LISTENERS: list = []
+
+
+def on_season_reset(fn) -> None:
+    """Register ``fn(user)`` to run after a season is created or reset for ``user``."""
+    if fn not in _SEASON_RESET_LISTENERS:
+        _SEASON_RESET_LISTENERS.append(fn)
+
+
+def _notify_season_reset(user: str | None) -> None:
+    for fn in list(_SEASON_RESET_LISTENERS):
+        try:
+            fn(user)
+        except Exception:
+            pass
 
 
 async def pre_seed_cast(seed: int | None = None, user: str | None = None) -> dict:
@@ -1163,7 +1187,10 @@ async def manage_sandbox(op: str | None = None, user: str | None = None) -> dict
     args: dict = {}
     if op:
         args["op"] = op
-    return await _admin_call("manageSandbox", args, user=user)
+    res = await _admin_call("manageSandbox", args, user=user)
+    if op == "reset":
+        _notify_season_reset(user)
+    return res
 
 
 # ── the engine PLAY-CLOCK, mirrored for LABELING only (2026-07-13 prod bundle audit) ──────────

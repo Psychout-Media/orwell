@@ -299,3 +299,31 @@ def test_empty_answer_from_a_live_source_is_cached_as_truth():
         facts = _run(ch.fetch_sealed_from_house(user))
     assert facts == []
     assert ch._KW_SEALED_CACHE[key][1] == []
+
+
+# ════════════ A season create/reset drops the last-good state ═════════════════
+
+def test_season_reset_drops_previous_season_last_good():
+    """A previous season's sealed facts must never be served as the next season's last-good."""
+    ch = _get_chat_helpers()
+    user = "vlt7-season-reset"
+    key = ch._kw_key(user)
+    ch._KW_SEALED_CACHE.pop(key, None)
+    engine = _fresh_engine()
+    engine.sealed_from_house.return_value = [{"content": "old season diary plan", "knownTo": []}]
+    engine.knowledge_scope_manifest.return_value = []
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        _run(ch.fetch_sealed_from_house(user))
+    assert (key, "sealed-from-house") in ch._KW_SOURCE_LAST_GOOD
+
+    from src import orwell_engine as real_engine
+    real_engine._notify_season_reset(user)  # what createCharacter / a sandbox reset fires
+    assert key not in ch._KW_SEALED_CACHE
+    assert not any(k[0] == key for k in ch._KW_SOURCE_LAST_GOOD)
+
+    engine.sealed_from_house.side_effect = RuntimeError("blip right after the reset")
+    engine.knowledge_scope_manifest.return_value = []
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        with patch("routes.chat_helpers.record_soft_failure"):
+            facts = _run(ch.fetch_sealed_from_house(user))
+    assert all(f["content"] != "old season diary plan" for f in facts)

@@ -262,10 +262,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: syntax-check key front-end JS
+      # EVERY front-end script, parsed as an ES module (they are loaded as modules). A comment containing
+      # a literal `*/` in chatReconcile.js (#1785) broke the whole module at page load and blanked the send
+      # path; the old two-file check could not see it. Copy to .mjs so node parses module syntax.
+      - name: syntax-check all front-end JS (as ES modules)
         run: |
-          node --check frontend/static/js/orwellOnboarding.js
-          node --check frontend/static/js/orwellStatusPanel.js
+          tmp="$(mktemp -d)"; bad=0
+          for f in $(git ls-files 'frontend/static/js/*.js'); do
+            cp "$f" "$tmp/check.mjs"
+            node --check "$tmp/check.mjs" 2>"$tmp/err" || { echo "::error file=$f::$(head -5 "$tmp/err" | tr '\n' ' ')"; bad=1; }
+          done
+          exit $bad
 
   # The headless-Chromium pytest tests (the `browser` marker). Serial (they bind fixed ports / drive a
   # real page) with `--reruns 1` so the known environmental onboarding-scrim flake (#925/#1148/#930)
@@ -470,7 +477,7 @@ jobs:
       # The SAME F5 invariant under the WebSocket transport (`ORWELL_WS_TRANSPORT` forced on via an init
       # script inside mirror_live_parity.mjs). This PROVES the socket path mirrors A→B live and closes the
       # WS false-green hole (the `wsTransportEngaged` check fails a run that silently fell back). Now
-      # BLOCKING (turned on 2026-07-10): both turn-on readiness items landed — (1) the FE `requirements.txt`
+      # BLOCKING (turned on 2026-07-10): both turn-on readiness items landed — (1) the FE `requirements.txt` (and its pinned `requirements.lock.txt`, which CI installs)
       # pins `websockets==16.0` so uvicorn serves the upgrade in production; and (2) the client WS connect
       # (orwellWs.js) no longer races session establishment — it defers the hello until `perTabId` resolves
       # (#1353), so no null-`perTabId` `bad-request` / permanent fallback. `ORWELL_WS_TRANSPORT` is now
