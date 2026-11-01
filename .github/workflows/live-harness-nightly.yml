@@ -79,7 +79,7 @@ jobs:
       - if: steps.key.outputs.present == 'true'
         run: npm run build
       - if: steps.key.outputs.present == 'true'
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
       - name: install Playwright chromium (+ system deps for the hosted runner)
         if: steps.key.outputs.present == 'true'
         working-directory: frontend

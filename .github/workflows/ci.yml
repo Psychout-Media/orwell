@@ -132,7 +132,7 @@ jobs:
       # vendored front-end's pytest (the authoritative game-build-wall / gateway assertions, which
       # import the FE app). Those wrappers shell out to `python3 -m pytest`, so the engine test job
       # needs the FE deps too — without them the BDD gate fails with "No module named pytest".
-      - run: pip install -r frontend/requirements.txt
+      - run: pip install -r frontend/requirements.lock.txt
       - run: npm run test:ci
 
   # ── Heavy simulation lane (ONE job — consolidated for the single self-hosted runner) ──────────
@@ -215,7 +215,7 @@ jobs:
       - run: npm ci
       # The end-to-end smoke stage (B71/ops A7) boots the REAL front-end against a
       # token-enforcing engine and drives a full turn — it needs the FE deps.
-      - run: pip install -r frontend/requirements.txt
+      - run: pip install -r frontend/requirements.lock.txt
       - name: deploy scripts parse
         # Enumerate EVERY tracked deploy shell script recursively (incl. nested dirs like
         # deploy/expose/*.sh) — the old non-recursive `deploy/*.sh` glob silently skipped them (#618).
@@ -256,7 +256,7 @@ jobs:
             head -1 "$s" | grep -q python && python3 -m py_compile "$s" || true
           done
       - name: install front-end deps
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
       - name: pytest — non-browser suite, parallel (app-admin 0029, game build 0032)
         run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q
       - uses: actions/setup-node@v4
@@ -287,7 +287,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: install front-end deps
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
       - name: resolve playwright version (cache key)
         id: pw
         run: echo "version=$(pip show playwright | awk '/^Version:/ {print $2}')" >> "$GITHUB_OUTPUT"
@@ -316,7 +316,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: install front-end deps
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
       # Cache the Playwright chromium download (keyed to the installed playwright version).
       - name: resolve playwright version (cache key)
         id: pw
@@ -358,7 +358,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: install front-end deps
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
       - name: resolve playwright version (cache key)
         id: pw
         run: |
@@ -446,7 +446,7 @@ jobs:
         run: |
           python3 -m venv frontend/.venv
           frontend/.venv/bin/pip install --upgrade pip
-          frontend/.venv/bin/pip install -r frontend/requirements.txt
+          frontend/.venv/bin/pip install -r frontend/requirements.lock.txt
       - name: mirror-parity gate — SSE/poll fallback transport (blocking)
         run: |
           set -uo pipefail
@@ -589,7 +589,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: install front-end deps
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
       - name: resolve playwright version (cache key)
         id: pw
         run: |

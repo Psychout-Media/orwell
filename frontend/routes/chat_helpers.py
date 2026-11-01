@@ -2960,6 +2960,8 @@ _KW_SHINGLE = 4
 # read, refreshing next turn. Keyed by the desync key with a hard sentinel default (NAR-1: never a bare
 # `if user` — the write AND read use the same `_kw_key`, so it is never dead under AUTH_ENABLED=false).
 _KW_SEALED_CACHE: dict = {}
+# Per-source last-good raw lists, keyed (game key, source name) — what a failed source contributes.
+_KW_SOURCE_LAST_GOOD: dict = {}
 _KW_CACHE_TTL = 5.0
 
 
@@ -2998,37 +3000,46 @@ def _sealed_signatures(content: str) -> list:
 async def fetch_sealed_from_house(user) -> list:
     """The sealed-from-house manifest for this game, TTL-cached for the streaming turn. Each entry:
     ``{content, knownTo, signatures}``. Vault-free (the engine projection is the player's OWN
-    knowledge). Fail-SOFT and PER-SOURCE (Greptile #1723): the two fetches — the always-sealed
-    DR-seal class and the ADR-0019 knowledge-scope manifest — are INDEPENDENT, so a failure in one
-    still returns (and caches) the other's facts. Only a total failure (or the engine import) ⇒
-    ``[]`` (the guard then holds nothing that turn)."""
+    knowledge). Fail-CLOSED, KEEP-LAST-GOOD, and PER-SOURCE (Greptile #1723 / R-VLT-7 #1872): the two
+    fetches — the always-sealed DR-seal class and the ADR-0019 knowledge-scope manifest — are
+    INDEPENDENT. A source that fails contributes its own last-good list, so a hiccup in one never
+    drops the other's facts NOR its own previously-known facts. If EVERY source fails (or the engine
+    import does) the whole last-good manifest is returned and the cache is left untouched — an RPC
+    blip must never silently switch the wall off for a turn. Only a game with no prior good fetch
+    returns ``[]``."""
     import time
     key = _kw_key(user)
     now = time.monotonic()
     cached = _KW_SEALED_CACHE.get(key)
     if cached and (now - cached[0]) < _KW_CACHE_TTL:
         return cached[1]
-    facts: list = []
     try:
         from src import orwell_engine
         # The always-sealed set (Diary-Room class, `knownTo` empty) AND — ADR 0019 Layer 3 — the
         # generalized knowledge-scope manifest (every fact held by a BOUNDED subset of the house, each
         # with its real pathway-holder set as names). Both are Vault-free; the guard drops a sentence
         # whenever a STAGED houseguest voices a fact whose `knownTo` excludes them (for a DR fact the
-        # set is empty ⇒ any staged houseguest). Each fetch is INDEPENDENT (its own try, Greptile #1723)
-        # so an RPC failure in ONE never skips the OTHER — the generalized Layer 3 guard stays active
-        # even if the DR-seal fetch hiccups, and vice versa (the fail-soft intent above).
+        # set is empty ⇒ any staged houseguest). Each fetch is INDEPENDENT (its own try, Greptile #1723).
+        sources = (
+            ("sealed-from-house", orwell_engine.sealed_from_house),
+            ("knowledge-scope-manifest", orwell_engine.knowledge_scope_manifest),
+        )
         raw: list = []
-        try:
-            raw += list(await orwell_engine.sealed_from_house(user=user) or [])
-        except Exception as e1:
-            logger.warning("[orwell] sealed-from-house fetch failed for user=%s: %s", user, _exc_detail(e1))
-            record_soft_failure("knowledge-wall:sealed-from-house-fetch-failed", e1, corrected="fail-closed:keep-last-good", user=user)
-        try:
-            raw += list(await orwell_engine.knowledge_scope_manifest(user=user) or [])
-        except Exception as e2:
-            logger.warning("[orwell] knowledge-scope manifest fetch failed for user=%s: %s", user, _exc_detail(e2))
-            record_soft_failure("knowledge-wall:knowledge-scope-manifest-fetch-failed", e2, corrected="fail-closed:keep-last-good", user=user)
+        n_ok = 0
+        for name, fetch in sources:
+            try:
+                got = list(await fetch(user=user) or [])
+                _KW_SOURCE_LAST_GOOD[(key, name)] = got
+                n_ok += 1
+            except Exception as e1:
+                logger.warning("[orwell] %s fetch failed for user=%s: %s", name, user, _exc_detail(e1))
+                record_soft_failure(f"knowledge-wall:{name}-fetch-failed", e1, corrected="fail-closed:keep-last-good", user=user)
+                got = _KW_SOURCE_LAST_GOOD.get((key, name), [])
+            raw += got
+        if n_ok == 0:
+            # Every source failed: keep the whole last-good manifest (never overwrite it with less).
+            return cached[1] if cached else []
+        facts: list = []
         for f in raw:
             if not isinstance(f, dict):
                 continue
@@ -3042,8 +3053,13 @@ async def fetch_sealed_from_house(user) -> list:
     except Exception as e:
         logger.warning("[orwell] knowledge-wall total manifest fetch failed for user=%s: %s", user, _exc_detail(e))
         record_soft_failure("knowledge-wall:manifest-fetch-failed", e, corrected="fail-closed:keep-last-good", user=user)
-        facts = cached[1] if cached else facts
-    _KW_SEALED_CACHE[key] = (now, facts) if facts else _KW_SEALED_CACHE.get(key, (now, []))
+        if cached:
+            return cached[1]  # last-good, cache untouched
+        _KW_SEALED_CACHE[key] = (now, [])
+        return []
+    # At least one source answered: this is the current truth (an EMPTY manifest is a real answer —
+    # e.g. a fresh season with nothing sealed yet — and is cached as such).
+    _KW_SEALED_CACHE[key] = (now, facts)
     return facts
 
 

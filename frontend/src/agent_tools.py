@@ -69,6 +69,8 @@ TOOL_TAGS = {"bash", "python", "web_search", "web_fetch", "read_file", "write_fi
              "confront", "accuseTie",
              "premiereIntros", "markHouseguestMet",
              "seasonRecap", "seasonRetrospective", "npcVoice",
+             # #1800 / #1793: the player's OWN Diary-Room record (receipts mirror + per-houseguest dossier).
+             "playerReceipts", "playerDossier",
              # 0102: the daily "day in review" digest re-fetch (usually delivered inline on turnIn).
              "dailyRecap",
              # 0062: the move-in zeitgeist snapshot — public flavor + offscreenPrompt.
@@ -126,6 +128,8 @@ GAME_TOOL_KEEP = frozenset({
     "premiereIntros", "markHouseguestMet",
     # B56/0048: the reunion reads — the public recap + the post-season Vault unsealing.
     "seasonRecap", "seasonRetrospective",
+    # #1800 / #1793: the player's OWN Diary-Room record (receipts mirror + per-houseguest dossier).
+    "playerReceipts", "playerDossier",
     # 0102: the daily "day in review" digest re-fetch (usually delivered inline on turnIn).
     "dailyRecap",
     # 0062: the move-in zeitgeist snapshot — public flavor + offscreenPrompt.

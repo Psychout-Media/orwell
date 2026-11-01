@@ -77,6 +77,9 @@ export const ORWELL_TOOL_BEATS = {
   'markHouseguestMet': '\u{1F91D} First impressions',
   'seasonRecap': '\u{1F4DC} The season so far',
   'seasonRetrospective': '\u{1F513} The producers’ vault',
+  // #1800 / #1793: the player's OWN Diary-Room record (pure reads — also silent below).
+  'playerReceipts': '\u{1F9FE} The receipts',
+  'playerDossier': '\u{1F4D3} Your diary reads',
   // 0102: the daily "day in review" digest re-fetch (usually delivered inline on turnIn).
   'dailyRecap': '\u{1F4C6} The day in review',
   // 0062: the move-in zeitgeist snapshot — public flavor from the outside world.
@@ -118,6 +121,8 @@ export const ORWELL_SILENT_BEATS = new Set([
   'whereabouts', 'socialRead', 'socialInitiatives', 'npcVoice', 'seasonRecap',
   // 0102: a pure re-fetch of a digest already delivered inline on turnIn — no new mutation.
   'dailyRecap',
+  // #1800 / #1793: pure reads of the player's own Diary-Room record — no mutation.
+  'playerReceipts', 'playerDossier',
   // 0062: a pure read of the zeitgeist snapshot — no mutation, no player-facing outcome.
   'worldSnapshotView',
   'inspectNonVaultState', 'sandboxHealth', 'list_models', 'search_chats',

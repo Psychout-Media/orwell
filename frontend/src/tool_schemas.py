@@ -1430,6 +1430,27 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "playerReceipts",
+            "description": "The Diary-Room screening room (#1800): candidate contradictions drawn ONLY from the player's OWN record — deals they made, votes they cast, Diary-Room and public statements. Their words, never engine truth or hidden state; deterministic, never invented. Use it when the player is about to contradict themselves and the producer holds up the mirror.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "playerDossier",
+            "description": "The player's own Diary-Room reads, grouped per houseguest (#1793). Returns ONLY what the PLAYER said in the diary room — their words, never engine truth or hidden state. Optionally pass subjectId to focus one houseguest. Use it to recall the player's own past reads.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subjectId": {"type": "string", "description": "Optional houseguest id (e.g. npc:3) to narrow to one houseguest."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "dailyRecap",
             "description": "The most recently CLOSED in-game day's 'day in review' digest (0102): witnessed highlights + gossip already surfaced, plus an optional non-committal forward tease. Usually delivered inline on turnIn's result — call this only to re-fetch the same day's digest. Vault-free, reproducible; returns nothing before any day has closed.",
             "parameters": {"type": "object", "properties": {}},
@@ -2001,6 +2022,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "premiereIntros", "markHouseguestMet",
     # B56/0048: the reunion reads — the public recap + the post-season Vault unsealing.
     "seasonRecap", "seasonRetrospective",
+    # #1800 / #1793: the player's OWN Diary-Room record — the receipts mirror + the per-houseguest dossier.
+    "playerReceipts", "playerDossier",
     # 0102: the daily "day in review" digest re-fetch (usually delivered inline on turnIn).
     "dailyRecap",
     # 0062: the move-in zeitgeist snapshot — public flavor + offscreenPrompt.

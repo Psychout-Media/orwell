@@ -960,6 +960,18 @@ async def season_recap(user: str | None = None) -> dict:
     return await _call("seasonRecap", {}, user=user)
 
 
+async def player_receipts(user: str | None = None) -> list:
+    """#1800 — candidate contradictions drawn ONLY from the player's own record. Vault-free."""
+    return await _call("playerReceipts", {}, user=user)
+
+
+async def player_dossier(subject_id: str | None = None, user: str | None = None) -> dict:
+    """#1793 — the player's own Diary-Room reads grouped per houseguest (optionally one). ``{}`` when
+    the dossier is off. Vault-free: the player's words only."""
+    args: dict = {"subjectId": subject_id} if subject_id else {}
+    return await _call("playerDossier", args, user=user)
+
+
 async def season_retrospective(user: str | None = None):
     """The post-season Vault unsealing (0048): the FINISHED season's hidden story, or ``None``
     while a season is live (the gate is the engine's terminal state, never a prompt)."""
