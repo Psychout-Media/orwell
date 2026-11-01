@@ -50,7 +50,9 @@ type FetchBytes = (url: string) => Promise<Uint8Array>;
 
 const defaultFetchBytes: FetchBytes = async (url) => {
   const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok) throw new Error(`model download ${url} → HTTP ${res.status}`);
+  // "model download failed" is a deploy-classifier keyword (smoke_embeddings.sh): a fetch problem is
+  // reported as a download/network failure, never misdiagnosed as a fastembed import crash.
+  if (!res.ok) throw new Error(`model download failed: ${url} → HTTP ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
 };
 
@@ -72,14 +74,16 @@ export async function ensureModelFiles(
   const names = Object.keys(entry.files);
   if (existsSync(modelDir) && names.every((n) => existsSync(join(modelDir, n)))) return;
   const fetchBytes = opts.fetchBytes ?? defaultFetchBytes;
-  const tmp = `${modelDir}.partial-${process.pid}`;
+  // A FIXED temp name: a download killed mid-flight (warm-up timeout → worker.terminate() skips the
+  // catch) leaves one stale `.partial`, which the next attempt clears — never one per pid, accumulating.
+  const tmp = `${modelDir}.partial`;
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
   try {
     for (const [name, sha] of Object.entries(entry.files)) {
       const bytes = await fetchBytes(`${entry.base}/${name}`);
       const got = createHash("sha256").update(bytes).digest("hex");
-      if (got !== sha) throw new Error(`model file ${name} failed its sha256 check (got ${got})`);
+      if (got !== sha) throw new Error(`model download failed: ${name} sha256 mismatch (got ${got})`);
       writeFileSync(join(tmp, name), bytes);
     }
     rmSync(modelDir, { recursive: true, force: true }); // an incomplete prior dir is replaced whole

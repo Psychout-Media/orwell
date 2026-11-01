@@ -68,6 +68,7 @@ Feature: 0104 — Season-over-season notoriety (a reputation that precedes you i
       Given a user with a notorious prior season who starts a new character
       When the player and the admin inspect every available projection
       Then no legend clause from the prior season appears on any player-facing surface
+      And they appear on no admin or God-Mode surface
 
     Scenario: The narrator may voice notoriety only as a Vault-free callback
       Given a new cast that has heard of the returning player

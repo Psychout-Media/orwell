@@ -94,6 +94,10 @@ _self_test_classify() {
   # skip, NOT the #1590 import class. A bare `typeerror` in branch (1) used to swallow this (Greptile P1).
   _expect network-skip 1 '[orwell] fastembed prefetch failed: TypeError: fetch failed'
   _expect network-skip 1 '[orwell] fastembed prefetch failed: connect ETIMEDOUT 1.2.3.4:443'
+  # The pinned-mirror fetch (fastembedWorker.ensureModelFiles): an HTTP error or a checksum mismatch is a
+  # DOWNLOAD failure, never misreported as a fastembed import crash.
+  _expect network-skip 1 '[orwell] fastembed prefetch failed: model download failed: https://huggingface.co/x/config.json → HTTP 403'
+  _expect network-skip 1 '[orwell] fastembed prefetch failed: model download failed: model_optimized.onnx sha256 mismatch (got 00ff)'
   _expect network-skip 1 '[orwell] fastembed prefetch failed: request to https://huggingface.co/... failed'
   # Fail-safe: an unrecognised non-zero exit must NOT silently pass — default to import-fail.
   _expect import-fail  1 '[orwell] fastembed prefetch failed: something totally unexpected'
