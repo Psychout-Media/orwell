@@ -19,6 +19,7 @@ import type {
   StateDeltaView, DeltaEventView,
   BehavioralFlags,
   BeatAnnouncementView,
+  NotorietyLegendView,
 } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
@@ -7368,9 +7369,20 @@ export class GameSessionAdapter implements GameSession {
    * 0104 — the (Vault-free) notoriety the narrator may VOICE as a returning-cast callback (the
    * `legendBeats` gist — "word is you're not someone to cross", ADR 0003: facts to voice, never a
    * script, never the numbers). Returns null when the player did not return as the same character.
-   * Only the gist crosses; the reputation FACETS / the day-one biases never leave the engine.
+   * Only the gist crosses: this returns a fresh legend-only PROJECTION, so the reputation FACETS (the
+   * hidden numbers behind the day-one biases), placements and season counts never leave the engine —
+   * it previously returned the whole summary over the player MCP channel.
    */
-  notorietySummary(): NotorietySummary | null { return this.notoriety; }
+  notorietySummary(): NotorietyLegendView | null {
+    return this.notoriety ? { legendBeats: [...this.notoriety.legendBeats] } : null;
+  }
+
+  /**
+   * 0104 — the FULL carried notoriety (reputation facets included). Engine-internal: deliberately NOT
+   * on the outward `GameSession` port, so no MCP tool can dispatch it. Tests use it to prove the
+   * returning-character carry-over; production reads `this.notoriety` directly.
+   */
+  carriedNotoriety(): NotorietySummary | null { return this.notoriety; }
 
   /**
    * 0104 — build the OPEN-SET season outcome record the registry derives notoriety from, at the
@@ -11341,11 +11353,13 @@ export class GameSessionAdapter implements GameSession {
 
   /**
    * #1793 — the player's Diary-Room dossier. Returns diary-room entries grouped per houseguest
-   * subject, filtered to a single subject when subjectId is provided. Absent (undefined) when
-   * the ORWELL_PLAYER_DOSSIER flag is OFF. Vault-free by construction.
+   * subject, filtered to a single subject when subjectId is provided. An EMPTY record when the
+   * ORWELL_PLAYER_DOSSIER flag is OFF — never `undefined`, which serialized to no JSON at all and
+   * crashed the Vault-sentinel sweeps (`liveSentinel` / `mcp` property tests), leaving every tool
+   * after it unchecked. Vault-free by construction.
    */
-  playerDossier(subjectId?: EntityId): Record<EntityId, { content: string; ts: number }[]> | undefined {
-    if (!PLAYER_DOSSIER_ENABLED_DEFAULT) return undefined;
+  playerDossier(subjectId?: EntityId): Record<EntityId, { content: string; ts: number }[]> {
+    if (!PLAYER_DOSSIER_ENABLED_DEFAULT) return {};
     const all = groupPlayerDossier(this.playerKnowledgeReader?.() ?? []);
     if (subjectId === undefined) return all;
     const entry = all[subjectId as string];

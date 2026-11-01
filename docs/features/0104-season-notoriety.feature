@@ -54,10 +54,13 @@ Feature: 0104 — Season-over-season notoriety (a reputation that precedes you i
 
   Rule: The Vault Wall holds — for the player and for admin
 
-    Scenario: Notoriety appears on no player-facing or admin surface
+    # PO ruling 2026-11-01: a NEW character is a clean slate; a RETURNING character (chosen at creation)
+    # carries their legend. The short legend clauses are PUBLIC for a returning player — the house may
+    # voice "what it has heard" (#1791). The reputation NUMBERS and the summary's structure stay sealed.
+    Scenario: Notoriety's hidden numbers appear on no player-facing or admin surface
       Given a new season created for a user with a notoriety summary
       When the player and the admin inspect every available projection
-      Then the notoriety summary and its bias appear on no player-facing surface
+      Then the notoriety numbers and their bias appear on no player-facing surface
       And they appear on no admin or God-Mode surface
       And a sentinel sweep of the assembled day-one prompt finds no notoriety number
 

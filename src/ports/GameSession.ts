@@ -1,12 +1,20 @@
 import type { EntityId } from "../domain/ids";
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import type { VoiceProfile } from "../domain/voiceProfile";
-import type { NotorietySummary } from "../engine/notoriety";
 import type { ExchangeAccounting } from "../engine/producerRead";
 import type { Receipt } from "../engine/receipts";
 import type { PullQuoteWeek } from "../engine/pullQuoteReel";
 import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
+
+/**
+ * 0104 — the OUTWARD notoriety projection: only the returning player's short, Vault-free legend
+ * clauses ("what the new house has heard"). Deliberately NOT the engine's full `NotorietySummary` —
+ * the reputation facets are hidden numbers that drive the day-one biases and must never cross.
+ */
+export interface NotorietyLegendView {
+  legendBeats: string[];
+}
 
 /**
  * Vault-free game-session port (onboarding + per-moment prompt injection).
@@ -2641,9 +2649,10 @@ export interface GameSession {
    * #1793 — the player's Diary-Room dossier: the player's OWN NO_NPC_PATHWAY diary-room reads,
    * grouped per houseguest subject. When subjectId is specified, returns only that houseguest's
    * entries. Vault-free by construction: only the player's own tagged diary-room entries, never
-   * engine truth or NPC knowledge. Absent when the ORWELL_PLAYER_DOSSIER flag is OFF (byte-identical).
+   * engine truth or NPC knowledge. An EMPTY record `{}` when the ORWELL_PLAYER_DOSSIER flag is OFF —
+   * never `undefined`: every tool returns a JSON value, so the Vault-sentinel sweeps can scan it.
    */
-  playerDossier(subjectId?: EntityId): Record<EntityId, { content: string; ts: number }[]> | undefined;
+  playerDossier(subjectId?: EntityId): Record<EntityId, { content: string; ts: number }[]>;
 
   /**
    * #1800 — The Booth Has Receipts: deterministic contradictions drawn ONLY from the player's own
@@ -2655,10 +2664,12 @@ export interface GameSession {
   /**
    * 0104 — the (Vault-free) notoriety legend clauses the narrator may voice as a returning-cast
    * callback on premiere / early-social. Returns null when the player did not return as the same
-   * character. Only the legend gist crosses; the reputation FACETS / the day-one biases never leave
-   * the engine. Vault-free by construction: an open-set summary, never a Vault read.
+   * character (PO ruling 2026-11-01: a NEW character is a clean slate; only a returning character
+   * carries a legend). Only the legend gist crosses — this is a PROJECTION, never the full
+   * `NotorietySummary`: the reputation FACETS (hidden numbers), placements and season counts that
+   * drive the day-one biases never leave the engine.
    */
-  notorietySummary(): NotorietySummary | null;
+  notorietySummary(): NotorietyLegendView | null;
 
   /**
    * FE-driven write-back (0070): enrich the prose `content` of an already-recorded hidden

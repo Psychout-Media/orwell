@@ -292,9 +292,12 @@ When("the player and the admin inspect every available projection", function (th
   w.nAdminSurface = JSON.stringify(sb.admin.inspect());
 });
 
-Then("the notoriety summary and its bias appear on no player-facing surface", function (this: BbWorld) {
+Then("the notoriety numbers and their bias appear on no player-facing surface", function (this: BbWorld) {
   const w = this as unknown as { nPlayerSurface: string };
-  assertNoSentinels(w.nPlayerSurface, [SENT, "0.93", "0.81", "0.77"]);
+  // PO ruling 2026-11-01: the returning player's legend clauses are PUBLIC (the house voices what it has
+  // heard, #1791), so a legend clause — SENT is planted in `legendBeats` — may legitimately appear on the
+  // premiere prompt. The reputation NUMBERS and the summary's structure must never cross.
+  assertNoSentinels(w.nPlayerSurface, ["0.93", "0.81", "0.77", "0.42"]);
   assert.ok(!/reputation":\s*\{|legendBeats|seasonsPlayed|"treachery"/i.test(w.nPlayerSurface), "no reputation structure on a player surface");
 });
 
