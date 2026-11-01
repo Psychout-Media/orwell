@@ -57,6 +57,7 @@ _NARRATOR_TIMEOUT_MARKERS = (
 _ORWELL_SILENT_TOOLS = frozenset({
     'npcVoice', 'getGameState', 'gameStatus', 'getVisibleStateFor', 'getMomentPrompt',
     'whereabouts', 'socialRead', 'socialInitiatives', 'seasonRecap', 'dailyRecap',
+    'playerReceipts', 'playerDossier',
     'worldSnapshotView', 'inspectNonVaultState', 'sandboxHealth', 'list_models', 'search_chats',
 })
 

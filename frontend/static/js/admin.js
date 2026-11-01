@@ -1492,6 +1492,8 @@ const TOOL_META = {
   dailyRecap:          { name: 'Daily Recap',        desc: 'Re-fetch the closed day\'s digest', cat: 'Game', ctx: '~150' },
   worldSnapshotView:  { name: 'World Snapshot',     desc: 'The move-in zeitgeist snapshot',    cat: 'Game', ctx: '~150' },
   seasonRecap:         { name: 'Season Recap',       desc: 'The season\'s public arc',         cat: 'Game', ctx: '~200' },
+  playerReceipts:      { name: 'Player Receipts',    desc: 'Contradictions in the player\'s own record', cat: 'Game', ctx: '~200' },
+  playerDossier:       { name: 'Player Dossier',     desc: 'The player\'s own diary reads per houseguest', cat: 'Game', ctx: '~300' },
   seasonRetrospective: { name: 'Season Retrospective', desc: 'Post-season Vault unsealing',    cat: 'Game', ctx: '~200' },
   requestSelfEviction: { name: 'Self-Eviction',      desc: 'Raise the self-eviction confirm',  cat: 'Game', ctx: '~100' },
   inspectNonVaultState:{ name: 'Inspect State',      desc: 'God Mode: read non-Vault state',   cat: 'Game', ctx: '~200' },
