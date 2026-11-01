@@ -272,7 +272,31 @@ describe("0104 — the diegetic opt-in (R4): keepCharacter carries notoriety, a 
     // The fresh sandbox (post-reset) is the live one now.
     const after = reg.sandboxFor(user);
     expect(after.session.notorietySummary()).not.toBeNull();
-    expect(after.session.notorietySummary()!.seasonsPlayed).toBeGreaterThanOrEqual(1);
+    // The full record (season count, facets) is engine-internal — read via the non-port accessor.
+    expect(after.session.carriedNotoriety()!.seasonsPlayed).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the outward notorietySummary port method returns ONLY the legend — never the hidden reputation numbers", async () => {
+    // #1791 first shipped notorietySummary as a player tool returning the WHOLE summary (facets included);
+    // 86c4af51 removed the tool. Defense in depth: the outward port method itself is now a legend-only
+    // projection, and the tool stays OFF the player channel — both pinned here.
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("u-legend-projection");
+    sb.session.setNotoriety({
+      seasonsPlayed: 4, lastPlacement: 3, bestPlacement: 2,
+      reputation: { loyalty: -0.8137, treachery: 0.9311, competitor: 0.7719, social: -0.4223 },
+      legendBeats: ["blindsided their own ally"],
+    });
+    sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+    const view = sb.session.notorietySummary();
+    expect(view).toEqual({ legendBeats: ["blindsided their own ally"] });
+    const wire = JSON.stringify(view);
+    for (const leak of ["0.8137", "0.9311", "0.7719", "0.4223", "reputation", "seasonsPlayed", "lastPlacement", "bestPlacement"]) {
+      expect(wire.includes(leak), `notorietySummary leaked ${leak}`).toBe(false);
+    }
+    // The leaky tool stays removed from the player channel (86c4af51).
+    expect(sb.mcp.player.listTools().some((t) => t.name === "notorietySummary")).toBe(false);
+    await expect(sb.mcp.player.callTool("notorietySummary", {})).rejects.toThrow(/not available/);
   });
 
   it("creating a NEW character (no keepCharacter) is a clean slate — no notoriety folded", () => {

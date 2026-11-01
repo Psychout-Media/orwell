@@ -255,8 +255,13 @@ the store**, never **remembers a past season's chat text**. The model is handed 
 - **Bounded — rides inside the scatter envelope:** the notoriety bias never pushes a move-in edge outside
   the existing `MOVE_IN.spread` band; the move-in *distribution* tilts, the bounds do not move (the proof it
   cannot become a calibration lever).
-- **Vault Wall (incl. admin):** the `NotorietySummary` and the bias never appear on any player-facing **or**
-  admin/God-Mode projection; a sentinel sweep over the assembled day-one prompt + every projection finds no
+- **Vault Wall (incl. admin):** the `NotorietySummary` (its reputation facets, placements, season count) and
+  the bias never appear on any player-facing **or** admin/God-Mode projection. **PO ruling 2026-11-01:** a NEW
+  character is a clean slate; a RETURNING character (the `keepCharacter` opt-in) carries its legend, and its
+  short `legendBeats` clauses are PUBLIC — but only through the sanctioned slots (the game-state
+  `notorietyLegend` field and the narrator's "RETURNING CAST" line, premiere + week-1 social; #1791). The
+  outward port method `notorietySummary()` is a legend-only projection. A sentinel sweep over the assembled
+  day-one prompt + every projection finds no
   notoriety **number** and no sealed content from the prior season. The prior season's Vault stays sealed —
   a cross-check asserts no Vault record of season N−1 crosses into season N's summary.
 - **The engine owns magnitude (anti-sycophancy):** notoriety never inflates the player's competition or vote

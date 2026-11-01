@@ -9,6 +9,32 @@ live ledger of owner calls as they happen.
 
 ---
 
+## 2026-11-01
+
+Rulings from the 2026-11 full-feature audit's Tier 0 review.
+
+- **Notoriety: a NEW character is a clean slate; a RETURNING character carries its legend (0104 /
+  #1791).** The new-vs-returning choice is the existing `keepCharacter` opt-in at season restart. For a
+  returning character, the short legend clauses ("what the new house has heard") are PUBLIC: the
+  narrator may voice them through the sanctioned slots (the game-state `notorietyLegend` field and the
+  "RETURNING CAST" line, premiere + week-1 social). The reputation NUMBERS, placements and season count
+  stay sealed everywhere. Rationale: a returning player having a reputation the house talks about is
+  the payoff; the numbers would be a spoiler. Pinned by the 0104 BDD scenarios (#1908).
+- **Eviction night takes about 2 in-game hours total, "like it plays on the show" (0047 / 0037 /
+  0119).** The vote reveals, goodbyes, exit interview and result count as one ~2h event, not ~3h each.
+  No forced all-nighter and no hidden tiredness penalty before the next HOH. The same applies to the
+  finale. (Measured before the fix: an 8am vote ended at ~7am the next day.)
+- **NPC deal offers play out inside the conversation, not as a pop-up (0123).** The engine still
+  decides who approaches and what they offer (from character + relationships, anti-sycophancy). The
+  narrator voices the NPC pulling the player aside, the game never blocks on it, and the player's
+  in-chat yes/no is recorded as a real deal or a refusal. An ignored offer lapses at the end of the
+  week, with a bounded, hidden cooling that depends on the NPC (a thin-skinned or paranoid NPC cools on
+  being brushed off; an easygoing one doesn't).
+- **Canon clarification (no change): goodbye messages flow FROM each remaining houseguest TO the
+  evictee.** The player, while still in the house, authors their own message to each evictee; the
+  evictee sees them in the 0130 exit interview. The engine already works this way; recorded so the
+  ambiguous "the player authors their own goodbye" wording is never misread again.
+
 ## 2026-07-11
 
 - **The Diary Room's thin rose chrome edge is a SANCTIONED DIEGETIC EXCEPTION to "no accent on

@@ -5,6 +5,7 @@ import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { deriveNotoriety, type NotorietySummary, type OpenSetSeasonOutcome } from "../../src/engine/notoriety";
 import { assertNoSentinels } from "../../tests/support/assertions";
+import { InMemoryUserNotorietyStore } from "../../src/adapters/engine/FileUserNotorietyStore";
 import { PLAYER } from "../../src/domain/ids";
 
 /**
@@ -267,7 +268,7 @@ Then("notoriety has touched only the day-one relationship edges", function (this
 
 // ── Rule: the Vault Wall holds — for the player and for admin ────────────────────────────────────────
 
-Given("a new season created for a user with a notoriety summary", function (this: BbWorld) {
+Given("a new season created for a returning character with a notoriety summary", function (this: BbWorld) {
   const w = nw(this);
   const summary: NotorietySummary = {
     seasonsPlayed: 3, lastPlacement: 2, bestPlacement: 1,
@@ -283,24 +284,63 @@ When("the player and the admin inspect every available projection", function (th
   const w = nw(this) as { nVaultSb?: ReturnType<GameSessionRegistry["sandboxFor"]>; nPlayerSurface?: string; nAdminSurface?: string };
   const sb = w.nVaultSb!;
   sb.syncAdmin();
-  w.nPlayerSurface = JSON.stringify(sb.session.getGameState())
-    + JSON.stringify(sb.player.getVisibleState())
-    + JSON.stringify(sb.session.gameStatus())
-    + sb.session.getMomentPrompt({}).systemPrompt
+  const state = sb.session.getGameState();
+  const prompts = sb.session.getMomentPrompt({}).systemPrompt
     + sb.session.getMomentPrompt({ moment: "social" }).systemPrompt
     + sb.session.getMomentPrompt({ moment: "character-creation" }).systemPrompt;
+  w.nPlayerSurface = JSON.stringify(state)
+    + JSON.stringify(sb.player.getVisibleState())
+    + JSON.stringify(sb.session.gameStatus())
+    + prompts;
+  // The SANCTIONED legend slots (PO ruling 2026-11-01, #1791): the game-state `notorietyLegend` field and
+  // the narrator's "RETURNING CAST" line. Everything ELSE on the player surface, with those two excised.
+  const { notorietyLegend: _sanctioned, ...stateRest } = state as unknown as Record<string, unknown>;
+  (w as { nPlayerOffSlot?: string }).nPlayerOffSlot = JSON.stringify(stateRest)
+    + JSON.stringify(sb.player.getVisibleState())
+    + JSON.stringify(sb.session.gameStatus())
+    + prompts.split("\n").filter((l) => !l.includes("RETURNING CAST:")).join("\n");
   w.nAdminSurface = JSON.stringify(sb.admin.inspect());
 });
 
-Then("the notoriety summary and its bias appear on no player-facing surface", function (this: BbWorld) {
-  const w = this as unknown as { nPlayerSurface: string };
-  assertNoSentinels(w.nPlayerSurface, [SENT, "0.93", "0.81", "0.77"]);
+Then("the notoriety numbers and their bias appear on no player-facing surface", function (this: BbWorld) {
+  const w = this as unknown as { nPlayerSurface: string; nPlayerOffSlot: string };
+  // PO ruling 2026-11-01: the returning player's legend clauses are PUBLIC (the house voices what it has
+  // heard, #1791) — but ONLY through the sanctioned slots. SENT (planted in `legendBeats`) must be absent
+  // from everything else on the player surface; the reputation NUMBERS and structure must never cross.
+  assertNoSentinels(w.nPlayerOffSlot, [SENT]);
+  assertNoSentinels(w.nPlayerSurface, ["0.93", "0.81", "0.77", "0.42"]);
   assert.ok(!/reputation":\s*\{|legendBeats|seasonsPlayed|"treachery"/i.test(w.nPlayerSurface), "no reputation structure on a player surface");
+});
+
+Given("a user with a notorious prior season who starts a new character", function (this: BbWorld) {
+  // The REAL restart path (registry.resetUser + the keepCharacter opt-in): the user's account-level
+  // store holds a legend carrying SENT; they finish a season, then start a NEW character (no
+  // keepCharacter). PO ruling 2026-11-01: a new character is a clean slate — nothing carries.
+  const w = nw(this) as { nVaultSb?: ReturnType<GameSessionRegistry["sandboxFor"]>; nSeed?: number };
+  const store = new InMemoryUserNotorietyStore();
+  store.accumulate("the-player-fresh", {
+    seasonsPlayed: 2, lastPlacement: 2, bestPlacement: 1,
+    reputation: { loyalty: -0.81, treachery: 0.93, competitor: 0.77, social: -0.42 },
+    legendBeats: [`${SENT}`],
+  });
+  const reg = new GameSessionRegistry(undefined, { notorietyStore: store });
+  const sb = reg.sandboxFor("the-player-fresh");
+  sb.session.createCharacter({ playerName: "The Player", seed: w.nSeed ?? 7 });
+  assert.equal(sb.session.advanceToFinale().finished, true);
+  sb.session.createCharacter({ playerName: "The Player", seed: w.nSeed ?? 7, confirmRestart: true });
+  w.nVaultSb = reg.sandboxFor("the-player-fresh");
+  assert.equal(w.nVaultSb.session.notorietySummary(), null, "a new character carries no notoriety");
+});
+
+Then("no legend clause from the prior season appears on any player-facing surface", function (this: BbWorld) {
+  const w = this as unknown as { nPlayerSurface: string };
+  assertNoSentinels(w.nPlayerSurface, [SENT, "0.93", "0.81", "0.77", "0.42"]);
+  assert.ok(!/RETURNING CAST:/.test(w.nPlayerSurface), "no returning-cast legend line for a new character");
 });
 
 Then("they appear on no admin or God-Mode surface", function (this: BbWorld) {
   const w = this as unknown as { nAdminSurface: string };
-  assertNoSentinels(w.nAdminSurface, [SENT, "0.93", "0.81", "0.77"]);
+  assertNoSentinels(w.nAdminSurface, [SENT, "0.93", "0.81", "0.77", "0.42"]);
   assert.ok(!/reputation":\s*\{|legendBeats|seasonsPlayed|"treachery"/i.test(w.nAdminSurface), "no reputation structure on an admin surface");
 });
 

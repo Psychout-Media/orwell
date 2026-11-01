@@ -191,6 +191,8 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
           ? scrubMomentPrompt(result as Record<string, unknown>)
           : result;
         const blob = JSON.stringify(scrubbed);
+        // A tool must return a JSON value — `undefined` crashed this sweep (#1901) and hid the rest.
+        expect(blob, `seed ${seed}: tool ${name} returned undefined (no JSON) — unscannable`).toBeTypeOf("string");
         for (const s of sentinelsFor(name)) expect(blob.includes(s), `seed ${seed}: tool ${name} leaked ${s}`).toBe(false);
       };
 
@@ -261,6 +263,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         } catch (err) {
           payload = String(err instanceof Error ? err.message : err); // the refusal text is the outward surface
         }
+        expect(payload, `seed ${seed}: post-finish ${name} returned undefined (no JSON) — unscannable`).toBeTypeOf("string");
         for (const s of sentinelsFor(name)) expect(payload.includes(s), `seed ${seed}: post-finish ${name} leaked ${s}`).toBe(false);
       };
       for (const t of toolsFor("player")) if (!POST_FINISH_EXCLUDED.has(t.name)) await sweepOrRefuse(player, t.name);
