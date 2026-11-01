@@ -47,7 +47,7 @@ classify_prefetch_outcome() {
   #     `does not provide an export named`, …); a NOVEL import crash with no signature still fails via the
   #     fail-safe default at (3) — so dropping the bare types loses no real-crash coverage.
   if printf '%s' "$out" | grep -qiE \
-      "does not provide an export named|cannot find module|err_module_not_found|err_require_esm|cannot use import statement|unexpected token|is not a function|is not a constructor|syntaxerror|unknown fastembed model|no default export|__filename is not defined|require is not defined"; then
+      "does not provide an export named|cannot find module|err_module_not_found|err_require_esm|cannot use import statement|unexpected token|is not a function|is not a constructor|syntaxerror|unknown fastembed model|no default export|__filename is not defined|require is not defined|integrity check failed"; then
     echo "import-fail"; return 0
   fi
 
@@ -94,10 +94,11 @@ _self_test_classify() {
   # skip, NOT the #1590 import class. A bare `typeerror` in branch (1) used to swallow this (Greptile P1).
   _expect network-skip 1 '[orwell] fastembed prefetch failed: TypeError: fetch failed'
   _expect network-skip 1 '[orwell] fastembed prefetch failed: connect ETIMEDOUT 1.2.3.4:443'
-  # The pinned-mirror fetch (fastembedWorker.ensureModelFiles): an HTTP error or a checksum mismatch is a
-  # DOWNLOAD failure, never misreported as a fastembed import crash.
+  # The pinned-mirror fetch (fastembedWorker.ensureModelFiles): an HTTP error is a retryable DOWNLOAD failure;
+  # a checksum mismatch is DETERMINISTIC (wrong pin / tampered bytes — re-downloading can't fix it) and must
+  # FAIL the gate, never pass as a network blip with recall silently degraded.
   _expect network-skip 1 '[orwell] fastembed prefetch failed: model download failed: https://huggingface.co/x/config.json → HTTP 403'
-  _expect network-skip 1 '[orwell] fastembed prefetch failed: model download failed: model_optimized.onnx sha256 mismatch (got 00ff)'
+  _expect import-fail  1 '[orwell] fastembed prefetch failed: model integrity check failed: model_optimized.onnx sha256 mismatch (got 00ff)'
   _expect network-skip 1 '[orwell] fastembed prefetch failed: request to https://huggingface.co/... failed'
   # Fail-safe: an unrecognised non-zero exit must NOT silently pass — default to import-fail.
   _expect import-fail  1 '[orwell] fastembed prefetch failed: something totally unexpected'

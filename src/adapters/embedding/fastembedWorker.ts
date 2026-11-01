@@ -83,7 +83,10 @@ export async function ensureModelFiles(
     for (const [name, sha] of Object.entries(entry.files)) {
       const bytes = await fetchBytes(`${entry.base}/${name}`);
       const got = createHash("sha256").update(bytes).digest("hex");
-      if (got !== sha) throw new Error(`model download failed: ${name} sha256 mismatch (got ${got})`);
+      // NOT "download failed": a checksum mismatch is deterministic (a wrong pin or tampered bytes) and
+      // re-downloading cannot fix it, so the deploy classifier must FAIL on it, never skip it as a network
+      // blip (smoke_embeddings.sh matches "integrity check failed" explicitly).
+      if (got !== sha) throw new Error(`model integrity check failed: ${name} sha256 mismatch (got ${got})`);
       writeFileSync(join(tmp, name), bytes);
     }
     rmSync(modelDir, { recursive: true, force: true }); // an incomplete prior dir is replaced whole
