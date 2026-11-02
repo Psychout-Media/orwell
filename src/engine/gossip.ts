@@ -294,11 +294,17 @@ export function diffuseGossip(deps: {
   const factId = deps.factId ?? `fact:${origin}:${rng.int(1_000_000)}`;
   const original = fact.content;
 
-  knowledge.seedBelief(
-    origin,
-    { content: original, originalContent: original, factId, confidence: 1, hops: 0, distortion: 0, source: origin },
-    "origin",
-  );
+  // A STABLE lineage id the origin already holds (a re-told grievance, a repeated reputation) is not
+  // re-recorded: every read below takes the holder's FIRST belief in this fact, so a second origin entry
+  // changed nothing but grew the store each call (#1922 — the jury house piled up copies of one rumor).
+  const originHolds = deps.factId !== undefined && knowledge.knownTo(origin).some((k) => k.factId === factId);
+  if (!originHolds) {
+    knowledge.seedBelief(
+      origin,
+      { content: original, originalContent: original, factId, confidence: 1, hops: 0, distortion: 0, source: origin },
+      "origin",
+    );
+  }
 
   // Per-holder BELIEVED claim state (SG-6): what THIS holder currently thinks the rumor's nature and
   // subjects are — drifts independently down each branch of the retelling tree. Untouched (stays

@@ -272,3 +272,143 @@ describe("0100 — calibration neutrality: the orchestrator's shared rng stream 
     }
   });
 });
+
+describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one short stretch per new juror", () => {
+  /** A jury-phase game whose jury holds only the first `n` jurors (more arrive by `arrive`). */
+  function growingJury(user: string, seed: number, n: number) {
+    const { reg, sb } = juryPhaseGame(user, seed);
+    const snap = reg.snapshot(user) as SessionSnapshot;
+    (snap.live as LiveSeasonState).evictionOrder = JURORS.slice(0, n);
+    reg.restore(user, snap);
+    const s = reg.sandboxFor(user);
+    s.session.setJuryHouseEnabled(true);
+    const arrive = (k: number): void => {
+      const next = reg.snapshot(user) as SessionSnapshot;
+      const live = next.live as LiveSeasonState;
+      live.evictionOrder = JURORS.slice(0, (live.evictionOrder ?? []).length + k);
+      reg.restore(user, next);
+      reg.sandboxFor(user).session.setJuryHouseEnabled(true);
+    };
+    return { reg, sbOf: () => reg.sandboxFor(user), arrive, first: s };
+  }
+  const juryScenes = (sb: ReturnType<GameSessionRegistry["sandboxFor"]>) =>
+    sb.engine.events.queryAll().filter((e) => e.hidden && e.witnessSet.every((w) => JURORS.includes(w as EntityId)));
+
+  it("runs once per arrival: repeated ticks with no new juror are no-ops (no scenes, no draws)", () => {
+    const { sbOf } = growingJury("limbo-noop", 21, 3);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    const tick = sb.session.snapshot().juryHouseTickCount;
+    const events = sb.engine.events.count();
+    expect(tick, "one stretch per juror past the first").toBe(2);
+    for (let t = 0; t < 20; t++) sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.engine.events.count(), "no new jury-house life without a new juror").toBe(events);
+    expect(sb.session.snapshot().juryHouseTickCount).toBe(tick);
+  });
+
+  it("each arrival plays 1–3 hidden juror scenes, and a double eviction plays both owed stretches", () => {
+    const { sbOf, arrive } = growingJury("limbo-arrive", 22, 2);
+    let sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    let seen = juryScenes(sb).length;
+    expect(seen, "the first stretch played").toBeGreaterThanOrEqual(1);
+    expect(seen).toBeLessThanOrEqual(3);
+    arrive(2); // a double eviction: two jurors at once
+    sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "both owed stretches ran").toBe(3);
+    const added = juryScenes(sb).length - seen;
+    expect(added).toBeGreaterThanOrEqual(2);
+    expect(added).toBeLessThanOrEqual(6);
+    seen += added;
+  });
+
+  it("arrivals past the ninth juror still play their stretch (the roster is capped, arrivals are not)", () => {
+    const { reg, sbOf } = growingJury("limbo-late", 24, 9);
+    let sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "eight stretches for jurors two through nine").toBe(8);
+    // Three more evictions (a rolling last-nine roster): each still owes a stretch.
+    const snap = reg.snapshot("limbo-late") as SessionSnapshot;
+    (snap.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10), npc(11), npc(12)];
+    reg.restore("limbo-late", snap);
+    sb = sbOf();
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "the late arrivals each played a stretch").toBe(11);
+    expect(sb.session.snapshot().juryHouseArrivals).toBe(12);
+  });
+
+  it("a pre-limbo save (rng counter only, no arrival marker) resumes on the next eviction", () => {
+    const { reg } = growingJury("limbo-legacy", 25, 9);
+    const snap = reg.snapshot("limbo-legacy") as SessionSnapshot;
+    snap.juryHouseTickCount = 40; // the old per-tick counter
+    delete snap.juryHouseArrivals;
+    reg.restore("limbo-legacy", snap);
+    let sb = reg.sandboxFor("limbo-legacy");
+    sb.session.setJuryHouseEnabled(true);
+    const before = sb.engine.events.count();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.engine.events.count(), "caught up: no replay of past arrivals").toBe(before);
+    const next = reg.snapshot("limbo-legacy") as SessionSnapshot;
+    (next.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10)];
+    reg.restore("limbo-legacy", next);
+    sb = reg.sandboxFor("limbo-legacy");
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "the next eviction ran one stretch").toBe(41);
+  });
+
+  it("an in-place season restart clears the arrival watermark (the new season's jurors get their stretches)", () => {
+    const { reg, sbOf } = growingJury("limbo-restart", 26, 9);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    const played = reg.snapshot("limbo-restart") as SessionSnapshot;
+    expect(played.juryHouseArrivals).toBe(9);
+    // The STANDALONE in-place restart (no registry restart hinge): the same adapter starts a new season.
+    const standalone = new GameSessionAdapter();
+    standalone.restore(played);
+    standalone.createCharacter({ playerName: "The Player", seed: 27, confirmRestart: true });
+    const fresh = standalone.snapshot();
+    expect(fresh.juryHouseArrivals, "a fresh season has processed no arrivals").toBeUndefined();
+    expect(fresh.juryHouseTickCount, "and its dedicated stream restarts").toBeUndefined();
+    // The registry path swaps in a brand-new sandbox, which starts clean too.
+    sb.session.createCharacter({ playerName: "The Player", seed: 27, confirmRestart: true });
+    expect(sbOf().session.snapshot().juryHouseArrivals).toBeUndefined();
+  });
+
+  it("an arrival's stretch waits until the eviction stage (goodbyes, exit interview) has closed", () => {
+    const { reg } = growingJury("limbo-goodbye", 28, 2);
+    const snap = reg.snapshot("limbo-goodbye") as SessionSnapshot;
+    const live = snap.live as LiveSeasonState;
+    live.evictionOrder = JURORS.slice(0, 3);
+    // The third juror's eviction is still mid-stage (goodbyes not yet given).
+    live.eviction = {
+      stage: "goodbye", nominees: [npc(3), FINALIST], revealOrder: [], voteOf: {}, revealIx: 0,
+      evictee: npc(3), goodbyeFrom: [], goodbyeIx: 0,
+    } as unknown as LiveSeasonState["eviction"];
+    reg.restore("limbo-goodbye", snap);
+    let sb = reg.sandboxFor("limbo-goodbye");
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseArrivals ?? 0, "no stretch while the goodbyes are pending").toBeLessThan(3);
+    // The stage closes (goodbyes done): the next tick runs the owed stretch, reading the final manner.
+    const done = reg.snapshot("limbo-goodbye") as SessionSnapshot;
+    delete (done.live as LiveSeasonState).eviction;
+    reg.restore("limbo-goodbye", done);
+    sb = reg.sandboxFor("limbo-goodbye");
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseArrivals).toBe(3);
+  });
+
+  it("a re-told grievance reunites with the room's belief instead of piling up copies", () => {
+    const { sbOf } = growingJury("limbo-dedup", 23, 9);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge); // 8 owed stretches, one grievance
+    for (const juror of JURORS) {
+      const copies = sb.engine.knowledge.knownTo(juror).filter((k) => k.factId === `jury-grievance:${npc(1)}:${FINALIST}`);
+      expect(copies.length, `juror holds the grievance at most once`).toBeLessThanOrEqual(1);
+    }
+  });
+});

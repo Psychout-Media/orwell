@@ -1006,6 +1006,9 @@ export class GameSessionAdapter implements GameSession {
    * orchestrator's shared society/competition/vote stream, so even with the layer ON the main house's seeded
    * outcomes stay in phase (only the hidden finale lean changes). Persisted so the stream is restart-stable. */
   private juryHouseTickCount = 0;
+  /** 0100 limbo — NPC evictions the jury house has processed (one stretch per arrival). `null` = not yet
+   *  known (a fresh game, or a pre-limbo save): derived on the first tick. Persisted as `juryHouseArrivals`. */
+  private juryHouseArrivals: number | null = null;
   /**
    * 0101 — whether NPC MYTH-MAKING runs. DEFAULT OFF: the calibration/UAT harness never enables it, so
    * with it unset `legendTick` draws nothing and mints no legend ⇒ every seeded gate (juryReach/gradient/
@@ -3312,6 +3315,7 @@ export class GameSessionAdapter implements GameSession {
       // reproducible across a restart (the accumulated grudge itself rides on `live.juryGrudge`). Absent ⇒
       // 0 on restore (byte-shaped as a pre-0100 save).
       ...(this.juryHouseTickCount > 0 ? { juryHouseTickCount: this.juryHouseTickCount } : {}),
+      ...(this.juryHouseArrivals !== null ? { juryHouseArrivals: this.juryHouseArrivals } : {}),
       // 0101 — the DEDICATED legend-rng tick counter, the per-season legend cap, and the notable-act
       // watermark, persisted so the isolated myth-making stream + its cap + its no-repeat guard survive a
       // restart (0007/0030). Absent ⇒ 0 on restore (byte-shaped as a pre-0101 save / the layer off).
@@ -3614,6 +3618,7 @@ export class GameSessionAdapter implements GameSession {
     // 0100: restore the dedicated jury-house rng tick counter (absent on pre-0100 saves ⇒ 0). The
     // accumulated grudge itself rides on `live.juryGrudge`, restored with the live state above.
     this.juryHouseTickCount = core.juryHouseTickCount ?? 0;
+    this.juryHouseArrivals = core.juryHouseArrivals ?? null;
     // 0101: restore the dedicated legend-rng tick counter, the per-season legend cap, and the notable-act
     // watermark (absent on pre-0101 saves ⇒ 0).
     this.legendTickCount = core.legendTickCount ?? 0;
@@ -5244,6 +5249,7 @@ export class GameSessionAdapter implements GameSession {
       this.resetTieSurfacing(); // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent
       this.resetSecretPacing(); // 0092 — a fresh season: the weekly drip cadence + anti-spam start clean
       this.resetLegends(); // 0101 — a fresh season has minted no legend, the cap unspent
+      this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh season hasn't swept any in-game day yet
       this.resetSecretBarter(); // 0099 — a fresh season has bartered no secret off-screen
       this.resetShowrunner(); // 0101/#1401 — a fresh season's production bible is empty
@@ -5541,6 +5547,7 @@ export class GameSessionAdapter implements GameSession {
     this.resetTieSurfacing(); // 0059 §5 — a warmed/fresh cast carries no tie-surfacing history
     this.resetSecretPacing(); // 0092 — a warmed/fresh cast carries no secret-pacing drip history
     this.resetLegends(); // 0101 — a warmed/fresh cast has minted no legend, the cap unspent
+    this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh/warmed season hasn't swept any in-game day yet
     this.resetSecretBarter(); // 0099 — a warmed/fresh cast has bartered no secret off-screen
     this.resetShowrunner(); // 0101/#1401 — a warmed/fresh cast carries no producer notes yet
@@ -5912,6 +5919,7 @@ export class GameSessionAdapter implements GameSession {
     // 0092 — a fresh season: the secret-pacing weekly cadence + anti-spam start clean.
     this.resetSecretPacing();
     this.resetLegends(); // 0101 — a fresh season has minted no legend, the cap unspent
+    this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh season hasn't swept any in-game day yet
     this.resetSecretBarter(); // 0099 — a fresh season has bartered no secret off-screen
     this.resetShowrunner(); // 0101/#1401 — a fresh season's production bible is empty
@@ -6010,6 +6018,14 @@ export class GameSessionAdapter implements GameSession {
     this.pacingDripCount = 0;
     this.pacingTickCount = 0;
     this.pacingLastDrippedWeek = {};
+  }
+
+  /** 0100 — clear the jury-house bookkeeping (a fresh season: no arrival processed, the dedicated stream
+   *  restarted). Without this, an in-place season restart kept the prior season's arrival watermark and
+   *  skipped the new season's first stretches (#1932 review). */
+  private resetJuryHouse(): void {
+    this.juryHouseTickCount = 0;
+    this.juryHouseArrivals = null;
   }
 
   /** 0101 — clear the myth-making bookkeeping (a fresh season: no legend minted, the cap unspent, no
@@ -7832,13 +7848,46 @@ export class GameSessionAdapter implements GameSession {
     // already-evicted houseguest can never reach the finale vote, so only the responsible houseguests
     // still standing are carried here.
     const finalists = this.livingIds();
-    // DEDICATED stream — zero touch to the orchestrator's shared per-user rng (the calibration spine).
+    // Owner ruling 2026-11-02 (#1922): FAST-FORWARD LIMBO. The jury house advances once per NPC eviction
+    // (about once a week), never on every off-screen tick. `juryHouseArrivals` (persisted) counts the
+    // evictions already processed — independent of the capped nine-seat roster, so jurors arriving after
+    // the ninth still get their stretch — and a double eviction runs both owed stretches.
+    // Wait for the eviction to FINISH: the evictee joins `evictionOrder` when the votes are read, but the
+    // goodbye messages and exit interview (which set `mannerByEvictee`, the grievance a stretch spreads) come
+    // after. Running the arrival's stretch only once the stage has closed lets a cold goodbye count (#1932).
+    if (this.live.eviction) return;
+    const arrivals = evicted.filter((id) => id !== this.house!.player.id).length;
+    if (this.juryHouseArrivals === null) {
+      // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival
+      // marker) is treated as caught up to now, so the NEXT eviction resumes the jury house normally.
+      this.juryHouseArrivals = this.juryHouseTickCount > 0 ? arrivals : 0;
+    }
+    while (this.juryHouseArrivals < arrivals) {
+      this.juryHouseArrivals += 1;
+      // The first evictee has nobody to talk to yet; every later arrival plays one short stretch.
+      if (this.juryHouseArrivals >= 2) this.juryHouseStretch(events, knowledge, jurors, finalists);
+    }
+  }
+
+  /** One 0100 jury-house stretch (one new juror's arrival): 1–3 hidden juror scenes + a week's grievance
+   *  retelling, folded into the saturated per-(juror, finalist) grudge the finale reads. */
+  private juryHouseStretch(
+    events: EventStore,
+    knowledge: KnowledgeService,
+    jurors: EntityId[],
+    finalists: EntityId[],
+  ): void {
+    if (!this.live) return;
     this.juryHouseTickCount += 1;
+    // DEDICATED stream — zero touch to the orchestrator's shared per-user rng (the calibration spine).
     const rng = new SeededRandom(hashSeed(`jury-house:${this.gameSeed ?? ""}:${this.juryHouseTickCount}`));
+    const { min, max } = JURY_HOUSE.scenesPerArrival;
     const result = runJuryHouseStretch({
       events,
       rng,
       knowledge,
+      scenes: min + rng.int(max - min + 1),
+      rounds: JURY_HOUSE.roundsPerArrival,
       jurors,
       edgeOf: (a, b) => this.rel.edge(a, b),
       mannerOf: (juror, finalist) => this.live!.mannerByEvictee?.[juror]?.[finalist] ?? {},
