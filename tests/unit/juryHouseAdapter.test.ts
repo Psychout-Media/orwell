@@ -359,6 +359,24 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     expect(sb.session.snapshot().juryHouseTickCount, "the next eviction ran one stretch").toBe(41);
   });
 
+  it("an in-place season restart clears the arrival watermark (the new season's jurors get their stretches)", () => {
+    const { reg, sbOf } = growingJury("limbo-restart", 26, 9);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    const played = reg.snapshot("limbo-restart") as SessionSnapshot;
+    expect(played.juryHouseArrivals).toBe(9);
+    // The STANDALONE in-place restart (no registry restart hinge): the same adapter starts a new season.
+    const standalone = new GameSessionAdapter();
+    standalone.restore(played);
+    standalone.createCharacter({ playerName: "The Player", seed: 27, confirmRestart: true });
+    const fresh = standalone.snapshot();
+    expect(fresh.juryHouseArrivals, "a fresh season has processed no arrivals").toBeUndefined();
+    expect(fresh.juryHouseTickCount, "and its dedicated stream restarts").toBeUndefined();
+    // The registry path swaps in a brand-new sandbox, which starts clean too.
+    sb.session.createCharacter({ playerName: "The Player", seed: 27, confirmRestart: true });
+    expect(sbOf().session.snapshot().juryHouseArrivals).toBeUndefined();
+  });
+
   it("a re-told grievance reunites with the room's belief instead of piling up copies", () => {
     const { sbOf } = growingJury("limbo-dedup", 23, 9);
     const sb = sbOf();
