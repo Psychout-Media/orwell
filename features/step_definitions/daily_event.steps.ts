@@ -16,14 +16,18 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 /** The beats that make a day a CEREMONY day (comp, nominations, veto, eviction, finale, twist). */
 const CEREMONY_BEAT = /^(hoh-competition|comp-elimination|nominations|veto-|eviction|final-|finale|twist-)/;
 
-function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "comp-intent" || p.kind === "comp-round") s.submitDecision({ kind: p.kind, intent: "compete" } as never);
-  else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>): AdvanceView | undefined {
+  if (p.kind === "nominations") return s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
+  if (p.kind === "veto-decision") return s.submitDecision({ kind: "veto-decision", use: false });
+  if (p.kind === "comp-intent" || p.kind === "comp-round") return s.submitDecision({ kind: p.kind, intent: "compete" } as never);
+  if (p.kind === "finale-statement") return s.submitDecision({ kind: "finale-statement", statement: "x" });
+  if (p.kind === "finale-answer") return s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
+  if (p.options[0]) return s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+  return undefined;
 }
+
+/** A day's own ambient "Week N, day D:" house event (houseEvents.ts) — present, but not a ceremony. */
+const DAILY_MARKER = /^Week \d+, day \d+: /;
 
 /** Play one full live season and return its days in order, each with its ceremony beats + public events. */
 function playLiveSeason(seed: number): LiveDay[] {
@@ -34,33 +38,40 @@ function playLiveSeason(seed: number): LiveDay[] {
   sb.session.createCharacter({ playerName: "The Player", seed });
   const days: LiveDay[] = [];
   const dayOf = (week: number, day: number): LiveDay => {
-    const last = days[days.length - 1];
-    if (last && last.week === week && last.day === day) return last;
-    const d: LiveDay = { week, day, beats: [], publicEvents: 0 };
-    days.push(d);
+    let d = days.find((x) => x.week === week && x.day === day);
+    if (!d) { d = { week, day, beats: [], publicEvents: 0, ceremonyEvents: 0 }; days.push(d); }
     return d;
   };
-  let seen = sb.engine.events.queryAll().length;
-  const bucket = (v: { status: AdvanceView["status"]; event?: AdvanceView["event"] }): void => {
-    const all = sb.engine.events.queryAll();
-    const fresh = all.slice(seen);
-    seen = all.length;
-    // A read with no day yet (the premiere's pre-day, a mid-twist boundary) carries over to the next day.
-    if (v.status.day == null) { seen -= fresh.length; return; }
-    const d = dayOf(v.status.week, v.status.day);
-    d.publicEvents += fresh.filter((e) => !e.hidden).length;
-    if (v.event?.beat) d.beats.push(v.event.beat);
+  // Tag every event with the in-game (week, day) the season was on AT THE MOMENT IT WAS RECORDED — one
+  // advance or decision can cross a day (a comp crowned on day 1, the next day's house event after), so
+  // the status returned afterwards would mis-file part of the batch. Observation only: the wrapper calls
+  // the real store unchanged.
+  const store = sb.engine.events;
+  const record = store.record.bind(store);
+  store.record = (e) => {
+    const st = sb.session.gameStatus();
+    if (st.day != null && !e.hidden) {
+      const d = dayOf(st.week, st.day);
+      d.publicEvents += 1;
+      if (e.id.startsWith("season:") && !DAILY_MARKER.test(e.content)) d.ceremonyEvents += 1;
+    }
+    record(e);
+  };
+  /** Each response's ceremony beat, filed under the day it reports (for the reign-order checks). */
+  const noteBeat = (v: AdvanceView): void => {
+    if (v.event?.beat && v.status.day != null) dayOf(v.status.week, v.status.day).beats.push(v.event.beat);
   };
   for (let i = 0; i < 2000; i++) {
     const v = sb.session.advanceGame();
-    bucket(v);
+    noteBeat(v);
     if (v.pending) {
-      resolve(sb.session, v.pending);
-      bucket({ status: sb.session.gameStatus() });
+      const r = resolve(sb.session, v.pending);
+      if (r) noteBeat(r);
     }
     if (v.finished) break;
   }
   assert.ok(sb.session.gameStatus().finished, `seed ${seed}: the live season must play to a finale`);
+  days.sort((x, y) => x.week - y.week || x.day - y.day);
   return days;
 }
 
@@ -70,7 +81,9 @@ const weeksOf = (days: LiveDay[]): LiveDay[][] => {
   return [...byWeek.values()];
 };
 const isMeaningful = (d: LiveDay): boolean => d.publicEvents > 0;
-const isCeremonyDay = (d: LiveDay): boolean => d.beats.some((b) => CEREMONY_BEAT.test(b));
+// A ceremony day carries a public ceremony broadcast (a `season:` event other than the day's own marker)
+// or a ceremony beat in a response; a "social day" carries neither.
+const isCeremonyDay = (d: LiveDay): boolean => d.ceremonyEvents > 0 || d.beats.some((b) => CEREMONY_BEAT.test(b));
 
 // --- A single completed day ---------------------------------------------------
 
@@ -93,7 +106,14 @@ Then(
 Given("a week begins with an HOH competition", function (this: BbWorld) {
   this.liveDays = playLiveSeason(3);
   this.liveWeek = weeksOf(this.liveDays)[1]!; // a full mid-season reign (week 1 opens with the premiere)
-  assert.ok(this.liveWeek.flatMap((d) => d.beats).includes("hoh-competition"), "the week's reign opens with an HOH comp");
+  const beats = this.liveWeek.flatMap((d) => d.beats);
+  const hoh = beats.indexOf("hoh-competition");
+  assert.ok(hoh >= 0, "the week's reign has an HOH comp");
+  // ORDER, not just presence: the crown comes before any of the reign's ceremonies.
+  for (const later of ["nominations", "veto-competition", "veto-ceremony"]) {
+    const at = beats.indexOf(later);
+    assert.ok(at === -1 || at > hoh, `the HOH comp opens the reign (it came after ${later})`);
+  }
 });
 
 When("the week ends", function (this: BbWorld) {

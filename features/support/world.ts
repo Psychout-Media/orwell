@@ -26,6 +26,8 @@ export interface LiveDay {
   day: number;
   beats: string[];
   publicEvents: number;
+  /** Public ceremony broadcasts recorded that day (excluding the day's own ambient house event). */
+  ceremonyEvents: number;
 }
 
 export class BbWorld extends World {
