@@ -5,10 +5,13 @@ never reaches the engine's Vault (the Vault Wall is enforced structurally on the
 engine side, not here). Endpoint comes from ``ORWELL_ENGINE_MCP_URL``.
 """
 import asyncio
+import logging
 import os
 import time
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # ORWELL_* are primary; BBAI_* are kept as silent deprecated fallbacks so a pre-rename .env
 # keeps working.
@@ -439,7 +442,8 @@ def _notify_season_reset(user: str | None) -> None:
         try:
             fn(user)
         except Exception:
-            pass
+            # Fail-soft (a listener must never break createCharacter), but never silent.
+            logger.warning("[orwell] season-reset listener %r failed for user=%s", fn, user, exc_info=True)
 
 
 async def pre_seed_cast(seed: int | None = None, user: str | None = None) -> dict:
