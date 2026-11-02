@@ -12,7 +12,6 @@ import type { Competitor, CompetitionType, CompetitionIntents, CompetitionResult
 import type { GameState } from "../../src/domain/saveState";
 import type { SaveStore, SaveRef } from "../../src/ports/SaveStore";
 import type { RandomnessSource } from "../../src/ports/RandomnessSource";
-import type { Day } from "../../src/engine/schedule";
 import type { McpServer } from "../../src/adapters/mcp/McpServer";
 import type { SeasonHouseguest } from "../../src/engine/season";
 import type { SeasonOutcome } from "../../src/engine/calibration";
@@ -20,6 +19,16 @@ import type { EntityId as Eid } from "../../src/domain/ids";
 
 // dependency-cruiser (architecture step) can take a few seconds on a cold cache.
 setDefaultTimeout(60_000);
+
+/** One in-game day of a live season: the ceremony beats the advances reported + its public event count. */
+export interface LiveDay {
+  week: number;
+  day: number;
+  beats: string[];
+  publicEvents: number;
+  /** Public ceremony broadcasts recorded that day (excluding the day's own ambient house event). */
+  ceremonyEvents: number;
+}
 
 export class BbWorld extends World {
   sandbox!: Sandbox;
@@ -77,10 +86,10 @@ export class BbWorld extends World {
   saveRef?: SaveRef;
   saveRef2?: SaveRef;
 
-  // Daily-event invariant (0008) scratch state.
-  day?: Day;
-  weekDays?: Day[];
-  scheduleDays?: Day[];
+  // Daily-event invariant (0008) scratch state — days of a LIVE season (see daily_event.steps.ts).
+  liveDays?: LiveDay[];
+  liveDay?: LiveDay;
+  liveWeek?: LiveDay[];
 
   // MCP tool boundary (0009) scratch state.
   mcpPlayer?: McpServer;
