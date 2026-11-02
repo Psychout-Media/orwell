@@ -129,6 +129,7 @@ def test_chat_routes_pushes_game_updated_mid_turn_on_a_committed_write():
     src = _CHAT_ROUTES.read_text(encoding="utf-8")
     m = re.search(
         r'data\.get\("type"\) == "tool_output" and ctx\.game_active\s*'
+        r'and data\.get\("exit_code"\) == 0\s*'
         r'and str\(data\.get\("tool"\) or ""\) in GAME_ENGINE_WRITE_TOOLS\):(.{0,1200}?)yield chunk',
         src, re.S)
     assert m, "the tool_output branch must gate on GAME_ENGINE_WRITE_TOOLS during a game turn"

@@ -70,7 +70,7 @@ const WS_FLAG_INIT = WS_TRANSPORT
       window.WebSocket = function (url, protocols) {
         var s = protocols ? new _OWS(url, protocols) : new _OWS(url);
         try {
-          if (/\/api\/ws\/session/.test(String(url))) {
+          if (/\\/api\\/ws\\/session/.test(String(url))) {  // double-escaped: this is inside a template literal (a single \/ collapses to //, a COMMENT — the whole init script was a SyntaxError, so WS was never forced)
             var _send = s.send.bind(s);
             s.send = function (data) { try { window.__wsFrames.push({ dir: 'out', d: String(data).slice(0, 300), t: Date.now() }); } catch (_) {} return _send(data); };
             s.addEventListener('message', function (ev) { try { window.__wsFrames.push({ dir: 'in', d: String(ev.data).slice(0, 300), t: Date.now() }); } catch (_) {} });
@@ -115,7 +115,9 @@ const A = await openMirrorWindow(browser, 'A', { extraInit: WS_FLAG_INIT });
 // Window B installs the HUD tap on top of the mirror tap (openMirrorWindow already added the latter).
 // Also inject the WS init script BEFORE it (WS_FLAG_INIT must run before any app JS triggers the WS
 // upgrade; HUD_TAP runs after to intercept orwell:gamechanged. Concatenate them so both run in order).
-const B_INIT = WS_FLAG_INIT ? [WS_FLAG_INIT, HUD_TAP].join('\n') : HUD_TAP;
+// ';' separator: two `(() => {…})()` IIFEs joined by a bare newline parse as ONE call chain
+// (`(a)()(b)()` — no ASI before `(`), which threw and left B with no HUD tap in WS mode.
+const B_INIT = WS_FLAG_INIT ? [WS_FLAG_INIT, HUD_TAP].join(';\n') : HUD_TAP;
 const B = await openMirrorWindow(browser, 'B', { extraInit: B_INIT });
 
 // CP0 — both windows on the SAME started game (shared canonical session) or the mirror can't engage.

@@ -1825,6 +1825,7 @@ def setup_chat_routes(
                                         if data.get("tool"):
                                             _agent_tools_called.append(str(data["tool"]))
                                     elif (data.get("type") == "tool_output" and ctx.game_active
+                                          and data.get("exit_code") == 0
                                           and str(data.get("tool") or "") in GAME_ENGINE_WRITE_TOOLS):
                                         # 0064 §B/D / ship-gate F5: a game-engine write just COMMITTED
                                         # mid-turn — push `game-updated` to peer windows NOW, not only at
