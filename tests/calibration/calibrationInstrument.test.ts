@@ -68,7 +68,7 @@ type Status = "active" | "jury" | "evicted";
 // ---- Per-season metrics --------------------------------------------------------
 interface SeasonMetrics {
   seed: number;
-  arm: "passive" | "active";
+  arm: Arm;
   /** The PUBLIC final seat (0046): active@finish = sat in the Final 2; jury / evicted otherwise. */
   status: Status;
   /** Reached the jury (= not a pre-jury eviction). */
@@ -141,11 +141,46 @@ function passiveAnswer(p: PendingView): Record<string, unknown> {
 }
 
 /**
- * ACTIVE: the passive answers PLUS basic self-preservation — never nominate or vote out an ALLY,
+ * The three test players (2026-11-02, PO): PASSIVE does nothing; SOLID is a steady, sensible social game
+ * (the PO's "active" targets — two tended allies it protects); RECKLESS plays loud but badly (picks a
+ * fight every week, befriends someone new, then nominates that friend as HOH). RECKLESS is a sanity
+ * check: bad strategy must not beat doing nothing by much. No exact target.
+ */
+type Arm = "passive" | "solid" | "reckless";
+
+/** RECKLESS weekly play: start a fight with one houseguest and cosy up to another (rotating by week). */
+async function recklessWeek(mcp: Mcp, st: { friend: string | undefined }, week: number): Promise<void> {
+  const gs = (await mcp.callTool("getGameState", {})) as StateView;
+  const live = (gs.house ?? []).filter((h) => h.status === "active" && h.id !== PLAYER).map((h) => h.id);
+  if (live.length < 2) return;
+  const foe = live[week % live.length]!;
+  const friend = live[(week + 1) % live.length]!;
+  st.friend = friend;
+  let room: string | undefined;
+  try { room = ((await mcp.callTool("whereabouts", {})) as { room?: string }).room; } catch { room = undefined; }
+  for (const [who, kind, content] of [[foe, "conflict", "A loud argument that gets personal."], [friend, "bonding", "A quick, friendly chat."]] as const) {
+    try {
+      if (room) await mcp.callTool("moveHouseguest", { id: who, room });
+      await mcp.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, who], content, kind });
+    } catch { /* a refused scene just skips */ }
+  }
+}
+
+/** RECKLESS decisions: as HOH, nominate the newest friend (a betrayal); otherwise the passive defaults. */
+function recklessAnswer(p: PendingView, st: { friend: string | undefined }): Record<string, unknown> {
+  if (p.kind === "nominations" && st.friend && p.options.some((o) => o.id === st.friend)) {
+    const other = p.options.find((o) => o.id !== st.friend)!;
+    return { kind: "nominations", choice: [st.friend, other.id] };
+  }
+  return passiveAnswer(p);
+}
+
+/**
+ * SOLID: the passive answers PLUS basic self-preservation — never nominate or vote out an ALLY,
  * and at the finale make the STRONGEST generic appeal available (own-game) rather than the first
  * option. The bonding scenes that build the allies are recorded out-of-band in `recordEarlyScenes`.
  */
-function activeAnswer(p: PendingView, allies: ReadonlySet<string>): Record<string, unknown> {
+function solidAnswer(p: PendingView, allies: ReadonlySet<string>): Record<string, unknown> {
   const notAlly = (o: NamedRef) => !allies.has(o.id) && o.id !== PLAYER;
   switch (p.kind) {
     case "nominations": {
@@ -249,13 +284,14 @@ async function readSeat(mcp: Mcp): Promise<{ status: Status; activeHouse: number
 async function playSeason(
   resolver: Resolver,
   seed: number,
-  arm: "passive" | "active",
+  arm: Arm,
 ): Promise<SeasonMetrics> {
   const mcp = resolver("player", `instrument-${arm}-${seed}`);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
 
   let allies = new Set<string>();
-  if (arm === "active") {
+  const reckless = { friend: undefined as string | undefined };
+  if (arm === "solid") {
     const state0 = (await mcp.callTool("getGameState", {})) as StateView;
     const allyIds = (state0.house ?? [])
       .filter((h) => h.status === "active" && h.id !== PLAYER)
@@ -265,7 +301,7 @@ async function playSeason(
     await recordEarlyScenes(mcp, allyIds);
   }
   const answer = (p: PendingView): Record<string, unknown> =>
-    arm === "active" ? activeAnswer(p, allies) : passiveAnswer(p);
+    arm === "solid" ? solidAnswer(p, allies) : arm === "reckless" ? recklessAnswer(p, reckless) : passiveAnswer(p);
 
   let finished = false;
   let winner: NamedRef | null = null;
@@ -296,9 +332,13 @@ async function playSeason(
 
   let tendedWeek = 0;
   for (let i = 0; i < 5_000 && !finished; i++) {
-    if (arm === "active" && prevStatus === "active") {
+    if (arm !== "passive" && prevStatus === "active") {
       const wk = ((await mcp.callTool("getGameState", {})) as StateView).week ?? 0;
-      if (wk > tendedWeek) { tendedWeek = wk; await tendAllies(mcp, allies); }
+      if (wk > tendedWeek) {
+        tendedWeek = wk;
+        if (arm === "solid") await tendAllies(mcp, allies);
+        else await recklessWeek(mcp, reckless, wk);
+      }
     }
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult;
     finished = adv.finished;
@@ -355,7 +395,7 @@ async function playSeason(
 
 // ---- Aggregation ---------------------------------------------------------------
 interface ArmSummary {
-  arm: "passive" | "active";
+  arm: Arm;
   seasons: number;
   reachedJury: number;
   reachedF5: number;
@@ -376,7 +416,7 @@ interface ArmSummary {
   meanLossMargin: number | null;
 }
 
-function summarize(arm: "passive" | "active", rows: SeasonMetrics[]): ArmSummary {
+function summarize(arm: Arm, rows: SeasonMetrics[]): ArmSummary {
   const n = rows.length;
   const f2 = rows.filter((r) => r.reachedF2 && r.status === "active");
   const f2Wins = f2.filter((r) => r.won).length;
@@ -405,6 +445,7 @@ function summarize(arm: "passive" | "active", rows: SeasonMetrics[]): ArmSummary
 }
 
 const SEEDS = Number.parseInt(process.env.ORWELL_CALIB_SEEDS ?? "30", 10); // modest; a single run finishes in a few minutes
+const SEED_START = Number.parseInt(process.env.ORWELL_CALIB_SEED_START ?? "1", 10); // shard offset for parallel runs
 const pct = (k: number, n: number): string => (n ? `${((100 * k) / n).toFixed(0)}%` : "—");
 
 describe("calibration instrument — passive vs active reach/win data (no tuning changes)", () => {
@@ -424,14 +465,17 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
       void strategyRng; // reserved for future randomized policies; touched so the import is load-bearing
 
       const passive: SeasonMetrics[] = [];
-      const active: SeasonMetrics[] = [];
-      for (let seed = 1; seed <= SEEDS; seed++) {
+      const solid: SeasonMetrics[] = [];
+      const reckless: SeasonMetrics[] = [];
+      for (let seed = SEED_START; seed < SEED_START + SEEDS; seed++) {
         passive.push(await playSeason(resolver, seed, "passive"));
-        active.push(await playSeason(resolver, seed, "active"));
+        solid.push(await playSeason(resolver, seed, "solid"));
+        reckless.push(await playSeason(resolver, seed, "reckless"));
       }
 
       const passiveSummary = summarize("passive", passive);
-      const activeSummary = summarize("active", active);
+      const solidSummary = summarize("solid", solid);
+      const recklessSummary = summarize("reckless", reckless);
 
       const artifact = {
         generatedAt: "2026-06-19",
@@ -439,11 +483,11 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
           "Calibration data-gathering instrument. Read-only over Vault-free public projections; no tuning constant was changed. " +
           "Same seeds for both arms (any gap is a real effect of play). Roles only — no houseguest names.",
         seeds: SEEDS,
-        summary: { passive: passiveSummary, active: activeSummary },
-        seasons: { passive, active },
+        summary: { passive: passiveSummary, solid: solidSummary, reckless: recklessSummary },
+        seasons: { passive, solid, reckless },
       };
 
-      const outDir = resolve(__dirname, "../../docs/audits/data");
+      const outDir = process.env.ORWELL_CALIB_OUT ?? resolve(__dirname, "../../docs/audits/data");
       mkdirSync(outDir, { recursive: true });
       const outPath = resolve(outDir, "2026-06-19-calibration-data.json");
       writeFileSync(outPath, JSON.stringify(artifact, null, 2) + "\n", "utf8");
@@ -458,14 +502,14 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
         `| ${s.meanCompWins.toFixed(2)} | ${s.meanCompWinsAtF2.toFixed(2)} ` +
         `| ${s.meanLossMargin === null ? "—" : s.meanLossMargin.toFixed(1)} |`;
       const md =
-        `# Calibration data — passive vs active (generated)\n\n` +
+        `# Calibration data — passive vs solid vs reckless (generated)\n\n` +
         `> Auto-generated by \`tests/calibration/calibrationInstrument.test.ts\` (${SEEDS} seeds/arm, ` +
         `same seeds both arms). Read-only over Vault-free public projections; **no tuning constant changed**. ` +
         `Companion machine-readable data: \`data/2026-06-19-calibration-data.json\`. ` +
         `Narrative analysis + tuning recommendations: \`2026-06-19-calibration-data.md\`.\n\n` +
         `| arm | seasons | reached jury | reached F2 | won | **F2-and-lost** | F2 W/L | mean comp wins | mean comp wins @F2 | mean loss margin |\n` +
         `|---|---|---|---|---|---|---|---|---|---|\n` +
-        `${mdRow(passiveSummary)}\n${mdRow(activeSummary)}\n`;
+        `${mdRow(passiveSummary)}\n${mdRow(solidSummary)}\n${mdRow(recklessSummary)}\n`;
       const mdPath = resolve(outDir, "2026-06-19-calibration-data-summary.md");
       writeFileSync(mdPath, md, "utf8");
 
@@ -477,8 +521,8 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
         `| F2 W/L ${s.f2Wins}/${s.f2Losses} | meanComp ${s.meanCompWins.toFixed(2)} (atF2 ${s.meanCompWinsAtF2.toFixed(2)}) ` +
         `| meanLossMargin ${s.meanLossMargin === null ? "—" : s.meanLossMargin.toFixed(1)}`;
       // eslint-disable-next-line no-console
-      console.log(`\n=== CALIBRATION DATA (${SEEDS} seeds/arm) ===\n${line(passiveSummary)}\n${line(activeSummary)}\njson: ${outPath}\nmd:   ${mdPath}\n`);
+      console.log(`\n=== CALIBRATION DATA (${SEEDS} seeds/arm) ===\n${line(passiveSummary)}\n${line(solidSummary)}\n${line(recklessSummary)}\njson: ${outPath}\nmd:   ${mdPath}\n`);
     },
-    { timeout: 1_200_000 }, // 2 × SEEDS full live seasons; generous for loaded hosts
+    { timeout: Number(process.env.ORWELL_CALIB_TIMEOUT_MS ?? 1_200_000) }, // 3 × SEEDS full live seasons; generous for loaded hosts
   );
 });

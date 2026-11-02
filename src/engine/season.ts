@@ -2,7 +2,7 @@ import type { EntityId } from "../domain/ids";
 import { RelationshipModel } from "./relationships";
 import { blocFor, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
-import { DECISION, NOMINATION_STYLES } from "./decisionConstants";
+import { DECISION, NOMINATION_STYLES, NOMINATION_PRESSURE } from "./decisionConstants";
 import type { NominationStyle } from "./decisionConstants";
 import type { NominationTactic } from "./decisionConstants";
 import type { RelationshipDisposition } from "./relationshipConstants";
@@ -138,7 +138,9 @@ export function nominationStrategy(
   hoh: EntityId, active: EntityId[], rel: RelationshipModel, read: NominationRead = {},
 ): [EntityId, EntityId] {
   const { blocs = [], mood = 0.5, disposition = "neutral", style = "threat-hunter" } = read;
-  const W = NOMINATION_STYLES[style];
+  const S = NOMINATION_STYLES[style];
+  const P = NOMINATION_PRESSURE;
+  const W = { floaterWeight: S.floaterWeight * P, pawnSeatFloaterBonus: S.pawnSeatFloaterBonus * P, duoWeight: S.duoWeight * P, duoPartnerBonus: S.duoPartnerBonus * P };
   let cands = active.filter((h) => h !== hoh);
   // Bloc protection (0043): keep bloc-mates off the block entirely while two legal others remain.
   const mates = blocFor(blocs, hoh)?.members ?? [];

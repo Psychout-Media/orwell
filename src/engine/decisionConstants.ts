@@ -147,6 +147,13 @@ export interface NominationStyleWeights {
   duoPartnerBonus: number;
 }
 
+/**
+ * The ONE house-pressure dial (2026-11-02): scales every style's floater / duo weights together. More
+ * pressure ⇒ the house leans harder on floaters and tight pairs ⇒ harder for the player. Monotone, so the
+ * difficulty targets are hit by searching this single number, not by hand-tuning each style.
+ */
+export const NOMINATION_PRESSURE = 1.0;
+
 export const NOMINATION_STYLES: Record<NominationStyle, NominationStyleWeights> = {
   /** Goes after the biggest competitor; barely cares who's floating. */
   "threat-hunter": { floaterWeight: 0.25, pawnSeatFloaterBonus: 0.4, duoWeight: 0.3, duoPartnerBonus: 0.2 },
