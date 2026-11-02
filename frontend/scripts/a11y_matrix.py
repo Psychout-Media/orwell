@@ -131,6 +131,10 @@ XFAIL = {
     # Liquid-Glass legibility batch — REMOVE it when the shared glass/token contrast fix lands and the
     # whole surface ratchets clean.
     "#1418-finale-contrast": "contrast:orwell-finale:",
+    # #1916: the reasoning body's pinned dark ink (#16191f) read 3.48:1 over a teal backdrop in one
+    # local pass once the sweep began sampling a VISIBLE line (not the clipped midpoint). Tracked for
+    # investigation (light glass not behind the expanded body in some variant?) — drop with the fix.
+    "#1916-think-contrast": "contrast:page:div.thinking-content-inner",
     # #1418 / S4-2: the finale body (#orwell-finale > .ow-body) is a scrollable region without keyboard
     # access (axe scrollable-region-focusable) — a KIT-level gap (the shared OrwellWindow `.ow-body`
     # scroll container is not tabbable) that only surfaces now that the finale renders on a finished
@@ -339,8 +343,23 @@ _COLLECT_JS = r"""
       cx1 = Math.min(cx1, ar.right); cy1 = Math.min(cy1, ar.bottom);
     }
     if(cx1 - cx0 < 3 || cy1 - cy0 < 3) continue;       // clipped away — never painted
-    const yc = r.y + r.height / 2;
-    if(yc < cy0 || yc > cy1) continue;
+    // Sample on a text LINE that is actually inside the visible (clipped) region — not the element's
+    // midpoint, which can be clipped away while other lines of a long reply/reasoning block are still
+    // on screen (greptile #1915: visible low-contrast text was skipped until scrolled to its middle).
+    let yc = null;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      for(const lr of range.getClientRects()){
+        const ly = lr.y + lr.height / 2;
+        if(lr.height >= 3 && ly >= cy0 && ly <= cy1 && ly >= 0 && ly < vh){ yc = ly; break; }
+      }
+    } catch(_e) { /* fall back to the midpoint below */ }
+    if(yc === null){
+      const mid = r.y + r.height / 2;
+      if(mid >= cy0 && mid <= cy1) yc = mid;
+    }
+    if(yc === null) continue;
     const n = r.width >= 24 ? 7 : 3;
     const pts = [];
     for(let k = 0; k < n; k++){
