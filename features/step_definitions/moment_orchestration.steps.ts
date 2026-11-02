@@ -61,24 +61,29 @@ Then("the same game state always yields the same moment", function (this: BbWorl
 // state (phase + the exact pending decision) is byte-identical after — narration is a pure read.
 
 Given("the game is at the nomination phase", function (this: BbWorld) {
-  const game = new GameSessionAdapter();
-  // Seed chosen so the PLAYER reaches the HOH seat and the live loop pauses on a real nomination
-  // decision (verified) — the live nomination beat, not a hand-built phase constant. (The #395
-  // trajectory-neutrality fix restored the pre-staged trajectory, so the seed that lands the player
-  // on a nomination shifted back; seed 0 reaches the player's nomination.)
-  game.createCharacter({ playerName: "Player One", seed: 0 });
+  // Search seeds for one where the PLAYER reaches the HOH seat and the live loop pauses on a real
+  // nomination decision — the live nomination beat, not a hand-built phase constant. (A pinned seed
+  // breaks whenever balance tuning reshapes the trajectory; the property under test doesn't care which.)
+  let game = new GameSessionAdapter();
   let view = game.advanceGame();
-  for (let i = 0; i < 400 && !(view.pending && view.pending.kind === "nominations"); i++) {
-    if (view.pending) {
-      const p = view.pending;
-      // Answer every non-nominations decision automatically until the loop pauses on nominations.
-      if (p.kind === "comp-intent") game.submitDecision({ kind: "comp-intent", intent: "compete" });
-      else if (p.kind === "comp-round") game.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-      else if (p.kind === "veto-decision") game.submitDecision({ kind: "veto-decision", use: false });
-      else if (p.options[0]) game.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
-      else break;
-    }
+  for (let seed = 0; seed < 40; seed++) {
+    game = new GameSessionAdapter();
+    game.createCharacter({ playerName: "Player One", seed });
     view = game.advanceGame();
+    for (let i = 0; i < 400 && !(view.pending && view.pending.kind === "nominations"); i++) {
+      if (view.pending) {
+        const p = view.pending;
+        // Answer every non-nominations decision automatically until the loop pauses on nominations.
+        if (p.kind === "comp-intent") game.submitDecision({ kind: "comp-intent", intent: "compete" });
+        else if (p.kind === "comp-round") game.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
+        else if (p.kind === "veto-decision") game.submitDecision({ kind: "veto-decision", use: false });
+        else if (p.options[0]) game.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+        else break;
+      }
+      view = game.advanceGame();
+      if (view.finished) break;
+    }
+    if (view.pending?.kind === "nominations") break;
   }
   assert.equal(view.pending?.kind, "nominations", "the live loop paused on the nomination decision");
   this.liveGame = game;

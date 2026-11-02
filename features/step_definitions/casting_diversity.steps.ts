@@ -432,6 +432,7 @@ When("the identical seeded competition is resolved for both", function (this: Bb
           : p.kind === "juror-vote" ? { kind: p.kind, vote: o[0]?.id }
           : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" }
           : p.kind === "juror-question" ? { kind: p.kind, statement: "x" }
+          : p.kind === "exit-interview" ? { kind: p.kind, vote: "gracious" } // 0130: an evicted player's exit stance
           : { kind: p.kind };
         const sub = sb.session.submitDecision(ans as never) as { finished: boolean; event?: { beat?: string; content?: string } | null };
         if (sub.event?.content) beats.push(norm(sub.event.beat, sub.event.content));
