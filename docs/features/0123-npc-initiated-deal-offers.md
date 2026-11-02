@@ -47,7 +47,8 @@ is a **new front door** onto it, not new plumbing.
 > `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
 > **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
 > per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
-> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
 
 
 **In:**
@@ -81,7 +82,8 @@ is a **new front door** onto it, not new plumbing.
 > `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
 > **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
 > per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
-> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
 
 
 - **Trigger (lull-only, bounded).** `maybeOfferPlayerDeal` runs at the top of `advanceGame`'s commit, but
@@ -111,7 +113,8 @@ is a **new front door** onto it, not new plumbing.
 > `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
 > **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
 > per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
-> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
 
 
 ```
@@ -130,7 +133,8 @@ surface: event [player, from], NOT hidden   // player-witnessed approach (0002),
 > `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
 > **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
 > per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
-> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
 
 
 - [x] **NPCs offer:** at a lull, a motivated houseguest floats the player a deal (bounded: one at a time,

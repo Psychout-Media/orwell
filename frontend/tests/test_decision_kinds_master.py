@@ -79,6 +79,7 @@ def test_an_open_deal_offer_is_briefed_to_the_narrator():
     note = ch._deal_offer_directive({"from": {"id": "npc:3", "name": "Houseguest"}, "kind": "safety",
                                      "terms": "you keep me safe, I keep you safe", "howToVoice": "VOICE-IT"})
     assert note and "Houseguest" in note and "safety" in note and "VOICE-IT" in note
+    assert "you keep me safe, I keep you safe" in note
     assert ch._deal_offer_directive(None) is None
     src = (FE / "routes" / "chat_helpers.py").read_text(encoding="utf-8")
     framing = src[src.index("async def apply_game_framing("):]
