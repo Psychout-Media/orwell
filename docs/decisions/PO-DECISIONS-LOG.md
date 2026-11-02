@@ -21,6 +21,10 @@ live ledger of owner calls as they happen.
   Tuning order: (1) fix the regression that erased the active-play advantage; (2) floaters become
   targets; (3) comp wins raise threat more; measure 100 seeds per change; (4) a tougher jury only if
   needed. Never protect or punish the player by story; the house just plays smarter for everyone.
+- **Identity and outcomes (0063 §5).** A houseguest's background (ethnicity, orientation) never changes
+  a competition's odds or result. It MAY shape social play through realistic showmances (orientation
+  gates who can form one, decision #3 / #840), and showmances move friendships, nominations and votes.
+  The 0063 BDD golden now pins the opening competition, not the whole season's eviction order.
 - **Floaters are easy NOMINATION targets: "pawns go home" (BB canon).** An unattached houseguest is a
   natural pawn, and pawns are often the ones evicted. Some houseguests even target floaters as a
   strategy (character-dependent).
