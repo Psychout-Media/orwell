@@ -2,12 +2,11 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { pendingDecision, executeDecision } from "../../src/engine/decisions";
-import { selectableReplacements } from "../../src/domain/eligibility";
+import { liveGameAtPending, liveStateOf } from "../support/liveDecision";
 import { generateHouse, portraitDescriptorFor } from "../../src/engine/characterFactory";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { assertNoSentinels, assertNoneAppear } from "../../tests/support/assertions";
-import { npc } from "../../src/domain/ids";
+import { PLAYER, npc } from "../../src/domain/ids";
 
 // Reuses (0019): "a pending replacement-nominee decision", "a pending decision with a known legal
 // option set", "no decision is pending", "no binding decision is made".
@@ -47,49 +46,63 @@ Then("it shows no hidden vote or off-screen targeting", function (this: BbWorld)
 });
 
 // --- Inline decisions over the legal set --------------------------------------
+// Audit 2026-10-25: these used `src/engine/decisions.ts`, a seam production replaced. They now read the
+// LIVE game's pending decision (the view the buttons are rendered from) and bind through `submitDecision`.
 
 When("the decision buttons are rendered", function (this: BbWorld) {
-  this.pending = pendingDecision(this.decisionCtx!);
+  this.liveOptions = this.liveDecision!.sb.session.gameStatus().pending!.options.map((o) => o.id);
 });
 
 Then("the buttons are exactly the engine's legal option set", function (this: BbWorld) {
-  const pd = this.pending as { options: string[] };
-  assert.deepEqual([...pd.options].sort(), [...selectableReplacements(this.decisionCtx!.week!)].sort());
+  const live = this.liveDecision!.sb.session.snapshot().live!;
+  const barred = new Set<string>([live.hoh!, ...(live.nominees ?? []), ...(live.vetoHolder ? [live.vetoHolder] : [])]);
+  assert.deepEqual([...this.liveOptions!].sort(), live.active.filter((h) => !barred.has(h)).sort());
 });
 
 Then("the veto winner is not offered", function (this: BbWorld) {
-  const pd = this.pending as { options: string[] };
-  assert.ok(!pd.options.includes(npc(4)));
+  const holder = this.liveDecision!.sb.session.snapshot().live!.vetoHolder;
+  assert.ok(holder && !this.liveOptions!.includes(holder));
 });
 
 Given("a pending decision with rendered option buttons", function (this: BbWorld) {
-  this.decisionCtx = { kind: "replacement", week: { houseguests: [npc(1), npc(2), npc(3), npc(4), npc(5), npc(6)], player: npc(6), hoh: npc(1), nominees: [npc(2), npc(3)], vetoWinner: npc(4) } };
-  this.pending = pendingDecision(this.decisionCtx);
+  this.liveDecision = liveGameAtPending("replacement");
+  this.liveOptions = this.liveDecision.pending.options.map((o) => o.id);
 });
 
 When("the player taps a legal option", function (this: BbWorld) {
-  const pd = this.pending as { options: string[] };
-  this.decisionResult = executeDecision(this.decisionCtx!, [pd.options[0]!]);
+  const { sb } = this.liveDecision!;
+  this.liveBeatSeq = sb.session.gameStatus().beatSeq;
+  this.liveTapped = this.liveOptions![0]!;
+  sb.session.submitDecision({ kind: "replacement", replacement: this.liveTapped });
 });
 
 Then("the choice is executed through the validated decision path", function (this: BbWorld) {
-  assert.ok(this.decisionResult?.recorded);
+  const { sb } = this.liveDecision!;
+  assert.ok(sb.session.gameStatus().beatSeq > this.liveBeatSeq!, "the tap committed");
+  const onTheBlock = sb.session.gameStatus().nominees.map((n) => n.id);
+  assert.ok(onTheBlock.includes(this.liveTapped!), "the tapped houseguest is now on the block");
 });
 
 Then("the engine re-validates it", function (this: BbWorld) {
-  // A tap outside the legal set is rejected by the same validated path (defense in depth).
-  assert.throws(() => executeDecision(this.decisionCtx!, [npc(4)])); // the veto winner
+  // A tap outside the legal set is rejected by the same validated path (defense in depth): park a fresh
+  // game at the same decision and try the veto winner.
+  const again = liveGameAtPending("replacement");
+  const holder = again.sb.session.snapshot().live!.vetoHolder!;
+  const before = liveStateOf(again.sb);
+  assert.throws(() => again.sb.session.submitDecision({ kind: "replacement", replacement: holder }));
+  assert.equal(liveStateOf(again.sb), before, "the refused tap changed nothing");
 });
 
 // --- Illegal can never be presented or chosen ---------------------------------
 
 Then("no option outside that set is offered", function (this: BbWorld) {
-  const pd = pendingDecision(this.decisionCtx!) as { options: string[] };
-  assert.ok(!pd.options.includes(this.decisionCtx!.hoh!)); // the HOH is never a nominee option
+  const { pending } = this.liveDecision!;
+  assert.ok(!pending.options.some((o) => o.id === PLAYER), "the HOH (the player) is never a nominee option");
 });
 
 Then("an attempt to choose outside the set is rejected", function (this: BbWorld) {
-  assert.throws(() => executeDecision(this.decisionCtx!, [this.decisionCtx!.hoh!]));
+  const { sb, pending } = this.liveDecision!;
+  assert.throws(() => sb.session.submitDecision({ kind: "nominations", choice: [PLAYER, pending.options[0]!.id] }));
 });
 
 // --- Portraits from the generated Character, public facets only ---------------
