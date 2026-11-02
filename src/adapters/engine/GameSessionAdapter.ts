@@ -8663,7 +8663,9 @@ export class GameSessionAdapter implements GameSession {
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
         // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
         // so one eviction night ran most of a day and the finale ran for days).
-        const eventHours = ev !== null && this.live!.timeOfDay !== undefined
+        // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
+        // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
+        const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
           ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"))
           : null;
         if (eventHours !== null) advanceClock(this.live!, eventHours);

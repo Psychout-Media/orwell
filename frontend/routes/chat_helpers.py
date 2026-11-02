@@ -72,8 +72,8 @@ _DR_INVITED_BEATS: dict = {}
 # is not a sandbox-creating tool, so at boot there is no user/sandbox to route it through. Instead we
 # apply the persisted setting LAZILY on the first framed turn: by the time framing completes a real
 # user's sandbox exists (a live game, or casting's get_moment_prompt minted it), so the call routes
-# cleanly. Latched once-per-process; idempotent (sets a flag to its persisted value), so a benign
-# race just re-applies the same value. Best-effort: a hiccup leaves the latch down so a later turn
+# cleanly. Latched for a short re-verify window (below), then re-pushed; idempotent (sets a flag to
+# its persisted value), so a benign race just re-applies the same value. Best-effort: a hiccup leaves the latch down so a later turn
 # retries — it never blocks or breaks the turn.
 _TIME_OF_DAY_APPLIED = False
 # Batch D (audit, 2026-11-01): the engine flag is process-global ON THE ENGINE, but this latch lived for
@@ -86,8 +86,10 @@ _TIME_OF_DAY_REVERIFY_SECS = 120.0
 
 
 async def _apply_persisted_time_of_day_once(user) -> None:
-    """Push the persisted `time_of_day_enabled` setting onto the live engine once per process, for a
-    user whose sandbox already exists (so the global setTimeOfDay flag reflects the FE setting even
+    """Push the persisted `time_of_day_enabled` setting onto the live engine, for a
+    user whose sandbox already exists (first apply inline; then re-verified every
+    `_TIME_OF_DAY_REVERIFY_SECS` in the BACKGROUND so an engine-only restart is re-told without ever
+    stalling a turn) (so the global setTimeOfDay flag reflects the FE setting even
     though the boot apply can't run in multiuser). Fail-soft.
 
     M1-2 (audit A2, 2026-07-07): the old `not user` guard skipped ANONYMOUS single-tenant play
@@ -99,7 +101,16 @@ async def _apply_persisted_time_of_day_once(user) -> None:
     the first real user's framed turn applies it — the original multiuser semantics unchanged."""
     global _TIME_OF_DAY_APPLIED, _TIME_OF_DAY_APPLIED_AT
     import time as _time
-    if _TIME_OF_DAY_APPLIED and (_time.monotonic() - _TIME_OF_DAY_APPLIED_AT) < _TIME_OF_DAY_REVERIFY_SECS:
+    if _TIME_OF_DAY_APPLIED:
+        if (_time.monotonic() - _TIME_OF_DAY_APPLIED_AT) < _TIME_OF_DAY_REVERIFY_SECS:
+            return
+        # Periodic re-verify: never on the turn's critical path (a degraded engine must not stall a turn).
+        # Stamp now so concurrent turns don't spawn duplicates; the background push re-stamps on success.
+        _TIME_OF_DAY_APPLIED_AT = _time.monotonic()
+        try:
+            asyncio.get_running_loop().create_task(_reverify_time_of_day(user))
+        except RuntimeError:
+            pass
         return
     try:
         from src.settings import get_setting
@@ -113,11 +124,8 @@ async def _apply_persisted_time_of_day_once(user) -> None:
         # FE log. A falsy/empty ack leaves the latch DOWN so the next framed turn retries.
         ack = await orwell_engine.set_time_of_day(enabled, user=user)
         if ack:
-            first = not _TIME_OF_DAY_APPLIED
             _TIME_OF_DAY_APPLIED = True
             _TIME_OF_DAY_APPLIED_AT = _time.monotonic()
-            if not first:
-                return  # a quiet periodic re-verify — log only the first apply
             logger.info(
                 "[orwell] time-of-day APPLIED to engine: enabled=%s (night gating %s) — ack ok",
                 enabled, "ON" if enabled else "OFF",
@@ -129,6 +137,21 @@ async def _apply_persisted_time_of_day_once(user) -> None:
             )
     except Exception as _e:
         logger.info("[orwell] deferred time-of-day apply not yet applied (will retry next turn): %s", _e)
+
+async def _reverify_time_of_day(user) -> None:
+    """Background periodic re-push of the clock setting (an engine-only restart boots at its env
+    default). Idempotent, fail-soft, quiet: a hiccup just waits for the next window."""
+    global _TIME_OF_DAY_APPLIED_AT
+    import time as _time
+    try:
+        from src.settings import get_setting
+        from src import orwell_engine
+        ack = await orwell_engine.set_time_of_day(bool(get_setting("time_of_day_enabled", True)), user=user)
+        if ack:
+            _TIME_OF_DAY_APPLIED_AT = _time.monotonic()
+    except Exception as _e:
+        logger.debug("[orwell] periodic time-of-day re-verify skipped (next window retries): %s", _e)
+
 
 # P2: the engine moment whose prompt carries THE RECORD for a resuming context.
 RE_ENTRY_MOMENT = "re-entry"

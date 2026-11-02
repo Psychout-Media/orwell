@@ -132,6 +132,7 @@ def test_latch_expires_so_a_restarted_engine_is_re_told(monkeypatch):
     monkeypatch.setattr(chat_helpers, "_TIME_OF_DAY_APPLIED_AT",
                         chat_helpers._TIME_OF_DAY_APPLIED_AT - chat_helpers._TIME_OF_DAY_REVERIFY_SECS - 1)
     _run(chat_helpers._apply_persisted_time_of_day_once(None))
+    _run(asyncio.sleep(0.01))  # the re-verify runs in the BACKGROUND (never stalls the turn)
     assert len(calls) == 2, "an expired latch re-applies the clock setting"
 
 
