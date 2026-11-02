@@ -120,3 +120,41 @@ one constants module, never overrides 0005, no score on any player surface (exte
 
 **No open decisions.** Defaults: threat stays the dominant nomination signal; tactics are disposition-gated;
 all terms bounded. Tunable later via the new module / a future God-Mode knob.
+
+## 9. Amendment — 2026-11-02 (PO difficulty rulings)
+
+Measured on the deployed profile, the game was far too easy: a passive player reached the Final 2 in about
+a third of seasons. The owner set difficulty targets (`docs/decisions/PO-DECISIONS-LOG.md`, 2026-11-02):
+
+- passive: F2 about 5–10%, win under 5%;
+- active: F2 about 12–20%, win about 6–10%.
+
+The owner also asked for three BB staples, **without removing NPC agency**. They extend the existing
+tactic layer here; they are not a new system:
+
+- **Floaters make easy nominations ("pawns go home").** `floaterRead` (`season.ts`) is 1 when no one in the
+  house holds a bond toward a houseguest above the edge baseline, falling to 0 at baseline +
+  `floaterBondSpan`. A pawn seat pulls toward the biggest floater: nobody fights for them.
+- **Break up the duo.** `duoRead` scores a houseguest locked in a tight **mutual** pair with someone other
+  than the HOH. When the target has such a partner (`duoPartner`), a duo-minded HOH puts the partner up
+  beside them.
+- **The eviction vote is a referendum on the HOH.** `voteChoice` adds `vote.hohReferendumWeight` × the
+  voter's alignment with the HOH (bond above baseline, minus threat) to the HOH's target. Aligned voters
+  give the HOH their target; opposed voters keep the target and send the pawn home.
+- **Per-houseguest NOMINATION STYLE (agency).** No single house-wide rule. Each NPC reads the block through
+  a style fixed by archetype for the season (`NOMINATION_STYLES` / `NOMINATION_STYLE_BY_ARCHETYPE` in
+  `decisionConstants.ts`). Threat, blocs, bonds and grudges still decide first; a style only weights the
+  floater / duo reads that tip close calls. The player can learn each HOH's lens.
+
+  | Style | Archetypes | Lens |
+  |---|---|---|
+  | threat hunter | comp-beast, hothead, analyst, floater | the biggest competitor; barely weighs floaters |
+  | floater cleaner | villain | "you're not doing anything, you're going up" |
+  | duo breaker | mastermind, wildcard | splits power pairs, often both halves |
+  | loyalist | social-butterfly, underdog, flirt, loyalist, peacemaker | protects their own; the pawn is whoever nobody will miss |
+
+- **Comp wins raise threat more:** `COMP_WON_IMPACT.threat` 0.14 → 0.20 (`relationshipConstants.ts`).
+
+All of these are engine-decided, deterministic per seed (no new rng draw), hidden (no number crosses to
+the player) and tunable from the constants modules. The calibration instrument's active arm now tends two
+allies every week. Before, it ran a single burst of premiere scenes that decayed by mid-season.
