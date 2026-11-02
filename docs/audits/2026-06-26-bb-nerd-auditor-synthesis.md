@@ -4,6 +4,8 @@
 - `docs/audits/2026-06-26-bb-nerd-auditor-live-playtest.md` — the live playtest (F1–F16).
 - `orwell-debug-bundle.json` — the Vault-free operator bundle (health/config/logs/sessions/state).
 - `orwell-producers-vault.json` — the sanctioned `producerVault` DEBUG unseal (hidden layer).
+  *Removed from the working tree (sealed content does not live in the repo — mandate #2); it is
+  retained in git history: `git show 219ff1b:orwell-producers-vault.json`.*
 
 **Auditor lenses:** source-triage (F1–F16 vs. current code), debug-bundle log/ops mining (DB-series),
 Producer's-Vault hidden-layer guardian (PV-series + verdict), distributed-consistency/parity,
