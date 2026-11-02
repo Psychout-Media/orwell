@@ -7852,6 +7852,10 @@ export class GameSessionAdapter implements GameSession {
     // (about once a week), never on every off-screen tick. `juryHouseArrivals` (persisted) counts the
     // evictions already processed — independent of the capped nine-seat roster, so jurors arriving after
     // the ninth still get their stretch — and a double eviction runs both owed stretches.
+    // Wait for the eviction to FINISH: the evictee joins `evictionOrder` when the votes are read, but the
+    // goodbye messages and exit interview (which set `mannerByEvictee`, the grievance a stretch spreads) come
+    // after. Running the arrival's stretch only once the stage has closed lets a cold goodbye count (#1932).
+    if (this.live.eviction) return;
     const arrivals = evicted.filter((id) => id !== this.house!.player.id).length;
     if (this.juryHouseArrivals === null) {
       // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival

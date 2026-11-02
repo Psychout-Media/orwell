@@ -377,6 +377,31 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     expect(sbOf().session.snapshot().juryHouseArrivals).toBeUndefined();
   });
 
+  it("an arrival's stretch waits until the eviction stage (goodbyes, exit interview) has closed", () => {
+    const { reg } = growingJury("limbo-goodbye", 28, 2);
+    const snap = reg.snapshot("limbo-goodbye") as SessionSnapshot;
+    const live = snap.live as LiveSeasonState;
+    live.evictionOrder = JURORS.slice(0, 3);
+    // The third juror's eviction is still mid-stage (goodbyes not yet given).
+    live.eviction = {
+      stage: "goodbye", nominees: [npc(3), FINALIST], revealOrder: [], voteOf: {}, revealIx: 0,
+      evictee: npc(3), goodbyeFrom: [], goodbyeIx: 0,
+    } as unknown as LiveSeasonState["eviction"];
+    reg.restore("limbo-goodbye", snap);
+    let sb = reg.sandboxFor("limbo-goodbye");
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseArrivals ?? 0, "no stretch while the goodbyes are pending").toBeLessThan(3);
+    // The stage closes (goodbyes done): the next tick runs the owed stretch, reading the final manner.
+    const done = reg.snapshot("limbo-goodbye") as SessionSnapshot;
+    delete (done.live as LiveSeasonState).eviction;
+    reg.restore("limbo-goodbye", done);
+    sb = reg.sandboxFor("limbo-goodbye");
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseArrivals).toBe(3);
+  });
+
   it("a re-told grievance reunites with the room's belief instead of piling up copies", () => {
     const { sbOf } = growingJury("limbo-dedup", 23, 9);
     const sb = sbOf();
