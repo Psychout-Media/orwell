@@ -144,3 +144,20 @@ describe("HTTP MCP entrypoint (runnable engine)", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("/health reports the LIVE clock, not just the boot env", () => {
+  it("flags.timeOfDay follows the wired runtime status", async () => {
+    let live = false;
+    const srv = createHttpMcpServer(buildMcpServers(), { timeOfDayStatus: () => live });
+    await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", () => resolve()));
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/health`;
+    try {
+      const read = async () => ((await (await fetch(url)).json()) as { flags: Record<string, boolean> }).flags;
+      expect((await read()).timeOfDay).toBe(false);
+      live = true; // the FE flipped the clock on at runtime
+      expect((await read()).timeOfDay).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => srv.close(() => resolve()));
+    }
+  });
+});

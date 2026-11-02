@@ -9,6 +9,17 @@ live ledger of owner calls as they happen.
 
 ---
 
+## 2026-11-02
+
+- **Finale jurors never hint at who voted against them before the season is over (#1790 / E12).** A
+  juror's finale question may still carry their demeanor (`bearing` — a word, never a number), but no
+  "who they believe turned on them" belief: per-voter attribution of the secret ballots unseals only in
+  the 0048 retrospective. The `heldBelief` field is removed. Rationale: the game rules already keep
+  ballots secret until the end, and the hint came from jury-house knowledge the player never reached
+  through any in-game pathway (and could even be a different juror's grudge).
+- **CodeRabbit is no longer used.** Reviews are cubic + Greptile; CodeRabbit's auto-notices are ignored
+  and it is never triggered. (Uninstalling the GitHub App is an owner action in GitHub settings.)
+
 ## 2026-11-01
 
 Rulings from the 2026-11 full-feature audit's Tier 0 review.

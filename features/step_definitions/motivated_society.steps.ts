@@ -359,10 +359,8 @@ Then("a houseguest who has gone to bed is absent from the awake house and appear
   // (2) Appears in no off-screen scene: run the society and assert no fresh hidden pair includes an asleep id.
   const beforeIds = new Set(ms.sandbox!.engine.events.queryAll().map((e) => e.id));
   for (let t = 0; t < 8; t++) ms.orch!.advance(ms.user!, "offscreen-tick");
-  // Rumor retellings (`gossip …`) come from secondary diffusion paths, not the society pairing under test;
-  // their own night-gating is tracked in #1913.
-  const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
-    && !/^gossip\b/.test(e.content));
+  // Every hidden pair at night — society scenes AND rumor retellings (#1913) — is among the awake.
+  const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2);
   for (const e of fresh) for (const id of e.witnessSet) {
     if (id !== PLAYER) assert.ok(!asleep.includes(id), "an asleep houseguest never schemed off-screen at night");
   }

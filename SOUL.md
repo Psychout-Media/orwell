@@ -271,16 +271,13 @@ many parallel agents, not typing every edit myself.
     them. A SOLO non-isolated agent is fine (the #1408 fix ran that way and pushed clean); the
     collision is strictly the >1-concurrent-agents-in-the-shared-checkout case.
 
-25. **Before merging/closing ANY PR: sweep EVERY CodeRabbit + Greptile review comment and
-    remediate or answer each one — standing owner rule (2026-07-14).** Verification is API-read,
-    not memory: `pull_request_read(get_review_comments)` must show every thread resolved (the
-    bots stamp "✅ Addressed in <sha>" when a push fixes one), and the latest bot review on the
-    FINAL head must be clean. The trap that prompted this rule: **CodeRabbit auto-pauses
-    reviews after ~4 pushes on an active branch** ("branch under active development"), so
-    late commits silently get NO CodeRabbit pass — before merging, check for the pause banner
-    and trigger `@coderabbitai review` (a PR comment) on the final head if paused, or note
-    explicitly what else covered those commits (own multi-angle review + full suite + Greptile's
-    re-run). A bot comment you disagree with gets a reply explaining why, never silence.
+25. **Before merging/closing ANY PR: sweep EVERY cubic + Greptile review comment and
+    remediate or answer each one — standing owner rule (2026-07-14; reviewer set updated 2026-11-02).**
+    Verification is API-read, not memory: `pull_request_read(get_review_comments)` must show every thread
+    resolved (the bots stamp "✅ Addressed in <sha>" when a push fixes one), and the latest bot review on
+    the FINAL head must be clean. **CodeRabbit is no longer used (owner, 2026-11-02)** — ignore its
+    auto-posted "skip review" notices and never trigger it. A bot comment you disagree with gets a reply
+    explaining why, never silence.
 
 ## Project conventions (the muscle memory)
 - **Stack:** TS engine (port 8765) + Python/FastAPI FE (`frontend/`, port 7000,

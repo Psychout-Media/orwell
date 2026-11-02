@@ -1294,14 +1294,12 @@ export interface FinaleView {
   finalists: NamedRef[];
   /** The juror currently asking a question, if any (name only). */
   /**
-   * The juror currently asking a question, if any. When `traitorsFuryEnabled` is ON, carries
-   * two optional Vault-free fields:
-   * - `bearing`: the WORD describing the juror's demeanor toward the player (from bearingWord),
-   *   NEVER a number.
-   * - `heldBelief`: name-resolved prose about a blame belief the juror carries (e.g. "believes
-   *   <name> betrayed them"), NEVER a number. Absent when the juror holds no such belief.
+   * The juror currently asking a question, if any. When `traitorsFuryEnabled` is ON, carries an
+   * optional Vault-free `bearing`: the WORD describing the juror's demeanor toward the player (from
+   * bearingWord), NEVER a number. (There is deliberately no "who they believe voted against them"
+   * field — PO ruling 2026-11-02: vote attribution unseals only in the 0048 retrospective, E12.)
    */
-  asking: (NamedRef & { bearing?: string; heldBelief?: string }) | null;
+  asking: (NamedRef & { bearing?: string }) | null;
   /** The votes revealed so far, in reveal order — each a (juror → finalist) pair by name. */
   reveals: Array<{ juror: NamedRef; votedFor: NamedRef }>;
   /**

@@ -144,7 +144,7 @@ landed PRs, and only #1729 (D2 half) / #1778 (T0-3, on #1830) / #1781 (blocked o
 - **Review-bot routing:** verify P1s on the merits (several were real: shareable-backstory
   false-hold, terse-signature seal, over-broad a11y needles, ink-guard style bypass); route
   substantive ones back to the *authoring agent in its worktree*; skip advisory/docstring/nit
-  churn. CodeRabbit/Greptile "review in progress" updates need no action.
+  churn. cubic/Greptile "review in progress" updates need no action (CodeRabbit is no longer used — ignore its notices).
 - **Secrets:** keys live in the session scratchpad (outside the repo), 600-perm, referenced by
   path in agent prompts — never in prompts, code, commits, PR bodies, or logs.
 

@@ -35,6 +35,19 @@ export interface ReceiptsInput {
     content: string;
     initiator?: string;
   }>;
+  /** Public display names for entity ids (so a summary never prints a raw `npc:N` id). Optional. */
+  names?: Record<string, string>;
+  /**
+   * The player's OWN eviction votes, one per week they voted, each with that week's nominees and the
+   * player's own public statements made in the run-up to that vote (the adapter windows them between
+   * evictions). Plain data only — the player's own ballot is the player's own knowledge.
+   */
+  votes?: Array<{
+    voteEventId: string;
+    votedFor: { id: string; name: string };
+    nominees: Array<{ id: string; name: string }>;
+    statements: Array<{ id: string; content: string }>;
+  }>;
   diaryRoomStatements: Array<{
     id: string;
     content: string;
@@ -65,9 +78,10 @@ export function computePlayerReceipts(input: ReceiptsInput): Receipt[] {
       (d.parties[0] === input.player || d.parties[1] === input.player)
   );
   if (finalTwoDeals.length > 1) {
-    const partnerNames = finalTwoDeals.map((d) =>
-      d.parties[0] === input.player ? d.parties[1] : d.parties[0]
-    );
+    const partnerNames = finalTwoDeals.map((d) => {
+      const id = d.parties[0] === input.player ? d.parties[1] : d.parties[0];
+      return input.names?.[id] ?? "a houseguest";
+    });
     const sourceIds = finalTwoDeals
       .map((d) => d.madeEventId)
       .filter((id): id is string => id !== undefined);
@@ -78,37 +92,19 @@ export function computePlayerReceipts(input: ReceiptsInput): Receipt[] {
     });
   }
 
-  // 2. target-vote-mismatch: player stated a target in an event, then voted differently in same week
-  // Match by finding events where initiator===player with a stated target, then find vote-evict
-  // events where the player voted differently — match by week/timing proximity.
-  const playerEvents = input.events.filter((e) => e.initiator === input.player);
-  const voteEvents = playerEvents.filter((e) => e.kind === "vote-evict");
-  // Look for target-naming events (stated intention to target someone)
-  const targetEvents = playerEvents.filter(
-    (e) => e.kind && ["strategy", "gossip", "alliance"].includes(e.kind)
-  );
-
-  for (const vote of voteEvents) {
-    if (!vote.content) continue;
-    // Extract the voted-for entity from content (simple heuristic: look for "vote" or named references)
-    const votedFor = tryExtractTarget(vote.content);
-    if (!votedFor) continue;
-
-    // Find a nearby target-naming event that states a DIFFERENT target
-    for (const target of targetEvents) {
-      const statedTarget = tryExtractTarget(target.content);
-      if (!statedTarget || statedTarget === votedFor) continue;
-      // Match by proximity: same numeric id prefix for same-week grouping
-      const votePrefix = vote.id.split(":")[0];
-      const targetPrefix = target.id.split(":")[0];
-      if (votePrefix !== targetPrefix) continue;
-
+  // 2. target-vote-mismatch: in the run-up to an eviction the player said they'd go after one nominee,
+  // then cast their own vote to evict the OTHER. Built from the player's real ballot + their own words.
+  for (const vote of input.votes ?? []) {
+    for (const nominee of vote.nominees) {
+      if (nominee.id === vote.votedFor.id) continue;
+      const said = vote.statements.find((st) => statesTarget(st.content, nominee.name));
+      if (!said) continue;
       receipts.push({
         kind: "target-vote-mismatch",
-        summary: `You told someone you'd target ${statedTarget}, but when it came time to vote, you voted for ${votedFor}.`,
-        sourceEventIds: [vote.id, target.id],
+        summary: `You told someone you'd target ${nominee.name}, but when it came time to vote, you voted to evict ${vote.votedFor.name}.`,
+        sourceEventIds: [said.id, vote.voteEventId],
       });
-      break;
+      break; // one receipt per vote
     }
   }
 
@@ -144,30 +140,32 @@ export function computePlayerReceipts(input: ReceiptsInput): Receipt[] {
   return receipts;
 }
 
-/** Simple heuristic to extract a target entity name from event content. */
-function tryExtractTarget(content: string): string | null {
-  // Look for patterns like "X is the target", "voting for X", "target X", "nominate X"
-  const patterns = [
-    /target (\w+)/i,
-    /vote for (\w+)/i,
-    /voting for (\w+)/i,
-    /nominate (\w+)/i,
-    /naming (\w+)/i,
-    /go after (\w+)/i,
-  ];
-  for (const pat of patterns) {
-    const m = content.match(pat);
-    if (m && m[1]) return m[1];
-  }
-  // Fallback: first capitalized word longer than 1 char as a possible name
-  const words = content.split(/\s+/);
-  for (const w of words) {
-    const cleaned = w.replace(/[^a-zA-Z]/g, "");
-    if (cleaned.length >= 2 && cleaned[0] === cleaned[0]!.toUpperCase()) {
-      return cleaned;
+/**
+ * Does `content` state an intent to go after `name`? Deterministic: the name appears (whole word,
+ * case-insensitive) with a targeting phrase shortly before it ("target X", "vote X out", "get rid of X",
+ * "send X home", "backdoor X" …). A mention without a targeting phrase is not a stated target.
+ */
+export function statesTarget(content: string, name: string): boolean {
+  if (!content || !name) return false;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nameRe = new RegExp(`\\b${esc}\\b`, "gi");
+  // The targeting phrase must sit DIRECTLY before the name (at most two filler words between), and nothing
+  // between them may negate or contrast it — so "target A, not B" targets A, never B.
+  const verbThenName = /\b(?:target(?:ing)?|evict(?:ing)?|vot(?:e|ed|es|ing)\s+(?:for|out|against|to\s+evict)|get(?:ting)?\s+rid\s+of|go(?:ing)?\s+after|take\s+out|backdoor(?:ing)?|send(?:ing)?|cut(?:ting)?)\s+((?:\w+\s+){0,2})$/i;
+  const breaker = /\b(?:not|never|no|but|instead|rather|over|than)\b|n't\b|[,.;:!?]/i;
+  let m: RegExpExecArray | null;
+  while ((m = nameRe.exec(content)) !== null) {
+    const before = content.slice(Math.max(0, m.index - 48), m.index);
+    const v = verbThenName.exec(before);
+    if (v && !breaker.test(v[1] ?? "")) {
+      // also reject a negation right before the verb itself ("I won't target X", "not targeting X")
+      const lead = before.slice(0, v.index).slice(-12);
+      if (!/\b(?:not|never|won't|don't|wouldn't|can't|no)\s*$/i.test(lead)) return true;
     }
+    const after = content.slice(m.index + m[0].length, m.index + m[0].length + 16);
+    if (/^\s+(?:out|home|gone)\b/i.test(after) && /\b(?:vote|get|send|want)\s+$/i.test(before)) return true;
   }
-  return null;
+  return false;
 }
 
 /**

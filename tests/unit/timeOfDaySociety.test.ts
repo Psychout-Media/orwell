@@ -130,10 +130,8 @@ describe("ADR 0006 — the off-screen society pairs only the awake (the night ow
       const beforeIds = new Set(sb.engine.events.queryAll().map((e) => e.id));
       for (let t = 0; t < 8; t++) orch.advance(user, "offscreen-tick");
       // The off-screen SOCIETY scenes are hidden pairwise events (witnessSet excludes the player).
-      // Rumor retellings (`gossip …` events) come from several secondary diffusion paths that are not the
-      // society pairing under test — excluded here; their own night-gating is tracked in #1913.
-      const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
-        && !/^gossip\b/.test(e.content));
+      // Every hidden pair at night — society scenes AND rumor retellings (#1913) — is among the awake.
+      const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2);
       for (const e of scenes) {
         for (const id of e.witnessSet) {
           if (id !== PLAYER) expect(awake.has(id), "an asleep houseguest schemed off-screen at night").toBe(true);

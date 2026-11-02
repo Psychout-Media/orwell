@@ -257,7 +257,10 @@ function buildUserSandbox(user = "default"): UserSandbox {
     // belief first, so even on a cold graph this NPC-directed surfacing leaves a real NPC-side belief
     // (the rumor exists in the house), then it spreads with the normal low transmit/decay/drift. This
     // is the engine-only hidden layer; nothing crosses to the player here.
-    const npcIds: EntityId[] = core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id));
+    // #1913 — the AWAKE house only (ADR 0006): a houseguest who has gone to bed neither retells nor hears a
+    // rumor at night. Clock off ⇒ `awakeAmong` is the identity ⇒ byte-identical.
+    const npcIds: EntityId[] = session.awakeAmong(core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id)));
+    if (!npcIds.includes(origin)) return; // a sleeping origin neither hears nor starts a rumor tonight
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < npcIds.length; i++) {
       for (let j = i + 1; j < npcIds.length; j++) {
@@ -294,7 +297,10 @@ function buildUserSandbox(user = "default"): UserSandbox {
     // that already reached them), skip. The knowledge layer IS the watermark; no extra persisted state.
     if (engine.knowledge.knownTo(other).some((k) => k.factId === reliableFactId(honorer))) return;
     const evicted = new Set(core.live?.evictionOrder ?? []);
-    const npcIds: EntityId[] = core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id));
+    // #1913 — the AWAKE house only (ADR 0006): a houseguest who has gone to bed neither retells nor hears a
+    // rumor at night. Clock off ⇒ `awakeAmong` is the identity ⇒ byte-identical.
+    const npcIds: EntityId[] = session.awakeAmong(core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id)));
+    if (!npcIds.includes(other)) return; // the partner is asleep — the reputation seeds on a later honoring
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < npcIds.length; i++) {
       for (let j = i + 1; j < npcIds.length; j++) {
@@ -341,7 +347,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // A living NPC confidant who is NOT the subject relays it (someone with a real pathway to the player).
-    const confidant = core.house.npcs.map((n) => n.id).find((id) => id !== subject && !evicted.has(id));
+    // #1913 — the relaying confidant must be AWAKE (ADR 0006); clock off ⇒ `awakeAmong` is the identity.
+    const confidant = session.awakeAmong(core.house.npcs.map((n) => n.id)).find((id) => id !== subject && !evicted.has(id));
     if (!confidant) return false;
     const factId = `thread-belief:${subject}:${engine.events.count()}`;
     // The confidant first HOLDS the rumor (an origin belief), so the told-by pathway is content-anchored.
@@ -360,7 +367,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
     const core = session.snapshot();
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
-    const confidant = core.house.npcs.map((n) => n.id).find((id) => id !== subject && !evicted.has(id));
+    // #1913 — the relaying confidant must be AWAKE (ADR 0006); clock off ⇒ `awakeAmong` is the identity.
+    const confidant = session.awakeAmong(core.house.npcs.map((n) => n.id)).find((id) => id !== subject && !evicted.has(id));
     if (!confidant) return false;
     const factId = `tie-belief:${subject}:${engine.events.count()}`;
     engine.knowledge.seedBelief(confidant, { content: observation, originalContent: observation, factId, confidence: 0.6, hops: 1, distortion: 1, source: confidant }, "origin");

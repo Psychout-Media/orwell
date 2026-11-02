@@ -85,6 +85,12 @@ export interface HttpMcpOptions {
    */
   embeddingsStatus?: () => { provider: string; degraded: boolean };
   /**
+   * The LIVE in-game clock state (ADR 0006). The FE flips the clock at runtime (`setTimeOfDay`), so the
+   * boot env alone mis-reports it; when wired, `/health` `flags.timeOfDay` reports what the engine is
+   * actually running.
+   */
+  timeOfDayStatus?: () => boolean;
+  /**
    * #1713 — the per-request RESPONSE BUDGET (ms): the hard bound on how long a queued tool call may
    * go unanswered before the transport answers a typed 503 (`code: "engine-busy"`) instead of holding
    * the socket silently. Node's `server.requestTimeout` only bounds RECEIVING the request — nothing
@@ -272,7 +278,15 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
           ok: true,
           ...metrics.snapshot(),
           embeddings,
-          flags: bootFlags(),
+          flags: (() => {
+            const f = bootFlags();
+            try {
+              if (options.timeOfDayStatus) f.timeOfDay = options.timeOfDayStatus();
+            } catch {
+              /* a broken status probe must never fail the liveness answer */
+            }
+            return f;
+          })(),
           // SEC-5: lets a doctor script / monitoring catch this misconfiguration on a live box
           // without shelling in — never a secret, just a boolean.
           security: { adminTokenMissing: adminTokenCollapseRisk },
