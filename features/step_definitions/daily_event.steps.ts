@@ -57,11 +57,18 @@ function playLiveSeason(seed: number): LiveDay[] {
     }
     record(e);
   };
+  /** Register every day the season is SEEN on — whether or not anything was recorded — so an eventless
+   *  visited day enters the list and fails the no-empty-day check instead of silently vanishing. */
+  const visit = (st: AdvanceView["status"]): void => {
+    if (st.day != null) dayOf(st.week, st.day);
+  };
   /** Each response's ceremony beat, filed under the day it reports (for the reign-order checks). */
   const noteBeat = (v: AdvanceView): void => {
+    visit(v.status);
     if (v.event?.beat && v.status.day != null) dayOf(v.status.week, v.status.day).beats.push(v.event.beat);
   };
   for (let i = 0; i < 2000; i++) {
+    visit(sb.session.gameStatus());
     const v = sb.session.advanceGame();
     noteBeat(v);
     if (v.pending) {
