@@ -1,84 +1,98 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
-import { pendingDecision, executeDecision, isDecisionPending } from "../../src/engine/decisions";
-import { selectableReplacements } from "../../src/domain/eligibility";
-import type { WeekState } from "../../src/domain/eligibility";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { liveGameAtPending, liveReplacementLegalSet, liveStateOf } from "../support/liveDecision";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { RelationshipModel } from "../../src/engine/relationships";
-import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { assertNoSentinels } from "../../tests/support/assertions";
 import { PLAYER, npc } from "../../src/domain/ids";
 
-const HOUSE = [PLAYER, ...Array.from({ length: 15 }, (_, i) => npc(i + 1))];
-function week(over: Partial<WeekState>): WeekState {
-  return { houseguests: HOUSE, player: PLAYER, hoh: npc(1), nominees: [npc(2), npc(3)], ...over };
-}
-
 // --- Binding decision only via the validated path -----------------------------
+// Audit 2026-10-25: these steps used to run against `src/engine/decisions.ts`, a seam production replaced
+// with `liveSeason.applyDecision`. They now park a REAL game at the player's decision (see
+// `features/support/liveDecision.ts`) and bind it through the session's own `submitDecision`.
 
 Given("a pending eviction vote", function (this: BbWorld) {
-  this.decisionCtx = { kind: "eviction-vote", week: week({ hoh: npc(1), nominees: [npc(2), npc(3)] }), by: PLAYER };
+  this.liveDecision = liveGameAtPending("eviction-vote");
+  this.liveBefore = liveStateOf(this.liveDecision.sb);
   this.decisionResult = undefined;
 });
 
 When("the player says in free-text that they would probably vote out the nominee", function (this: BbWorld) {
-  // Free-text lobbying is recorded as a scene — it does NOT cast a vote.
-  const commands = new EngineCommandsAdapter(this.sandbox!.engine.events, this.sandbox!.engine.knowledge);
-  commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc(2)], content: "Honestly I'd probably vote out that nominee." });
+  // Free-text lobbying is recorded as a scene through the live command seam — it does NOT cast a vote.
+  const { sb, pending } = this.liveDecision!;
+  sb.commands.recordInteraction({
+    initiator: PLAYER, witnessSet: [PLAYER, pending.options[0]!.id], content: "Honestly I'd probably vote out that nominee.",
+  });
 });
 
 Then("no vote is recorded", function (this: BbWorld) {
+  const { sb, pending } = this.liveDecision!;
   assert.equal(this.decisionResult, undefined);
-  assert.ok(isDecisionPending(this.decisionCtx!), "the decision is still pending");
+  const still = sb.session.gameStatus().pending;
+  assert.equal(still?.kind, "eviction-vote", "the eviction vote is still pending");
+  assert.deepEqual(still?.options.map((o) => o.id), pending.options.map((o) => o.id), "the same ballot is still open");
 });
 
 When("the player makes the choice through the validated decision path", function (this: BbWorld) {
-  this.decisionResult = executeDecision(this.decisionCtx!, [npc(2)]);
+  const { sb, pending } = this.liveDecision!;
+  this.liveBeatSeq = sb.session.gameStatus().beatSeq;
+  this.liveTapped = pending.options[0]!.id;
+  this.liveSubmitted = sb.session.submitDecision({ kind: "eviction-vote", vote: this.liveTapped });
+  this.decisionResult = { recorded: true, choice: [this.liveTapped] };
 });
 
 Then("the vote is recorded", function (this: BbWorld) {
-  assert.ok(this.decisionResult?.recorded);
-  assert.deepEqual(this.decisionResult!.choice, [npc(2)]);
+  const { sb } = this.liveDecision!;
+  assert.ok(sb.session.gameStatus().beatSeq > this.liveBeatSeq!, "the ballot committed (beatSeq advanced)");
+  assert.notEqual(sb.session.gameStatus().pending?.kind, "eviction-vote", "the player's ballot is no longer open");
+  // The ballot itself: the engine stored exactly the player's choice.
+  assert.equal(sb.session.snapshot().live!.eviction?.voteOf[PLAYER], this.liveTapped, "the stored ballot is the player's pick");
 });
 
 // --- Presented options equal the engine's legal set ---------------------------
 
 Given("a pending replacement-nominee decision", function (this: BbWorld) {
-  this.decisionCtx = { kind: "replacement", week: week({ hoh: npc(1), nominees: [npc(2), npc(3)], vetoWinner: npc(4) }) };
+  this.liveDecision = liveGameAtPending("replacement");
+  this.liveBefore = liveStateOf(this.liveDecision.sb);
 });
 
 When("the agent surfaces the options", function (this: BbWorld) {
-  this.pending = pendingDecision(this.decisionCtx!);
+  // The agent reads the pending off the session's own status view — the same view the FE renders.
+  this.liveOptions = this.liveDecision!.sb.session.gameStatus().pending!.options.map((o) => o.id);
 });
 
 Then("the options are exactly the engine's legal set", function (this: BbWorld) {
-  const pd = this.pending as { options: string[] };
-  assert.deepEqual([...pd.options].sort(), [...selectableReplacements(this.decisionCtx!.week!)].sort());
+  assert.deepEqual([...this.liveOptions!].sort(), liveReplacementLegalSet(this.liveDecision!.sb).sort());
 });
 
 Then("the veto winner is not among them", function (this: BbWorld) {
-  const pd = this.pending as { options: string[] };
-  assert.ok(!pd.options.includes(npc(4)));
+  const holder = this.liveDecision!.sb.session.snapshot().live!.vetoHolder;
+  assert.ok(holder, "a replacement decision follows a used veto");
+  assert.ok(!this.liveOptions!.includes(holder));
 });
 
 // --- Illegal choice rejected --------------------------------------------------
 
 Given("a pending decision with a known legal option set", function (this: BbWorld) {
-  this.decisionCtx = { kind: "nominations", hoh: PLAYER, active: HOUSE };
+  // The player is HOH, so the player can never be named a nominee.
+  this.liveDecision = liveGameAtPending("nominations");
+  this.liveBefore = liveStateOf(this.liveDecision.sb);
   this.decisionRejected = undefined;
   this.decisionResult = undefined;
 });
 
 When("the player attempts a choice outside that set", function (this: BbWorld) {
-  try {
-    executeDecision(this.decisionCtx!, [PLAYER, npc(1)]); // PLAYER is the HOH → illegal nominee
-    this.decisionRejected = false;
-  } catch {
-    this.decisionRejected = true;
-  }
+  const { sb, pending } = this.liveDecision!;
+  // HOH naming themself → the engine's own eligibility refusal (and ONLY that error counts as a rejection).
+  assert.throws(
+    () => sb.session.submitDecision({ kind: "nominations", choice: [PLAYER, pending.options[0]!.id] }),
+    /illegal nominee/,
+  );
+  this.decisionRejected = true;
 });
 
 Then("the engine rejects it", function (this: BbWorld) {
@@ -94,6 +108,11 @@ Then("the game state is unchanged", function (this: BbWorld) {
     const before = JSON.stringify({ ...JSON.parse(this.svStateBefore), selfEvictPending: undefined });
     assert.equal(after, before, "the game state is otherwise unchanged");
     assert.ok(!live?.selfEvictPending, "the confirmation was cleared");
+    return;
+  }
+  // A live decision game: the refused choice left the season exactly as it was.
+  if (this.liveDecision && this.liveBefore !== undefined) {
+    assert.equal(liveStateOf(this.liveDecision.sb), this.liveBefore, "the refused choice changed nothing");
     return;
   }
   assert.equal(this.decisionResult, undefined); // nothing was executed
@@ -157,29 +176,40 @@ Then("the agent cannot produce a different winner", function (this: BbWorld) {
 // --- Free-text social play is not a binding decision --------------------------
 
 Given("no decision is pending", function (this: BbWorld) {
-  this.decisionCtx = { kind: "none" };
-  this.rel = new RelationshipModel(0.6);
-  this.bondBaseline = this.rel.bondStrength(PLAYER, npc(1));
+  // A live game just after casting: the season is set up and nothing binding is open.
+  const reg = new GameSessionRegistry();
+  const sb = reg.sandboxFor("decision-none");
+  sb.session.createCharacter({ playerName: "The Player", seed: 1 });
+  assert.equal(sb.session.gameStatus().pending ?? null, null, "no decision is open");
+  this.liveDecision = { sb, pending: undefined as never };
+  this.liveBefore = liveStateOf(sb);
   this.decisionResult = undefined;
 });
 
 When("the player engages in free-text social conversation", function (this: BbWorld) {
-  const commands = new EngineCommandsAdapter(this.sandbox!.engine.events, this.sandbox!.engine.knowledge);
-  this.ack = commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc(1)], content: "A warm kitchen chat." });
-  this.rel!.apply(PLAYER, npc(1), "bonding", new SeededRandom(1));
+  const { sb } = this.liveDecision!;
+  const mate = sb.session.getGameState().house[0]!.id;
+  this.liveMate = mate;
+  this.liveEdgeBefore = JSON.stringify(sb.engine.relationships.edge(mate, PLAYER));
+  this.ack = sb.commands.recordInteraction({
+    initiator: PLAYER, witnessSet: [PLAYER, mate], content: "A warm kitchen chat.", kind: "bonding", toward: [mate],
+  });
 });
 
 Then("the conversation is recorded as a witnessed event", function (this: BbWorld) {
-  const visible = this.sandbox!.player.getVisibleState().visibleEvents.some((e) => e.id === this.ack!.eventId);
+  const visible = this.liveDecision!.sb.player.getVisibleState().visibleEvents.some((e) => e.id === this.ack!.eventId);
   assert.ok(visible, "the scene is in the player's visible projection");
 });
 
 Then("relationships may shift", function (this: BbWorld) {
-  assert.ok(this.rel!.bondStrength(PLAYER, npc(1)) > this.bondBaseline!, "the bond moved");
+  const { sb } = this.liveDecision!;
+  assert.notEqual(JSON.stringify(sb.engine.relationships.edge(this.liveMate!, PLAYER)), this.liveEdgeBefore, "the hidden edge moved");
 });
 
 Then("no binding decision is made", function (this: BbWorld) {
-  assert.ok(!isDecisionPending(this.decisionCtx!));
+  const { sb } = this.liveDecision!;
+  assert.equal(sb.session.gameStatus().pending ?? null, null, "still no decision open");
+  assert.equal(liveStateOf(sb), this.liveBefore, "the season state did not move");
   assert.equal(this.decisionResult, undefined);
 });
 

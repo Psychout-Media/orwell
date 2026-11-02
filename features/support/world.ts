@@ -161,9 +161,16 @@ export class BbWorld extends World {
   phaseBefore?: string;
 
   // Agent-driven play loop (0019) scratch state.
-  decisionCtx?: import("../../src/engine/decisions").DecisionContext;
-  pending?: import("../../src/engine/decisions").PendingResult;
-  decisionResult?: import("../../src/engine/decisions").DecisionResult;
+  /** 0019/0020 — a LIVE game parked at a player decision (features/support/liveDecision.ts). */
+  liveDecision?: import("./liveDecision").LiveDecisionGame;
+  liveBefore?: string;
+  liveOptions?: string[];
+  liveBeatSeq?: number;
+  liveSubmitted?: import("../../src/ports/GameSession").AdvanceView;
+  liveTapped?: string;
+  liveMate?: string;
+  liveEdgeBefore?: string;
+  decisionResult?: { recorded: boolean; choice: string[] };
   decisionRejected?: boolean;
   compResult?: import("../../src/ports/GameSession").CompetitionResultView;
   bondBaseline?: number;
