@@ -147,7 +147,8 @@ def test_sent_bubble_keeps_fixed_white_ink_blue_glass(style_src):
     """.msg-user (sent) keeps its fixed white ink over the system-blue glass — never adapts,
     never gets the received scrim var."""
     block = _frosted_msg_user_block(style_src)
-    assert "rgba(10,132,255" in block, ".msg-user must keep the system-blue glass fill"
+    # The AA-safe deeper system blue (#0a5cc4) — the raw #0a84ff can't carry white text at 4.5:1.
+    assert "rgba(10,92,196" in block, ".msg-user must keep the (AA-safe) system-blue glass fill"
     # white ink floor is asserted right after the fill block
     assert re.search(r"\.msg-user[^{]*\{[^}]*color:\s*#fff", style_src, re.S) or \
         re.search(r"\.msg-user\s*,\s*\n\s*body\.theme-frosted\s+\.msg-user\s+\.body\s*\{[^}]*#fff", style_src, re.S), \

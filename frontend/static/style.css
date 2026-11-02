@@ -21595,7 +21595,7 @@ body.theme-frosted .ow-window .ow-body button.admin-tab.active svg { color: #fff
      310's accent-tinted primary look without touching any label. */
   --ow-btn-tint-primary: rgba(255,255,255,0.48);   /* primary prominence — the MOST luminous neutral glass (brighter than secondary so the prime action reads first; #709. KIT-F-02: raised .34→.48 — the old value rendered within ~1% luminance of secondary, failing the "primary reads first" hierarchy). Still translucent (tint-not-fill); a top-down luminosity gradient on .ow-btn-prominent lets the refracted wallpaper read through while keeping the dark label legible over a dark backdrop (override → accent wash) */
   --ow-btn-tint-secondary: rgba(255,255,255,0.30);  /* secondary — subdued LIGHT luminous veil; #709 flipped from a dark wash so the dark ink stays legible over any backdrop (Apple secondary lowers WEIGHT, not the material's lightness) */
-  --ow-btn-tint-danger: color-mix(in srgb, var(--ow-danger, #ff453a) 62%, transparent); /* secondary-prominence RED tint over glass (translucent, NOT a solid plate; deep enough the white on-danger label clears AA) */
+  --ow-btn-tint-danger: color-mix(in srgb, var(--ow-danger-strong, color-mix(in srgb, var(--ow-danger, #ff453a) 76%, #000)) 94%, transparent); /* secondary-prominence RED tint over glass (translucent, NOT a solid plate). a11y-matrix: the old 62% wash of the RAW red over the LIGHT settings glass rendered rgb(255,140,133) — white label 2.25:1. Tinting with the AA-safe --ow-danger-strong at 94% keeps the white on-danger label ≥4.5:1 even over a pure-white backdrop (darker backdrops only deepen it). */
 }
 
 /* ── BUTTON: round out .ow-btn additively (#773) ─────────────────────────────── */
@@ -22708,7 +22708,9 @@ body:not(.theme-frosted) .ow-btn-plain {
 }
 /* DESTRUCTIVE — solid system-red fill + legible on-red ink (HIG role). */
 body:not(.theme-frosted) .ow-btn-destructive {
-  background-color: var(--ow-danger, #ff453a);
+  /* AA: white on the RAW system red is ~3.9:1 (below the 4.5:1 normal-text floor) — paint the
+     AA-safe darkened red the solid plate already uses (~5.5:1 under the white label). */
+  background-color: var(--ow-danger-strong, color-mix(in srgb, var(--ow-danger, #ff453a) 76%, #000));
   border-color: color-mix(in srgb, #000 16%, var(--ow-danger, #ff453a));
   color: var(--ow-on-danger, #fff);
 }
@@ -23517,13 +23519,17 @@ body.theme-frosted .msg-user {
   /* #1316 frosted tightening: 22px -> 18px blur (matches .msg-ai) + 0.80 -> 0.85 fill
      (a touch more opaque — crisper sent-bubble edge, still translucent glass). Not JS-
      coupled (adaptiveGlass.js never adapts .msg-user's scrim — sent bubbles are the fixed
-     blue+white pairing) and not pinned to an exact alpha (only the `rgba(10,132,255` hue
+     blue+white pairing) and not pinned to an exact alpha (only the `rgba(10,92,196` hue
      prefix is pinned — `test_0744_transcript_legibility.py` / `test_liquid_glass.py`). */
   -webkit-backdrop-filter: blur(18px) saturate(170%) !important;
   backdrop-filter: blur(18px) saturate(170%) !important;
-  /* the iMessage system blue, translucent so the wallpaper still tints through — a flat
-     fill, no rim. */
-  background-color: rgba(10,132,255,0.85) !important;
+  /* the system blue, translucent so the wallpaper still tints through — a flat fill, no rim.
+     a11y-matrix (WCAG 1.4.3): the raw iMessage blue #0a84ff can NEVER carry white body text
+     at AA (#fff on #0a84ff ≈ 3.65:1 even fully opaque; the 0.85 fill read 3.83:1 over the
+     light wallpaper). Use the deeper system blue the #1375-c settings-nav pill established
+     (#0a5cc4, ≈6:1 under white) at 0.90 — white clears AA (≥5:1) even over a pure-white
+     backdrop, and over a dark wallpaper it only gets deeper. */
+  background-color: rgba(10,92,196,0.9) !important;
   background-image: none !important;
   border: none !important;
   box-shadow: none !important;
@@ -23540,9 +23546,9 @@ body.theme-frosted .msg-user .body {
    and .msg-user .timestamp = color-mix(var(--fg) 72%): on the glass theme that resolves to a
    GRAY light-cyan, and it also inherited the bubble's DARK drop-shadow — gray text + dark
    shadow on the system-blue fill = illegible (the owner's report). The bubble fill is a FIXED
-   blue (rgba(10,132,255,0.80)) that NEVER adapts, so the timestamp must be high-opacity WHITE
-   (white-on-blue clears WCAG AA — #fff on #0a84ff ≈ 3.1:1 large / boosted by a soft DARK-blue
-   halo for the translucent fill) with the dark drop-shadow DROPPED (it's the illegibility on a
+   blue (rgba(10,92,196,0.9) — the AA-safe deeper system blue) that NEVER adapts, so the
+   timestamp must be high-opacity WHITE (white on that fill clears WCAG AA ≥5:1, plus a soft
+   DARK-blue halo for the translucent fill) with the dark drop-shadow DROPPED (it's the illegibility on a
    blue+gray pairing). Scoped to .msg-user — the received frost bubble's timestamp is untouched. */
 body.theme-frosted .msg-user .role-timestamp,
 body.theme-frosted .msg-user .timestamp,

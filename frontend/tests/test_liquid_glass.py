@@ -295,7 +295,8 @@ def test_chat_bubbles_are_imessage_glass_but_not_svg_refracted():
     # received bubbles carry a translucent frosted-glass material (backdrop blur).
     assert "backdrop-filter" in received and "blur(" in received
     # sent bubbles carry the iMessage system blue (a BACKGROUND tint, not text).
-    assert "10,132,255" in sent or "rgba(10, 132, 255" in sent
+    # (the AA-safe deeper system blue #0a5cc4 — white on raw #0a84ff is only ~3.65:1)
+    assert "10,92,196" in sent or "rgba(10, 92, 196" in sent
     # bubbles are NEVER in the JS SVG refraction set (perf — many bubbles on screen):
     # the CSS glass blur is their material, but liquidGlass.js must not target them.
     assert ".message" not in JS and ".bubble" not in JS

@@ -827,6 +827,10 @@ def mount_chat_transcript(page):
             (() => {
                 const ch = document.getElementById('chat-history');
                 if (!ch) return false;
+                // IDEMPOTENT: audit_state() runs this once per sub-pass (endgame card, retro,
+                // settings…) on the SAME page — re-appending a fresh transcript each time stacked
+                // duplicate bubbles down the column, under whatever card/window the pass mounted.
+                if (document.getElementById('matrix-think-1')) return true;
 
                 // User bubble — matches chat.js addMessage('user', …) DOM structure
                 const ub = document.createElement('div');
@@ -840,13 +844,16 @@ def mount_chat_transcript(page):
                 ab.innerHTML = '<div class="body">I can help with that. The current power of veto holder is Kevin, and nominations are coming up soon.</div>';
                 ch.appendChild(ab);
 
-                // Thinking section (reasoning accordion) — visible, not collapsed
+                // Thinking section (reasoning accordion) — EXPANDED, the way the live stream
+                // opens it: the accordion body is `max-height:0; overflow:hidden` until it
+                // carries `.expanded` (style.css .thinking-content.expanded), so without the
+                // class the reasoning text is clipped away and never actually rendered.
                 const ts = document.createElement('div');
                 ts.className = 'thinking-section';
                 ts.innerHTML = '<div class="thinking-header" data-thinking-id="matrix-think-1">'
                     + '<div class="thinking-header-left"><span class="live-think-header-text">Thinking\u2026</span></div>'
-                    + '<span class="thinking-toggle live-think-toggle" id="matrix-think-1-toggle"></span></div>'
-                    + '<div class="thinking-content" id="matrix-think-1" style="display:block">'
+                    + '<span class="thinking-toggle live-think-toggle expanded" id="matrix-think-1-toggle"></span></div>'
+                    + '<div class="thinking-content expanded" id="matrix-think-1">'
                     + '<div class="thinking-content-inner live-think-inner">Here is my reasoning about the game theory optimal play given your current position and the alliances at play this week.</div></div>';
                 ch.appendChild(ts);
 
