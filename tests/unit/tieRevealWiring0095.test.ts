@@ -7,7 +7,7 @@ import { PLAYER_TOOLS } from "../../src/surfaces/tools/registry";
 import { buildSandbox } from "../support/sandbox";
 import { TIE_REVEAL } from "../../src/engine/tieRevealConstants";
 import type { PreGameTie } from "../../src/engine/seededRelationships";
-import { npc } from "../../src/domain/ids";
+import { npc, PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 
 /**
@@ -54,6 +54,39 @@ describe("0095 accuseTie — the single player-reachable authority (lands / miss
     expect(res).toEqual({ landed: false });
     const after = sb.session.snapshot().seededRelationships?.ties ?? [];
     expect(after).toEqual(before); // untouched
+  });
+
+  it("only houseguests actually present re-read the pair — one in another room does not (audit band D F5)", () => {
+    const { sb, tie } = gameWithATie("accuse-presence");
+    const s = sb.session;
+    const others = s.livingIds().filter((id) => id !== PLAYER && id !== tie.a && id !== tie.b);
+    const [away, here] = [others[0]!, others[1]!];
+    // Step past any whole-house gathering (the premiere, a ceremony) — there everyone is present by design.
+    let separated = false;
+    for (let i = 0; i < 60 && !separated; i++) {
+      const room = s.whereabouts()?.room;
+      if (room) {
+        s.recordHouseguestMove(away, room === "backyard" ? "kitchen" : "backyard");
+        s.recordHouseguestMove(here, room);
+        const present = s.whereabouts()!.present.map((p) => p.id);
+        separated = !present.includes(away) && present.includes(here);
+      }
+      if (!separated) {
+        const v = s.advanceGame();
+        const p = v.pending;
+        if (p?.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
+        else if (p?.kind === "comp-intent" || p?.kind === "comp-round") s.submitDecision({ kind: p.kind, intent: "compete" });
+        else if (p) s.submitDecision({ kind: p.kind, vote: p.options?.[0]?.id } as never);
+      }
+    }
+    expect(separated, "test setup: reached a moment with one houseguest in another room").toBe(true);
+    if (!s.livingIds().includes(tie.a) || !s.livingIds().includes(tie.b)) return; // tie pair evicted — nothing to accuse
+    const rel = (s as unknown as { rel: { edge(a: EntityId, b: EntityId): { trust: number } } }).rel;
+    const awayBefore = rel.edge(away, tie.a).trust;
+    const hereBefore = rel.edge(here, tie.a).trust;
+    expect(s.accuseTie(tie.a, tie.b)).toEqual({ landed: true });
+    expect(rel.edge(away, tie.a).trust).toBe(awayBefore); // not there ⇒ no reaction
+    expect(rel.edge(here, tie.a).trust).toBeLessThan(hereBefore); // there ⇒ betrayal-grade re-read
   });
 
   it("shows no number and no tell distinguishing a hit from a miss beyond `landed`", () => {

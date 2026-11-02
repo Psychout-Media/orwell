@@ -6261,8 +6261,9 @@ export class GameSessionAdapter implements GameSession {
    * `confide` sibling: the model previews/voices "you two knew each other, didn't you?", the ENGINE
    * decides + commits). Checks the SEALED 0059 layer: a real tie between the pair LANDS (jumps straight
    * to `public` — a landed accusation is a witnessed, public confrontation) and folds the betrayal-grade
-   * fallout; a pair with no tie MISSES (no Vault read beyond the check itself, recorded as an ordinary
-   * social scene, no edge touched). Returns a Vault-safe `{ landed }` — no number, no tell on a miss.
+   * fallout on the houseguests actually present; a pair with no tie MISSES (no Vault read beyond the
+   * check itself, no edge touched — the scene itself is recorded by the FE's 0055 auto-record belt, not
+   * here). Returns a Vault-safe `{ landed }` — no number, no tell on a miss.
    */
   accuseTie(aId: EntityId, bId: EntityId, expectedBeatSeq?: number): AccuseTieResult | null {
     this.guardBeatSeq(expectedBeatSeq);
@@ -6282,7 +6283,14 @@ export class GameSessionAdapter implements GameSession {
     // house-wide FLAG — each learner's own directed edge moves by the same seeded amount).
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:accuse-tie:${aId}:${bId}:${this.week}:${this.phase}`));
     const impact = scaleImpact(RELATIONSHIP_CONSTANTS.BETRAYAL_SHOCK, TIE_REVEAL.directWitnessConfidence);
-    const learners = this.livingIds().filter((id) => id !== aId && id !== bId);
+    // Audit 2026-10-25 (band D F5): only houseguests who were actually THERE react — those in the
+    // player's room (the whole house during a gathered event, via `whereabouts`) and awake. Fails OPEN to
+    // every living houseguest when there is no presence read (a placeless/standalone session).
+    const here = this.whereabouts();
+    const inRoom = here ? new Set(here.present.map((p) => p.id)) : null;
+    const learners = this.awakeAmong(
+      this.livingIds().filter((id) => id !== aId && id !== bId && (id === PLAYER || !inRoom || inRoom.has(id))),
+    );
     for (const learner of learners) {
       for (const member of [aId, bId] as const) this.rel.applyImpactDirected(learner, member, impact, rng);
     }
