@@ -21,6 +21,10 @@ live ledger of owner calls as they happen.
   Tuning order: (1) fix the regression that erased the active-play advantage; (2) floaters become
   targets; (3) comp wins raise threat more; measure 100 seeds per change; (4) a tougher jury only if
   needed. Never protect or punish the player by story; the house just plays smarter for everyone.
+- **In-game clock (0066 / `ORWELL_TIME_OF_DAY`) is ON everywhere, tests included.** Resolves the conflict
+  between the 2026-06-23 ruling (flip the default ON, #583) and the 2026-06-27 line (engine env OFF for
+  calibration). The 06-27 line is retired: tests and calibration run with the clock ON, matching the deploy
+  and real play. It lands with the default flip (#1921 / #1922).
 - **Identity and outcomes (0063 §5).** A houseguest's background (ethnicity, orientation) never changes
   a competition's odds or result. It MAY shape social play through realistic showmances (orientation
   gates who can form one, decision #3 / #840), and showmances move friendships, nominations and votes.
