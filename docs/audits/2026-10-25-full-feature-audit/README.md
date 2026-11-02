@@ -7,6 +7,10 @@ at `344a09e6`. Their detailed reports are saved here so they survive a container
   `band_E_0101-0132.md`
 - `crosscutting.md` — feature-flag inventory, tool wiring, decision kinds end to end, CI and docs.
 
+The band reports are a **snapshot as of `344a09e6`**, kept unedited: line numbers and findings
+describe the code on that day, and many were fixed since. **This README is the live tracker** —
+where they disagree, trust the table below.
+
 ## Status of every finding (reconciled 2026-11-02)
 
 Fixed by #1908 (A), #1910 (B), #1911 (C), #1912 (D), #1914 (Tier 1), #1915 (a11y).
@@ -28,7 +32,7 @@ Fixed by #1908 (A), #1910 (B), #1911 (C), #1912 (D), #1914 (Tier 1), #1915 (a11y
 
 | # | Finding | Status |
 |---|---|---|
-| 9 | NPC mood / read-of-player / rivalry cues dropped before the narrator (0084/0088/0096) | ❌ Open |
+| 9 | NPC mood / read-of-player / rivalry cues dropped before the narrator (0084/0088/0096) | ✅ #1919 |
 | 10 | Off-screen scene prose generated but never shown (0070) — paid AI calls wasted | ❌ Open |
 | 11 | NPC long-term memory stored but never read (0024); its tests assert nothing | ❌ Open |
 | 12 | `confront` (0094) off and can't be turned on | ⏸ Off by PO ruling (keep built-but-off features off) |

@@ -139,8 +139,18 @@ describe("F2 — absent cues ⇒ byte-identical rendering", () => {
     const plain = renderGameContext(withPk([knowsOnly]));
     const cued = renderGameContext(withPk([withCues]));
     const cueLine = "        now (play as conduct, never state): mood tense; toward the player guarded (cooling); rivalry simmering\n";
+    const note = "  (a `now` line is how that houseguest is carrying themselves this moment — not knowledge)\n";
     expect(cued).toContain(cueLine);
-    expect(cued.replace(cueLine, "")).toBe(plain);
+    expect(cued).toContain(note);
+    expect(cued.replace(cueLine, "").replace(note, "")).toBe(plain);
+  });
+
+  it("a cues-only entry is labelled as carriage, not knowledge, in the game context", () => {
+    const cuesOnly: PresentKnowledgeView = { ...knowsOnly, knows: [], mood: "tense" };
+    const out = renderGameContext(withPk([cuesOnly]));
+    expect(out).toContain("    · Houseguest A:\n        now (play as conduct, never state): mood tense\n");
+    expect(out).toContain("not knowledge)");
+    expect(out).not.toContain("        knows:");
   });
 
   it("the terminal hard-constraints block ignores a cues-only entry (no empty KNOWLEDGE SCOPE header)", () => {

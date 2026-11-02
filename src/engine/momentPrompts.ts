@@ -1392,6 +1392,11 @@ export function renderGameContext(view: GameStateView): string {
         "- WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS (voice each ONLY from THEIR OWN block —",
         "  a person can reference or \"recall\" only what THEY witnessed or were told; never put one",
         "  houseguest's knowledge in another's mouth, and never a fact no one here holds):",
+        // F2: an entry may carry only carriage cues (no knows/suspects) — say so, so a cue-only block
+        // never reads as "this person knows something" under the header. Absent cues ⇒ byte-identical.
+        ...((view.presentKnowledge ?? []).some((e) => presentCues(e))
+          ? ["  (a `now` line is how that houseguest is carrying themselves this moment — not knowledge)"]
+          : []),
         ...(view.presentKnowledge ?? []).flatMap((e) => {
           // Route each knowledge string through `neutralizeForPrompt` (as the diary-room entries above
           // do): these are model-adjacent content the guest "knows", so a prompt-injection control
