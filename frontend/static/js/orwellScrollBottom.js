@@ -288,6 +288,9 @@
     }
     watchNewMessages(box);
     watchDecisionCard();
+    // A floating window moving, resizing, changing sheet detent or rising never adds/removes DOM, so
+    // the body observer can't see it — re-check coverage on the kit's own layout event.
+    try { window.addEventListener("orwell:window-layout", scheduleUpdate); } catch (_) {}
     update();
   }
 
