@@ -2,7 +2,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { liveGameAtPending, liveStateOf } from "../support/liveDecision";
+import { liveGameAtPending, liveReplacementLegalSet, liveStateOf } from "../support/liveDecision";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
@@ -40,24 +40,20 @@ Then("no vote is recorded", function (this: BbWorld) {
 When("the player makes the choice through the validated decision path", function (this: BbWorld) {
   const { sb, pending } = this.liveDecision!;
   this.liveBeatSeq = sb.session.gameStatus().beatSeq;
-  this.liveSubmitted = sb.session.submitDecision({ kind: "eviction-vote", vote: pending.options[0]!.id });
-  this.decisionResult = { recorded: true, choice: [pending.options[0]!.id] } as never;
+  this.liveTapped = pending.options[0]!.id;
+  this.liveSubmitted = sb.session.submitDecision({ kind: "eviction-vote", vote: this.liveTapped });
+  this.decisionResult = { recorded: true, choice: [this.liveTapped] };
 });
 
 Then("the vote is recorded", function (this: BbWorld) {
   const { sb } = this.liveDecision!;
   assert.ok(sb.session.gameStatus().beatSeq > this.liveBeatSeq!, "the ballot committed (beatSeq advanced)");
   assert.notEqual(sb.session.gameStatus().pending?.kind, "eviction-vote", "the player's ballot is no longer open");
+  // The ballot itself: the engine stored exactly the player's choice.
+  assert.equal(sb.session.snapshot().live!.eviction?.voteOf[PLAYER], this.liveTapped, "the stored ballot is the player's pick");
 });
 
 // --- Presented options equal the engine's legal set ---------------------------
-
-/** The replacement-nominee legal set, read off the LIVE season: not the HOH, a nominee, or the veto winner. */
-function liveReplacementSet(this: BbWorld): string[] {
-  const live = this.liveDecision!.sb.session.snapshot().live!;
-  const barred = new Set<string>([live.hoh!, ...(live.nominees ?? []), ...(live.vetoHolder ? [live.vetoHolder] : [])]);
-  return live.active.filter((h) => !barred.has(h));
-}
 
 Given("a pending replacement-nominee decision", function (this: BbWorld) {
   this.liveDecision = liveGameAtPending("replacement");
@@ -70,7 +66,7 @@ When("the agent surfaces the options", function (this: BbWorld) {
 });
 
 Then("the options are exactly the engine's legal set", function (this: BbWorld) {
-  assert.deepEqual([...this.liveOptions!].sort(), liveReplacementSet.call(this).sort());
+  assert.deepEqual([...this.liveOptions!].sort(), liveReplacementLegalSet(this.liveDecision!.sb).sort());
 });
 
 Then("the veto winner is not among them", function (this: BbWorld) {
@@ -91,12 +87,12 @@ Given("a pending decision with a known legal option set", function (this: BbWorl
 
 When("the player attempts a choice outside that set", function (this: BbWorld) {
   const { sb, pending } = this.liveDecision!;
-  try {
-    sb.session.submitDecision({ kind: "nominations", choice: [PLAYER, pending.options[0]!.id] }); // HOH → illegal
-    this.decisionRejected = false;
-  } catch {
-    this.decisionRejected = true;
-  }
+  // HOH naming themself → the engine's own eligibility refusal (and ONLY that error counts as a rejection).
+  assert.throws(
+    () => sb.session.submitDecision({ kind: "nominations", choice: [PLAYER, pending.options[0]!.id] }),
+    /illegal nominee/,
+  );
+  this.decisionRejected = true;
 });
 
 Then("the engine rejects it", function (this: BbWorld) {

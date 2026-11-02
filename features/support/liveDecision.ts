@@ -1,6 +1,8 @@
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { UserSandbox } from "../../src/composition/registry";
 import type { AdvanceView } from "../../src/ports/GameSession";
+import { selectableReplacements } from "../../src/domain/eligibility";
+import { PLAYER } from "../../src/domain/ids";
 
 /**
  * 0019/0020 — a LIVE game parked at a player decision. The 0019/0020 BDDs used to exercise
@@ -43,6 +45,18 @@ export function liveGameAtPending(kind: LivePending["kind"], maxSeed = 40): Live
     }
   }
   throw new Error(`no seed in 1..${maxSeed} parked the player at a '${kind}' decision`);
+}
+
+/** The engine's own replacement-nominee legal set (`selectableReplacements`), fed the LIVE week. */
+export function liveReplacementLegalSet(sb: UserSandbox): string[] {
+  const live = sb.session.snapshot().live!;
+  return selectableReplacements({
+    houseguests: live.active,
+    player: PLAYER,
+    hoh: live.hoh!,
+    nominees: live.nominees!,
+    ...(live.vetoHolder ? { vetoWinner: live.vetoHolder } : {}),
+  });
 }
 
 /** The live season state as a stable string — for "the game state is unchanged" checks. */

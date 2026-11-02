@@ -2,7 +2,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { liveGameAtPending, liveStateOf } from "../support/liveDecision";
+import { liveGameAtPending, liveReplacementLegalSet, liveStateOf } from "../support/liveDecision";
 import { generateHouse, portraitDescriptorFor } from "../../src/engine/characterFactory";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { assertNoSentinels, assertNoneAppear } from "../../tests/support/assertions";
@@ -54,9 +54,7 @@ When("the decision buttons are rendered", function (this: BbWorld) {
 });
 
 Then("the buttons are exactly the engine's legal option set", function (this: BbWorld) {
-  const live = this.liveDecision!.sb.session.snapshot().live!;
-  const barred = new Set<string>([live.hoh!, ...(live.nominees ?? []), ...(live.vetoHolder ? [live.vetoHolder] : [])]);
-  assert.deepEqual([...this.liveOptions!].sort(), live.active.filter((h) => !barred.has(h)).sort());
+  assert.deepEqual([...this.liveOptions!].sort(), liveReplacementLegalSet(this.liveDecision!.sb).sort());
 });
 
 Then("the veto winner is not offered", function (this: BbWorld) {
@@ -102,7 +100,7 @@ Then("no option outside that set is offered", function (this: BbWorld) {
 
 Then("an attempt to choose outside the set is rejected", function (this: BbWorld) {
   const { sb, pending } = this.liveDecision!;
-  assert.throws(() => sb.session.submitDecision({ kind: "nominations", choice: [PLAYER, pending.options[0]!.id] }));
+  assert.throws(() => sb.session.submitDecision({ kind: "nominations", choice: [PLAYER, pending.options[0]!.id] }), /illegal nominee/);
 });
 
 // --- Portraits from the generated Character, public facets only ---------------
@@ -137,9 +135,10 @@ Then("the same save yields a consistent portrait for that houseguest", function 
 // --- Free-text social play is not a binding decision --------------------------
 
 When("the player chats socially in free text", function (this: BbWorld) {
-  // A social chat is recorded as a scene; it executes no decision.
-  this.sandbox!.engine.events.record({
-    id: "evt:0020:social", ts: 1, type: "conversation",
-    initiator: "player", witnessSet: ["player", npc(1)], hidden: false, content: "Just vibing in the kitchen.",
-  });
+  // A social chat goes through the LIVE game's command seam (the same game the assertion then checks);
+  // it records a scene and executes no decision.
+  const { sb } = this.liveDecision!;
+  const mate = sb.session.getGameState().house[0]!.id;
+  sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, mate], content: "Just vibing in the kitchen." });
+  assert.ok(sb.engine.events.queryAll().some((e) => e.content.includes("Just vibing")), "the chat landed in the live game");
 });
