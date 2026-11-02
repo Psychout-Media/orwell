@@ -48,7 +48,11 @@ describe("0050/B50 — live NPCs carry seeded hidden elements that surface rarel
 
     const sb = reg.sandboxFor(user);
     const offScenes = sb.engine.events.queryAll().filter((e) => e.id.startsWith("offscreen:"));
-    const surfaced = offScenes.filter((e) => e.content.includes(" — ")); // the surfacing marker
+    // A scene SURFACED a hidden element when it carries one of the NPCs' actual hidden-element details
+    // (offscreen.ts appends ` — <who> <detail>`). Matching the bare " — " separator over-counted: other
+    // scene clauses use it too (e.g. the opt-in scheme-target "— wants X gone next", #1922).
+    const npcDetails = sb.session.snapshot().house!.npcs.flatMap((n) => n.character.hiddenElements.map((e) => e.detail));
+    const surfaced = offScenes.filter((e) => npcDetails.some((d) => e.content.includes(d)));
     expect(offScenes.length).toBeGreaterThan(20);
     // RARE: bounded well above the configured rate to absorb variance, but far from common.
     expect(surfaced.length).toBeGreaterThan(0); // the rare-reveal loop DOES fire over a season
@@ -56,7 +60,6 @@ describe("0050/B50 — live NPCs carry seeded hidden elements that surface rarel
 
     // The Vault Wall: every NPC hidden-element detail that surfaced stays in the HIDDEN layer — none of
     // it appears among the events the PLAYER witnessed, nor on the player projection.
-    const npcDetails = sb.session.snapshot().house!.npcs.flatMap((n) => n.character.hiddenElements.map((e) => e.detail));
     const playerWitnessed = sb.engine.events.query({ witnessedBy: PLAYER }).map((e) => e.content).join("\n");
     const projection = JSON.stringify(sb.session.getGameState());
     for (const detail of npcDetails) {
