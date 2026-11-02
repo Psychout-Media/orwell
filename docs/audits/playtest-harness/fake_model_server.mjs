@@ -101,6 +101,22 @@ createServer((req, res) => {
         return res.end();
       }
 
+      // The 0055 _auto_record_scene EXTRACTION call (agent_loop: a non-stream request whose system
+      // prompt asks for a `{"withIds":[...]}` JSON object over a "ROSTER (id = name)" list). A real
+      // model answers with JSON; the plain echo below never did, so the belt logged "no parseable
+      // JSON" and recorded nothing — the mirror-hud gate's measured turn then committed NO engine
+      // mutation and the gate could not run (beat N → N). Answer it deterministically: propose EVERY
+      // roster id as a social scene. The FE still intersects that proposal with the engine's real
+      // whereabouts (#1730), so only houseguests actually in the room are recorded — the harness
+      // exercises the real belt path end to end, never a shortcut around it.
+      const sysText = msgs.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
+      if (!stream && sysText.includes('"withIds"') && /ROSTER \(id = name\):/.test(lastUser)) {
+        const rosterBlock = (lastUser.split('ROSTER (id = name):')[1] || '').split('\n\n')[0];
+        const ids = rosterBlock.split('\n').map((l) => l.split(' = ')[0].trim()).filter((x) => /^npc:\d+$/.test(x));
+        const answer = JSON.stringify({ withIds: ids, kind: 'bonding', content: 'The player made the rounds and introduced themself to the room.' });
+        return send(res, 200, { id: 'fake', object: 'chat.completion', model: MODEL, choices: [{ index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 16, total_tokens: 56 } });
+      }
+
       const reasoning = `Considering the room and who is present. (echo of: ${seed})`;
       // The reply carries a DETERMINISTIC fixed tail (seed-independent) so the streamed REPLY has
       // MANY deltas — ~29 words even when the seed is empty. Combined with FAKE_TOKEN_DELAY_MS
