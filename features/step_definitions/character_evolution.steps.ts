@@ -71,8 +71,13 @@ Given("the same houseguest rattled versus calm", function (this: BbWorld) {
     const e = rel.edge(hoh, to); e.threat = threat; e.trust = trust;
   };
   set(top, 0.9, 0.5); set(trusted, 0.6, 0.9); set(distrusted, 0.5, 0.0);
+  // 0044 §9: keep the floater / duo reads out of this mood check — a fifth houseguest is in everyone's
+  // corner (one-way, so no mutual pair) and the HOH trusts them, so only threat + paranoia separate.
+  const fan = npc(5);
+  for (const c of [top, trusted, distrusted]) { const e = rel.edge(fan, c); e.trust = 0.9; e.affinity = 0.9; }
+  { const h = rel.edge(hoh, fan); h.trust = 0.9; h.affinity = 0.9; h.threat = 0; }
   this.dealRel = rel; // reuse a RelationshipModel slot
-  const active = [hoh, top, trusted, distrusted];
+  const active = [hoh, top, trusted, distrusted, fan];
   this.evoNomsCalm = nominationStrategy(hoh, active, rel, { mood: 0.5 });
   this.evoNomsRattled = nominationStrategy(hoh, active, rel, { mood: 0.0 });
 
