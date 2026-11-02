@@ -160,12 +160,9 @@ describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE 
     expect(doc).toContain("T0-2");
   });
 
-  it("#1782 — the veto-ceremony DECIDE flag defaults OFF and consumes zero extra RNG draws when off", () => {
+  it("the veto ceremony resolves 'does not use the veto' and replays byte-identically from the same seed", () => {
     const { session } = startedGame(81000);
     const pending = driveToPendingKind(session, "veto-decision");
-
-    // The flag const is OFF when env is unset (the calibration/UAT invariant).
-    expect(process.env.ORWELL_ACT_COMMIT_VOICE_VETO_CEREMONY).toBeUndefined();
 
     // Resolve the veto-decision with `use: false` (the standard path that produces
     // "does not use the veto").
@@ -174,7 +171,7 @@ describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE 
     expect(r1.event?.content).toContain("does not use the veto");
 
     // Run the game TWICE with the SAME deterministic seed and assert byte-identical
-    // final game status — proving zero extra RNG draws were consumed by the OFF flag.
+    // final game status.
     const runWithSeed = (seed: number) => {
       const { session: s2 } = startedGame(seed);
       const p2 = driveToPendingKind(s2, "veto-decision");

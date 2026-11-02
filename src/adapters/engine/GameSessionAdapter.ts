@@ -579,16 +579,6 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
  */
 const TRIGGERS_ENABLED_DEFAULT = process.env.ORWELL_TRIGGERS === "1";
 /**
- * #1782
- * whether the VETO-CEREMONY DECIDE→COMMIT→VOICE micro-call pipeline runs by DEFAULT.
- * OFF unless `ORWELL_ACT_COMMIT_VOICE_VETO_CEREMONY=1` (the deploy sets it;
- * the calibration/UAT harness never does — with it unset, NO DECIDE micro-call is
- * dispatched, the veto-ceremony handler falls through to today's behavior exactly,
- * and every seeded gate is byte-identical). Read once at module load, like the
- * watcher cadence; a test overrides per-session via `setActCommitVoiceVetoCeremonyEnabled`.
- */
-const ACT_COMMIT_VOICE_VETO_CEREMONY_ENABLED_DEFAULT = process.env.ORWELL_ACT_COMMIT_VOICE_VETO_CEREMONY === "1";
-/**
  * 0092 — whether the SECRET-PACING DRIP runs by DEFAULT. OFF unless `ORWELL_SECRET_PACING=1`. A DEDICATED
  * flag (sibling to `ORWELL_CAMPAIGNS` / `ORWELL_TRAJECTORIES` / `ORWELL_SEEDED_TIE_SURFACING`) so
  * calibration neutrality is provable in isolation: with it unset, the pacing pass takes ZERO draws, 0060's
@@ -1888,8 +1878,6 @@ export class GameSessionAdapter implements GameSession {
    * `setTriggersEnabled`.
    */
   private triggersEnabled = TRIGGERS_ENABLED_DEFAULT;
-  /** #1782 — the veto-ceremony DECIDE→COMMIT→VOICE micro-call flag (OFF by default; per-session test override). */
-  private actCommitVoiceVetoCeremonyEnabled = ACT_COMMIT_VOICE_VETO_CEREMONY_ENABLED_DEFAULT;
   /**
    * 0091 — the per-season count of volatile triggers that have FIRED (sibling to `surfacedThreadCount`).
    * MONOTONIC; the hard `eruptionCapPerSeason` reads it so a few-per-season pacing holds and a reload never
@@ -7467,8 +7455,6 @@ export class GameSessionAdapter implements GameSession {
   /** Turn the trigger-eruption layer on/off (0091). OFF by default — the calibration harness leaves it off
    *  (off ⇒ the orchestrator never runs the check ⇒ ZERO draws ⇒ the seeded spine is byte-identical). */
   setTriggersEnabled(on: boolean): void { this.triggersEnabled = on; }
-  /** Override the veto-ceremony DECIDE micro-call flag per-session (test control). */
-  setActCommitVoiceVetoCeremonyEnabled(v: boolean): void { this.actCommitVoiceVetoCeremonyEnabled = v; }
 
   /** Whether the trigger layer is live (0091) — the orchestrator reads this so it runs the check ONLY when
    *  on (off ⇒ no call, no draw, byte-identical calibration). */
