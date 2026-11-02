@@ -125,6 +125,19 @@ function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolea
 }
 
 /**
+ * The player LINGERS — one long scene of social play (ADR 0003: lingering is play). Ceremonies alone no longer
+ * carry the house into the night (the night-gate day-breaks roll the clock to the next morning, and an eviction
+ * night costs ~2h in total — PO ruling 2026-11-01), so the evening is spent the way play spends it: via the
+ * per-conversation clock, which never wraps past the night. Only the linger moves time.
+ */
+function linger(s: GameSessionAdapter): void {
+  s.setPerConversationClockEnabled(true);
+  s.resetSceneClock();
+  s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
+  s.setPerConversationClockEnabled(false);
+}
+
+/**
  * Advance (clock on) into the night until the house has actually THINNED — in the 24-hour model NPCs reach
  * their character bedtimes through the night (the earliest larks ~21:00, deepening to the late-night
  * trough), so thinning is not visible at the very first `night` hour. Returns whether ≥1 NPC has turned in.
@@ -133,6 +146,8 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
+      if (s.awakeAmong(ids).length < ids.length) return true;
+      linger(s);
       if (s.awakeAmong(ids).length < ids.length) return true;
     }
     const a = s.advanceGame();
@@ -356,7 +371,10 @@ Then("a houseguest who has gone to bed is absent from the awake house and appear
   // (2) Appears in no off-screen scene: run the society and assert no fresh hidden pair includes an asleep id.
   const beforeIds = new Set(ms.sandbox!.engine.events.queryAll().map((e) => e.id));
   for (let t = 0; t < 8; t++) ms.orch!.advance(ms.user!, "offscreen-tick");
-  const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2);
+  // Rumor retellings (`gossip …`) come from secondary diffusion paths, not the society pairing under test;
+  // their own night-gating is a tracked follow-up (#1912).
+  const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
+    && !/^gossip\b/.test(e.content));
   for (const e of fresh) for (const id of e.witnessSet) {
     if (id !== PLAYER) assert.ok(!asleep.includes(id), "an asleep houseguest never schemed off-screen at night");
   }

@@ -63,11 +63,26 @@ function startSession(w: BbWorld): GameSessionAdapter {
   return s;
 }
 
+/**
+ * The player LINGERS — one long scene of social play (ADR 0003: lingering is play). Ceremonies alone no longer
+ * carry the house into the night (the night-gate day-breaks roll the clock to the next morning, and an eviction
+ * night costs ~2h in total — PO ruling 2026-11-01), so the evening is spent the way play spends it: via the
+ * per-conversation clock, which never wraps past the night. Only the linger moves time.
+ */
+function linger(s: GameSessionAdapter): void {
+  s.setPerConversationClockEnabled(true);
+  s.resetSceneClock();
+  s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
+  s.setPerConversationClockEnabled(false);
+}
+
 /** Advance (clock on) into the night until the house has THINNED (a strict subset awake). */
 function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
+      if (s.awakeAmong(ids).length < ids.length) return true;
+      linger(s);
       if (s.awakeAmong(ids).length < ids.length) return true;
     }
     const a = s.advanceGame();
