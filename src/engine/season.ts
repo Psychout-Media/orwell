@@ -98,6 +98,19 @@ export function duoRead(t: EntityId, hoh: EntityId, active: readonly EntityId[],
   return Math.max(0, Math.min(1, (best - base) / DECISION.nomination.floaterBondSpan));
 }
 
+/** The target's tight-pair partner (mutual bond ≥ half the duo span above baseline), if any — not the HOH. */
+export function duoPartner(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel): EntityId | undefined {
+  const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  let best: EntityId | undefined;
+  let bestBond = base + DECISION.nomination.floaterBondSpan / 2;
+  for (const o of active) {
+    if (o === t || o === hoh) continue;
+    const b = Math.min(rel.bondStrength(o, t), rel.bondStrength(t, o));
+    if (b > bestBond) { bestBond = b; best = o; }
+  }
+  return best;
+}
+
 /** The signals the strategic nomination read consumes — all optional so it degrades to threat-only. */
 export interface NominationRead {
   /** The house's current derived blocs (0043) — bloc-mates are shielded from the block. */
@@ -145,7 +158,11 @@ export function nominationStrategy(
   // The SECOND seat is where pawns come from (PO ruling 2026-11-02, "pawns go home"): the HOH pairs
   // the target with whoever is cheapest to put up — the next read, pulled further toward a floater.
   const rest = ranked.slice(1);
-  const seat2 = (c: EntityId): number => score(c) + N.pawnSeatFloaterBonus * floaterRead(c, active, rel);
+  // Break up the duo (PO 2026-11-02): when the target is locked in a tight pair, the HOH puts the
+  // PARTNER up beside them — one of the two goes home unless the veto saves them.
+  const partner = duoPartner(ranked[0]!, hoh, active, rel);
+  const seat2 = (c: EntityId): number =>
+    score(c) + N.pawnSeatFloaterBonus * floaterRead(c, active, rel) + (c === partner ? N.duoPartnerBonus : 0);
   const pawn = rest.reduce((best, c) => (seat2(c) > seat2(best) ? c : best), rest[0]!);
   return [ranked[0]!, pawn];
 }

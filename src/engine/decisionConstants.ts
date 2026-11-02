@@ -44,6 +44,8 @@ export const DECISION = {
      * MUTUAL pair as a threat — adds this × their duo read (see `duoRead`) to the nomination score.
      */
     duoWeight: 0.3,
+    /** When the target has a tight-pair partner, that partner's pull toward the second (pawn) seat. */
+    duoPartnerBonus: 0.5,
     tacticFor: { bond: "pawn", neutral: "direct", clash: "backdoor" } as Record<
       RelationshipDisposition,
       NominationTactic
