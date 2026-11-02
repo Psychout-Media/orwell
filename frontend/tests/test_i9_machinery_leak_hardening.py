@@ -119,9 +119,12 @@ def _run_persistence_scrub(cases, game_build=True):
     const inGameBuildFn = grabFn('function _inGameBuild');
     const suppressesFn = grabFn('export function gameBuildSuppressesThinking');
     const persistFn = grabFn('export function scrubMachineryForPersistence');
+    // #1784 F9: the persistence scrub also runs the real-world denylist — grab it + its constants.
+    const realWorld = grab('const _REAL_HOST_SURNAMES = ', 'const _MACHINERY_ASIDE_RE');
+    const realWorldFn = grabFn('export function scrubRealWorldDeny');
 
     const all = [reLine, reNpc, reNpcGlobal, scrubPreambleFn, redactFn, words, nounVerbs, asideRe,
-      rebalanceFn, scrubAsidesFn, inGameBuildFn, suppressesFn, persistFn].join('\n');
+      rebalanceFn, scrubAsidesFn, inGameBuildFn, suppressesFn, realWorld, realWorldFn, persistFn].join('\n');
     const cases = JSON.parse(process.argv[2]);
     const run = new Function('cases', all + '\n' +
       "let ok = true;" +

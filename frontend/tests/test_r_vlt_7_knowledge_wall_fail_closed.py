@@ -33,12 +33,27 @@ class _BlockFinder(MetaPathFinder):
 @contextlib.contextmanager
 def _block_imports(*names):
     """Context manager that blocks imports of the given dotted module names."""
+    # The finder alone is not enough once ANOTHER test has already imported the module: `from pkg import
+    # mod` is satisfied by the cached `sys.modules` entry / the package attribute without consulting
+    # meta_path, so the "total failure" silently became a success (order-dependent flake). Hide both.
     finder = _BlockFinder(set(names))
+    saved_mods, saved_attrs = {}, {}
+    for full in names:
+        if full in sys.modules:
+            saved_mods[full] = sys.modules.pop(full)
+        parent_name, _, child = full.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None and child in vars(parent):
+            saved_attrs[(parent_name, child)] = vars(parent)[child]
+            delattr(parent, child)
     sys.meta_path.insert(0, finder)
     try:
         yield
     finally:
         sys.meta_path.remove(finder)
+        sys.modules.update(saved_mods)
+        for (parent_name, child), val in saved_attrs.items():
+            setattr(sys.modules[parent_name], child, val)
 
 
 import contextlib
@@ -212,8 +227,9 @@ def test_per_source_failure_with_other_source_success():
 
 # ════════════ Both per-sources fail — no outer except — returns [] ════════════
 
-def test_both_per_source_fail_still_returns_empty_without_total_failure():
-    """When both inner catches handle errors, facts is empty but cache preserved."""
+def test_both_per_source_fail_returns_last_good():
+    """When BOTH sources fail, the last-good manifest is returned (not []) and the cache is preserved.
+    Returning [] here silently switched the wall off for the turn — the pre-#1872 hole."""
     ch = _get_chat_helpers()
     user = "vlt7-both-fail"
     key = ch._kw_key(user)
@@ -230,7 +246,7 @@ def test_both_per_source_fail_still_returns_empty_without_total_failure():
         with patch("routes.chat_helpers.record_soft_failure") as mock_rsf:
             facts = _run(ch.fetch_sealed_from_house(user))
 
-    assert facts == [], f"Expected empty, got {facts}"
+    assert facts == cached_facts, f"Expected last-good cached facts, got {facts}"
     # Cache should still hold the OLD value (not overwritten)
     entry = ch._KW_SEALED_CACHE.get(key)
     assert entry is not None
@@ -243,3 +259,94 @@ def test_both_per_source_fail_still_returns_empty_without_total_failure():
         "knowledge-wall:sealed-from-house-fetch-failed",
         "knowledge-wall:knowledge-scope-manifest-fetch-failed",
     }, f"Unexpected anomaly classes: {classes}"
+
+
+# ════════════ A failed source keeps ITS OWN last-good facts ═══════════════════
+
+def test_failed_source_contributes_its_own_last_good():
+    """A source that answered last turn and fails this turn still contributes its last-good facts."""
+    ch = _get_chat_helpers()
+    user = "vlt7-src-last-good"
+    key = ch._kw_key(user)
+    ch._KW_SEALED_CACHE.pop(key, None)
+
+    engine = _fresh_engine()
+    engine.sealed_from_house.return_value = [{"content": "diary secret plan", "knownTo": []}]
+    engine.knowledge_scope_manifest.return_value = [{"content": "scoped rumor detail", "knownTo": ["someone"]}]
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        first = _run(ch.fetch_sealed_from_house(user))
+    assert {f["content"] for f in first} == {"diary secret plan", "scoped rumor detail"}
+
+    ch._KW_SEALED_CACHE.pop(key, None)  # expire the TTL cache
+    engine.sealed_from_house.side_effect = RuntimeError("blip")
+    engine.knowledge_scope_manifest.return_value = [{"content": "fresh scoped detail", "knownTo": ["someone"]}]
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        with patch("routes.chat_helpers.record_soft_failure"):
+            second = _run(ch.fetch_sealed_from_house(user))
+    assert {f["content"] for f in second} == {"diary secret plan", "fresh scoped detail"}
+
+
+def test_empty_answer_from_a_live_source_is_cached_as_truth():
+    """An engine that ANSWERS with nothing sealed is a real empty manifest, not a failure."""
+    ch = _get_chat_helpers()
+    user = "vlt7-empty-truth"
+    key = ch._kw_key(user)
+    ch._KW_SEALED_CACHE[key] = (0.0, [{"content": "old", "knownTo": [], "signatures": ["old"]}])
+    engine = _fresh_engine()
+    engine.sealed_from_house.return_value = []
+    engine.knowledge_scope_manifest.return_value = []
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        facts = _run(ch.fetch_sealed_from_house(user))
+    assert facts == []
+    assert ch._KW_SEALED_CACHE[key][1] == []
+
+
+# ════════════ A season create/reset drops the last-good state ═════════════════
+
+def test_season_reset_drops_previous_season_last_good():
+    """A previous season's sealed facts must never be served as the next season's last-good."""
+    ch = _get_chat_helpers()
+    user = "vlt7-season-reset"
+    key = ch._kw_key(user)
+    ch._KW_SEALED_CACHE.pop(key, None)
+    engine = _fresh_engine()
+    engine.sealed_from_house.return_value = [{"content": "old season diary plan", "knownTo": []}]
+    engine.knowledge_scope_manifest.return_value = []
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        _run(ch.fetch_sealed_from_house(user))
+    assert (key, "sealed-from-house") in ch._KW_SOURCE_LAST_GOOD
+
+    from src import orwell_engine as real_engine
+    real_engine._notify_season_reset(user)  # what createCharacter / a sandbox reset fires
+    assert key not in ch._KW_SEALED_CACHE
+    assert not any(k[0] == key for k in ch._KW_SOURCE_LAST_GOOD)
+
+    engine.sealed_from_house.side_effect = RuntimeError("blip right after the reset")
+    engine.knowledge_scope_manifest.return_value = []
+    with patch.object(_src_module(), "orwell_engine", engine, create=True):
+        with patch("routes.chat_helpers.record_soft_failure"):
+            facts = _run(ch.fetch_sealed_from_house(user))
+    assert all(f["content"] != "old season diary plan" for f in facts)
+
+
+# ════════════ Only a CREATED season clears; a refused createCharacter does not ══
+
+def test_refused_create_character_keeps_live_season_last_good():
+    """A refused createCharacter (season still live) must not wipe the wall's last-good facts."""
+    from src import orwell_engine as real_engine
+    ch = _get_chat_helpers()
+    user = "vlt7-refused-create"
+    key = ch._kw_key(user)
+    ch._KW_SOURCE_LAST_GOOD[(key, "sealed-from-house")] = [{"content": "live season diary plan", "knownTo": []}]
+
+    async def fake_call(name, args=None, user=None, timeout=None):
+        return {"started": True, "createRefused": "in-progress"}
+    with patch.object(real_engine, "_call", fake_call):
+        _run(real_engine.create_character("someone", user=user))
+    assert (key, "sealed-from-house") in ch._KW_SOURCE_LAST_GOOD, "a refused create wiped the live season"
+
+    async def fake_ok(name, args=None, user=None, timeout=None):
+        return {"started": True}
+    with patch.object(real_engine, "_call", fake_ok):
+        _run(real_engine.create_character("someone", user=user))
+    assert (key, "sealed-from-house") not in ch._KW_SOURCE_LAST_GOOD, "a created season must clear"

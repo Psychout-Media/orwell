@@ -146,6 +146,42 @@ def test_e22_fallback_record_attaches_token_and_refreshes(monkeypatch):
     assert isinstance(captured["idempotency_key"], str) and captured["idempotency_key"]
 
 
+def test_e22_fallback_records_when_the_only_write_was_a_noop_advance(monkeypatch):
+    """A forced/no-op advanceGame (nothing to advance at a lull) used to stand the E22 scene recorder
+    down by NAME, silently dropping the player's social scene. When the only "writes" were progression
+    levers and the beatSeq did not move, the scene is still recorded."""
+    chat_helpers._LAST_BEAT_SEQ["u-noop"] = 12
+    calls = []
+
+    async def fake_record(content, with_ids=None, initiator="player", kind=None,
+                          expected_beat_seq=None, idempotency_key=None, user=None):
+        calls.append(content)
+        return {"recorded": True, "beatSeq": 13}
+
+    monkeypatch.setattr(orwell_engine, "record_interaction", fake_record)
+    narration = "The player makes the rounds, shaking every hand in the room. " * 5
+    out = _run(chat_helpers.ensure_turn_recorded(
+        "u-noop", "I introduce myself to everyone.", narration, ["advanceGame"], beat_seq_before=12))
+    assert out is True and calls, "a no-op advance must not swallow the scene's record"
+
+
+def test_e22_fallback_stands_down_when_a_real_write_ran(monkeypatch):
+    """A real write (recordInteraction) or a progression that MOVED the board still stands it down."""
+    async def boom(*a, **k):
+        raise AssertionError("must not record")
+
+    monkeypatch.setattr(orwell_engine, "record_interaction", boom)
+    narration = "The player makes the rounds, shaking every hand in the room. " * 5
+    chat_helpers._LAST_BEAT_SEQ["u-real"] = 20
+    assert _run(chat_helpers.ensure_turn_recorded(
+        "u-real", "m", narration, ["recordInteraction"], beat_seq_before=20)) is False
+    chat_helpers._LAST_BEAT_SEQ["u-moved"] = 21
+    assert _run(chat_helpers.ensure_turn_recorded(
+        "u-moved", "m", narration, ["advanceGame"], beat_seq_before=20)) is False
+    # No baseline known (legacy caller) ⇒ the old by-name behaviour holds.
+    assert _run(chat_helpers.ensure_turn_recorded("u-moved", "m", narration, ["advanceGame"])) is False
+
+
 # ── 2. THE HARD GUARD: a normal multi-call turn never self-409s ────────────────────────────────── #
 
 def test_normal_multicall_turn_record_then_advance_never_self_409s(monkeypatch):

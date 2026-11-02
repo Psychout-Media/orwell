@@ -248,7 +248,7 @@ export function _setReconcileDeps(deps) {
   /**
    * #1785 (F8): minimum-viable-turn gate. True iff the visible reply is below a conservative
    * length threshold OR carries a dangling-markdown syntax error (unclosed **, odd backticks,
-   * trailing lone */_). Pure structural pattern matching — no product tuning.
+   * trailing lone `*` or `_`). Pure structural pattern matching — no product tuning.
    *
    * Two halves OR'd together:
    *   1. LENGTH-threshold: visibleReply is shorter than _MIN_VIABLE_TURN_CHARS chars.

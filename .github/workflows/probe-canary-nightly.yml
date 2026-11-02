@@ -78,7 +78,7 @@ jobs:
         run: npm run build
 
       - if: steps.key.outputs.present == 'true'
-        run: pip install -r frontend/requirements.txt
+        run: pip install -r frontend/requirements.lock.txt
 
       # ── Leg: capability probe + scripted ceremony turn ─────────────────────────
       - name: capability probe + ceremony turn

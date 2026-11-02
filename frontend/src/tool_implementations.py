@@ -5421,6 +5421,35 @@ async def do_season_recap(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+async def do_player_receipts(content: str, owner: Optional[str] = None) -> Dict:
+    from src import orwell_engine
+    try:
+        res = await orwell_engine.player_receipts(user=owner)
+        if not res:
+            return {"output": "No receipts — nothing in the player's own record contradicts itself yet.", "exit_code": 0}
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+async def do_player_dossier(content: str, owner: Optional[str] = None) -> Dict:
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content) if content and content.strip() else {}
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    if not isinstance(args, dict):
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    subject_id = str(args.get("subjectId") or "").strip() or None
+    try:
+        res = await orwell_engine.player_dossier(subject_id, user=owner)
+        if not res:
+            return {"output": "No Diary-Room reads on file yet.", "exit_code": 0}
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
 async def do_season_retrospective(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:

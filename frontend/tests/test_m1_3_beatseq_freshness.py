@@ -26,14 +26,23 @@ def test_dispatcher_coalesces_the_highest_beat_and_carries_it_in_detail():
     assert m and "beatSeq" in m.group(1), "the single dispatcher accepts a beatSeq arg"
     assert re.search(r"b > _gameChangedBeat\)\s*_gameChangedBeat = b", src), (
         "the debounce window must coalesce to the HIGHEST beat seen")
-    assert re.search(r"detail:\s*\{[^}]*beatSeq", src), "the event detail carries beatSeq"
+    # The detail object is built in a local before dispatch (#1785 AC3 adds an optional correction).
+    # beatSeq must sit at the detail object's TOP level (no nested object before it) — the panels read
+    # `e.detail.beatSeq`.
+    assert re.search(r"(?:detail:\s*\{|const detail = \{)[^{}]*\bbeatSeq\b", src), "the event detail carries beatSeq"
+    assert re.search(r"new CustomEvent\('orwell:gamechanged',\s*\{\s*detail\s*\}", src), (
+        "the dispatched event carries that detail")
 
 
 def test_chat_tool_result_seam_passes_the_committed_beat():
     src = _read("chat.js")
     seam = re.search(
-        r"let _beat;\s*\n\s*try \{ _beat = \(JSON\.parse\(json\.output.*?"
-        r"window\.orwellGameChanged\('tool:' \+ json\.tool, _beat\)", src, re.S)
+        # Bounded to the seam's own `try { … }` (no `}` crossed) so a later, unrelated parse can't
+        # satisfy it, then the dispatch must follow within a few lines.
+        # (an EMPTY `{}` — the parse's default literal — is the only brace pair allowed inside it)
+        r"let _beat\b[^;]*;\s*try \{(?:\{\}|[^{}])*JSON\.parse\(json\.output(?:\{\}|[^{}])*"
+        r"_beat = _parsed\.beatSeq(?:\{\}|[^{}])*\}"
+        r"[^;]*;?[\s\S]{0,200}?window\.orwellGameChanged\('tool:' \+ json\.tool, _beat\b", src)
     assert seam, ("the game-mutating tool-result seam must parse the result's beatSeq "
                   "and pass it through the shared dispatcher")
 

@@ -51,8 +51,13 @@ createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', async () => {
-      let stream = false; let lastUser = ''; let msgs = [];
-      try { const j = JSON.parse(body); stream = !!j.stream; msgs = j.messages || []; for (const m of msgs) if (m.role === 'user') lastUser = typeof m.content === 'string' ? m.content : JSON.stringify(m.content); } catch (_) {}
+      let stream = false; let lastUser = ''; let msgs = []; let forcedTool = '';
+      try {
+        const j = JSON.parse(body); stream = !!j.stream; msgs = j.messages || [];
+        for (const m of msgs) if (m.role === 'user') lastUser = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+        // A FORCED tool_choice ({type:"function", function:{name}}) — the agent loop's forced-lever rung.
+        if (j.tool_choice && typeof j.tool_choice === 'object' && j.tool_choice.function) forcedTool = String(j.tool_choice.function.name || '');
+      } catch (_) {}
       // A deterministic reply DERIVED from the prompt so both windows on the same game get identical
       // text (the mirror invariant) but different turns get different text.
       const seed = (lastUser || '').replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -97,6 +102,39 @@ createServer((req, res) => {
         chunk1({ tool_calls: [{ index: 0, function: { arguments: '{}' } }] });
         res.write(`data: ${JSON.stringify({ id: 'fake-r1', object: 'chat.completion.chunk', model: MODEL, choices: [], usage: { prompt_tokens: 40, completion_tokens: 16, total_tokens: 56 } })}\n\n`);
         res.write(`data: ${JSON.stringify({ id: 'fake-r1', object: 'chat.completion.chunk', model: MODEL, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      }
+
+      // The 0055 _auto_record_scene EXTRACTION call (agent_loop: a non-stream request whose system
+      // prompt asks for a `{"withIds":[...]}` JSON object over a "ROSTER (id = name)" list). A real
+      // model answers with JSON; the plain echo below never did, so the belt logged "no parseable
+      // JSON" and recorded nothing — the mirror-hud gate's measured turn then committed NO engine
+      // mutation and the gate could not run (beat N → N). Answer it deterministically: propose EVERY
+      // roster id as a social scene. The FE still intersects that proposal with the engine's real
+      // whereabouts (#1730), so only houseguests actually in the room are recorded — the harness
+      // exercises the real belt path end to end, never a shortcut around it.
+      const sysText = msgs.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n');
+      if (!stream && sysText.includes('"withIds"') && /ROSTER \(id = name\):/.test(lastUser)) {
+        const rosterBlock = (lastUser.split('ROSTER (id = name):')[1] || '').split('\n\n')[0];
+        const ids = rosterBlock.split('\n').map((l) => l.split(' = ')[0].trim()).filter((x) => /^npc:\d+$/.test(x));
+        const answer = JSON.stringify({ withIds: ids, kind: 'bonding', content: 'The player made the rounds and introduced themself to the room.' });
+        return send(res, 200, { id: 'fake', object: 'chat.completion', model: MODEL, choices: [{ index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 16, total_tokens: 56 } });
+      }
+
+      // Honor a FORCED tool_choice the way a real model does: call exactly that tool (no args) instead of
+      // ignoring the directive. The plain echo used to ignore it, so a forced-advance turn dragged into extra
+      // escalation rounds and settled AFTER the mirror-hud gate measured (a timing-dependent false red).
+      // Only on a fresh round (not right after a tool result), so round 2 streams the normal echo reply.
+      const afterTool = msgs.length && msgs[msgs.length - 1] && msgs[msgs.length - 1].role === 'tool';
+      if (forcedTool && !afterTool && SCRIPT !== 'toolturn') {
+        const call = { id: 'call_forced', type: 'function', function: { name: forcedTool, arguments: '{}' } };
+        if (!stream) {
+          return send(res, 200, { id: 'fake-f', object: 'chat.completion', model: MODEL, choices: [{ index: 0, message: { role: 'assistant', content: '', tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 40, completion_tokens: 4, total_tokens: 44 } });
+        }
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        res.write(`data: ${JSON.stringify({ id: 'fake-f', object: 'chat.completion.chunk', model: MODEL, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call.id, type: 'function', function: { name: forcedTool, arguments: '{}' } }] }, finish_reason: null }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ id: 'fake-f', object: 'chat.completion.chunk', model: MODEL, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
         res.write('data: [DONE]\n\n');
         return res.end();
       }

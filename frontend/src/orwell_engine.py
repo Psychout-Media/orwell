@@ -5,10 +5,13 @@ never reaches the engine's Vault (the Vault Wall is enforced structurally on the
 engine side, not here). Endpoint comes from ``ORWELL_ENGINE_MCP_URL``.
 """
 import asyncio
+import logging
 import os
 import time
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # ORWELL_* are primary; BBAI_* are kept as silent deprecated fallbacks so a pre-rename .env
 # keeps working.
@@ -413,9 +416,38 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
     global _CREATING_IN_FLIGHT
     _CREATING_IN_FLIGHT += 1  # G8: /health reports busy="creating" while this runs
     try:
-        return await _call("createCharacter", args, user=user)
+        res = await _call("createCharacter", args, user=user)
     finally:
         _CREATING_IN_FLIGHT -= 1
+    # Only a season the engine actually CREATED is a reset — a refusal (`createRefused`: in-progress,
+    # casting-incomplete, …) leaves the live season untouched, so its per-season caches must survive.
+    # Same success test as agent_loop's finalize check (started AND not refused).
+    if isinstance(res, dict) and res.get("started") and not res.get("createRefused"):
+        _notify_season_reset(user)
+    return res
+
+
+# ── season-reset listeners ──────────────────────────────────────────────────────────────────────
+# Every season start (first game, confirmed restart, next season) goes through createCharacter, and
+# a God-Mode sandbox reset wipes the season too. FE modules that keep PER-SEASON state keyed only by
+# user (e.g. the knowledge wall's last-good sealed manifest) register a clearer here, so a previous
+# season's state can never bleed into the next one. Listeners are fail-soft and never raise.
+_SEASON_RESET_LISTENERS: list = []
+
+
+def on_season_reset(fn) -> None:
+    """Register ``fn(user)`` to run after a season is created or reset for ``user``."""
+    if fn not in _SEASON_RESET_LISTENERS:
+        _SEASON_RESET_LISTENERS.append(fn)
+
+
+def _notify_season_reset(user: str | None) -> None:
+    for fn in list(_SEASON_RESET_LISTENERS):
+        try:
+            fn(user)
+        except Exception:
+            # Fail-soft (a listener must never break createCharacter), but never silent.
+            logger.warning("[orwell] season-reset listener %r failed for user=%s", fn, user, exc_info=True)
 
 
 async def pre_seed_cast(seed: int | None = None, user: str | None = None) -> dict:
@@ -960,6 +992,18 @@ async def season_recap(user: str | None = None) -> dict:
     return await _call("seasonRecap", {}, user=user)
 
 
+async def player_receipts(user: str | None = None) -> list:
+    """#1800 — candidate contradictions drawn ONLY from the player's own record. Vault-free."""
+    return await _call("playerReceipts", {}, user=user)
+
+
+async def player_dossier(subject_id: str | None = None, user: str | None = None) -> dict:
+    """#1793 — the player's own Diary-Room reads grouped per houseguest (optionally one). ``{}`` when
+    the dossier is off. Vault-free: the player's words only."""
+    args: dict = {"subjectId": subject_id} if subject_id else {}
+    return await _call("playerDossier", args, user=user)
+
+
 async def season_retrospective(user: str | None = None):
     """The post-season Vault unsealing (0048): the FINISHED season's hidden story, or ``None``
     while a season is live (the gate is the engine's terminal state, never a prompt)."""
@@ -1151,7 +1195,10 @@ async def manage_sandbox(op: str | None = None, user: str | None = None) -> dict
     args: dict = {}
     if op:
         args["op"] = op
-    return await _admin_call("manageSandbox", args, user=user)
+    res = await _admin_call("manageSandbox", args, user=user)
+    if op == "reset":
+        _notify_season_reset(user)
+    return res
 
 
 # ── the engine PLAY-CLOCK, mirrored for LABELING only (2026-07-13 prod bundle audit) ──────────

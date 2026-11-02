@@ -58,7 +58,10 @@ READ_ONLY_TOOLS = frozenset({
     "getGameState", "gameStatus", "stateDelta", "playerTagline", "finaleView",
     "getMomentPrompt", "recallSceneMemories", "getVisibleStateFor", "renderScene",
     "socialRead", "socialInitiatives", "whereabouts", "premiereIntros", "seasonRecap",
-    "dailyRecap", "seasonRetrospective", "npcVoice", "sealedFromHouse", "knowledgeScopeManifest", "getPortraitPrompt",
+    "dailyRecap", "seasonRetrospective", "npcVoice", "getPortraitPrompt",
+    # #1800 / #1793: pure reads of the player's OWN Diary-Room record.
+    "playerReceipts", "playerDossier",
+    # (sealedFromHouse / knowledgeScopeManifest moved to INFRA_TOOL_NAMES, #1870 — no longer PLAYER_TOOLS.)
     "askProducers", "endOfSessionSummary", "worldSnapshotView", "getOffscreenSceneSkeletons",
     "competitionStagingView",
     # State changes the player HUD does NOT render: raised/cleared confirmations, hidden /

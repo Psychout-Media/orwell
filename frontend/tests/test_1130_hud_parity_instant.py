@@ -120,3 +120,17 @@ def test_chat_routes_imports_the_push_helper():
     src = _CHAT_ROUTES.read_text(encoding="utf-8")
     assert "publish_game_updated_after_turn" in src and "last_beat_seq" in src, \
         "chat_routes.py must import the push helper + last_beat_seq (the turn-start beatSeq snapshot)"
+
+
+def test_chat_routes_pushes_game_updated_mid_turn_on_a_committed_write():
+    """A game-engine write that COMMITS mid-turn (its `tool_output`) pushes `game-updated` to peers
+    immediately — a multi-round turn (e.g. a forced advance, then more narration) must not leave peer
+    windows stale until the whole turn ends (the mirror-hud gate measured ~9s over its 2s budget)."""
+    src = _CHAT_ROUTES.read_text(encoding="utf-8")
+    m = re.search(
+        r'data\.get\("type"\) == "tool_output" and ctx\.game_active\s*'
+        r'and data\.get\("exit_code"\) == 0\s*'
+        r'and str\(data\.get\("tool"\) or ""\) in GAME_ENGINE_WRITE_TOOLS\):(.{0,1200}?)yield chunk',
+        src, re.S)
+    assert m, "the tool_output branch must gate on GAME_ENGINE_WRITE_TOOLS during a game turn"
+    assert "publish_game_updated(ctx.user)" in m.group(1), "and must push game-updated to peers"
