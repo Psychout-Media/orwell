@@ -61,8 +61,9 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
     // 12-seed lane (measured at ~62s on an unmodified main in a shared-CPU environment — the
     // old 60s budget was a hair-trigger env flake; and the E42–E55 consequence folds added real
     // per-beat work on top of the transport cost; assertions unchanged, only the wall-clock
-    // budget breathes).
-    { timeout: 180_000 },
+    // budget breathes). UAT_TIMEOUT_SCALE (default 1) lets the deployed-profile CI lane widen the budget:
+    // that profile simulates several times slower (#1922), and only the budget moves, never an assertion.
+    { timeout: 180_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1) },
   );
 
   // ── Health endpoint reachable (sanity) ────────────────────────────────────

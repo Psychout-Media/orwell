@@ -53,6 +53,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       deploy: ${{ steps.filter.outputs.deploy }}
       heavy: ${{ steps.filter.outputs.heavy }}
+      deployed: ${{ steps.filter.outputs.deployed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,12 +90,16 @@ jobs:
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
           # change can never move a calibration result, so the heavy lane skips for those.
           HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$)'
-          for name in engine frontend deploy heavy; do
+          # DEPLOYED (the deployed-profile lane): the heavy inputs PLUS the deployed flag set itself, so a
+          # change to which flags ship re-plays the deployed game.
+          DEPLOYED_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$)'
+          for name in engine frontend deploy heavy deployed; do
             case "$name" in
               engine)   re="$ENGINE_RE" ;;
               frontend) re="$FRONTEND_RE" ;;
               deploy)   re="$DEPLOY_RE" ;;
               heavy)    re="$HEAVY_RE" ;;
+              deployed) re="$DEPLOYED_RE" ;;
             esac
             if matches "$re"; then
               echo "${name}=true" >> "$GITHUB_OUTPUT"
@@ -176,6 +181,58 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:heavy
+
+  # ── Deployed-profile correctness lane (ADVISORY — #1921 / #1922) ──────────────────
+  #
+  # Every other lane runs the code defaults (all gameplay flags OFF), but the deploy turns ~26 gameplay
+  # flags ON — so until this lane existed, the game players actually get was never played end to end in
+  # CI. This job plays the full-game UAT (the same files `heavy-sims` runs: completion, rule/shape
+  # anomalies, Vault-leak patterns) under the EXACT deployed flag set, read straight from
+  # `deploy/orwell-env-defaults.sh` so it can never drift from what ships.
+  #
+  # CORRECTNESS ONLY: no balance/calibration thresholds (juryReach / calibrationGradient stay in
+  # `heavy-sims` on the code defaults until the joint flip + re-baseline PR, #1922).
+  # ADVISORY: `continue-on-error` and deliberately NOT in `ci-gate.needs`, so a red here is visible on the
+  # PR but never blocks a merge. Promote it to required once the default flip lands.
+  # The deployed profile simulates several times slower than flags-off, hence the larger timeout.
+  heavy-sims-deployed:
+    needs: changes
+    if: needs.changes.outputs.deployed == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: load the deployed gameplay flags (single source — deploy/orwell-env-defaults.sh)
+        run: |
+          set -euo pipefail
+          # Call the SAME function install + update use to write the box's .env, so this lane plays
+          # exactly what ships (whatever each value is). Only the embedding settings are dropped: they
+          # would download the real ONNX model, and the tests use the deterministic embedding fake.
+          source deploy/orwell-env-defaults.sh
+          orwell_optin_env_defaults "$RUNNER_TEMP/orwell-data" \
+            | grep -vE '^ORWELL_(EMBEDDINGS|EMBED_CACHE)=' > deployed-flags.env
+          n=$(wc -l < deployed-flags.env)
+          echo "deployed gameplay flags: $n"; cat deployed-flags.env
+          # Fail loudly rather than silently play a different profile than the deploy.
+          if [ "$n" -lt 10 ]; then echo "::error::only $n deployed flags from orwell_optin_env_defaults"; exit 1; fi
+          if grep -qvE '^ORWELL_[A-Z0-9_]+=[^[:space:]]+$' deployed-flags.env; then
+            echo "::error::unexpected line in orwell_optin_env_defaults output"; exit 1
+          fi
+          cat deployed-flags.env >> "$GITHUB_ENV"
+      - name: full-game UAT under the deployed profile
+        # The deployed profile simulates several times slower; the real-HTTP decisions test is the only
+        # UAT whose per-test timeout actually fires (it yields to the event loop), so widen its budget.
+        env:
+          UAT_TIMEOUT_SCALE: "10"
+        run: npx vitest run tests/uat/fullGameUat.12seed.test.ts tests/uat/fullGameUat.5seed.test.ts tests/uat/fullGameUat.decisions.test.ts
 
   # ── Coverage gate ──────────────────────────────────────────────────────────────
   # Per-directory branch thresholds in vitest.config.ts — coverage can no longer silently regress
