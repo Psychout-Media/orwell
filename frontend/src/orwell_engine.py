@@ -419,7 +419,11 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         res = await _call("createCharacter", args, user=user)
     finally:
         _CREATING_IN_FLIGHT -= 1
-    _notify_season_reset(user)  # a created character is a NEW season: drop per-season FE caches
+    # Only a season the engine actually CREATED is a reset — a refusal (`createRefused`: in-progress,
+    # casting-incomplete, …) leaves the live season untouched, so its per-season caches must survive.
+    # Same success test as agent_loop's finalize check (started AND not refused).
+    if isinstance(res, dict) and res.get("started") and not res.get("createRefused"):
+        _notify_season_reset(user)
     return res
 
 

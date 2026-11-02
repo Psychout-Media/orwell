@@ -327,3 +327,26 @@ def test_season_reset_drops_previous_season_last_good():
         with patch("routes.chat_helpers.record_soft_failure"):
             facts = _run(ch.fetch_sealed_from_house(user))
     assert all(f["content"] != "old season diary plan" for f in facts)
+
+
+# ════════════ Only a CREATED season clears; a refused createCharacter does not ══
+
+def test_refused_create_character_keeps_live_season_last_good():
+    """A refused createCharacter (season still live) must not wipe the wall's last-good facts."""
+    from src import orwell_engine as real_engine
+    ch = _get_chat_helpers()
+    user = "vlt7-refused-create"
+    key = ch._kw_key(user)
+    ch._KW_SOURCE_LAST_GOOD[(key, "sealed-from-house")] = [{"content": "live season diary plan", "knownTo": []}]
+
+    async def fake_call(name, args=None, user=None, timeout=None):
+        return {"started": True, "createRefused": "in-progress"}
+    with patch.object(real_engine, "_call", fake_call):
+        _run(real_engine.create_character("someone", user=user))
+    assert (key, "sealed-from-house") in ch._KW_SOURCE_LAST_GOOD, "a refused create wiped the live season"
+
+    async def fake_ok(name, args=None, user=None, timeout=None):
+        return {"started": True}
+    with patch.object(real_engine, "_call", fake_ok):
+        _run(real_engine.create_character("someone", user=user))
+    assert (key, "sealed-from-house") not in ch._KW_SOURCE_LAST_GOOD, "a created season must clear"
