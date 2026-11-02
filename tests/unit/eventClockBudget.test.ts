@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { eventBeatHours, type LiveSeasonState } from "../../src/engine/liveSeason";
@@ -86,5 +86,37 @@ describe("a real season — eviction nights and the finale each move the clock o
     expect(finaleSteps).toBeGreaterThan(3); // the finale really is many steps…
     expect(moves.size).toBeGreaterThan(3);
     for (const [key, n] of moves) expect(n, `${key} moved the clock on ${n} steps`).toBe(1); // …but costs once
+  });
+});
+
+describe("a night is counted once, even when an event's later steps sit at 8am", () => {
+  it("an eviction night that rolls past 8am accrues the night's fatigue exactly once", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const accrue = vi.spyOn(GameSessionAdapter.prototype as never, "accrueNightFatigue" as never);
+    try {
+      const reg = new GameSessionRegistry();
+      const sb = reg.sandboxFor("night-once");
+      const s = sb.session as unknown as GameSession & { live: LiveSeasonState };
+      s.createCharacter({ playerName: "The Player", seed: 108 });
+      // Play to the eviction night (the board is on the eviction beat, before any reveal).
+      // (the night-gate day-break lands the board on the eviction beat at the next morning)
+      for (let i = 0; i < 400; i++) {
+        const v = s.advanceGame();
+        if (v.pending) resolveLegally(s, v.pending);
+        if (v.event?.beat === "day-break" && s.live.beat === "eviction" && !s.live.eviction && !s.live.pending) break;
+      }
+      expect(s.live.beat).toBe("eviction");
+      // The house stayed up very late: the eviction's first step crosses the 8am wake.
+      s.live.nightDepth = 31.5;
+      const before = accrue.mock.calls.length;
+      for (let i = 0; i < 60; i++) {
+        const v = s.advanceGame();
+        if (v.pending) resolveLegally(s, v.pending);
+        if (v.event?.beat === "eviction-result") break;
+      }
+      expect(accrue.mock.calls.length - before, "one night, one accrual").toBe(1);
+    } finally {
+      accrue.mockRestore();
+    }
   });
 });

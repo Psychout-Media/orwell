@@ -8654,6 +8654,7 @@ export class GameSessionAdapter implements GameSession {
       // deficit is 0 (no night ran) and the conflict tally is still empty.
       if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)))) {
         const wasRetired = this.live!.playerRetired ?? false;
+        const depthBefore = this.live!.nightDepth;
         // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
         // comp ~3h, an eviction ~2h (beatFeltHours), instead of a flat +3h. Applied ONLY when the
         // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
@@ -8674,7 +8675,9 @@ export class GameSessionAdapter implements GameSession {
         // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning
         // after a turnIn (that night already accrued). Detect: a fresh morning (back at the wake hour) we
         // did NOT reach via retirement.
-        if (!wasRetired && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
+        // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
+        // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
+        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
         this.rollNightConflicts();
       }
       this.commit(ev);
