@@ -1402,6 +1402,11 @@ export function renderGameContext(view: GameStateView): string {
           const lines = [`    · ${neutralizeForPrompt(e.name)}:`];
           if (e.knows.length) lines.push(`        knows: ${e.knows.map((k) => neutralizeForPrompt(k)).join("; ")}`);
           if (e.suspects.length) lines.push(`        suspects (a hunch, not fact): ${e.suspects.map((s) => neutralizeForPrompt(s)).join("; ")}`);
+          // Audit band D F2 — the npcVoice carriage cues (0084/0088/0096), pushed so they reach the
+          // narrator without the under-called tool. Words to PLAY as conduct (BASE's npcVoice rules
+          // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
+          const cues = presentCues(e);
+          if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
           return lines;
         }),
       ]
@@ -1546,6 +1551,15 @@ export function renderGameContext(view: GameStateView): string {
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
+/** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
+function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
+  const bits: string[] = [];
+  if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
+  if (e.currentRead) bits.push(`toward the player ${neutralizeForPrompt(e.currentRead.toward)} (${e.currentRead.drift})`);
+  if (e.rivalry) bits.push(`rivalry ${e.rivalry.tone}`);
+  return bits.join("; ");
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1576,7 +1590,9 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       lines.push(`- PRONOUN LOCK: ${p.name} uses ${pron}. ${caveat}`);
     }
   }
-  const pk = view.presentKnowledge ?? [];
+  // Only entries that carry knowledge — an entry present solely for its F2 carriage cues must not emit
+  // an empty KNOWLEDGE SCOPE header (keeps this terminal block byte-identical to pre-F2).
+  const pk = (view.presentKnowledge ?? []).filter((e) => e.knows.length > 0 || e.suspects.length > 0);
   if (pk.length) {
     lines.push(
       "- KNOWLEDGE SCOPE (voice each houseguest below ONLY from their own line — never another's, and " +
