@@ -213,11 +213,19 @@ jobs:
       - name: load the deployed gameplay flags (single source — deploy/orwell-env-defaults.sh)
         run: |
           set -euo pipefail
-          grep -E '^ORWELL_[A-Z0-9_]+=1$' deploy/orwell-env-defaults.sh | sort -u > deployed-flags.env
+          # Call the SAME function install + update use to write the box's .env, so this lane plays
+          # exactly what ships (whatever each value is). Only the embedding settings are dropped: they
+          # would download the real ONNX model, and the tests use the deterministic embedding fake.
+          source deploy/orwell-env-defaults.sh
+          orwell_optin_env_defaults "$RUNNER_TEMP/orwell-data" \
+            | grep -vE '^ORWELL_(EMBEDDINGS|EMBED_CACHE)=' > deployed-flags.env
           n=$(wc -l < deployed-flags.env)
           echo "deployed gameplay flags: $n"; cat deployed-flags.env
-          # Fail loudly if the parse broke — silently running flags-off would defeat this lane.
-          if [ "$n" -lt 10 ]; then echo "::error::parsed only $n deployed flags from deploy/orwell-env-defaults.sh"; exit 1; fi
+          # Fail loudly rather than silently play a different profile than the deploy.
+          if [ "$n" -lt 10 ]; then echo "::error::only $n deployed flags from orwell_optin_env_defaults"; exit 1; fi
+          if grep -qvE '^ORWELL_[A-Z0-9_]+=[^[:space:]]+$' deployed-flags.env; then
+            echo "::error::unexpected line in orwell_optin_env_defaults output"; exit 1
+          fi
           cat deployed-flags.env >> "$GITHUB_ENV"
       - name: full-game UAT under the deployed profile
         run: npx vitest run tests/uat/fullGameUat.12seed.test.ts tests/uat/fullGameUat.5seed.test.ts tests/uat/fullGameUat.decisions.test.ts
