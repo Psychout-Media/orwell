@@ -121,7 +121,7 @@ export function runJuryHouseStretch(deps: JuryHouseDeps): JuryHouseResult {
       if (!isGrievance(mannerOf(origin, finalist))) continue; // only a real grievance is contagious
       // A vague, player-as-SUBJECT grievance gloss — never a number, never the verbatim manner read.
       const fact = { content: `word in the jury house is that ${finalist} did ${origin} dirty on the way out` };
-      const { factId } = diffuseGossip({
+      const { beliefOf } = diffuseGossip({
         knowledge,
         graph,
         rng,
@@ -138,7 +138,7 @@ export function runJuryHouseStretch(deps: JuryHouseDeps): JuryHouseResult {
       // to spread it to OTHERS, so the origin's own read is not re-grudged here (only fresh recipients).
       for (const juror of jurors) {
         if (juror === origin) continue;
-        const belief = knowledge.knownTo(juror).find((k) => k.factId === factId);
+        const belief = beliefOf(juror); // memoized `knownTo(juror).find(factId)` — same answer, no list copy
         if (!belief) continue; // no pathway reached this juror — they are unmoved (the omniscience ban)
         const confidence = belief.confidence ?? 1;
         const delta = JURY_HOUSE.grudgePerHop * confidence; // a fainter (further) rumor moves them less

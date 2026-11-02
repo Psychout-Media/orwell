@@ -60,3 +60,24 @@ describe("gossip diffusion", () => {
     expect(run(11).beliefs.map((b) => b!.content)).toEqual(run(11).beliefs.map((b) => b!.content));
   });
 });
+
+describe("gossip diffusion — memoized belief read (#1922 perf, byte-identical)", () => {
+  it("the returned beliefOf agrees with a fresh knownTo read for every node, held or not", () => {
+    for (const transmitProb of [1, 0.5, 0]) {
+      const core = buildEngineCore();
+      const nodes = [npc(1), npc(2), npc(3), npc(4), npc(5), npc(6)];
+      const graph = makeSocialGraph([
+        [npc(1), npc(2)], [npc(1), npc(3)], [npc(2), npc(4)], [npc(3), npc(4)], [npc(4), npc(5)],
+      ]);
+      // A prior, unrelated belief on a node so the memo must pick THIS fact out of a longer list.
+      core.knowledge.seedBelief(npc(4), { content: "older", factId: "older", confidence: 1, hops: 0, source: npc(4) }, "origin");
+      const { factId, beliefOf } = diffuseGossip({
+        knowledge: core.knowledge, graph, rng: new SeededRandom(7),
+        origin: npc(1), fact: { content: "X" }, rounds: 4, transmitProb,
+      });
+      for (const n of nodes) {
+        expect(beliefOf(n)).toEqual(core.knowledge.knownTo(n).find((k) => k.factId === factId));
+      }
+    }
+  });
+});

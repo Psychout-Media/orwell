@@ -281,7 +281,13 @@ export function diffuseGossip(deps: {
    * its OWN dedicated side-rng (never a shared/seeded stream), so skipping the draw perturbs nothing.
    */
   factId?: string;
-}): { factId: string; original: string } {
+}): {
+  factId: string;
+  original: string;
+  /** Each entity's belief in this fact AFTER the diffusion — the same answer as
+   *  `knowledge.knownTo(e).find((k) => k.factId === factId)`, memoized. Valid until the next knowledge write. */
+  beliefOf: (e: EntityId) => KnowledgeFactLike | undefined;
+} {
   const { knowledge, graph, rng, origin, fact, rounds, rel, sceneType } = deps;
   const transmitProb = deps.transmitProb ?? GOSSIP.transmitProb;
   const decay = deps.decay ?? 0.7;
@@ -321,9 +327,19 @@ export function diffuseGossip(deps: {
     }
   };
 
-  const holds = (e: EntityId): boolean => knowledge.knownTo(e).some((k) => k.factId === factId);
-  const beliefOf = (e: EntityId): KnowledgeFactLike | undefined =>
-    knowledge.knownTo(e).find((k) => k.factId === factId);
+  // Per-call memo of each entity's belief in THIS fact. `knownTo` copies the holder's WHOLE knowledge list,
+  // and the loop below asks every node every round, so an un-memoized lookup is O(rounds × nodes × that
+  // holder's knowledge) — the deployed-profile slowdown (#1922). The memo gives the SAME answer as the bare
+  // `knownTo(e).find(...)`: the only knowledge writes inside this call are `transmitGossip(…, to, …)` below
+  // (which drops `to`'s entry so the next read re-fetches it) and the origin seed above (made before any read).
+  const beliefMemo = new Map<EntityId, KnowledgeFactLike | undefined>();
+  const beliefOf = (e: EntityId): KnowledgeFactLike | undefined => {
+    if (beliefMemo.has(e)) return beliefMemo.get(e);
+    const b = knowledge.knownTo(e).find((k) => k.factId === factId);
+    beliefMemo.set(e, b);
+    return b;
+  };
+  const holds = (e: EntityId): boolean => beliefOf(e) !== undefined;
 
   for (let r = 0; r < rounds; r++) {
     const holders = graph.nodes().filter(holds); // snapshot: one hop per round
@@ -376,6 +392,7 @@ export function diffuseGossip(deps: {
           },
           `told-by:${from}`,
         );
+        beliefMemo.delete(to); // `to`'s knowledge just changed — re-read on next ask (keeps the memo exact)
         if (toType) believedType.set(to, toType);
         if (toSubjects) believedSubjects.set(to, toSubjects);
         // E44: hearing it MOVES the listener's read of the (believed) subjects, hidden.
@@ -384,7 +401,7 @@ export function diffuseGossip(deps: {
     }
   }
 
-  return { factId, original };
+  return { factId, original, beliefOf };
 }
 
 type KnowledgeFactLike = { hops?: number; confidence?: number; content: string };
