@@ -7832,13 +7832,33 @@ export class GameSessionAdapter implements GameSession {
     // already-evicted houseguest can never reach the finale vote, so only the responsible houseguests
     // still standing are carried here.
     const finalists = this.livingIds();
-    // DEDICATED stream — zero touch to the orchestrator's shared per-user rng (the calibration spine).
+    // Owner ruling 2026-11-02 (#1922): FAST-FORWARD LIMBO. The jury house advances once per new juror
+    // arrival (about once a week), never on every off-screen tick. `juryHouseTickCount` (persisted) counts
+    // the stretches run, and one stretch is owed per juror past the first — so a restored game resumes
+    // exactly where it left off, and a double eviction (two arrivals at once) runs both owed stretches.
+    const owed = jurors.length - 1;
+    while (this.juryHouseTickCount < owed) this.juryHouseStretch(events, knowledge, jurors, finalists);
+  }
+
+  /** One 0100 jury-house stretch (one new juror's arrival): 1–3 hidden juror scenes + a week's grievance
+   *  retelling, folded into the saturated per-(juror, finalist) grudge the finale reads. */
+  private juryHouseStretch(
+    events: EventStore,
+    knowledge: KnowledgeService,
+    jurors: EntityId[],
+    finalists: EntityId[],
+  ): void {
+    if (!this.live) return;
     this.juryHouseTickCount += 1;
+    // DEDICATED stream — zero touch to the orchestrator's shared per-user rng (the calibration spine).
     const rng = new SeededRandom(hashSeed(`jury-house:${this.gameSeed ?? ""}:${this.juryHouseTickCount}`));
+    const { min, max } = JURY_HOUSE.scenesPerArrival;
     const result = runJuryHouseStretch({
       events,
       rng,
       knowledge,
+      scenes: min + rng.int(max - min + 1),
+      rounds: JURY_HOUSE.roundsPerArrival,
       jurors,
       edgeOf: (a, b) => this.rel.edge(a, b),
       mannerOf: (juror, finalist) => this.live!.mannerByEvictee?.[juror]?.[finalist] ?? {},

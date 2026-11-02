@@ -56,6 +56,8 @@ export interface JuryHouseDeps {
   finalists: readonly EntityId[];
   /** Scenes per stretch (defaults to `JURY_HOUSE.scenesPerTick`). */
   scenes?: number;
+  /** Grievance diffusion rounds per stretch (defaults to `JURY_HOUSE.rounds`). */
+  rounds?: number;
 }
 
 /** A bounded per-(juror, finalist) grudge increment this stretch — accumulated by the caller (saturated). */
@@ -122,12 +124,15 @@ export function runJuryHouseStretch(deps: JuryHouseDeps): JuryHouseResult {
       // A vague, player-as-SUBJECT grievance gloss — never a number, never the verbatim manner read.
       const fact = { content: `word in the jury house is that ${finalist} did ${origin} dirty on the way out` };
       const { beliefOf } = diffuseGossip({
+        // A STABLE lineage per (origin, finalist): the same grievance re-told in a later stretch reunites
+        // with the belief the room already holds instead of minting a duplicate fact (#1922).
+        factId: `jury-grievance:${origin}:${finalist}`,
         knowledge,
         graph,
         rng,
         origin,
         fact,
-        rounds: JURY_HOUSE.rounds,
+        rounds: deps.rounds ?? JURY_HOUSE.rounds,
         transmitProb: JURY_HOUSE.transmitProb,
         decay: JURY_HOUSE.decay,
         // CALIBRATION + bound: NO `rel`/`subjects` — the receipt fold into live edges is deliberately

@@ -272,3 +272,64 @@ describe("0100 — calibration neutrality: the orchestrator's shared rng stream 
     }
   });
 });
+
+describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one short stretch per new juror", () => {
+  /** A jury-phase game whose jury holds only the first `n` jurors (more arrive by `arrive`). */
+  function growingJury(user: string, seed: number, n: number) {
+    const { reg, sb } = juryPhaseGame(user, seed);
+    const snap = reg.snapshot(user) as SessionSnapshot;
+    (snap.live as LiveSeasonState).evictionOrder = JURORS.slice(0, n);
+    reg.restore(user, snap);
+    const s = reg.sandboxFor(user);
+    s.session.setJuryHouseEnabled(true);
+    const arrive = (k: number): void => {
+      const next = reg.snapshot(user) as SessionSnapshot;
+      const live = next.live as LiveSeasonState;
+      live.evictionOrder = JURORS.slice(0, (live.evictionOrder ?? []).length + k);
+      reg.restore(user, next);
+      reg.sandboxFor(user).session.setJuryHouseEnabled(true);
+    };
+    return { reg, sbOf: () => reg.sandboxFor(user), arrive, first: s };
+  }
+  const juryScenes = (sb: ReturnType<GameSessionRegistry["sandboxFor"]>) =>
+    sb.engine.events.queryAll().filter((e) => e.hidden && e.witnessSet.every((w) => JURORS.includes(w as EntityId)));
+
+  it("runs once per arrival: repeated ticks with no new juror are no-ops (no scenes, no draws)", () => {
+    const { sbOf } = growingJury("limbo-noop", 21, 3);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    const tick = sb.session.snapshot().juryHouseTickCount;
+    const events = sb.engine.events.count();
+    expect(tick, "one stretch per juror past the first").toBe(2);
+    for (let t = 0; t < 20; t++) sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.engine.events.count(), "no new jury-house life without a new juror").toBe(events);
+    expect(sb.session.snapshot().juryHouseTickCount).toBe(tick);
+  });
+
+  it("each arrival plays 1–3 hidden juror scenes, and a double eviction plays both owed stretches", () => {
+    const { sbOf, arrive } = growingJury("limbo-arrive", 22, 2);
+    let sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    let seen = juryScenes(sb).length;
+    expect(seen, "the first stretch played").toBeGreaterThanOrEqual(1);
+    expect(seen).toBeLessThanOrEqual(3);
+    arrive(2); // a double eviction: two jurors at once
+    sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "both owed stretches ran").toBe(3);
+    const added = juryScenes(sb).length - seen;
+    expect(added).toBeGreaterThanOrEqual(2);
+    expect(added).toBeLessThanOrEqual(6);
+    seen += added;
+  });
+
+  it("a re-told grievance reunites with the room's belief instead of piling up copies", () => {
+    const { sbOf } = growingJury("limbo-dedup", 23, 9);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge); // 8 owed stretches, one grievance
+    for (const juror of JURORS) {
+      const copies = sb.engine.knowledge.knownTo(juror).filter((k) => k.factId === `jury-grievance:${npc(1)}:${FINALIST}`);
+      expect(copies.length, `juror holds the grievance at most once`).toBeLessThanOrEqual(1);
+    }
+  });
+});

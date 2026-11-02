@@ -19,11 +19,23 @@ import { GOSSIP } from "./gossip";
  */
 export const JURY_HOUSE = {
   /**
-   * Hidden juror↔juror scenes per sequestered off-screen tick (open-question §1 default: per tick,
-   * small, so the room's bitterness builds GRADUALLY over real sequester time rather than in one jump).
-   * Bounded — the jury house is a quiet backstage, not the main house's busy society.
+   * Hidden juror↔juror scenes per sequestered off-screen tick — the default for direct callers of
+   * `runJuryHouseStretch`. The live adapter instead runs ONE stretch per new juror arrival with
+   * `scenesPerArrival` scenes (below).
    */
   scenesPerTick: 2,
+  /**
+   * Owner ruling 2026-11-02 (#1922): the jury house is a FAST-FORWARD LIMBO, like the show — not a focus
+   * of the game and never a drag on it. It advances once each time a new juror enters (about once a
+   * week), with 1–3 hidden juror scenes, instead of on every off-screen tick. Inclusive bounds.
+   */
+  scenesPerArrival: { min: 1, max: 3 },
+  /**
+   * Grievance retelling rounds in one arrival stretch. A stretch now stands in for about a week of
+   * sequester (it used to run every off-screen tick at `rounds` per tick), so the word spreads further
+   * per stretch. The grudge each juror takes is still once per stretch and saturates at `adjustmentCap`.
+   */
+  roundsPerArrival: 6,
   /**
    * The grudge DIFFUSION transmit/decay over the jury-house affinity graph — reuse `GOSSIP`'s proven
    * shape (open-question §2 default) so a grievance spreads with the SAME low per-edge transmission,
