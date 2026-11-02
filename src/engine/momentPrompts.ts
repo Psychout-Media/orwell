@@ -1527,6 +1527,15 @@ export function renderGameContext(view: GameStateView): string {
   ].join("\n");
 }
 
+/** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
+function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
+  const bits: string[] = [];
+  if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
+  if (e.currentRead) bits.push(`toward the player ${neutralizeForPrompt(e.currentRead.toward)} (${e.currentRead.drift})`);
+  if (e.rivalry) bits.push(`rivalry ${e.rivalry.tone}`);
+  return bits.join("; ");
+}
+
 /**
  * #1735 (A4) / #1732 (A3) — the terminal HARD-CONSTRAINTS block: a short, IMPERATIVE restatement of
  * this turn's binding pins, meant for the CALLER to append as the very LAST message before generation
@@ -1551,15 +1560,6 @@ export function renderGameContext(view: GameStateView): string {
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
-/** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
-function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
-  const bits: string[] = [];
-  if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
-  if (e.currentRead) bits.push(`toward the player ${neutralizeForPrompt(e.currentRead.toward)} (${e.currentRead.drift})`);
-  if (e.rivalry) bits.push(`rivalry ${e.rivalry.tone}`);
-  return bits.join("; ");
-}
-
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
