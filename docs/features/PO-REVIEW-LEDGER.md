@@ -1,5 +1,19 @@
 # PO Review Ledger
 
+> ## ⚠️ INCOMPLETE — review paused (owner, 2026-11-02)
+>
+> The PO's feature-by-feature review was **stopped partway** when the project paused for the summer.
+> It got through roughly **0001–0048** in order, plus a few later features pulled forward (e.g. 0110,
+> 0122–0127). It will resume eventually, but it is **not current work**.
+>
+> **How to read this file until the review resumes:**
+> - **⬜ Pending means NOT REVIEWED.** It is neither approval nor rejection. Do not cite it as sign-off.
+> - Rows that do carry a decision are real PO rulings and still stand.
+> - Explicit freezes (0097 / 0098 / 0103, ruled 2026-06-27 in `docs/decisions/PO-DECISIONS-LOG.md`)
+>   stand regardless of this file's state.
+> - Don't make an unreviewed feature permanent (e.g. by deleting its feature flag's off path) on the
+>   strength of this file. Keep it reversible until the PO signs it off.
+
 The single source of truth for **product-owner sign-off** on every feature. We comb through the
 feature set one at a time; the PO marks each **Approved / Expand / Delete / Defer**, and the
 decision is recorded here with the date and any notes.
