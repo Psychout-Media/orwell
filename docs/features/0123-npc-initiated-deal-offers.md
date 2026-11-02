@@ -43,6 +43,13 @@ is a **new front door** onto it, not new plumbing.
 
 ## 3. Scope
 
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+
+
 **In:**
 - **Offer generation** (`maybeOfferPlayerDeal`) at a **lull** (no pending decision, game live): a seeded,
   **bounded** (at most one open offer; per-week cap; probability-gated) check picks a **motivated** NPC —
@@ -70,6 +77,13 @@ is a **new front door** onto it, not new plumbing.
 
 ## 4. Design
 
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+
+
 - **Trigger (lull-only, bounded).** `maybeOfferPlayerDeal` runs at the top of `advanceGame`'s commit, but
   no-ops unless: the flag is on, the game is live (an HOH is crowned), there is **no** loop pending and **no**
   open offer already, and a per-week cooldown has cleared. Then a **dedicated** seeded rng
@@ -93,6 +107,13 @@ is a **new front door** onto it, not new plumbing.
 
 ## 5. Contracts (stack-agnostic)
 
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+
+
 ```
 maybeOfferPlayerDeal(): void            // lull-only, flag+cooldown+seeded; sets live.dealOffer or no-ops
 PendingDecisionView.kind += "deal-offer"    // + offer:{ from, kind, terms } detail (Vault-free)
@@ -104,6 +125,13 @@ surface: event [player, from], NOT hidden   // player-witnessed approach (0002),
 ```
 
 ## 6. Definition of Done
+
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling.
+
 
 - [x] **NPCs offer:** at a lull, a motivated houseguest floats the player a deal (bounded: one at a time,
       per-week cap, probability-gated, seeded).

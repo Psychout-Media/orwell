@@ -1204,6 +1204,8 @@ export interface OpenDealOfferView {
   terms: string;
   /** The in-game week it was floated — it lapses when the week rolls past this. */
   madeWeek: number;
+  /** The narrator's voicing instruction for this offer (carried here, not in the base prompt). */
+  howToVoice: string;
 }
 
 /** A decision the live loop is blocked on until the player resolves it (0011 + the finale, 0037). */

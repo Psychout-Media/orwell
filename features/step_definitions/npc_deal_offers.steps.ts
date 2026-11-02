@@ -109,7 +109,7 @@ Then("a deal between the player and that houseguest stands on the board", functi
 });
 
 Then("no floated offer is left waiting", function (this: BbWorld) {
-  assert.equal(this.dofSandbox!.session.getGameState().openDealOffer, null);
+  assert.equal(this.dofSandbox!.session.getGameState().openDealOffer, undefined);
 });
 
 When("the player declines the floated offer", function (this: BbWorld) {
@@ -139,7 +139,7 @@ Then("the floated offer is the player's own knowledge, never hidden Vault conten
 Then("only one floated offer stands at a time", function (this: BbWorld) {
   // The offer is a single field — resolving it clears it; a second cannot stack.
   this.dofSandbox!.session.submitDecision({ kind: "deal-offer", vote: "decline" });
-  assert.equal(this.dofSandbox!.session.getGameState().openDealOffer, null);
+  assert.equal(this.dofSandbox!.session.getGameState().openDealOffer, undefined);
 });
 
 // ── PO ruling 2026-11-01: never blocks; lapses unanswered ──────────────────────────────────────
@@ -148,6 +148,8 @@ When("the player ignores the floated offer and play continues", function (this: 
   this.dofSeqBefore = sb.session.gameStatus().beatSeq;
   for (let i = 0; i < 400 && sb.session.getGameState().openDealOffer; i++) {
     const v = sb.session.advanceGame();
+    // The no-pop-up rule, checked on EVERY advance: a floated offer never becomes a blocking card.
+    if (v.pending?.kind === "deal-offer") throw new Error("a floated offer must never be a pending card");
     if (v.pending) resolveLegally(sb.session, v.pending);
     if (v.finished) break;
   }
@@ -159,7 +161,7 @@ Then("the week keeps moving while the offer stands", function (this: BbWorld) {
 
 Then("the floated offer lapses when the week rolls over", function (this: BbWorld) {
   const sb = this.dofSandbox!;
-  assert.equal(sb.session.getGameState().openDealOffer, null);
+  assert.equal(sb.session.getGameState().openDealOffer, undefined);
   assert.ok(sb.session.getGameState().week > this.dofOffer!.madeWeek);
   const lapse = sb.engine.events.queryAll().find((e) => e.content.includes("lapsed unanswered"));
   assert.ok(lapse, "the lapse was recorded");

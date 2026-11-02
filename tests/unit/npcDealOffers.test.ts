@@ -78,7 +78,7 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
       d.parties.map((p) => (typeof p === "string" ? p : p.id));
     expect(deals.some((d) => partyIds(d).includes(PLAYER) && partyIds(d).includes(from))).toBe(true);
     // The offer is consumed — nothing stands after answering.
-    expect(sb.session.getGameState().openDealOffer).toBeNull();
+    expect(sb.session.getGameState().openDealOffer).toBeUndefined();
   });
 
   it("declining the offer makes NO deal and cools the rebuffed houseguest (hidden)", () => {
@@ -150,6 +150,7 @@ describe("0123 (PO ruling 2026-11-01) — a floated offer never blocks the week,
     let moved = false;
     for (let i = 0; i < 6 && !moved; i++) {
       const v = sb.session.advanceGame();
+      expect(v.pending?.kind, "a floated offer is never a pending card").not.toBe("deal-offer");
       if (v.pending) resolveLegally(sb.session, v.pending);
       moved = sb.session.gameStatus().beatSeq > seq0;
     }
@@ -166,15 +167,21 @@ describe("0123 (PO ruling 2026-11-01) — a floated offer never blocks the week,
       if (v.pending) resolveLegally(sb.session, v.pending);
       if (v.finished) break;
     }
-    expect(sb.session.getGameState().openDealOffer, "the offer lapsed").toBeNull();
+    expect(sb.session.getGameState().openDealOffer, "the offer lapsed").toBeUndefined();
     expect(sb.session.getGameState().week).toBeGreaterThan(offer!.madeWeek);
     const lapse = sb.engine.events.queryAll().find((e) => e.content.includes("lapsed unanswered"));
     expect(lapse, "the lapse was recorded").toBeDefined();
     expect(lapse!.hidden).toBeFalsy();
     expect(lapse!.witnessSet.includes(PLAYER)).toBe(true);
-    // No deal was made from a lapsed offer (any new deal on the board is not with the offerer from it).
+    // No deal was made from the lapsed offer: none binds the player and that offerer.
     const deals = sb.session.getGameState().deals ?? [];
     expect(deals.length).toBeGreaterThanOrEqual(beforeDeals);
+    expect(
+      deals.some((d) => {
+        const ids = d.parties.map((p) => (typeof p === "string" ? p : p.id));
+        return ids.includes(PLAYER) && ids.includes(offer!.from.id);
+      }),
+    ).toBe(false);
   });
 
   it("how hard a houseguest takes being ignored depends on their temper (volatility-scaled)", () => {
@@ -189,12 +196,41 @@ describe("0123 (PO ruling 2026-11-01) — a floated offer never blocks the week,
       sb.session.restore(snap);
       const before = sb.engine.relationships.edge(offer.from.id, PLAYER).threat;
       sb.session.advanceGame();
-      expect(sb.session.getGameState().openDealOffer).toBeNull();
+      expect(sb.session.getGameState().openDealOffer).toBeUndefined();
       return sb.engine.relationships.edge(offer.from.id, PLAYER).threat - before;
     };
     const calm = lapseDelta(0.05);
     const hothead = lapseDelta(0.95);
     expect(hothead).toBeGreaterThan(calm);
     expect(calm).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("0123 — a deal-offer answer after the season ends binds nothing", () => {
+  it("submitDecision deal-offer is a no-op once the season is finished", () => {
+    const sb = newGame("offer-postseason", 7, true);
+    const offer = driveToOffer(sb)!;
+    const snap = sb.session.snapshot();
+    snap.live!.finished = true;
+    sb.session.restore(snap);
+    const before = (sb.session.getGameState().deals ?? []).length;
+    sb.session.submitDecision({ kind: "deal-offer", vote: "accept" });
+    expect((sb.session.getGameState().deals ?? []).length).toBe(before);
+    expect(offer.from.id).not.toBe(PLAYER);
+  });
+});
+
+describe("0123 — an offer whose party has left is void (Greptile #1911)", () => {
+  it("an offer from a houseguest who is then evicted can neither stand nor be accepted", () => {
+    const sb = newGame("offer-evicted", 7, true);
+    const offer = driveToOffer(sb)!;
+    const snap = sb.session.snapshot();
+    snap.live!.evictionOrder = [...snap.live!.evictionOrder, offer.from.id];
+    sb.session.restore(snap);
+    const before = (sb.session.getGameState().deals ?? []).length;
+    sb.session.submitDecision({ kind: "deal-offer", vote: "accept" });
+    const deals = sb.session.getGameState().deals ?? [];
+    expect(deals.length).toBe(before);
+    expect(sb.session.getGameState().openDealOffer).toBeUndefined();
   });
 });

@@ -4577,6 +4577,21 @@ def _drop_preset_persona(preface: list, preset_system_prompt) -> None:
     ]
 
 
+def _deal_offer_directive(offer) -> Optional[str]:
+    """0123 (PO ruling 2026-11-01) — the narrator's brief for a houseguest's standing deal offer, or None.
+    Vault-free: the offer's public name, kind and terms plus the engine-supplied voicing instruction."""
+    if not isinstance(offer, dict):
+        return None
+    who = ((offer.get("from") or {}).get("name") or "").strip()
+    if not who:
+        return None
+    kind = str(offer.get("kind") or "deal").strip()
+    terms = str(offer.get("terms") or "").strip()
+    how = str(offer.get("howToVoice") or "").strip()
+    line = f"OPEN DEAL OFFER — {who} wants a {kind} deal with the player" + (f": \"{terms}\"." if terms else ".")
+    return line + (f" {how}" if how else "")
+
+
 async def apply_game_framing(
     preface: list,
     user,
@@ -4752,6 +4767,15 @@ async def apply_game_framing(
             logger.warning("[orwell] pending barrier skipped for user=%s: framing read timed out", _gkey)
         except Exception as e:
             logger.warning("[orwell] pending barrier skipped for user=%s: %s", _gkey, e)
+        # 0123 (PO ruling 2026-11-01) — a houseguest's standing DEAL OFFER is open state, never a pending
+        # card: brief the narrator so it voices the offer in-scene and records the player's in-chat answer.
+        # Read off the SAME game_state snapshot; absent unless an offer stands. Fail-open.
+        try:
+            _offer_note = _deal_offer_directive(game_state.get("openDealOffer"))
+            if _offer_note:
+                gm_prompt = gm_prompt + "\n\n" + _offer_note
+        except Exception as e:
+            logger.warning("[orwell] deal-offer directive skipped for user=%s: %s", _gkey, e)
         # ADR 0009 (D3 Part A) — the LOCATION grounding barrier. The same desync class as the pending
         # barrier, for room occupancy: surface the engine's `whereabouts` as an ENFORCEABLE fact so the
         # model stops overriding it from memory (root cause #1). Read off the SAME `game_state` snapshot

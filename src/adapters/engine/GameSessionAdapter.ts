@@ -3909,7 +3909,8 @@ export class GameSessionAdapter implements GameSession {
       // on reload — not the FE's process-local last-seen cache, which a FE restart wipes.
       pending: this.pendingView(),
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
-      openDealOffer: this.openDealOfferView(),
+      // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
+      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
       // /recap — otherwise it hangs on the last ceremony state post-season. Vault-free (public winner).
@@ -8620,16 +8621,19 @@ export class GameSessionAdapter implements GameSession {
    * entirely, since it called `advanceBeat` directly instead of going through `advanceGame`'s
    * sequence). Folded HERE (not left as a separate call at each call site) so both callers get the
    * gate by construction and can never drift apart again. No-op unless the layer is on; when it fires
-   * it sets `live.dealOffer` (surfaced as a `deal-offer` pending) and the beat does NOT advance this
-   * turn — the player answers the offer first. Flag off ⇒ byte-identical.
+   * it sets `live.dealOffer` — open state the narrator voices (PO ruling 2026-11-01: never a pending card,
+   * never blocking; the beat still advances). Flag off ⇒ byte-identical.
    */
   private advanceOneBeat(): BeatEvent | null {
+    // Only an offer that was ALREADY standing before this step may lapse in it — one floated by this same
+    // call must reach the player (be voiced) before the week can roll it away (cubic #1911).
+    const standingOfferId = this.live!.dealOffer?.id;
     this.maybeOfferPlayerDeal();
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
     // open state the narrator voices in-scene; the player answers in chat, or it lapses at week's end.
     if (!this.live!.pending && !this.live!.finished) {
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
-      this.maybeLapseDealOffer(); // folded BEFORE commit(ev) so the beat's persist carries the lapse
+      this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
       // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
       // toward late-night and wrapping to a new morning (banking a late night the player never ended).
       // The diegetic bound + sleep cost ride this; dormant (byte-identical) unless the clock is enabled.
@@ -8696,6 +8700,7 @@ export class GameSessionAdapter implements GameSession {
     // malformed/missing `vote` (a stale or garbled client call) is a safe NO-OP — the offer stands and no
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
+      if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
       if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept"));
       return remember(this.advanceView(null));
     }
@@ -10076,6 +10081,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.npcDealOffersEnabled) return;                       // the layer is opt-in
     if (s.pending || s.dealOffer || s.finished) return;           // lull-only, one open offer at a time
     if (s.hoh === undefined) return;                              // the game must be live (an HOH crowned)
+    if (s.beat === "finale" || s.beat === "complete") return;     // no deal-making once the finale begins
     if (s.lastDealOfferWeek === s.week) return;                   // at most one offer per in-game week
     const O = DECISION.playerOffer;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? ""}:deal-offer:${s.week}:${s.beat ?? ""}`));
@@ -10119,6 +10125,11 @@ export class GameSessionAdapter implements GameSession {
     return this.inOneCommit(() => {
       const o = s.dealOffer!;
       s.dealOffer = undefined; // consumed either way
+      // An offer whose party has left (or a finished season) can no longer bind anyone (Greptile #1911).
+      if (this.dealOfferPartyGone(o.from) || s.finished) {
+        this.persist();
+        return this.advanceView(null);
+      }
       if (accept) {
         const evId = this.onPlayerEvent?.(
           `${this.nameOf(PLAYER)} accepts ${this.nameOf(o.from)}'s ${o.kind} deal: ${o.terms}`,
@@ -10146,10 +10157,21 @@ export class GameSessionAdapter implements GameSession {
    * houseguest shrugs it off). Bounded + seeded + hidden — the player only ever sees later behaviour. The
    * lapse itself is recorded as a PLAYER-WITNESSED event (the player knows they never answered).
    */
-  private maybeLapseDealOffer(): void {
+  private maybeLapseDealOffer(standingOfferId: string | undefined): void {
     const s = this.live;
     const o = s?.dealOffer;
-    if (!s || !o || !this.house || s.week <= o.madeWeek) return;
+    if (!s || !o || !this.house) return;
+    // A party LEFT (the offerer or the player was evicted — staged evictions remove the evictee before the
+    // week rolls): the offer is void at once, quietly (no deal possible, no rebuff to feel). Greptile #1911.
+    if (this.dealOfferPartyGone(o.from)) {
+      s.dealOffer = undefined;
+      return;
+    }
+    if (o.id !== standingOfferId) return;
+    // Lapse when the week rolls past it — or when the season reaches the finale/its end, which never rolls
+    // the week (a final-three offer must not dangle into the finale or survive a finished season).
+    const seasonOver = !!s.finished || s.beat === "finale" || s.beat === "complete";
+    if (s.week <= o.madeWeek && !seasonOver) return;
     s.dealOffer = undefined;
     this.onPlayerEvent?.(
       `${this.nameOf(o.from)}'s ${o.kind} offer to ${this.nameOf(PLAYER)} lapsed unanswered`,
@@ -10161,11 +10183,25 @@ export class GameSessionAdapter implements GameSession {
     this.rel.applyDirected(o.from, PLAYER, "conflict", rng, L.scaleMin + (L.scaleMax - L.scaleMin) * vol);
   }
 
+  /** 0123 — true when either party to a deal offer has left the game (offerer or player evicted). */
+  private dealOfferPartyGone(from: EntityId): boolean {
+    const gone = new Set(this.live?.evictionOrder ?? []);
+    return gone.has(from) || gone.has(PLAYER);
+  }
+
   /** 0123 — the standing NPC deal offer as Vault-free open state for the narrator (null when none). */
   private openDealOfferView(): OpenDealOfferView | null {
     const o = this.live?.dealOffer;
     if (!o || !this.house) return null;
-    return { from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek };
+    // The voicing instruction rides WITH the offer (only while one stands) instead of the base prompt — no
+    // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
+    return {
+      from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
+      howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
+        "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
+        "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
+        "ignored offer lapses on its own at week's end.",
+    };
   }
 
   /**
@@ -11246,7 +11282,7 @@ export class GameSessionAdapter implements GameSession {
       // eviction-vote ballot surfaced only on gameStatus and state-keyed consumers
       // silently missed it).
       pending: this.pendingView(),
-      openDealOffer: this.openDealOfferView(), // 0123: voiced in-scene by the narrator, never a card
+      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
       // facts gameStatus() exposes), so the narrator voices the REAL HOH/nominees/veto, never invents.

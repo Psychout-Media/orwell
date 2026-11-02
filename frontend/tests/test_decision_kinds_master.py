@@ -48,16 +48,20 @@ def test_every_relay_reads_the_single_source():
 
 
 def test_the_model_tool_enum_offers_every_engine_kind():
+    """The LIVE schema the model receives (not a source-text match) offers every engine kind."""
     import src.agent_tools  # noqa: F401
-    from src.tool_schemas import ORWELL_GAME_TOOLS  # noqa: F401
-    from src import tool_schemas
-    schema = next(t for t in tool_schemas.TOOL_SCHEMAS if t["function"]["name"] == "submitDecision") \
-        if hasattr(tool_schemas, "TOOL_SCHEMAS") else None
-    if schema is None:
-        src = (FE / "src" / "tool_schemas.py").read_text(encoding="utf-8")
-        assert '"enum": sorted(_DECISION_KINDS)' in src
-        return
+    from src.tool_schemas import FUNCTION_TOOL_SCHEMAS
+    schema = next(t for t in FUNCTION_TOOL_SCHEMAS if t["function"]["name"] == "submitDecision")
     assert set(schema["function"]["parameters"]["properties"]["kind"]["enum"]) == _engine_kinds()
+
+
+def test_a_deal_offer_is_never_a_pending_card():
+    """PO ruling 2026-11-01: a deal offer is open state the narrator voices, never a pop-up. The engine's
+    pendingView must not emit a `deal-offer` card (the FE card branch for it is dormant legacy)."""
+    adapter = (REPO / "src" / "adapters" / "engine" / "GameSessionAdapter.ts").read_bytes().decode("utf-8", "replace")
+    start = adapter.index("private pendingView(")
+    body = adapter[start:adapter.index("\n  private ", start + 10)]
+    assert 'kind: "deal-offer"' not in body, "pendingView must never raise a deal-offer card"
 
 
 def test_every_card_kind_has_a_card_renderer():
@@ -66,3 +70,17 @@ def test_every_card_kind_has_a_card_renderer():
     card_kinds = _engine_kinds() - {"deal-offer"}  # PO ruling 2026-11-01: a deal offer is never a card
     missing = sorted(k for k in card_kinds if f'"{k}"' not in titles)
     assert not missing, f"decision kinds with no card title/renderer (would show a blank card): {missing}"
+
+
+def test_an_open_deal_offer_is_briefed_to_the_narrator():
+    """The narrator only voices what it is told: an openDealOffer on the game state becomes a per-turn
+    brief (who / kind / terms + the engine's voicing instruction); no offer ⇒ no brief."""
+    import routes.chat_helpers as ch
+    note = ch._deal_offer_directive({"from": {"id": "npc:3", "name": "Houseguest"}, "kind": "safety",
+                                     "terms": "you keep me safe, I keep you safe", "howToVoice": "VOICE-IT"})
+    assert note and "Houseguest" in note and "safety" in note and "VOICE-IT" in note
+    assert ch._deal_offer_directive(None) is None
+    src = (FE / "routes" / "chat_helpers.py").read_text(encoding="utf-8")
+    framing = src[src.index("async def apply_game_framing("):]
+    assert '_deal_offer_directive(game_state.get("openDealOffer"))' in framing, \
+        "apply_game_framing must brief the narrator on a standing deal offer"

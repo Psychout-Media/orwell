@@ -63,6 +63,8 @@
     // with no walk-back, and is a precondition for every high-stakes kind downstream (the
     // ceremony's own body copy already says "locked in and plays out" with no matching badge).
     "veto-decision",
+    // 0025: the secret veto is one-time and decides whether the player stays on the block.
+    "secret-veto",
   ]);
   const isHighStakes = (kind) => HIGH_STAKES_KINDS.has(kind);
 
