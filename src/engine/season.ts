@@ -86,6 +86,18 @@ export function floaterRead(t: EntityId, active: readonly EntityId[], rel: Relat
   return Math.max(0, Math.min(1, 1 - (maxBond - base) / DECISION.nomination.floaterBondSpan));
 }
 
+/**
+ * How locked-in a houseguest is with someone ELSE (PO ruling 2026-11-02, the "break up the duo" read):
+ * the strongest MUTUAL bond they share with anyone but the HOH, 0 at the edge baseline → 1 at baseline
+ * + `floaterBondSpan`. A tight pair is a threat to an outside HOH. Hidden, engine-only.
+ */
+export function duoRead(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel): number {
+  const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  let best = base;
+  for (const o of active) if (o !== t && o !== hoh) best = Math.max(best, Math.min(rel.bondStrength(o, t), rel.bondStrength(t, o)));
+  return Math.max(0, Math.min(1, (best - base) / DECISION.nomination.floaterBondSpan));
+}
+
 /** The signals the strategic nomination read consumes — all optional so it degrades to threat-only. */
 export interface NominationRead {
   /** The house's current derived blocs (0043) — bloc-mates are shielded from the block. */
@@ -117,7 +129,8 @@ export function nominationStrategy(
   if (nonMates.length >= 2) cands = nonMates;
   const N = DECISION.nomination;
   const score = (t: EntityId): number =>
-    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + N.floaterWeight * floaterRead(t, active, rel);
+    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + N.floaterWeight * floaterRead(t, active, rel) +
+    N.duoWeight * duoRead(t, hoh, active, rel);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now

@@ -39,6 +39,11 @@ export const DECISION = {
     floaterBondSpan: 0.35,
     /** Extra floater pull on the SECOND (pawn) seat of a direct nomination — the pawn is a floater. */
     pawnSeatFloaterBonus: 0.3,
+    /**
+     * "Break up the duo" (PO ruling 2026-11-02): an outside HOH reads a houseguest locked in a tight
+     * MUTUAL pair as a threat — adds this × their duo read (see `duoRead`) to the nomination score.
+     */
+    duoWeight: 0.3,
     tacticFor: { bond: "pawn", neutral: "direct", clash: "backdoor" } as Record<
       RelationshipDisposition,
       NominationTactic
