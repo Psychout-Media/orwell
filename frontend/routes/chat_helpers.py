@@ -76,6 +76,13 @@ _DR_INVITED_BEATS: dict = {}
 # race just re-applies the same value. Best-effort: a hiccup leaves the latch down so a later turn
 # retries — it never blocks or breaks the turn.
 _TIME_OF_DAY_APPLIED = False
+# Batch D (audit, 2026-11-01): the engine flag is process-global ON THE ENGINE, but this latch lived for
+# the FE's whole process — so when the ENGINE restarted alone (update, crash, doctor bounce) it booted with
+# the clock at its env default and the FE never re-pushed: the in-game clock went dark mid-season. The
+# latch now EXPIRES after a short window, so a restarted engine is re-told within minutes. The push is
+# idempotent (it sets the flag to its persisted value), so the periodic re-apply is one cheap call.
+_TIME_OF_DAY_APPLIED_AT = 0.0
+_TIME_OF_DAY_REVERIFY_SECS = 120.0
 
 
 async def _apply_persisted_time_of_day_once(user) -> None:
@@ -90,8 +97,9 @@ async def _apply_persisted_time_of_day_once(user) -> None:
     "default" sandbox (the same anon→default mapping as the #1154 force gate), which is exactly
     right single-tenant; in multiuser the engine refuses a userless call, we stay unlatched, and
     the first real user's framed turn applies it — the original multiuser semantics unchanged."""
-    global _TIME_OF_DAY_APPLIED
-    if _TIME_OF_DAY_APPLIED:
+    global _TIME_OF_DAY_APPLIED, _TIME_OF_DAY_APPLIED_AT
+    import time as _time
+    if _TIME_OF_DAY_APPLIED and (_time.monotonic() - _TIME_OF_DAY_APPLIED_AT) < _TIME_OF_DAY_REVERIFY_SECS:
         return
     try:
         from src.settings import get_setting
@@ -105,7 +113,11 @@ async def _apply_persisted_time_of_day_once(user) -> None:
         # FE log. A falsy/empty ack leaves the latch DOWN so the next framed turn retries.
         ack = await orwell_engine.set_time_of_day(enabled, user=user)
         if ack:
+            first = not _TIME_OF_DAY_APPLIED
             _TIME_OF_DAY_APPLIED = True
+            _TIME_OF_DAY_APPLIED_AT = _time.monotonic()
+            if not first:
+                return  # a quiet periodic re-verify — log only the first apply
             logger.info(
                 "[orwell] time-of-day APPLIED to engine: enabled=%s (night gating %s) — ack ok",
                 enabled, "ON" if enabled else "OFF",

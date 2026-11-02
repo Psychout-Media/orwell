@@ -110,3 +110,33 @@ def test_boot_apply_demotes_the_expected_pregame_miss():
                             "app.py"), encoding="utf-8").read()
     assert "no active game" in src and "Time-of-day boot apply deferred" in src, \
         "app.py's boot apply must demote the expected pre-game miss to info"
+
+
+def test_latch_expires_so_a_restarted_engine_is_re_told(monkeypatch):
+    """Batch D: the engine flag lives on the ENGINE; an engine-only restart boots it at the env default.
+    The FE latch must EXPIRE so the persisted setting is re-pushed within minutes — not never."""
+    _reset_latch(monkeypatch)
+    calls = []
+
+    async def fake_set(enabled, user=None):
+        calls.append(bool(enabled))
+        return {"ok": True}
+
+    monkeypatch.setattr(orwell_engine, "set_time_of_day", fake_set)
+    settings_mod = importlib.import_module("src.settings")
+    monkeypatch.setattr(settings_mod, "get_setting", lambda key, default=None: True)
+    _run(chat_helpers._apply_persisted_time_of_day_once(None))
+    _run(chat_helpers._apply_persisted_time_of_day_once(None))
+    assert len(calls) == 1, "within the window it stays latched"
+    # the window elapses (e.g. the engine was bounced meanwhile) → the next turn re-pushes
+    monkeypatch.setattr(chat_helpers, "_TIME_OF_DAY_APPLIED_AT",
+                        chat_helpers._TIME_OF_DAY_APPLIED_AT - chat_helpers._TIME_OF_DAY_REVERIFY_SECS - 1)
+    _run(chat_helpers._apply_persisted_time_of_day_once(None))
+    assert len(calls) == 2, "an expired latch re-applies the clock setting"
+
+
+def test_deploy_boots_the_engine_clock_on():
+    """A restarted engine must come up with the clock ON (the FE default) before any FE re-push."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] / "deploy" / "orwell-env-defaults.sh").read_text(encoding="utf-8")
+    assert "\nORWELL_TIME_OF_DAY=1\n" in src

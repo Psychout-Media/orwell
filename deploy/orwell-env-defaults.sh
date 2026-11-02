@@ -73,6 +73,10 @@
 #       unset — it re-orders the scheduler and folds hidden relationship weights, so it is NOT
 #       calibration-neutral and is explicitly out of scope for #1779 — see `GameSessionAdapter.ts:610-640`.
 
+#   ORWELL_TIME_OF_DAY          The in-game clock (ADR 0006 / 0066). The FE pushes its setting onto the
+#       engine (default ON), but a restarted engine boots at THIS value until the FE re-pushes — so the
+#       deploy boots it ON to match the FE default and the clock never goes dark across a restart.
+
 # orwell_optin_env_defaults <data_dir>
 #   Prints the opt-in KEY=VALUE lines — ONLY bare KEY=VALUE, one per line, in the installer's historical
 #   order (no comments, so install's .env stays byte-identical and update's add-if-absent loop is clean).
@@ -109,5 +113,6 @@ ORWELL_TRAITORS_FURY=1
 ORWELL_PRODUCER_READ=1
 ORWELL_DEAL_WITNESSES=1
 ORWELL_BOOTH_RECEIPTS=1
+ORWELL_TIME_OF_DAY=1
 EOF
 }
