@@ -6678,9 +6678,12 @@ export class GameSessionAdapter implements GameSession {
     const name = this.nameOf(thread.sourceId);
     const rumor = threadRumor(thread, name);
     // Choose an NPC ORIGIN for the rumor: a living NPC other than the source (someone who'd whisper it).
+    // #1913 — only someone AWAKE can whisper it (ADR 0006). Clock off ⇒ `awakeNow()` is null ⇒ every
+    // living NPC, byte-identical.
+    const awake = this.awakeNow();
     const livingNpcs = (this.house?.npcs ?? [])
       .map((n) => n.id)
-      .filter((id) => id !== thread.sourceId && !pos.evicted.has(id));
+      .filter((id) => id !== thread.sourceId && !pos.evicted.has(id) && (!awake || awake.has(id)));
     // The to-player decision: 0092 may FORCE the channel (the drip chose it), else the unchanged seeded
     // `surfaceToPlayerProb` roll. A forced `player` still requires the seam to be wired (the registry sets
     // it); a forced `gossip` skips the to-player branch entirely. Default ⇒ byte-identical to before.
@@ -6717,6 +6720,10 @@ export class GameSessionAdapter implements GameSession {
           : rumor;
         this.onThreadSurfaceToPlayer(thread.sourceId, belief);
       }
+    } else if (this.onThreadGossip && awake) {
+      // Nobody is awake to whisper it tonight: the story is NOT spent — it stays eligible (and off the season
+      // cap) for a later surface (cubic #1914).
+      return;
     }
     thread.status = "surfaced";
     thread.lifecycleWeek = this.week;
