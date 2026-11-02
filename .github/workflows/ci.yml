@@ -18,6 +18,14 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The gh-hosted runners intermittently can't reach the npm registry (ETIMEDOUT / ENETUNREACH on `npm ci`
+# before any test runs — seen on #1911 smoke and #1912 mirror-parity). Retry the fetches with backoff
+# instead of failing the whole job on one dropped connection.
+env:
+  NPM_CONFIG_FETCH_RETRIES: "5"
+  NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "10000"
+  NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "60000"
+
 jobs:
   # ── Path filters ────────────────────────────────────────────────────────────
   #
