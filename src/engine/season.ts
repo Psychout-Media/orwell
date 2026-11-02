@@ -129,7 +129,12 @@ export function nominationStrategy(
     const pawn = pool.reduce((best, c) => (floaterRead(c, active, rel) > floaterRead(best, active, rel) ? c : best), pool[0]!);
     return [ranked[0]!, pawn];
   }
-  return [ranked[0]!, ranked[1]!];
+  // The SECOND seat is where pawns come from (PO ruling 2026-11-02, "pawns go home"): the HOH pairs
+  // the target with whoever is cheapest to put up — the next read, pulled further toward a floater.
+  const rest = ranked.slice(1);
+  const seat2 = (c: EntityId): number => score(c) + N.pawnSeatFloaterBonus * floaterRead(c, active, rel);
+  const pawn = rest.reduce((best, c) => (seat2(c) > seat2(best) ? c : best), rest[0]!);
+  return [ranked[0]!, pawn];
 }
 
 /** Tally a jury vote: most votes wins; a tie is broken by the last-evicted juror. */

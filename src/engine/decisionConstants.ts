@@ -37,6 +37,8 @@ export const DECISION = {
      */
     floaterWeight: 0.5,
     floaterBondSpan: 0.35,
+    /** Extra floater pull on the SECOND (pawn) seat of a direct nomination — the pawn is a floater. */
+    pawnSeatFloaterBonus: 0.5,
     tacticFor: { bond: "pawn", neutral: "direct", clash: "backdoor" } as Record<
       RelationshipDisposition,
       NominationTactic
