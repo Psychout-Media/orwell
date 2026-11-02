@@ -28,10 +28,24 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
   else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id });
 }
 
+/**
+ * The player LINGERS — one long scene of social play (ADR 0003: lingering is play). Ceremonies alone no longer
+ * carry the house into the night: the night-gate day-breaks roll the clock to the next morning, and an
+ * eviction night costs ~2h in total (PO ruling 2026-11-01). The evening is spent by the player hanging around,
+ * so these helpers spend it the same way — via the per-conversation clock, which never wraps past the night.
+ */
+function linger(s: GameSessionAdapter): void {
+  s.setPerConversationClockEnabled(true);
+  s.resetSceneClock();
+  s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
+  s.setPerConversationClockEnabled(false); // only the linger moves time — later ticks leave the clock alone
+}
+
 /** Advance (clock on) until the phase reaches `target`; resolve pendings legally. Returns whether reached. */
 function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay === target) return true;
+    if (s.gameStatus().timeOfDay) { linger(s); if (s.gameStatus().timeOfDay === target) return true; }
     const a = s.advanceGame();
     if (a.pending) resolveLegally(s, a.pending);
     if (a.finished) break;
@@ -49,6 +63,8 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
       if (s.awakeAmong(ids).length < ids.length) return true; // someone has turned in
+      linger(s);
+      if (s.awakeAmong(ids).length < ids.length) return true;
     }
     const a = s.advanceGame();
     if (a.pending) resolveLegally(s, a.pending);
@@ -126,7 +142,10 @@ describe("ADR 0006 — the off-screen society pairs only the awake (the night ow
       const beforeIds = new Set(sb.engine.events.queryAll().map((e) => e.id));
       for (let t = 0; t < 8; t++) orch.advance(user, "offscreen-tick");
       // The off-screen SOCIETY scenes are hidden pairwise events (witnessSet excludes the player).
-      const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2);
+      // Rumor retellings (`gossip …` events) come from several secondary diffusion paths that are not the
+      // society pairing under test — excluded here; their own night-gating is a tracked follow-up.
+      const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
+        && !/^gossip\b/.test(e.content));
       for (const e of scenes) {
         for (const id of e.witnessSet) {
           if (id !== PLAYER) expect(awake.has(id), "an asleep houseguest schemed off-screen at night").toBe(true);
