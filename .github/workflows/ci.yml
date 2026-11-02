@@ -228,6 +228,10 @@ jobs:
           fi
           cat deployed-flags.env >> "$GITHUB_ENV"
       - name: full-game UAT under the deployed profile
+        # The deployed profile simulates several times slower; the real-HTTP decisions test is the only
+        # UAT whose per-test timeout actually fires (it yields to the event loop), so widen its budget.
+        env:
+          UAT_TIMEOUT_SCALE: "10"
         run: npx vitest run tests/uat/fullGameUat.12seed.test.ts tests/uat/fullGameUat.5seed.test.ts tests/uat/fullGameUat.decisions.test.ts
 
   # ── Coverage gate ──────────────────────────────────────────────────────────────
