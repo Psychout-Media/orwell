@@ -346,13 +346,17 @@ _COLLECT_JS = r"""
     // Sample on a text LINE that is actually inside the visible (clipped) region — not the element's
     // midpoint, which can be clipped away while other lines of a long reply/reasoning block are still
     // on screen (greptile #1915: visible low-contrast text was skipped until scrolled to its middle).
-    let yc = null;
+    // Keep that line's HORIZONTAL extent too, so wrapped / right-aligned text is sampled only across
+    // the glyphs of the chosen line, never the empty backdrop beside it (cubic #1915).
+    let yc = null, lx = r.x, lw = r.width;
     try {
       const range = document.createRange();
       range.selectNodeContents(el);
       for(const lr of range.getClientRects()){
         const ly = lr.y + lr.height / 2;
-        if(lr.height >= 3 && ly >= cy0 && ly <= cy1 && ly >= 0 && ly < vh){ yc = ly; break; }
+        if(lr.height >= 3 && lr.width >= 3 && ly >= cy0 && ly <= cy1 && ly >= 0 && ly < vh){
+          yc = ly; lx = lr.x; lw = lr.width; break;
+        }
       }
     } catch(_e) { /* fall back to the midpoint below */ }
     if(yc === null){
@@ -360,10 +364,10 @@ _COLLECT_JS = r"""
       if(mid >= cy0 && mid <= cy1) yc = mid;
     }
     if(yc === null) continue;
-    const n = r.width >= 24 ? 7 : 3;
+    const n = lw >= 24 ? 7 : 3;
     const pts = [];
     for(let k = 0; k < n; k++){
-      const xv = r.x + 2 + (r.width - 4) * (k / (n - 1));
+      const xv = lx + 2 + (lw - 4) * (k / (n - 1));
       if(xv < cx0 || xv > cx1 || xv < 0 || xv >= vw) continue;
       const hit = document.elementFromPoint(xv, yc);
       if(hit && (hit === el || el.contains(hit) || hit.contains(el))) pts.push(xv);
