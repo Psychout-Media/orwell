@@ -4,6 +4,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 import { PLAYER } from "../../src/domain/ids";
+import { linger } from "../support/linger";
 
 /**
  * ADR 0006 — the SOCIAL half of the sleep economy: the awake set wired into the living house. As the
@@ -32,6 +33,7 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
 function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay === target) return true;
+    if (s.gameStatus().timeOfDay) { linger(s); if (s.gameStatus().timeOfDay === target) return true; }
     const a = s.advanceGame();
     if (a.pending) resolveLegally(s, a.pending);
     if (a.finished) break;
@@ -49,6 +51,8 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
       if (s.awakeAmong(ids).length < ids.length) return true; // someone has turned in
+      linger(s);
+      if (s.awakeAmong(ids).length < ids.length) return true;
     }
     const a = s.advanceGame();
     if (a.pending) resolveLegally(s, a.pending);
@@ -126,7 +130,10 @@ describe("ADR 0006 — the off-screen society pairs only the awake (the night ow
       const beforeIds = new Set(sb.engine.events.queryAll().map((e) => e.id));
       for (let t = 0; t < 8; t++) orch.advance(user, "offscreen-tick");
       // The off-screen SOCIETY scenes are hidden pairwise events (witnessSet excludes the player).
-      const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2);
+      // Rumor retellings (`gossip …` events) come from several secondary diffusion paths that are not the
+      // society pairing under test — excluded here; their own night-gating is tracked in #1913.
+      const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
+        && !/^gossip\b/.test(e.content));
       for (const e of scenes) {
         for (const id of e.witnessSet) {
           if (id !== PLAYER) expect(awake.has(id), "an asleep houseguest schemed off-screen at night").toBe(true);

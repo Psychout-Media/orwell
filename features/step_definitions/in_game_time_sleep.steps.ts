@@ -16,6 +16,7 @@ import {
 import { CLOCK, WEEKLY_CADENCE } from "../../src/engine/sleepConstants";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
+import { linger } from "../../tests/support/linger";
 
 /**
  * Feature 0066 — in-game time of day & the nightly sleep economy (ADR 0006), the 24-HOUR model (#1125).
@@ -68,6 +69,8 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
+      if (s.awakeAmong(ids).length < ids.length) return true;
+      linger(s);
       if (s.awakeAmong(ids).length < ids.length) return true;
     }
     const a = s.advanceGame();

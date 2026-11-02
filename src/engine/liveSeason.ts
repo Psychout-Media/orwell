@@ -474,6 +474,14 @@ export interface LiveSeasonState {
   /** The in-progress live eviction sub-loop (0047); set while a weekly eviction stages its reveal. */
   eviction?: EvictionProgress;
   /**
+   * PO ruling 2026-11-01 — the in-game hours already charged to the current multi-step EVENT (an
+   * eviction night or the finale), so the whole event costs ~2h of the day however many presentation
+   * steps it stages (it used to charge +3h per reveal batch / goodbye / Q&A — days of in-game time).
+   * `key` names the event (`eviction:w<week>` / `finale`). Clock-only bookkeeping: read and written only
+   * on the time-of-day path (calibration never touches it). Absent ⇒ no event charged yet.
+   */
+  eventClock?: { key: string; spent: number };
+  /**
    * The SEALED reserve twists (0025/B53): what may fire and at which week. ENGINE-ONLY Vault
    * content carried in the loop state so it persists with the season (0030) — no projection
    * ever selects it, and the Vault store holds the audit copy. Often empty (rare by construction).
@@ -1698,6 +1706,32 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
   }
   s.nightDepth = next;
   s.timeOfDay = phaseForHour(next);
+}
+
+/** The beats that make up one eviction night (0047 staged reveal + the F3 final eviction). */
+const EVICTION_EVENT_BEATS: ReadonlySet<Beat> = new Set<Beat>([
+  "eviction", "eviction-reveal", "eviction-goodbye", "eviction-result", "final-eviction",
+]);
+/** The beats that make up the finale (0037: statements, Q&A, the vote, the reveal, the winner). */
+const FINALE_EVENT_BEATS: ReadonlySet<Beat> = new Set<Beat>(["finale", "finale-reveal", "finale-result"]);
+
+/**
+ * PO ruling 2026-11-01 — "eviction night and the finale take about two in-game hours, total". Returns the
+ * hours a resolved beat should charge the clock when it belongs to a multi-step event, or `null` when it
+ * does not (the caller keeps its normal per-beat cost). The event's whole budget (`budgetHours`, the
+ * eviction span) is charged on its FIRST step and every later step costs 0, tracked on `s.eventClock` so
+ * it survives a save/restart mid-event. `weekBefore` is the week as it stood BEFORE the beat resolved
+ * (the eviction result rolls the week inside the same step). No rng; clock-path only.
+ */
+export function eventBeatHours(s: LiveSeasonState, beat: Beat, weekBefore: number, budgetHours: number): number | null {
+  const key = EVICTION_EVENT_BEATS.has(beat) ? `eviction:w${weekBefore}`
+    : FINALE_EVENT_BEATS.has(beat) ? "finale"
+    : null;
+  if (key === null) return null;
+  const spent = s.eventClock?.key === key ? s.eventClock.spent : 0;
+  const hours = Math.max(0, budgetHours - spent);
+  s.eventClock = { key, spent: spent + hours };
+  return hours;
 }
 
 /**

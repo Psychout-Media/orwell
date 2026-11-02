@@ -17,6 +17,7 @@ import type { EntityId } from "../../src/domain/ids";
 import type { Room, Occupancy } from "../../src/domain/house";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { playSeed, EARNED_WINS, SEEDS } from "../../tests/property/juryReachShared";
+import { linger } from "../../tests/support/linger";
 
 /**
  * Feature 0078 — motivated off-screen society & intentional movement. Co-presence is the gate for any
@@ -133,6 +134,8 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
+      if (s.awakeAmong(ids).length < ids.length) return true;
+      linger(s);
       if (s.awakeAmong(ids).length < ids.length) return true;
     }
     const a = s.advanceGame();
@@ -356,7 +359,10 @@ Then("a houseguest who has gone to bed is absent from the awake house and appear
   // (2) Appears in no off-screen scene: run the society and assert no fresh hidden pair includes an asleep id.
   const beforeIds = new Set(ms.sandbox!.engine.events.queryAll().map((e) => e.id));
   for (let t = 0; t < 8; t++) ms.orch!.advance(ms.user!, "offscreen-tick");
-  const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2);
+  // Rumor retellings (`gossip …`) come from secondary diffusion paths, not the society pairing under test;
+  // their own night-gating is tracked in #1913.
+  const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
+    && !/^gossip\b/.test(e.content));
   for (const e of fresh) for (const id of e.witnessSet) {
     if (id !== PLAYER) assert.ok(!asleep.includes(id), "an asleep houseguest never schemed off-screen at night");
   }

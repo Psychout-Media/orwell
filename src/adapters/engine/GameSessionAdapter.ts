@@ -219,7 +219,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES,
   firstCeremonyBeatResolved,
   requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat,
+  advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -228,7 +228,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists } from "../../engine/reserveTwists";
@@ -8632,6 +8632,7 @@ export class GameSessionAdapter implements GameSession {
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
     // open state the narrator voices in-scene; the player answers in chat, or it lapses at week's end.
     if (!this.live!.pending && !this.live!.finished) {
+      const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
       // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
@@ -8653,18 +8654,30 @@ export class GameSessionAdapter implements GameSession {
       // deficit is 0 (no night ran) and the conflict tally is still empty.
       if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)))) {
         const wasRetired = this.live!.playerRetired ?? false;
+        const depthBefore = this.live!.nightDepth;
         // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
         // comp ~3h, an eviction ~2h (beatFeltHours), instead of a flat +3h. Applied ONLY when the
         // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
         // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
         const feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
-        if (feltHours !== null) advanceClock(this.live!, feltHours);
+        // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
+        // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
+        // so one eviction night ran most of a day and the finale ran for days).
+        // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
+        // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
+        const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"))
+          : null;
+        if (eventHours !== null) advanceClock(this.live!, eventHours);
+        else if (feltHours !== null) advanceClock(this.live!, feltHours);
         else advanceClock(this.live!);
         // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning
         // after a turnIn (that night already accrued). Detect: a fresh morning (back at the wake hour) we
         // did NOT reach via retirement.
-        if (!wasRetired && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
+        // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
+        // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
+        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
         this.rollNightConflicts();
       }
       this.commit(ev);
