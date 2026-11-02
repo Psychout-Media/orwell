@@ -6700,7 +6700,9 @@ export class GameSessionAdapter implements GameSession {
       const belief = this.isPlayerConfidant(thread.sourceId)
         ? this.confidantThreadRumor(thread, name)
         : rumor;
-      this.onThreadSurfaceToPlayer(thread.sourceId, belief);
+      const told = this.onThreadSurfaceToPlayer(thread.sourceId, belief);
+      // #1913 — nobody awake to relay it tonight: the story is not spent (clock off ⇒ unchanged).
+      if (!told && awake) return;
     } else if (livingNpcs.length > 0 && this.onThreadGossip) {
       // The common case: hand the paraphrase to the 0038 gossip engine to diffuse NPC↔NPC.
       const origin = livingNpcs[rng.int(livingNpcs.length)]!;
