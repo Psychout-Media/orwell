@@ -207,34 +207,24 @@ describe("T0-2 — the EXCLUDED pending kinds keep their CURRENT (non-auto-advan
   });
 });
 
-describe("T0-2 — the chained auto-advance honors the 0123 NPC deal-offer LULL gate (#1824)", () => {
-  it("a deal due at the post-resolution lull sets dealOffer and the beat does NOT advance — matching the un-chained advanceGame path", () => {
-    // Greptile P1 (#1824, PR #1824): `advanceGame` runs `maybeOfferPlayerDeal()` BEFORE its beat-draw
-    // guard, so a standing lull can intercept the beat and set `live.dealOffer` instead of advancing.
-    // The FIRST cut of the T0-2 auto-advance called `advanceOneBeat()` directly from `submitDecision`,
-    // skipping that gate entirely — dropping the offer opportunity and breaking the byte-identical-path
-    // promise. The fix folds `maybeOfferPlayerDeal()` INTO `advanceOneBeat()` itself (ahead of its own
-    // guard), so both callers honor it by construction. Seed 3 deterministically reaches a lull — right
-    // after a `nominations` pending resolves — where the 0123 layer floats an NPC deal offer.
+describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer, and never blocks on it", () => {
+  it("a deal due at the post-resolution lull is floated on the chained path, and the beat still advances (PO ruling 2026-11-01)", () => {
+    // #1824: `maybeOfferPlayerDeal()` is folded INTO `advanceOneBeat()` so the chained submitDecision path
+    // honors the same lull gate as a plain advanceGame call (the offer opportunity is never skipped).
+    // PO ruling 2026-11-01: a floated offer is open state the narrator voices — it NEVER blocks the week,
+    // so the chained step still draws its beat in the same single commit.
     const { session } = startedGame(3);
     session.setNpcDealOffersEnabled(true);
 
     let view: AdvanceView = session.advanceGame();
     let caught: AdvanceView | null = null;
     let beforeSeq = -1;
-    let resolvedKind: PendingDecisionView["kind"] | null = null;
     for (let i = 0; i < 1500 && !view.finished && !caught; i++) {
-      if (view.pending?.kind === "deal-offer") {
-        // An offer surfaced via a PLAIN advanceGame call earlier in the drive — decline it and keep
-        // going; we're specifically looking for one that surfaces via the CHAINED submitDecision path.
-        view = session.submitDecision({ kind: "deal-offer", vote: "decline" });
-        continue;
-      }
       if (view.pending && AUTO_ADVANCE_KINDS.has(view.pending.kind)) {
+        const hadOffer = !!session.getGameState().openDealOffer;
         beforeSeq = session.gameStatus().beatSeq;
-        const kind = view.pending.kind;
         const result = resolveLegally(session, view.pending);
-        if (result.pending?.kind === "deal-offer") { caught = result; resolvedKind = kind; break; }
+        if (!hadOffer && session.getGameState().openDealOffer) { caught = result; break; }
         view = result;
         continue;
       }
@@ -242,34 +232,18 @@ describe("T0-2 — the chained auto-advance honors the 0123 NPC deal-offer LULL 
       view = session.advanceGame();
     }
 
-    expect(caught, "seed 3 should reach a chained submitDecision call that surfaces a deal-offer").not.toBeNull();
-    const r1 = caught!;
-    // Documents exactly which resolution seed 3 is pinned to (so a future drift reads as a clear
-    // "expected nominations, got X" rather than a confusing downstream assertion failure below).
-    expect(resolvedKind).toBe("nominations");
-
-    // THE PROOF (the gate is honored): the offer is real and well-formed...
-    expect(r1.pending!.kind).toBe("deal-offer");
-    expect(r1.pending!.offer).toBeDefined();
-    expect(r1.pending!.offer!.from.id).not.toBe("player");
-    expect(["safety", "final-two"]).toContain(r1.pending!.offer!.kind);
-
-    // ...it happened in the SAME single commit as the pending's own resolution (one beatSeq bump,
-    // exactly like every other T0-2 auto-advance case — the deal check adds no extra transaction)...
-    expect(r1.beatSeq).toBe(beforeSeq + 1);
-
-    // ...and CRITICALLY, the beat itself did NOT advance past the gate: the veto field is NOT yet
-    // drawn (unlike the plain-nominations auto-advance case above, where it always is by this point) —
-    // proof that `advanceOneBeat`'s beat-draw guard correctly saw the FRESH `dealOffer` this SAME call
-    // just set, rather than racing ahead of it.
-    expect(r1.status.veto.players.length).toBe(0);
-
-    // A follow-up advanceGame() call is a genuine no-op — the offer stands until the player answers,
-    // exactly matching what a separate (un-chained) advanceGame call would have produced.
+    expect(caught, "seed 3 should float a deal offer on a chained submitDecision call").not.toBeNull();
+    const offer = session.getGameState().openDealOffer!;
+    expect(offer.from.id).not.toBe("player");
+    expect(["safety", "final-two"]).toContain(offer.kind);
+    // One commit, exactly like every other T0-2 auto-advance (the offer adds no extra transaction)...
+    expect(caught!.beatSeq).toBe(beforeSeq + 1);
+    // ...never a pending card...
+    expect(caught!.pending?.kind).not.toBe("deal-offer");
+    // ...and the game is NOT frozen: a follow-up advance still moves it while the offer stands.
     const r2 = session.advanceGame();
-    expect(r2.event).toBeNull();
-    expect(r2.beatSeq).toBe(r1.beatSeq);
-    expect(r2.pending?.kind).toBe("deal-offer");
+    if (r2.pending) resolveLegally(session, r2.pending);
+    expect(session.gameStatus().beatSeq).toBeGreaterThan(caught!.beatSeq);
   });
 });
 

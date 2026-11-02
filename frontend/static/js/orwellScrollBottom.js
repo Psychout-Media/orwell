@@ -62,6 +62,28 @@
     } catch (_) { return false; }
   }
 
+  // Generalizes #948: a FLOATING kit window (a non-docked .ow-window — the post-season retro or the
+  // finale panel on a phone tier) that covers the button's slot also suppresses it, so the fab never
+  // paints over a window the player is reading (responsive-matrix overlap at <=390px). Docked
+  // windows live in the rail and never cover it. Fail-open: any error → not suppressed.
+  function coveredByFloatingWindow(btn) {
+    try {
+      var b = btn.getBoundingClientRect();
+      if (b.width === 0 && b.height === 0) return false;
+      var wins = document.querySelectorAll(".ow-window:not(.ow-docked)");
+      for (var i = 0; i < wins.length; i++) {
+        var w = wins[i];
+        if (w.hidden) continue;
+        var cs = window.getComputedStyle ? window.getComputedStyle(w) : null;
+        if (cs && (cs.display === "none" || cs.visibility === "hidden")) continue;
+        var r = w.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        if (r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top) return true;
+      }
+      return false;
+    } catch (_) { return false; }
+  }
+
   // Composer-anchored placement (ported from the retired #scroll-bottom-btn inline script,
   // #887): sit just above the .chat-input-bar, right-aligned, recomputed on scroll/resize so the
   // button never lands in a fixed spot that overlaps the decision card or the composer.
@@ -214,9 +236,10 @@
     // over the scroll position so that even if a card mounts while the reader is scrolled up (which
     // would otherwise satisfy the show-condition), the button stays hidden. Unread stays counted so
     // the badge is correct once the card clears.
-    if (nearBottom(box) || !hasContent || decisionCardVisible()) {
+    var covered = coveredByFloatingWindow(btn);
+    if (nearBottom(box) || !hasContent || decisionCardVisible() || covered) {
       btn.classList.remove("osb-show");
-      if (!decisionCardVisible()) clearUnread();
+      if (!decisionCardVisible() && !covered) clearUnread();
     } else {
       btn.classList.add("osb-show");
     }
@@ -265,6 +288,9 @@
     }
     watchNewMessages(box);
     watchDecisionCard();
+    // A floating window moving, resizing, changing sheet detent or rising never adds/removes DOM, so
+    // the body observer can't see it — re-check coverage on the kit's own layout event.
+    try { window.addEventListener("orwell:window-layout", scheduleUpdate); } catch (_) {}
     update();
   }
 

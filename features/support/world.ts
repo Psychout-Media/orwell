@@ -380,7 +380,8 @@ export class BbWorld extends World {
 
   // NPC-initiated deal offers (0123) scratch state.
   dofSandbox?: import("../../src/composition/registry").UserSandbox;
-  dofOffer?: import("../../src/ports/GameSession").PendingDecisionView | null;
+  dofOffer?: import("../../src/ports/GameSession").OpenDealOfferView | null;
+  dofSeqBefore?: number;
   dofFrom?: EntityId;
   dofBeforeThreat?: number;
   dofBeforeDeals?: number;

@@ -7,6 +7,18 @@
 > the NPC's real read, Vault-safe, bounded, and calibration-safe (default-off flag ⇒ byte-identical).
 > **Executable spec:** [`0123-npc-initiated-deal-offers.feature`](./0123-npc-initiated-deal-offers.feature)
 
+> **Amended 2026-11-01 (PO ruling — "should play out within the LLM … not really wanting a pop up").**
+> The first build surfaced the offer as a `deal-offer` **pending decision card** that **blocked the week**
+> until answered — and the FE relays rejected the answer, so in a real deploy the game **froze**. Now:
+> - **No pop-up, never a freeze.** The offer is Vault-free **open state** (`openDealOffer` on the state and
+>   status views), not a pending; the weekly loop advances past it.
+> - **The narrator voices it** in-scene (who, kind, terms) at a natural moment; the player answers in chat and
+>   the model records it via `submitDecision({ kind: "deal-offer", vote: "accept" | "decline" })` (accept ⇒ a
+>   real deal; decline ⇒ the existing bounded hidden cooling).
+> - **Ignored ⇒ lapses at week's end**, recorded as a player-witnessed event, with an **NPC-dependent** hidden
+>   cooling: the `conflict` fold is scaled by the offerer's soul `volatility` from `playerOffer.lapse.scaleMin`
+>   (a calm houseguest shrugs) to `scaleMax` (a hothead stews). Flag-off stays byte-identical.
+
 ## 1. Summary
 
 In real _Big Brother_, houseguests are **constantly** coming to *you* — "I'll use the veto on you if you
@@ -30,6 +42,14 @@ The whole deal *spine* already exists (0039 tracking, 0121 depth, the reconcile/
 is a **new front door** onto it, not new plumbing.
 
 ## 3. Scope
+
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
+
 
 **In:**
 - **Offer generation** (`maybeOfferPlayerDeal`) at a **lull** (no pending decision, game live): a seeded,
@@ -58,6 +78,14 @@ is a **new front door** onto it, not new plumbing.
 
 ## 4. Design
 
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
+
+
 - **Trigger (lull-only, bounded).** `maybeOfferPlayerDeal` runs at the top of `advanceGame`'s commit, but
   no-ops unless: the flag is on, the game is live (an HOH is crowned), there is **no** loop pending and **no**
   open offer already, and a per-week cooldown has cleared. Then a **dedicated** seeded rng
@@ -81,6 +109,14 @@ is a **new front door** onto it, not new plumbing.
 
 ## 5. Contracts (stack-agnostic)
 
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
+
+
 ```
 maybeOfferPlayerDeal(): void            // lull-only, flag+cooldown+seeded; sets live.dealOffer or no-ops
 PendingDecisionView.kind += "deal-offer"    // + offer:{ from, kind, terms } detail (Vault-free)
@@ -92,6 +128,14 @@ surface: event [player, from], NOT hidden   // player-witnessed approach (0002),
 ```
 
 ## 6. Definition of Done
+
+> **Superseded in part (2026-11-01 amendment above).** Where this section describes the offer as a
+> `deal-offer` **pending decision card** that blocks the loop until answered, read instead: the offer is
+> **`openDealOffer` open state** (never a pending, never blocking); the narrator voices it in-scene from the
+> per-turn brief; the player's in-chat answer is recorded via `submitDecision({kind:"deal-offer", vote})`;
+> an unanswered offer lapses at week's end (or at the finale) with the volatility-scaled cooling — except
+> that an offer whose offerer or the player has left the house is voided quietly (no lapse event, no cooling).
+
 
 - [x] **NPCs offer:** at a lull, a motivated houseguest floats the player a deal (bounded: one at a time,
       per-week cap, probability-gated, seeded).

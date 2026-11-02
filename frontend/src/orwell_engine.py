@@ -427,6 +427,28 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
     return res
 
 
+# ── the pending-decision kinds the FE relays to submitDecision (ONE source of truth) ──────────────
+# Mirrors the engine's `PendingDecisionView["kind"]` union (src/ports/GameSession.ts) EXACTLY. Every FE
+# seam that validates a decision kind (the REST relay, the WS relay, the model's submitDecision tool +
+# its schema enum) reads THIS set — three hand-copied lists drifted apart before (deal-offer and
+# secret-veto were rejected everywhere ⇒ the game froze on an answer it could not accept).
+# `tests/test_decision_kinds_master.py` pins it to the engine union so it can never drift again.
+DECISION_KINDS: frozenset = frozenset({
+    "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
+    "replacement", "eviction-vote", "tie-break", "final-eviction",
+    "goodbye-message", "finale-statement", "finale-answer",
+    "juror-question", "juror-vote",
+    # 0130 — the player-evictee's own exit interview (posture + optional words).
+    "exit-interview",
+    # 0061 — the sanctioned confirmed self-eviction.
+    "self-evict",
+    # 0025 — the reactive-twist secret veto (the holder's private use/pass).
+    "secret-veto",
+    # 0123 — the player's in-chat answer to a houseguest's deal offer (vote: accept | decline).
+    "deal-offer",
+})
+
+
 # ── season-reset listeners ──────────────────────────────────────────────────────────────────────
 # Every season start (first game, confirmed restart, next season) goes through createCharacter, and
 # a God-Mode sandbox reset wipes the season too. FE modules that keep PER-SEASON state keyed only by
