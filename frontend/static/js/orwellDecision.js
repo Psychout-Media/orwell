@@ -435,6 +435,8 @@
       if (useVeto === false) return { kind, use: false };
       return sel.length === 1 ? { kind, use: true, save: sel[0] } : null;
     }
+    // 0025 — the secret veto: play it (use:true) or hold it (use:false). An explicit choice only.
+    if (kind === "secret-veto") return useVeto === null ? null : { kind, use: useVeto === true };
     const field = SINGLE_PICK_FIELD[kind];
     if (field) return sel.length === 1 ? { kind, [field]: sel[0] } : null;
     return null;
@@ -470,6 +472,7 @@
       "juror-vote": "Your jury vote — crown a winner",
       "self-evict": "Self-eviction — leave the game?",
       "deal-offer": "A houseguest's offer — accept or decline",
+      "secret-veto": "Your secret veto — play it or hold it",
     }[kind] || "Your decision";
   }
 
@@ -488,6 +491,7 @@
     if (kind === "goodbye-message") return "Pick a tone to enable Confirm — your written message is optional.";
     if (kind === "exit-interview") return "Pick a posture to enable Confirm — your written words are optional.";
     if (kind === "veto-decision") return "Choose to use the veto (and who to save) or not, to enable Confirm.";
+    if (kind === "secret-veto") return "Choose to play your secret veto or hold it, to enable Confirm.";
     if (multi) return `Select ${pick} to enable Confirm.`;
     return "Make your selection above to enable Confirm.";
   }
@@ -814,6 +818,19 @@
           sync();
         });
       });
+    } else if (kind === "secret-veto") {
+      // 0025: the player's private, one-time safety — play it now or hold it (no person to pick).
+      const play = addChip("Play the secret veto", "__play__");
+      const hold = addChip("Hold it", "__hold__");
+      const choose = (v) => {
+        useVeto = useVeto === v ? null : v;
+        sel = [];
+        play.setAttribute("aria-pressed", useVeto === true ? "true" : "false");
+        hold.setAttribute("aria-pressed", useVeto === false ? "true" : "false");
+        sync();
+      };
+      play.addEventListener("click", () => choose(true));
+      hold.addEventListener("click", () => choose(false));
     } else if (kind === "deal-offer") {
       // G15: structured offer rendering (0123 accept/decline of NPC deal)
       if (pending.offer && pending.offer.from && pending.offer.from.name) {

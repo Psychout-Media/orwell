@@ -2,7 +2,7 @@ import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
-  AdvanceView, SubmitDecisionReq, PendingDecisionView, NamedRef, SocialInitiative, PlayerTaglineView,
+  AdvanceView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, SealedFact, AccuseTieResult, ConfrontResult,
   DailyRecapView,
@@ -3908,6 +3908,8 @@ export class GameSessionAdapter implements GameSession {
       // The live pending (Vault-free legal options) so the decision card re-arms from engine truth
       // on reload — not the FE's process-local last-seen cache, which a FE restart wipes.
       pending: this.pendingView(),
+      // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
+      openDealOffer: this.openDealOfferView(),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
       // /recap — otherwise it hangs on the last ceremony state post-season. Vault-free (public winner).
@@ -8623,8 +8625,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private advanceOneBeat(): BeatEvent | null {
     this.maybeOfferPlayerDeal();
-    if (!this.live!.pending && !this.live!.dealOffer && !this.live!.finished) {
+    // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
+    // open state the narrator voices in-scene; the player answers in chat, or it lapses at week's end.
+    if (!this.live!.pending && !this.live!.finished) {
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
+      this.maybeLapseDealOffer(); // folded BEFORE commit(ev) so the beat's persist carries the lapse
       // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
       // toward late-night and wrapping to a new morning (banking a late night the player never ended).
       // The diegetic bound + sleep cost ride this; dormant (byte-identical) unless the clock is enabled.
@@ -10135,6 +10140,35 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * 0123 (PO ruling 2026-11-01) — an offer the player never answered LAPSES when the in-game week rolls
+   * past the week it was made. No deal is created. The houseguest cools on the player by an amount that
+   * DEPENDS ON THE NPC: scaled by their hidden `volatility` (a hothead takes being ignored harder; a calm
+   * houseguest shrugs it off). Bounded + seeded + hidden — the player only ever sees later behaviour. The
+   * lapse itself is recorded as a PLAYER-WITNESSED event (the player knows they never answered).
+   */
+  private maybeLapseDealOffer(): void {
+    const s = this.live;
+    const o = s?.dealOffer;
+    if (!s || !o || !this.house || s.week <= o.madeWeek) return;
+    s.dealOffer = undefined;
+    this.onPlayerEvent?.(
+      `${this.nameOf(o.from)}'s ${o.kind} offer to ${this.nameOf(PLAYER)} lapsed unanswered`,
+      [PLAYER, o.from], "conversation",
+    );
+    const L = DECISION.playerOffer.lapse;
+    const vol = Math.min(1, Math.max(0, this.soulObj(o.from)?.volatility ?? 0.5));
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? ""}:deal-lapse:${o.from}:${o.madeWeek}`));
+    this.rel.applyDirected(o.from, PLAYER, "conflict", rng, L.scaleMin + (L.scaleMax - L.scaleMin) * vol);
+  }
+
+  /** 0123 — the standing NPC deal offer as Vault-free open state for the narrator (null when none). */
+  private openDealOfferView(): OpenDealOfferView | null {
+    const o = this.live?.dealOffer;
+    if (!o || !this.house) return null;
+    return { from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek };
+  }
+
+  /**
    * Vault-free projection of a player-party deal: parties (names) + kind + terms + status. No numbers.
    * A7/E12: a deal `sealedBallot` marks broken — via the SEALED eviction ballot, not the player's own
    * vote — projects as still "open" until the season finishes: the raw internal `d.status` ("broken")
@@ -10327,18 +10361,8 @@ export class GameSessionAdapter implements GameSession {
         options: [], pick: 0,
       };
     }
-    // 0123 — an NPC-initiated deal offer awaiting the player (only when no ceremony pending blocks it, and
-    // never on the self-evict channel above). A player-witnessed approach with two picks: accept / decline.
-    if (!p && this.live?.dealOffer && this.house) {
-      const o = this.live.dealOffer;
-      return {
-        kind: "deal-offer", by: this.named(PLAYER)!,
-        prompt: `${this.nameOf(o.from)} pulls you aside with a ${o.kind} deal: ${o.terms}. Accept, or decline.`,
-        options: [{ id: "accept", name: "Accept the deal" }, { id: "decline", name: "Decline" }],
-        offer: { from: this.named(o.from)!, kind: o.kind, terms: o.terms },
-        pick: 1,
-      };
-    }
+    // 0123 (PO ruling 2026-11-01) — a floated deal offer is NOT a pending card any more: it is open state
+    // (`openDealOffer` on the state/status views) the narrator voices in-scene. Never a pop-up.
     if (!p) return null;
     const by = this.named(p.by)!;
     const refs = (ids: EntityId[]): NamedRef[] => ids.map((id) => ({ id, name: this.nameOf(id) }));
@@ -11222,6 +11246,7 @@ export class GameSessionAdapter implements GameSession {
       // eviction-vote ballot surfaced only on gameStatus and state-keyed consumers
       // silently missed it).
       pending: this.pendingView(),
+      openDealOffer: this.openDealOfferView(), // 0123: voiced in-scene by the narrator, never a card
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
       // facts gameStatus() exposes), so the narrator voices the REAL HOH/nominees/veto, never invents.

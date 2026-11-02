@@ -5242,16 +5242,7 @@ async def do_submit_decision(content: str, owner: Optional[str] = None) -> Dict:
     kind = (args.get("kind") or "").strip()
     # Mirror the engine's SubmitDecisionReq kinds (src/ports/GameSession.ts) exactly — the engine
     # validates legality; the relay must never be the thing that makes a pending kind unplayable.
-    _DECISION_KINDS = {
-        "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
-        "replacement", "eviction-vote", "tie-break", "final-eviction",
-        "goodbye-message", "finale-statement", "finale-answer",
-        "juror-question", "juror-vote",
-        # 0130: the player-evictee's own exit interview (posture + optional words) rides the same seam.
-        "exit-interview",
-        # 0061: the confirmed self-eviction rides the same validated decision seam.
-        "self-evict",
-    }
+    _DECISION_KINDS = orwell_engine.DECISION_KINDS  # ONE source (orwell_engine.DECISION_KINDS)
     if kind not in _DECISION_KINDS:
         return {"error": f"kind must be one of: {', '.join(sorted(_DECISION_KINDS))}", "exit_code": 1}
     decision: dict = {"kind": kind}

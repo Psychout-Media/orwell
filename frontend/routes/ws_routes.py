@@ -61,15 +61,7 @@ _HEARTBEAT_S = 20.0
 # gate the HTTP ``/decision`` route's local ``_DECISION_KINDS`` enforces — kept in lockstep with the
 # canonical set in ``routes/orwell_routes.py``). This is the guard that keeps the WS ``submit_decision``
 # call a sanctioned progression, not a UI-driven game bypass (test_b66_augment_guard).
-_DECISION_KINDS = {
-    "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
-    "replacement", "eviction-vote", "tie-break", "final-eviction",
-    "goodbye-message", "finale-statement", "finale-answer",
-    "juror-question", "juror-vote",
-    # 0130 — the player-evictee's exit-interview (posture + optional words) rides the same seam.
-    "exit-interview",
-    "self-evict",
-}
+from src.orwell_engine import DECISION_KINDS as _DECISION_KINDS  # ONE source (orwell_engine)
 
 
 # ── monkeypatchable seams (kept module-level so tests can swap them without a booted app) ──────────

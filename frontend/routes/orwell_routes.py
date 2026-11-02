@@ -1559,16 +1559,7 @@ def setup_orwell_routes() -> APIRouter:
         # apply twice / to the wrong staged round. Vault-free; not a decision field (popped off below).
         idempotency_key: Optional[str] = None
 
-    _DECISION_KINDS = {
-        "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
-        "replacement", "eviction-vote", "tie-break", "final-eviction",
-        "goodbye-message", "finale-statement", "finale-answer",
-        "juror-question", "juror-vote",
-        # 0130 — the player-evictee's exit-interview (posture + optional words) rides the same seam.
-        "exit-interview",
-        # 0061 — the sanctioned confirmed self-eviction rides the same validated decision seam.
-        "self-evict",
-    }
+    _DECISION_KINDS = orwell_engine.DECISION_KINDS  # ONE source (orwell_engine.DECISION_KINDS)
 
     @router.post("/decision")
     async def orwell_decision(body: DecisionRequest, request: Request):

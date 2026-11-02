@@ -44,7 +44,9 @@ function autoResolve(p) {
     case 'finale-statement': return { kind: 'finale-statement', statement: 'I played my own game.' };
     case 'finale-answer': return { kind: 'finale-answer', appeal: (p.appeals && p.appeals[0]) || 'own-game' };
     case 'juror-question': return { kind: 'juror-question', statement: 'What was your biggest move?' };
-    case 'exit-interview': return { kind: 'exit-interview', stance: (p.stances && p.stances[0]) || 'gracious', message: 'Take care.' };
+    // The engine reads the exit stance off `vote` (or `choice`) and the words off `statement` — `stance`/
+    // `message` are its INTERNAL field names, so sending them made every exit interview a silent no-op.
+    case 'exit-interview': return { kind: 'exit-interview', vote: (p.options && p.options[0] && p.options[0].id) || (p.stances && p.stances[0]) || 'gracious', statement: 'Take care.' };
     case 'juror-vote': return { kind: 'juror-vote', vote: p.options[0].id };
     default: return { kind: p.kind };
   }

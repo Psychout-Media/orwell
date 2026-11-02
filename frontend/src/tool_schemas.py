@@ -15,6 +15,7 @@ from typing import Optional
 from src.agent_tools import ToolBlock, TOOL_TAGS
 from src.tool_parsing import _TOOL_NAME_MAP
 from src.constants import known_theme_names_ordered
+from src.orwell_engine import DECISION_KINDS as _DECISION_KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -1381,20 +1382,19 @@ FUNCTION_TOOL_SCHEMAS = [
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "enum": [
-                            "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
-                            "replacement", "eviction-vote", "tie-break", "final-eviction",
-                            "goodbye-message", "finale-statement", "finale-answer",
-                            "juror-question", "juror-vote", "self-evict",
-                        ],
-                        "description": "The pending decision's kind (mirror the engine's pending.kind exactly).",
+                        # ONE source of truth with the REST/WS relays (orwell_engine.DECISION_KINDS);
+                        # the hand-copied enum drifted (exit-interview / deal-offer / secret-veto missing).
+                        "enum": sorted(_DECISION_KINDS),
+                        "description": "The pending decision's kind (mirror the engine's pending.kind exactly). "
+                                       "deal-offer is the player's in-chat answer to a houseguest's open deal "
+                                       "offer (vote: accept | decline) — never a pending card.",
                     },
                     "confirmed": {"type": "boolean", "description": "self-evict (0061): ONLY confirmed=true executes the irreversible walk-out — and ONLY after the player's own explicit confirmation. Never set this off an in-character line."},
                     "choice": {"type": "array", "items": {"type": "string"}, "description": "nominations: exactly two houseguest ids. houseguests-choice / tie-break / final-eviction: one houseguest id."},
-                    "use": {"type": "boolean", "description": "veto-decision: whether to use the Power of Veto."},
+                    "use": {"type": "boolean", "description": "veto-decision: whether to use the Power of Veto. secret-veto: true plays the player's one-time secret veto, false holds it."},
                     "save": {"type": "string", "description": "veto-decision: the nominee id to save (required when use=true)."},
                     "replacement": {"type": "string", "description": "replacement: the houseguest id the HOH names as the replacement nominee."},
-                    "vote": {"type": "string", "description": "eviction-vote: the nominee id to evict. juror-vote: the finalist id the juror crowns. goodbye-message: the player's chosen tone — warm | respectful | cold (E34)."},
+                    "vote": {"type": "string", "description": "eviction-vote: the nominee id to evict. juror-vote: the finalist id the juror crowns. goodbye-message: the player's chosen tone — warm | respectful | cold (E34). exit-interview: the chosen exit stance. deal-offer: accept | decline (the player's own in-chat answer)."},
                     "statement": {"type": "string", "description": "finale-statement / juror-question: the player's free text (flavor; carries no score). goodbye-message: the optional message text accompanying the chosen tone."},
                     "appeal": {"type": "string", "enum": ["own-game", "mend", "connect", "discredit-rival"], "description": "finale-answer: the structured appeal the player makes to the asking juror (engine-scored; never the prose)."},
                     "intent": {"type": "string", "enum": ["compete", "throw", "play-safe"], "description": "comp-intent / comp-round: the player's declared approach for the competition, asked ONCE up front (round 1) — committed before the competition resolves and locked. The elimination rounds then play out as drama; the player is NOT re-asked each round (the up-front approach is the binding one)."},

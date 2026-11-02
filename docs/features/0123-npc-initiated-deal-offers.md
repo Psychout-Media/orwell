@@ -7,6 +7,18 @@
 > the NPC's real read, Vault-safe, bounded, and calibration-safe (default-off flag ⇒ byte-identical).
 > **Executable spec:** [`0123-npc-initiated-deal-offers.feature`](./0123-npc-initiated-deal-offers.feature)
 
+> **Amended 2026-11-01 (PO ruling — "should play out within the LLM … not really wanting a pop up").**
+> The first build surfaced the offer as a `deal-offer` **pending decision card** that **blocked the week**
+> until answered — and the FE relays rejected the answer, so in a real deploy the game **froze**. Now:
+> - **No pop-up, never a freeze.** The offer is Vault-free **open state** (`openDealOffer` on the state and
+>   status views), not a pending; the weekly loop advances past it.
+> - **The narrator voices it** in-scene (who, kind, terms) at a natural moment; the player answers in chat and
+>   the model records it via `submitDecision({ kind: "deal-offer", vote: "accept" | "decline" })` (accept ⇒ a
+>   real deal; decline ⇒ the existing bounded hidden cooling).
+> - **Ignored ⇒ lapses at week's end**, recorded as a player-witnessed event, with an **NPC-dependent** hidden
+>   cooling: the `conflict` fold is scaled by the offerer's soul `volatility` from `playerOffer.lapse.scaleMin`
+>   (a calm houseguest shrugs) to `scaleMax` (a hothead stews). Flag-off stays byte-identical.
+
 ## 1. Summary
 
 In real _Big Brother_, houseguests are **constantly** coming to *you* — "I'll use the veto on you if you

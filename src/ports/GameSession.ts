@@ -556,7 +556,14 @@ export interface GameStateView {
    * golden driver absorbed 25 escalated turns on exactly this). Vault-free — the same
    * legal-options view the decision card renders.
    */
-  pending: PendingDecisionView | null;
+  pending: PendingDecisionView | null;  /**
+   * 0123 (PO ruling 2026-11-01) — a deal a houseguest has floated to the player and the player has not
+   * answered yet, or null. NOT a pending decision and never a pop-up: it never blocks the week. The
+   * narrator voices the houseguest raising it in-scene; when the player answers in chat it records the
+   * answer via `submitDecision({ kind: "deal-offer", vote: "accept" | "decline" })`. Unanswered, it lapses
+   * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
+   */
+  openDealOffer?: OpenDealOfferView | null;
 }
 
 /**
@@ -1029,6 +1036,14 @@ export interface PublicGameStatus {
    */
   pending: PendingDecisionView | null;
   /**
+   * 0123 (PO ruling 2026-11-01) — a deal a houseguest has floated to the player and the player has not
+   * answered yet, or null. NOT a pending decision and never a pop-up: it never blocks the week. The
+   * narrator voices the houseguest raising it in-scene; when the player answers in chat it records the
+   * answer via `submitDecision({ kind: "deal-offer", vote: "accept" | "decline" })`. Unanswered, it lapses
+   * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
+   */
+  openDealOffer?: OpenDealOfferView | null;
+  /**
    * F3: whether the season is OVER (a winner is crowned). Mirrors the same public over-signal as
    * `AdvanceView.finished` / `SeasonRecap.finished` (`this.live.finished`). Surfaced here so a client
    * that only watches the status panel learns the game ended without separately hitting `/state` or
@@ -1180,6 +1195,15 @@ export interface BeatEventView {
    * structured for the surface instead of being prose-only. Absent ⇒ no participant beat (e.g. no event).
    */
   participants?: NamedRef[];
+}
+
+/** 0123 — a standing NPC deal offer, voiced in-scene (see `openDealOffer`). */
+export interface OpenDealOfferView {
+  from: NamedRef;
+  kind: string;
+  terms: string;
+  /** The in-game week it was floated — it lapses when the week rolls past this. */
+  madeWeek: number;
 }
 
 /** A decision the live loop is blocked on until the player resolves it (0011 + the finale, 0037). */

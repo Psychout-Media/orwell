@@ -83,6 +83,13 @@ export const DECISION = {
     motivationMin: 0.45,
     /** Above this BOND toward the player the offer is a final-two/alliance; otherwise a mutual-safety deal. */
     finalTwoBond: 0.6,
+    /**
+     * PO ruling 2026-11-01 — an offer the player never answers LAPSES at week's end, and how hard the
+     * houseguest takes it DEPENDS ON THE NPC: the directed `conflict` cooling is scaled by their hidden
+     * volatility, linearly from `scaleMin` (a calm houseguest shrugs) to `scaleMax` (a hothead stews).
+     * An explicit decline is scale 1 — ignoring someone can sting a volatile houseguest more than a no.
+     */
+    lapse: { scaleMin: 0.4, scaleMax: 1.6 },
   },
 } as const;
 

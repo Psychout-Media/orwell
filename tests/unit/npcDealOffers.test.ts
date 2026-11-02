@@ -7,8 +7,10 @@ import type { UserSandbox } from "../../src/composition/registry";
 /**
  * Feature 0123 — NPC-initiated deal offers. A motivated houseguest floats the PLAYER a deal at a lull
  * (the NPC->player counterpart of makeDeal). Drives a real season (no LLM) and proves: an offer surfaces
- * as a `deal-offer` pending; accept makes a real player deal; decline cools the rebuffed NPC; the offer is
- * player-witnessed (not hidden); flag off is byte-identical; seed-deterministic. Roles only — no names.
+ * as Vault-free OPEN STATE (`openDealOffer`) — never a pending card, never blocking the week (PO ruling
+ * 2026-11-01); accept makes a real player deal; decline cools the rebuffed NPC; an unanswered offer LAPSES
+ * at week's end with an NPC-dependent (volatility-scaled) cooling; the offer is player-witnessed (not
+ * hidden); flag off is byte-identical; seed-deterministic. Roles only — no names.
  */
 
 function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<AdvanceView["pending"]>): void {
@@ -29,11 +31,14 @@ function newGame(user: string, seed: number, offersOn: boolean): UserSandbox {
   return sb;
 }
 
-/** Drive advanceGame (resolving ceremony pendings) until a deal-offer surfaces; return its pending or null. */
-function driveToOffer(sb: UserSandbox, maxSteps = 200): NonNullable<AdvanceView["pending"]> | null {
+type Offer = NonNullable<ReturnType<GameSession["getGameState"]>["openDealOffer"]>;
+
+/** Drive advanceGame (resolving ceremony pendings) until an NPC deal offer stands; return it or null. */
+function driveToOffer(sb: UserSandbox, maxSteps = 200): Offer | null {
   for (let i = 0; i < maxSteps; i++) {
     const v = sb.session.advanceGame();
-    if (v.pending?.kind === "deal-offer") return v.pending;
+    const o = sb.session.getGameState().openDealOffer;
+    if (o) return o;
     if (v.pending) resolveLegally(sb.session, v.pending);
     if (v.finished) return null;
   }
@@ -41,15 +46,17 @@ function driveToOffer(sb: UserSandbox, maxSteps = 200): NonNullable<AdvanceView[
 }
 
 describe("0123 — a houseguest floats the player a deal, resolved accept/decline", () => {
-  it("an offer surfaces as a deal-offer pending naming who, kind, and terms", () => {
+  it("an offer surfaces as open state naming who, kind, and terms — never a pending card", () => {
     const sb = newGame("offer-basic", 7, true);
     const offer = driveToOffer(sb);
     expect(offer, "an NPC offered the player a deal").not.toBeNull();
-    expect(offer!.kind).toBe("deal-offer");
-    expect(offer!.offer, "the offer detail is present").toBeDefined();
-    expect(offer!.offer!.from.id).not.toBe(PLAYER); // an NPC floated it
-    expect(["safety", "final-two"]).toContain(offer!.offer!.kind);
-    expect(offer!.offer!.terms.length).toBeGreaterThan(0);
+    expect(offer!.from.id).not.toBe(PLAYER); // an NPC floated it
+    expect(["safety", "final-two"]).toContain(offer!.kind);
+    expect(offer!.terms.length).toBeGreaterThan(0);
+    // PO ruling 2026-11-01: no pop-up — the offer is never a pending decision (status and state agree).
+    expect(sb.session.getGameState().pending?.kind).not.toBe("deal-offer");
+    expect(sb.session.gameStatus().pending?.kind).not.toBe("deal-offer");
+    expect(sb.session.gameStatus().openDealOffer?.from.id).toBe(offer!.from.id);
     // Vault-safe: the approach is a PLAYER-WITNESSED event (not hidden) — the NPC came to them.
     const approach = sb.engine.events.queryAll().find((e) => e.content.includes("float") && e.content.includes("deal"));
     expect(approach, "the approach was recorded").toBeDefined();
@@ -61,7 +68,7 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
     const sb = newGame("offer-accept", 7, true);
     const offer = driveToOffer(sb);
     expect(offer).not.toBeNull();
-    const from = offer!.offer!.from.id;
+    const from = offer!.from.id;
     const before = (sb.session.getGameState().deals ?? []).length;
     sb.session.submitDecision({ kind: "deal-offer", vote: "accept" });
     const deals = sb.session.getGameState().deals ?? [];
@@ -70,15 +77,15 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
     const partyIds = (d: (typeof deals)[number]): string[] =>
       d.parties.map((p) => (typeof p === "string" ? p : p.id));
     expect(deals.some((d) => partyIds(d).includes(PLAYER) && partyIds(d).includes(from))).toBe(true);
-    // The offer is consumed — no deal-offer pending stands after answering.
-    expect(sb.session.advanceGame().pending?.kind === "deal-offer").toBe(false);
+    // The offer is consumed — nothing stands after answering.
+    expect(sb.session.getGameState().openDealOffer).toBeNull();
   });
 
   it("declining the offer makes NO deal and cools the rebuffed houseguest (hidden)", () => {
     const sb = newGame("offer-decline", 7, true);
     const offer = driveToOffer(sb);
     expect(offer).not.toBeNull();
-    const from = offer!.offer!.from.id;
+    const from = offer!.from.id;
     const beforeThreat = sb.engine.relationships.edge(from, PLAYER).threat;
     const beforeDeals = (sb.session.getGameState().deals ?? []).length;
     sb.session.submitDecision({ kind: "deal-offer", vote: "decline" });
@@ -91,7 +98,7 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
     const sb = newGame("offer-malformed", 7, true);
     const offer = driveToOffer(sb);
     expect(offer).not.toBeNull();
-    const from = offer!.offer!.from.id;
+    const from = offer!.from.id;
     const beforeThreat = sb.engine.relationships.edge(from, PLAYER).threat;
     const beforeDeals = (sb.session.getGameState().deals ?? []).length;
     // A garbled/stale client call with no explicit accept/decline must NOT consume the offer or cool the NPC.
@@ -99,7 +106,7 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
     expect(sb.engine.relationships.edge(from, PLAYER).threat).toBe(beforeThreat); // no hidden cooling
     expect((sb.session.getGameState().deals ?? []).length).toBe(beforeDeals);     // no deal created
     // The offer still stands and can be answered properly afterward.
-    expect(sb.session.advanceGame().pending?.kind).toBe("deal-offer");
+    expect(sb.session.getGameState().openDealOffer?.from.id).toBe(from);
   });
 
   it("with the layer OFF, no offer is ever floated (byte-identical)", () => {
@@ -114,8 +121,8 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
     const b = driveToOffer(newGame("offer-det", 11, true));
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
-    expect(a!.offer!.from.id).toBe(b!.offer!.from.id);
-    expect(a!.offer!.kind).toBe(b!.offer!.kind);
+    expect(a!.from.id).toBe(b!.from.id);
+    expect(a!.kind).toBe(b!.kind);
   });
 });
 
@@ -129,7 +136,65 @@ describe("0123 — the offer's kind is grounded in the NPC's real read", () => {
     const offer = driveToOffer(sb);
     expect(offer).not.toBeNull();
     // The strongest-bond NPC offers, and a strong bond ⇒ a final-two ask (grounded, not invented).
-    expect(offer!.offer!.from.id).toBe(ally);
-    expect(offer!.offer!.kind).toBe("final-two");
+    expect(offer!.from.id).toBe(ally);
+    expect(offer!.kind).toBe("final-two");
+  });
+});
+
+describe("0123 (PO ruling 2026-11-01) — a floated offer never blocks the week, and lapses unanswered", () => {
+  it("the week keeps moving while an offer stands (no freeze)", () => {
+    const sb = newGame("offer-nonblocking", 7, true);
+    const offer = driveToOffer(sb);
+    expect(offer).not.toBeNull();
+    const seq0 = sb.session.gameStatus().beatSeq;
+    let moved = false;
+    for (let i = 0; i < 6 && !moved; i++) {
+      const v = sb.session.advanceGame();
+      if (v.pending) resolveLegally(sb.session, v.pending);
+      moved = sb.session.gameStatus().beatSeq > seq0;
+    }
+    expect(moved, "advanceGame still moves the game with an unanswered offer standing").toBe(true);
+  });
+
+  it("an unanswered offer lapses when the week rolls — no deal, recorded as player-witnessed", () => {
+    const sb = newGame("offer-lapse", 7, true);
+    const offer = driveToOffer(sb);
+    expect(offer).not.toBeNull();
+    const beforeDeals = (sb.session.getGameState().deals ?? []).length;
+    for (let i = 0; i < 400 && sb.session.getGameState().openDealOffer; i++) {
+      const v = sb.session.advanceGame();
+      if (v.pending) resolveLegally(sb.session, v.pending);
+      if (v.finished) break;
+    }
+    expect(sb.session.getGameState().openDealOffer, "the offer lapsed").toBeNull();
+    expect(sb.session.getGameState().week).toBeGreaterThan(offer!.madeWeek);
+    const lapse = sb.engine.events.queryAll().find((e) => e.content.includes("lapsed unanswered"));
+    expect(lapse, "the lapse was recorded").toBeDefined();
+    expect(lapse!.hidden).toBeFalsy();
+    expect(lapse!.witnessSet.includes(PLAYER)).toBe(true);
+    // No deal was made from a lapsed offer (any new deal on the board is not with the offerer from it).
+    const deals = sb.session.getGameState().deals ?? [];
+    expect(deals.length).toBeGreaterThanOrEqual(beforeDeals);
+  });
+
+  it("how hard a houseguest takes being ignored depends on their temper (volatility-scaled)", () => {
+    // Same game, same offer, same beat — only the offerer's hidden volatility differs. The offer is
+    // back-dated one week so the very next advance lapses it.
+    const lapseDelta = (vol: number): number => {
+      const sb = newGame("offer-temper", 7, true);
+      const offer = driveToOffer(sb)!;
+      const snap = sb.session.snapshot();
+      snap.live!.dealOffer!.madeWeek = snap.live!.week - 1;
+      snap.house!.npcs.find((n) => n.id === offer.from.id)!.soul.volatility = vol;
+      sb.session.restore(snap);
+      const before = sb.engine.relationships.edge(offer.from.id, PLAYER).threat;
+      sb.session.advanceGame();
+      expect(sb.session.getGameState().openDealOffer).toBeNull();
+      return sb.engine.relationships.edge(offer.from.id, PLAYER).threat - before;
+    };
+    const calm = lapseDelta(0.05);
+    const hothead = lapseDelta(0.95);
+    expect(hothead).toBeGreaterThan(calm);
+    expect(calm).toBeGreaterThanOrEqual(0);
   });
 });

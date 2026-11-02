@@ -39,6 +39,15 @@ Feature: NPC-initiated deal offers
     Then the floated offer is the player's own knowledge, never hidden Vault content
     And only one floated offer stands at a time
 
+  # PO ruling 2026-11-01: deal offers play out in the conversation — no pop-up, never a freeze. The
+  # narrator voices the houseguest raising it; the player's in-chat yes/no is recorded; an offer the
+  # player never answers lapses at week's end, and how hard the houseguest takes that depends on them.
+  Scenario: A floated offer never freezes the week, and lapses if ignored
+    Given a houseguest has floated the player a deal offer
+    When the player ignores the floated offer and play continues
+    Then the week keeps moving while the offer stands
+    And the floated offer lapses when the week rolls over
+
   Scenario: With offers off, no houseguest floats a deal
     Given a live game with houseguest deal offers disabled
     When the season plays through several lulls
