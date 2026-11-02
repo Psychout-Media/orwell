@@ -195,6 +195,32 @@ async function recordEarlyScenes(mcp: Mcp, allyIds: string[]): Promise<void> {
   }
 }
 
+/**
+ * An ACTIVE player keeps tending their relationships every week (2026-11-02): one quiet scene with
+ * each still-active ally, walking the ally into the player's room first (a scene is recorded from the
+ * player's room — BL-014 drops a named participant placed elsewhere). An evicted ally is replaced by
+ * the next active houseguest, so the player always works two relationships. Without this, the early
+ * bonds decayed and the active arm read as a floater by mid-season.
+ */
+async function tendAllies(mcp: Mcp, allies: Set<string>): Promise<void> {
+  const st = (await mcp.callTool("getGameState", {})) as StateView;
+  const live = (st.house ?? []).filter((h) => h.status === "active" && h.id !== PLAYER).map((h) => h.id);
+  for (const a of [...allies]) if (!live.includes(a)) allies.delete(a);
+  for (const c of live) { if (allies.size >= 2) break; allies.add(c); }
+  let room: string | undefined;
+  try { room = ((await mcp.callTool("whereabouts", {})) as { room?: string }).room; } catch { room = undefined; }
+  for (const ally of allies) {
+    try {
+      if (room) await mcp.callTool("moveHouseguest", { id: ally, room });
+      await mcp.callTool("recordInteraction", {
+        initiator: PLAYER, witnessSet: [PLAYER, ally], content: "Checking in, keeping the bond strong.", kind: "bonding",
+      });
+    } catch {
+      /* a refused scene (e.g. mid-ceremony) just skips this week's tending */
+    }
+  }
+}
+
 /** Map the active-house size when the player left to the named rung (16-cast: F2..F5 are 2..5). */
 function rungFlags(houseSizeWhenPlayerLeft: number | null): Pick<
   SeasonMetrics, "reachedF5" | "reachedF4" | "reachedF3" | "reachedF2"
@@ -268,7 +294,12 @@ async function playSeason(
     prevStatus = seat.status;
   };
 
+  let tendedWeek = 0;
   for (let i = 0; i < 5_000 && !finished; i++) {
+    if (arm === "active" && prevStatus === "active") {
+      const wk = ((await mcp.callTool("getGameState", {})) as StateView).week ?? 0;
+      if (wk > tendedWeek) { tendedWeek = wk; await tendAllies(mcp, allies); }
+    }
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult;
     finished = adv.finished;
     winner = adv.winner ?? winner;
