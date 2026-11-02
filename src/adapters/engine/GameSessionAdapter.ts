@@ -6120,7 +6120,13 @@ export class GameSessionAdapter implements GameSession {
     GameSessionAdapter.seededTieSurfacingOverride = enabled;
   }
 
+  /** The per-SANDBOX God-Mode override (the admin `setBehavioralFlags` dial). It wins over the process-
+   *  global static, which stays only as the test / default seam — so an admin flip on one user's game can
+   *  never change another user's (cross-user isolation, #1922). `null` ⇒ fall through. */
+  private seededTieSurfacingSandboxOverride: boolean | null = null;
+
   private get seededTieSurfacingEnabled(): boolean {
+    if (this.seededTieSurfacingSandboxOverride !== null) return this.seededTieSurfacingSandboxOverride;
     if (GameSessionAdapter.seededTieSurfacingOverride !== null) return GameSessionAdapter.seededTieSurfacingOverride;
     const v = process.env.ORWELL_SEEDED_TIE_SURFACING;
     return v === "1" || v === "true" || v === "on";
@@ -6400,7 +6406,13 @@ export class GameSessionAdapter implements GameSession {
     GameSessionAdapter.secretPacingOverride = enabled;
   }
 
+  /** The per-SANDBOX God-Mode override (the admin `setBehavioralFlags` dial). It wins over the process-
+   *  global static, which stays only as the test / default seam — so an admin flip on one user's game can
+   *  never change another user's (cross-user isolation, #1922). `null` ⇒ fall through. */
+  private secretPacingSandboxOverride: boolean | null = null;
+
   private get secretPacingEnabled(): boolean {
+    if (this.secretPacingSandboxOverride !== null) return this.secretPacingSandboxOverride;
     if (GameSessionAdapter.secretPacingOverride !== null) return GameSessionAdapter.secretPacingOverride;
     return SECRET_PACING_ENABLED_DEFAULT;
   }
@@ -7024,11 +7036,11 @@ export class GameSessionAdapter implements GameSession {
    * B2 (2026-07-05 activation lane) — the single God-Mode dial for every "living house" behavioral-
    * fidelity layer that ships opt-in behind its own `ORWELL_*` env flag. Mirrors `setTimeOfDay` (ADR
    * 0006): each named field flips ONE layer at runtime — no engine restart — and an absent field
-   * leaves that layer's current setting (env default or a prior override) untouched. Three of the six
-   * are per-session instance state (campaigns/trajectories/juryHouse — the composition layer wires one
-   * delegate per sandbox); the other two ride the SAME process-global override pattern `setTimeOfDay`
-   * and `setSeededTieSurfacingEnabled` already use (secretPacing/seededTieSurfacing), so this method
-   * fans out to whichever mechanism each flag actually uses — the caller never needs to know which.
+   * leaves that layer's current setting (env default or a prior override) untouched. EVERY field is
+   * per-sandbox state (the composition layer wires one delegate per sandbox), so an admin flip on one
+   * user's game never reaches another user's. secretPacing/seededTieSurfacing used to write the
+   * process-global static instead (a cross-user bleed, #1922); they now set a per-sandbox override that
+   * wins over that static, which stays only as the test/default seam.
    * Vault-free by construction (every layer is calibration-proven-neutral-when-off; no Vault handle,
    * no hidden value crosses).
    */
@@ -7037,8 +7049,10 @@ export class GameSessionAdapter implements GameSession {
     if (flags.trajectories !== undefined) this.trajectoriesEnabled = flags.trajectories;
     if (flags.triggers !== undefined) this.triggersEnabled = flags.triggers;
     if (flags.juryHouse !== undefined) this.juryHouseEnabled = flags.juryHouse;
-    if (flags.secretPacing !== undefined) GameSessionAdapter.secretPacingOverride = flags.secretPacing;
-    if (flags.seededTieSurfacing !== undefined) GameSessionAdapter.seededTieSurfacingOverride = flags.seededTieSurfacing;
+    // Per-SANDBOX, like every sibling here: these two used to write a process-global static, so flipping
+    // them on one user's game changed every user's (#1922). The static stays only as the test/default seam.
+    if (flags.secretPacing !== undefined) this.secretPacingSandboxOverride = flags.secretPacing;
+    if (flags.seededTieSurfacing !== undefined) this.seededTieSurfacingSandboxOverride = flags.seededTieSurfacing;
     if (flags.mythMaking !== undefined) this.mythMakingEnabled = flags.mythMaking;
     if (flags.showrunner !== undefined) this.showrunnerEnabled = flags.showrunner;
   }
