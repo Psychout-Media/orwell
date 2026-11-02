@@ -369,7 +369,7 @@ function coalesceDumpRows(
   const seenMutual = new Set<string>();
   for (const r of rows) {
     // #841 — exact duplicate.
-    const exactKey = `${r.type} ${r.content}`;
+    const exactKey = `${r.type}\u0000${r.content}`;
     if (seenExact.has(exactKey)) continue;
     seenExact.add(exactKey);
     // #842 — symmetric mutual off-screen scene. Strip a trailing " — detail" before matching the pair so
@@ -383,7 +383,7 @@ function coalesceDumpRows(
       const b = core.slice(at + verb.length + 2).trim();
       if (!a || !b) continue;
       const pair = [a, b].sort();
-      mutualKey = `${r.type} ${verb} ${pair[0]} ${pair[1]}`;
+      mutualKey = `${r.type}\u0000${verb}\u0000${pair[0]}\u0000${pair[1]}`;
       break;
     }
     if (mutualKey) {
