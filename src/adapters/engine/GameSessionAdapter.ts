@@ -62,7 +62,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
-import { DECISION } from "../../engine/decisionConstants";
+import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
 
@@ -6980,6 +6980,7 @@ export class GameSessionAdapter implements GameSession {
       // 0124 (part B): with soul-depth on, the EFFECTIVE disposition (baseline bent by temperament drift)
       // gates it instead — a repeatedly-burned houseguest plays more defensively. Off ⇒ the static baseline.
       dispositionOf: (id) => this.dispositionReadOf(id),
+      nominationStyleOf: (id) => NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
       // #1320 night-gate: the HOH→nominations day boundary is live ONLY when the clock pacing is running
       // (the per-conversation clock AND the master clock) — it is the "deeper half" of the fast-forward
       // fix and rides the same pair, so the golden replay (which pins `ORWELL_TIME_PER_CONVERSATION=0`)

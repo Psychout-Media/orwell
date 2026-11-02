@@ -2,7 +2,8 @@ import type { EntityId } from "../domain/ids";
 import { RelationshipModel } from "./relationships";
 import { blocFor, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
-import { DECISION } from "./decisionConstants";
+import { DECISION, NOMINATION_STYLES } from "./decisionConstants";
+import type { NominationStyle } from "./decisionConstants";
 import type { NominationTactic } from "./decisionConstants";
 import type { RelationshipDisposition } from "./relationshipConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
@@ -119,6 +120,8 @@ export interface NominationRead {
   mood?: number;
   /** The HOH's static disposition — gates WHICH tactic they play (a loyalist ≠ a schemer). */
   disposition?: RelationshipDisposition;
+  /** The HOH's own nomination style (PO 2026-11-02) — weights the floater / duo reads. Absent ⇒ threat hunter. */
+  style?: NominationStyle;
 }
 
 /**
@@ -134,7 +137,8 @@ export interface NominationRead {
 export function nominationStrategy(
   hoh: EntityId, active: EntityId[], rel: RelationshipModel, read: NominationRead = {},
 ): [EntityId, EntityId] {
-  const { blocs = [], mood = 0.5, disposition = "neutral" } = read;
+  const { blocs = [], mood = 0.5, disposition = "neutral", style = "threat-hunter" } = read;
+  const W = NOMINATION_STYLES[style];
   let cands = active.filter((h) => h !== hoh);
   // Bloc protection (0043): keep bloc-mates off the block entirely while two legal others remain.
   const mates = blocFor(blocs, hoh)?.members ?? [];
@@ -142,8 +146,8 @@ export function nominationStrategy(
   if (nonMates.length >= 2) cands = nonMates;
   const N = DECISION.nomination;
   const score = (t: EntityId): number =>
-    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + N.floaterWeight * floaterRead(t, active, rel) +
-    N.duoWeight * duoRead(t, hoh, active, rel);
+    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + W.floaterWeight * floaterRead(t, active, rel) +
+    W.duoWeight * duoRead(t, hoh, active, rel);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
@@ -162,7 +166,7 @@ export function nominationStrategy(
   // PARTNER up beside them — one of the two goes home unless the veto saves them.
   const partner = duoPartner(ranked[0]!, hoh, active, rel);
   const seat2 = (c: EntityId): number =>
-    score(c) + N.pawnSeatFloaterBonus * floaterRead(c, active, rel) + (c === partner ? N.duoPartnerBonus : 0);
+    score(c) + W.pawnSeatFloaterBonus * floaterRead(c, active, rel) + (c === partner ? W.duoPartnerBonus : 0);
   const pawn = rest.reduce((best, c) => (seat2(c) > seat2(best) ? c : best), rest[0]!);
   return [ranked[0]!, pawn];
 }

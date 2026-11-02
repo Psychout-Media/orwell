@@ -63,6 +63,7 @@ import { nominationStrategy, nominationScore, tallyJury } from "./season";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
+import type { NominationStyle } from "./decisionConstants";
 import type { Deal, DealKind } from "../domain/deal";
 import type { RelationshipDisposition } from "./relationshipConstants";
 import type { RelationshipModel } from "./relationships";
@@ -658,6 +659,11 @@ export interface SeasonCtx {
    * tests omit it and every HOH plays the direct, threat-primary read — byte-stable.
    */
   dispositionOf?: (id: EntityId) => RelationshipDisposition;
+  /**
+   * PO 2026-11-02 — the houseguest's own NOMINATION STYLE (threat hunter / floater cleaner / duo breaker /
+   * loyalist), fixed by archetype. Optional: absent ⇒ every HOH reads as a threat hunter.
+   */
+  nominationStyleOf?: (id: EntityId) => NominationStyle;
   /**
    * #1320 — the HOH→nominations NIGHT-GATE is live for this turn. When true, the advance that would
    * resolve the nominations first crosses the night to the next morning as its own diegetic `day-break`
@@ -2471,6 +2477,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         blocs: currentBlocs(s, ctx),
         mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
+        style: ctx.nominationStyleOf?.(s.hoh!),
       });
       s.nominees = nominees; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${nominees[0]} and ${nominees[1]}`, participants: [s.hoh!, ...nominees] };
@@ -2705,6 +2712,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
         blocs: currentBlocs(s, ctx),
         mood: ctx.emotionalOf?.(p.by) ?? 0.5,
         disposition: ctx.dispositionOf?.(p.by) ?? "neutral",
+        style: ctx.nominationStyleOf?.(p.by),
       });
       return { kind: "nominations", choice: [a, b] };
     }
