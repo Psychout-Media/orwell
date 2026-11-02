@@ -133,6 +133,11 @@ export interface SessionCore {
    * reproducible across a restart; absent ⇒ 0. Never a calibration-spine input (its own forked stream).
    * The accumulated grudge itself rides on `live.juryGrudge` (engine-only; restored with the live state). */
   juryHouseTickCount?: number;
+  /** 0100 limbo (owner ruling 2026-11-02, #1922): how many NPC evictions the jury house has already
+   *  processed — one short stretch per arrival. Separate from `juryHouseTickCount` (the rng counter) so
+   *  arrivals past the ninth juror still count, and so a pre-limbo save (counter only) resumes cleanly.
+   *  Absent ⇒ derived on restore (see `GameSessionAdapter.juryHouseTick`). Monotonic. */
+  juryHouseArrivals?: number;
   /**
    * Feature 0101 — NPC myth-making. `legendTickCount` is the DEDICATED legend-rng tick counter (forked
    * off the game seed, never the shared society/competition/vote stream — see
@@ -731,6 +736,7 @@ export interface SessionCoreCounts {
   campaignTickCount: number;
   playerCampaignMoveCount: number;
   juryHouseTickCount: number;
+  juryHouseArrivals: number;
   eruptionCount: number;
   triggerTickCount: number;
   pacingTickCount: number;
@@ -762,6 +768,7 @@ export function sessionCoreCounts(snap: SessionSnapshot): SessionCoreCounts {
     campaignTickCount: snap.campaignTickCount ?? 0,
     playerCampaignMoveCount: snap.playerCampaignMoveCount ?? 0,
     juryHouseTickCount: snap.juryHouseTickCount ?? 0,
+    juryHouseArrivals: snap.juryHouseArrivals ?? 0,
     eruptionCount: snap.eruptionCount ?? 0,
     triggerTickCount: snap.triggerTickCount ?? 0,
     pacingTickCount: snap.pacingTickCount ?? 0,

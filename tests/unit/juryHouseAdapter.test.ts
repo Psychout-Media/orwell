@@ -323,6 +323,42 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     seen += added;
   });
 
+  it("arrivals past the ninth juror still play their stretch (the roster is capped, arrivals are not)", () => {
+    const { reg, sbOf } = growingJury("limbo-late", 24, 9);
+    let sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "eight stretches for jurors two through nine").toBe(8);
+    // Three more evictions (a rolling last-nine roster): each still owes a stretch.
+    const snap = reg.snapshot("limbo-late") as SessionSnapshot;
+    (snap.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10), npc(11), npc(12)];
+    reg.restore("limbo-late", snap);
+    sb = sbOf();
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "the late arrivals each played a stretch").toBe(11);
+    expect(sb.session.snapshot().juryHouseArrivals).toBe(12);
+  });
+
+  it("a pre-limbo save (rng counter only, no arrival marker) resumes on the next eviction", () => {
+    const { reg } = growingJury("limbo-legacy", 25, 9);
+    const snap = reg.snapshot("limbo-legacy") as SessionSnapshot;
+    snap.juryHouseTickCount = 40; // the old per-tick counter
+    delete snap.juryHouseArrivals;
+    reg.restore("limbo-legacy", snap);
+    let sb = reg.sandboxFor("limbo-legacy");
+    sb.session.setJuryHouseEnabled(true);
+    const before = sb.engine.events.count();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.engine.events.count(), "caught up: no replay of past arrivals").toBe(before);
+    const next = reg.snapshot("limbo-legacy") as SessionSnapshot;
+    (next.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10)];
+    reg.restore("limbo-legacy", next);
+    sb = reg.sandboxFor("limbo-legacy");
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "the next eviction ran one stretch").toBe(41);
+  });
+
   it("a re-told grievance reunites with the room's belief instead of piling up copies", () => {
     const { sbOf } = growingJury("limbo-dedup", 23, 9);
     const sb = sbOf();
