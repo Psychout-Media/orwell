@@ -87,6 +87,33 @@ describe("B2 — the admin setBehavioralFlags/getBehavioralFlags tools (composit
     await expect(sb.mcp.player.callTool("getBehavioralFlags", {})).rejects.toThrow();
   });
 
+  it("is per-sandbox: flipping every flag on user A's game never changes user B's game (cross-user isolation)", async () => {
+    // The tool promises an override "for this sandbox". Two of the eight layers (secretPacing,
+    // seededTieSurfacing) used to write a PROCESS-GLOBAL static, so an admin adjusting one user's game
+    // silently changed it for every user on the server. Every field must stay inside its own sandbox.
+    const reg = new GameSessionRegistry();
+    const a = reg.sandboxFor("behavioral-flags-iso-a");
+    const b = reg.sandboxFor("behavioral-flags-iso-b");
+    a.session.createCharacter({ playerName: "The Player", seed: 14 });
+    b.session.createCharacter({ playerName: "The Player", seed: 15 });
+    const before = b.admin.behavioralFlags();
+
+    await a.mcp.admin.callTool("setBehavioralFlags", {
+      campaigns: true, trajectories: true, triggers: true,
+      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
+    });
+
+    expect(a.admin.behavioralFlags()).toEqual({
+      campaigns: true, trajectories: true, triggers: true,
+      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
+    });
+    expect(b.admin.behavioralFlags(), "user B's game must be untouched by an admin flip on user A's").toEqual(before);
+    // A sandbox composed AFTER the flip starts from the env default too — the flip never leaks into it.
+    const c = reg.sandboxFor("behavioral-flags-iso-c");
+    expect(c.admin.behavioralFlags().secretPacing).toBe(before.secretPacing);
+    expect(c.admin.behavioralFlags().seededTieSurfacing).toBe(before.seededTieSurfacing);
+  });
+
   it("refuses a non-boolean field by name (E31/D10/R6 shape-guard discipline)", async () => {
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("behavioral-flags-shape-user");
