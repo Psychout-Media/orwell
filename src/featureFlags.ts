@@ -81,7 +81,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
 function strict(v: string | undefined): boolean  { return v === '1'; }
 function loose(v: string | undefined): boolean   { return v === '1' || v === 'true' || v === 'on'; }
-function inverted(v: string | undefined): boolean { return v !== undefined && v !== '0'; }
+// ON unless explicitly '0' — exactly the engine's own read (`!== "0"`), so unset reports ON like the engine runs.
+function inverted(v: string | undefined): boolean { return v !== '0'; }
 
 const PARSERS: Record<ParserKind, (v: string | undefined) => boolean> = {
   strict,

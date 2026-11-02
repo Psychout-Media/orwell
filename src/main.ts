@@ -1,5 +1,6 @@
 import { composeRuntime } from "./composition/runtime";
 import { startHttpMcp } from "./adapters/mcp/HttpMcpServer";
+import { GameSessionAdapter } from "./adapters/engine/GameSessionAdapter";
 import { createEmbeddingsStatusTracker } from "./adapters/embedding/embeddingsStatus";
 
 /**
@@ -74,7 +75,7 @@ const requireUser = /^(1|true|yes|on)$/i.test(process.env["ORWELL_ENGINE_MULTIUS
 // spray ids to mint unlimited sandboxes (only createCharacter may start a fresh one).
 const knownUser = (user: string): boolean => runtime.knownUser(user);
 
-startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus }, host);
+startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective() }, host);
 // Clean shutdown (no background timers to tear down — the runtime is purely turn-driven).
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => process.exit(0));

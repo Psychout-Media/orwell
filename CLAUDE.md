@@ -632,9 +632,14 @@ remain **frozen** (owner-parked "not planned" 2026-06-27, preserved not deleted,
 **0022** (the rich game UI / MVP-2) was **removed** in the 2026-06-28 PO review — by ADR 0003 the chat *is*
 the UI, and its goals were delivered chat-forward via 0020/0051/0054, so the standalone dashboard spec was cut.
 
-**Since 2026-07-07 (reconciled 2026-07-10):** the drafted spec set now extends to **0114** —
-**0113** (visual-regression harness) and **0114** (theme-surface consistency) rode the same 0108 golden fixture and were **DECOMMISSIONED with it (2026-07-21, owner directive)**, while **0111** (the Day-1 experience) and **0112** (LLM-call observability) are **in progress
-(being built now)**; see `docs/features/README.md`. **Ship-gate F5** (realtime two-window mirror
+**Since 2026-07-07 (reconciled 2026-11-02):** the drafted spec set now extends to **0132** —
+**0111** (the Day-1 experience) and **0112** (LLM-call observability) are **built** (2026-07-10);
+**0113** (visual-regression harness) and **0114** (theme-surface consistency) rode the same 0108 golden fixture and were **DECOMMISSIONED with it (2026-07-21, owner directive)**;
+**0115–0127** and **0130** are **built** (the Diary Room confessional, model-authored cast genesis, the
+in-game-time pivot 0117–0119, strategic cadence, deal depth, deeper confessionals, NPC-initiated deal offers
+(amended 2026-11-01: an open, non-blocking offer voiced in chat — never a pop-up), deeper character
+evolution, competition variety/mechanics/mixed types, exit interviews); **0128/0129/0131/0132** are
+**spec-only**. `docs/features/README.md` is the per-feature source of truth. **Ship-gate F5** (realtime two-window mirror
 parity) is **fixed and wired as a required CI gate** (#1276, 2026-07-09) — no longer a launch blocker.
 A **WebSocket Phase-1 transport** (ADR 0017/0018; spec `docs/design/websocket-phase1-protocol.md`)
 landed and is **turned ON** — **default-ON behind `ORWELL_WS_TRANSPORT` since 2026-07-10 (#1357**; an

@@ -61,11 +61,8 @@ describe("#1790 — Traitors' Fury finale unit test (bearing + heldBelief)", () 
         expect(/^[a-zA-Z]+$/.test(bearing)).toBe(true);
         expect(bearing).not.toMatch(/\d/);
       }
-      const heldBelief = (view.asking as any).heldBelief;
-      if (heldBelief !== undefined) {
-        expect(typeof heldBelief).toBe("string");
-        expect(heldBelief).not.toMatch(/\d/);
-      }
+      // PO ruling 2026-11-02: no vote-attribution belief before the retrospective (E12) — never present.
+      expect((view.asking as any).heldBelief).toBeUndefined();
     }
   });
 });
@@ -96,11 +93,7 @@ describe("#1790 — vault-sentinel: finale fields must not leak hidden content",
           expect(typeof b).toBe("string");
           expect(b).not.toMatch(/npc:|player:|SENTINEL|vault:|\dnpc\d/);
         }
-        const hb = (view.asking as any).heldBelief;
-        if (hb !== undefined) {
-          expect(typeof hb).toBe("string");
-          expect(hb).not.toMatch(/SENTINEL|vault:|\dnpc\d/);
-        }
+        expect((view.asking as any).heldBelief).toBeUndefined(); // E12: no attribution before the retrospective
       }
       const json = JSON.stringify(view);
       expect(json).not.toMatch(/SENTINEL|vault:|npc\d+id/i);

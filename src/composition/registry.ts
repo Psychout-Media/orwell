@@ -257,7 +257,9 @@ function buildUserSandbox(user = "default"): UserSandbox {
     // belief first, so even on a cold graph this NPC-directed surfacing leaves a real NPC-side belief
     // (the rumor exists in the house), then it spreads with the normal low transmit/decay/drift. This
     // is the engine-only hidden layer; nothing crosses to the player here.
-    const npcIds: EntityId[] = core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id));
+    // #1913 — the AWAKE house only (ADR 0006): a houseguest who has gone to bed neither retells nor hears a
+    // rumor at night. Clock off ⇒ `awakeAmong` is the identity ⇒ byte-identical.
+    const npcIds: EntityId[] = session.awakeAmong(core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id)));
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < npcIds.length; i++) {
       for (let j = i + 1; j < npcIds.length; j++) {
@@ -294,7 +296,9 @@ function buildUserSandbox(user = "default"): UserSandbox {
     // that already reached them), skip. The knowledge layer IS the watermark; no extra persisted state.
     if (engine.knowledge.knownTo(other).some((k) => k.factId === reliableFactId(honorer))) return;
     const evicted = new Set(core.live?.evictionOrder ?? []);
-    const npcIds: EntityId[] = core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id));
+    // #1913 — the AWAKE house only (ADR 0006): a houseguest who has gone to bed neither retells nor hears a
+    // rumor at night. Clock off ⇒ `awakeAmong` is the identity ⇒ byte-identical.
+    const npcIds: EntityId[] = session.awakeAmong(core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id)));
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < npcIds.length; i++) {
       for (let j = i + 1; j < npcIds.length; j++) {

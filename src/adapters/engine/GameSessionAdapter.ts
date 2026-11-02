@@ -6869,10 +6869,15 @@ export class GameSessionAdapter implements GameSession {
     GameSessionAdapter.timeOfDayOverride = enabled;
   }
 
-  private get timeOfDayEnabled(): boolean {
+  /** The clock's LIVE state (runtime override, else the env default) — reported on `/health`. */
+  static timeOfDayEffective(): boolean {
     if (GameSessionAdapter.timeOfDayOverride !== null) return GameSessionAdapter.timeOfDayOverride;
     const v = process.env.ORWELL_TIME_OF_DAY;
     return v === "1" || v === "true" || v === "on";
+  }
+
+  private get timeOfDayEnabled(): boolean {
+    return GameSessionAdapter.timeOfDayEffective();
   }
 
   /**
@@ -10570,8 +10575,10 @@ export class GameSessionAdapter implements GameSession {
     if (!f) return null;
     const ref = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
     const q = f.script.questions[f.questionIx];
-    // Build asking with optional bearing + heldBelief (Traitors' Fury AC2/AC3)
-    let asking: (NamedRef & { bearing?: string; heldBelief?: string }) | null = null;
+    // Build asking with an optional bearing (Traitors' Fury AC2). PO ruling 2026-11-02: NO `heldBelief` —
+    // a juror's belief about WHO voted against them is per-voter attribution of a secret ballot, which unseals
+    // only in the 0048 retrospective (E12). Jurors still carry their bearing, just without naming names.
+    let asking: (NamedRef & { bearing?: string }) | null = null;
     if (f.stage === "questions" && q) {
       asking = ref(q.juror);
       if (this.traitorsFuryEnabled) {
@@ -10585,12 +10592,6 @@ export class GameSessionAdapter implements GameSession {
           );
         }
         asking.bearing = bearingWord(grudge);
-        // AC3: heldBelief — name-resolved blame belief from knowledge (NO numbers)
-        const knownFacts = this.npcKnowledge?.known(askingJurorId) ?? [];
-        const blameFact = knownFacts.find((k) => k.content?.includes("turned on them"));
-        if (blameFact) {
-          asking.heldBelief = blameFact.content;
-        }
       }
     }
     return {
@@ -11455,14 +11456,42 @@ export class GameSessionAdapter implements GameSession {
       .filter((k: any) => k.pathway === NO_NPC_PATHWAY && k.content)
       .map((k: any) => ({ id: k.id ?? k.factId ?? '', content: k.content, ts: k.ts ?? 0, subject: k.subject }));
     const publicStatements = allEvents
-      .filter((e: any) => e.content && e.initiator === player)
+      .filter((e: any) => e.content && e.initiator === player && !e.hidden)
       .map((e: any) => ({ id: e.id ?? '', content: e.content, ts: e.ts ?? 0 }));
+    // The player's OWN eviction votes (their ballot is their own knowledge), each with that week's
+    // nominees and the player's own on-record words from the run-up — windowed between consecutive
+    // eviction results (the witnessed "<evictee> leaves the house" beat, initiated by the evictee).
+    const witnessed = allEvents.filter((e) => !e.hidden && e.witnessSet.includes(player));
+    const ownWords = witnessed.filter((e) => e.initiator === player && e.type !== "house-event" && e.type !== "deal");
+    const votes: NonNullable<Parameters<typeof computePlayerReceipts>[0]["votes"]> = [];
+    let windowStart = -Infinity;
+    for (const week of this.live?.voteRecord ?? []) {
+      const result = witnessed.find((e) => e.type === "house-event" && e.initiator === week.evictee
+        && e.ts > windowStart && /leaves the house/.test(e.content));
+      if (!result) continue;
+      const myVote = week.voteOf[player];
+      if (myVote) {
+        const nominees = [...new Set([week.evictee, ...Object.values(week.voteOf)])];
+        votes.push({
+          voteEventId: result.id,
+          votedFor: { id: myVote, name: this.nameOf(myVote) },
+          nominees: nominees.map((id) => ({ id, name: this.nameOf(id) })),
+          statements: ownWords.filter((e) => e.ts > windowStart && e.ts < result.ts).map((e) => ({ id: e.id, content: e.content })),
+        });
+      }
+      windowStart = result.ts;
+    }
+    const names: Record<string, string> = {};
+    for (const d of deals) for (const id of d.parties) names[id] = this.nameOf(id);
     return computePlayerReceipts({
       player,
       deals: deals.map((d: any) => ({
         id: d.id, kind: d.kind, parties: d.parties, terms: d.terms, status: d.status, madeEventId: d.madeEventId,
       })),
-      events: allEvents.filter((e: any) => e.initiator === player).map((e: any) => ({ id: e.id, kind: e.kind, content: e.content, initiator: e.initiator })),
+      events: allEvents.filter((e) => e.initiator === player && !e.hidden)
+        .map((e) => ({ id: e.id, kind: e.type, content: e.content, initiator: e.initiator })),
+      names,
+      votes,
       diaryRoomStatements: drStatements,
       publicStatements,
     });

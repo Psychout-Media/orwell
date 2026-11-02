@@ -8,9 +8,9 @@ import { PLAYER, npc } from "../../src/domain/ids";
  */
 
 const PLAYER_ID = PLAYER;
-const LEO = npc(1);
-const MAEVE = npc(2);
-const MAX = npc(3);
+const PARTNER_A = npc(1);
+const PARTNER_B = npc(2);
+const PARTNER_C = npc(3);
 
 function emptyInput(): ReceiptsInput {
   return {
@@ -32,10 +32,10 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       deals: [
-        { id: "deal:1", kind: "vote", parties: [PLAYER_ID, LEO], terms: "vote together", status: "open", madeEventId: "evt:1" },
+        { id: "deal:1", kind: "vote", parties: [PLAYER_ID, PARTNER_A], terms: "vote together", status: "open", madeEventId: "evt:1" },
       ],
       events: [
-        { id: "evt:1", kind: "recordInteraction", content: "made a vote deal with Leo", initiator: PLAYER_ID },
+        { id: "evt:1", kind: "recordInteraction", content: "made a vote deal with PartnerA", initiator: PLAYER_ID },
       ],
     };
     const result = computePlayerReceipts(input);
@@ -46,12 +46,12 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       deals: [
-        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, LEO], terms: "final two with Leo", status: "open", madeEventId: "evt:1" },
-        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, MAEVE], terms: "final two with Maeve", status: "open", madeEventId: "evt:2" },
+        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, PARTNER_A], terms: "final two with PartnerA", status: "open", madeEventId: "evt:1" },
+        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, PARTNER_B], terms: "final two with PartnerB", status: "open", madeEventId: "evt:2" },
       ],
       events: [
-        { id: "evt:1", kind: "recordInteraction", content: "made final two with Leo", initiator: PLAYER_ID },
-        { id: "evt:2", kind: "recordInteraction", content: "made final two with Maeve", initiator: PLAYER_ID },
+        { id: "evt:1", kind: "recordInteraction", content: "made final two with PartnerA", initiator: PLAYER_ID },
+        { id: "evt:2", kind: "recordInteraction", content: "made final two with PartnerB", initiator: PLAYER_ID },
       ],
     };
     const result = computePlayerReceipts(input);
@@ -65,34 +65,63 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       deals: [
-        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, LEO], terms: "final two with Leo", status: "open", madeEventId: "evt:1" },
+        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, PARTNER_A], terms: "final two with PartnerA", status: "open", madeEventId: "evt:1" },
       ],
     };
     const result = computePlayerReceipts(input);
     expect(result.filter((r) => r.kind === "divergent-commitment")).toHaveLength(0);
   });
 
-  it("detects target-vote-mismatch", () => {
+  it("detects target-vote-mismatch from the player's real ballot", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
-      events: [
-        { id: "evt:5", kind: "strategy", content: "I think target Leo this week", initiator: PLAYER_ID },
-        { id: "evt:6", kind: "vote-evict", content: "voting for Maeve", initiator: PLAYER_ID },
-      ],
+      votes: [{
+        voteEventId: "season:9",
+        votedFor: { id: PARTNER_B, name: "NomineeB" },
+        nominees: [{ id: PARTNER_A, name: "NomineeA" }, { id: PARTNER_B, name: "NomineeB" }],
+        statements: [{ id: "evt:5", content: "Honestly I want to target NomineeA this week." }],
+      }],
     };
     const result = computePlayerReceipts(input);
-    expect(result.length).toBeGreaterThanOrEqual(1);
+    expect(result).toHaveLength(1);
     expect(result[0]!.kind).toBe("target-vote-mismatch");
+    expect(result[0]!.summary).toContain("NomineeA");
+    expect(result[0]!.summary).toContain("NomineeB");
+    expect(result[0]!.summary).not.toMatch(/npc:/);
+    expect(result[0]!.sourceEventIds).toEqual(["evt:5", "season:9"]);
+  });
+
+  it("no target-vote-mismatch when the player voted the way they said, or only mentioned a name", () => {
+    const base = {
+      voteEventId: "season:9",
+      votedFor: { id: PARTNER_A, name: "NomineeA" },
+      nominees: [{ id: PARTNER_A, name: "NomineeA" }, { id: PARTNER_B, name: "NomineeB" }],
+    };
+    expect(computePlayerReceipts({ ...emptyInput(), votes: [{ ...base, statements: [{ id: "e1", content: "Time to target NomineeA." }] }] })).toHaveLength(0);
+    expect(computePlayerReceipts({ ...emptyInput(), votes: [{ ...base, statements: [{ id: "e2", content: "NomineeB made breakfast today." }] }] })).toHaveLength(0);
+  });
+
+  it("divergent-commitment summary names people, never raw ids", () => {
+    const result = computePlayerReceipts({
+      ...emptyInput(),
+      names: { [PARTNER_A]: "PartnerA", [PARTNER_B]: "PartnerB" },
+      deals: [
+        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, PARTNER_A], terms: "f2", status: "open", madeEventId: "evt:1" },
+        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, PARTNER_B], terms: "f2", status: "open", madeEventId: "evt:2" },
+      ],
+    });
+    expect(result[0]!.summary).toContain("PartnerA");
+    expect(result[0]!.summary).not.toMatch(/npc:/);
   });
 
   it("detects dr-public-flip", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       diaryRoomStatements: [
-        { id: "dr:1", content: "I trust Leo completely", ts: 10, subject: LEO },
+        { id: "dr:1", content: "I trust PartnerA completely", ts: 10, subject: PARTNER_A },
       ],
       publicStatements: [
-        { id: "pub:1", content: "I don't trust Leo at all", ts: 20 },
+        { id: "pub:1", content: "I don't trust PartnerA at all", ts: 20 },
       ],
     };
     const result = computePlayerReceipts(input);
@@ -107,10 +136,10 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       diaryRoomStatements: [
-        { id: "dr:1", content: "I trust Leo completely", ts: 10, subject: LEO },
+        { id: "dr:1", content: "I trust PartnerA completely", ts: 10, subject: PARTNER_A },
       ],
       publicStatements: [
-        { id: "pub:1", content: "I trust Leo completely in this game", ts: 20 },
+        { id: "pub:1", content: "I trust PartnerA completely in this game", ts: 20 },
       ],
     };
     const result = computePlayerReceipts(input);
@@ -122,8 +151,8 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       deals: [
-        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, LEO], terms: "final two", status: "open", madeEventId: "evt:1" },
-        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, MAEVE], terms: "final two", status: "open", madeEventId: "evt:2" },
+        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, PARTNER_A], terms: "final two", status: "open", madeEventId: "evt:1" },
+        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, PARTNER_B], terms: "final two", status: "open", madeEventId: "evt:2" },
       ],
     };
     const r1 = computePlayerReceipts(input);
@@ -135,8 +164,8 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     const input: ReceiptsInput = {
       ...emptyInput(),
       deals: [
-        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, LEO], terms: "final two with Leo", status: "open", madeEventId: "evt:1" },
-        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, MAEVE], terms: "final two with Maeve", status: "open", madeEventId: "evt:2" },
+        { id: "deal:1", kind: "final-two", parties: [PLAYER_ID, PARTNER_A], terms: "final two with PartnerA", status: "open", madeEventId: "evt:1" },
+        { id: "deal:2", kind: "final-two", parties: [PLAYER_ID, PARTNER_B], terms: "final two with PartnerB", status: "open", madeEventId: "evt:2" },
       ],
     };
     const result = computePlayerReceipts(input);

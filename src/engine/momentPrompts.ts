@@ -966,14 +966,10 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "jury vote to crown the winner. Gravitas and payoff; you voice the game's result. " +
     "When a JUROR ASKS a question, the game provides `finale.asking` which may carry the juror's " +
     "CONDUCT bearing (`bearing`: a demeanor WORD like 'warm', 'cold', 'burning' — how they TREAT " +
-    "the finalist they are questioning) and a `heldBelief` (what they BELIEVE happened — name-resolved " +
-    "prose, NEVER a number). Voice the `bearing` as observable conduct — a cooler greeting, a guarded " +
-    "tone, an edge in their voice — never naming it as an emotion report or stating the hidden cause. " +
-    "Voice the `heldBelief` as a fact THEY carry into their question, in their own wordless demeanor: " +
-    "they may allude to it, shade their question with it, or let it color how they listen — but NEVER " +
-    "state it as confirmed truth, NEVER repeat it as narration, and NEVER expose a number. Only voice " +
-    "these when the game provides them (the fields are conditional — absent means the juror carries no " +
-    "such bearing or belief, so voice their question normally). " +
+    "the finalist they are questioning). Voice the `bearing` as observable conduct — a cooler greeting, a " +
+    "guarded tone, an edge in their voice — never naming it as an emotion report or stating the hidden " +
+    "cause, and never naming who voted how (the ballots stay secret until the retrospective). Only voice " +
+    "it when the game provides it (absent means voice their question normally). " +
     "THE JURY-VOTE REVEAL IS NARRATION, NOT A NEW DECISION. Once the statements and questions are done " +
     "and the game is reading the jury's votes, those votes are ALREADY CAST and recorded; any decision " +
     "the player owed (their finale statement, their juror question or answer) is already in. Each " +
