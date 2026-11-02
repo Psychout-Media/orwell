@@ -77,17 +77,15 @@ describe("#1913 — sleepers don't gossip", () => {
     const { sb, awake } = nightHouse();
     const seams = sb.session as unknown as Seams;
     const subject = awake[awake.length - 1]!;
-    const reached = seams.onThreadSurfaceToPlayer(subject, "a rumor for the player");
-    if (reached) {
-      const fact = sb.engine.knowledge.knownTo(PLAYER).find((k) => k.content === "a rumor for the player");
-      const teller = fact?.pathway?.replace("told-by:", "");
-      expect(teller && sb.session.awakeAmong([teller as EntityId]).length).toBe(1);
-    }
-    const tie = seams.onTieSurfaceToPlayer(subject, "those two seem tight");
-    if (tie) {
-      const fact = sb.engine.knowledge.knownTo(PLAYER).find((k) => k.content === "those two seem tight");
-      const teller = fact?.pathway?.replace("told-by:", "");
-      expect(teller && sb.session.awakeAmong([teller as EntityId]).length).toBe(1);
-    }
+    const tellerOf = (content: string): EntityId | undefined =>
+      sb.engine.knowledge.knownTo(PLAYER).find((k) => k.content === content)?.pathway?.replace("told-by:", "") as EntityId | undefined;
+    expect(seams.onThreadSurfaceToPlayer(subject, "a rumor for the player"), "the relay reached the player").toBe(true);
+    const t1 = tellerOf("a rumor for the player");
+    expect(t1).toBeDefined();
+    expect(sb.session.awakeAmong([t1!])).toEqual([t1]);
+    expect(seams.onTieSurfaceToPlayer(subject, "those two seem tight"), "the tie relay reached the player").toBe(true);
+    const t2 = tellerOf("those two seem tight");
+    expect(t2).toBeDefined();
+    expect(sb.session.awakeAmong([t2!])).toEqual([t2]);
   });
 });
