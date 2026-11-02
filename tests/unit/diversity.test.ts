@@ -566,6 +566,7 @@ describe("0063 — RNG isolation: identity never bends a seeded outcome (the #33
             : p.kind === "finale-answer" ? { kind: p.kind, appeal: "own-game" }
             : p.kind === "juror-vote" ? { kind: p.kind, vote: o[0]?.id }
             : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" }
+            : p.kind === "exit-interview" ? { kind: p.kind, vote: "gracious" } // 0130: the evicted player's exit stance
             : p.kind === "juror-question" ? { kind: p.kind, statement: "x" }
             : { kind: p.kind };
           const sub = sb.session.submitDecision(ans as never) as { finished: boolean; event?: { beat?: string; content?: string } | null };

@@ -157,6 +157,7 @@ function resolveAnyLegally(s: GameSessionAdapter, p: PendingDecisionView): void 
     case "finale-answer": s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! }); return;
     case "juror-question": s.submitDecision({ kind: "juror-question", statement: "q" }); return;
     case "goodbye-message": s.submitDecision({ kind: "goodbye-message", vote: p.options[0]!.id, statement: "bye" }); return;
+    case "exit-interview": s.submitDecision({ kind: "exit-interview", vote: "gracious" }); return; // 0130
     // The single-pick kinds share the `vote` payload (audit A10: `vote`/1-element `choice` interchangeable).
     case "houseguests-choice":
     case "eviction-vote":
@@ -172,7 +173,7 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * The mission-critical empirical fact behind the #1106 diagnosis: the ENGINE's contested-eviction
    * path — the staged secret-ballot reveal in batched rounds, a genuinely TIED vote, the player-HOH
    * tie-break pending, the goodbye stage, the week rollover — commits CLEAN through the production
-   * spine (composeRuntime: LogicalClock, turn-driven ticks, the checkpointed commit funnel). Seed 14
+   * spine (composeRuntime: LogicalClock, turn-driven ticks, the checkpointed commit funnel). Seed 13
    * deterministically produces a tied eviction vote with the player as HOH. Zero integrity faults on
    * the whole drive proves the #1106 faults were EXTERNALLY-induced degrading candidates (the
    * narrate-ahead writes), not an eviction-path bug and not a checkpoint false-positive on mid-stage
@@ -190,6 +191,10 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * player-HOH tie within the budget under the new interleave; seed 14 does. Harness-timing retune
    * only — the engine's tie/vote-count LOGIC is untouched, and the whole #1106 non-degradation/
    * checkpoint story this test exists to pin is orthogonal to which seed reaches the contested beat.
+   *
+   * Seed re-selected again 2026-11-02 (0044 §9 difficulty rulings — floaters as pawns, the HOH-referendum
+   * vote, per-houseguest nomination styles reshape who sits on the block): seed 13 now produces the
+   * player-HOH tie. Same harness-only retune; the integrity story is unchanged.
    */
   it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", () => {
     const dir = freshDir();
@@ -200,7 +205,7 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
     const runtime = composeRuntime({ saveStore: new FileSaveStore(dir) }); // the PRODUCTION clock/wiring
     const reg = runtime.registry;
     const orch = runtime.orchestrator;
-    reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed: 14 });
+    reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed: 13 });
 
     // Drive the real game to the CONTESTED beat: a tied eviction vote with the player holding HOH.
     let view: AdvanceView = reg.sandboxFor(user).session.advanceGame();
