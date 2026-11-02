@@ -28,6 +28,15 @@ export const DECISION = {
      * sits a PAWN beside the target and shields their own; a ruthless schemer (clash) plays the
      * BACKDOOR (bait the veto, name the real target as the replacement); everyone else is DIRECT.
      */
+    /**
+     * Floaters make easy nominations (PO ruling 2026-11-02, "pawns go home"): a houseguest nobody in
+     * the house is bonded to costs the HOH nothing to nominate. `floaterWeight` adds this × their
+     * floater read to every nomination score; a PAWN tactic seats the biggest floater beside the
+     * target (no one fights for them). The floater read is 1 when the closest bond anyone holds toward
+     * them is at the edge baseline, falling to 0 once that bond reaches baseline + `floaterBondSpan`.
+     */
+    floaterWeight: 0.25,
+    floaterBondSpan: 0.35,
     tacticFor: { bond: "pawn", neutral: "direct", clash: "backdoor" } as Record<
       RelationshipDisposition,
       NominationTactic
@@ -56,6 +65,13 @@ export const DECISION = {
      * runaway threat read. Discounts a nominee by this × the voter's own bondStrength toward them.
      */
     bondKeepWeight: 0.35,
+    /**
+     * The eviction vote is a REFERENDUM ON THE HOH (PO ruling 2026-11-02): a voter aligned with the
+     * HOH (bond above baseline, little threat) gives the HOH their target; a voter opposed to the HOH
+     * denies it and sends the pawn home instead. Adds this × the voter's HOH alignment to the HOH's
+     * target's eviction score. Bounded — it shades, a runaway threat read still dominates.
+     */
+    hohReferendumWeight: 0.4,
   },
   /**
    * NPC↔NPC deal minting (audit E46): as a week's block goes up, the closest unbound NPC pair may

@@ -5,6 +5,7 @@ import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
 import type { NominationTactic } from "./decisionConstants";
 import type { RelationshipDisposition } from "./relationshipConstants";
+import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 
 /**
  * Shared season primitives (feature 0011). The weekly loop itself lives in `liveSeason.ts` — the
@@ -73,6 +74,18 @@ export function politicalTemperature(active: readonly EntityId[], rel: Relations
   return { spread, runaway: spread > DECISION.nomination.runawaySpread };
 }
 
+/**
+ * How much of a FLOATER a houseguest is (PO ruling 2026-11-02): 1 when nobody in the house holds a
+ * bond toward them above the edge baseline, 0 once someone's bond reaches baseline +
+ * `floaterBondSpan`. Hidden, engine-only — never crosses to the player.
+ */
+export function floaterRead(t: EntityId, active: readonly EntityId[], rel: RelationshipModel): number {
+  const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  let maxBond = base;
+  for (const o of active) if (o !== t) maxBond = Math.max(maxBond, rel.bondStrength(o, t));
+  return Math.max(0, Math.min(1, 1 - (maxBond - base) / DECISION.nomination.floaterBondSpan));
+}
+
 /** The signals the strategic nomination read consumes — all optional so it degrades to threat-only. */
 export interface NominationRead {
   /** The house's current derived blocs (0043) — bloc-mates are shielded from the block. */
@@ -102,13 +115,20 @@ export function nominationStrategy(
   const mates = blocFor(blocs, hoh)?.members ?? [];
   const nonMates = cands.filter((c) => !mates.includes(c));
   if (nonMates.length >= 2) cands = nonMates;
-  const score = (t: EntityId): number => nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t);
+  const N = DECISION.nomination;
+  const score = (t: EntityId): number =>
+    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + N.floaterWeight * floaterRead(t, active, rel);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
     : DECISION.nomination.tacticFor[disposition];
   if (tactic === "backdoor" && ranked.length >= 3) return [ranked[1]!, ranked[2]!];
-  if (tactic === "pawn" && ranked.length >= 3) return [ranked[0]!, ranked[ranked.length - 1]!];
+  if (tactic === "pawn" && ranked.length >= 3) {
+    // The pawn is the biggest FLOATER (nobody fights for them); ties keep the lowest-ranked read.
+    const pool = ranked.slice(1).reverse();
+    const pawn = pool.reduce((best, c) => (floaterRead(c, active, rel) > floaterRead(best, active, rel) ? c : best), pool[0]!);
+    return [ranked[0]!, pawn];
+  }
   return [ranked[0]!, ranked[1]!];
 }
 
