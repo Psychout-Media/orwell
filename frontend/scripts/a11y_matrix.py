@@ -131,36 +131,10 @@ XFAIL = {
     # Liquid-Glass legibility batch — REMOVE it when the shared glass/token contrast fix lands and the
     # whole surface ratchets clean.
     "#1418-finale-contrast": "contrast:orwell-finale:",
-    # #738 Liquid-Glass batch: the live status panel's season-WINNER name (#orwell-status .os-done
-    # .os-winner) is hard-coded DARK #16191f on the FROSTED theme (orwellStatusPanel.js:240) and reads
-    # ~3.44:1 on the mid-tone glass — the SAME systemic dark-on-frosted-glass finding as the retro
-    # (#1375-h) and finale (#1418-finale-contrast). Pre-existing (the rule is unchanged); it only
-    # surfaces now that the matrix plays to endgame and the `os-done` winner chip renders. Targeted to
-    # the winner span (the panel's other status text is textured/INDET, not gated). REMOVE when the
-    # shared frosted glass/token contrast fix lands and the surface ratchets clean.
-    "#738-status-winner": "contrast:orwell-status:span.os-winner",
-    # #738 Liquid-Glass batch - the LIVE (mid-game) status HUD + decision card, exposed on the a11y
-    # run ONLY when finish_game() TIMES OUT before reaching the endgame (a slow-runner artifact: the
-    # intended FINISHED state renders these same texts over a TEXTURED backdrop -> INDET/not-gated,
-    # but a timed-out mid-eviction leaves them over a uniform mid-tone glass -> determinate). They are
-    # the SAME systemic dark-ink/on-accent-on-frosted-glass family as the sidebar (#1375-e/-f/-i),
-    # retro (#1375-h), finale (#1418-finale-contrast), and the status winner (#738-status-winner):
-    # the live ceremony rows (os-hoh / os-noms / os-veto / os-last-evict), the self-row rest cue
-    # (os-you-rest), and the self-role badge (os-you-badge - e.g. JURY, on-accent ~1.99:1) read
-    # ~1.9-3.5:1 on the mid glass; the decision card's DISABLED Confirm button (a WCAG-1.4.3-exempt
-    # inactive control the sweep still measures - keyed :disabled so an ENABLED/Cancel button is NOT
-    # absorbed) and its enable hint read ~1.86-1.90:1 over the same glass. Tracked with the #738 batch
-    # - REMOVE when the shared glass/token contrast fix lands. Each needle is a FULL element key (exact
-    # id, not the broad os- prefix), so a NEW regression on a sibling (#os-week / #os-phase / #os-tod /
-    # #os-stale / #os-done-winner, or an enabled card button) still gates.
-    "#738-status-hoh": "contrast:orwell-status:span#os-hoh.os-v",
-    "#738-status-noms": "contrast:orwell-status:span#os-noms.os-v",
-    "#738-status-veto": "contrast:orwell-status:span#os-veto.os-v",
-    "#738-status-lastevict": "contrast:orwell-status:span#os-last-evict.os-v",
-    "#738-status-rest": "contrast:orwell-status:span#os-you-rest.os-rest",
-    "#738-status-badge": "contrast:orwell-status:span#os-you-badge.os-badge",
-    "#738-deccard-btn": "contrast:orwell-decision-card:button.ow-btn:disabled",
-    "#738-deccard-hint": "contrast:orwell-decision-card-hint:",
+    # #1916: the reasoning body's pinned dark ink (#16191f) read 3.48:1 over a teal backdrop in one
+    # local pass once the sweep began sampling a VISIBLE line (not the clipped midpoint). Tracked for
+    # investigation (light glass not behind the expanded body in some variant?) — drop with the fix.
+    "#1916-think-contrast": "contrast:page:div.thinking-content-inner",
     # #1418 / S4-2: the finale body (#orwell-finale > .ow-body) is a scrollable region without keyboard
     # access (axe scrollable-region-focusable) — a KIT-level gap (the shared OrwellWindow `.ow-body`
     # scroll container is not tabbable) that only surfaces now that the finale renders on a finished
@@ -323,6 +297,7 @@ _COLLECT_JS = r"""
     if(p.length < 3 || p.some(isNaN)) return null;
     return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
   }
+  const EMOJI_ONLY = /^(?:\p{Emoji_Presentation}[\u{1F3FB}-\u{1F3FF}]?|\p{Extended_Pictographic}\uFE0F|\p{Regional_Indicator}|[\u200D\uFE0F]|\s)+$/u;
   const out = [];
   const seen = new Set();
   const els = document.querySelectorAll(selector);
@@ -341,17 +316,69 @@ _COLLECT_JS = r"""
     // background / SVG icon) and this text node is an invisible a11y fallback — not a contrast
     // subject. (The x-ray CSS also transparents pseudo-elements, so we can't read that glyph anyway.)
     if(fg[3] < 0.15) continue;
+    // A color-emoji glyph (e.g. a decorative chyron icon) paints its OWN bitmap colors — the CSS
+    // `color` the sweep would compare is never the ink the eye sees, so it is not a contrast
+    // subject (a WCAG ratio for it is meaningless). Only presentation-emoji runs are skipped; a
+    // text-style symbol (▾, ✓, ©) still paints in CSS color and stays audited.
+    if(EMOJI_ONLY.test(txt)) continue;
     const r = el.getBoundingClientRect();
     if(r.width < 3 || r.height < 3) continue;
     // Must be within the viewport (the screenshot is viewport-clipped; off-screen boxes can't be
     // sampled). A little grace at the edges.
     if(r.bottom <= 1 || r.right <= 1 || r.top >= vh - 1 || r.left >= vw - 1) continue;
+    // CLIP + OCCLUSION: the sweep samples whatever pixels sit at the text's rect, so text that is
+    // NOT actually painted there — clipped away by an overflow ancestor (a collapsed accordion's
+    // max-height:0 body) or covered by another layer (a modal scrim/window, a card stacked over
+    // the transcript) — would be scored against the OCCLUDER's pixels with its own (invisible)
+    // ink: a measurement artifact, not a contrast finding. Intersect the rect with every clipping
+    // ancestor, then keep only the sample points where a hit-test lands on this element (or its
+    // own subtree/ancestor chain — a pointer-events:none label hit-tests to its parent). Text with
+    // no visible sample point is skipped; a partially covered run is sampled only where visible.
+    let cx0 = r.left, cy0 = r.top, cx1 = r.right, cy1 = r.bottom;
+    for(let a = el.parentElement; a && a !== document.body; a = a.parentElement){
+      const acs = getComputedStyle(a);
+      if(acs.overflowX === 'visible' && acs.overflowY === 'visible') continue;
+      const ar = a.getBoundingClientRect();
+      cx0 = Math.max(cx0, ar.left); cy0 = Math.max(cy0, ar.top);
+      cx1 = Math.min(cx1, ar.right); cy1 = Math.min(cy1, ar.bottom);
+    }
+    if(cx1 - cx0 < 3 || cy1 - cy0 < 3) continue;       // clipped away — never painted
+    // Sample on a text LINE that is actually inside the visible (clipped) region — not the element's
+    // midpoint, which can be clipped away while other lines of a long reply/reasoning block are still
+    // on screen (greptile #1915: visible low-contrast text was skipped until scrolled to its middle).
+    // Keep that line's HORIZONTAL extent too, so wrapped / right-aligned text is sampled only across
+    // the glyphs of the chosen line, never the empty backdrop beside it (cubic #1915).
+    let yc = null, lx = r.x, lw = r.width;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      for(const lr of range.getClientRects()){
+        const ly = lr.y + lr.height / 2;
+        if(lr.height >= 3 && lr.width >= 3 && ly >= cy0 && ly <= cy1 && ly >= 0 && ly < vh){
+          yc = ly; lx = lr.x; lw = lr.width; break;
+        }
+      }
+    } catch(_e) { /* fall back to the midpoint below */ }
+    if(yc === null){
+      const mid = r.y + r.height / 2;
+      if(mid >= cy0 && mid <= cy1) yc = mid;
+    }
+    if(yc === null) continue;
+    const n = lw >= 24 ? 7 : 3;
+    const pts = [];
+    for(let k = 0; k < n; k++){
+      const xv = lx + 2 + (lw - 4) * (k / (n - 1));
+      if(xv < cx0 || xv > cx1 || xv < 0 || xv >= vw) continue;
+      const hit = document.elementFromPoint(xv, yc);
+      if(hit && (hit === el || el.contains(hit) || hit.contains(el))) pts.push(xv);
+    }
+    if(!pts.length) continue;                          // fully occluded — not what the eye reads
     const surface = surfaceOf(el);
     const key = 'contrast:' + surface + ':' + elKey(el);
     if(seen.has(key)) continue;                        // one row per surface:element
     seen.add(key);
     out.push({
-      key, surface,
+      key, surface, pts, yc,
       x: r.x, y: r.y, w: r.width, h: r.height,
       fg,                                              // [r,g,b,a]
       fs: Math.round((parseFloat(cs.fontSize) || 16) * 10) / 10,
@@ -367,9 +394,12 @@ _COLLECT_JS = r"""
 # The style that makes every text run transparent so a screenshot shows ONLY the painted backdrop
 # (glass/scrim/blur/images) at each text location. `color: transparent` and dropping text-shadow /
 # caret / placeholder ink never move layout, so every rect stays valid.
+# `transition: none` makes the ink drop INSTANT: several surfaces carry `transition: all …` /
+# color transitions (e.g. the reasoning accordion), so without it the screenshot caught text
+# still mid-fade and sampled glyph pixels as "backdrop".
 _XRAY_CSS = ("*, *::before, *::after { color: transparent !important;"
              " text-shadow: none !important; caret-color: transparent !important;"
-             " -webkit-text-fill-color: transparent !important; }"
+             " -webkit-text-fill-color: transparent !important; transition: none !important; }"
              " ::placeholder { color: transparent !important; }")
 
 # Reuse rm.GAME_SURFACES so a newly-registered game surface is contrast-covered automatically, plus
@@ -467,10 +497,10 @@ def audit_contrast(page, context, w, h):
         # Sample a horizontal band of points across the run at its vertical center; text is
         # transparent so every point is pure backdrop. A non-uniform backdrop (busy photo) is a
         # judgment call — reported indeterminate, never hard-gated.
-        yc = c["y"] + c["h"] / 2.0
-        n = 7 if c["w"] >= 24 else 3
-        xs = [c["x"] + 2 + (c["w"] - 4) * (k / (n - 1)) for k in range(n)] if n > 1 else [c["x"] + c["w"] / 2]
-        bgs = [sample(xv, yc) for xv in xs]
+        # The sample points are the VISIBLE ones the collector hit-tested (clipped/occluded points
+        # already dropped there), at the run's vertical center.
+        yc = c["yc"]
+        bgs = [sample(xv, yc) for xv in c["pts"]]
         fg = c["fg"]
         fs, bold = c["fs"], c["bold"]
         large = fs >= 24 or (fs >= 18.66 and bold)
@@ -530,91 +560,111 @@ def audit_state(page, context, axe_src, w, h):
     passes += 1
 
 
+_SETTINGS_BTN_JS = """(document.getElementById('user-bar-settings')
+    || document.getElementById('tool-settings-btn')
+    || document.getElementById('rail-settings')
+    || document.querySelector('#settings-btn,[data-settings],[aria-label*=ettings]'))"""
+
+
+def _open_settings_by_keyboard(page):
+    """Open Settings the way a KEYBOARD user does: focus the gear button and press Enter. Returns
+    the opener's id (None if there is no focusable gear). The kit records document.activeElement
+    at open() as the opener (orwellWindow.open), so the button must actually HOLD focus — a
+    synthetic JS .click() leaves focus wherever it was (e.g. the composer), and the kit then
+    rightly returns focus there on close."""
+    opener_id = page.evaluate("""() => {
+        const btn = %s;
+        if (!btn) return null;
+        btn.focus();
+        return document.activeElement === btn ? (btn.id || '') : null;
+    }""" % _SETTINGS_BTN_JS)
+    if opener_id is None:
+        return None
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(700)
+    return opener_id
+
+
 def _keyboard_regression_test(page):
     """Regression test for keyboard focus trap, focus restore, and arrow-key move/resize.
 
-    Opens the settings modal, tests focus trapping (orwellWindow._trapFocus),
-    focus restore on close (orwellWindow focus-return-to-opener), and arrow-key
-    move/resize (orwellWindow). Returns a list of failure descriptions;
-    an empty list means all checks passed.
+    Opens the settings window (#settings-modal, an OrwellWindow kit modal) from the keyboard, then
+    tests focus trapping (orwellWindow._trapFocus), focus restore to the opener on close
+    (orwellWindow._teardown → _owReturnFocus), and the titlebar's arrow-key move / Shift+arrow
+    resize (orwellWindow._onTitlebarKey). The move/resize affordance lives on the focusable
+    .ow-titlebar (advertised via aria-keyshortcuts) — arrows pressed inside the window BODY keep
+    their native meaning (scroll, caret, select) and must never move the window — so the titlebar
+    is focused before the arrows are pressed. Returns a list of failure descriptions; an empty
+    list means all checks passed.
     """
     failures = []
+    win_sel = "#settings-modal"
 
-    # 1. Open Settings Modal — use the same selector chain as main()
-    opened = page.evaluate("""() => {
-        const btn = document.getElementById('user-bar-settings')
-            || document.getElementById('tool-settings-btn')
-            || document.getElementById('rail-settings')
-            || document.querySelector('#settings-btn,[data-settings],[aria-label*=ettings]');
-        if (btn) { btn.click(); return true; }
-        return false;
-    }""")
-    if not opened:
-        failures.append("Settings button not found — cannot test keyboard regression")
+    # 1. Open the settings window from the keyboard (the opener is the focused gear button).
+    opener_id = _open_settings_by_keyboard(page)
+    if opener_id is None:
+        failures.append("Settings button not found/focusable — cannot test keyboard regression")
         return failures
-    page.wait_for_timeout(700)
-    if not page.query_selector(".ow-window"):
-        failures.append("Settings .ow-window not visible after click")
+    if not page.query_selector(f"{win_sel}.ow-window"):
+        failures.append("Settings .ow-window not visible after keyboard open")
         return failures
 
-    # 2. Focus Trap Test (orwellWindow._trapFocus ~L1328)
-    # Tab 10 times; each press must keep focus inside .ow-window.
+    # 2. Focus Trap Test (orwellWindow._trapFocus) — Tab 10 times; focus must stay inside.
     for i in range(10):
         page.keyboard.press("Tab")
         page.wait_for_timeout(50)
-        in_window = page.evaluate(
-            "document.activeElement?.closest('.ow-window') ? true : false")
-        if not in_window:
+        if not page.evaluate(f"!!document.activeElement?.closest('{win_sel}')"):
             failures.append(
-                f"Focus trap broken at Tab {i + 1}: active element outside .ow-window")
+                f"Focus trap broken at Tab {i + 1}: active element outside the settings window")
             break
 
-    # 3. Focus Restore Test (orwellWindow ~L1710 focus-return-to-opener)
-    opener_id = page.evaluate("""() => {
-        const w = document.activeElement?.closest('.ow-window');
-        return w?.previousElementSibling?.id || document.activeElement?.id || '';
-    }""")
+    # 3. Focus Restore Test — Escape closes the modal and focus returns to the opener.
     page.keyboard.press("Escape")
-    page.wait_for_timeout(200)
+    page.wait_for_timeout(400)
     restored_id = page.evaluate("document.activeElement?.id || ''")
-    if restored_id != opener_id:
+    if page.query_selector(f"{win_sel}.ow-window"):
+        failures.append("Escape did not close the settings window")
+    elif restored_id != opener_id:
         failures.append(
             f"Focus restore failed: expected opener id '{opener_id}', "
             f"got active id '{restored_id}'")
 
-    # 4. Arrow Key Move/Resize Test (orwellWindow ~L1113)
-    # Re-open the window (it was closed by Escape above).
-    reopened = page.evaluate("""() => {
-        const btn = document.getElementById('user-bar-settings')
-            || document.getElementById('tool-settings-btn')
-            || document.getElementById('rail-settings')
-            || document.querySelector('#settings-btn,[data-settings],[aria-label*=ettings]');
-        if (btn) { btn.click(); return true; }
-        return false;
-    }""")
-    if reopened:
-        page.wait_for_timeout(700)
-        if page.query_selector(".ow-window"):
-            init_top = page.evaluate(
-                "document.querySelector('.ow-window')?.style?.top || ''")
-            page.keyboard.press("ArrowDown")
-            page.wait_for_timeout(100)
-            new_top = page.evaluate(
-                "document.querySelector('.ow-window')?.style?.top || ''")
-            if new_top == init_top:
-                failures.append(
-                    "ArrowDown did not move window: top unchanged")
+    # 4. Arrow Key Move/Resize Test — re-open, focus the titlebar, then press the arrows.
+    if _open_settings_by_keyboard(page) is None or not page.query_selector(f"{win_sel}.ow-window"):
+        failures.append("Settings window did not re-open for the arrow-key test")
+        return failures
+    focused_tb = page.evaluate(f"""() => {{
+        const tb = document.querySelector('{win_sel} .ow-titlebar');
+        if (!tb) return false;
+        tb.focus();
+        return document.activeElement === tb && !!tb.getAttribute('aria-keyshortcuts');
+    }}""")
+    if not focused_tb:
+        failures.append("Settings titlebar is not keyboard-focusable / advertises no arrow keys")
+        return failures
 
-            init_height = page.evaluate(
-                "document.querySelector('.ow-window')?.style?.height || ''")
-            page.keyboard.press("Shift+ArrowDown")
-            page.wait_for_timeout(100)
-            new_height = page.evaluate(
-                "document.querySelector('.ow-window')?.style?.height || ''")
-            if new_height == init_height:
-                failures.append(
-                    "Shift+ArrowDown did not resize window: height unchanged")
+    def geom():
+        return page.evaluate(f"""() => {{
+            const r = document.querySelector('{win_sel}').getBoundingClientRect();
+            return {{top: Math.round(r.top), height: Math.round(r.height)}};
+        }}""")
 
+    g0 = geom()
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(100)
+    g1 = geom()
+    if g1["top"] == g0["top"]:
+        failures.append("ArrowDown did not move window: top unchanged")
+    # Shrink (Shift+ArrowUp): a grow could legitimately be capped at the viewport bottom.
+    page.keyboard.press("Shift+ArrowUp")
+    page.wait_for_timeout(100)
+    g2 = geom()
+    if g2["height"] == g1["height"]:
+        failures.append("Shift+ArrowUp did not resize window: height unchanged")
+
+    # Leave the page as found: close the window again.
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
     return failures
 
 
