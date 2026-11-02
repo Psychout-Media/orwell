@@ -4,6 +4,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 import { PLAYER } from "../../src/domain/ids";
+import { linger } from "../support/linger";
 
 /**
  * ADR 0006 — the SOCIAL half of the sleep economy: the awake set wired into the living house. As the
@@ -26,19 +27,6 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
   else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
   else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
   else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id });
-}
-
-/**
- * The player LINGERS — one long scene of social play (ADR 0003: lingering is play). Ceremonies alone no longer
- * carry the house into the night: the night-gate day-breaks roll the clock to the next morning, and an
- * eviction night costs ~2h in total (PO ruling 2026-11-01). The evening is spent by the player hanging around,
- * so these helpers spend it the same way — via the per-conversation clock, which never wraps past the night.
- */
-function linger(s: GameSessionAdapter): void {
-  s.setPerConversationClockEnabled(true);
-  s.resetSceneClock();
-  s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
-  s.setPerConversationClockEnabled(false); // only the linger moves time — later ticks leave the clock alone
 }
 
 /** Advance (clock on) until the phase reaches `target`; resolve pendings legally. Returns whether reached. */
@@ -143,7 +131,7 @@ describe("ADR 0006 — the off-screen society pairs only the awake (the night ow
       for (let t = 0; t < 8; t++) orch.advance(user, "offscreen-tick");
       // The off-screen SOCIETY scenes are hidden pairwise events (witnessSet excludes the player).
       // Rumor retellings (`gossip …` events) come from several secondary diffusion paths that are not the
-      // society pairing under test — excluded here; their own night-gating is a tracked follow-up.
+      // society pairing under test — excluded here; their own night-gating is tracked in #1913.
       const scenes = sb.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
         && !/^gossip\b/.test(e.content));
       for (const e of scenes) {

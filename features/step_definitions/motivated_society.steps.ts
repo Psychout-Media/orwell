@@ -17,6 +17,7 @@ import type { EntityId } from "../../src/domain/ids";
 import type { Room, Occupancy } from "../../src/domain/house";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { playSeed, EARNED_WINS, SEEDS } from "../../tests/property/juryReachShared";
+import { linger } from "../../tests/support/linger";
 
 /**
  * Feature 0078 — motivated off-screen society & intentional movement. Co-presence is the gate for any
@@ -122,19 +123,6 @@ function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolea
     if (a.finished) break;
   }
   return s.gameStatus().timeOfDay === target;
-}
-
-/**
- * The player LINGERS — one long scene of social play (ADR 0003: lingering is play). Ceremonies alone no longer
- * carry the house into the night (the night-gate day-breaks roll the clock to the next morning, and an eviction
- * night costs ~2h in total — PO ruling 2026-11-01), so the evening is spent the way play spends it: via the
- * per-conversation clock, which never wraps past the night. Only the linger moves time.
- */
-function linger(s: GameSessionAdapter): void {
-  s.setPerConversationClockEnabled(true);
-  s.resetSceneClock();
-  s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
-  s.setPerConversationClockEnabled(false);
 }
 
 /**
@@ -372,7 +360,7 @@ Then("a houseguest who has gone to bed is absent from the awake house and appear
   const beforeIds = new Set(ms.sandbox!.engine.events.queryAll().map((e) => e.id));
   for (let t = 0; t < 8; t++) ms.orch!.advance(ms.user!, "offscreen-tick");
   // Rumor retellings (`gossip …`) come from secondary diffusion paths, not the society pairing under test;
-  // their own night-gating is a tracked follow-up (#1912).
+  // their own night-gating is tracked in #1913.
   const fresh = ms.sandbox!.engine.events.queryAll().filter((e) => !beforeIds.has(e.id) && e.hidden && e.witnessSet.length === 2
     && !/^gossip\b/.test(e.content));
   for (const e of fresh) for (const id of e.witnessSet) {
