@@ -149,13 +149,13 @@ export interface NominationStyleWeights {
 
 export const NOMINATION_STYLES: Record<NominationStyle, NominationStyleWeights> = {
   /** Goes after the biggest competitor; barely cares who's floating. */
-  "threat-hunter": { floaterWeight: 0.1, pawnSeatFloaterBonus: 0.15, duoWeight: 0.1, duoPartnerBonus: 0 },
+  "threat-hunter": { floaterWeight: 0.25, pawnSeatFloaterBonus: 0.4, duoWeight: 0.3, duoPartnerBonus: 0.2 },
   /** "You're not doing anything, you're going up." */
-  "floater-cleaner": { floaterWeight: 0.8, pawnSeatFloaterBonus: 0.6, duoWeight: 0, duoPartnerBonus: 0 },
+  "floater-cleaner": { floaterWeight: 0.9, pawnSeatFloaterBonus: 0.7, duoWeight: 0, duoPartnerBonus: 0 },
   /** Splits up power pairs — puts both halves on the block. */
-  "duo-breaker": { floaterWeight: 0.2, pawnSeatFloaterBonus: 0.2, duoWeight: 0.6, duoPartnerBonus: 0.6 },
+  "duo-breaker": { floaterWeight: 0.3, pawnSeatFloaterBonus: 0.3, duoWeight: 0.7, duoPartnerBonus: 0.7 },
   /** Protects their people; the pawn is whoever nobody will miss. */
-  loyalist: { floaterWeight: 0.3, pawnSeatFloaterBonus: 0.5, duoWeight: 0, duoPartnerBonus: 0 },
+  loyalist: { floaterWeight: 0.4, pawnSeatFloaterBonus: 0.7, duoWeight: 0.1, duoPartnerBonus: 0 },
 };
 
 /** Archetype → nomination style. Unknown archetypes (and the player's NPC proxy) read as threat hunters. */
