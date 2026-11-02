@@ -15,7 +15,9 @@ live ledger of owner calls as they happen.
   (100 seeds): both a passive and an active player reach F2 about a third of the time and win 10-12%,
   and active play no longer pays off (it did in June: 6 vs 2 wins / 30). The owner's targets:
   - Passive play: reach F2 about 5-10%, win under 5%.
-  - Active, smart play: reach F2 about 15-25%, win about 8-12%.
+  - Active, smart play: reach F2 about 15-25%, win about 8-12%. **Amended same day (owner): "a tad
+    harder" — active play now targets reach F2 about 12-20%, win about 6-10%.** Active must still
+    clearly beat passive.
   Tuning order: (1) fix the regression that erased the active-play advantage; (2) floaters become
   targets; (3) comp wins raise threat more; measure 100 seeds per change; (4) a tougher jury only if
   needed. Never protect or punish the player by story; the house just plays smarter for everyone.
