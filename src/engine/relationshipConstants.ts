@@ -234,7 +234,7 @@ export function natureFoldImpact(type: InteractionType): Partial<EdgeSignals> {
 export type CeremonyAct = "nominated" | "veto-saved" | "replaced" | "evicted" | "comp-won" | "self-evicted";
 
 /** A comp win moves only the danger read (E47) — no affinity/trust souring from a clean victory. */
-const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.14 };
+const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.2 };
 
 /** A veto save is alliance-grade warmth PLUS demonstrated protection — the E54 evidence signal. */
 const VETO_SAVED_IMPACT: Partial<EdgeSignals> = { trust: +0.16, affinity: +0.14, alignment: +0.15, reliability: +0.15 };

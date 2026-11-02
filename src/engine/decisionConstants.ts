@@ -35,7 +35,7 @@ export const DECISION = {
      * target (no one fights for them). The floater read is 1 when the closest bond anyone holds toward
      * them is at the edge baseline, falling to 0 once that bond reaches baseline + `floaterBondSpan`.
      */
-    floaterWeight: 0.25,
+    floaterWeight: 0.5,
     floaterBondSpan: 0.35,
     tacticFor: { bond: "pawn", neutral: "direct", clash: "backdoor" } as Record<
       RelationshipDisposition,
@@ -71,7 +71,7 @@ export const DECISION = {
      * denies it and sends the pawn home instead. Adds this × the voter's HOH alignment to the HOH's
      * target's eviction score. Bounded — it shades, a runaway threat read still dominates.
      */
-    hohReferendumWeight: 0.4,
+    hohReferendumWeight: 0.6,
   },
   /**
    * NPC↔NPC deal minting (audit E46): as a week's block goes up, the closest unbound NPC pair may
