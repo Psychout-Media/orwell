@@ -23,6 +23,11 @@ live ledger of owner calls as they happen.
   natural pawn, and pawns are often the ones evicted. Some houseguests even target floaters as a
   strategy (character-dependent).
 - **Competition wins raise your threat level.** Comp beasts get targeted, like on the show.
+- **An eviction vote is deeper than the two names on the block.** Pawns often go home because the
+  vote becomes a REFERENDUM ON THE HOH: houseguests who oppose the HOH vote against the HOH's wishes,
+  keeping the HOH's real target and evicting the pawn. Others protect the target (their ally) and vote
+  out whoever the pawn is. Today's vote model weighs only the voter's read of the two nominees and has
+  no HOH term, so this is a modeling gap to add during the difficulty tuning.
 
 - **Finale jurors never hint at who voted against them before the season is over (#1790 / E12).** A
   juror's finale question may still carry their demeanor (`bearing` — a word, never a number), but no
