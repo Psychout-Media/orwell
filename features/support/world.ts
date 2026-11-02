@@ -48,7 +48,10 @@ export class BbWorld extends World {
 
   // Behavioral-fidelity (0003) scratch state.
   /** 0003 — a LIVE stretch of season: its real event store, live richness metrics, and edge movement. */
-  liveFidelity?: { events: GameEvent[]; metrics: LiveRichnessMetrics; edgesMoved: boolean };
+  liveFidelity?: {
+    events: GameEvent[]; metrics: LiveRichnessMetrics; edgesMoved: boolean;
+    alliancesFormed: number; alliancesFractured: number; maxRevealsPerCommit: number; npcInteractionTypes: number;
+  };
   seed?: number;
 
   // Outcomes by stats + temperature (0006) scratch state.

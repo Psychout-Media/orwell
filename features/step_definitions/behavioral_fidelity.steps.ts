@@ -17,7 +17,7 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
  * every claim off the sandbox's REAL EventStore + relationship layer. Roles only.
  */
 
-const WEEKS = 3;
+const WEEKS = 4;
 
 function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
@@ -34,18 +34,45 @@ function playLive(world: BbWorld, seed: number): void {
   reg.setCommit((u) => orch.commitPlayerTurn(u));
   const sb = reg.sandboxFor(`fidelity-${seed}`);
   sb.session.createCharacter({ playerName: "The Player", seed });
-  const edgesBefore = JSON.stringify(sb.engine.relationships.serialize());
-  for (let i = 0; i < 1500; i++) {
-    const v = sb.session.advanceGame();
-    if (v.pending) resolve(sb.session, v.pending);
-    if (v.status.week > WEEKS || v.finished) break;
+  const rel = sb.engine.relationships;
+  const edgesBefore = JSON.stringify(rel.serialize());
+  // Alliance lifecycle: track every NPC pair's live `allianceActive` across each committed call, so the
+  // form/fracture claims are about real alliances, not just alliance- or conflict-typed scenes.
+  const ids = sb.session.getGameState().house.map((h) => h.id);
+  const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b] as const));
+  const activeNow = () => new Set(pairs.filter(([a, b]) => rel.allianceActive(a, b)).map(([a, b]) => `${a}|${b}`));
+  let active = activeNow();
+  let alliancesFormed = 0, alliancesFractured = 0, maxRevealsPerCommit = 0;
+  /** Run one committed call; count its reveals (a "moment" = one commit) and the alliance changes it made. */
+  const commit = (call: () => void): void => {
+    const before = sb.engine.events.count();
+    call();
+    const reveals = sb.engine.events.queryAll().slice(before).filter((e) => TYPED_SCENES.has(e.type) && e.reveal === true).length;
+    maxRevealsPerCommit = Math.max(maxRevealsPerCommit, reveals);
+    const now = activeNow();
+    for (const k of now) if (!active.has(k)) alliancesFormed++;
+    for (const k of active) if (!now.has(k)) alliancesFractured++;
+    active = now;
+  };
+  let reached = false;
+  for (let i = 0; i < 3000 && !reached; i++) {
+    let v!: AdvanceView;
+    commit(() => { v = sb.session.advanceGame(); });
+    if (v.pending) commit(() => resolve(sb.session, v.pending!));
+    if (v.finished) break;
+    reached = v.status.week > WEEKS;
   }
+  assert.ok(reached, `seed ${seed}: the live stretch must reach week ${WEEKS + 1}`);
   const events = sb.engine.events.queryAll();
   world.seed = seed;
   world.liveFidelity = {
     events,
     metrics: liveRichnessMetrics(events),
-    edgesMoved: JSON.stringify(sb.engine.relationships.serialize()) !== edgesBefore,
+    edgesMoved: JSON.stringify(rel.serialize()) !== edgesBefore,
+    alliancesFormed,
+    alliancesFractured,
+    maxRevealsPerCommit,
+    npcInteractionTypes: new Set(events.map((e) => e.type).filter((t) => TYPED_SCENES.has(t))).size,
   };
 }
 
@@ -95,11 +122,11 @@ Then(
 // --- Alliance churn -----------------------------------------------------------
 
 Then("at least one alliance formed", function (this: BbWorld) {
-  assert.ok(this.liveFidelity!.metrics.allianceScenes >= 1, "expected at least one alliance scene");
+  assert.ok(this.liveFidelity!.alliancesFormed >= 1, "expected at least one pair to become an active alliance");
 });
 
 Then("at least one alliance shifted or fractured", function (this: BbWorld) {
-  assert.ok(this.liveFidelity!.metrics.churnScenes >= 1, "expected at least one conflict or betrayal scene");
+  assert.ok(this.liveFidelity!.alliancesFractured >= 1, "expected at least one active alliance to fall apart");
 });
 
 Then("relationship edge strengths changed over time", function (this: BbWorld) {
@@ -117,13 +144,10 @@ Then("hidden elements were revealed on only a small fraction of moments", functi
 Then(
   "no single moment revealed more than the allowed maximum of hidden elements",
   function (this: BbWorld) {
-    // A "moment" is one committed beat: every event a commit records shares its play-clock `ts`.
-    const perMoment = new Map<number, number>();
-    for (const e of this.liveFidelity!.events) {
-      if (TYPED_SCENES.has(e.type) && e.reveal === true) perMoment.set(e.ts, (perMoment.get(e.ts) ?? 0) + 1);
-    }
-    const max = Math.max(0, ...perMoment.values());
-    assert.ok(max <= RICHNESS.MAX_REVEALS_PER_MOMENT, `a moment revealed ${max} hidden elements — no dumping`);
+    // A "moment" here is one committed call (an advance or a decision, with its off-screen tick): the
+    // events it recorded are captured as a group while playing (store timestamps are unique per event).
+    const max = this.liveFidelity!.maxRevealsPerCommit;
+    assert.ok(max <= RICHNESS.MAX_REVEALS_PER_MOMENT, `one commit revealed ${max} hidden elements — no dumping`);
   },
 );
 
@@ -143,7 +167,8 @@ Then(
 );
 
 Then("the diversity of NPC interaction types meets the configured minimum", function (this: BbWorld) {
-  const div = this.liveFidelity!.metrics.typeDiversity;
+  // Distinct NPC INTERACTION types only — ceremonies, diary entries and house events never pad the count.
+  const div = this.liveFidelity!.npcInteractionTypes;
   assert.ok(div >= RICHNESS.MIN_TYPE_DIVERSITY, `type diversity ${div} < ${RICHNESS.MIN_TYPE_DIVERSITY}`);
 });
 
