@@ -260,6 +260,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     // #1913 — the AWAKE house only (ADR 0006): a houseguest who has gone to bed neither retells nor hears a
     // rumor at night. Clock off ⇒ `awakeAmong` is the identity ⇒ byte-identical.
     const npcIds: EntityId[] = session.awakeAmong(core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id)));
+    if (!npcIds.includes(origin)) return; // a sleeping origin neither hears nor starts a rumor tonight
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < npcIds.length; i++) {
       for (let j = i + 1; j < npcIds.length; j++) {
@@ -299,6 +300,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     // #1913 — the AWAKE house only (ADR 0006): a houseguest who has gone to bed neither retells nor hears a
     // rumor at night. Clock off ⇒ `awakeAmong` is the identity ⇒ byte-identical.
     const npcIds: EntityId[] = session.awakeAmong(core.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id)));
+    if (!npcIds.includes(other)) return; // the partner is asleep — the reputation seeds on a later honoring
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < npcIds.length; i++) {
       for (let j = i + 1; j < npcIds.length; j++) {

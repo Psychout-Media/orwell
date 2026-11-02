@@ -968,7 +968,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "CONDUCT bearing (`bearing`: a demeanor WORD like 'warm', 'cold', 'burning' — how they TREAT " +
     "the finalist they are questioning). Voice the `bearing` as observable conduct — a cooler greeting, a " +
     "guarded tone, an edge in their voice — never naming it as an emotion report or stating the hidden " +
-    "cause, and never naming who voted how (the ballots stay secret until the retrospective). Only voice " +
+    "cause, and never naming which houseguest voted to evict whom (weekly eviction ballots stay secret " +
+    "until the retrospective — the jury's own finale votes below are read out as usual). Only voice " +
     "it when the game provides it (absent means voice their question normally). " +
     "THE JURY-VOTE REVEAL IS NARRATION, NOT A NEW DECISION. Once the statements and questions are done " +
     "and the game is reading the jury's votes, those votes are ALREADY CAST and recorded; any decision " +

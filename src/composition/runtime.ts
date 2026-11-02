@@ -4,6 +4,7 @@ import { LogicalClock } from "../adapters/time/LogicalClock";
 import { FileSaveStore } from "../adapters/engine/FileSaveStore";
 import { SqliteSaveStore } from "../adapters/sqlite/SqliteSaveStore";
 import { FileUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
+import { GameSessionAdapter } from "../adapters/engine/GameSessionAdapter";
 import type { Clock } from "../ports/Clock";
 import type { UserSaveStore } from "../ports/UserSaveStore";
 
@@ -74,6 +75,8 @@ export interface Runtime {
   /** Resume saved users from disk (the boot preload). Called automatically unless `deferResume`
    *  was set, in which case the entrypoint calls it after binding HTTP + warming the embedder. */
   resumeSaved(): void;
+  /** The in-game clock's LIVE state (runtime FE flip, else the env default) — reported on `/health`. */
+  timeOfDayStatus(): boolean;
 }
 
 /**
@@ -167,5 +170,6 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     clock,
     knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
     resumeSaved,
+    timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective(),
   };
 }

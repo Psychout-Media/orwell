@@ -149,13 +149,21 @@ export function statesTarget(content: string, name: string): boolean {
   if (!content || !name) return false;
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const nameRe = new RegExp(`\\b${esc}\\b`, "gi");
-  const verb = /\b(target(?:ing)?|evict(?:ing)?|vote(?:d|ing)?\s+(?:out|against|to evict)|get(?:ting)?\s+rid\s+of|go(?:ing)?\s+after|take\s+out|backdoor(?:ing)?|send(?:ing)?|cut(?:ting)?)\b/i;
+  // The targeting phrase must sit DIRECTLY before the name (at most two filler words between), and nothing
+  // between them may negate or contrast it — so "target A, not B" targets A, never B.
+  const verbThenName = /\b(?:target(?:ing)?|evict(?:ing)?|vot(?:e|ed|es|ing)\s+(?:for|out|against|to\s+evict)|get(?:ting)?\s+rid\s+of|go(?:ing)?\s+after|take\s+out|backdoor(?:ing)?|send(?:ing)?|cut(?:ting)?)\s+((?:\w+\s+){0,2})$/i;
+  const breaker = /\b(?:not|never|no|but|instead|rather|over|than)\b|n't\b|[,.;:!?]/i;
   let m: RegExpExecArray | null;
   while ((m = nameRe.exec(content)) !== null) {
-    const before = content.slice(Math.max(0, m.index - 40), m.index);
+    const before = content.slice(Math.max(0, m.index - 48), m.index);
+    const v = verbThenName.exec(before);
+    if (v && !breaker.test(v[1] ?? "")) {
+      // also reject a negation right before the verb itself ("I won't target X", "not targeting X")
+      const lead = before.slice(0, v.index).slice(-12);
+      if (!/\b(?:not|never|won't|don't|wouldn't|can't|no)\s*$/i.test(lead)) return true;
+    }
     const after = content.slice(m.index + m[0].length, m.index + m[0].length + 16);
-    if (verb.test(before)) return true;
-    if (/^\s+(?:out|home|gone)\b/i.test(after) && /\b(vote|get|send|want)\b/i.test(before)) return true;
+    if (/^\s+(?:out|home|gone)\b/i.test(after) && /\b(?:vote|get|send|want)\s+$/i.test(before)) return true;
   }
   return false;
 }

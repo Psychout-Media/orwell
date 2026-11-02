@@ -101,6 +101,18 @@ describe("#1800 — computePlayerReceipts (pure deterministic)", () => {
     expect(computePlayerReceipts({ ...emptyInput(), votes: [{ ...base, statements: [{ id: "e2", content: "NomineeB made breakfast today." }] }] })).toHaveLength(0);
   });
 
+  it("statesTarget: only a phrase that targets THIS name counts", async () => {
+    const { statesTarget } = await import("../../src/engine/receipts");
+    expect(statesTarget("Let's target NomineeA this week", "NomineeA")).toBe(true);
+    expect(statesTarget("I'm voting for NomineeA", "NomineeA")).toBe(true);
+    expect(statesTarget("we need to vote NomineeA out", "NomineeA")).toBe(true);
+    // contrast / negation never makes the OTHER name a target
+    expect(statesTarget("target NomineeA, not NomineeB", "NomineeB")).toBe(false);
+    expect(statesTarget("target NomineeA instead of NomineeB", "NomineeB")).toBe(false);
+    expect(statesTarget("I won't target NomineeB", "NomineeB")).toBe(false);
+    expect(statesTarget("NomineeB made breakfast", "NomineeB")).toBe(false);
+  });
+
   it("divergent-commitment summary names people, never raw ids", () => {
     const result = computePlayerReceipts({
       ...emptyInput(),

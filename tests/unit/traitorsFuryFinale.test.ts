@@ -67,6 +67,31 @@ describe("#1790 — Traitors' Fury finale unit test (bearing + heldBelief)", () 
   });
 });
 
+describe("PO ruling 2026-11-02 — a juror's live finale question never carries vote attribution", () => {
+  it("while jurors are asking (live, not post-finish), asking has a bearing word at most — never heldBelief", () => {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("f-live");
+    sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
+    sb.session.setJuryHouseEnabled(true);
+    sb.session.setTraitorsFuryEnabled(true);
+    const orch = new Orchestrator(reg, new FakeClock(), { seed: SEED });
+    let askingSeen = 0;
+    for (let i = 0; i < 400; i++) {
+      const finished = stepLoop(sb);
+      const view = sb.session.finaleView();
+      if (view?.stage === "questions" && view.asking) {
+        askingSeen++;
+        expect(Object.keys(view.asking).sort()).toEqual(
+          view.asking.bearing === undefined ? ["id", "name"] : ["bearing", "id", "name"],
+        );
+      }
+      if (finished) break;
+      orch.advance("f-live", "offscreen-tick");
+    }
+    expect(askingSeen, "the finale actually staged juror questions").toBeGreaterThan(0);
+  });
+});
+
 /**
  * #1790 — vault-sentinel extension: finale bearing/heldBelief must not leak hidden content.
  */
