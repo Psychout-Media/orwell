@@ -868,9 +868,11 @@ def test_stream_event_path_calls_outbox_confirm_delivery():
     fn_body = fn[:fn.index("export function ")] if "\nexport function " in fn else fn[:2000]
     assert "_outboxConfirmDelivery(cid)" in fn_body, \
         "renderObserverUserMessage must call _outboxConfirmDelivery from the dedup branch"
-    # Verify the call is INSIDE the dedup-if block (after the `return existing;`)
-    dedup_block = js[js.index("if (existing) {"):]
-    dedup_block = dedup_block[:dedup_block.index("}" + 3)]  # up to closing brace after return
+    # Verify the call is INSIDE the dedup-if block, i.e. before that branch's `return existing;`
+    # (the old slice did `index("}" + 3)` — a str+int TypeError — and the branch contains nested
+    # `{ try { … } catch (_) {} }` braces, so "first `}`" was never the block end anyway).
+    start = fn_body.index("if (existing) {")
+    dedup_block = fn_body[start:fn_body.index("return existing;", start)]
     assert "_outboxConfirmDelivery(cid)" in dedup_block, \
         "_outboxConfirmDelivery must be called in the dedup-existing branch"
 
@@ -921,9 +923,11 @@ def test_migration_adds_client_msg_id_column_and_unique_index():
             cols = [row[1] for row in cursor.fetchall()]
             assert "client_msg_id" in cols, "client_msg_id column must exist after migration"
 
-            # Verify backfill
-            for row in conn2.execute("SELECT id, client_msg_id FROM chat_messages ORDER BY id"):
-                assert row[1] is not None, f"row {row[0]} must have client_msg_id backfilled"
+            # Verify backfill — every row gets its id from metadata EXCEPT the later duplicate: the
+            # migration's defensive de-dup keeps the FIRST row per (session, client_msg_id) (MIN rowid)
+            # and NULLs the rest so the unique index can be created (rows are never deleted).
+            got = dict(conn2.execute("SELECT id, client_msg_id FROM chat_messages"))
+            assert got == {"1": "cid-a", "2": "cid-b", "3": None, "4": "cid-c"}, got
 
             # Verify de-dup: only one row per (session_id, client_msg_id) pair survives
             rows = list(conn2.execute(
