@@ -248,7 +248,7 @@ _PROVIDER_CURATED = {
         "glm-5.1", "glm-5v-turbo", "glm-5-turbo", "glm-4.7", "glm-4.5-air",
     ],
     "deepseek": [
-        "deepseek-chat", "deepseek-reasoner",
+        "deepseek-flash", "deepseek-v4-pro",
     ],
     "groq": [
         "openai/gpt-oss-120b", "openai/gpt-oss-20b",

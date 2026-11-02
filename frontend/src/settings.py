@@ -360,8 +360,12 @@ DEFAULT_SETTINGS = {
     "task_endpoint_id": "",
     "task_model": "",
     "default_endpoint_id": "",
-    # OOB default chat/narration model. OpenRouter is the default provider (added at first-run
-    # setup); z-ai/glm-4.7 is the out-of-box selected model (chat box + narrator + onboarding all
+    # OOB default chat/narration model — OWNER RULING 2026-11-02 (PO): DeepSeek's OWN API
+    # (https://api.deepseek.com, model `deepseek-flash`) is now the default provider for NEW installs
+    # (created on first boot from DEEPSEEK_API_KEY — see src/deepseek_seed.py — or added in setup).
+    # OpenRouter stays a selectable provider and persisted stores keep whatever they carry (ADR 0016
+    # note). HISTORY: OpenRouter was the default provider (added at first-run
+    # setup); z-ai/glm-4.7 was the out-of-box selected model (chat box + narrator + onboarding all
     # read this resolved default) — OWNER RULING 2026-07-13 (live prod debug-bundle audit): back to
     # the ADR 0016 NARRATOR default z-ai/glm-4.7 (utility is qwen/qwen3.6-27b — see utility_model
     # below); the 2026-07-07 glm-5.2 two-tier retarget is
@@ -371,7 +375,7 @@ DEFAULT_SETTINGS = {
     # `default_endpoint_id` stays
     # empty so resolution binds it to the first enabled endpoint (the OpenRouter one the setup
     # wizard creates); the setup wizard also writes the endpoint id explicitly once it exists.
-    "default_model": "z-ai/glm-4.7",
+    "default_model": "deepseek-flash",
     # Ordered fallback chain for the default chat model. Each entry is
     # {"endpoint_id": "...", "model": "..."}. If the primary model fails
     # before producing output (endpoint offline / errors), the chat
@@ -392,7 +396,7 @@ DEFAULT_SETTINGS = {
     # (endpoint_resolver): only the ENDPOINT is inherited when unset; this configured utility
     # MODEL stays authoritative (it used to be silently overwritten by `default_model`, so the
     # shipped qwen tier never actually resolved out of the box).
-    "utility_model": "qwen/qwen3.6-27b",
+    "utility_model": "deepseek-flash",
     # Ordered fallback chain for the Utility model (summarization, naming,
     # tidy actions, etc.).
     "utility_model_fallbacks": [],

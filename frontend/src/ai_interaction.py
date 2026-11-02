@@ -215,6 +215,13 @@ def has_image_capable_endpoint(owner: Optional[str] = None) -> bool:
             # implements an OpenAI-compatible images path or OpenRouter chat image-output.
             if provider in ("anthropic", "ollama"):
                 continue
+            # DeepSeek's own API (the new-install default, PO ruling 2026-11-02) has no image API:
+            # counting it would make every portrait TRY and fail. A DeepSeek-only box reports
+            # unavailable ⇒ portraits are skipped silently (graceful absence). DeepSeek models served
+            # via OpenRouter are a different host and are unaffected.
+            from src.llm_core import _host_match
+            if _host_match(ep.base_url, "deepseek.com"):
+                continue
             return True
         return False
     except Exception:

@@ -105,6 +105,10 @@ def post_reset_settings(monkeypatch):
     MERGE over DEFAULT_SETTINGS is what loads — `default_endpoint_id` EMPTY,
     `default_model` = the OOB z-ai/glm-4.7. Per-user prefs are absent (accounts recreated)."""
     merged = dict(settings_mod.DEFAULT_SETTINGS)
+    # The OOB default is DeepSeek now (PO ruling 2026-11-02); these tests model an install that is
+    # CONFIGURED for OpenRouter's narrator/utility pair (OpenRouter stays selectable), so pin it.
+    merged["default_model"] = "z-ai/glm-4.7"
+    merged["utility_model"] = "qwen/qwen3.6-27b"
     monkeypatch.setattr(settings_mod, "load_settings", lambda: dict(merged))
     monkeypatch.setattr(settings_mod, "get_setting",
                         lambda key, default=None: merged.get(key, default))

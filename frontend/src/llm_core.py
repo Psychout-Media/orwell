@@ -710,6 +710,22 @@ def _is_anthropic_model(model: str) -> bool:
     return "claude" in m or m.startswith("anthropic/")
 
 
+def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
+    """DeepSeek's OWN API (api.deepseek.com) defaults thinking ON, and with ``tools`` on the wire a
+    thinking turn 400s unless ``reasoning_content`` is echoed back on every later request. The agent
+    loop is a tool loop, so on that host we always send ``{"thinking": {"type": "disabled"}}`` and drop
+    the OpenRouter-style ``reasoning`` fields (DeepSeek uses ``thinking``/``reasoning_effort``, not the
+    unified map). The legacy ``deepseek-reasoner`` is thinking-only, so it is left untouched. Host-gated
+    so every other provider (incl. DeepSeek served via OpenRouter) stays byte-identical."""
+    if not _host_match(url, "deepseek.com"):
+        return
+    if "reasoner" in (model or "").lower():
+        return
+    payload.pop("reasoning", None)
+    payload.pop("reasoning_effort", None)
+    payload["thinking"] = {"type": "disabled"}
+
+
 def _apply_reasoning_budget(payload: Dict, provider: str, model: str, policy: Optional[Dict],
                             requested_max_tokens: Optional[int] = None) -> None:
     """ADR 0010 slice B: inject the per-call-class reasoning budget into an OpenAI-compatible payload,
@@ -1684,6 +1700,7 @@ async def _llm_call_async_impl(
         # background-authoring), + OpenRouter usage accounting so `cost` is returned — but ONLY when a
         # usage_sink is present (we're metering), so a non-metered call stays byte-identical.
         _apply_reasoning_budget(payload, provider, model, policy, requested_max_tokens=max_tokens)
+        _apply_deepseek_thinking_off(payload, url, model)
         if provider == "openrouter" and usage_sink is not None:
             payload["usage"] = {"include": True}
         # 0112: attach the Vault-free correlation metadata (only when observability is enabled;
@@ -1899,6 +1916,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             payload.pop("temperature", None)
         # ADR 0010 slice B: send the per-call-class reasoning budget (provider-aware; see helper).
         _apply_reasoning_budget(payload, provider, model, policy, requested_max_tokens=max_tokens)
+        _apply_deepseek_thinking_off(payload, url, model)
         if provider not in {"openrouter", "groq"}:
             payload["stream_options"] = {"include_usage": True}
         elif provider == "openrouter":
