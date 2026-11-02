@@ -28,3 +28,8 @@ tests/scratch/
 # throwaway repro/render scratch (delegate agents write repros + before/after renders here; never committed)
 scratchpad/
 frontend/scratchpad/
+
+# Sealed-content exports must never be committed (mandate #2 — the Vault Wall). The producerVault
+# DEBUG unseal and the "unsealed" debug-bundle flavor both carry hidden-layer content; keep them local.
+orwell-producers-vault*.json
+orwell-debug-bundle-unsealed*.json
