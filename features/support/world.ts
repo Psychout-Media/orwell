@@ -4,8 +4,7 @@ import type { Sandbox, VaultDatum } from "../../tests/support/sandbox";
 import type { ToolDescriptor } from "../../src/surfaces/tools/registry";
 import type { GameEvent, Visibility, EntityId } from "../../src/domain/event";
 import type { SocialGraph } from "../../src/engine/gossip";
-import type { SeasonResult } from "../../src/engine/simulation";
-import type { RichnessMetrics } from "../../src/engine/richness";
+import type { LiveRichnessMetrics } from "../../src/engine/richness";
 import type { GameHouse, Houseguest } from "../../src/engine/characterFactory";
 import type { WeekState, VetoDraw } from "../../src/domain/eligibility";
 import type { RelationshipModel } from "../../src/engine/relationships";
@@ -48,8 +47,8 @@ export class BbWorld extends World {
   gossipOriginal?: string;
 
   // Behavioral-fidelity (0003) scratch state.
-  season?: SeasonResult;
-  metrics?: RichnessMetrics;
+  /** 0003 — a LIVE stretch of season: its real event store, live richness metrics, and edge movement. */
+  liveFidelity?: { events: GameEvent[]; metrics: LiveRichnessMetrics; edgesMoved: boolean };
   seed?: number;
 
   // Outcomes by stats + temperature (0006) scratch state.

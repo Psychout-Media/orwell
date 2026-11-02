@@ -4,7 +4,7 @@ import { PLAYER } from "../domain/ids";
 import type { SeasonResult } from "./simulation";
 
 /** The seven typed interaction natures the live off-screen society records (0038). */
-const TYPED_SCENES: ReadonlySet<string> = new Set([
+export const TYPED_SCENES: ReadonlySet<string> = new Set([
   "alliance", "gossip", "conflict", "bonding", "strategy", "showmance", "betrayal",
 ]);
 
