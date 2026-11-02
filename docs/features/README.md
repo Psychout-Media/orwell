@@ -85,7 +85,7 @@ The **[index](#index)** below is the single source of truth for per-feature stat
 | 0007 | [Persistence non-degradation](./0007-persistence-non-degradation.md) | BDD | ✅ Built |
 | 0008 | [Daily-event invariant](./0008-daily-event-invariant.md) | BDD | ✅ Built |
 | 0009 | [MCP tool boundary](./0009-mcp-tool-boundary.md) | BDD | ✅ Built |
-| 0010 | [One-liner deployment & update](./0010-deployment-one-liner.md) | scripts | 🚧 Built · real-Proxmox-host smoke owed |
+| 0010 | [One-liner deployment & update](./0010-deployment-one-liner.md) | scripts | ✅ Built · running in production on the owner's Proxmox host (owner-confirmed 2026-11-02) |
 | 0011 | [Weekly loop orchestration](./0011-weekly-loop-orchestration.md) | BDD | ✅ Built |
 | 0012 | [Conversation & scene system](./0012-conversation-and-scene-system.md) | BDD | ✅ Built |
 | 0013 | [The Diary Room](./0013-diary-room.md) | BDD | ✅ Built |
