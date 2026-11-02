@@ -44,6 +44,7 @@ from routes.chat_helpers import (
     auto_escalation_withhold,
     ensure_turn_recorded,
     publish_game_updated_after_turn,
+    GAME_ENGINE_WRITE_TOOLS,
     last_beat_seq,
     discard_last_user_message,
     unmark_session_framed,
@@ -1823,6 +1824,19 @@ def setup_chat_routes(
                                         _agent_tool_calls += 1
                                         if data.get("tool"):
                                             _agent_tools_called.append(str(data["tool"]))
+                                    elif (data.get("type") == "tool_output" and ctx.game_active
+                                          and str(data.get("tool") or "") in GAME_ENGINE_WRITE_TOOLS):
+                                        # 0064 §B/D / ship-gate F5: a game-engine write just COMMITTED
+                                        # mid-turn — push `game-updated` to peer windows NOW, not only at
+                                        # the turn's end. A multi-round turn (a forced advance, then more
+                                        # narration) used to leave peers stale for the whole remainder
+                                        # (~10-20s) although the sender's own HUD refreshed at this very
+                                        # tool result. Vault-free ping, fail-soft; the end-of-turn push stays.
+                                        try:
+                                            from src import orwell_game_session as _ogs_mid
+                                            _ogs_mid.publish_game_updated(ctx.user)
+                                        except Exception:
+                                            pass
                                     yield chunk
                                 elif data.get("type") == "fallback":
                                     # Selected model failed; a fallback answered.
@@ -1902,6 +1916,7 @@ def setup_chat_routes(
 
                                 _rec_task = asyncio.create_task(ensure_turn_recorded(
                                     ctx.user, message, full_response, _agent_tools_called,
+                                    beat_seq_before=_beat_seq_before,
                                 ))
                                 # Retain a strong ref until the task finishes (weak-ref GC guard).
                                 _BG_TASKS.add(_rec_task)

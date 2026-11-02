@@ -5064,7 +5064,13 @@ async def _e22_rich_extract(user, player_message, narration) -> bool:
         return False
 
 
-async def ensure_turn_recorded(user, player_message, narration, tools_called) -> bool:
+# Progression levers can legitimately NO-OP (nothing to advance at a lull / a stale or refused submit),
+# and the FE's own forced-advance belt fires `advanceGame` exactly when the model didn't. Their mere
+# presence in the turn's tool list must not stand the scene recorder down when they committed nothing.
+_NOOP_ABLE_PROGRESSION_TOOLS = frozenset({"advanceGame", "submitDecision"})
+
+
+async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None) -> bool:
     """E22 — the server-side guard for the cardinal sin. Prompt wording told the model to
     record scenes; nothing ENFORCED it (the GM asking "Record this interaction?" was the
     symptom). On a completed game turn with non-trivial narration and ZERO engine writes,
@@ -5084,8 +5090,22 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called) ->
     text = (narration or "").strip()
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
-    if any(t in GAME_ENGINE_WRITE_TOOLS for t in (tools_called or [])):
-        return False
+    writes = [t for t in (tools_called or []) if t in GAME_ENGINE_WRITE_TOOLS]
+    if writes:
+        # A real write (recordInteraction, makeDeal, …) stands the fallback down by name. But when the
+        # ONLY "writes" were progression levers and the board did not move (beatSeq unchanged over the
+        # turn), nothing was committed: the player's social scene still has no consequence, so record it.
+        # (Observed: a forced advanceGame no-op at a premiere lull silently swallowed the scene fold.)
+        beat_now = last_beat_seq(user)
+        progression_noop = (
+            all(t in _NOOP_ABLE_PROGRESSION_TOOLS for t in writes)
+            and isinstance(beat_seq_before, int) and isinstance(beat_now, int)
+            and beat_now <= beat_seq_before
+        )
+        if not progression_noop:
+            logger.info("[orwell] E22 guard: stood down — turn wrote %s (beatSeq %s → %s) user=%s",
+                        writes, beat_seq_before, beat_now, user)
+            return False
     global _unrecorded_turn_fallbacks
     _unrecorded_turn_fallbacks += 1
     logger.warning(
