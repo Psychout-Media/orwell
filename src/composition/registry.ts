@@ -27,7 +27,7 @@ import type { UserSaveStore } from "../ports/UserSaveStore";
 import type { UserNotorietyStore } from "../ports/UserNotorietyStore";
 import { InMemoryUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
 import { deriveNotoriety } from "../engine/notoriety";
-import type { PreSeedNextSeasonReq, PreSeedNextSeasonView } from "../ports/GameSession";
+import type { BehavioralFlags, PreSeedNextSeasonReq, PreSeedNextSeasonView } from "../ports/GameSession";
 import { SNAPSHOT_VERSION, snapshotCompatible } from "../engine/sessionSnapshot";
 import type { SessionSnapshot } from "../engine/sessionSnapshot";
 
@@ -534,6 +534,14 @@ export class GameSessionRegistry {
 
   /** R3 — per-user mutation revision; bumped on every commit and every sandbox replacement. */
   private readonly rev = new Map<string, number>();
+  /**
+   * The God-Mode behavioral-flag dial each user's admin set (#1925). A sandbox can be REBUILT while the
+   * engine keeps running: an idle LRU unload + resume, or a rollback `restore`. The dial's overrides live
+   * on the session instance, so without this they would silently reset on every rebuild. Re-applied in
+   * `wireHooks` (the one step every build/resume/restore path runs). In-memory on purpose: the dial is a
+   * live-only operator setting that resets on an ENGINE restart, as the tool documents.
+   */
+  private readonly behavioralFlagsByUser = new Map<string, BehavioralFlags>();
   /** R3 — per-user last-export cache (`{ rev, snap }`); reused while the rev is unchanged. */
   private readonly snapshotCache = new Map<string, SnapshotCacheEntry>();
 
@@ -708,8 +716,16 @@ export class GameSessionRegistry {
     // above (never the static/process-global pattern `setTimeOfDay` uses, since campaigns/trajectories/
     // juryHouse are per-session instance state — `setBehavioralFlags` itself owns the fan-out to whichever
     // mechanism each individual flag actually uses).
-    sb.admin.setBehavioralFlagsDelegate((flags) => sb.session.setBehavioralFlags(flags));
+    sb.admin.setBehavioralFlagsDelegate((flags) => {
+      // Remember only the fields actually named (absent ⇒ untouched), so a rebuilt sandbox keeps the dial.
+      const named = Object.fromEntries(Object.entries(flags).filter(([, v]) => v !== undefined)) as BehavioralFlags;
+      this.behavioralFlagsByUser.set(user, { ...(this.behavioralFlagsByUser.get(user) ?? {}), ...named });
+      sb.session.setBehavioralFlags(flags);
+    });
     sb.admin.setBehavioralFlagsProvider(() => sb.session.behavioralFlagsSnapshot());
+    // A rebuilt sandbox (LRU resume / rollback restore) re-applies this user's remembered dial.
+    const rememberedFlags = this.behavioralFlagsByUser.get(user);
+    if (rememberedFlags) sb.session.setBehavioralFlags(rememberedFlags);
     sb.syncAdmin();
   }
 

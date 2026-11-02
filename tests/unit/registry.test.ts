@@ -131,6 +131,27 @@ describe("G12 — dropping/replacing a sandbox discards its queued soul-index wo
     expect(SoulStore.pendingTotal()).toBe(0);
   });
 
+  it("a user's God-Mode behavioral-flag dial survives an LRU unload/resume and a rollback restore, and stays per-user (#1925)", () => {
+    const store = memorySaveStore();
+    const reg = new GameSessionRegistry(store, { maxResident: 1 });
+    const defaults = reg.sandboxFor("fresh").admin.behavioralFlags(); // the env default, whatever it is
+    reg.sandboxFor("A").session.createCharacter({ playerName: "Player A", seed: 5 });
+    const flipped = {
+      campaigns: !defaults.campaigns, trajectories: !defaults.trajectories, triggers: !defaults.triggers,
+      secretPacing: !defaults.secretPacing, juryHouse: !defaults.juryHouse,
+      seededTieSurfacing: !defaults.seededTieSurfacing, mythMaking: !defaults.mythMaking, showrunner: !defaults.showrunner,
+    };
+    reg.sandboxFor("A").admin.setBehavioralFlags(flipped);
+
+    reg.sandboxFor("B"); // a second resident → A is least-recently-used → saved and dropped from memory
+    expect(store.hasSave("A")).toBe(true);
+    expect(reg.sandboxFor("A").admin.behavioralFlags(), "the resumed sandbox keeps the dial").toEqual(flipped);
+    expect(reg.sandboxFor("B").admin.behavioralFlags(), "user B never inherits user A's dial").toEqual(defaults);
+
+    reg.restore("A", store.snaps.get("A")!); // a rollback rebuilds A's sandbox from a snapshot
+    expect(reg.sandboxFor("A").admin.behavioralFlags(), "the restored sandbox keeps the dial").toEqual(flipped);
+  });
+
   it("a refused resume (corrupt save) discards the half-restored graph's flood with it", () => {
     const store = memorySaveStore();
     const reg = new GameSessionRegistry(store);
