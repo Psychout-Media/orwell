@@ -21,6 +21,12 @@ live ledger of owner calls as they happen.
   Tuning order: (1) fix the regression that erased the active-play advantage; (2) floaters become
   targets; (3) comp wins raise threat more; measure 100 seeds per change; (4) a tougher jury only if
   needed. Never protect or punish the player by story; the house just plays smarter for everyone.
+- **Difficulty settled (final balance call).** Keep house pressure at 1.0 (round 7). Measured over 100 seeds
+  on the deploy profile: passive reaches F2 about 13% and wins about 3%; solid play reaches F2 about 22% and
+  wins about 9%; reckless play reaches F2 about 1-6% and wins about 0-2%. The owner accepts the passive F2 rate
+  above the 5-10% target as the realistic "goat" effect (NPCs drag a do-nothing player to the end because
+  they are beatable), since passive wins stay under 5%. The "active" target now names a SOLID player (a steady,
+  sensible social game); a RECKLESS test player checks that bad strategy doesn't beat doing nothing.
 - **In-game clock (0066 / `ORWELL_TIME_OF_DAY`) is ON everywhere, tests included.** Resolves the conflict
   between the 2026-06-23 ruling (flip the default ON, #583) and the 2026-06-27 line (engine env OFF for
   calibration). The 06-27 line is retired: tests and calibration run with the clock ON, matching the deploy
