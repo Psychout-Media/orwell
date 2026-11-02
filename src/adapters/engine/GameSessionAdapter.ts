@@ -10726,9 +10726,26 @@ export class GameSessionAdapter implements GameSession {
     return (this.whereabouts()?.present ?? [])
       .map((p) => {
         const v = this.npcVoice(p.id);
-        return v ? { id: p.id, name: v.houseguest.name, knows: v.knows, suspects: v.suspects } : null;
+        if (!v) return null;
+        // Audit band D F2 — also carry the Vault-safe carriage cues (0084 mood / 0088 currentRead /
+        // 0096 rivalry) npcVoice already computed, so the narrator gets them every turn without the
+        // under-called tool. Each only when set (absent ⇒ the entry is byte-identical to before).
+        const e: import("../../ports/GameSession").PresentKnowledgeView = {
+          id: p.id,
+          name: v.houseguest.name,
+          knows: v.knows,
+          suspects: v.suspects,
+          ...(v.mood ? { mood: v.mood } : {}),
+          ...(v.currentRead ? { currentRead: v.currentRead } : {}),
+          ...(v.rivalry ? { rivalry: v.rivalry } : {}),
+        };
+        return e;
       })
-      .filter((e): e is NonNullable<typeof e> => e !== null && (e.knows.length > 0 || e.suspects.length > 0));
+      .filter(
+        (e): e is NonNullable<typeof e> =>
+          e !== null &&
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined),
+      );
   }
 
   getMomentPrompt(req: MomentPromptReq): MomentPromptView {

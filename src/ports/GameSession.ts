@@ -1719,6 +1719,16 @@ export interface PresentKnowledgeView {
   knows: string[];
   /** What THIS houseguest merely SUSPECTS (a hunch with no pathway backing it) — content only. */
   suspects: string[];
+  /**
+   * Audit band D F2 — the SAME Vault-safe carriage cues `npcVoice` returns, pushed so the narrator
+   * voices them without calling the under-called tool: 0084 `mood` (an affect word), 0088
+   * `currentRead` (carriage word + drift word toward the player), 0096 `rivalry` (a heat word, held
+   * nemesis only). Words only — never a number, never the hidden cause. Each absent when `npcVoice`
+   * omits it ⇒ the rendered block is byte-identical to the pre-F2 shape.
+   */
+  mood?: string;
+  currentRead?: { toward: string; drift: "warming" | "cooling" | "steady" };
+  rivalry?: { tone: "simmering" | "open" };
 }
 
 /**

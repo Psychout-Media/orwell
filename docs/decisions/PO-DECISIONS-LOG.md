@@ -11,6 +11,24 @@ live ledger of owner calls as they happen.
 
 ## 2026-11-02
 
+- **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
+  (100 seeds): both a passive and an active player reach F2 about a third of the time and win 10-12%,
+  and active play no longer pays off (it did in June: 6 vs 2 wins / 30). The owner's targets:
+  - Passive play: reach F2 about 5-10%, win under 5%.
+  - Active, smart play: reach F2 about 15-25%, win about 8-12%.
+  Tuning order: (1) fix the regression that erased the active-play advantage; (2) floaters become
+  targets; (3) comp wins raise threat more; measure 100 seeds per change; (4) a tougher jury only if
+  needed. Never protect or punish the player by story; the house just plays smarter for everyone.
+- **Floaters are easy NOMINATION targets: "pawns go home" (BB canon).** An unattached houseguest is a
+  natural pawn, and pawns are often the ones evicted. Some houseguests even target floaters as a
+  strategy (character-dependent).
+- **Competition wins raise your threat level.** Comp beasts get targeted, like on the show.
+- **An eviction vote is deeper than the two names on the block.** Pawns often go home because the
+  vote becomes a REFERENDUM ON THE HOH: houseguests who oppose the HOH vote against the HOH's wishes,
+  keeping the HOH's real target and evicting the pawn. Others protect the target (their ally) and vote
+  out whoever the pawn is. Today's vote model weighs only the voter's read of the two nominees and has
+  no HOH term, so this is a modeling gap to add during the difficulty tuning.
+
 - **Finale jurors never hint at who voted against them before the season is over (#1790 / E12).** A
   juror's finale question may still carry their demeanor (`bearing` — a word, never a number), but no
   "who they believe turned on them" belief: per-voter attribution of the secret ballots unseals only in

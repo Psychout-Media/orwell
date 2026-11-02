@@ -1392,6 +1392,11 @@ export function renderGameContext(view: GameStateView): string {
         "- WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS (voice each ONLY from THEIR OWN block —",
         "  a person can reference or \"recall\" only what THEY witnessed or were told; never put one",
         "  houseguest's knowledge in another's mouth, and never a fact no one here holds):",
+        // F2: an entry may carry only carriage cues (no knows/suspects) — say so, so a cue-only block
+        // never reads as "this person knows something" under the header. Absent cues ⇒ byte-identical.
+        ...((view.presentKnowledge ?? []).some((e) => presentCues(e))
+          ? ["  (a `now` line is how that houseguest is carrying themselves this moment — not knowledge)"]
+          : []),
         ...(view.presentKnowledge ?? []).flatMap((e) => {
           // Route each knowledge string through `neutralizeForPrompt` (as the diary-room entries above
           // do): these are model-adjacent content the guest "knows", so a prompt-injection control
@@ -1402,6 +1407,11 @@ export function renderGameContext(view: GameStateView): string {
           const lines = [`    · ${neutralizeForPrompt(e.name)}:`];
           if (e.knows.length) lines.push(`        knows: ${e.knows.map((k) => neutralizeForPrompt(k)).join("; ")}`);
           if (e.suspects.length) lines.push(`        suspects (a hunch, not fact): ${e.suspects.map((s) => neutralizeForPrompt(s)).join("; ")}`);
+          // Audit band D F2 — the npcVoice carriage cues (0084/0088/0096), pushed so they reach the
+          // narrator without the under-called tool. Words to PLAY as conduct (BASE's npcVoice rules
+          // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
+          const cues = presentCues(e);
+          if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
           return lines;
         }),
       ]
@@ -1522,6 +1532,15 @@ export function renderGameContext(view: GameStateView): string {
   ].join("\n");
 }
 
+/** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
+function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
+  const bits: string[] = [];
+  if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
+  if (e.currentRead) bits.push(`toward the player ${neutralizeForPrompt(e.currentRead.toward)} (${e.currentRead.drift})`);
+  if (e.rivalry) bits.push(`rivalry ${e.rivalry.tone}`);
+  return bits.join("; ");
+}
+
 /**
  * #1735 (A4) / #1732 (A3) — the terminal HARD-CONSTRAINTS block: a short, IMPERATIVE restatement of
  * this turn's binding pins, meant for the CALLER to append as the very LAST message before generation
@@ -1576,7 +1595,9 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       lines.push(`- PRONOUN LOCK: ${p.name} uses ${pron}. ${caveat}`);
     }
   }
-  const pk = view.presentKnowledge ?? [];
+  // Only entries that carry knowledge — an entry present solely for its F2 carriage cues must not emit
+  // an empty KNOWLEDGE SCOPE header (keeps this terminal block byte-identical to pre-F2).
+  const pk = (view.presentKnowledge ?? []).filter((e) => e.knows.length > 0 || e.suspects.length > 0);
   if (pk.length) {
     lines.push(
       "- KNOWLEDGE SCOPE (voice each houseguest below ONLY from their own line — never another's, and " +
