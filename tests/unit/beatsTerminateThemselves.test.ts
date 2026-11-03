@@ -94,8 +94,8 @@ function startedGame(seed: number) {
 
 describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE commit", () => {
   it("nominations: the veto field is already drawn immediately after submitDecision — no follow-up advanceGame needed", () => {
-    // Seed 81003 (re-selected 2026-11-02, 0044 §9): the player reaches HOH within the drive.
-    const { session } = startedGame(81003);
+    // Seed 81005 (re-selected 2026-11-03, #1965: the replaced fold is now trust-gated, reshaping seeded trajectories): the player reaches HOH within the drive.
+    const { session } = startedGame(81005);
     const pending = driveToPendingKind(session, "nominations");
 
     // Before the fix, resolving `nominations` left the loop sitting at "veto-competition, nothing

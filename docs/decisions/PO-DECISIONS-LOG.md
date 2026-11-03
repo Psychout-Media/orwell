@@ -55,6 +55,12 @@ live ledger of owner calls as they happen.
   campaign re-planner no longer rewrites a player's declared campaign (it used to flip a nominated player's evict
   campaign into "protect them"), so the player cannot get an unearned shield now that `protect` has effect.
 
+- **#1964/#1965 (0024 review follow-ups).** `recordEvictionManner` now MERGES into an existing manner record (OR the
+  booleans, strongest intensity; absent = full strength) so a `recordDealBetrayal` flag survives the eviction read. The
+  veto-ceremony `replaced` fold now lands the betrayal shock only on a replacement who trusted the HOH pre-fold (graded
+  by that trust, as `mannerToward` grades it). **ASSUMED, pending Ryne:** a replacement who did NOT trust the HOH takes
+  the plain `nominated` conflict instead of nothing (being put up is still a slight, just not a betrayal).
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
