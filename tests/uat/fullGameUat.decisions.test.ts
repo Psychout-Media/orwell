@@ -51,6 +51,10 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
       // type has been hit. The assertions below are unchanged.
       const MIN_SEEDS = 5;
       const MAX_SEEDS = 40;
+      // Bound the search by TIME too, well under the per-test cap and the 45-minute `heavy-sims-deployed` job
+      // timeout, so a worst case fails here with a diagnostic instead of the runner killing the job.
+      const SEARCH_BUDGET_MS = 25 * 60_000;
+      const startedAt = Date.now();
       const REQUIRED: PendingDecision["kind"][] = ["nominations", "eviction-vote"];
       const runs: RunResult[] = [];
       const merged: Partial<Record<PendingDecision["kind"], number>> = {};
@@ -61,10 +65,12 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
           merged[k] = (merged[k] ?? 0) + v;
         }
         if (s >= MIN_SEEDS && REQUIRED.every((k) => (merged[k] ?? 0) > 0)) break;
+        if (s >= MIN_SEEDS && Date.now() - startedAt > SEARCH_BUDGET_MS) break; // out of time — the assertions below report it
       }
+      const tried = `${runs.length} seeds in ${Math.round((Date.now() - startedAt) / 1000)}s`;
       // Nominations and eviction-vote must appear (player is always a voter when not a nominee).
-      expect(merged["nominations"] ?? 0, "nominations decisions hit").toBeGreaterThan(0);
-      expect(merged["eviction-vote"] ?? 0, "eviction-vote decisions hit").toBeGreaterThan(0);
+      expect(merged["nominations"] ?? 0, `nominations decisions hit (${tried})`).toBeGreaterThan(0);
+      expect(merged["eviction-vote"] ?? 0, `eviction-vote decisions hit (${tried})`).toBeGreaterThan(0);
     },
     // Five full seasons over real HTTP: slow CI/sandbox hosts need the same headroom as the
     // 12-seed lane (measured at ~62s on an unmodified main in a shared-CPU environment — the
@@ -72,7 +78,9 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
     // per-beat work on top of the transport cost; assertions unchanged, only the wall-clock
     // budget breathes). UAT_TIMEOUT_SCALE (default 1) lets the deployed-profile CI lane widen the budget:
     // that profile simulates several times slower (#1922), and only the budget moves, never an assertion.
-    { timeout: 600_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1) },
+    // Capped at 40 minutes: the deployed lane scales the budget by 10, and an uncapped ~100 min would outlive
+    // the 45-minute job timeout (the runner would kill the job with no diagnostic).
+    { timeout: Math.min(600_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1), 40 * 60_000) },
   );
 
   // ── Health endpoint reachable (sanity) ────────────────────────────────────
