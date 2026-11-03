@@ -1,4 +1,7 @@
 /**
+ * FROZEN (0103 — owner-parked "not planned" 2026-06-27; preserved, not deleted, reopenable). Nothing in the live
+ * game imports this module (only its own unit test does); it is kept per the freeze. Noted in the #1939 doc-drift pass.
+ *
  * Feature 0103 — edit-bay foreshadowing: the PURE fit/eligibility/hint core. NO I/O, NO Vault handle — it
  * is handed the ALREADY-READ, Vault-free SHAPE of the in-motion pathways (their motion status + the sealed
  * fit signals reduced to [0,1] reads + the PUBLIC observation to hang a hint on) and returns only a

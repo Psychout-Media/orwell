@@ -30,7 +30,7 @@ Given("a started game the player has left idle", function (this: BbWorld) {
   osGame(this, 21);
 });
 
-When("the off-screen watcher runs several ticks", function (this: BbWorld) {
+When("the off-screen simulation runs several ticks", function (this: BbWorld) {
   for (let t = 0; t < 8; t++) assert.equal(this.osOrch!.advance(this.osUser!, "offscreen-tick").integrity, "ok");
 });
 

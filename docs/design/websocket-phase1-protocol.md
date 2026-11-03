@@ -558,7 +558,7 @@ cross-user isolation (0021); the full `frontend/` pytest suite; the ADR 0008 `se
 | **One incremental renderer (ADR 0015 / R2)** | The socket changes only *how bytes arrive*; the observer still mounts the single incremental renderer and reconciles by `{id, seq}`. The F5 harness `bUsesIncrementalRenderer` gates before and after (§7). |
 | **One `orwell:gamechanged` dispatcher (g15)** | The socket deletes the poll **timers**, not the dispatcher. A `state`/`hud` frame calls `window.orwellGameChanged('ws:state')` — one more caller of the one debounced dispatcher; `test_g15_gamechanged.py` stays green (§4). |
 | **Single-writer-per-turn broadcast (ADR 0012 / 0064-C)** | `turn` up-frames route to `agent_runs.start(run_key, ..., queue=_framed)` unchanged — queue-don't-cancel for game turns, casting single-flight guard, both below the transport (§3.5). |
-| **Turn-driven ruling (`ORWELL_WATCHER_TICK_MS=0`)** | No engine push. Hop 2 stays request/response. An open socket is **not** a presence/activity signal (ADR 0017 §Engine hop) — the socket carries bytes, never licenses the engine to originate beats. That is Phase 3 / a separate living-house ADR, out of scope here. |
+| **Turn-driven ruling (originally `ORWELL_WATCHER_TICK_MS=0`; the watcher was deleted 2026-07-10, turn-driven is the only mode)** | No engine push. Hop 2 stays request/response. An open socket is **not** a presence/activity signal (ADR 0017 §Engine hop) — the socket carries bytes, never licenses the engine to originate beats. That is Phase 3 / a separate living-house ADR, out of scope here. |
 
 ---
 

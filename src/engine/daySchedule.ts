@@ -11,7 +11,7 @@ import { CLOCK } from "./sleepConstants";
  *
  * It is a PURE READ — it never mutates the seeded sim, so everything built on it is calibration-identical,
  * and it is only ever SURFACED when the per-conversation clock is live (so golden replay, which pins that
- * clock off, never sees it — no re-record). In-game time only; never a wall clock.
+ * clock off, never sees it). In-game time only; never a wall clock.
  */
 
 /** The player-facing structural milestones the schedule telegraphs (the ceremonies, not presentation drops). */

@@ -5,6 +5,8 @@
 > current real-time patchwork (SSE-over-fetch chat stream + a mirror SSE + 20–30 s HUD polls + the 0064
 > cross-device push + the up-channel POSTs) with **one multiplexed WebSocket per canonical session** that
 > carries **every dynamic, Vault-free surface** as a framed channel.
+> **Status note (2026-11-03 doc-drift pass, #1939):** references below to `gameWatcher.ts` / `ORWELL_WATCHER_TICK_MS=0` describe the 2026-06-10 turn-driven ruling as it was first enforced. the wall-clock `GameWatcher` and every `ORWELL_WATCHER_*` knob were DELETED on 2026-07-10 (real-time purge, PO ruling), not merely disabled — the runtime clock is a pure `LogicalClock` and the only advance is one bounded off-screen tick per committed player turn; the ruling's substance (no engine-originated push) is unchanged.
+
 > **Owner intent (verbatim goal):** *"notifications, chats, gadget status, locations, window positions,
 > window status, and anything else dynamic should go over WS — one multiplexed WS per session,
 > end-to-end."*

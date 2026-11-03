@@ -4062,7 +4062,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         _m = _DEAL_SIGNAL_RE.search(narration or "")
         scene = (narration[max(0, _m.start() - 600): _m.start() + 1200] if _m else (narration or "")[:1500])
         # 0121 R2 — the kinds the extraction may pick track the engine's deal-depth flag (comp-throw/veto-save
-        # only when it is on); off ⇒ the original four ⇒ the prompt (and the golden path) are unchanged.
+        # only when it is on); off ⇒ the original four ⇒ the prompt is unchanged.
         _kinds = current_deal_kinds()
         _kinds_csv = ", ".join(_kinds)
         _kind_desc = ("safety = won't nominate / will protect; vote = how to vote; final-two = go to the end "
@@ -6665,8 +6665,8 @@ async def _stream_agent_loop_impl(
         agent_stream_timeout = int(get_setting("agent_stream_timeout_seconds", 300) or 300)
 
         # 0121 R2 — when the engine's deal-depth layer is on, extend makeDeal's `kind` enum with the two
-        # active-obligation kinds (comp-throw/veto-save) at SEND time. Off (default, and the golden driver)
-        # ⇒ the same schemas ⇒ the 0108 golden fixture is byte-identical.
+        # active-obligation kinds (comp-throw/veto-save) at SEND time. Off (default)
+        # ⇒ the same schemas ⇒ byte-identical (the 0108 golden fixture was decommissioned 2026-07-21).
         if all_tool_schemas:
             all_tool_schemas = with_deal_depth_kinds(all_tool_schemas)
 

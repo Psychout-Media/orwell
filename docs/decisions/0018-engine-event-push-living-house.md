@@ -5,9 +5,11 @@
 > [`0017`](./0017-multiplexed-websocket-session-transport.md) explicitly punted to (its §Engine hop /
 > Phase 3): whether — and on what **activity signal** — the engine may **originate** beats (NPCs act,
 > the house pushes a beat) rather than only advancing when the player takes a turn.
+> **Status note (2026-11-03 doc-drift pass, #1939):** this ADR was written while a wall-clock `GameWatcher` still existed behind `ORWELL_WATCHER_TICK_MS`. the wall-clock `GameWatcher` and every `ORWELL_WATCHER_*` knob were DELETED on 2026-07-10 (real-time purge, PO ruling), not merely disabled — the runtime clock is a pure `LogicalClock` and the only advance is one bounded off-screen tick per committed player turn. Every reference below to the watcher, `GameWatcher`, `gameWatcher.ts`, `ORWELL_WATCHER_TICK_MS` / `_IDLE_MS` / `_MAX_TICKS`, or "stays built and off" is HISTORICAL context for the options considered; the decision itself (no engine-originated push; an open socket is not a presence signal) stands and is simpler now.
+
 > **The question this ADR settles:** is there an activity signal *looser* than "the player just took a
 > turn" on which the engine may originate committed beats, and does adopting it re-open the
-> **2026-06-10 turn-driven ruling** (`ORWELL_WATCHER_TICK_MS=0` default)?
+> **2026-06-10 turn-driven ruling** (originally the `ORWELL_WATCHER_TICK_MS=0` default; since 2026-07-10 there is no watcher at all — see the status note below)?
 > **Owner correction that frames everything below (verbatim intent, 2026-07-09):** *an open socket is
 > **NOT** a presence/activity signal.* A background tab, a pocketed phone, an idle desktop all hold a
 > live socket for hours with nobody playing. **"Actively playing" = the player taking turns (sending
@@ -262,7 +264,7 @@ closed-set gates. Proposed acceptance tests:
 
 - **Option C — wall-clock living house as a product default.** Rejected (§1): it *is* the
   2026-06-10-forbidden case (the house advances during an absence; NPCs can't leave, the player can).
-  The `GameWatcher` stays built and **off** for operational/off-screen-simulation use only.
+  (Historical: the `GameWatcher` was then kept built and off; it was deleted outright on 2026-07-10.)
 - **Gating engine push on socket-open.** Rejected (owner correction, and already rejected in 0017): an
   open socket is a background tab / pocketed phone as easily as an engaged player. The socket is
   delivery, never licence (§4).
