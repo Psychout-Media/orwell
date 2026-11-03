@@ -11,6 +11,25 @@ live ledger of owner calls as they happen.
 
 ## 2026-11-03
 
+- **0024 NPC memory: YES, NPCs act on what they remember.** Betrayals, favors and broken promises change
+  how an NPC treats the player. Engine work that moves balance: sequenced after #1937 and before the
+  default-flip re-baseline so one re-measure covers both.
+- **0129 jury house: FULLY SEQUESTERED.** The player can talk to jurors only if the player is a juror;
+  jurors mix only with other jurors. (Engine check 2026-11-03: a still-active player cannot reach a juror
+  through any mutating tool, and the event store shows no juror/non-juror mixing after a juror is seated,
+  barring the eviction-night departure beats. Pinned by `tests/unit/jurySequester.test.ts`. The
+  player-as-juror surface itself is still the unbuilt part of the 0129 spec.)
+- **0005 Houseguest's Choice (strategic veto draw): build it, but after the first playtest.** Bottom of
+  the queue.
+- **0003 reveal rate: no change.** Judged in the playtest.
+- **#1909 part B, pre-game ties: broaden the tie types.** Family (siblings/cousins), exes, old friends and
+  rivals/bad blood are all allowed, and the owner said "get creative, have fun": propose a few more
+  plausible-for-a-Big-Brother-cast types. #1909 A+C+B is one item, after the 0024 work. Calibration stays
+  neutral: background and ties never change competition odds (standing ruling).
+- **Reactive twists stay OFF for the first playtest.**
+- **0097 / 0098 / 0103 stay frozen.**
+- **Technical call (coordinator): the diary tools (player-dossier, booth-receipts) must switch off when
+  their features are off.** Folded into the default-flip PR.
 - **Big irreversible choices are confirmed on the decision card — prose never binds them (Ryne, A-6).**
   The model's `submitDecision` tool may commit only the low-stakes kinds (`comp-intent`, `comp-round`, and
   the in-chat `deal-offer` answer). Every other kind (nominations, the veto, the secret veto, eviction and
