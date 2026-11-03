@@ -197,23 +197,32 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * player-HOH tie. Same harness-only retune; the integrity story is unchanged.
    */
   it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", () => {
-    const dir = freshDir();
-    // NOTE: the off-screen society's rng stream is seeded per (orchestrator seed, USER) — the tie is
-    // deterministic for THIS (seed, user, driving-pattern) triple; changing the user id re-rolls the
-    // season and loses the contested beat.
+    // The tie is a property of (seed, user, driving-pattern) and the balance moves it, so SEARCH for a seed that
+    // reaches a player-HOH tie (44 first — the last known one — then a tail) instead of re-pinning by hand every
+    // time the difficulty changes. Anything other than "this seed had no tie" surfaces.
     const user = "u";
-    const runtime = composeRuntime({ saveStore: new FileSaveStore(dir) }); // the PRODUCTION clock/wiring
-    const reg = runtime.registry;
-    const orch = runtime.orchestrator;
-    reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed: 44 });
-
-    // Drive the real game to the CONTESTED beat: a tied eviction vote with the player holding HOH.
-    let view: AdvanceView = reg.sandboxFor(user).session.advanceGame();
+    const SEARCH: number[] = [44, ...Array.from({ length: 80 }, (_, i) => i + 1)];
+    let dir = "";
+    let runtime!: ReturnType<typeof composeRuntime>;
+    let reg!: ReturnType<typeof composeRuntime>["registry"];
+    let orch!: ReturnType<typeof composeRuntime>["orchestrator"];
     let tie: PendingDecisionView | null = null;
-    for (let i = 0; i < 2000 && !view.finished; i++) {
-      if (view.pending?.kind === "tie-break") { tie = view.pending; break; }
-      if (view.pending) resolveAnyLegally(reg.sandboxFor(user).session, view.pending);
+    let view!: AdvanceView;
+    for (const seed of SEARCH) {
+      dir = freshDir();
+      runtime = composeRuntime({ saveStore: new FileSaveStore(dir) }); // the PRODUCTION clock/wiring
+      reg = runtime.registry;
+      orch = runtime.orchestrator;
+      reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed });
+      // Drive the real game to the CONTESTED beat: a tied eviction vote with the player holding HOH.
       view = reg.sandboxFor(user).session.advanceGame();
+      for (let i = 0; i < 2000 && !view.finished; i++) {
+        if (view.pending?.kind === "tie-break") { tie = view.pending; break; }
+        if (view.pending) resolveAnyLegally(reg.sandboxFor(user).session, view.pending);
+        view = reg.sandboxFor(user).session.advanceGame();
+      }
+      if (tie && tie.by.id === PLAYER) break;
+      tie = null;
     }
     expect(tie).not.toBeNull();
     expect(tie!.by.id).toBe(PLAYER); // the player-HOH breaks the tie — the contested case

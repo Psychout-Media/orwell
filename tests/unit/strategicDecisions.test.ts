@@ -101,6 +101,26 @@ describe("strategic nominations (0044 §4 — beyond raw threat)", () => {
 });
 
 describe("the replacement branches on the stored HOH target (#1948, 0044 §9)", () => {
+  /**
+   * A house where the pawn-seat read and the top-score read DISAGREE, so the stored-target branch and the legacy
+   * score inference give DIFFERENT answers: everyone except `npc 5` is mutually bonded, so `npc 5` is the
+   * isolated floater the pawn seat reaches for, while `npc 2` is the top strategic read.
+   */
+  function splitHouse(threats: Record<number, number>): { rel: RelationshipModel; active: EntityId[] } {
+    const rel = new RelationshipModel(0.5);
+    const ids = [1, 2, 3, 4, 5, 6];
+    const active = [hoh, ...ids.map(npc)];
+    const base: Record<number, number> = { 1: 0.6, 2: 0.5, 3: 0.4, 4: 0.15, 5: 0.3, 6: 0.35 };
+    for (const [k, v] of Object.entries({ ...base, ...threats })) rel.edge(hoh, npc(Number(k))).threat = v;
+    for (const a of [1, 2, 3, 4, 6]) for (const b of [1, 2, 3, 4, 6]) {
+      if (a === b) continue;
+      rel.edge(npc(a), npc(b)).trust = 0.95;
+      rel.edge(npc(a), npc(b)).affinity = 0.95;
+    }
+    return { rel, active };
+  }
+  const options = [npc(2), npc(3), npc(5)];
+
   it("nominationPlan reports the target: on the block for a direct/pawn plan, OFF it for a backdoor", () => {
     const { rel, active } = quietHouse();
     const direct = nominationPlan(hoh, active, rel);
@@ -111,41 +131,25 @@ describe("the replacement branches on the stored HOH target (#1948, 0044 §9)", 
     expect(nominationStrategy(hoh, active, rel, { disposition: "clash" })).toEqual(backdoor.nominees);
   });
 
-  it("target saved but the remaining pawn outscores every option ⇒ a new TARGET (the score inference named a pawn)", () => {
-    const { rel, active } = quietHouse();
-    // The pawn still on the block is the HOH's HIGHEST read now; the (saved) target is not a legal option.
-    rel.edge(hoh, npc(4)).threat = 0.9;
-    const options = [npc(2), npc(3)];
-    // Legacy inference: the remaining nominee outscores every option ⇒ "target still up" ⇒ a new pawn.
-    const inferred = replacementPick(hoh, npc(4), options, active, rel);
-    const byIdentity = replacementPick(hoh, npc(4), options, active, rel, { target: npc(1) });
-    // By identity the target (npc 1) is NOT the one left up ⇒ name the top strategic read among the options.
-    expect(byIdentity).toBe(npc(2));
-    expect([npc(2), npc(3)]).toContain(inferred); // both legal; the point is the branch is now by identity
+  it("target SAVED (or a backdoor) while the remaining pawn outscores every option ⇒ a new TARGET — where the score inference wrongly names another pawn", () => {
+    const { rel, active } = splitHouse({ 4: 0.95 }); // the pawn left on the block (npc 4) now outscores the options
+    // By identity: the stored target (npc 1) is not the one still up ⇒ the top strategic read among the options.
+    expect(replacementPick(hoh, npc(4), options, active, rel, { target: npc(1) })).toBe(npc(2));
+    // The legacy inference reads "the remaining nominee outscores everyone ⇒ they're the target" and names a PAWN.
+    expect(replacementPick(hoh, npc(4), options, active, rel)).toBe(npc(5));
   });
 
-  it("target still up ⇒ the pawn-seat read, identical to the legacy inference when the scores agree", () => {
-    const { rel, active } = quietHouse();
-    const options = [npc(2), npc(3), npc(4)];
-    // The target is also the highest-scored remaining nominee here, so identity and inference coincide.
-    const pick = replacementPick(hoh, npc(1), options, active, rel, { target: npc(1) });
-    expect(options).toContain(pick);
-    expect(pick).toBe(replacementPick(hoh, npc(1), options, active, rel));
+  it("target STILL UP but outscored by an option ⇒ a new PAWN — where the score inference wrongly names a new target", () => {
+    const { rel, active } = splitHouse({ 1: 0.2, 5: 0.4 }); // the stored target (npc 1) has cooled below the options
+    // By identity: the target is still on the block ⇒ the pawn seat (the isolated floater, npc 5).
+    expect(replacementPick(hoh, npc(1), options, active, rel, { target: npc(1) })).toBe(npc(5));
+    // The legacy inference reads "an option outscores the remaining nominee ⇒ the target came down" ⇒ the top read.
+    expect(replacementPick(hoh, npc(1), options, active, rel)).toBe(npc(2));
   });
 
-  it("a backdoor (target off the block) ⇒ the replacement is the real target", () => {
-    const { rel, active } = quietHouse();
-    // Backdoor: nominees were npc 2 and npc 3, target npc 1; the veto saved npc 3. npc 2 remains.
-    const options = [npc(1), npc(4)];
-    expect(replacementPick(hoh, npc(2), options, active, rel, { target: npc(1) })).toBe(npc(1));
-  });
-
-  it("without a stored target it is the legacy score inference, unchanged", () => {
-    const { rel, active } = quietHouse();
-    const options = [npc(2), npc(3), npc(4)];
-    expect(replacementPick(hoh, npc(1), options, active, rel)).toBe(
-      replacementPick(hoh, npc(1), options, active, rel, {}),
-    );
+  it("without a stored target it is the legacy score inference, unchanged (a human HOH's nominations, an old save)", () => {
+    const { rel, active } = splitHouse({ 4: 0.95 });
+    expect(replacementPick(hoh, npc(4), options, active, rel)).toBe(replacementPick(hoh, npc(4), options, active, rel, {}));
   });
 });
 
