@@ -3,6 +3,7 @@ import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../domain/competitionOutcome";
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
+import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
 
 /** The competition intents the player may declare (Bible: compete / throw / play-safe), 0006/0034. */
@@ -495,6 +496,12 @@ export interface LiveSeasonState {
    */
   deducedCulprits?: Record<EntityId, EntityId[]>;
   /**
+   * #2017 S0a — the NPC belief store (`beliefStore.ts`): per-holder typed claims with origin + confidence. ENGINE-ONLY, never projected, read
+   * by NOTHING yet (data model + plumbing), no rng. Created ONLY when `ORWELL_NPC_BELIEFS` is on (absent ⇒ byte-identical season state). Rides on
+   * this `live` state, so it is persisted and restored with the season exactly like `juryGrudge`.
+   */
+  beliefs?: BeliefStore;
+  /**
    * The per-week eviction ballot record (E12): who voted to evict whom, kept ENGINE-ONLY for
    * manner/deal reconciliation and for the 0048 retrospective UNSEALING. Eviction votes are
    * secret ballots in Big Brother — no projection attributes a weekly vote to its voter while
@@ -786,6 +793,8 @@ export interface SeasonCtx {
    * `ORWELL_VOTE_DEDUCTION`; the calibration/UAT harness leaves it off.
    */
   voteDeduction?: boolean;
+  /** #2017 S0a — record belief claims (data model + plumbing only; nothing reads them). Default OFF (`ORWELL_NPC_BELIEFS`, pinned never-flipped). */
+  npcBeliefs?: boolean;
   /**
    * 0126 — fold the expanded mechanic pool (9 HOH + 9 veto extra) into the competition draw. Absent/false
    * ⇒ the bare base 12, byte-identical (the seeded spine is unmoved). Wired live behind
@@ -2339,6 +2348,14 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // #1790 — store the POSSIBLY-WRONG deduced set on engine-only season state for jury-house blame
   // routing (AC1). NEVER projected to any surface — this is an engine-only store.
   (s.deducedCulprits ??= {})[evictee] = believedVoters;
+  // #2017 S0a — mirror the evictee's possibly-wrong deduction into the belief store as `voted-against-me` claims (origin `deduced`). Flag-gated: OFF ⇒
+  // the store is never created. Written from values already computed above (no rng, no new draw) and read by nothing, so it moves no outcome.
+  if (ctx.npcBeliefs) {
+    const store = (s.beliefs ??= {});
+    for (const v of believedVoters) {
+      recordClaim(store, { holder: evictee, kind: "voted-against-me", subject: v, value: true, origin: "deduced", confidence: DEDUCED_CLAIM_CONFIDENCE, week: s.week });
+    }
+  }
   recordEvictionManner(s, evictee, [s.hoh!, ...believedVoters], ctx);
   removeEvictee(s, evictee);          // out now — the last vote landed; the result is public
   e.goodbyeFrom = selectGoodbyeSenders(s, evictee, ctx.player, rng);
