@@ -551,6 +551,10 @@ export class GameSessionRegistry {
    * live-only operator setting that resets on an ENGINE restart, as the tool documents.
    */
   private readonly behavioralFlagsByUser = new Map<string, BehavioralFlags>();
+  /** 0016: the live count knobs (reserve twists / tie + showmance budgets) a user's admin set, re-applied to a rebuilt sandbox. */
+  private readonly liveKnobsByUser = new Map<string, Record<string, unknown>>();
+  /** 0016: EVERYTHING the admin submitted (including unsupported / invalid knobs), so a rebuilt sandbox's inspectable config is not silently dropped. */
+  private readonly adminConfigByUser = new Map<string, Record<string, unknown>>();
   /** R3 — per-user last-export cache (`{ rev, snap }`); reused while the rev is unchanged. */
   private readonly snapshotCache = new Map<string, SnapshotCacheEntry>();
 
@@ -732,6 +736,19 @@ export class GameSessionRegistry {
       sb.session.setBehavioralFlags(flags);
     });
     sb.admin.setBehavioralFlagsProvider(() => sb.session.behavioralFlagsSnapshot());
+    // 0016: God-Mode `configure` / `overrideMechanic` reach the LIVE session through this per-sandbox, Vault-free delegate (counts only).
+    sb.admin.setLiveKnobsDelegate((knobs) => {
+      this.adminConfigByUser.set(user, { ...(this.adminConfigByUser.get(user) ?? {}), ...knobs });
+      const r = sb.session.applyAdminKnobs(knobs);
+      if (r.applied.length) {
+        this.liveKnobsByUser.set(user, { ...(this.liveKnobsByUser.get(user) ?? {}), ...Object.fromEntries(r.applied.map((k) => [k, knobs[k]])) });
+      }
+      return r;
+    });
+    const rememberedKnobs = this.liveKnobsByUser.get(user);
+    if (rememberedKnobs) sb.session.applyAdminKnobs(rememberedKnobs);
+    const rememberedConfig = this.adminConfigByUser.get(user);
+    if (rememberedConfig) sb.admin.restoreConfigProjection(rememberedConfig);
     // A rebuilt sandbox (LRU resume / rollback restore) re-applies this user's remembered dial.
     const rememberedFlags = this.behavioralFlagsByUser.get(user);
     if (rememberedFlags) sb.session.setBehavioralFlags(rememberedFlags);

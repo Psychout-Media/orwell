@@ -233,7 +233,7 @@ import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
-import { loadReserveTwists, planReserveTwists } from "../../engine/reserveTwists";
+import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
 import {
   generateCastDeepLayer, deepProfileToVaultContent, generateDeepProfile, deriveStoryThreads,
   defaultTriggerConditionFor, triggerMet, sourceWindowClosed, threadRumor,
@@ -1629,6 +1629,31 @@ export class GameSessionAdapter implements GameSession {
 
   setTwistCount(n: number): void {
     this.twistCount = Math.max(0, Math.floor(n));
+  }
+
+  /**
+   * 0016 — apply the God-Mode knobs the LIVE engine honors (a Vault-free count-only surface; never content). Recognized: `reserveTwists`
+   * (the reserve-twist COUNT, 0-5), `tieBudget` and `showmanceBudget` (the pre-game tie / showmance COUNTS, 0-6; 0059 "the admin may
+   * override the COUNT like the twist budget"). They shape the NEXT season's setup (a season in flight keeps what it was dealt). Anything else
+   * (phase, week, temperature...) is the engine's own state or a constant it does not expose and is reported as not applied.
+   */
+  applyAdminKnobs(knobs: Record<string, unknown>): { applied: string[]; notApplied: string[] } {
+    const applied: string[] = [];
+    const notApplied: string[] = [];
+    const count = (v: unknown, max: number): number | undefined =>
+      typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max ? Math.floor(v) : undefined;
+    for (const [k, v] of Object.entries(knobs ?? {})) {
+      // `reserveTwists` is the LEGACY pre-scheduled path's slot count (the engine loads at most `RESERVE_POOL.length`); the reactive
+      // planner (ORWELL_REACTIVE_TWISTS) arms the standing pool and never reads it, so there it is reported NOT applied.
+      const n = k === "reserveTwists" ? (this.reactiveTwistsEnabled ? undefined : count(v, RESERVE_POOL.length))
+        : k === "tieBudget" || k === "showmanceBudget" ? count(v, 6) : undefined;
+      if (n === undefined) { notApplied.push(k); continue; }
+      if (k === "reserveTwists") this.setTwistCount(n);
+      else if (k === "tieBudget") this.tieBudget = n;
+      else this.showmanceBudget = n;
+      applied.push(k);
+    }
+    return { applied, notApplied };
   }
 
   /**

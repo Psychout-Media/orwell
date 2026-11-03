@@ -131,3 +131,13 @@ save lineage; nothing thins). The sanctioned rollback is **restore-to-checkpoint
 recorded operation that starts from a known checkpoint without destroying the later history it
 rolls past. An admin "load" that quietly discards accumulated events/souls would violate
 mandate #4.
+
+## Amendment (2026-11-03) — `configure` / `overrideMechanic` reach the live game
+
+The 2026-10-25 audit (band A, finding 3) found both tools wrote only the admin's own projection, which the live game never reads — the admin
+saw success for a no-op. They now forward the **count knobs the engine honors** — `reserveTwists` (the reserve-twist COUNT, 0 up to the reserve-pool size; **legacy twist mode only** — with `ORWELL_REACTIVE_TWISTS=1` the reactive planner arms the standing pool and ignores a count, so the knob is reported not applied there), `tieBudget`
+and `showmanceBudget` (the pre-game tie / showmance COUNTS, 0–6) — to the live session through a per-sandbox, Vault-free delegate. They shape
+the **next** season's setup (a season in flight keeps what it was dealt) and are re-applied if a user's sandbox is rebuilt in the same engine process (LRU evict/resume). They are **runtime-only**: not persisted, so they reset on an ENGINE restart, exactly like the behavioral-flag dial. Every response now
+carries `knobsApplied` and `knobsNotApplied`; anything the engine owns or does not expose (`phase`, `week`, `temperature`, …) is still recorded in
+the inspectable config but reported as **not applied**, so the admin is never told a no-op worked. Counts and names only — never twist or tie content.
+Gate: `tests/unit/godModeLiveKnobs.test.ts`.

@@ -3,6 +3,9 @@ import type {
 } from "../../ports/GameStateRepository";
 import type { FinaleFastForwardView, BehavioralFlags } from "../../ports/GameSession";
 
+/** Which admin knobs the live engine honored (Vault-free names only). */
+export interface LiveKnobResult { applied: string[]; notApplied: string[] }
+
 /**
  * Administrator / God Mode (0016). Inspects, overrides non-Vault mechanics,
  * configures tunables, and manages the sandbox lifecycle. It is walled from the
@@ -70,14 +73,41 @@ export class AdminPort {
     return this.state.getAdminVisibleState();
   }
 
+  /**
+   * 0016 — the knobs the LIVE engine honors. `configure` / `overrideMechanic` used to write ONLY the admin's own
+   * projection (`state.config`), which the live game never reads, so the admin saw "applied" for a no-op. The composition
+   * layer wires this per-sandbox, Vault-free delegate to the session (reserve-twist COUNT, tie/showmance budgets);
+   * every response now carries `knobsApplied` / `knobsNotApplied` so the truth is visible. A knob the engine owns or
+   * doesn't expose (phase, week, temperature...) is still recorded in the projection but reported as NOT applied.
+   * RUNTIME-ONLY: the knob memory lives in the in-process registry, not the save, so it survives a sandbox rebuild (LRU
+   * evict/resume) but RESETS on an ENGINE restart — the same contract as the behavioral-flag dial.
+   */
+  private liveKnobsDelegate?: (knobs: Record<string, unknown>) => LiveKnobResult;
+
+  setLiveKnobsDelegate(fn: (knobs: Record<string, unknown>) => LiveKnobResult): void {
+    this.liveKnobsDelegate = fn;
+  }
+
+  /** Re-seed the inspectable config projection WITHOUT touching the live game (a rebuilt sandbox keeps what the admin submitted, even unsupported/invalid knobs). */
+  restoreConfigProjection(knobs: Record<string, unknown>): void {
+    this.state.configure(knobs);
+  }
+
+  private withKnobs(view: AdminVisibleState, knobs: Record<string, unknown>): AdminVisibleState {
+    const r = this.liveKnobsDelegate?.(knobs) ?? { applied: [], notApplied: Object.keys(knobs) };
+    return { ...view, knobsApplied: r.applied, knobsNotApplied: r.notApplied };
+  }
+
   /** Override a non-Vault mechanic; returns the updated non-Vault state. */
   overrideMechanic(change: OverrideChange): AdminVisibleState {
-    return this.state.applyOverride(change);
+    const view = this.state.applyOverride(change);
+    return this.withKnobs(view, change?.mechanic ? { [change.mechanic]: change.value } : {});
   }
 
   /** Set non-Vault tunables (temperature/relationship config, reserve-twist COUNT — not content). */
   configure(knobs: Record<string, unknown>): AdminVisibleState {
-    return this.state.configure(knobs);
+    const view = this.state.configure(knobs);
+    return this.withKnobs(view, knobs ?? {});
   }
 
   /**
