@@ -158,6 +158,8 @@ function resolveAnyLegally(s: GameSessionAdapter, p: PendingDecisionView): void 
     case "juror-question": s.submitDecision({ kind: "juror-question", statement: "q" }); return;
     case "goodbye-message": s.submitDecision({ kind: "goodbye-message", vote: p.options[0]!.id, statement: "bye" }); return;
     case "exit-interview": s.submitDecision({ kind: "exit-interview", vote: "gracious" }); return; // 0130
+    case "spectator-choice": s.submitDecision({ kind: "spectator-choice", vote: "watch" }); return; // 0133
+    case "finale-interview": s.submitDecision({ kind: "finale-interview", vote: "gracious" }); return; // 0133
     // The single-pick kinds share the `vote` payload (audit A10: `vote`/1-element `choice` interchangeable).
     case "houseguests-choice":
     case "eviction-vote":

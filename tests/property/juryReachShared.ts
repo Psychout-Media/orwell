@@ -89,6 +89,10 @@ function passiveAnswer(p: PendingView): Record<string, unknown> {
     // 0130 — the player-evictee's exit interview (posture rides `vote`, like a goodbye tone).
     case "exit-interview":
       return { kind: "exit-interview", vote: "gracious" };
+    case "spectator-choice": // 0133 — an early-evicted player watches the skeleton season
+      return { kind: "spectator-choice", vote: "watch" };
+    case "finale-interview":
+      return { kind: "finale-interview", vote: "gracious" };
     case "juror-question":
       return { kind: "juror-question", statement: "What was your biggest move?" };
     default:

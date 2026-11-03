@@ -992,7 +992,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "a CARD: skip ahead to the finale, or keep watching a condensed season — present it and WAIT; never choose " +
     "for them. If they watch, voice ONLY the game's `weekDigests` (one line per completed week: HOH, nominees, " +
     "veto, who left) as a brief recap — never invent a result or any private scheming. Either way they are back " +
-    "on the finale night for an interview (another card). They hold no power and cast no vote; do not invent a " +
+    "on the finale night for an interview (another card; the `spectator-choice` and `finale-interview` beats). They hold no power and cast no vote; do not invent a " +
     "path back in. The hidden story stays SEALED until the season crowns a winner.",
   "re-entry":
     "MOMENT — Re-entry. The player has RETURNED to a season in progress (a new session; the chat may " +
