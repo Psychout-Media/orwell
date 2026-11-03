@@ -1,7 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { composeRuntime } from "../../src/composition/runtime";
+import { execFileSync } from "node:child_process";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
+
+// The FULL deployed flag profile, read from its single source (`deploy/orwell-env-defaults.sh`, the same
+// function install + update write the box's .env from, and the `heavy-sims-deployed` CI lane loads) — "the
+// gate tests what prod runs" (ADR 0016). Jury house / time of day etc. can change the eviction-night chain.
+// The adapters read these env flags at MODULE LOAD, so they are applied BEFORE the dynamic import below.
+// Embedding settings are dropped (they would fetch the ONNX model; tests use the deterministic fake).
+const deployedProfile = execFileSync(
+  "bash",
+  ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"],
+  { encoding: "utf8" },
+)
+  .split("\n")
+  .filter((l) => /^ORWELL_[A-Z0-9_]+=\S+$/.test(l) && !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+for (const line of deployedProfile) {
+  const i = line.indexOf("=");
+  process.env[line.slice(0, i)] = line.slice(i + 1);
+}
+const { composeRuntime } = await import("../../src/composition/runtime");
 
 /**
  * 0130 / #1934 known issue — eviction night after the PLAYER's goodbye.
@@ -45,10 +63,10 @@ function answer(p: PendingView): Record<string, unknown> {
 async function toPlayerGoodbye(seed: number) {
   const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
   const user = `post-goodbye-${seed}`;
-  // Deployed profile: the layers a live game actually runs with, set per sandbox (env-independent).
+  // Prove the env profile reached the sandbox (not silently flags-off): the two co-presence layers are on.
   const sb = runtime.registry.sandboxFor(user);
-  sb.session.setDealDepthEnabled(true);
-  sb.session.setTriggersEnabled(true);
+  expect(deployedProfile.length, "the full deployed profile loaded").toBeGreaterThanOrEqual(20);
+  expect(sb.session.dealDepthEnabledNow() && sb.session.triggersEnabledNow()).toBe(true);
   const mcp = runtime.registry.resolver()("player", user);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
   for (let i = 0; i < 5_000; i++) {
