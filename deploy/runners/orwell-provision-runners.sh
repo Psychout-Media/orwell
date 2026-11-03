@@ -13,6 +13,10 @@
 # Proxmox host guards, and the no-secret-on-a-command-line discipline (the PAT and the registration
 # token are pushed into the container via `pct push` of a 0600 temp file, never on a `pct exec` arg).
 #
+# !! NEVER attach self-hosted runners to a PUBLIC repo: a pull request chooses its own `runs-on:`,
+# !! so any PR could run arbitrary code on these boxes. The script REFUSES a public repo unless you
+# !! pass --allow-public-repo, and registers every runner --ephemeral (one job, then de-registered).
+#
 # THE PAT IS NEVER BAKED INTO A CONTAINER. The host uses it only to mint a SHORT-LIVED runner
 # REGISTRATION TOKEN per runner (POST …/actions/runners/registration-token, ~1h TTL); only that
 # token is passed inside, and `./config.sh` consumes it immediately. Same for --remove (a remove
@@ -52,8 +56,11 @@ usage() {
 ${C_BOLD}orwell-provision-runners.sh${C_OFF} — provision GitHub Actions self-hosted runners as Proxmox LXCs.
 
 Run on the Proxmox HOST (needs ${C_BOLD}pct${C_OFF}/${C_BOLD}pveam${C_OFF}). Each runner registers to
-${OWNER_REPO} with the default '${RUNNER_LABELS}' label and installs as an auto-restarting
-systemd service (zero-touch: survives reboot, restarts on crash).
+${OWNER_REPO} with the default '${RUNNER_LABELS}' label, ${C_BOLD}--ephemeral${C_OFF} (one job, then GitHub
+de-registers it; re-run this script to refill the pool), as a systemd service.
+
+${C_RED}${C_BOLD}WARNING${C_OFF}: never use self-hosted runners on a PUBLIC repo — a PR picks its own runner and can
+run arbitrary code on it. Public repos are refused unless ${C_BOLD}--allow-public-repo${C_OFF} is given.
 
 ${C_BOLD}USAGE${C_OFF}
   $(basename "$0") [options]
@@ -86,6 +93,8 @@ ${C_BOLD}OPTIONS${C_OFF} (env var in parens; flag overrides env)
   --add-to-existing    Add a co-tenant runner for --repo onto the EXISTING CTIDs (ADD_EXISTING)
                        (reuses each box's Node/Python/chromium; own dir+service)
   --env-file PATH      Read GIT_TOKEN= from here                (ENV_FILE, default <repo>/data/.env)
+  --allow-public-repo  DANGEROUS: proceed even if --repo is PUBLIC (any PR can run code on the
+                       runners). Without it a public (or unverifiable) repo is refused.  (ALLOW_PUBLIC_REPO=1)
   --remove             Unregister each runner + destroy its LXC (REMOVE=1)
   --yes                Skip the confirmation prompt             (ORWELL_NONINTERACTIVE=1)
   -h, --help           This help
@@ -118,6 +127,7 @@ GIT_TOKEN="${GIT_TOKEN:-}"
 REG_TOKEN_IN="${REG_TOKEN_IN:-}"
 REMOVE="${REMOVE:-0}"
 ADD_EXISTING="${ADD_EXISTING:-0}"
+ALLOW_PUBLIC_REPO="${ALLOW_PUBLIC_REPO:-0}"
 
 # data/.env (git-ignored) sits at <repo>/data/.env; this script lives at <repo>/deploy/runners/.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo .)"
@@ -144,6 +154,7 @@ while [[ $# -gt 0 ]]; do
     --reg-token)          REG_TOKEN_IN="${2:?--reg-token needs a value}"; shift 2 ;;
     --repo)               OWNER_REPO="${2:?--repo needs a value (owner/name)}"; shift 2 ;;
     --add-to-existing)    ADD_EXISTING=1; shift ;;
+    --allow-public-repo)  ALLOW_PUBLIC_REPO=1; shift ;;
     --env-file)           ENV_FILE="${2:?--env-file needs a value}"; shift 2 ;;
     --remove)             REMOVE=1; shift ;;
     --yes|-y)             ORWELL_NONINTERACTIVE=1; shift ;;
@@ -223,6 +234,38 @@ mint_token() {  # kind: registration|remove  -> prints the short-lived token, or
   tok="$(printf '%s' "$body" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
   [[ -n "$tok" ]] || die "GitHub API did not return a ${kind} token — check the PAT scope (repo + admin:org/repo-admin) and that it can manage runners on ${OWNER_REPO}."
   printf '%s' "$tok"
+}
+
+# ── Public-repo guard ───────────────────────────────────────────────────────────────────────────
+# A PR to a PUBLIC repo chooses its own `runs-on:`, so it can run arbitrary code on a self-hosted
+# runner. Refuse unless the repo is verifiably private (or --allow-public-repo). Anything we cannot
+# verify fails CLOSED. Not applied to --remove: tearing runners down must always work.
+repo_visibility() {  # -> prints: public | private | unknown
+  local resp code body
+  # The PAT (if any) goes in via a curl config on stdin, never on a command line that lands in `ps`.
+  resp="$( { [[ -n "$GIT_TOKEN" ]] && printf 'header = "Authorization: Bearer %s"\n' "$GIT_TOKEN" || true; } \
+            | curl -sSL -K - -w '\n%{http_code}' -H "Accept: application/vnd.github+json" "$API" 2>/dev/null || true)"
+  code="$(printf '%s' "$resp" | tail -n1)"
+  body="$(printf '%s' "$resp" | sed '$d')"
+  case "$code" in
+    200) case "$(printf '%s' "$body" | sed -n 's/.*"private"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -n1)" in
+           false) echo public ;;  true) echo private ;;  *) echo unknown ;;
+         esac ;;
+    # Anonymous 404 = not publicly readable = private (or nonexistent; registration then fails anyway).
+    404) [[ -z "$GIT_TOKEN" ]] && echo private || echo unknown ;;
+    *)   echo unknown ;;
+  esac
+}
+require_non_public_repo() {
+  if [[ "$ALLOW_PUBLIC_REPO" == "1" ]]; then
+    warn "--allow-public-repo: skipping the public-repo check for ${OWNER_REPO}. Any PR can run code on these runners."
+    return 0
+  fi
+  case "$(repo_visibility)" in
+    private) ;;
+    public)  die "${OWNER_REPO} is PUBLIC. Refusing: a pull request picks its own runner and could run arbitrary code on these self-hosted boxes. Use GitHub-hosted runners, or pass --allow-public-repo if you accept that risk." ;;
+    *)       die "could not verify that ${OWNER_REPO} is private (GitHub API unreachable, rate-limited, or no access). Refusing; fix that, or pass --allow-public-repo to skip the check." ;;
+  esac
 }
 
 # ── Template resolution (mirror orwell.sh helpers; Ubuntu by default for the Playwright deps) ────
@@ -357,19 +400,19 @@ chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_HOME"
 
 REG_TOKEN="$(cat "$TOKEN_PATH")"; rm -f "$TOKEN_PATH"
 
-echo "▸ register runner '${RUNNER_NAME}' (labels: ${RUNNER_LABELS}) — --replace is idempotent"
+echo "▸ register runner '${RUNNER_NAME}' (labels: ${RUNNER_LABELS}) — --replace is idempotent; --ephemeral = one job, then de-registered"
 sudo -u "$RUNNER_USER" -H bash -c "cd '${RUNNER_HOME}' && ./config.sh \
   --url '${REPO_URL}' \
   --token '${REG_TOKEN}' \
   --name '${RUNNER_NAME}' \
   --labels '${RUNNER_LABELS}' \
   --work _work \
-  --unattended --replace"
+  --unattended --replace --ephemeral"
 unset REG_TOKEN
 
-echo "▸ install + start the auto-restarting systemd service (svc.sh)"
-# svc.sh writes /etc/systemd/system/actions.runner.*.service with Restart=always + boot enable,
-# so the runner is zero-touch after this: survives reboot, restarts on crash.
+echo "▸ install + start the systemd service (svc.sh)"
+# svc.sh writes /etc/systemd/system/actions.runner.*.service (boot-enabled, restarts on crash). The
+# runner is --ephemeral: after its ONE job it de-registers itself, so re-run this script to refill.
 cd "$RUNNER_HOME"
 ./svc.sh install "$RUNNER_USER"
 ./svc.sh start
@@ -507,6 +550,7 @@ do_add_existing() {
 }
 
 # ── Run ─────────────────────────────────────────────────────────────────────────────────────────
+[[ "$REMOVE" == "1" ]] || require_non_public_repo
 if [[ "$REMOVE" == "1" ]]; then
   do_remove
 elif [[ "$ADD_EXISTING" == "1" ]]; then
