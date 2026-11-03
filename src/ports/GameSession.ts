@@ -906,6 +906,21 @@ export interface ConfideResult {
   content?: string;
 }
 
+/**
+ * 0129 slice 3 — the juror-player asks a fellow juror what they know (the jury-house Q&A). The ENGINE decides
+ * whether the juror tells (their bearing toward the player gates it) and WHICH of the juror's OWN
+ * witnessed-or-told facts they share; the telling reaches the player only through the content-anchored
+ * `told-by:<juror>` pathway. `told:false` ⇒ the model plays the deflection. No hidden lean/number crosses, and
+ * there is NO pathway back to the live house.
+ */
+export interface AskJurorResult {
+  told: boolean;
+  /** The juror's bearing toward the player (categorical, the slice-1 word). */
+  bearing: JurorBearing;
+  /** The text to voice — present only when `told`; one fact the juror legitimately holds. */
+  content?: string;
+}
+
 export interface CreateCharacterReq {
   /**
    * The player's authored display name (the only human-authored profile). Optional since 0050:
@@ -2448,6 +2463,8 @@ export interface GameSession {
    * `ConfideResult` WITHOUT re-folding — checked BEFORE the CAS guard. Absent ⇒ byte-identical (opt-in).
    */
   confide(npcId: EntityId, expectedBeatSeq?: number, idempotencyKey?: string): ConfideResult | null;
+  /** 0129 slice 3 — the juror-player asks a fellow juror what they know; null unless the player holds a juror's seat and `jurorId` is another juror. */
+  askJuror(jurorId: EntityId, expectedBeatSeq?: number, idempotencyKey?: string): AskJurorResult | null;
 
   /**
    * Feature 0095 — press a suspicion that two houseguests knew each other before the show. The SINGLE

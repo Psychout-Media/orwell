@@ -168,12 +168,9 @@ read of the **recorded** jury-management manner toward the player (the eviction 
 seeded spine is byte-identical (`tests/unit/juryHouse0129.test.ts`: whitelist keys, Vault sentinel, manner → bearing,
 read-only determinism). The existing 0100 `juryHouse.ts` is the grudge book (a different concern) — unchanged.
 
-**Slices to come (same feature, each its own PR):** (2) per-juror *shareable knowledge* — each juror's own
-witness-bounded memory + the broadcast + jury gossip, via a Vault-free per-juror reader wired from the composition root,
-with the 0001 canary extended to it; (3) the narrator side — a `jury-house` moment fragment and the Q&A through the
-existing social-approach seam (player-witnessed, answered only from the addressed juror's view, no pathway back to the
-live house), with the model-callable lever wired through the FE tool layer in the same change (the lever-drift trap);
-(4) the informed `juror-vote` card. The roundtable (NPC vote nudging) stays deferred behind `ORWELL_JURY_ROUNDTABLE`
+**Slices 2–3 (built, 2026-11-03) — by SEAM REUSE, no new knowledge reader.** (2) While the player holds a juror's seat, `presentKnowledge` in the narration prompt lists the OTHER jurors, each under their own `npcVoice` scope (their own witnessed-or-told set, labelled under their name) — so a juror's fact appears in that juror's block only. (3) The model lever `askJuror({jurorId})` (jury seat only; null otherwise): the ENGINE gates the telling on the juror's recorded bearing (sour never, cool 40%, even 75%, warm always; seeded per juror/week/phase, so a repeat press in a beat decides the same), picks ONE fact from that juror's own set that the player does not already hold (never a Diary-Room-class fact), and the telling reaches the player only through the content-anchored `told-by:<juror>` pathway (`setOnJurorTell` in the composition root looks the fact up in the JUROR's knowledge — a fact they do not hold cannot be surfaced). It folds nothing into the live house and moves no relationship. The `jury` moment fragment and the glossary advertise it; the FE five-place wiring (`tool_schemas`, `agent_tools`, `orwell_engine.ask_juror`, `tool_execution`, `do_ask_juror`, beat label, admin TOOL_META, mutating-manifest) ships in the same change. Gate: `tests/unit/juryHouseVoice0129.test.ts` (no cross-juror bleed; sour stonewalls; no re-tell; MCP boundary; canary — a Vault sentinel and a LIVE houseguest's private knowledge never reach the block, the telling or the state).
+
+**Slices still to come (same feature, each its own PR):** (4) the informed `juror-vote` card; jury gossip / the broadcast reaching jurors' own sets (today a juror's set stops growing at eviction). The roundtable (NPC vote nudging) stays deferred behind `ORWELL_JURY_ROUNDTABLE`
 (default off).
 
 **HELD for Ryne (not built, default chosen):** whether a juror-player may skip/watch through the jury house or leave it

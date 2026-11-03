@@ -919,6 +919,20 @@ async def confide(npc_id: str, expected_beat_seq: int | None = None,
     return await _call("confide", args, user=user)
 
 
+async def ask_juror(juror_id: str, expected_beat_seq: int | None = None,
+                    idempotency_key: str | None = None, user: str | None = None) -> dict:
+    """Feature 0129 slice 3 — the juror-player asks a fellow juror what they know. The engine is the single
+    authority (it gates on the juror's bearing, picks one thing the juror legitimately holds, and records the
+    telling through the told-by pathway); we only forward {jurorId}. Optional CAS token / at-most-once key
+    thread in only when provided (absent ⇒ identical to the plain call)."""
+    args: dict = {"jurorId": juror_id}
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    if idempotency_key is not None:
+        args["idempotencyKey"] = idempotency_key
+    return await _call("askJuror", args, user=user)
+
+
 async def form_alliance(name: str, members: list, expected_beat_seq: int | None = None, user: str | None = None) -> dict:
     """Feature 0107 Phase A — the player NAMES an alliance with a set of houseguests. The engine is
     the single authority: membership is bond-gated (a proposed member joins only if their mutual bond

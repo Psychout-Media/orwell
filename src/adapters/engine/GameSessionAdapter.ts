@@ -4,7 +4,7 @@ import type {
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
-  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, SealedFact, AccuseTieResult, ConfrontResult,
+  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
   DailyRecapView,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
@@ -1852,6 +1852,11 @@ export class GameSessionAdapter implements GameSession {
     this.onConfide = fn;
   }
 
+  /** 0129 slice 3 — wire the juror-telling pathway (the composition root owns the KnowledgeService). */
+  setOnJurorTell(fn: (jurorId: EntityId, factId: string, confidence: number) => string | null): void {
+    this.onJurorTell = fn;
+  }
+
   /** 0093/0099 — wire the player's own knowledge reader (validate a wielded factId; resolve its subject).
    *  A0: `pathway` rides along (additive) so the knowledge-wall manifest can select the Diary-Room-tagged
    *  facts — the class provably sealed from the whole house. */
@@ -1938,6 +1943,8 @@ export class GameSessionAdapter implements GameSession {
    * player's knowledge, not Vault content. Returns whether the player came to hold the belief.
    */
   private onConfide?: (npcId: EntityId, content: string, confidence: number) => boolean;
+  /** 0129 slice 3 — surface ONE fact a juror already holds to the player (`told-by:<juror>`, content-anchored). */
+  private onJurorTell?: (jurorId: EntityId, factId: string, confidence: number) => string | null;
 
   /**
    * Features 0093 + 0099 — secrets as power. Per learned `factId` the player has WIELDED, a monotonic
@@ -8790,6 +8797,44 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * 0129 slice 3 — the juror-player ASKS a fellow juror what they know. Seam reuse (no new knowledge reader): the
+   * candidates are the SAME witnessed-or-told set `npcVoice(juror).knows` already exposes (never the Diary Room
+   * class), minus what the player already holds; the ENGINE gates the telling on the juror's recorded bearing
+   * (sour never, cool sometimes, even usually, warm always — seeded per juror/beat so a repeat press in one beat
+   * reaches the same decision) and picks which fact; the telling reaches the player ONLY via the content-anchored
+   * `told-by:<juror>` pathway (`onJurorTell`), recorded as a player-witnessed event. Folds nothing into the live
+   * house (a juror has no pathway back to it) and mutates no relationship. Null unless the player holds a juror's
+   * seat and `jurorId` is another juror.
+   */
+  askJuror(jurorId: EntityId, expectedBeatSeq?: number, idempotencyKey?: string): AskJurorResult | null {
+    const idemKey = this.foldLedgerKey("askJuror", idempotencyKey);
+    const replay = this.foldReplay<AskJurorResult | null>(idemKey);
+    if (replay.hit) return replay.value;
+    this.guardBeatSeq(expectedBeatSeq);
+    const jh = this.juryHouseView();
+    const juror = jh?.jurors.find((j) => j.id === jurorId);
+    if (!jh || !juror || !this.npcKnowledge) return null;
+    const chance = { warm: 1, even: 0.75, cool: 0.4, sour: 0 }[juror.bearing];
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:ask-juror:${jurorId}:${this.week}:${this.phase}`));
+    const playerHolds = this.playerKnowledgeReader?.() ?? [];
+    const heldIds = new Set(playerHolds.map((k) => k.factId).filter((f): f is string => !!f));
+    const heldText = new Set(playerHolds.map((k) => k.content));
+    const candidates = this.npcKnowledge.known(jurorId)
+      .filter((f) => f.factId && f.pathway !== "diary-room" && !heldIds.has(f.factId) && !heldText.has(f.content));
+    const roll = rng.next();
+    const none: AskJurorResult = { told: false, bearing: juror.bearing };
+    if (roll >= chance || candidates.length === 0 || !this.onJurorTell) return none;
+    const pick = candidates[Math.floor(rng.next() * candidates.length)]!;
+    const content = this.onJurorTell(jurorId, pick.factId!, 0.7);
+    if (content === null) return none;
+    this.onPlayerEvent?.(`${this.nameOf(jurorId)} tells ${this.nameOf(PLAYER)} something in the jury house`, [PLAYER, jurorId], "conversation");
+    this.persist();
+    const result: AskJurorResult = { told: true, bearing: juror.bearing, content: this.humanize(content) };
+    if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, result);
+    return result;
+  }
+
+  /**
    * 0129 — the jury house roster (slice 1): the OTHER jurors the juror-player lives with, each with a categorical
    * `bearing` read off the recorded jury-management manner toward the player (the eviction's own manner plus any
    * broken-deal demerit — both are how that juror came to regard the player; the same record the finale vote reads). Public record only (the eviction order, the
@@ -11087,7 +11132,11 @@ export class GameSessionAdapter implements GameSession {
    * `gameStatus`), which stays free of any houseguest's private knowledge (the B42 canary's line).
    */
   private presentKnowledgeForPrompt(): import("../../ports/GameSession").PresentKnowledgeView[] {
-    return (this.whereabouts()?.present ?? [])
+    // 0129 slice 2 — a juror-player is not in the live house, so "who is present" is the OTHER jurors they live
+    // with. Seam reuse: the SAME per-person `npcVoice` scope (that juror's own witnessed-or-told set), labelled
+    // under THEIR name — no new reader, no cross-juror bleed, nothing from the live house's private knowledge.
+    const present: NamedRef[] = this.juryHouseView()?.jurors.map((j) => ({ id: j.id, name: j.name })) ?? this.whereabouts()?.present ?? [];
+    return present
       .map((p) => {
         const v = this.npcVoice(p.id);
         if (!v) return null;

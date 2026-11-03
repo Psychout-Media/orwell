@@ -1480,6 +1480,7 @@ const TOOL_META = {
   socialInitiatives:   { name: 'Social Initiatives', desc: 'Who wants to approach the player', cat: 'Game', ctx: '~150' },
   npcVoice:            { name: 'NPC Voice',          desc: 'A houseguest\'s bounded voicing view', cat: 'Game', ctx: '~200' },
   confide:             { name: 'Confide',            desc: 'Press an ally to open up',         cat: 'Game', ctx: '~150' },
+  askJuror:            { name: 'Ask Juror',          desc: 'Ask a fellow juror what they know', cat: 'Game', ctx: '~150' },
   makeDeal:            { name: 'Make Deal',          desc: 'Record a deal with a houseguest',  cat: 'Game', ctx: '~150' },
   formAlliance:        { name: 'Form Alliance',      desc: 'Found a named alliance',           cat: 'Game', ctx: '~150' },
   joinAlliance:        { name: 'Join Alliance',      desc: 'Accept an alliance pitch',         cat: 'Game', ctx: '~100' },

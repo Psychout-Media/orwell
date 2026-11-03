@@ -60,7 +60,7 @@ TOOL_TAGS = {"bash", "python", "web_search", "web_fetch", "read_file", "write_fi
              # Big Brother game engine (Vault-free): the model drives the game by
              # calling these, then narrates the engine-decided results.
              "getGameState", "runCompetition", "recordInteraction", "surfaceInformationTo",
-             "socialInitiatives", "diaryRoom", "makeDeal", "confide", "whereabouts", "moveTo",
+             "socialInitiatives", "diaryRoom", "makeDeal", "confide", "askJuror", "whereabouts", "moveTo",
              # 0107: named alliances — the player names a pact / accepts an NPC's pitch.
              "formAlliance", "joinAlliance",
              # 0093/0099: out a learned secret to the house / trade it to a houseguest for a favor.
@@ -113,6 +113,8 @@ GAME_TOOL_KEEP = frozenset({
     "socialInitiatives", "diaryRoom", "makeDeal",
     # 0075: the trust-gated confide lever (the engine decides the disclosure; the model voices it).
     "confide",
+    # 0129 slice 3: the juror-player asks a fellow juror what they know (the engine decides + records).
+    "askJuror",
     # 0107: named alliances (Phase A formAlliance + Phase B joinAlliance) — player-driven, Vault-free.
     "formAlliance", "joinAlliance",
     # 0093/0099: expose a learned secret to the house / trade it to a houseguest (player-driven, Vault-free).
