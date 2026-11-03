@@ -502,7 +502,7 @@ export interface GameStateView {
    * a pure read of the live loop state + the day clock (no secret, no number beyond the public schedule).
    * The HUD shows it and the narrator context primes on it so run-up scenes carry the awareness of the
    * coming interruption. Present ONLY when the per-conversation clock is live (absent in the seeded
-   * calibration spine / golden replay, which pin that clock off) ⇒ byte-identical, no golden re-record.
+   * calibration spine / golden replay, which pin that clock off) ⇒ byte-identical (the 0108 golden fixture this once referenced was decommissioned 2026-07-21; nothing to re-record).
    */
   daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean };
   /**

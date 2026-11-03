@@ -10,7 +10,7 @@
 #                                 was added still gains it on its next update.
 #
 # Why this file exists: every flag below DEFAULTS OFF in engine code (so the seeded calibration + the
-# 0108 golden fixture stay byte-identical) and is turned ON only by the deploy. The installer used to
+# gates stay byte-identical; the 0108 golden fixture that once also rode this was decommissioned 2026-07-21) and is turned ON only by the deploy. The installer used to
 # hand-write them and the updater reconciled NONE of them — so an old box permanently missed whatever
 # flag post-dated it (the one that got noticed: ORWELL_EMBEDDINGS unset ⇒ the engine silently runs
 # DEGRADED deterministic semantic recall). Keeping the (KEY, DEFAULT) truth here means the two scripts

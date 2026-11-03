@@ -13,7 +13,7 @@ Feature: Live off-screen society
 
   Scenario: The house lives in more than one way between turns
     Given a started game the player has left idle
-    When the off-screen watcher runs several ticks
+    When the off-screen simulation runs several ticks
     Then more than one kind of NPC-to-NPC interaction occurs off-screen
     And none of it is witnessed by the player
 

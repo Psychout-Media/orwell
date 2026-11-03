@@ -1348,7 +1348,7 @@ async def producer_vault(user: str | None = None) -> dict:
 # 0121 R2 — the engine's boot-time behavioral-flags block (GET /health `flags`), cached from the health
 # probe so the tool-schema layer can read a live feature flag (e.g. `dealDepth`) synchronously without its
 # own async call. Empty until the first successful probe ⇒ every flag reads its default (False), which keeps
-# the flag-gated makeDeal schema at its base kinds — the golden-path fixture (probe-less, flag-off) is safe.
+# the flag-gated makeDeal schema at its base kinds — flag-off requests are unchanged (the golden-path fixture this once mentioned was decommissioned 2026-07-21).
 _ENGINE_FLAGS: dict = {}
 
 

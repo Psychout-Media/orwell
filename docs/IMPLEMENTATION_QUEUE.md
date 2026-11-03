@@ -655,6 +655,8 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B24 — 0035 start the off-screen watcher in the runtime  ·  Claude Code  ·  **TOP functional priority (mandate #1)**
 
+> **SUPERSEDED / REMOVED (2026-07-10, PO real-time purge; noted in the #1939 doc-drift pass):** the `GameWatcher`, `SystemClock` and `ORWELL_WATCHER_*` surface this item built were DELETED, not disabled. The house now lives one bounded off-screen tick per committed player turn on a `LogicalClock`. Kept below as the historical prompt.
+
 > In `kevinhirsch/orwell` (TS engine), implement feature **0035**
 > (`docs/features/0035-live-offscreen-life-running-watcher.{md,feature}`). 0031 built the `Orchestrator` +
 > `GameWatcher` + `Clock`/`Scheduler` port (BDD-green with `FakeClock`), but the **live runtime never

@@ -1957,9 +1957,9 @@ _apply_game_build_schemas()
 
 # 0121 R2 — deal kinds. The four DEFENSIVE kinds are always extractable; the two ACTIVE-obligation kinds
 # (0121) are added ONLY when the engine's deal-depth layer is on. The base `makeDeal` schema (above) keeps
-# just the defensive four so the import-frozen manifest — and the 0108 golden-path fixture — is unchanged;
+# just the defensive four so the import-frozen manifest is unchanged (the 0108 golden fixture that also rode this was decommissioned 2026-07-21);
 # `with_deal_depth_kinds` swaps in the extended enum at SEND time when the flag is on (a deep copy, never
-# mutating the shared base). Off (the default, and the golden driver) ⇒ the same list ⇒ byte-identical.
+# mutating the shared base). Off (the default) ⇒ the same list ⇒ byte-identical.
 BASE_DEAL_KINDS = ["safety", "vote", "final-two", "target-other"]
 ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save"]
 _ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them"
@@ -1975,7 +1975,7 @@ def current_deal_kinds() -> list:
 def with_deal_depth_kinds(schemas: list) -> list:
     """Send-time flag-gate (0121 R2): when the engine's deal-depth layer is ON, return a copy of `schemas`
     with makeDeal's `kind` enum extended by the two active-obligation kinds. OFF (default) ⇒ the SAME list
-    object, so the golden-path fixture and every flag-off request are byte-identical."""
+    object, so every flag-off request is byte-identical."""
     from src.orwell_engine import engine_flag
     if not engine_flag("dealDepth"):
         return schemas
