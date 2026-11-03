@@ -46,10 +46,10 @@ export function poViolations(s: PoSummary, z: number = PO_Z): string[] {
   if (f2hi < B.f2Min || f2lo > B.f2Max) out.push(`solid reach-F2 ${pc(so.f2)} is outside ${pc(B.f2Min)}-${pc(B.f2Max)}`);
   const [wlo, whi] = win(s.solid);
   if (whi < B.winMin || wlo > B.winMax) out.push(`solid win ${pc(so.win)} is outside ${pc(B.winMin)}-${pc(B.winMax)}`);
-  // ordering claims are on the point estimates (strict for "clearly beats", non-strict for reckless)
+  // ordering claims are on the point estimates (strict for "clearly beats", non-strict for reckless: it must not beat passive)
   if (!(so.f2 > p.f2)) out.push(`solid reach-F2 ${pc(so.f2)} does not clearly beat passive ${pc(p.f2)}`);
   if (!(so.win > p.win)) out.push(`solid win ${pc(so.win)} does not clearly beat passive ${pc(p.win)}`);
-  if (f2(s.reckless)[0] > p.f2) out.push(`reckless reach-F2 ${pc(re.f2)} beats passive ${pc(p.f2)}`);
-  if (win(s.reckless)[0] > p.win) out.push(`reckless win ${pc(re.win)} beats passive ${pc(p.win)}`);
+  if (re.f2 > p.f2) out.push(`reckless reach-F2 ${pc(re.f2)} beats passive ${pc(p.f2)}`);
+  if (re.win > p.win) out.push(`reckless win ${pc(re.win)} beats passive ${pc(p.win)}`);
   return out;
 }

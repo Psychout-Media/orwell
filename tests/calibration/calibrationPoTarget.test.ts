@@ -78,6 +78,6 @@ if (AGG) {
     it(`passive/solid/reckless over ${SEEDS} seeds hold Ryne's bands`, async () => {
       const rows = { passive: await playArm("passive", 1, SEEDS + 1), solid: await playArm("solid", 1, SEEDS + 1), reckless: await playArm("reckless", 1, SEEDS + 1) };
       assertBands(rows);
-    }, { timeout: 3_600_000 });
+    }, { timeout: 4 * 3_600_000 }); // the serial all-in-one path is ~80 CPU-minutes; CI/nightly shard it (see the file header)
   });
 }

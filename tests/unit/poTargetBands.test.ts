@@ -37,11 +37,13 @@ describe("PO calibration targets — the band checker (Ryne's 2026-11-02 rulings
     expect(at({ reckless: arm("reckless", 9, 24) })).toMatch(/reckless win 8\.0% beats passive/);
   });
 
-  it("sampling error is tolerated, not ignored: a point estimate just outside a band passes, a clear miss does not", () => {
+  it("sampling error is tolerated, not ignored: a point estimate just outside a band passes, a clear miss does not, and a small sample widens the interval", () => {
     // solid 21.7% F2 (65/300) is outside 12-20% by point estimate but inside its 80% interval ...
     expect(poViolations({ ...ON_TARGET, solid: arm("solid", 65, 21) })).toEqual([]);
-    // ... and the same rate over a tiny sample is of course tolerated too, while at n=300 a 26% reach is not.
+    // ... while at n=300 a 26% reach is a clear miss ...
     expect(poViolations({ ...ON_TARGET, solid: arm("solid", 78, 21) }).join()).toMatch(/solid reach-F2 26\.0%/);
+    // ... but the SAME 26.7% rate over only 30 seasons is within its (much wider) interval, so it is tolerated.
+    expect(poViolations({ ...ON_TARGET, solid: arm("solid", 8, 2, 30) })).toEqual([]);
     expect(PO_Z).toBeGreaterThan(1);
   });
 

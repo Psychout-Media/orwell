@@ -238,7 +238,7 @@ export type CeremonyAct = "nominated" | "veto-saved" | "replaced" | "evicted" | 
  * RETUNED 0.2 -> 0.3 (2026-11-03, PO tuning order step 3 "comp wins raise threat more"; #1953): on the default profile a SOLID
  * player reached Final 2 in 29% of 300 seasons (target 12-20%). At 0.3 the same arm reaches it ~20% (20.7% on seeds 1-300, 20.0% on
  * independent seeds 301-600) with passive (~11% F2 / ~3% win) and reckless (~3% F2 / ~1% win) unmoved. The knee is at 0.3: solid reach
- * is flat for 0.3-0.4 while win-given-F2 keeps falling, so 0.3 is the gentlest value that lands reach in band. Pure threat read, no rng.
+ * is flat for 0.3-0.4 while win-given-F2 keeps falling, so 0.3 is the gentlest value that lands reach in band. The constant is a pure threat-only impact (no rng of its own); the shared ceremony fold still applies its seeded temperature jitter to it.
  */
 const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.3 };
 

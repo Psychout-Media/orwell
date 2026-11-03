@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+# Serialize runs WITHOUT cancelling: a scheduled and a manual run can't both see "no open issue" and each create one.
+concurrency:
+  group: calibration-nightly
+  cancel-in-progress: false
+
 jobs:
   shards:
     runs-on: ubuntu-latest
