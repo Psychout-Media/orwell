@@ -43,6 +43,9 @@ _DECISION_KINDS = [
     "juror-vote",
     # 0130: the player-evictee's exit interview (posture + optional words) rides the same seam.
     "exit-interview",
+    # 0133: an early-evicted player's spectator choice and finale-night interview (both real pendings).
+    "spectator-choice",
+    "finale-interview",
     # 0061: the confirmed self-eviction rides the same validated decision seam (and gets the barrier).
     "self-evict",
     # 0025: the reactive-twist secret veto (the holder's private play / hold).

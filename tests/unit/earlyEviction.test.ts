@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import type { AdvanceView, SubmitDecisionReq, SessionCore } from "../../src/ports/GameSession";
+import type { AdvanceView, SubmitDecisionReq } from "../../src/ports/GameSession";
+import type { SessionCore } from "../../src/engine/sessionSnapshot";
 import { isInertBeat, SPECTATOR_MODES, isPreJuryEvictee } from "../../src/engine/liveSeason";
 import { PLAYER } from "../../src/domain/ids";
 
@@ -124,7 +125,6 @@ describe("0133 — watch is the engine's skeleton season; skip fast-forwards to 
         expect(s.getGameState().week).toBeGreaterThanOrEqual(before);
         prev = digests.length;
       }
-      if (s.getGameState().beat === undefined) { /* view has no beat; the loop ends at finished */ }
       if (s.snapshot().live!.beat === "finale") break;
     }
     expect(sawWeeks).toBeGreaterThan(0);
@@ -210,7 +210,7 @@ describe("0133 — the finale-night interview", () => {
     }
     expect(() => s.submitDecision({ kind: "finale-interview", vote: "smug" })).toThrow();
     s.submitDecision({ kind: "finale-interview", vote: "gracious", statement: "thank you all" });
-    expect(s.seasonRetrospective().finaleInterview).toEqual({ stance: "gracious", message: "thank you all" });
+    expect(s.seasonRetrospective()?.finaleInterview).toEqual({ stance: "gracious", message: "thank you all" });
   });
 });
 

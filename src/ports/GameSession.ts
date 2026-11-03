@@ -1239,7 +1239,7 @@ export interface PendingDecisionView {
     // is being interviewed (the player); `stances` carries the legal postures. Resolved via submitDecision. ---
     | "exit-interview"
     // --- early eviction (0133): the pre-jury evictee picks how to follow the rest of the season (`options`
-    // are the modes "watch" | "skip"), and is interviewed on the finale night (`stances`, like 0130). ---
+    // are the two spectator modes: watch or skip), and is interviewed on the finale night (`stances`, like 0130). ---
     | "spectator-choice" | "finale-interview"
     // --- self-eviction (0061): the player-level/OOC confirmation to voluntarily walk out / quit ---
     | "self-evict"
@@ -1929,7 +1929,7 @@ export interface SubmitDecisionReq {
     // rides the shared `vote` field like a goodbye tone, with optional words on `statement`. Recorded for
     // the 0048 retrospective, never engine-authored. ---
     | "exit-interview"
-    // --- early eviction (0133): the spectator mode ("watch" | "skip") rides the shared `vote` field; the
+    // --- early eviction (0133): the spectator mode (watch or skip) rides the shared `vote` field; the
     // finale-night interview posture rides `vote` and the optional words ride `statement` (like 0130). ---
     | "spectator-choice" | "finale-interview"
     // --- self-eviction (0061): the explicit, confirmed voluntary walk-out / quit ---
