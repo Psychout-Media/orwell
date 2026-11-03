@@ -8,7 +8,8 @@ import { chooseNominations } from "../../src/engine/season";
 import { InMemoryEventStore } from "../../src/adapters/inmemory/InMemoryEventStore";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
-import { startLiveSweep, setLive, livePlayerSurfaces } from "../support/liveSweep";
+import { startLiveSweep, setLive, liveOf, livePlayerSurfaces, livePlayerProse, livePlayerProjections } from "../support/liveSweep";
+import { assertNoNumericRelationshipFields, assertNoRelationshipValueProse, assertNoOpinionChangedProse } from "../support/relationshipLeakChecks";
 
 // Reuses: "a running game sandbox with a fully populated Producer's Vault" (Background),
 // "any player-facing surface is produced" (vault_wall), "no Vault sentinel value appears" (god_mode).
@@ -69,18 +70,28 @@ When("the player's action shifts a houseguest's hidden opinion", function (this:
   this.lastView = livePlayerSurfaces(live.sb);
 });
 
+/** The text to prose-sweep: the live game's ENGINE-GENERATED player text (not the moment prompt's fixed instruction template). */
+const proseOf = (w: BbWorld): string => {
+  const live = liveOf(w);
+  return live?.sb ? livePlayerProse(live.sb) : w.lastOutput;
+};
+
 Then("no opinion number or relationship value appears", function (this: BbWorld) {
-  // PAT-2: the sweep now reads the LIVE game's surfaces, whose prose legitimately contains the plain words
-  // ("can I trust you?", a speech tell "makes a threat sound like small talk"). The leak is a relationship
-  // VALUE — a `trust|affinity|threat` key/label bound to a number — so that is what is asserted.
-  assert.ok(!/["']?\b(trust|affinity|threat)\b["']?\s*[:=]\s*-?\d/i.test(this.lastOutput), "no relationship value surfaces");
+  // PAT-2: (1) the STRONG check walks the live game's STRUCTURED player projections (HUD, npcVoice, whereabouts,
+  // journal, moment prompt) and fails on ANY numeric value under a trust/affinity/threat/opinion/relationship/edge
+  // key; (2) the prose regex is the backstop for a value rendered into text ("trust 7", "threat (8)", "trust: 0.8").
+  // The prose is the live game's engine-generated text only — its plain words ("can I trust you?", a speech tell
+  // "makes a threat sound like small talk") are legitimate, and the fixed moment-prompt template is not swept.
+  const live = liveOf(this);
+  assert.ok(live?.sb, "the scenario drives a live game, so its structured projections can be walked");
+  assertNoNumericRelationshipFields(livePlayerProjections(live.sb!));
+  assertNoRelationshipValueProse(proseOf(this));
 });
 
 Then("no message states that the houseguest's opinion changed", function (this: BbWorld) {
-  // PAT-2: the live moment prompt's instruction prose is long and says things like spectators "form opinions as it
-  // unfolds" and "power has changed hands … the reactions", so the old unbounded `.*` / bare-word regex matched
-  // unrelated sentences. Assert the same three phrasings, but BOUNDED to one clause (no `.*` across the prompt).
-  assert.ok(!/\bopinions?\b[^.\n]{0,40}\b(chang|shift|improv|drop|rose|fell)|\bfeels?\b[^.\n]{0,30}\babout you|\bchanged\b[^.\n]{0,30}\btoward\b/i.test(this.lastOutput));
+  // PAT-2: clause-bounded (no `.*` across the text) so unrelated sentences don't match; covers "soured", "softened",
+  // "warmed", "cooled", "thinks less of you", "no longer trusts you", "likes you more", ... Engine text only.
+  assertNoOpinionChangedProse(proseOf(this));
 });
 
 // --- Wins and votes are consequential -----------------------------------------

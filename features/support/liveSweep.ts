@@ -144,6 +144,52 @@ export function livePlayerSurfaces(sb: UserSandbox): string {
   ].join("\n---\n");
 }
 
+/**
+ * The STRUCTURED player projections of THE LIVE GAME (objects, not text), for a recursive numeric-field walk:
+ * the HUD (`gameStatus` / `getGameState`), each houseguest's `npcVoice`, `whereabouts`, the journal-visible
+ * state (`getVisibleState`), and the moment prompt object (whose `systemPrompt` is a string, so only a
+ * numeric sibling field could trip the walk).
+ */
+export function livePlayerProjections(sb: UserSandbox): Record<string, unknown> {
+  const ids = (sb.session.snapshot().house?.npcs ?? []).map((n) => n.id);
+  const out: Record<string, unknown> = {
+    gameStatus: sb.session.gameStatus(),
+    getGameState: sb.session.getGameState(),
+    whereabouts: sb.session.whereabouts(),
+    journal: sb.player.getVisibleState(),
+    momentPrompt: sb.session.getMomentPrompt({}),
+  };
+  for (const id of ids) out[`npcVoice:${id}`] = sb.session.npcVoice(id);
+  return out;
+}
+
+/**
+ * The ENGINE-GENERATED player-facing text of THE LIVE GAME, for the prose backstop. Same as
+ * `livePlayerSurfaces` except the moment prompt's `systemPrompt` is left out: that is a ~tens-of-KB FIXED
+ * instruction template (it talks about spectators "form[ing] opinions", power "changed hands", ...), not engine
+ * output, so a prose regex over it only ever matches the template. Its engine-generated `hardConstraints`
+ * block (scene occupancy / pronoun locks) IS kept.
+ */
+export function livePlayerProse(sb: UserSandbox): string {
+  const ids = (sb.session.snapshot().house?.npcs ?? []).map((n) => n.id);
+  const mp = sb.session.getMomentPrompt({});
+  return [
+    ...ALL_PLAYER_SURFACES.map((s) => sb.player.produce(s)),
+    JSON.stringify(sb.player.assembleNarrationContext("scene")),
+    JSON.stringify(sb.player.assembleNarrationContext("dialogue")),
+    sb.player.renderScene("compressed"),
+    sb.player.renderScene("full"),
+    sb.player.socialRead(),
+    sb.player.socialRead(npc(1)),
+    JSON.stringify(sb.player.getVisibleState()),
+    JSON.stringify(sb.session.getGameState()),
+    JSON.stringify(sb.session.gameStatus()),
+    JSON.stringify(sb.session.whereabouts()),
+    mp.hardConstraints ?? "",
+    ...ids.map((id) => JSON.stringify(sb.session.npcVoice(id))),
+  ].join("\n---\n");
+}
+
 /** The admin / God-Mode surface of THE LIVE GAME (synced from the session first, as production does). */
 export function liveAdminSurface(sb: UserSandbox): string {
   sb.syncAdmin();
