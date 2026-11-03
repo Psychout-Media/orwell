@@ -4950,6 +4950,50 @@ def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_activ
     return cleaned_round
 
 
+_REPLAY_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")  # a sentence end OR any newline (the streaming splitter treats a bare newline as a boundary too)
+_REPLAY_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def _replay_words(sentence: str) -> list:
+    """Lower-cased word tokens of one sentence with speaker tags / markdown stripped (`@[Name] —`, `**`, `*`)."""
+    t = re.sub(r"@\[[^\]]*\]\s*[—-]?", " ", sentence or "")
+    return _REPLAY_WORD_RE.findall(t.replace("*", " ").lower())
+
+
+def _replays_shown(clean: str, shown: str, *, prefix_words: int = 6, min_words: int = 6) -> bool:
+    """F-6 (rehearsal 2026-11-03) — a LATER round of the same turn that opens by re-telling a scene the player has ALREADY been shown.
+
+    The model ignores "CONTINUE — DO NOT REOPEN" and re-narrates the whole scene in a fresh sample, and #829 turn-coalescing then glues the two
+    takes into one bubble. A round whose FIRST sentence opens with the same leading words as a sentence already shown this turn is a replay:
+    the caller drops the round (nothing streams, nothing persists). Deliberately narrow: exact 6-word-prefix match of a >=6-word sentence, so
+    ordinary continuation prose is never touched. Pure."""
+    first = next((x for x in _REPLAY_SENTENCE_SPLIT_RE.split((clean or "").strip()) if _replay_words(x)), "")
+    w = _replay_words(first)
+    if len(w) < min_words or not (shown or "").strip():
+        return False
+    n = min(prefix_words, len(w))
+    key = w[:n]
+    for sent in _REPLAY_SENTENCE_SPLIT_RE.split(shown):
+        sw = _replay_words(sent)
+        if len(sw) >= n and sw[:n] == key:
+            return True
+    return False
+
+
+def _blank_turn_fallback_for_board(live, *, upstream_failed: bool) -> str:
+    """A blank MODEL turn (no upstream failure) on a readable board answers with the engine's own closed-set board facts (HOH, nominees, veto
+    holder, evicted count) instead of the generic "the moment hangs" line. Rehearsal 2026-11-03: a direct "who holds the veto?" whose only
+    answer was a (correctly stripped) false claim ended on "The moment hangs for a beat" — a non-answer. The board statement IS the answer,
+    deterministic and Vault-free (public status only)."""
+    if not upstream_failed and isinstance(live, dict) and live.get("phase"):
+        try:
+            from routes import chat_helpers as _ch_bt
+            return _ch_bt._engine_truth_beat(live)
+        except Exception:
+            pass
+    return _blank_turn_fallback_line(upstream_failed=upstream_failed)
+
+
 _BLANK_FALLBACK_MODEL = (
     "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
 _BLANK_FALLBACK_UPSTREAM = (
@@ -6830,6 +6874,7 @@ async def _stream_agent_loop_impl(
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
+        _round_replay = False  # F-6: this round re-told a scene already shown this turn and was dropped whole
         _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
@@ -7277,6 +7322,15 @@ async def _stream_agent_loop_impl(
                                 # whole-"sentence" drop and delete a surviving clause too.
                                 round_response = _mirror_wall_drop(
                                     round_response, _complete, _clean, split_pattern=r"(?<=[.!?\n;])")
+                                if (_clean and not _scene_broken and not _round_visible_emitted
+                                        and _replays_shown(_clean, full_response)):
+                                    # F-6: this later round opens by re-telling a scene already shown this turn — drop the whole round.
+                                    logger.info(f"[orwell] replay guard: round {round_num} re-told the shown scene — dropped user={owner}")
+                                    _scene_broken = True
+                                    _round_replay = True
+                                    _visible_halted = True
+                                    _ooc_open = ""
+                                    _clean = ""
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
@@ -7444,7 +7498,15 @@ async def _stream_agent_loop_impl(
             round_response = _mirror_wall_drop(
                 round_response, _pre_scrub_tail, _clean, split_pattern=r"(?<=[.!?\n;])")
             _game_buf = ""
-            if _clean or _ooc_open:
+            if (_clean and not _scene_broken and not _round_visible_emitted and _replays_shown(_clean, full_response)):
+                logger.info(f"[orwell] replay guard (flush): round {round_num} re-told the shown scene — dropped user={owner}")
+                _scene_broken = True
+                _round_replay = True
+                _ooc_open = ""
+                _clean = ""
+            if _round_replay:
+                pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)
+            elif _clean or _ooc_open:
                 # 0065 Part C + A2 — the SAME scene circuit-breaker + per-sentence guard as the mid-loop
                 # emit (closed-set board claims only; creative prose streams untouched; blank-turn raw
                 # fallback). A phantom that appears ONLY in the trailing unterminated sentence is cut here.
@@ -8950,6 +9012,14 @@ async def _stream_agent_loop_impl(
                         f"[orwell] double-blank guard: re-prompt also produced no narration — emitting "
                         f"a minimal in-character continuation round {round_num} user={owner}")
                     _blank_fallback = _blank_turn_fallback_line(upstream_failed=_turn_had_error)
+                    if not _turn_had_error:
+                        # a blank MODEL turn on a readable board states the engine's board facts instead of "the moment hangs"
+                        try:
+                            from routes import chat_helpers as _ch_blank
+                            _blank_fallback = _blank_turn_fallback_for_board(
+                                await _ch_blank._capture_beat_signature(owner), upstream_failed=False)
+                        except Exception:
+                            pass
                     full_response += _blank_fallback
                     _emitted_visible = True
                     yield f'data: {json.dumps({"delta": _blank_fallback})}\n\n'
