@@ -180,8 +180,10 @@ export function campaignPushFor(
     const sign = camp.goal === "evict" ? 1 : camp.goal === "protect" ? -1 : 0;
     if (sign === 0 || !camp.knownTo.includes(decider)) continue;
     const owner = camp.owners[0]!;
-    if (owner === decider) continue;
-    if (owner === deps.player && !(deps.includePlayerOwned ?? CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED)) continue;
+    // A campaign can be a BLOC's (`owners` is a list): the decider being ANY owner means it is their own plan (already in
+    // their read), and the player being ANY owner makes it a player-owned campaign for the switch.
+    if (camp.owners.includes(decider)) continue;
+    if (camp.owners.includes(deps.player) && !(deps.includePlayerOwned ?? CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED)) continue;
     net += sign * campaignTilt(
       camp.progress, deps.influenceOf(owner).persuasiveness, deps.influenceOf(decider).susceptibility,
       deps.trustOf(owner, decider), c,

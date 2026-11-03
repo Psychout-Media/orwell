@@ -7746,7 +7746,11 @@ export class GameSessionAdapter implements GameSession {
     this.campaigns = this.campaigns
       .map((c) => c.status === "active" && c.owners[0] !== PLAYER
         ? advanceCampaign(c, { rng, beat, alliesOf: (id) => this.allyReadsOf(id).map((a) => a.toward) })
-        : c)
+        // …but a player campaign still EXPIRES at its deadline (no free progress, no diffusion — only the resolution), so a
+        // stale entry can't keep pushing nominations / veto saves / votes (now that they are mechanical) or hold a slot.
+        : c.status === "active" && beat >= c.deadlineBeat
+          ? { ...c, status: c.progress >= 0.5 ? ("won" as const) : ("lost" as const) }
+          : c)
       .filter((c) => c.status === "active");
     // 0086: derive EVERY active houseguest's drive this tick (sticky from the prior tick) — the whole house
     // is motivated; only the loudest are campaigns above, the quiet `target` ones add the own-ballot lean.

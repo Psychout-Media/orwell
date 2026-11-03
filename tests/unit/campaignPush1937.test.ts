@@ -60,6 +60,14 @@ describe("campaignPushFor — the signed, bounded, aware-only push", () => {
     expect(Math.abs(campaignPushFor([mine, camp({ id: "m2", owners: [PLAYER], knownTo: [PLAYER, decider] })], target, decider, deps()))).toBeLessThanOrEqual(CAMPAIGN.base);
   });
 
+  it("a BLOC campaign: the decider (or the player) being ANY owner, not just the first, counts as own / player-owned", () => {
+    const bloc = camp({ owners: [owner, decider], knownTo: [owner, decider] });
+    expect(campaignPushFor([bloc], target, decider, deps())).toBe(0); // a secondary owner is the decider: their own plan
+    const playerBloc = camp({ owners: [owner, PLAYER], knownTo: [owner, PLAYER, decider] });
+    expect(campaignPushFor([playerBloc], target, decider, deps({ includePlayerOwned: false }))).toBe(0); // the switch covers a bloc member
+    expect(campaignPushFor([playerBloc], target, decider, deps({ includePlayerOwned: true }))).toBeCloseTo(CAMPAIGN.base);
+  });
+
   it("is a lower trust / lower susceptibility ⇒ a smaller push (character-mediated)", () => {
     const full = campaignPushFor([camp({})], target, decider, deps());
     const gullible0 = campaignPushFor([camp({})], target, decider, deps({ influenceOf: (id) => (id === decider ? { persuasiveness: 1, susceptibility: 0 } : infl) }));
@@ -134,6 +142,7 @@ describe("the adapter wiring (live, campaigns on)", () => {
 
   it("the provider is absent with campaigns OFF (flags-off is byte-identical)", () => {
     const { session } = liveHouse(31);
+    session.setCampaignsEnabled(false); // explicit: the shipped profile (ORWELL_CAMPAIGNS=1) must not change this fixture
     expect(ctxOf(session).campaignPushFor).toBeUndefined();
   });
 

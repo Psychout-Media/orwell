@@ -134,6 +134,14 @@ describe("the adapter: the scramble nets protect against evict, and the re-plann
     expect(p(session).campaignTiltFor(target, voter)).toBeCloseTo(evictOnly);
   });
 
+  it("a PLAYER campaign still expires at its deadline (no free progress), so it can't push forever or hold a slot", () => {
+    const { session, ids } = liveHouse(63);
+    session.setCampaignsEnabled(true);
+    p(session).campaigns = [camp({ id: "old", owners: [PLAYER], goal: "evict", target: ids[1]!, progress: 0.2, deadlineBeat: 0, knownTo: [PLAYER] })];
+    session.campaignTick();
+    expect(p(session).campaigns.find((c) => c.id === "old")).toBeUndefined(); // resolved (lost) and dropped
+  });
+
   it("the NPC re-planner leaves a nominated PLAYER's declared evict campaign as evict (it used to flip it to protect)", () => {
     const { session, ids } = liveHouse(62);
     session.setCampaignsEnabled(true);
