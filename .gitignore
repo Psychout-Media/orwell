@@ -33,3 +33,9 @@ frontend/scratchpad/
 # DEBUG unseal and the "unsealed" debug-bundle flavor both carry hidden-layer content; keep them local.
 orwell-producers-vault*.json
 orwell-debug-bundle-unsealed*.json
+
+# a .venv SYMLINK (worktree convenience) is not matched by the `.venv/` dir pattern — never commit it
+/frontend/.venv
+/node_modules
+/frontend/data.*/
+/data.*/

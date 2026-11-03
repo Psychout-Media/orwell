@@ -10217,6 +10217,7 @@ export class GameSessionAdapter implements GameSession {
         ...(d.used !== undefined ? { used: d.used } : {}),
         ...(d.saved !== undefined ? { saved: named(d.saved) } : {}),
         ...(d.tieBroken !== undefined ? { tieBroken: d.tieBroken } : {}),
+        ...(d.remaining !== undefined ? { remaining: d.remaining } : {}),
       };
     };
     const view: BeatAnnouncementView = {

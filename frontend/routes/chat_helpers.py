@@ -552,16 +552,42 @@ _AIRED_STEER: dict = {}
 _AIRED_STEER_TURNS = 2
 
 
+# A-14 N-2/N-3: ids of announcements already OWED to (or delivered to) this player, so the same fact reaches the
+# client exactly once whichever path surfaced it first (pre-resolve stash, the per-turn stateDelta, or a tool result).
+_OWED_ANN_IDS: dict = {}
+_OWED_ANN_IDS_MAX = 400  # bounded: a season is far fewer announcements; the oldest are forgotten first
+
+
+def _owe_announcements(user, anns) -> list:
+    """Queue NEW announcements (by id) for client emission and the aired-fact steer. Returns the ones queued."""
+    key = _runway_key(user)
+    seen = _OWED_ANN_IDS.setdefault(key, [])
+    fresh = []
+    for a in anns or []:
+        if not isinstance(a, dict) or not a.get("headline"):
+            continue
+        aid = a.get("id")
+        if aid is not None and aid in seen:
+            continue
+        if aid is not None:
+            seen.append(aid)
+        fresh.append(a)
+    del seen[:-_OWED_ANN_IDS_MAX]
+    if not fresh:
+        return []
+    _PENDING_CHYRON[key] = list(_PENDING_CHYRON.get(key, [])) + fresh
+    heads = " ".join(str(a["headline"]).strip() for a in fresh)
+    prior = _AIRED_STEER.get(key)
+    if prior:
+        heads = prior[1] + " " + heads  # an unexpired steer keeps its facts alongside the new ones
+    _AIRED_STEER[key] = (_AIRED_STEER_TURNS, heads)
+    return fresh
+
+
 def stash_preresolved_announcements(user, adv) -> None:
     """Record the engine announcements of a pre-resolved advance for emission + grounding. Fail-open."""
     try:
-        anns = [a for a in ((adv or {}).get("announcements") or []) if isinstance(a, dict) and a.get("headline")]
-        if not anns:
-            return
-        key = _runway_key(user)
-        _PENDING_CHYRON[key] = list(_PENDING_CHYRON.get(key, [])) + anns
-        heads = " ".join(str(a["headline"]).strip() for a in anns)
-        _AIRED_STEER[key] = (_AIRED_STEER_TURNS, heads)
+        _owe_announcements(user, (adv or {}).get("announcements") or [])
     except Exception as _e:  # never break a turn over observability
         logger.debug("[orwell] stash_preresolved_announcements skipped: %s", _e)
 
@@ -573,6 +599,7 @@ def clear_preresolve_debt(user) -> None:
     key = _runway_key(user)
     _PENDING_CHYRON.pop(key, None)
     _AIRED_STEER.pop(key, None)
+    _OWED_ANN_IDS.pop(key, None)
 
 
 def pop_pending_chyron(user) -> list:
@@ -2287,6 +2314,33 @@ def _eviction_evictee_mismatch(text: str, before: dict, after: dict) -> bool:
     return any(_name_matches(named, a) for a in active)
 
 
+# N-7 (A-14 playtest) — the eviction moment prompt tells the narrator to voice each staged, anonymized ballot as
+# "a vote to evict <nominee>", and the outcome guard used to read that exact phrase as a phantom EVICTION and drop it
+# (the reveal then reached the player as "the first ballot comes through:" with no ballot). An anonymized ballot that
+# names a current NOMINEE during the eviction phase is the sanctioned reveal; it is stripped before the eviction
+# claim regexes run. Everything else still trips: the result ("X is evicted"), a tally, a non-nominee, a voter named.
+_BALLOT_PHRASE_RE = re.compile(
+    r"\b(?:a|another|one\s+more|the\s+(?:first|second|third|next|last|final))\s+(?:vote|ballot)\s+(?:to|for)\s+evict\s+"
+    r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
+
+
+def _strip_anonymized_ballots(text: str, live: dict) -> str:
+    """Remove "a vote to evict <current nominee>" reveal phrases (eviction phase only) so they are not read as an
+    eviction claim. Returns the text unchanged outside the eviction phase or when the named person is not a nominee."""
+    if not text or not isinstance(live, dict) or not str(live.get("phase") or "").lower().startswith("eviction"):
+        return text
+    noms = {str(n).strip().lower() for n in (live.get("nomNames") or []) if str(n).strip()}
+    if not noms:
+        return text
+
+    def _repl(m):
+        name = m.group(1).strip().lower()
+        # exact full name, or a SINGLE-token shorthand of a nominee ("a vote to evict Alex Jones" is NOT "Alex Smith")
+        return "" if any(name == n or (len(name.split()) == 1 and name in n.split()) for n in noms) else m.group(0)
+
+    return _BALLOT_PHRASE_RE.sub(_repl, text)
+
+
 def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict) -> Optional[str]:
     """Compare the turn's narration against the before→after board delta. Return a SPECIFIC
     re-ground directive when the narration asserts an outcome the engine did NOT commit; else
@@ -2296,6 +2350,9 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     before = before_sig if isinstance(before_sig, dict) else {}
     after = after_sig if isinstance(after_sig, dict) else {}
     if not text.strip() or not after:
+        return None
+    text = _strip_anonymized_ballots(text, after)  # N-7: the sanctioned anonymized-ballot reveal is not an eviction claim
+    if not text.strip():
         return None
 
     desync = None  # the specific outcome the narration claimed that the board never moved on
@@ -2466,8 +2523,12 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # Run BOTH and merge the labels so a sentence combining field membership with an elimination claim gets
     # the re-ground that names the real field, not only the generic unresolved-competition correction.
     _f3 = None if desync else _player_seated_in_excluded_field(text, after)
-    if _a9 or _f3:
-        desync = "; and ".join(x for x in (_f3, _a9) if x)
+    # (10) N-1: the veto winner / its user named as someone other than the engine's committed holder.
+    _n1 = None if desync else _veto_holder_contradiction(text, after)
+    # (11) N-3: a "not yet" about a closed-set fact the engine has ALREADY committed (the HOH, the nominees, the veto).
+    _n3 = None if desync else _stale_denial_contradiction(text, after)
+    if _a9 or _f3 or _n1 or _n3:
+        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3) if x)
 
     if not desync:
         return None
@@ -3513,6 +3574,117 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
     return None
 
 
+# N-1 (A-14 playtest) — a SETTLED veto holder contradicted by the narration. After the veto competition the model
+# named a houseguest the engine had ELIMINATED as the winner ("Rival gets there first … the bell rings") and as the
+# one who would use it ("Rival: \"I'm gonna use it\""), while the engine's holder was someone else. F-3 covers the
+# veto FIELD and A-9 only arms while the comp is unsettled; this verifies the WINNER / USE-INTENT identity against
+# the signature's committed `vetoHolderName`. Closed-set only; the named houseguest must be on the active roster.
+_CLAIM_VETO_BELL_RE = re.compile(
+    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?i:\s+(?:gets\s+there\s+first|(?:hits|slams|rings)\s+the\s+(?:bell|buzzer)|"
+    r"(?:wins|won|takes|took|claims|claimed|snags|grabs)\s+(?:the\s+)?(?:power of veto|veto|pov)))\b")
+_CLAIM_VETO_INTENT_RE = re.compile(
+    # a speaker-labelled line: Name: "...I'm gonna use it"
+    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*:\s*[\"“]?[^\"”\n]{0,60}?(?i:\bI(?:'|’)?m\s+(?:gonna|going\s+to)|\bI(?:'|’)?ll|\bI\s+will)"
+    r"(?i:\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)"
+    # third person: Name is going to / will use the veto
+    r"|\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?i:\s+(?:is\s+(?:gonna|going\s+to)|will|'ll|’ll)\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)")
+_VETO_N1_HYP_RE = re.compile(
+    r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
+    r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
+    r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+
+
+# N-3 (A-14 playtest) — a STALE "not yet": the engine had already crowned the HOH / committed the nominees / set the
+# veto holder, and the narration still said "the Head of Household competition hasn't happened yet", "before she
+# names nominees", "nobody holds the veto". A "not yet" about a committed closed-set fact is a false claim exactly
+# like a phantom outcome, so it is screened against the signature (hohName / noms / vetoHolderName). Closed-set
+# only; stands down when the fact is genuinely uncommitted, on past-week sentences and on hypothetical clauses.
+_N3_NEG = r"(?:hasn(?:'|’)?t|has\s+not|haven(?:'|’)?t|have\s+not|not\s+yet|yet\s+to|isn(?:'|’)?t|aren(?:'|’)?t)"
+_DENY_HOH_RE = re.compile(
+    r"\b(?:head\s+of\s+household|hoh)\b(?:\s+(?:competition|comp|challenge))?[^.!?\n]{0,50}?\b" + _N3_NEG
+    + r"\b[^.!?\n]{0,25}\b(?:happened|played|decided|settled|determined|announced|crowned|started|begun|over|won)\b"
+    r"|\b(?:nobody|no\s+one)\s+(?:has\s+)?(?:won|taken|been\s+crowned)[^.!?\n]{0,25}\b(?:head\s+of\s+household|hoh)\b"
+    r"|\bno\s+(?:head\s+of\s+household|hoh)\s+(?:yet|so\s+far)\b", re.IGNORECASE)
+_DENY_NOMS_RE = re.compile(
+    r"\bbefore\s+(?:\w+\s+){0,3}(?:name|names|announce|announces|set|sets|make|makes|decide|decides)\s+"
+    r"(?:the\s+|her\s+|his\s+|their\s+)?(?:nominees?|nominations?)\b"
+    r"|\bnominations?\b[^.!?\n]{0,30}?\b" + _N3_NEG + r"\b[^.!?\n]{0,15}\b(?:made|set|named|announced|in|decided)\b"
+    r"|\b(?:hasn(?:'|’)?t|has\s+not|haven(?:'|’)?t)\s+(?:yet\s+)?(?:named|nominated|chosen|picked)\s+"
+    r"(?:her|his|their|any)?\s*(?:nominees?|anyone|nominations)"
+    r"|\bnominees?\s+(?:haven(?:'|’)?t|have\s+not|aren(?:'|’)?t)\s+(?:been\s+)?(?:named|chosen|set|announced)", re.IGNORECASE)
+_DENY_VETO_RE = re.compile(
+    r"\b(?:veto|pov|power\s+of\s+veto)\b[^.!?\n]{0,40}?\b" + _N3_NEG
+    + r"\b[^.!?\n]{0,20}\b(?:held|won|happened|started|settled|finished)\b"
+    r"|\b(?:nobody|no\s+one)\s+(?:holds|has|owns)\s+(?:the\s+)?(?:power\s+of\s+)?(?:veto|pov)\b", re.IGNORECASE)
+
+
+# the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
+# first clause cannot hide an explicit later contradiction
+_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
+
+
+def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
+    """N-3 — a "not yet" denial of a closed-set fact the engine has already committed. Returns a LABEL, or None."""
+    if not isinstance(live, dict) or not text:
+        return None
+    phase = str(live.get("phase") or "").lower()
+    checks = []
+    if live.get("hohName") and not phase.startswith(("hoh", "setup", "premiere")):
+        checks.append((_DENY_HOH_RE, "that the Head of Household is not decided yet (the engine crowned "
+                                      + str(live.get("hohName")) + ")"))
+    if live.get("noms") and phase.startswith(("veto", "eviction", "final")):
+        checks.append((_DENY_NOMS_RE, "that the nominations have not been made yet (the engine has committed them: "
+                                      + ", ".join(str(n) for n in (live.get("nomNames") or [])) + ")"))
+    if live.get("vetoHolder") and live.get("vetoHolderName") and phase.startswith(("veto", "eviction", "final")):
+        checks.append((_DENY_VETO_RE, "that the Power of Veto has not been played / nobody holds it (the engine's holder is "
+                                      + str(live.get("vetoHolderName")) + ")"))
+    if not checks:
+        return None
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        if not sent.strip() or _COMP_PAST_RE.search(sent):
+            continue
+        for rx, label in checks:
+            m = rx.search(sent)
+            if m and not _VETO_N1_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.start() + 12]):
+                return "the narration says " + label
+    return None
+
+
+def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
+    """N-1 — the narration names a houseguest OTHER than the engine's committed veto holder as winning the veto
+    (bell/'gets there first'/'wins the veto') or as going to use it. Returns a LABEL naming the real holder, or
+    None. Stands down on every uncertainty: no committed holder, not a veto phase, the named person is the
+    holder or not on the active roster, a past-week sentence, a hypothetical clause."""
+    if not isinstance(live, dict) or "veto" not in str(live.get("phase") or "").lower():
+        return None
+    holder = live.get("vetoHolderName")
+    if not holder or not live.get("vetoHolder") or not text:
+        return None
+    sents = re.split(r"(?<=[.!?\n])", text)
+    for _i, sent in enumerate(sents):
+        if not sent.strip() or _COMP_PAST_RE.search(sent):
+            continue
+        # context is a bounded same-event WINDOW (this sentence ± two neighbours), never the whole narration: an
+        # unrelated sentence must not inherit veto context from elsewhere, yet "X gets there first." (no keyword of
+        # its own) still reads against the "bell"/"veto" in the sentences around it.
+        _win = " ".join(sents[max(0, _i - 2):_i + 3])
+        comp_ctx = re.search(r"\b(?:veto|pov|bell|buzzer|comp|competition|challenge)\b", _win, re.IGNORECASE)
+        veto_ctx = re.search(r"\b(?:veto|pov)\b", _win, re.IGNORECASE)
+        for rx, ctx in ((_CLAIM_VETO_BELL_RE, comp_ctx), (_CLAIM_VETO_INTENT_RE, veto_ctx)):
+            if not ctx:
+                continue
+            for m in rx.finditer(sent):
+                name = next((g for g in m.groups() if g), None)
+                if not name or _name_matches(name, holder) or not _name_matches_active(name, live):
+                    continue
+                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1]
+                if _VETO_N1_HYP_RE.search(lead):
+                    continue
+                return ("the WRONG houseguest as the veto winner / user (the engine's Power of Veto holder is "
+                        + str(holder) + " — " + str(name) + " is not)")
+    return None
+
+
 def _sentence_has_closed_set_claim(text: str) -> bool:
     """Does `text` contain ANY of the four closed-set board-outcome claim patterns? Cheap and
     synchronous — the hot-loop gate that keeps the pre-emission guard off creative prose entirely.
@@ -3536,7 +3708,10 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
         or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
         or _CLAIM_COMP_ELIM_STRONG_RE.search(text)
         or _CLAIM_COMP_ELIM_WEAK_RE.search(text)
+        or _CLAIM_VETO_BELL_RE.search(text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
+        or _CLAIM_VETO_INTENT_RE.search(text)  # N-1: a non-holder 'going to use it'
         or _CLAIM_PLAYER_IN_FIELD_RE.search(text)  # F-3: the player seated in a veto field (verified against the engine's field)
+        or _DENY_HOH_RE.search(text) or _DENY_NOMS_RE.search(text) or _DENY_VETO_RE.search(text)  # N-3: stale "not yet"
     )
 
 
@@ -4498,6 +4673,14 @@ async def _maybe_delta_line(user, last_seen_beat_seq) -> Optional[str]:
             orwell_engine.state_delta(last_seen_beat_seq, user=user), orwell_engine._FRAMING_TIMEOUT)
         # Keep the last-seen token fresh from the delta's own beatSeq (it carries one like every read).
         _refresh_beat_seq(user, delta if isinstance(delta, dict) else {})
+        # A-14 N-2/N-3: whatever the engine ANNOUNCED since the last turn is owed to the player, whichever path
+        # committed it (a model/belt advanceGate call, a turn that failed upstream, a card submit). A fullRefresh
+        # carries no reliable slice, so it never replays history. Deduped by id against the pre-resolve stash.
+        if isinstance(delta, dict) and not delta.get("fullRefresh"):
+            try:
+                _owe_announcements(user, delta.get("announcements"))
+            except Exception as _oe:
+                logger.debug("[orwell] delta announcements not owed for user=%s: %s", user, _oe)
         return _render_delta_line(delta if isinstance(delta, dict) else {})
     except asyncio.TimeoutError:
         # asyncio.TimeoutError stringifies to '' — log an explicit reason (the full context stands).

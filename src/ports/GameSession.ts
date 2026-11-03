@@ -1216,7 +1216,8 @@ export type BeatAnnouncementKind =
   | "veto-decision"
   | "replacement-nominee"
   | "eviction-ballot"
-  | "eviction-result";
+  | "eviction-result"
+  | "comp-round-result";
 
 /**
  * T0-3 — a single Vault-free, engine-authored broadcast fact for a JUST-COMMITTED ceremony beat.
@@ -1251,6 +1252,8 @@ export interface BeatAnnouncementView {
     saved?: NamedRef;
     /** `eviction-result` only: the HOH broke a tied vote (never implies an extra "HOH ballot", E12). */
     tieBroken?: boolean;
+    /** `comp-round-result` only: houseguests still in the competition after this round's drops (a public count). */
+    remaining?: number;
   };
 }
 
