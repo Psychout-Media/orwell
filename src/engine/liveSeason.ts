@@ -59,7 +59,7 @@ import {
 } from "../domain/eligibility";
 import type { WeekState } from "../domain/eligibility";
 import type { Stats } from "./season";
-import { nominationStrategy, nominationScore, tallyJury } from "./season";
+import { nominationStrategy, nominationScore, replacementPick, tallyJury } from "./season";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
@@ -2672,14 +2672,14 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     s.pending = { kind: "replacement", by: ctx.player, saved: s.saved!, options };
     return null;
   }
-  // The replacement reads the same blended strategy (0044): threat + the rattled-paranoia term +
-  // the bloc shield. This is also what COMPLETES a backdoor — the real target, left off the block
-  // at nominations, tops this ranking the moment the veto comes off.
-  const mood = ctx.emotionalOf?.(s.hoh!) ?? 0.5;
-  const blocs = currentBlocs(s, ctx);
-  const replacement = [...options].sort((a, b) =>
-    (nominationScore(s.hoh!, b, ctx.rel, mood) + blocTerm(blocs, s.hoh!, b)) -
-    (nominationScore(s.hoh!, a, ctx.rel, mood) + blocTerm(blocs, s.hoh!, a)))[0]!;
+  // The replacement reads the same blended strategy (0044): threat + the rattled-paranoia term + the
+  // bloc shield + the HOH's style. If the target is still up (the pawn came down), the HOH names a new
+  // PAWN; if the target came down — or this is a backdoor — they name the real target (0044 §9).
+  const replacement = replacementPick(s.hoh!, otherNominee(s), options, s.active, ctx.rel, {
+    blocs: currentBlocs(s, ctx),
+    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+    style: ctx.nominationStyleOf?.(s.hoh!),
+  });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
     beat: "veto-ceremony",
@@ -2728,7 +2728,13 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
     case "houseguests-choice":
       return { kind: "houseguests-choice", pick: ctx.rel.chooseStrongestBond(p.by, p.options, rng) };
     case "replacement":
-      return { kind: "replacement", replacement: byThreat(p.by, p.options) };
+      // The same pawn-or-target replacement read the loop's NPC HOHs use (0044 §9) — no second rulebook.
+      return {
+        kind: "replacement",
+        replacement: replacementPick(p.by, otherNominee(s), p.options, s.active, ctx.rel, {
+          blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(p.by) ?? 0.5, style: ctx.nominationStyleOf?.(p.by),
+        }),
+      };
     case "eviction-vote":
       return { kind: "eviction-vote", vote: voteChoice(p.by, p.nominees, ctx, currentBlocs(s, ctx), s.hoh ?? undefined) };
     case "tie-break":

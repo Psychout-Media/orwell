@@ -11,7 +11,7 @@ import {
 } from "../../../src/domain/eligibility";
 import type { WeekState } from "../../../src/domain/eligibility";
 import type { Stats } from "../../../src/engine/season";
-import { nominationStrategy, nominationScore, tallyJury } from "../../../src/engine/season";
+import { nominationStrategy, nominationScore, replacementPick, tallyJury } from "../../../src/engine/season";
 import { detectBlocs, blocTerm } from "../../../src/engine/blocs";
 import type { Bloc } from "../../../src/engine/blocs";
 import { DECISION } from "../../../src/engine/decisionConstants";
@@ -1078,11 +1078,11 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // The replacement reads the same blended strategy (0044): threat + the rattled-paranoia term +
   // the bloc shield. This is also what COMPLETES a backdoor — the real target, left off the block
   // at nominations, tops this ranking the moment the veto comes off.
-  const mood = ctx.emotionalOf?.(s.hoh!) ?? 0.5;
-  const blocs = currentBlocs(s, ctx);
-  const replacement = [...options].sort((a, b) =>
-    (nominationScore(s.hoh!, b, ctx.rel, mood) + blocTerm(blocs, s.hoh!, b)) -
-    (nominationScore(s.hoh!, a, ctx.rel, mood) + blocTerm(blocs, s.hoh!, a)))[0]!;
+  // Mirrors the live pawn-or-target replacement read (0044 §9) — a shared DECISION rule, not a staging
+  // difference, so the staged-vs-non-staged litmus keeps comparing like with like.
+  const replacement = replacementPick(s.hoh!, otherNominee(s), options, s.active, ctx.rel, {
+    blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+  });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
     beat: "veto-ceremony",

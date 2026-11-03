@@ -173,6 +173,32 @@ export function nominationStrategy(
   return [ranked[0]!, pawn];
 }
 
+/**
+ * The HOH's REPLACEMENT nominee after a veto (0044 §9, PO 2026-11-02). Two cases, read from the HOH's own
+ * strategic score: if the houseguest still on the block is the HOH's TARGET (the pawn came down), the
+ * replacement is a new PAWN — the same pawn-seat read as nominations (floater / duo-partner pull, by the
+ * HOH's style); if the target was saved (or this is a backdoor), the replacement is the new TARGET — the
+ * top strategic read among the legal options. Deterministic; legality is the caller's (`options`).
+ */
+export function replacementPick(
+  hoh: EntityId, remaining: EntityId, options: readonly EntityId[], active: EntityId[], rel: RelationshipModel,
+  read: NominationRead = {},
+): EntityId {
+  const { blocs = [], mood = 0.5, style = "threat-hunter" } = read;
+  const S = NOMINATION_STYLES[style];
+  const P = NOMINATION_PRESSURE;
+  const score = (t: EntityId): number =>
+    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) +
+    S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel);
+  const ranked = [...options].sort((a, b) => score(b) - score(a));
+  const targetStillUp = score(remaining) >= score(ranked[0]!);
+  if (!targetStillUp) return ranked[0]!; // the target came down / a backdoor — name the real target
+  const partner = duoPartner(remaining, hoh, active, rel);
+  const pawnScore = (c: EntityId): number =>
+    score(c) + S.pawnSeatFloaterBonus * P * floaterRead(c, active, rel) + (c === partner ? S.duoPartnerBonus * P : 0);
+  return ranked.reduce((best, c) => (pawnScore(c) > pawnScore(best) ? c : best), ranked[0]!);
+}
+
 /** Tally a jury vote: most votes wins; a tie is broken by the last-evicted juror. */
 export function tallyJury(
   jurors: EntityId[],
