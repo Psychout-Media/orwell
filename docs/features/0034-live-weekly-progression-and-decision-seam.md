@@ -20,6 +20,13 @@ player's turn) and **`submitDecision(req)`** (validates the choice, applies it, 
 **persists** — 0030). This is the **live realization** of 0011/0019, the same pattern as **0023** (the
 live consequence loop) and **0030** (live persistence).
 
+> **Who may bind a choice (BDD AMEND, Ryne-approved 2026-11-03).** Irreversible decisions (nominations,
+> replacement, veto use and pick, eviction votes, juror votes, goodbye, self-evict) bind only through the
+> player's decision card. The model may submit on the player's behalf only comp-intent, comp-round and
+> deal-offer (#1951); that rule is proven in `frontend/tests/test_a6_model_submit_gate.py`. The engine seam
+> itself still refuses an illegal choice — the `.feature` pins two cases: an illegal nomination and an eviction vote
+> for a non-nominee.
+
 > **Amendment (Wave 2 — endgame & agency).** The binding-decision seam grew new `pending` kinds, all
 > validated through the SAME `submitDecision` contract (no choice ever parsed from prose): **`comp-intent`**
 > — declare compete / throw / play-safe before a comp the player plays (B46/audit B5; default compete);

@@ -1,11 +1,12 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
-import { tallyJury, chooseNominations } from "../../src/engine/season";
+import { tallyJury, nominationStrategy } from "../../src/engine/season";
+import { detectBlocs } from "../../src/engine/blocs";
 import type { SeasonHouseguest, Stats } from "../../src/engine/season";
 import { playSeason } from "../../src/engine/calibration";
 import {
-  newLiveSeason, advance, applyDecision, autoDecision,
+  newLiveSeason, advance, applyDecision, autoDecision, voteChoice,
   type SeasonCtx,
 } from "../../src/engine/liveSeason";
 import { selectableReplacements, evictionVoters } from "../../src/domain/eligibility";
@@ -92,15 +93,6 @@ Then(
   },
 );
 
-Then("a phase begins only after its predecessor has produced a result", function (this: BbWorld) {
-  const w = playSeason({ seed: 2, houseguests: build16(2) }).weeks[0]!;
-  assert.ok(w.hoh, "HOH produced");
-  assert.equal(w.nominees.length, 2, "nominations produced");
-  assert.ok(w.vetoHolder, "veto winner produced");
-  assert.equal(w.finalNominees.length, 2, "veto ceremony produced final nominees");
-  assert.ok(w.evictee, "eviction produced an evictee");
-});
-
 // --- Per-week legality (reuses 0005's "the HOH votes only to break a tie") -----
 
 Given("an HOH, two nominees, and a veto holder for the week", function (this: BbWorld) {
@@ -176,26 +168,89 @@ Given("an NPC holds power at a decision point", function (this: BbWorld) {
   this.npc = npc(1); // the NPC HOH
 });
 
-When("it nominates or votes across many seeded runs", function () {
-  // The assertion drives the seeded runs.
+When("it nominates and votes across many seeded runs", function () {
+  // The assertions drive the seeded runs (20 seeds each).
 });
 
-// regex: the step text contains "(" and "/".
-Then(
-  /^its target reflects its relationship reads \(threat \/ trust\), not chance$/,
-  function (this: BbWorld) {
-    const hoh = this.npc!;
-    const active = [hoh, npc(2), npc(3), npc(4), npc(5), npc(6)];
-    for (let seed = 1; seed <= 20; seed++) {
-      const rng = new SeededRandom(seed);
+// BDD AMEND (Ryne): an NPC decides from its OWN perspective to benefit itself — never random, never the
+// player's wishes. These drive the live decision functions (`nominationStrategy`, `voteChoice`) on a QUIET
+// house (no blocs, deals or campaigns) and prove the outcome is a function of the NPC's own reads by SWAPPING
+// those reads and watching the decision swap.
+const SEEDS = Array.from({ length: 20 }, (_, i) => i + 1);
+
+/** Distinct, well-spread threat reads for `n` candidates, shuffled by the seed (never ties). */
+function spreadReads(rng: SeededRandom, n: number): number[] {
+  const base = Array.from({ length: n }, (_, i) => 0.05 + (0.9 * i) / (n - 1));
+  for (let i = n - 1; i > 0; i--) { const k = Math.floor(rng.next() * (i + 1)); [base[i], base[k]] = [base[k]!, base[i]!]; }
+  return base;
+}
+
+Then("its nominations follow its own reads of the house, not chance", function (this: BbWorld) {
+  const hoh = this.npc!;
+  const active = [hoh, npc(2), npc(3), npc(4), npc(5), npc(6)];
+  const cands = active.filter((h) => h !== hoh);
+  for (const seed of SEEDS) {
+    const reads = spreadReads(new SeededRandom(seed), cands.length);
+    const mk = (r: number[]): RelationshipModel => {
       const rel = new RelationshipModel(0.5);
-      for (const x of active) if (x !== hoh) rel.edge(hoh, x).threat = rng.next();
-      const noms = chooseNominations(hoh, active, rel);
-      const ranked = active.filter((h) => h !== hoh).sort((p, q) => rel.edge(hoh, q).threat - rel.edge(hoh, p).threat);
-      assert.deepEqual([...noms].sort(), [ranked[0]!, ranked[1]!].sort(), `seed ${seed}: nominations track threat`);
+      cands.forEach((c, i) => { rel.edge(hoh, c).threat = r[i]!; });
+      return rel;
+    };
+    const before = nominationStrategy(hoh, active, mk(reads));
+    // The HOH's top read and one of its lowest reads trade places — the block must trade with them.
+    const topIx = reads.indexOf(Math.max(...reads));
+    const lowIx = reads.indexOf(Math.min(...reads));
+    const swapped = [...reads];
+    [swapped[topIx], swapped[lowIx]] = [reads[lowIx]!, reads[topIx]!];
+    const after = nominationStrategy(hoh, active, mk(swapped));
+    assert.ok(before.includes(cands[topIx]!), `seed ${seed}: the top read is on the block`);
+    assert.ok(!before.includes(cands[lowIx]!), `seed ${seed}: the lowest read is not`);
+    assert.ok(after.includes(cands[lowIx]!), `seed ${seed}: swap the reads and the old low read is now on the block`);
+    assert.ok(!after.includes(cands[topIx]!), `seed ${seed}: …and the old top read is off it`);
+    assert.notDeepEqual([...before].sort(), [...after].sort(), `seed ${seed}: the nominee set is a function of the HOH's reads`);
+  }
+});
+
+Then("a bloc-mate is not named while an alternative exists", function (this: BbWorld) {
+  const hoh = this.npc!;
+  const mates = [npc(2), npc(3)];
+  const others = [npc(4), npc(5), npc(6)];
+  const active = [hoh, ...mates, ...others];
+  for (const seed of SEEDS) {
+    const rng = new SeededRandom(seed);
+    const rel = new RelationshipModel(0.5);
+    for (const x of [hoh, ...mates]) for (const y of [hoh, ...mates]) if (x !== y) {
+      const e = rel.edge(x, y); e.trust = 0.85; e.affinity = 0.85;
     }
-  },
-);
+    // The mates are the HOH's HIGHEST raw threat reads — only the bloc keeps them off the block.
+    for (const m of mates) rel.edge(hoh, m).threat = 0.8 + rng.next() * 0.2;
+    for (const o of others) rel.edge(hoh, o).threat = rng.next() * 0.4;
+    const blocs = detectBlocs({ rel, active, loyaltyOf: () => 0.9 });
+    const bare = nominationStrategy(hoh, active, rel);
+    const guarded = nominationStrategy(hoh, active, rel, { blocs });
+    assert.ok(bare.some((n) => mates.includes(n)), `seed ${seed}: fixture — without the bloc, the high-threat mates ARE named`);
+    assert.ok(guarded.every((n) => !mates.includes(n)), `seed ${seed}: with the bloc, no mate is named while others exist`);
+  }
+});
+
+Then("its eviction vote goes to the nominee it reads as the bigger threat", function (this: BbWorld) {
+  const voter = npc(5);
+  const [a, b] = [npc(1), npc(2)] as const;
+  const stats: Stats = { physical: 0.5, mental: 0.5, social: 0.5 };
+  for (const seed of SEEDS) {
+    const rng = new SeededRandom(seed);
+    const hi = 0.7 + rng.next() * 0.3;
+    const lo = rng.next() * 0.3; // a decisive gap — the vote is the voter's read, not chance
+    const vote = (ta: number, tb: number): string => {
+      const rel = new RelationshipModel(0.5);
+      rel.edge(voter, a).threat = ta; rel.edge(voter, b).threat = tb;
+      const ctx: SeasonCtx = { player: PLAYER, statsOf: () => stats, rel };
+      return voteChoice(voter, [a, b], ctx, [], undefined);
+    };
+    assert.equal(vote(hi, lo), a, `seed ${seed}: evicts the nominee it reads as the bigger threat`);
+    assert.equal(vote(lo, hi), b, `seed ${seed}: swap the voter's threat reads and the vote swaps`);
+  }
+});
 
 // --- Player decision point ----------------------------------------------------
 
