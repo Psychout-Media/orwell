@@ -45,7 +45,8 @@ describe("0099 — a secret cannot be traded to someone who already knows it", (
 
     expect(session.tradeSecret({ factId, toNpcId: knower })).toEqual({ accepted: false, refused: "already-spent" });
     const other = session.tradeSecret({ factId, toNpcId: stranger })!;
-    expect(other.refused, "a recipient who does not know it is judged on the trade itself").not.toBe("already-spent");
+    // A recipient who does not know it is judged on the trade itself: accepted, or declined on its merits — nothing else.
+    expect(other.accepted ? "accepted" : other.refused, "a stranger is judged on the trade itself").toMatch(/^(accepted|declined)$/);
   });
 
   it("the same secret cannot be traded to the same recipient twice — the first accepted trade is what tells them", () => {
