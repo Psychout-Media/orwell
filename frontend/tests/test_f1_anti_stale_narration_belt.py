@@ -190,12 +190,16 @@ def test_repeated_stale_narration_after_the_cap_escalates_to_a_forced_voice_not_
     # the escalation is gated on a 2nd+ hold
     assert "_holds = _ANTI_STALE_CAP_HOLDS.get(_belt_key(owner), 0)" in handler
     assert "if _holds >= 2:" in handler
-    # it forces a VOICE re-prompt and CONTINUES the loop (does not break) — the release
-    assert "_ANTI_STALE_FORCED_VOICE" in handler
+    # it forces a VOICE re-prompt and CONTINUES the loop (does not break) — the release.
+    # F-6: the directive is built by `_anti_stale_forced_voice`, which still carries the forced-voice text...
+    assert "_voice = _anti_stale_forced_voice(_emitted_visible, full_response)" in handler
+    helper = AGENT_SRC[AGENT_SRC.index("def _anti_stale_forced_voice("):]
+    helper = helper[:helper.index("\n\n\n")]
+    assert "_ANTI_STALE_FORCED_VOICE" in helper
     assert 'messages.append({"role": "system", "content": _voice})' in handler
     assert "continue" in handler
-    # a scene already shown ⇒ carry the CONTINUE-NEVER-REOPEN contract (no re-narrate)
-    assert "_CONTINUE_NEVER_REOPEN + " in handler
+    # a scene already shown ⇒ carry the CONTINUE-NEVER-REOPEN contract (no re-narrate) — and now ALSO the shown text
+    assert "_CONTINUE_NEVER_REOPEN" in helper and "ALREADY SHOWN TO THE PLAYER THIS TURN" in helper
     # CRITICAL: the escalation must NOT advance the engine (that would race past the cap)
     assert "advance_game(" not in handler
     assert "_commit_advance_silently" not in handler.split("if _holds >= 2:")[1].split("continue")[0]
