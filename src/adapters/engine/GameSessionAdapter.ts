@@ -7661,7 +7661,7 @@ export class GameSessionAdapter implements GameSession {
       if (!c.knownTo.includes(voter)) continue; // symmetric perspective: only an aware voter is swayed
       const owner = c.owners[0]!;
       // #1937 — THE SCRAMBLE: a `protect` campaign on this nominee counters the `evict` push (spec 0085, campaigns
-      // colliding at the vote). The player's own protect campaign is gated by the single switch (default excluded);
+      // colliding at the vote). The player's own protect campaign is gated by the single switch (CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, now on per the 2026-11-03 ruling);
       // a protect owner is the nominee so never reads a self-edge here. The `evict` tilt is exactly as before.
       if (c.goal === "protect") {
         if (owner === voter || (owner === PLAYER && !CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED)) continue;
