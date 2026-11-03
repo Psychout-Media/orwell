@@ -8732,8 +8732,10 @@ export class GameSessionAdapter implements GameSession {
     }
     // FEATURE 0133 — an EARLY-EVICTED player who chose to follow the season: the engine runs the player-less
     // beats itself. `watch` = one whole week per call (its `weekDigests` line is the record); `skip` = straight
-    // to the finale. The SAME `advanceOneBeat` steps in the SAME order, so every rng draw is byte-identical to
-    // single-stepping (`beatRng` is a pure function of week/beat) — this is pacing, never a different season.
+    // to the finale. The SAME `advanceOneBeat` steps in the SAME order, so every BEAT rng draw is byte-identical to
+    // single-stepping (`beatRng` is a pure function of week/beat). The bounded off-screen tick follows the player's
+    // COMMITTED turns (the house lives between the player's turns, ADR 0003/real-time purge), so a skip is one turn and
+    // a watch is one per week — fewer turns, fewer ticks; the closed-set spine itself is never altered.
     if (this.live.spectator && !this.live.pending && !this.live.finished) {
       const spectated = this.inOneCommit(() => this.spectatorFastForward());
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, spectated) : spectated;
