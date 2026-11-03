@@ -38,6 +38,8 @@ concurrency:
 # inherits it and keyed CI can provably never spend on real image generation. See
 # orwell_portraits.image_gen_disabled().
 env:
+  # Skip onnxruntime-node's CUDA-provider download from nuget (unused here; see ci.yml).
+  ONNXRUNTIME_NODE_INSTALL: "skip"
   ORWELL_DISABLE_IMAGE_GEN: "1"
 
 jobs:
