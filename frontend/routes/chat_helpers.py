@@ -3381,12 +3381,15 @@ _CLAIM_PLAYER_IN_FIELD_RE = re.compile(
     # collective: "the six of you", "all four of you"
     r"\b(?:the|all|both|only)\s+(?:two|three|four|five|six|seven|eight)\s+of\s+you\b"
     # the player stated AS a veto competitor — competition-specific only (never "you're in the kitchen", "you step into…")
-    r"|\byou(?:'|’)?re\s+(?:in the (?:veto|comp|competition|field|running)|competing|playing in the (?:veto|comp|competition)"
+    r"|\byou(?:(?:'|’)?re|\s+are)\s+(?:in the (?:veto|comp|competition|field|running)|competing|playing in the (?:veto|comp|competition)"
     r"|one of the (?:six|players|competitors))\b"
     r"|\byou\s+(?:take your (?:place|mark|spot|position)|line up|compete|step (?:up|onto) (?:to )?the (?:pedestal|platform|podium|ledge|mark|line))\b"
     r"|\byour\s+(?:pedestal|platform|podium|ledge|lane|chip|disc|ball|buzzer|button|sequence)\b",
     re.IGNORECASE,
 )
+
+
+_NUM_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
 
 
 def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
@@ -3405,8 +3408,14 @@ def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
             continue
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             # a past-week phrase exempts only ITS OWN clause ("Last week you played, but the six of you are off now")
-            if (clause.strip() and not _COMP_PAST_RE.search(clause) and not _COMP_HYPOTHETICAL_RE.search(clause)
-                    and _CLAIM_PLAYER_IN_FIELD_RE.search(clause)):
+            m = _CLAIM_PLAYER_IN_FIELD_RE.search(clause) if clause.strip() else None
+            if m and re.match(r"(?:the|all|both|only)\s+(\w+)\s+of\s+you", m.group(0), re.IGNORECASE):
+                # the collective cue is only a field claim when its number IS the field size ("the two of you talk
+                # in the kitchen" is social prose) — review on #1999
+                n = _NUM_WORDS.get(re.match(r"(?:the|all|both|only)\s+(\w+)", m.group(0), re.IGNORECASE).group(1).lower())
+                if n != len(field):
+                    m = None
+            if (m and not _COMP_PAST_RE.search(clause) and not _COMP_HYPOTHETICAL_RE.search(clause)):
                 names = ", ".join(live.get("vetoFieldNames") or [])
                 return ("the PLAYER competing in the veto competition (the engine's veto field is "
                         + (names or "set") + " — the player is NOT in it)")

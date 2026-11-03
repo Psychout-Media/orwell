@@ -83,3 +83,13 @@ def test_a_past_week_phrase_exempts_only_its_own_clause():
 def test_membership_and_elimination_in_one_turn_merge_into_one_reground():
     directive = ch._narration_claims_outcome(LEAK, _sig(), _sig())
     assert "NOT in it" in directive and "COMPETITION RESULT" in directive
+
+
+def test_the_collective_cue_must_match_the_field_size():
+    assert ch._player_seated_in_excluded_field("The two of you talk in the kitchen.", _sig()) is None
+    assert ch._player_seated_in_excluded_field("The six of you are off.", _sig())
+
+
+def test_non_contracted_forms_are_caught_too():
+    assert ch._player_seated_in_excluded_field("You are competing in the veto competition.", _sig())
+    assert ch._player_seated_in_excluded_field("You're competing in the veto competition.", _sig())
