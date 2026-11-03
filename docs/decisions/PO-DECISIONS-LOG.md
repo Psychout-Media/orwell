@@ -65,6 +65,12 @@ live ledger of owner calls as they happen.
   campaign re-planner no longer rewrites a player's declared campaign (it used to flip a nominated player's evict
   campaign into "protect them"), so the player cannot get an unearned shield now that `protect` has effect.
 
+- **0099 — a secret cannot be traded to someone who already knows it (Ryne).** "Once the info is spread, there's no
+  putting the genie back." `resolveAndTrade` now refuses (`refused: "already-spent"`, Vault-free, no new code) a trade of
+  a real secret to a recipient who already holds it — witnessed it, or was told it, including by an earlier trade of the
+  same secret to them. The 5/season trade cap is unchanged; a bluff has no real fact to be "already known". Test:
+  `tests/unit/secretTradeAlreadyKnown.test.ts` (fails without the fix).
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
