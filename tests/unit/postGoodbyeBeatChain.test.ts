@@ -68,6 +68,10 @@ function answer(p: PendingView): Record<string, unknown> {
   }
 }
 
+/** Thrown ONLY when a seed's season ends without ever handing the player a goodbye — the one outcome the seed
+ *  search is allowed to skip past. Anything else (a profile-guard failure, an engine error) must surface. */
+class NoGoodbyeOnSeed extends Error {}
+
 async function toPlayerGoodbyeOnSeed(seed: number) {
   const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
   const user = `post-goodbye-${seed}`;
@@ -87,7 +91,7 @@ async function toPlayerGoodbyeOnSeed(seed: number) {
       if (sub.finished) break;
     }
   }
-  throw new Error(`seed ${seed}: no player goodbye reached`);
+  throw new NoGoodbyeOnSeed(`seed ${seed}: no player goodbye reached`);
 }
 
 /** The player only gets a `goodbye-message` when they SURVIVE an eviction, and which seeds do depends on the
@@ -96,7 +100,9 @@ async function toPlayerGoodbye(maxSeeds = 40) {
   for (let seed = 1; seed <= maxSeeds; seed++) {
     try {
       return await toPlayerGoodbyeOnSeed(seed);
-    } catch { /* this seed never hands the player a goodbye — try the next */ }
+    } catch (e) {
+      if (!(e instanceof NoGoodbyeOnSeed)) throw e; // a real failure — never swallow it
+    }
   }
   throw new Error(`no seed in 1..${maxSeeds} reached a player goodbye`);
 }
