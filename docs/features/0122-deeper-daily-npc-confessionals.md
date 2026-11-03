@@ -78,8 +78,8 @@ player or admin (Vault Wall #1/#2) — and **folded into the soul** so the NPC's
   shared society/vote stream — so with the flag off the confessional stream + the seeded spine are
   **byte-identical** to 0040. Turned on in the real deploy (`smoke.sh` + `orwell-install.sh`, per the
   0117/0120/0121 pattern). The daily sweep only runs when the **in-game clock is live**
-  (`perConversationClockLive()`), which is **pinned off in the golden driver** ⇒ the golden fixture never
-  stales (no re-record).
+  (`perConversationClockLive()`), which was pinned off in the (since-decommissioned, 2026-07-21) golden driver; clock-off neutrality is now guarded by
+  `perConversationClockNeutral`.
 
 **Out:**
 - The **player's** Diary Room (0013/0115 — separate, OOC, player-facing). Untouched.
@@ -146,7 +146,7 @@ dailyConfessionalSweep(...): void                        // once per in-game day
                                                          // (bare skipped); records Vault-only + folds to soul
 flag: ORWELL_CONFESSIONAL_DEPTH (default off)            // off ⇒ byte-identical to 0040; dedicated rng only
 gate: perConversationClockLive()                         // the daily sweep only runs when the clock is live
-                                                         // (pinned off in the golden driver ⇒ no re-record)
+                                                         // (clock-off ⇒ sweep inert; guarded by perConversationClockNeutral)
 wall: record{ hidden:true, witnessSet:[npc] }            // player NEVER a witness; admin reads no events (0040)
 ```
 
@@ -165,8 +165,8 @@ wall: record{ hidden:true, witnessSet:[npc] }            // player NEVER a witne
       recall-able to keep that NPC's later voice consistent (as 0040 already does).
 - [x] **Calibration-neutral:** with `ORWELL_CONFESSIONAL_DEPTH` **off**, the confessional stream + the seeded
       competition/vote/deal spine are **byte-identical** to 0040 (juryReach / gradient / UAT unchanged); the
-      daily sweep draws a **dedicated** rng and runs only when the in-game clock is live (golden fixture never
-      stales — no re-record).
+      daily sweep draws a **dedicated** rng and runs only when the in-game clock is live (clock-off neutrality guarded by
+      `perConversationClockNeutral`).
 - [x] Seed-deterministic; persisted (0030); name-agnostic (roles only); added to `cucumber.cjs`;
       `npm test` + `npm run test:arch` green; FE `pytest -m "not browser"` green.
 

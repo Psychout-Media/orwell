@@ -9,6 +9,8 @@
 > EXISTING 0002/0038 factId-lineage/hedge-phrase machinery verbatim. `src/engine/beliefReliability.ts`,
 > wired in `cucumber.cjs`, gated by `ORWELL_GOSSIP_CONSEQUENCE` (default OFF).
 > **Tracks #865.**
+>
+> **Deploy status (2026-11-03):** built but intentionally OFF in the deployed profile. `ORWELL_GOSSIP_CONSEQUENCE` (GOSSIP_CONSEQUENCE family; Distorted gossip has consequences: confront / twisted-rumor consequences) is not emitted by `deploy/orwell-env-defaults.sh` and is kept dark for the first playtest by owner direction.
 > **Depends on:** 0001 (Vault Wall), 0002 (event visibility & pathway propagation — the gossip
 > belief model `src/engine/gossip.ts` ALREADY carries per-rumor `distortion` / `confidence` /
 > `source` / `factId` / `hops`, and `KnowledgeService.knownTo` is where the player's beliefs live),

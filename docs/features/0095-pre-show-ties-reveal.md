@@ -8,6 +8,8 @@
 > mode of §5. The "slip" pathway is deferred (no BDD scenario requires it); overhear + the
 > player-reachable `accuseTie` cover the built v1. Wired in `cucumber.cjs`.
 > **Tracks #867.**
+>
+> **Deploy status (2026-11-03):** built but intentionally OFF in the deployed profile. `ORWELL_TIE_REVEAL` (TIE_REVEAL family; Pre-show ties as time-bombs: overhear / tie reveal) is not emitted by `deploy/orwell-env-defaults.sh` and is kept dark for the first playtest by owner direction.
 > **Depends on:** 0001 (Vault Wall), 0002 (event visibility — a fact reaches the player ONLY through
 > a modeled pathway; `surfaceInformationTo` / the `told-by` / overhear seam), 0017/0026 (the directed
 > relationship model + the betrayal-shock the fallout reuses), 0023 (the consequence & memory fold —

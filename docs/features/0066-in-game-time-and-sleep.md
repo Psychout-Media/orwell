@@ -35,7 +35,7 @@ bedtime** (never auto-slept). A simple time-of-day graphic surfaces in the HUD.
   up (the night owls scheme on; an early-to-bed houseguest, or a turned-in player, misses it), and the
   player's `whereabouts` + approaches thin as the house empties. Calibration-safe by the flag gate (off
   ⇒ identity awake set ⇒ byte-identical), and no new shared-stream rng (bedtimes are deterministic off
-  static stats), so the juryReach golden spine is unmoved.
+  static stats), so the juryReach calibration spine is unmoved.
 - A hidden, bounded sleep→competition penalty (symmetric; never protective).
 - The player's bedtime lever (`turnIn`) and their own qualitative rest cue.
 - Vault-free `timeOfDay` + player `restStatus` projections; the HUD clock + rest cue.
@@ -86,7 +86,7 @@ flag:    ORWELL_TIME_OF_DAY (code default off; ON in the deploy profile) gates e
 - `tests/unit/timeOfDaySociety.test.ts` — the awake set wired into the living house: the house thins
   monotonically at night (whereabouts + approaches + the society occupancy show only the awake), the
   off-screen society pairs only houseguests still up, and it is **byte-identical when off** (the identity
-  awake set). The juryReach golden gate + `movementStreamIsolation` stay green.
+  awake set). The juryReach calibration gate + `movementStreamIsolation` stay green.
 - The full fast suite stays green (the dependency-cruiser Vault-Wall + vault-sentinel + replayability
   + persistence all unchanged): the opt-in guarantees the juryReach/UAT calibration spine is unmoved.
 
@@ -196,8 +196,8 @@ length" rarely gets to matter.
 - **The scene's duration is sourced** (best-available, all bounded to `SCENE_FELT_MINUTES`): the narrator's
   `feltMinutes` when proposed (Extension 5) → else a **deterministic** richness/turn estimate (turns-in-scene ×
   a small per-exchange rate, capped) → the floor only as the last resort. *(Wiring the narrator/auto-record
-  `feltMinutes` as the PREFERRED source is the follow-on that touches the prompts and therefore owes a golden
-  re-record; the deterministic estimate ships first and is prompt-free / golden-neutral.)*
+  `feltMinutes` as the PREFERRED source is the follow-on that touches the prompts and therefore touches the recorded prompts
+  (historically a golden re-record; the golden replay was decommissioned 2026-07-21); the deterministic estimate ships first and is prompt-free.)*
 - **Solo time is NOT free.** The player alone in a room is a real scene that accrues time (capped, same
   machinery). It is **theirs to end** — they leave or turn in, nothing force-marches them (ADR 0003) — **or an
   NPC walks in**, which is a participant-set change that closes the solo scene and opens a social one (ties
@@ -207,8 +207,8 @@ length" rarely gets to matter.
   addressed (`withIds` — "who they worked"). Two different jobs; kept separate.
 
 Rides the SAME `ORWELL_TIME_PER_CONVERSATION` flag (it *is* the per-conversation clock, done per scene), so
-it is byte-identical to the seeded calibration spine when the clock is off and **golden-neutral** (the golden
-replay runs the per-conversation clock off). PURE (the scene tracker is deterministic state + a bounded
+it is byte-identical to the seeded calibration spine when the clock is off and **prompt-neutral** (the since-decommissioned
+(2026-07-21) golden replay ran the per-conversation clock off; the current guard is `perConversationClockNeutral`). PURE (the scene tracker is deterministic state + a bounded
 estimate — no rng), so it adds ZERO draws to the seeded stream. Proof: `tests/unit/sceneClockNeutral.test.ts`
 (off ⇒ byte-identical) + scene-boundary/cap unit tests. Tunables (`SCENE_*`) live in `src/engine/sleepConstants.ts`.
 

@@ -197,20 +197,18 @@ gate, portrait gating, the `recordCastProfile` cross-character guards).
 ## 7. Test floor, determinism & the recorded artifact
 
 - **The deterministic factory remains**, verbatim, as the floor for stubbed lanes, keyless CI,
-  calibration/heavy sims, and golden replay. **No model wired ⇒ byte-identical** cast generation to
+  calibration/heavy sims (and, historically, the golden replay, decommissioned 2026-07-21). **No model wired ⇒ byte-identical** cast generation to
   today (the fail-soft write-back contract; the byte-neutrality gate in §8).
 - **Genesis output is RECORDED into the save as the world-gen artifact.** Replays read the store,
   never re-call the model — the same pattern the non-degradation spine (0007/0030: recall, never
-  regenerate) and the 0108 golden record/replay seam already enforce. The committed cast carries a
+  regenerate) and the (now decommissioned, 2026-07-21) 0108 golden record/replay seam enforced; `castGenesisByteNeutral` is the current guard. The committed cast carries a
   provenance marker (the `deepProfileAuthored` / `worldSnapshot.source` precedent) so the 0031
   superset check can tell "authored skeleton" from "thinned floor" exactly once, then holds
   byte-stability forever. The **seeded season brief** is part of the artifact (recorded with the
   proposal it steered).
-- **Golden-fixture staleness (called out explicitly):** genesis changes the casting-seam call
-  sequence, so the committed real-model fixture
-  (`frontend/tests/golden/golden_path_glm-5.2.jsonl`) goes stale the moment this builds — the build
-  PR owes a **serialized re-record** (`frontend/INTEGRATION.md` §golden-path; the #1355/#1382
-  re-record precedent), and 0108's deterministic-commit-order seam must cover the genesis calls.
+- **Golden-fixture staleness (historical):** this note once required a serialized re-record of the
+  committed golden fixture; the golden-path replay apparatus (0108) was decommissioned 2026-07-21,
+  so no re-record is owed.
 - **Calibration:** the seeded spine runs on the floor and is untouched by construction. But a
   committed genesis cast *plays*, and the banded-variable-totals envelope deliberately admits a
   **wider power spread** than today's archetype table — so the build owes a **genesis-shaped

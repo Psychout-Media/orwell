@@ -8,7 +8,7 @@
 > **fires and gathers the whole house** — a fair, telegraphed hard interrupt. Your **bedtime stays
 > yours** (soft, player-owned); only the ceremonies are hard.
 > **In-game time ONLY** — no wall clock; gated on the per-conversation clock exactly like 0117, so the
-> seeded calibration spine and golden replay are untouched.
+> seeded calibration spine is untouched (the 0108 golden replay it also protected was decommissioned 2026-07-21).
 > **Executable spec:** [`0118-ceremonies-as-timed-interrupts.feature`](./0118-ceremonies-as-timed-interrupts.feature)
 > **Also proven by:** `tests/unit/dayScheduleTimedInterrupts.test.ts`
 
@@ -55,14 +55,14 @@ competition/ceremony interrupting** — never a forced curfew. So:
 - The `daySchedule` view field + the narrator priming are populated **only when `perConversationClockLive()`**
   (master + per-conversation clock on, day started). Off ⇒ the field is absent, the prompt is unchanged.
 
-### Why byte-identical / golden-safe (the guardrails, same as 0117)
+### Why byte-identical (the guardrails, same as 0117)
 
 - **Seeded calibration spine** runs time-of-day **off** ⇒ `perConversationClockLive()` false ⇒ no
   `daySchedule`, no priming, no due-signal, no firing change ⇒ **byte-identical** (the schedule is a pure
   read; it never touches the seeded stream).
-- **Golden replay (0108)** pins the **per-conversation clock off** ⇒ `perConversationClockLive()` false ⇒
-  the projection and the priming text never render ⇒ the recorded prompt/beat stream is **unchanged, no
-  re-record needed**. (A future clock-on re-cut captures the timed pacing.)
+- **Golden replay (0108, historical — decommissioned 2026-07-21)** pinned the **per-conversation clock off** ⇒
+  `perConversationClockLive()` false ⇒ the projection and the priming text never render. The current guard
+  is the clock-off unit test + `perConversationClockNeutral`.
 - The ceremony *arrival* still happens on the player's own turn (pure turn-driven — no background driver,
   no wall clock); the schedule only decides **when in the in-game day** the forced-advance is allowed to
   fire, and telegraphs it first.
@@ -89,10 +89,10 @@ renderGameContext(view): string                            // primes the narrato
       bypass, `test_0118_timed_ceremony_nudge.py`.)*
 - [x] **Soft bedtime preserved:** `turnIn` stays the only player-sleep path; no forced curfew is added
       (untouched).
-- [x] **Byte-identical / golden-safe:** with time-of-day off (the seeded spine) and with the
-      per-conversation clock off (golden replay), the `daySchedule` field and the priming text are absent
+- [x] **Byte-identical:** with time-of-day off (the seeded spine) and with the
+      per-conversation clock off, the `daySchedule` field and the priming text are absent
       and the beat stream is unchanged; the FE `due` cache is False; heavy calibration sims
-      **byte-identical**; **no golden re-record**. *(BDD 3; clock-off unit test; the FE bypass reads False.)*
+      **byte-identical**. *(BDD 3; clock-off unit test; the FE bypass reads False.)*
 - [x] **Vault-free:** the schedule reads only the live loop state + clock; `npm run test:arch` green. *(BDD 4.)*
 - [x] Name-agnostic tests (roles only); BDD-gated in `cucumber.cjs`; `npm test` green; FE nudge covered by
       a pytest gate keyed the single-tenant-safe way (`test_0118_timed_ceremony_nudge.py`).
@@ -102,5 +102,5 @@ renderGameContext(view): string                            // primes the narrato
 Builds on **0117** (the per-conversation clock that carries time through social play — its `SOCIETY_TICK_HOURS`
 sibling), **0106** (the whole-house gather set-piece, reused unchanged), **0066 / ADR 0006** (in-game time +
 the night-gate day structure), and the FE **L39b** forced-advance nudge (made time-aware). Preserves **0108**
-(golden replay) and the seeded spine by gating strictly on the per-conversation clock. Phase 2 of the
+(and, historically, golden replay, decommissioned 2026-07-21) and the seeded spine by gating strictly on the per-conversation clock. Phase 2 of the
 in-game-time pivot (owner directive 2026-07-11; interrupt-must-be-telegraphed confirmed 2026-07-12).

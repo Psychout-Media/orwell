@@ -85,7 +85,7 @@ retrospective mechanic itself (0048 — this adds content to it, doesn't rebuild
   retrospective replays alongside the unsealed ballots — the season's exits told in the evictees' own words.
 - **Calibration-neutral.** The exit interview is **expressive/retrospective**, mutating **no seeded state**
   (manner is already fixed by 0047; the interview reacts, it does not re-weight the game) — so the seeded spine
-  (juryReach/gradient/UAT/golden) is **byte-identical**. No flag needed for the core.
+  (juryReach/gradient/UAT) is **byte-identical**. No flag needed for the core.
 - **Vault Wall.** The evictee speaks only to what they know (0002) + their own goodbye messages (witnessed);
   no hidden scheme/number crosses (extend the 0001 canary to the exit-interview beat/projection).
 
