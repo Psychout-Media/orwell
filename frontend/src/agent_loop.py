@@ -8116,6 +8116,28 @@ async def _stream_agent_loop_impl(
                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner):
                                 _turn_record_nudges = max(_turn_record_nudges, 1)  # the deal banked the fold
                                 _note_belt(owner, "auto-record-deal")
+                        # A-10b: the confide / exposeSecret / tradeSecret back-fills live in the same skipped
+                        # finishing block, so a belt-forced advance also dropped a press-to-open-up, an outing,
+                        # or a secret trade the shown scene made. Same preconditions and extractions as the
+                        # bottom block (`_want_*` already encode the player-message signal + the per-turn cap).
+                        _touched_pre = (_emitted_visible and (_want_confide or _want_expose or _want_trade)
+                                        and _scene_touched_houseguest(_turn_narration, messages,
+                                                                      [h.get("name") for h in _house]))
+                        if _touched_pre and _want_confide:
+                            _turn_confide_nudges += 1  # once per turn
+                            if await _auto_confide(_turn_narration, _last_user_for_confide,
+                                                   _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                _note_belt(owner, "auto-confide")
+                        if _touched_pre and _want_expose:
+                            _turn_expose_nudges += 1  # once per turn
+                            if await _auto_expose_secret(_turn_narration, _last_user_for_confide,
+                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                _note_belt(owner, "auto-expose-secret")
+                        if _touched_pre and _want_trade:
+                            _turn_trade_nudges += 1  # once per turn
+                            if await _auto_trade_secret(_turn_narration, _last_user_for_confide,
+                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                _note_belt(owner, "auto-trade-secret")
                         if (_emitted_visible and _want_record
                                 and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
                                 and _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])):
