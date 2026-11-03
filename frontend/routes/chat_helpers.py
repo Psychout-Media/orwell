@@ -662,11 +662,11 @@ def _pending_barrier_directive(pending) -> Optional[str]:
         # Finding 13 (2026-07-11 prompt audit): the ONE decision-channel precedence rule, stated
         # IDENTICALLY here and in BASE_GAME_MASTER_PROMPT so "WAIT for the card" / "take their explicit
         # choice and submit" / "never infer from prose" can never read as three conflicting instructions.
-        "DECISION PRECEDENCE: a pending binding decision is settled ONLY by the player's OWN explicit "
-        "choice among its legal options — when they pick it on their decision card, or state one "
-        "unambiguously, take THAT choice and submit it with submitDecision; until they do, WAIT (never "
-        "narrate past the open decision) and never infer, guess, or invent a binding choice from "
-        "ambiguous prose."
+        "DECISION PRECEDENCE: a binding decision is settled ONLY by the player's OWN explicit choice. "
+        "Irreversible ones (nominations, veto, votes, goodbyes, finale picks, self-evict) bind only on their "
+        "decision card's confirm: present the choice and WAIT (submitDecision refuses them); never narrate past "
+        "it. Only comp-intent / comp-round and deal-offer answers may be submitted, if unambiguous; never invent "
+        "a choice from ambiguous prose."
     )
 
 

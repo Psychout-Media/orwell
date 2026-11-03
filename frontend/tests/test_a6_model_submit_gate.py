@@ -96,3 +96,54 @@ def test_tool_description_and_narrator_prompt_state_the_rule():
     prompts = open(os.path.join(os.path.dirname(FRONTEND), "src", "engine", "momentPrompts.ts"), encoding="utf-8").read()
     assert "submitDecision refuses them" in prompts
     assert "bind only on their" in prompts and "decision card" in prompts
+
+
+# ── PR #1951 review hardening ──────────────────────────────────────────────────────────────────
+
+def _prec_from_ts():
+    ts = open(os.path.join(os.path.dirname(FRONTEND), "src", "engine", "momentPrompts.ts"), encoding="utf-8").read()
+    start = ts.index('"DECISION PRECEDENCE:')
+    end = ts.index('"QUESTION DISCIPLINE')
+    lines = re.findall(r'"((?:[^"\\]|\\.)*)"', ts[start:end])
+    return " ".join(l.strip() for l in lines)
+
+
+def _prec_from_py():
+    py = _read("routes", "chat_helpers.py")
+    start = py.index('"DECISION PRECEDENCE:')
+    end = py.index("ambiguous prose.", start) + len("ambiguous prose.")
+    return " ".join(l.strip() for l in re.findall(r'"((?:[^"\\]|\\.)*)"', py[start:end + 1]))
+
+
+def test_decision_precedence_rule_is_identical_in_both_prompt_copies():
+    """chat_helpers' pending-decision directive and BASE_GAME_MASTER_PROMPT must carry the SAME rule
+    (Finding 13) — a stale copy told the model to submit any pending decision the player picks."""
+    norm = lambda t: re.sub(r"\s+", " ", t).strip().rstrip(",")
+    assert norm(_prec_from_ts()) == norm(_prec_from_py())
+    assert "submit it with submitDecision" not in _read("routes", "chat_helpers.py")
+
+
+def test_a_refused_submit_is_not_a_resolved_decision_for_the_loop():
+    al = importlib.import_module("src.agent_loop")
+    refused = {"tool": "submitDecision", "exit_code": 1}
+    landed = {"tool": "submitDecision", "exit_code": 0}
+    other_failed = {"tool": "advanceGame", "exit_code": 1}
+    got = al._landed_tool_events([refused, landed, other_failed])
+    assert refused not in got and landed in got and other_failed in got  # only the refusal is dropped
+    src = _read("src", "agent_loop.py")
+    assert "for ev in _landed_tool_events(tool_events)" in src  # both the progressed set and the beat list use it
+    assert src.count("_landed_tool_events(tool_events)") >= 2
+
+
+def test_schema_parameter_descriptions_do_not_advertise_card_only_kinds_as_submittable():
+    importlib.import_module("src.agent_tools")
+    ts = importlib.import_module("src.tool_schemas")
+    fn = next(t["function"] for t in ts.FUNCTION_TOOL_SCHEMAS if t["function"]["name"] == "submitDecision")
+    props = fn["parameters"]["properties"]
+    assert "refused" in props["kind"]["description"] and "deal-offer" in props["kind"]["description"]
+    assert "confirmed=true" not in props["confirmed"]["description"]
+    assert "refused" in props["confirmed"]["description"] or "refuses" in props["confirmed"]["description"]
+    for k in ("choice", "use", "save", "replacement", "statement", "appeal"):
+        assert "refused here" in props[k]["description"], k
+    assert "deal-offer: accept | decline" in props["vote"]["description"]
+    assert "standing offer" in props["kind"]["description"].lower()
