@@ -1691,6 +1691,9 @@ export function mergeManner(prior: EvictionManner | undefined, fresh: EvictionMa
   for (const k of ["betrayed", "blindsided", "disrespected", "respected"] as const) {
     if (prior[k] || fresh[k]) out[k] = true;
   }
+  // Precedence matches `mannerLeanOf`: a grievance (betrayed / blindsided / disrespected) supersedes `respected`, so one
+  // eviction never counts toward both the loyalty and the treachery facets.
+  if (out.betrayed || out.blindsided || out.disrespected) delete out.respected;
   // An ABSENT intensity means full strength (a boolean-only demerit), so it dominates a graded read.
   if (prior.intensity !== undefined || fresh.intensity !== undefined) {
     out.intensity = Math.max(prior.intensity ?? 1, fresh.intensity ?? 1);

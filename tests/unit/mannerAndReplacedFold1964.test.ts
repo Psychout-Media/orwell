@@ -29,7 +29,7 @@ describe("#1964 — mergeManner keeps an earlier grievance", () => {
     expect(mergeManner(undefined, { respected: true, intensity: 0.2 })).toEqual({ respected: true, intensity: 0.2 });
     const m = mergeManner({ betrayed: true }, { respected: true, intensity: 0.2 });
     expect(m.betrayed).toBe(true);
-    expect(m.respected).toBe(true);
+    expect(m.respected, "a grievance supersedes respected (one eviction never counts toward both facets)").toBeUndefined();
     expect(m.intensity, "a boolean-only demerit is full strength and dominates a faint graded read").toBe(1);
     expect(mergeManner({ betrayed: true, intensity: 0.6 }, { blindsided: true, intensity: 0.9 })).toMatchObject({
       betrayed: true, blindsided: true, intensity: 0.9,
@@ -72,8 +72,8 @@ describe("#1964 — mergeManner keeps an earlier grievance", () => {
     }
     expect(live.evictionOrder.at(-1)).toBe(evictee);
     const manner = live.mannerByEvictee![evictee!]![breaker]!;
-    expect(manner.respected, "the eviction read itself landed").toBe(true);
-    expect(manner.betrayed, "…without erasing the earlier deal-break flag").toBe(true);
+    expect(manner.betrayed, "the earlier deal-break flag survives the eviction read").toBe(true);
+    expect(manner.respected, "…and supersedes the clean read, so it counts once").toBeUndefined();
   });
 });
 
