@@ -440,6 +440,8 @@ DECISION_KINDS: frozenset = frozenset({
     "juror-question", "juror-vote",
     # 0130 — the player-evictee's own exit interview (posture + optional words).
     "exit-interview",
+    # 0133 — an early-evicted player's spectator choice (watch | skip) and finale-night interview.
+    "spectator-choice", "finale-interview",
     # 0061 — the sanctioned confirmed self-eviction.
     "self-evict",
     # 0025 — the reactive-twist secret veto (the holder's private use/pass).

@@ -10,7 +10,7 @@ import type {
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
   PreSeedNextSeasonReq, PreSeedNextSeasonView,
-  RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView,
+  RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
   WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult,
@@ -217,12 +217,12 @@ import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
-  newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES,
+  newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
-  type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance,
+  type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
 import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } from "../../engine/beatAnnouncement";
@@ -3169,6 +3169,11 @@ export class GameSessionAdapter implements GameSession {
       playerConfessionals,
       pullQuoteReel,
       ...(exitInterviews.length ? { exitInterviews } : {}),
+      // 0133 — the early-evicted player's own finale-night interview (public; their words scrubbed like the rest).
+      ...(this.live.finaleInterview
+        ? { finaleInterview: { stance: this.live.finaleInterview.stance,
+            ...(this.live.finaleInterview.message ? { message: this.retroScrub(this.live.finaleInterview.message) } : {}) } }
+        : {}),
     };
   }
 
@@ -3239,6 +3244,10 @@ export class GameSessionAdapter implements GameSession {
         return { kind: "goodbye-message", vote: input.tone, ...(input.message ? { statement: input.message } : {}) };
       case "exit-interview":
         return { kind: "exit-interview", vote: input.stance, ...(input.message ? { statement: input.message } : {}) };
+      case "spectator-choice":
+        return { kind: "spectator-choice", vote: input.mode };
+      case "finale-interview":
+        return { kind: "finale-interview", vote: input.stance, ...(input.message ? { statement: input.message } : {}) };
       case "finale-statement":
         return { kind: "finale-statement", statement: input.statement };
       case "finale-answer":
@@ -8721,6 +8730,14 @@ export class GameSessionAdapter implements GameSession {
       });
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, closed) : closed;
     }
+    // FEATURE 0133 — an EARLY-EVICTED player who chose to follow the season: the engine runs the player-less
+    // beats itself. `watch` = one whole week per call (its `weekDigests` line is the record); `skip` = straight
+    // to the finale. The SAME `advanceOneBeat` steps in the SAME order, so every rng draw is byte-identical to
+    // single-stepping (`beatRng` is a pure function of week/beat) — this is pacing, never a different season.
+    if (this.live.spectator && !this.live.pending && !this.live.finished) {
+      const spectated = this.inOneCommit(() => this.spectatorFastForward());
+      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, spectated) : spectated;
+    }
     // One persisted commit per beat (E3): interior persists (a deal broken mid-tally) defer to a
     // single hook call AFTER all state mutation — a refused commit throws instead of narrating.
     const view = this.inOneCommit(() => {
@@ -8731,6 +8748,44 @@ export class GameSessionAdapter implements GameSession {
     });
     // 0065 Part B — cache the committed result under its key, so a retry replays it verbatim.
     return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, view) : view;
+  }
+
+  /**
+   * 0133 — run the player-less beats for a spectating (early-evicted) player: `watch` stops once a whole week has
+   * completed (its digest recorded), `skip` stops at the finale. BOUNDED (never spins), and halts on anything that
+   * needs the player (a pending) or ends the season. Returns the view of the LAST event produced.
+   */
+  private spectatorFastForward(): AdvanceView {
+    const live = this.live!;
+    const mode = live.spectator!.mode;
+    const digestsBefore = live.weekDigests?.length ?? 0;
+    let last: BeatEvent | null = null;
+    let idle = 0;
+    for (let i = 0; i < 5000 && !live.pending && !live.finished; i++) {
+      const ev = this.advanceOneBeat();
+      if (ev) { last = ev; idle = 0; } else if (++idle > 8) break; // a run of silent steps that moves nothing
+      if (live.pending || live.finished) break;
+      if (mode === "skip" ? (live.beat === "finale" || !!live.finale) : (live.weekDigests?.length ?? 0) > digestsBefore) break;
+    }
+    return this.advanceView(last);
+  }
+
+  /** 0133 — the PUBLIC week digests an early-evicted, spectating player may read (named, Vault-free). */
+  private weekDigestViews(): WeekDigestView[] | undefined {
+    const live = this.live;
+    if (!live?.spectator) return undefined;
+    const since = live.spectator.sinceWeek;
+    const rows = (live.weekDigests ?? []).filter((d) => d.week >= since);
+    if (rows.length === 0) return undefined;
+    return rows.map((d) => ({
+      week: d.week,
+      hoh: this.named(d.hoh ?? undefined) ?? null,
+      nominees: d.nominees.map((id) => this.named(id)!).filter(Boolean),
+      vetoHolder: this.named(d.vetoHolder ?? undefined) ?? null,
+      vetoUsed: d.vetoUsed,
+      evicted: this.named(d.evictee ?? undefined) ?? null,
+      juryCount: d.juryCount,
+    }));
   }
 
   /**
@@ -8847,6 +8902,19 @@ export class GameSessionAdapter implements GameSession {
     if (req.kind === "deal-offer") {
       if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
       if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept"));
+      return remember(this.advanceView(null));
+    }
+    // 0133 — a spectating player may switch WATCH → SKIP later through the same decision kind (no pending needed).
+    // SKIP is irreversible and the offer is one-time, so every other answer outside the pending is a safe no-op.
+    if (req.kind === "spectator-choice" && !this.live.pending) {
+      const mode = singlePickId(req);
+      if (this.live.spectator?.mode === "watch" && mode === "skip" && !this.live.finished) {
+        return remember(this.inOneCommit(() => {
+          this.live!.spectator = { mode: "skip", sinceWeek: this.live!.spectator!.sinceWeek };
+          this.commit({ beat: "spectator-choice", content: `${PLAYER} switches to skipping ahead to the finale`, participants: [PLAYER] });
+          return this.advanceView(null);
+        }));
+      }
       return remember(this.advanceView(null));
     }
     // No-op unless there's a matching pending decision to resolve (idempotent + robust
@@ -10577,6 +10645,20 @@ export class GameSessionAdapter implements GameSession {
         }
         return { kind: "exit-interview", stance, ...(req.statement ? { message: req.statement } : {}) };
       }
+      case "spectator-choice": { // 0133: the mode rides the shared single-pick field (`vote` OR `choice`)
+        const mode = singlePickId(req) as SpectatorMode | undefined;
+        if (!mode || !(SPECTATOR_MODES as readonly string[]).includes(mode)) {
+          throw new Error("a legal spectator mode is required (watch / skip)");
+        }
+        return { kind: "spectator-choice", mode };
+      }
+      case "finale-interview": { // 0133: posture like 0130's exit interview
+        const stance = singlePickId(req) as ExitStance | undefined;
+        if (!stance || !(EXIT_STANCES as readonly string[]).includes(stance)) {
+          throw new Error("a legal interview stance is required (gracious / defiant / bitter)");
+        }
+        return { kind: "finale-interview", stance, ...(req.statement ? { message: req.statement } : {}) };
+      }
       // --- finale (0037) ---
       case "finale-statement":
         return { kind: "finale-statement", statement: req.statement ?? "" };
@@ -10680,6 +10762,21 @@ export class GameSessionAdapter implements GameSession {
           prompt: "You have been evicted — the producers sit you down for your exit interview. Choose the posture you leave on; your own words carry it.",
           options: p.stances.map((st) => ({ id: st, name: st })),
           stances: [...p.stances], evictee: this.named(p.evictee)!, pick: 1,
+        };
+      // --- early eviction (0133): the player's own choice of how to follow the rest of the season ---
+      case "spectator-choice":
+        return {
+          kind: p.kind, by,
+          prompt: "You are out before the jury formed. Skip ahead to the finale, or keep watching a condensed version of the rest of the season? Either way you will be back for the finale night.",
+          options: p.modes.map((m) => ({ id: m, name: m })),
+          pick: 1,
+        };
+      case "finale-interview":
+        return {
+          kind: p.kind, by,
+          prompt: "The season is crowned — the host sits you down for your finale-night interview. Choose the posture you take; your own words carry it.",
+          options: p.stances.map((st) => ({ id: st, name: st })),
+          stances: [...p.stances], pick: 1,
         };
       // --- finale (0037) ---
       case "finale-statement":
@@ -11541,6 +11638,8 @@ export class GameSessionAdapter implements GameSession {
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in
       moment,
+      // 0133: an early-evicted spectator's public week digests (absent for everyone else).
+      ...(this.weekDigestViews() ? { weekDigests: this.weekDigestViews() } : {}),
       // #1411: the closed-set required lever (present ONLY at a comp/ceremony/eviction beat) — the FE's
       // engine-signaled force directive. Absent everywhere else ⇒ byte-identical / no forcing.
       ...(requiredLever ? { requiredLever } : {}),
@@ -11552,6 +11651,7 @@ export class GameSessionAdapter implements GameSession {
         archetype: p.persona?.archetype ?? p.character.archetype,
         strategyStyle: p.persona?.strategyStyle ?? p.character.strategyStyle,
         status,
+        ...(this.live?.spectator ? { spectator: this.live.spectator.mode } : {}),
         // ADR 0006 §Principle 5: the player's OWN qualitative tiredness (their body is their knowledge) —
         // a cue, never a number, and never any NPC's sleep state. Present only once the clock is running.
         ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { restStatus: restStatusFor(this.live.lastSleepPhase ?? WAKE_HOUR) } : {}),

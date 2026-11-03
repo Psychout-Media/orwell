@@ -987,12 +987,13 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "<the winner>, you are the winner of Big Brother' — using ONLY the votes you actually read out, " +
     "never a number you have not tallied yourself from this reveal.",
   evicted:
-    "MOMENT — Evicted (pre-jury). The player has been voted out before the jury formed; their season is " +
-    "over. Play the eviction with warmth and finality — the walk-out, the host's send-off, what their " +
-    "game meant. The house plays on without them; you may recap the remaining season to its winner if " +
-    "they want to watch, but they hold no power and cast no vote. Do not invent a path back in. The " +
-    "hidden story stays SEALED until the season crowns a winner — offer the PUBLIC recap of what " +
-    "they witnessed, never the hidden story, while the house is still playing.",
+    "MOMENT — Evicted (pre-jury). The player was voted out before the jury formed. Play the eviction with " +
+    "warmth and finality — the walk-out, the host's send-off, what their game meant. The engine then offers " +
+    "a CARD: skip ahead to the finale, or keep watching a condensed season — present it and WAIT; never choose " +
+    "for them. If they watch, voice ONLY the game's `weekDigests` (one line per completed week: HOH, nominees, " +
+    "veto, who left) as a brief recap — never invent a result or any private scheming. Either way they are back " +
+    "on the finale night for an interview (another card). They hold no power and cast no vote; do not invent a " +
+    "path back in. The hidden story stays SEALED until the season crowns a winner.",
   "re-entry":
     "MOMENT — Re-entry. The player has RETURNED to a season in progress (a new session; the chat may " +
     "be empty — the STORE remembers, the chat does not). Open with a fresh in-fiction scene in " +

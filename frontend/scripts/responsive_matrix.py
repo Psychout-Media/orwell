@@ -208,6 +208,11 @@ def _auto_resolve(p):
         return {"kind": kind, "choice": [opt(0), opt(1)]}
     if kind == "veto-decision":
         return {"kind": kind, "use": False}
+    if kind == "spectator-choice":
+        # 0133 — an early-evicted player: skip ahead to the finale (the cheapest legal answer for a throwaway driver).
+        return {"kind": kind, "vote": "skip"}
+    if kind == "finale-interview":
+        return {"kind": kind, "vote": "gracious"}
     if kind == "secret-veto":
         # 0025 (ORWELL_REACTIVE_TWISTS): hold the one-time safety — an explicit boolean is REQUIRED
         # (the engine boundary refuses a missing `use`), and holding is the cheapest legal answer.

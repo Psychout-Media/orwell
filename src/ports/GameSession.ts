@@ -62,6 +62,12 @@ export interface PlayerCard {
    * pre-jury — their season is over). Public, Vault-free: it says nothing about anyone's hidden state.
    */
   status: "active" | "jury" | "evicted";
+  /**
+   * 0133 — how an early-evicted player follows the rest of the season: absent for an active player or before the
+   * choice; `watch` = the engine-built skeleton season (one `weekDigests` line per week), `skip` = fast-forwarded to
+   * the finale. Public, Vault-free.
+   */
+  spectator?: "watch" | "skip";
   /** The casting interview's distilled card (0050) — qualitative only; re-showable all season. */
   castingCard?: CastingCard;
   /**
@@ -347,6 +353,17 @@ export interface RecordCompetitionFictionResult {
 }
 
 /** The Vault-free projection of the running game the front-end may render. */
+/** 0133 — one public line per completed week: only broadcast ceremony facts (named, Vault-free). */
+export interface WeekDigestView {
+  week: number;
+  hoh: NamedRef | null;
+  nominees: NamedRef[];
+  vetoHolder: NamedRef | null;
+  vetoUsed: boolean;
+  evicted: NamedRef | null;
+  juryCount: number;
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -359,6 +376,11 @@ export interface GameStateView {
   beatSeq: number;
   week: number;
   phase: string;
+  /**
+   * 0133 — present only for an early-evicted player who chose to follow the season: the engine-built
+   * week-by-week digests since their eviction (public broadcast facts only). Absent otherwise.
+   */
+  weekDigests?: WeekDigestView[];
   /**
    * The in-game TIME OF DAY (ADR 0006): "morning" | "afternoon" | "evening" | "night" | "late-night".
    * A coarse, PUBLIC, shared band (one clock for the whole house) — never a wall-clock, never a number.
@@ -1216,6 +1238,9 @@ export interface PendingDecisionView {
     // own posture (gracious / defiant / bitter) + optional words, never engine-authored. `evictee` echoes who
     // is being interviewed (the player); `stances` carries the legal postures. Resolved via submitDecision. ---
     | "exit-interview"
+    // --- early eviction (0133): the pre-jury evictee picks how to follow the rest of the season (`options`
+    // are the modes "watch" | "skip"), and is interviewed on the finale night (`stances`, like 0130). ---
+    | "spectator-choice" | "finale-interview"
     // --- self-eviction (0061): the player-level/OOC confirmation to voluntarily walk out / quit ---
     | "self-evict"
     // --- secret veto (0025 reactive redesign): the player is on the block and secretly holds a
@@ -1843,6 +1868,8 @@ export interface RetrospectiveView {
    * no eviction was interviewed (e.g. a Final-3 atomic eviction outside the staged 0047 path).
    */
   exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string }>;
+  /** 0133 — the early-evicted player's own finale-night interview (posture + words), when they gave one. */
+  finaleInterview?: { stance: string; message?: string };
 }
 
 /**
@@ -1902,6 +1929,9 @@ export interface SubmitDecisionReq {
     // rides the shared `vote` field like a goodbye tone, with optional words on `statement`. Recorded for
     // the 0048 retrospective, never engine-authored. ---
     | "exit-interview"
+    // --- early eviction (0133): the spectator mode ("watch" | "skip") rides the shared `vote` field; the
+    // finale-night interview posture rides `vote` and the optional words ride `statement` (like 0130). ---
+    | "spectator-choice" | "finale-interview"
     // --- self-eviction (0061): the explicit, confirmed voluntary walk-out / quit ---
     | "self-evict"
     // --- secret veto (0025 reactive redesign): the player plays or holds their one-time safety.
