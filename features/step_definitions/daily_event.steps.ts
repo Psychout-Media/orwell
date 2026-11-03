@@ -106,7 +106,7 @@ Then(
 // --- A week is one HOH reign --------------------------------------------------
 
 Given("a week begins with an HOH competition", function (this: BbWorld) {
-  this.liveDays = playLiveSeason(3);
+  this.liveDays = playLiveSeason(4); // re-selected 2026-11-03 (default flip + 0133 on main; was 3): a mid-season reign opens with an HOH comp
   this.liveWeek = weeksOf(this.liveDays)[1]!; // a full mid-season reign (week 1 opens with the premiere)
   const beats = this.liveWeek.flatMap((d) => d.beats);
   const hoh = beats.indexOf("hoh-competition");
