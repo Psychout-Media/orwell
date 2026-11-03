@@ -498,7 +498,7 @@ secret→house-event eruptions), `ORWELL_SECRET_PACING` (0092 paced secret drip)
 engine's `GET /health` reports the live set in a `flags` block, and `orwell doctor` prints an
 `info — behavioral flags ON: …` line. Admins can flip any layer at runtime — no restart — from the
 God-Mode **setBehavioralFlags** dial (overrides the env default per-sandbox). ADR 0006's
-`ORWELL_TIME_OF_DAY` in-game clock is also written ON — and, per the PO ruling of 2026-11-02, it is ON everywhere (tests included), no longer a separate opt-in (the updater backfills it too), so a
+`ORWELL_TIME_OF_DAY` in-game clock is also written ON by the deploy (and backfilled by `orwell-update.sh`); the PO ruling of 2026-11-02 makes it ON everywhere, tests included, with the engine/test default flip tracked separately from this doc — so a
 restarted engine boots with the clock running; the front-end re-pushes its own clock setting every
 few minutes.
 

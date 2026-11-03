@@ -1,6 +1,8 @@
 /**
- * FROZEN (0103 — owner-parked "not planned" 2026-06-27; preserved, not deleted, reopenable). Nothing in the live
- * game imports this module (only its own unit test does); it is kept per the freeze. Noted in the #1939 doc-drift pass.
+ * STATUS (0103 — reopened 2026-07-12; engine CORE built, runtime wiring deferred): this pure core and its unit
+ * test are built, but nothing in the live game imports it yet — the adapter routing into the observation pathway and
+ * the `momentPrompts` `editBayHint` field is the deferred part. (Noted in the #1939 doc-drift pass; an earlier pass
+ * mislabelled this module "frozen" from the obsolete 2026-06-27 park.)
  *
  * Feature 0103 — edit-bay foreshadowing: the PURE fit/eligibility/hint core. NO I/O, NO Vault handle — it
  * is handed the ALREADY-READ, Vault-free SHAPE of the in-motion pathways (their motion status + the sealed

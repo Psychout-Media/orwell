@@ -9,7 +9,7 @@
 
 > **The question this ADR settles:** is there an activity signal *looser* than "the player just took a
 > turn" on which the engine may originate committed beats, and does adopting it re-open the
-> **2026-06-10 turn-driven ruling** (originally the `ORWELL_WATCHER_TICK_MS=0` default; since 2026-07-10 there is no watcher at all — see the status note below)?
+> **2026-06-10 turn-driven ruling** (originally the `ORWELL_WATCHER_TICK_MS=0` default; since 2026-07-10 there is no watcher at all — see the status note above)?
 > **Owner correction that frames everything below (verbatim intent, 2026-07-09):** *an open socket is
 > **NOT** a presence/activity signal.* A background tab, a pocketed phone, an idle desktop all hold a
 > live socket for hours with nobody playing. **"Actively playing" = the player taking turns (sending
