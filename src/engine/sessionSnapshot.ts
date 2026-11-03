@@ -824,6 +824,11 @@ export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSn
   const laterConfide = later.confideState ?? {};
   for (const id of Object.keys(earlier.confideState ?? {})) if (!(id in laterConfide)) return false;
 
+  // jurorTold (0129 slice 4): the contents a juror told the player in the jury house — append-only; a dropped
+  // telling would silently erase part of the informed vote card.
+  const laterJurorTold = new Set(later.jurorTold ?? []);
+  for (const c of earlier.jurorTold ?? []) if (!laterJurorTold.has(c)) return false;
+
   // secretUsedAs (0093/0099): once a wielded secret is recorded, the record is never lost. Its value can
   // still transition traded→exposed, so only presence is guarded, not value stability.
   const laterUsedAs = later.secretUsedAs ?? {};

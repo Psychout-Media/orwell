@@ -111,6 +111,13 @@ describe("PERSIST-8 — sessionCoreIsSuperset (the newer append-only maps/sets)"
     expect(sessionCoreIsSuperset(caughtLie, earlier)).toBe(true);
   });
 
+  it("jurorTold (0129 slice 4): a dropped juror telling is caught; a new one passes", () => {
+    const earlier = baseSnap({ jurorTold: ["fact a"] });
+    expect(sessionCoreIsSuperset(baseSnap({ jurorTold: ["fact a", "fact b"] }), earlier)).toBe(true);
+    expect(sessionCoreIsSuperset(baseSnap({ jurorTold: [] }), earlier)).toBe(false);
+    expect(sessionCoreIsSuperset(baseSnap({}), earlier)).toBe(false);
+  });
+
   it("secretUsedAs (0093/0099): a forgotten wielded-secret record is caught; a traded->exposed VALUE flip is not flagged", () => {
     const earlier = baseSnap({ secretUsedAs: { f1: "traded" } });
     const grown = baseSnap({ secretUsedAs: { f1: "traded", f2: "exposed" } });
