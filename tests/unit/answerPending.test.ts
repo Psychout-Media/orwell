@@ -36,7 +36,7 @@ const EXPECTED: Record<PendingView["kind"], unknown> = {
   "juror-vote": { kind: "juror-vote", vote: "a" },
   "exit-interview": { kind: "exit-interview", vote: "a" },
   "spectator-choice": { kind: "spectator-choice", vote: "watch" },
-  "finale-interview": { kind: "finale-interview", vote: "a" },
+  "finale-interview": { kind: "finale-interview", vote: "gracious" },
   "secret-veto": { kind: "secret-veto", use: false },
   "deal-offer": null,
   "self-evict": null,
