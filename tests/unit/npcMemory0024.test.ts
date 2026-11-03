@@ -59,6 +59,16 @@ describe("npcMemory — salience, decay and the residual floor", () => {
     expect(NPC_MEMORY.favorMax).toBeLessThan(NPC_MEMORY.grudgeMax); // negativity bias
   });
 
+  it("over the cap, STALE entries drop first: six old low-severity favors never evict a fresh betrayal", () => {
+    const ledger: NpcMemoryLedger = {};
+    for (let w = 1; w <= NPC_MEMORY.maxEntriesPerPair; w++) recordMemory(ledger, npc(1), npc(2), favor(w, 0.2));
+    recordMemory(ledger, npc(1), npc(2), betrayal(20, 0.3)); // fresh, but lower raw severity than nothing — it must survive
+    const kept = ledger[npc(1)]![npc(2)]!;
+    expect(kept.length).toBe(NPC_MEMORY.maxEntriesPerPair);
+    expect(kept.some((e) => e.kind === "deal-broken" && e.week === 20)).toBe(true);
+    expect(kept.some((e) => e.week === 1)).toBe(false); // the stalest went
+  });
+
   it("the signed tilt is +grudge − favor; self-memories are never recorded", () => {
     const entries = [betrayal(1), favor(1)];
     expect(memoryTilt(entries, 4, 1, NONE)).toBeCloseTo(memoryGrudge(entries, 4, 1, NONE) - memoryFavor(entries, 4, 1, NONE));

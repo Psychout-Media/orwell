@@ -54,7 +54,11 @@ const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved"]);
 
 const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
 
-/** Record one memory (mutates `ledger`). Over the cap, the least salient entry (lowest severity, then oldest) drops. */
+/**
+ * Record one memory (mutates `ledger`). Over the cap, the entry with the lowest DECAYED weight at the new entry's week
+ * drops first (`severity x 0.5^(age / halfLife)`; ties keep the newer), so stale memories go before a fresh one — six old
+ * low-severity favors can never evict a fresh betrayal.
+ */
 export function recordMemory(
   ledger: NpcMemoryLedger, holder: EntityId, subject: EntityId, entry: MemoryEntry,
   c: NpcMemoryConstants = NPC_MEMORY,
@@ -63,12 +67,14 @@ export function recordMemory(
   const row = (ledger[holder] ??= {});
   const list = (row[subject] ??= []);
   list.push({ kind: entry.kind, week: entry.week, severity: clamp01(entry.severity) });
+  const now = entry.week;
+  const weight = (e: MemoryEntry): number => e.severity * Math.pow(0.5, Math.max(0, now - e.week) / c.halfLifeWeeks);
   while (list.length > c.maxEntriesPerPair) {
     let drop = 0;
     for (let i = 1; i < list.length; i++) {
       const a = list[i]!;
       const b = list[drop]!;
-      if (a.severity < b.severity || (a.severity === b.severity && a.week < b.week)) drop = i;
+      if (weight(a) < weight(b) || (weight(a) === weight(b) && a.week < b.week)) drop = i;
     }
     list.splice(drop, 1);
   }
