@@ -45,17 +45,29 @@ curl -fsS --max-time 5 "${FE}/openapi.json" >/dev/null 2>&1 \
 
 # LLM configured: the FE's model listing must expose at least one ONLINE model. The route shape
 # is {items:[{models:[...], offline}]} (the onboarding gate uses the same probe).
-models="$(curl -fsS --max-time 10 "${FE}/api/models" 2>/dev/null || true)"
-if printf '%s' "$models" | python3 -c "
+# /api/models is behind the login wall whenever auth is on (the stock install), so an anonymous call
+# gets 401 — that is "cannot look", not "no LLM". Credentials, in order: an API token in
+# ORWELL_READY_TOKEN (a Bearer "ody_..." token minted under Settings -> API tokens); with
+# AUTH_ENABLED=false no credentials are needed. With auth on and no token the check is reported as
+# SKIPPED (neither a pass nor a failure) and says how to enable it.
+READY_TOKEN="${ORWELL_READY_TOKEN:-}"
+auth_args=()
+[[ -z "$READY_TOKEN" ]] || auth_args=(-H "Authorization: Bearer ${READY_TOKEN}")
+models_body="$(mktemp "${TMPDIR:-/tmp}/orwell-ready-models.XXXXXX")"
+trap 'rm -f "$models_body"' EXIT
+models_code="$(curl -sS --max-time 10 -o "$models_body" -w '%{http_code}' ${auth_args[@]+"${auth_args[@]}"} "${FE}/api/models" 2>/dev/null || true)"
+if [[ "$models_code" == "401" || "$models_code" == "403" ]]; then
+  echo "  - LLM check skipped — login required; set ORWELL_READY_TOKEN=<API token> to verify an LLM is online"
+elif [[ "$models_code" == "200" ]] && python3 -c "
 import json, sys
 try:
-    d = json.load(sys.stdin)
+    d = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(1)
 items = d.get('items') or []
 usable = any((i.get('models') and not i.get('offline')) for i in items if isinstance(i, dict))
 sys.exit(0 if usable else 1)
-" 2>/dev/null; then
+" "$models_body" 2>/dev/null; then
   ok "an LLM is configured and online"
 else
   bad "no usable LLM (configure under Settings -> Services/AI, or set LLM_HOSTS/OPENAI_API_KEY in data/.env)"

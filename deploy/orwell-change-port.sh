@@ -110,7 +110,7 @@ elif unit_exists bbai-frontend.service;   then FRONTEND_SVC="bbai-frontend"
 else                                           FRONTEND_SVC="orwell-frontend"
 fi
 ENV_FILE="${APP_DIR}/data/.env"
-DROPIN_DIR="/etc/systemd/system/${FRONTEND_SVC}.service.d"
+DROPIN_DIR="${ORWELL_SYSTEMD_DIR:-/etc/systemd/system}/${FRONTEND_SVC}.service.d"   # ORWELL_SYSTEMD_DIR: tests/dev only
 DROPIN="${DROPIN_DIR}/10-privileged-port.conf"
 
 # The CURRENT UI port (data/.env wins; the unit's default is 8080).
@@ -144,11 +144,17 @@ if [[ $DRY_RUN -eq 0 ]]; then
   [[ "$(id -u)" -eq 0 ]] || die "must run as root (edits ${ENV_FILE}, the systemd drop-in, and restarts ${FRONTEND_SVC}). Try: sudo bash $0 ${NEW_PORT}"
 fi
 
-# Best-effort conflict check: is the TARGET port already held by a DIFFERENT listener? (The current
-# FE is on CUR_PORT, so a listener on a different NEW_PORT is genuinely something else.)
-if [[ "$NEW_PORT" != "$CUR_PORT" ]] && command -v ss >/dev/null 2>&1; then
-  if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${NEW_PORT}\$"; then
-    warn "port ${NEW_PORT} already has a listener — if it isn't the orwell front-end, the restart will fail to bind it."
+# Conflict check: is the TARGET port already held by a DIFFERENT listener? The current FE is on
+# CUR_PORT, so a listener on any other NEW_PORT is by construction something else — and the restart
+# could never bind it, so this is fatal (nothing has been changed yet). Without `ss` the check cannot
+# run; the post-restart probe + revert below is then the safety net.
+if [[ "$NEW_PORT" != "$CUR_PORT" ]]; then
+  if command -v ss >/dev/null 2>&1; then
+    if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${NEW_PORT}\$"; then
+      die "port ${NEW_PORT} already has a listener that is not the orwell front-end (it is on ${CUR_PORT}) — pick another port or stop that listener. Nothing was changed."
+    fi
+  else
+    warn "ss not found — cannot pre-check whether port ${NEW_PORT} is free; the post-restart probe will catch a conflict and revert."
   fi
 fi
 
@@ -193,6 +199,43 @@ set_env_key() {
     printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
   fi
 }
+# Everything from here to the verified probe is reverted on ANY failure (a failed write, daemon-reload,
+# restart, or a front-end that never answers on the new port): snapshot what we are about to change.
+ENV_SAVED=""; DROPIN_SAVED=""; ENV_EXISTED=0; DROPIN_EXISTED=0; CHANGED=0; COMMITTED=0
+snap_dir="$(mktemp -d)"
+if [[ -f "$ENV_FILE" ]];  then ENV_EXISTED=1;    ENV_SAVED="${snap_dir}/env";    cp -p "$ENV_FILE" "$ENV_SAVED"; fi
+if [[ -f "$DROPIN" ]];    then DROPIN_EXISTED=1; DROPIN_SAVED="${snap_dir}/dropin"; cp -p "$DROPIN" "$DROPIN_SAVED"; fi
+
+# The REAL probe: the front-end itself must answer its health route on the port (a bare listener —
+# anything else holding the port — does not count).
+probe_port() { curl -fsS --max-time 2 "http://127.0.0.1:${1}/api/health" 2>/dev/null | grep -q healthy; }
+wait_for_port() { local i; for i in $(seq 1 "${ORWELL_PORT_WAIT:-20}"); do probe_port "$1" && return 0; sleep 1; done; return 1; }
+
+revert_port() {
+  warn "reverting to the previous port ${CUR_PORT}"
+  if [[ $ENV_EXISTED -eq 1 ]]; then cat "$ENV_SAVED" > "$ENV_FILE"; else rm -f "$ENV_FILE"; fi
+  if [[ $DROPIN_EXISTED -eq 1 ]]; then mkdir -p "$DROPIN_DIR"; cat "$DROPIN_SAVED" > "$DROPIN"
+  else rm -f "$DROPIN"; rmdir "$DROPIN_DIR" 2>/dev/null || true; fi
+  systemctl daemon-reload || true
+  if [[ $NO_RESTART -eq 1 ]]; then return 0; fi
+  systemctl restart "$FRONTEND_SVC" || true
+  if wait_for_port "$CUR_PORT"; then
+    warn "the front-end is serving again on ${CUR_PORT}; the port was NOT changed."
+  else
+    echo "ERROR: reverted the config, but the front-end is not answering on ${CUR_PORT} — check: systemctl status ${FRONTEND_SVC} ; journalctl -u ${FRONTEND_SVC} -e" >&2
+  fi
+}
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  if [[ $rc -ne 0 && $CHANGED -eq 1 && $COMMITTED -eq 0 ]]; then revert_port || true; fi
+  rm -rf -- "$snap_dir"
+  exit "$rc"
+}
+trap on_exit EXIT
+trap 'exit 130' INT TERM
+
+CHANGED=1
 msg "setting ORWELL_PORT=${NEW_PORT} in ${ENV_FILE}"
 set_env_key ORWELL_PORT "$NEW_PORT"
 # Keep a legacy BBAI_PORT in sync IF (and only if) it already exists (a pre-rename box).
@@ -228,6 +271,7 @@ fi
 
 # ── 3. Apply: reload units (the drop-in changed) + restart the front-end. ───────────────────────
 if [[ $NO_RESTART -eq 1 ]]; then
+  COMMITTED=1
   msg "config changed; NOT restarting (--no-restart). Apply later with: systemctl daemon-reload && systemctl restart ${FRONTEND_SVC}"
   exit 0
 fi
@@ -235,23 +279,20 @@ msg "reloading systemd + restarting ${FRONTEND_SVC}"
 systemctl daemon-reload
 systemctl restart "$FRONTEND_SVC"
 
-# ── 4. Verify the new port is actually serving (best-effort, ~20s). ─────────────────────────────
-serving() {
-  curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${NEW_PORT}/openapi.json" 2>/dev/null && return 0
-  command -v ss >/dev/null 2>&1 && ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${NEW_PORT}\$"
-}
-ok=0
-for _ in $(seq 1 20); do if serving; then ok=1; break; fi; sleep 1; done
+# ── 4. Verify the new port is really the front-end answering (~20s); otherwise revert. ─────────
+if wait_for_port "$NEW_PORT"; then
+  ok=1; COMMITTED=1
+else
+  ok=0
+  echo "ERROR: the front-end did not answer on port ${NEW_PORT} after the restart (a foreign listener, a failed bind, or a crash)." >&2
+  echo  "  check: systemctl status ${FRONTEND_SVC} ; journalctl -u ${FRONTEND_SVC} -e" >&2
+  exit 1   # the EXIT trap restores the old port, drop-in and service
+fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
-if [[ $ok -eq 1 ]]; then
-  msg "done — the front-end is serving on port ${NEW_PORT}."
-  echo "  play:  http://${IP:-<container-ip>}:${NEW_PORT}"
-else
-  warn "restarted, but couldn't confirm the front-end is serving on ${NEW_PORT} yet."
-  echo  "  check: systemctl status ${FRONTEND_SVC} ; journalctl -u ${FRONTEND_SVC} -e" >&2
-fi
+msg "done — the front-end is serving on port ${NEW_PORT}."
+echo "  play:  http://${IP:-<container-ip>}:${NEW_PORT}"
 
 # Reminders.
 echo
@@ -264,4 +305,3 @@ if [[ $WAS_PRIV -eq 1 && $PRIV -eq 0 ]]; then
   echo "  • The CAP_NET_BIND_SERVICE grant was removed — the front-end unit is back to its locked-down default (no capabilities)."
 fi
 
-[[ $ok -eq 1 ]] || exit 1

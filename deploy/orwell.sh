@@ -285,6 +285,8 @@ pct exec "$CTID" -- bash -c "mkdir -p '${APP_DIR}/data'; touch '${APP_DIR}/data/
 if [[ -n "$GIT_TOKEN" ]]; then
   # Persist the token via a pushed file (never on a pct exec command line / host ps).
   TMP_TOKEN="$(mktemp /tmp/orwell-token-XXXXXX)"
+  trap 'rm -f "$TMP_TOKEN"' EXIT   # the PAT file must not outlive this run on ANY exit (failed push, Ctrl-C)
+  trap 'exit 130' INT TERM
   chmod 600 "$TMP_TOKEN"
   printf 'GIT_TOKEN=%s\n' "$GIT_TOKEN" > "$TMP_TOKEN"
   pct push "$CTID" "$TMP_TOKEN" /tmp/orwell-token --perms 0600
