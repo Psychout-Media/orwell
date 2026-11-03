@@ -123,6 +123,7 @@ describe("0129 — the jury house projection", () => {
     sb.session.advanceGame();
     sb.session.requestSelfEviction();
     sb.session.submitDecision({ kind: "self-evict", confirmed: true });
+    expect(sb.session.snapshot().live!.selfEvicted).toBeTruthy();   // the precondition really holds (not vacuous)
     for (let i = 0; i < 400; i++) { const v = sb.session.advanceGame(); if (v.pending) resolve(sb.session, v.pending); if (v.finished) break; expect(sb.session.getGameState().juryHouse).toBeUndefined(); }
     expect(npc(1)).toBeTruthy();
   });

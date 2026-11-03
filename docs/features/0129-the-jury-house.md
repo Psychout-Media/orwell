@@ -164,7 +164,7 @@ experience as the core; the vote-nudging is flagged and optional.
 Built on A-8's spectator machinery (0133). **Slice 1 — the roster projection (built):** `GameStateView.juryHouse`,
 present only while the player holds a juror's seat (never for a self-evicted player, 0061): the OTHER jurors in the
 order they joined, each `{id, name, evictedWeek, bearing}` where `bearing` (`warm | even | cool | sour`) is a categorical
-read of the **recorded** eviction manner toward the player (public record; no number, no hidden lean). Read-only, so the
+read of the **recorded** jury-management manner toward the player (the eviction manner plus any broken-deal demerit; no number, no hidden lean). Read-only, so the
 seeded spine is byte-identical (`tests/unit/juryHouse0129.test.ts`: whitelist keys, Vault sentinel, manner → bearing,
 read-only determinism). The existing 0100 `juryHouse.ts` is the grudge book (a different concern) — unchanged.
 

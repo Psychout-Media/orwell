@@ -8787,10 +8787,10 @@ export class GameSessionAdapter implements GameSession {
     return this.advanceView(last);
   }
 
-  /** 0133 — the PUBLIC week digests an early-evicted, spectating player may read (named, Vault-free). */
   /**
    * 0129 — the jury house roster (slice 1): the OTHER jurors the juror-player lives with, each with a categorical
-   * `bearing` read off the recorded eviction manner toward the player. Public record only (the eviction order, the
+   * `bearing` read off the recorded jury-management manner toward the player (the eviction's own manner plus any
+   * broken-deal demerit — both are how that juror came to regard the player; the same record the finale vote reads). Public record only (the eviction order, the
    * vote record's week, the manner flags the player witnessed) — never a hidden lean, never an edge number.
    * Absent unless the player currently holds a juror's seat. Read-only: draws no rng and mutates nothing, so the
    * seeded spine is byte-identical whether or not anything reads it.
@@ -8814,6 +8814,7 @@ export class GameSessionAdapter implements GameSession {
     return { jurors };
   }
 
+  /** 0133 — the PUBLIC week digests an early-evicted, spectating player may read (named, Vault-free). */
   private weekDigestViews(): WeekDigestView[] | undefined {
     const live = this.live;
     if (!live?.spectator) return undefined;
