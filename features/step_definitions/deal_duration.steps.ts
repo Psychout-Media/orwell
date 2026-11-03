@@ -4,6 +4,10 @@ import type { BbWorld } from "../support/world";
 import { DealLedger } from "../../src/engine/deals";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { PLAYER } from "../../src/domain/ids";
+import type { BindingAction } from "../../src/engine/deals";
+import { resolvePending } from "../support/answerPending";
 
 // HARD rule: roles only — promisor, partner, the wronged party. No names; all fixtures synthesized.
 const PROMISOR = "promisor";
@@ -47,45 +51,78 @@ Then("the betrayal-shock folded is exactly the unscaled 0039 magnitude", functio
   assert.equal(this.ddDeal!.status, "broken");
 });
 
+// --- Scenarios 2-5 run the LIVE path (#1993): the term is PROPOSED via the session's `makeDeal`, bounded by
+// the engine, and acted on by the live break / week-rollover seams. Roles only.
+
+function liveGame(seed = 7): { s: GameSessionAdapter; npc: string } {
+  const s = new GameSessionAdapter();
+  s.createCharacter({ playerName: "The Player", seed });
+  return { s, npc: s.getGameState().house[0]!.id };
+}
+const weekOf = (s: GameSessionAdapter) => s.snapshot().live!.week;
+/** The promisor (the player) nominates the protected partner — the real adjudication path. */
+function liveBreak(s: GameSessionAdapter, partner: string): void {
+  (s as unknown as { reconcileDeals(a: BindingAction): void }).reconcileDeals({ actor: PLAYER, kind: "nominate", targets: [partner] });
+}
+function liveThreat(s: GameSessionAdapter, npc: string): number {
+  return (s as unknown as { rel: RelationshipModel }).rel.edge(npc, PLAYER).threat;
+}
+function liveTrust(s: GameSessionAdapter, npc: string): number {
+  return (s as unknown as { rel: RelationshipModel }).rel.edge(npc, PLAYER).trust;
+}
+interface LiveDd { a: ReturnType<typeof liveGame>; b: ReturnType<typeof liveGame>; t0a: number; t0b: number; trust0a: number }
+const live = new WeakMap<BbWorld, LiveDd>();
+const dealIds = new WeakMap<BbWorld, { id: string; openId?: string }>();
+
 // --- Scenario: explicit expiry is fair game once the term has passed ----------
 
 Given("a season-horizon deal with an explicit two-week term", function (this: BbWorld) {
-  this.ddLedger = new DealLedger();
-  // A final-two (kind-horizon = season) made week 3, with a negotiated expiry at week 5.
-  this.ddDeal = this.ddLedger.make([PROMISOR, PARTNER], "final-two", "two weeks, then free", undefined, 3, { expiresWeek: 5 });
+  const a = liveGame();
+  const d = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "two weeks, then free", term: { weeks: 2 } })!;
+  const open = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "forever" })!;
+  live.set(this, { a, b: a, t0a: 0, t0b: 0, trust0a: 0 });
+  dealIds.set(this, { id: d.id, openId: open.id });
+  assert.equal(d.term?.expiresWeek, weekOf(a.s) + 1, "the engine recorded the two-week term from the live makeDeal");
 });
 
 When("the negotiated term passes without a break", function (this: BbWorld) {
-  assert.equal(this.ddLedger!.expireWeekScoped(5).length, 0, "at the term it still binds");
-  this.ddLedger!.expireWeekScoped(6); // past the term
+  const { a } = live.get(this)!;
+  const start = weekOf(a.s);
+  for (let i = 0; i < 600 && weekOf(a.s) <= start + 1; i++) {
+    const v = a.s.advanceGame();
+    if (v.pending) resolvePending(v.pending, (req) => a.s.submitDecision(req));
+    if (v.finished) break;
+  }
+  assert.ok(weekOf(a.s) > start + 1, "the season rolled past the negotiated term");
 });
 
 Then("the engine resolves the deal kept", function (this: BbWorld) {
-  assert.equal(this.ddDeal!.status, "kept");
+  const { a } = live.get(this)!;
+  const ids = dealIds.get(this)!;
+  const by = (id: string) => a.s.getGameState().deals!.find((x) => x.id === id)!;
+  assert.equal(by(ids.id).status, "kept");
+  assert.equal(by(ids.openId!).status, "open", "a termless season deal is untouched");
 });
 
 // --- Scenario: breaking early scales the shock up with life remaining ---------
 
 Given("two identical deals with an explicit term, broken at the same seed", function (this: BbWorld) {
-  this.ddLedger = new DealLedger();
-  this.ddDeal = this.ddLedger.make([PROMISOR, PARTNER], "final-two", "long way to go", undefined, 1, { expiresWeek: 6 });
-  this.ddRel = new RelationshipModel(0.5);
-  this.ddThreat0 = edge(this.ddRel).threat;
-
-  this.ddLedgerB = new DealLedger();
-  this.ddDealB = this.ddLedgerB.make([PROMISOR, PARTNER], "final-two", "almost done", undefined, 1, { expiresWeek: 6 });
-  this.ddRelB = new RelationshipModel(0.5);
-  this.ddThreat0B = edge(this.ddRelB).threat;
+  const a = liveGame(); const b = liveGame();
+  a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "long way to go", term: { weeks: 8 } });
+  b.s.makeDeal({ with: b.npc, kind: "final-two", terms: "almost done", term: { weeks: 1 } });
+  live.set(this, { a, b, t0a: liveThreat(a.s, a.npc), t0b: liveThreat(b.s, b.npc), trust0a: 0 });
 });
 
 When("one is broken with many weeks of term left and the other with one week left", function (this: BbWorld) {
-  breakIt(this.ddLedger!, this.ddRel!, 1); // 5 weeks left
-  breakIt(this.ddLedgerB!, this.ddRelB!, 5); // 1 week left
+  const { a, b } = live.get(this)!;
+  liveBreak(a.s, a.npc);
+  liveBreak(b.s, b.npc);
 });
 
 Then("the many-weeks-left break raises the wronged party's threat more than the one-week-left break", function (this: BbWorld) {
-  const farRise = edge(this.ddRel!).threat - this.ddThreat0!;
-  const nearRise = edge(this.ddRelB!).threat - this.ddThreat0B!;
+  const { a, b, t0a, t0b } = live.get(this)!;
+  const farRise = liveThreat(a.s, a.npc) - t0a;
+  const nearRise = liveThreat(b.s, b.npc) - t0b;
   assert.ok(farRise > nearRise, "more remaining life ⇒ a larger threat rise");
   assert.ok(nearRise > 0, "a term-remaining break still hurts");
 });
@@ -93,60 +130,57 @@ Then("the many-weeks-left break raises the wronged party's threat more than the 
 // --- Scenario: a vague promise softens the betrayal ---------------------------
 
 Given("an open deal left vague and an equivalent deal with no duration", function (this: BbWorld) {
-  this.ddLedger = new DealLedger();
-  this.ddDeal = this.ddLedger.make([PROMISOR, PARTNER], "final-two", "unspoken", undefined, 1, { vague: true });
-  this.ddRel = new RelationshipModel(0.5);
-  this.ddThreat0 = edge(this.ddRel).threat;
-  this.ddTrust0 = edge(this.ddRel).trust;
-
-  this.ddLedgerB = new DealLedger();
-  this.ddDealB = this.ddLedgerB.make([PROMISOR, PARTNER], "final-two", "clean", undefined, 1); // no duration
-  this.ddRelB = new RelationshipModel(0.5);
-  this.ddThreat0B = edge(this.ddRelB).threat;
+  const a = liveGame(); const b = liveGame();
+  a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "unspoken", term: { vague: true } });
+  b.s.makeDeal({ with: b.npc, kind: "final-two", terms: "clean" });
+  live.set(this, { a, b, t0a: liveThreat(a.s, a.npc), t0b: liveThreat(b.s, b.npc), trust0a: liveTrust(a.s, a.npc) });
 });
 
 When("each is broken at the same seed", function (this: BbWorld) {
-  breakIt(this.ddLedger!, this.ddRel!); // vague ⇒ softened
-  breakIt(this.ddLedgerB!, this.ddRelB!); // no duration ⇒ scale 1
+  const { a, b } = live.get(this)!;
+  liveBreak(a.s, a.npc); // vague ⇒ softened
+  liveBreak(b.s, b.npc); // no duration ⇒ scale 1
 });
 
 Then("the vague break folds a smaller betrayal-shock than the no-duration break", function (this: BbWorld) {
-  const vagueRise = edge(this.ddRel!).threat - this.ddThreat0!;
-  const plainRise = edge(this.ddRelB!).threat - this.ddThreat0B!;
-  assert.ok(vagueRise < plainRise, "the vague break is softer than the unscaled break");
+  const { a, b, t0a, t0b } = live.get(this)!;
+  assert.ok(liveThreat(a.s, a.npc) - t0a < liveThreat(b.s, b.npc) - t0b, "the vague break is softer than the unscaled break");
 });
 
 Then("the vague break is still a betrayal: threat rises and trust falls", function (this: BbWorld) {
-  assert.ok(edge(this.ddRel!).threat - this.ddThreat0! > 0, "threat still rose");
-  assert.ok(this.ddTrust0! - edge(this.ddRel!).trust > 0, "trust still fell");
+  const { a, t0a, trust0a } = live.get(this)!;
+  assert.ok(liveThreat(a.s, a.npc) - t0a > 0, "threat still rose");
+  assert.ok(trust0a - liveTrust(a.s, a.npc) > 0, "trust still fell");
 });
 
 // --- Scenario: term persists; derived magnitude never reaches the player ------
 
 Given("a deal with a negotiated term and the vague label", function (this: BbWorld) {
-  this.ddLedger = new DealLedger();
-  this.ddDeal = this.ddLedger.make([PROMISOR, PARTNER], "final-two", "two weeks", undefined, 3, { expiresWeek: 5 });
-  this.ddLedger.make([PROMISOR, PARTNER], "safety", "unspoken", undefined, 3, { vague: true });
+  const a = liveGame();
+  a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "two weeks", term: { weeks: 3 } });
+  a.s.makeDeal({ with: a.npc, kind: "safety", terms: "unspoken", term: { vague: true } });
+  live.set(this, { a, b: a, t0a: 0, t0b: 0, trust0a: 0 });
 });
 
 When("the deals are serialized and reloaded", function (this: BbWorld) {
-  const snap = JSON.parse(JSON.stringify(this.ddLedger!.serialize()));
-  this.ddLedgerB = new DealLedger();
-  this.ddLedgerB.load(snap);
+  const d = live.get(this)!;
+  const revived = new GameSessionAdapter();
+  revived.restore(JSON.parse(JSON.stringify(d.a.s.snapshot())));
+  d.b = { s: revived, npc: d.a.npc };
 });
 
 Then("both the term and the label survive the round-trip losslessly", function (this: BbWorld) {
-  assert.deepEqual(this.ddLedgerB!.all, this.ddLedger!.all, "the durable round-trip is lossless");
-  const reloaded = this.ddLedgerB!.all;
-  assert.equal(reloaded[0]!.expiresWeek, 5, "the explicit term survived");
-  assert.equal(reloaded[1]!.vague, true, "the vague label survived");
+  const { a, b } = live.get(this)!;
+  assert.deepEqual(b.s.getGameState().deals, a.s.getGameState().deals, "the durable round-trip is lossless");
+  const reloaded = b.s.getGameState().deals!;
+  assert.equal(reloaded[0]!.term?.expiresWeek, weekOf(a.s) + 2, "the explicit term survived");
+  assert.equal(reloaded[1]!.term?.vague, true, "the vague label survived");
 });
 
 Then("the player-facing deal shows the negotiated term but no shock or scale number", function (this: BbWorld) {
-  const d = this.ddDeal!;
-  // The player-facing projection: terms incl. the negotiated expiry (their own knowledge).
-  const facing = { id: d.id, parties: d.parties, kind: d.kind, terms: d.terms, status: d.status, expiresWeek: d.expiresWeek, vague: d.vague };
-  const blob = JSON.stringify(facing);
+  const { a } = live.get(this)!;
+  const deals = a.s.getGameState().deals!;
+  const blob = JSON.stringify(deals);
   assert.ok(blob.includes("expiresWeek"), "the negotiated term is the player's own knowledge");
   for (const banned of ["trust", "threat", "affinity", "confidence", "reliability", "vagueSoften", "perWeekRemaining", "maxScale", "severity"]) {
     assert.ok(!blob.includes(banned), `player-facing deal must not expose ${banned}`);

@@ -871,7 +871,8 @@ async def social_initiatives(user: str | None = None) -> dict:
 
 async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None = None,
                     traded_secret: dict | None = None, expected_beat_seq: int | None = None,
-                    idempotency_key: str | None = None, user: str | None = None) -> dict:
+                    idempotency_key: str | None = None, user: str | None = None,
+                    term: dict | None = None) -> dict:
     """Record a player<->NPC deal (0039). The engine tracks and adjudicates it. 0065 Part A — an
     optional `expected_beat_seq` CAS token is threaded in only when provided (absent ⇒ identical to
     today).
@@ -891,6 +892,8 @@ async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None =
         args["leverage"] = leverage
     if traded_secret is not None:
         args["tradedSecret"] = traded_secret
+    if term is not None:
+        args["term"] = term  # 0109 — the engine validates/bounds it
     if expected_beat_seq is not None:
         args["expectedBeatSeq"] = expected_beat_seq
     if idempotency_key is not None:

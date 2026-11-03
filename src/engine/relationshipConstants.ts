@@ -390,6 +390,9 @@ export const DEAL_DURATION = {
   /** #1802 — per-witness additive scale for the formation trust-fold: each co-present witness
    *  adds this much to the multiplier (1 + perWitness * audienceSize), capped at maxScale. */
   perWitness: 0.08,
+  /** 0109 / #1993 — the longest negotiated term (in weeks) the engine accepts from a proposed `term.weeks`;
+   *  a longer proposal is clamped to this (a bound, so a narrator can never mint an unbounded horizon). */
+  maxTermWeeks: 12,
 } as const;
 
 /**

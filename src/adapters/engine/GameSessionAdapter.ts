@@ -51,7 +51,7 @@ import type { Room, Zone, Occupancy } from "../../domain/house";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
-import { DealLedger, breakSeverityScale } from "../../engine/deals";
+import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { NPC_MEMORY, recordMemory, memoryTilt, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -9226,7 +9226,7 @@ export class GameSessionAdapter implements GameSession {
           .map(([id]) => id);
       }
     }
-    const deal = this.deals.make([PLAYER, target], req.kind, terms, evId, this.live.week, undefined, witnesses);
+    const deal = this.deals.make([PLAYER, target], req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
@@ -9897,6 +9897,9 @@ export class GameSessionAdapter implements GameSession {
     const { broken } = this.deals.reconcile(action, {
       rel: this.rel,
       rng: this.beatRng(),
+      // 0109 / #1993: the week the break lands in — lets an explicit negotiated term scale the betrayal-shock by
+      // the life it had left. A deal with no `expiresWeek` scales by 1 either way ⇒ byte-identical to 0039.
+      currentWeek: this.live.week,
       // 0121: the deal-depth layer — a kept deal compounds via the LOYALTY STREAK (consecutive kept deals
       // with the same partner scale the honored fold, bounded). OFF ⇒ the plain 0039/0109 honored fold,
       // byte-identical.
@@ -10577,6 +10580,9 @@ export class GameSessionAdapter implements GameSession {
       kind: d.kind,
       terms: d.terms,
       status: sealed ? "open" : d.status,
+      ...(d.expiresWeek !== undefined || d.vague
+        ? { term: { ...(d.expiresWeek !== undefined ? { expiresWeek: d.expiresWeek } : {}), ...(d.vague ? { vague: true } : {}) } }
+        : {}),
     };
   }
 

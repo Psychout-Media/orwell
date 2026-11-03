@@ -29,7 +29,7 @@ Today a deal's lifespan is **implicit by kind**: `safety`/`vote` quietly expire 
 A `Deal` (0039) gains an optional negotiated **duration**, in exactly one of two forms:
 
 - **Explicit** — a term the parties named out loud → an `expiresWeek` on the deal (made week 3, "two weeks"
-  → `expiresWeek: 5`). This generalizes today's kind-implied horizon.
+  → `expiresWeek: 4`; the current week counts). This generalizes today's kind-implied horizon.
 - **Vague** — the parties left it open / unspoken → the deal is simply **labeled `vague`** (a flag on the
   deal). **No numeric expiry, and NO per-party belief object** (owner ruling: *"just labeled as vague is
   enough"*).
@@ -100,3 +100,23 @@ weighting); persisted by **0007/0030**; under **0001** (Vault Wall) and **0021**
 Source: an owner edit during the 2026-06-27 PO-review sweep (`docs/decisions/PO-DECISIONS-LOG.md`). Turns a
 deal's lifespan from an implicit kind-horizon into a **negotiated, dramatic term** — and makes "when do you
 turn on an ally?" a real, weighted decision.
+
+## Addendum (2026-11-03, #1993) — the producer
+
+The ledger accepted a `duration` from the start, but nothing in play ever passed one, so the term, the
+severity scaling, `expireWeekScoped`'s explicit-term path and the daily-recap `nearingExpiry`/`vague` hook were
+unreachable. Now:
+
+- `makeDeal` takes an optional `term: { weeks?, vague? }`, **proposed by the narrator** from what the scene
+  actually named ("this week only" = `weeks: 1`; "for two weeks" = `weeks: 2`; unspoken = `vague: true`).
+- The **engine validates and bounds it** (`boundDealTerm`, `src/engine/deals.ts`): `weeks` counts the current
+  week (`expiresWeek = madeWeek + weeks - 1`), must be a finite integer ≥ 1, is clamped to
+  `DEAL_DURATION.maxTermWeeks` (12); junk is ignored; an explicit term beats `vague`. No usable term ⇒ the
+  kind-implied horizon, byte-identical to before.
+- The live break path now passes `currentWeek` into the reconcile sink — without it an explicit term could never
+  scale a break even once recorded.
+- `DealView.term` shows the player their own negotiated term (`expiresWeek` / `vague`) and nothing derived.
+- FE: `makeDeal` schema + `do_make_deal` + `orwell_engine.make_deal` forward `term` (shape-filtered only).
+- Scenarios 2–5 run the live session path; scenario 1 stays standalone (a pure-fold floor claim).
+- NPC-offered deals (0123) and the auto pact still carry no term — the narrator only proposes terms for deals the
+  player strikes in a scene.
