@@ -26,6 +26,13 @@ import type { EntityId } from "../../src/domain/ids";
 const FINALIST = npc(14);
 const OTHER_FINALIST = npc(15);
 const JURORS: EntityId[] = Array.from({ length: 9 }, (_, i) => npc(i + 1));
+// PO ruling 2026-11-03: only jurors belong in the jury house. Of the 14 evictions in a 16-person cast, the first
+// `cast − 2 − 9 = 5` are pre-jury (they go home) and the last nine are the jury. The cast is the player + npc:1..15, so the
+// real pre-jury slots are npc:10..13 and the player (jurors npc:1..9, finalists npc:14/15). The crafted eviction orders put
+// them first so the jurors sit at the jury-start index.
+const PRE_JURY: EntityId[] = [npc(10), npc(11), npc(12), npc(13), PLAYER];
+// A real jury never exceeds nine, so the "arrivals past the ninth" tests use ids outside the cast on purpose.
+const EXTRA_JURORS: EntityId[] = [npc(101), npc(102), npc(103)];
 
 /** Craft a jury-PHASE live state (sequester, not yet the finale) with a jury + recorded grievance. */
 function juryPhaseLive(grievanceJuror: EntityId): LiveSeasonState {
@@ -34,7 +41,7 @@ function juryPhaseLive(grievanceJuror: EntityId): LiveSeasonState {
     beat: "hoh-competition", // mid-sequester: the main game is still running with the two finalists +…
     active: [FINALIST, OTHER_FINALIST],
     vetoUsed: false,
-    evictionOrder: [...JURORS], // the last-nine — the jury house operates on these
+    evictionOrder: [...PRE_JURY, ...JURORS], // five pre-jury evictees, then the last-nine — the jury house operates on the latter
     finished: false,
     // The grievance recorded at the betrayed juror's eviction (the manner baseline the room spreads).
     mannerByEvictee: { [grievanceJuror]: { [FINALIST]: { betrayed: true } } },
@@ -278,14 +285,14 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
   function growingJury(user: string, seed: number, n: number) {
     const { reg, sb } = juryPhaseGame(user, seed);
     const snap = reg.snapshot(user) as SessionSnapshot;
-    (snap.live as LiveSeasonState).evictionOrder = JURORS.slice(0, n);
+    (snap.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS.slice(0, n)];
     reg.restore(user, snap);
     const s = reg.sandboxFor(user);
     s.session.setJuryHouseEnabled(true);
     const arrive = (k: number): void => {
       const next = reg.snapshot(user) as SessionSnapshot;
       const live = next.live as LiveSeasonState;
-      live.evictionOrder = JURORS.slice(0, (live.evictionOrder ?? []).length + k);
+      live.evictionOrder = [...PRE_JURY, ...JURORS.slice(0, (live.evictionOrder ?? []).length - PRE_JURY.length + k)];
       reg.restore(user, next);
       reg.sandboxFor(user).session.setJuryHouseEnabled(true);
     };
@@ -304,6 +311,23 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     for (let t = 0; t < 20; t++) sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.engine.events.count(), "no new jury-house life without a new juror").toBe(events);
     expect(sb.session.snapshot().juryHouseTickCount).toBe(tick);
+  });
+
+  it("a legacy save whose arrival counter ran AHEAD (it counted pre-jury evictions) replays the newest juror's stretch once, then settles", () => {
+    const { reg, sbOf } = growingJury("limbo-legacy", 22, 3);
+    // A pre-membership-fix save counted every eviction as an arrival: 5 pre-jury + 3 jurors = 8, ahead of the 3 jurors.
+    const snap = reg.snapshot("limbo-legacy") as SessionSnapshot;
+    snap.juryHouseArrivals = 8;
+    snap.juryHouseTickCount = 5;
+    reg.restore("limbo-legacy", snap);
+    reg.sandboxFor("limbo-legacy").session.setJuryHouseEnabled(true);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    const after = sb.session.snapshot();
+    expect(after.juryHouseArrivals, "settled to the juror count").toBe(3);
+    expect(after.juryHouseTickCount, "exactly one replayed stretch").toBe(6);
+    for (let t = 0; t < 10; t++) sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "and never again").toBe(6);
   });
 
   it("each arrival plays 1–3 hidden juror scenes, and a double eviction plays both owed stretches", () => {
@@ -330,7 +354,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     expect(sb.session.snapshot().juryHouseTickCount, "eight stretches for jurors two through nine").toBe(8);
     // Three more evictions (a rolling last-nine roster): each still owes a stretch.
     const snap = reg.snapshot("limbo-late") as SessionSnapshot;
-    (snap.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10), npc(11), npc(12)];
+    (snap.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, ...EXTRA_JURORS];
     reg.restore("limbo-late", snap);
     sb = sbOf();
     sb.session.setJuryHouseEnabled(true);
@@ -351,7 +375,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.engine.events.count(), "caught up: no replay of past arrivals").toBe(before);
     const next = reg.snapshot("limbo-legacy") as SessionSnapshot;
-    (next.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10)];
+    (next.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, EXTRA_JURORS[0]!];
     reg.restore("limbo-legacy", next);
     sb = reg.sandboxFor("limbo-legacy");
     sb.session.setJuryHouseEnabled(true);
@@ -381,7 +405,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     const { reg } = growingJury("limbo-goodbye", 28, 2);
     const snap = reg.snapshot("limbo-goodbye") as SessionSnapshot;
     const live = snap.live as LiveSeasonState;
-    live.evictionOrder = JURORS.slice(0, 3);
+    live.evictionOrder = [...PRE_JURY, ...JURORS.slice(0, 3)];
     // The third juror's eviction is still mid-stage (goodbyes not yet given).
     live.eviction = {
       stage: "goodbye", nominees: [npc(3), FINALIST], revealOrder: [], voteOf: {}, revealIx: 0,

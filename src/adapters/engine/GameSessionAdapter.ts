@@ -7851,8 +7851,13 @@ export class GameSessionAdapter implements GameSession {
     // The jury is exactly the last-nine evictees (0014/0045). The jury house models the NPC jurors only —
     // the player forms their OWN read (ADR 0003 / 0086 ruling #3), so a player-juror is excluded from the
     // grudge computation (they still EXPERIENCE the jury house as in-character life around them).
+    // PO ruling 2026-11-03: the jury house is fully sequestered — ONLY jurors belong in it. Pre-jury evictees
+    // go home and never share it (as on the real show). Jury membership is "evicted at or after the jury-start
+    // point" (the same rule as `seatOf`), not `slice(-9)` over time — which, while fewer than nine had been
+    // evicted, swept the early (pre-jury) evictees in. At the finale the juror set is identical (the last nine).
     const evicted = this.live.evictionOrder ?? [];
-    const jurors = evicted.slice(-9).filter((id) => id !== this.house!.player.id);
+    const juryEvictees = evicted.slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id);
+    const jurors = juryEvictees.slice(-9);
     if (jurors.length < 2) return; // sequester hasn't produced a society yet (pre-jury / first juror only)
     // Whom a grudge can matter against: the still-in-the-game houseguests (the potential finalists),
     // INCLUDING the player — jury management cuts both ways (audit A5), so a juror the player blindsided
@@ -7868,7 +7873,11 @@ export class GameSessionAdapter implements GameSession {
     // goodbye messages and exit interview (which set `mannerByEvictee`, the grievance a stretch spreads) come
     // after. Running the arrival's stretch only once the stage has closed lets a cold goodbye count (#1932).
     if (this.live.eviction) return;
-    const arrivals = evicted.filter((id) => id !== this.house!.player.id).length;
+    const arrivals = juryEvictees.length; // a pre-jury eviction is not an arrival: nobody joined the jury house
+    // A save that counted pre-jury evictions as arrivals is AHEAD of the juror count. Pull it back to one short, so
+    // the newest juror's stretch is played (once) under the correct membership instead of being skipped; after that
+    // the counters are equal and this never fires again.
+    if (this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
     if (this.juryHouseArrivals === null) {
       // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival
       // marker) is treated as caught up to now, so the NEXT eviction resumes the jury house normally.
@@ -11310,14 +11319,18 @@ export class GameSessionAdapter implements GameSession {
     return this.seatOf(PLAYER);
   }
 
+  /** The eviction-order index at which the last-9 jury forms: evictions before it are pre-jury (they go home). */
+  private juryStartIndex(): number {
+    const cast = this.house ? this.house.npcs.length + 1 : 16;
+    return Math.max(0, cast - 2 - 9);
+  }
+
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */
   private seatOf(id: EntityId): "active" | "jury" | "evicted" {
     const order = this.live?.evictionOrder ?? [];
     const idx = order.indexOf(id);
     if (idx < 0) return "active";
-    const cast = this.house ? this.house.npcs.length + 1 : 16;
-    const preJury = Math.max(0, cast - 2 - 9); // evictions before the last-9 jury forms
-    return idx >= preJury ? "jury" : "evicted";
+    return idx >= this.juryStartIndex() ? "jury" : "evicted";
   }
 
   /** The Vault-free projection. Player card = authored persona (no numeric stats); NPCs = name + status only. */
