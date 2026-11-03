@@ -168,6 +168,7 @@ drive("telegram:route-a", "hi", "A narration.", calls_a)
 drive("telegram:route-b", "hi", "B narration.", calls_b)
 assert {c[0] for c in calls_a} == {"get_game_state", "get_moment_prompt", "narrate"}, calls_a
 assert all(c[1] == "user_route_a" for c in calls_a), calls_a
+assert {c[0] for c in calls_b} == {"get_game_state", "get_moment_prompt", "narrate"}, calls_b
 assert all(c[1] == "user_route_b" for c in calls_b), calls_b
 `);
 });

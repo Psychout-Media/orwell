@@ -200,7 +200,9 @@ Given("a production twist held in reserve in the Vault", function (this: BbWorld
   this.specific = this.sandbox.addReservedTwist();
   // Seal the reserve in the exact shape production seals it (registry `setOnSeal`), so the deploy step reads WHAT to arm
   // from the Vault record itself rather than from a plan hard-coded beside it.
-  this.sandbox.engine.vault.writeHidden({ id: "twist:scenario", kind: "reserved-twist", content: "sealed reserve twist: double-eviction, fires week 5" });
+  for (const kind of ["double-eviction", "secret-veto", "battle-back"]) {
+    this.sandbox.engine.vault.writeHidden({ id: `twist:scenario:${kind}`, kind: "reserved-twist", content: `sealed reserve twist: ${kind}, fires in the season` });
+  }
   this.week = makeWeek({ outgoingHoh: npc(4), vetoWinner: npc(5) });
 });
 
@@ -215,7 +217,7 @@ When("it is deployed", function (this: BbWorld) {
   const reserved = new Set(
     this.sandbox!.engine.vault.readHidden({ kind: "reserved-twist" }).map((r) => /sealed reserve twist: ([a-z-]+),/.exec(r.content)?.[1]).filter((k): k is string => !!k),
   );
-  assert.ok(reserved.has("double-eviction"), "the Vault holds a sealed reserve twist to deploy");
+  for (const k of ["double-eviction", "secret-veto", "battle-back"]) assert.ok(reserved.has(k), `the Vault holds a sealed ${k} reserve twist to deploy`);
   s.twistPlan = {
     doubleEvictionAtActive: 8, doubleEvictionArmed: reserved.has("double-eviction"),
     secretVetoStreak: 2, secretVetoArmed: reserved.has("secret-veto"),

@@ -194,10 +194,14 @@ Then(
     // `get_user_setting`, unrelated to any game projection). So it has no handle on a game projection, the narrator, or
     // any engine tool; a new import of anything else fails here.
     const src = fs.readFileSync(path.join(FRONTEND_DIR, "src", "settings.py"), "utf8");
-    const modules = src.split("\n")
-      .map((l) => /^\s*(?:from\s+(\S+)\s+import\b|import\s+(\S+))/.exec(l))
-      .filter((m): m is RegExpExecArray => m !== null)
-      .map((m) => (m[1] ?? m[2])!.replace(/,$/, ""));
+    const modules: string[] = [];
+    for (const l of src.split("\n")) {
+      const from = /^\s*from\s+(\S+)\s+import\b/.exec(l);
+      if (from) { modules.push(from[1]!); continue; }
+      const imp = /^\s*import\s+([^#]+)/.exec(l);
+      // `import os, json as j` -> every comma-separated module (minus any `as` alias) is checked.
+      if (imp) for (const part of imp[1]!.split(",")) { const m = part.trim().split(/\s+/)[0]; if (m) modules.push(m); }
+    }
     assert.ok(modules.length > 0, "settings.py has imports to inspect");
     assert.ok(modules.includes("routes.prefs_routes"), "the scan reaches the function-local prefs import");
     const allowed = new Set(["os", "json", "time", "logging", "typing", "re", "src.constants", "core.atomic_io", "routes.prefs_routes"]);

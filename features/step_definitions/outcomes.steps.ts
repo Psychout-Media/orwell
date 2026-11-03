@@ -55,12 +55,22 @@ Then("eligibility rules and the Vault Wall still hold", function (this: BbWorld)
   assert.ok(!selectableReplacements(this.week!).includes(npc(5)), "veto-winner-replacement rule holds");
   // A competition resolved over that field under a deafening temperature weight still never lets them back in.
   assertHardRulesSurviveTemperature(this.week!);
-  // A resolved competition's result reaches the player stat-free: the Vault stays sealed after the roll too.
-  const view = JSON.stringify(this.sandbox!.competitionViewForPlayer());
-  assert.ok(view.length > 2, "the competition result reaches the player");
+  // A REALLY resolved competition's result reaches the player stat-free: resolve over the eligible field, seal the engine-side
+  // scores in the Vault, then project the real winner through the player surface.
+  const field: Competitor[] = eligibleForHOH(this.week!).map((id, i) => ({ id, stats: { physical: 0.3 + 0.04 * i, mental: 0.5, social: 0.5 } }));
+  const resolved = resolveCompetition(field, "physical", new CompetitionIntents(), new SeededRandom(7));
+  const statSentinel = this.sandbox!.freshSentinel("stat");
+  const sealed = `competition scores ${JSON.stringify(resolved.scores)} ${statSentinel}`;
+  this.sandbox!.engine.vault.writeHidden({ id: "vault:resolved-comp", kind: "hidden-attribute", subject: "competition", content: sealed });
+  this.sandbox!.hiddenContents.push(sealed);
+  this.sandbox!.sentinels.push(statSentinel);
+  const pv = this.sandbox!.player.competitionResult({ type: "HOH", winnerLabel: resolved.winner });
+  const view = JSON.stringify(pv);
+  assert.ok(pv.outcome.includes(resolved.winner), "the real winner reaches the player");
+  assert.notEqual(resolved.winner, npc(4), "the resolved winner respects the outgoing-HOH rule");
   const out = this.sandbox!.allPlayerOutputs();
-  for (const s of this.sandbox!.sentinels) assert.ok(!view.includes(s), "the competition result carries no sealed Vault content");
-  assert.ok(!/physical|mental|social|stat/i.test(view), "the competition result carries no stats");
+  assert.ok(!view.includes(statSentinel) && !view.includes(JSON.stringify(resolved.scores)), "the competition result carries no sealed scores");
+  assert.deepEqual(Object.keys(pv).sort(), ["outcome", "type"], "the competition view has no stat fields");
   for (const s of this.sandbox!.sentinels) assert.ok(!out.includes(s), "no Vault content leaks");
 });
 
