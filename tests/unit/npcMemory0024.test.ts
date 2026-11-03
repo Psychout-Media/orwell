@@ -223,15 +223,18 @@ describe("the adapter wiring (live)", () => {
         ["stateDelta", {}], ["seasonRecap", {}], ["dailyRecap", {}], ["getVisibleStateFor", { entity: "player" }], ["socialInitiatives", {}],
         ["playerDossier", {}], ["playerReceipts", {}],
       ] as const) {
-        let out: string;
-        try { out = JSON.stringify(await mcp.callTool(tool, args as Record<string, unknown>)); } catch { continue; } // a tool unavailable pre-premiere
+        // Every call must SUCCEED: a throwing/missing projection would otherwise pass the privacy sweep silently.
+        const out = JSON.stringify(await mcp.callTool(tool, args as Record<string, unknown>));
+        checked++;
         expect(out, `${label}: ${tool} must not carry the planted entry`).not.toContain("0.817346");
         expect(out, `${label}: ${tool} must not expose the ledger key`).not.toContain("npcMemory");
       }
     };
+    let checked = 0;
     await sweep("fresh");
     for (let i = 0; i < 12; i++) await mcp.callTool("advanceGame", {}); // the projections after the loop has run
     await sweep("after advancing");
+    expect(checked, "the sweep really checked projections").toBeGreaterThanOrEqual(20);
   });
 
   it("the ledger persists with the live state and survives a snapshot/restore", () => {
