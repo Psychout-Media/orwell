@@ -20,9 +20,16 @@ def test_a_round_that_reopens_the_shown_scene_is_a_replay():
 
 def test_ordinary_continuation_is_never_a_replay():
     assert not agent_loop._replays_shown("The house is quiet after he leaves. Somebody lets out a long breath.", SHOWN)
-    assert not agent_loop._replays_shown("Short one.", SHOWN)  # < 5 words
+    assert not agent_loop._replays_shown("Short one.", SHOWN)  # < 6 words
+    # a five-word opening is never compared (the contract is a six-word prefix)
+    assert not agent_loop._replays_shown("He nods at the floor. Then more.", "He nods at the floor. Then goes.")
     assert not agent_loop._replays_shown("The room doesn't move for a second.", "")  # nothing shown yet
     assert not agent_loop._replays_shown("", SHOWN)
+
+
+def test_a_replay_of_any_shown_line_is_caught_even_across_a_bare_newline():
+    shown = '**"Keisha."**\nThe reader closes the folder and sets it down.\nThe room is dead silent now.'
+    assert agent_loop._replays_shown("The reader closes the folder and sets it down. More follows.", shown)
 
 
 def test_only_the_opening_sentence_decides():
@@ -31,9 +38,11 @@ def test_only_the_opening_sentence_decides():
 
 
 def test_blank_model_turn_on_a_readable_board_states_the_board():
-    live = {"phase": "eviction", "week": 1, "hohName": "Role H", "nomNames": ["Role N1", "Role N2"], "vetoHolderName": "Role V"}
+    live = {"phase": "eviction", "week": 1, "hohName": "Role H", "nomNames": ["Role N1", "Role N2"], "vetoHolderName": "Role V", "evicted": 3}
     line = agent_loop._blank_turn_fallback_for_board(live, upstream_failed=False)
     assert "Role V holds the Power of Veto" in line and "Role H is Head of Household" in line
+    assert "on the block: Role N1, Role N2" in line, "both nominees are stated"
+    assert "3 houseguests evicted so far" in line, "the evicted count is stated"
     assert "hangs for a beat" not in line
 
 

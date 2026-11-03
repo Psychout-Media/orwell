@@ -4950,7 +4950,7 @@ def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_activ
     return cleaned_round
 
 
-_REPLAY_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?\n])\s+")
+_REPLAY_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")  # a sentence end OR any newline (the streaming splitter treats a bare newline as a boundary too)
 _REPLAY_WORD_RE = re.compile(r"[a-z0-9']+")
 
 
@@ -4960,12 +4960,12 @@ def _replay_words(sentence: str) -> list:
     return _REPLAY_WORD_RE.findall(t.replace("*", " ").lower())
 
 
-def _replays_shown(clean: str, shown: str, *, prefix_words: int = 6, min_words: int = 5) -> bool:
+def _replays_shown(clean: str, shown: str, *, prefix_words: int = 6, min_words: int = 6) -> bool:
     """F-6 (rehearsal 2026-11-03) — a LATER round of the same turn that opens by re-telling a scene the player has ALREADY been shown.
 
     The model ignores "CONTINUE — DO NOT REOPEN" and re-narrates the whole scene in a fresh sample, and #829 turn-coalescing then glues the two
     takes into one bubble. A round whose FIRST sentence opens with the same leading words as a sentence already shown this turn is a replay:
-    the caller drops the round (nothing streams, nothing persists). Deliberately narrow: exact leading-words match of a >=5-word sentence, so
+    the caller drops the round (nothing streams, nothing persists). Deliberately narrow: exact 6-word-prefix match of a >=6-word sentence, so
     ordinary continuation prose is never touched. Pure."""
     first = next((x for x in _REPLAY_SENTENCE_SPLIT_RE.split((clean or "").strip()) if _replay_words(x)), "")
     w = _replay_words(first)
