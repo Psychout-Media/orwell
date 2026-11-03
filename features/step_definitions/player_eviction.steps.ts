@@ -78,6 +78,15 @@ Then("the player's status is marked evicted", function (this: BbWorld) {
   assert.equal(status, "evicted");
 });
 
+Then("the player's next decision is the exit interview or the spectator choice", function (this: BbWorld) {
+  // The evicted player is never left with "nothing": the FIRST decision raised after the eviction resolves is the 0130 exit interview,
+  // or the 0133 spectator-choice card (the exit interview is skipped for a leaver with no interview to give). Advance to the first pending.
+  const s = this.peSandbox!.session;
+  let kind: string | undefined = s.getGameState().pending?.kind;
+  for (let i = 0; kind === undefined && i < 6; i++) kind = s.advanceGame().pending?.kind;
+  assert.ok(kind === "exit-interview" || kind === "spectator-choice", `next pending is the exit interview or the spectator choice, got ${String(kind)}`);
+});
+
 Then("the season reaches a defined end state for that player", function (this: BbWorld) {
   // A pre-jury player holds no power and casts no vote; the loop still runs to a crowned winner.
   const s = this.peSandbox!.session;

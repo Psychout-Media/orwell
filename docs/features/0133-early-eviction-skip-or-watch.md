@@ -33,13 +33,14 @@ changing how NPCs are evicted or how the season is simulated.
   answers the choice. Persisted in the snapshot; absent for an active player.
 - **`spectator-choice` decision** (card-only kind — see the 2026-11-03 PO log: new kinds are card-only by
   default). Raised once, right after the pre-jury evictee's goodbye / exit interview (0130). Answers:
-  `{ kind: "spectator-choice", mode: "watch" | "skip" }`. A **watch → skip** switch is allowed at any later
-  week through the same decision kind; **skip is irreversible**.
+  `{ kind: "spectator-choice", vote: "watch" | "skip" }` (the shared single-pick field `vote`, not a `mode` field). A **watch → skip**
+  switch is allowed at any later week through the same decision kind; **skip is irreversible**: a later `watch` after `skip` is refused with a typed
+  `EngineRefusal` (a clear reason the narrator can voice), never a silent no-op, and the state is unchanged.
 - **Watch = the skeleton season.** The engine, not the model, runs the player-less weeks. Each completed week
   produces ONE `week-digest` carried on the view (`weekDigest`): HOH, nominees, veto holder and whether it was
   used, who left, and the new jury size — **public broadcast facts only** (the same set a sequestered juror
-  sees under 0046). The digest is recorded as a **non-hidden event** (the player is in its witness set), so
-  nothing is narrated that is not recorded. The narrator voices it in a few lines; it never adds a result.
+  sees under 0046). The digest lives in `live.weekDigests` (persisted season state), **not** an EventStore event: it is a public
+  projection of the already-recorded ceremony beats, so nothing is narrated that is not recorded. The narrator voices it in a few lines; it never adds a result.
 - **Skip = the same fast-forward, run to the finale in one commit.** It returns the list of skipped weeks'
   digests (so a recap is one read away) and lands at the finale reveal.
 - **Determinism (calibration-neutral).** The player has no decisions in either mode, so the NPC-only path draws
@@ -62,20 +63,20 @@ changing how NPCs are evicted or how the season is simulated.
 ## 4. Contracts (stack-agnostic)
 
 ```
-GameStateView += spectator?: { mode: "watch"|"skip" }, weekDigest?: WeekDigest[]      // Vault-free, public facts only
+GameStateView += player.spectator?: "watch"|"skip", weekDigests?: WeekDigestView[]      // Vault-free, public facts only
 PendingDecisionView.kind += "spectator-choice" | "finale-interview"
-SubmitDecisionReq += { kind: "spectator-choice", mode } | { kind: "finale-interview", stance, words? }
+SubmitDecisionReq += { kind: "spectator-choice", vote: "watch"|"skip" } | { kind: "finale-interview", stance, words? }
 advanceGame (spectator active) → runs one WHOLE player-less week, returns its digest;  skip → runs to the finale
 ```
 
 ## 5. Definition of Done
 
-- [ ] A pre-jury eviction raises the `spectator-choice` card; `watch` and `skip` both complete the season.
-- [ ] `watch` yields one recorded, public `week-digest` per remaining week; `skip` lands at the finale with the
+- [x] A pre-jury eviction raises the `spectator-choice` card; `watch` and `skip` both complete the season.
+- [x] `watch` yields one recorded, public `week-digest` per remaining week; `skip` lands at the finale with the
       digests available.
-- [ ] Same seed ⇒ same evictions, finalists, jury and winner across {watch, skip, pre-feature}.
-- [ ] Both modes end in a `finale-interview` raised after the crowning; the answer is recorded, voiced, in the
+- [x] Same seed ⇒ same evictions, finalists, jury and winner across {watch, skip, pre-feature}.
+- [x] Both modes end in a `finale-interview` raised after the crowning; the answer is recorded, voiced, in the
       retrospective, moves no vote, and an unanswered card never blocks anything.
-- [ ] A self-evicted player gets none of it (0061 forfeit unchanged).
-- [ ] Vault canary green for the new projections; no hidden story before the crowning.
-- [ ] FE: the two new kinds have decision cards; `DECISION_KINDS` and the card-only gate (A-6) cover them.
+- [x] A self-evicted player gets none of it (0061 forfeit unchanged).
+- [x] Vault canary green for the new projections; no hidden story before the crowning.
+- [x] FE: the two new kinds have decision cards; `DECISION_KINDS` and the card-only gate (A-6) cover them.

@@ -9,10 +9,12 @@ Feature: Player eviction & the juror's seat
   at the finale they cast their vote. A juror only ever learns the public ceremony outcomes — never the
   house's hidden scheming.
 
+  # Amended by 0133: a pre-jury evictee's path ends with the exit interview, then the spectator-choice card (skip / watch).
   Scenario: A pre-jury eviction reaches a defined end
     Given a started game in which the player is evicted before the jury
     When the eviction resolves
     Then the player's status is marked evicted
+    And the player's next decision is the exit interview or the spectator choice
     And the season reaches a defined end state for that player
 
   Scenario: A jury-phase eviction seats the player on the jury

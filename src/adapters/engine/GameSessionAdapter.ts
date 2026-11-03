@@ -8938,7 +8938,8 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!live?.spectator) return undefined;
     const since = live.spectator.sinceWeek;
-    const rows = (live.weekDigests ?? []).filter((d) => d.week >= since);
+    // The player's OWN eviction night is not a "remaining" week (they lived it; the exit interview voiced it), so it is not digested for them.
+    const rows = (live.weekDigests ?? []).filter((d) => d.week >= since && d.evictee !== PLAYER);
     if (rows.length === 0) return undefined;
     return rows.map((d) => ({
       week: d.week,
@@ -9077,6 +9078,10 @@ export class GameSessionAdapter implements GameSession {
           this.commit({ beat: "spectator-choice", content: `${PLAYER} switches to skipping ahead to the finale`, participants: [PLAYER] });
           return this.advanceView(null);
         }));
+      }
+      // Skip is irreversible: a later `watch` is a deliberate typed refusal (not a silent no-op) so the narrator can tell the player why.
+      if (this.live.spectator?.mode === "skip" && mode === "watch") {
+        throw new EngineRefusal("skipping ahead to the finale is irreversible — the player has already chosen to skip, so watching the rest of the season is no longer an option");
       }
       return remember(this.advanceView(null));
     }

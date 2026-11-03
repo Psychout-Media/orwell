@@ -13,6 +13,10 @@
 > **Executable spec:** [`0046-player-eviction-and-jury.feature`](./0046-player-eviction-and-jury.feature)
 > **Tests:** `tests/unit/playerEviction.test.ts` (status/moment, completion, juror vote, broadcast-only
 > knowledge, Vault canary) + the name-agnostic `.feature` (`features/step_definitions/player_eviction.steps.ts`).
+>
+> **Amended by 0133 (pre-jury path).** A pre-jury evictee's path now ends with the goodbye / exit interview (0130), then the
+> `spectator-choice` card (skip to the finale reveal, or watch the skeleton season), then the finale-night interview. Pre-jury evictees go
+> home and appear in no later event (#1957); the sequestered jury house is a juror-only space (0129).
 
 ## 1. Summary
 
