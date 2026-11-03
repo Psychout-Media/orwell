@@ -516,8 +516,6 @@ def clear_social_runway(user) -> None:
     _RUNWAY_SIG.pop(key, None)
     _RUNWAY_LAST_DONE.pop(key, None)  # #1127: forget the lingered-through marker on reset/end
     _DAY_BREAK_STEER.pop(key, None)   # P1-2: a reset also drops a pending day-break steer
-    _PENDING_CHYRON.pop(key, None)    # F-2/F-4: nor owe a stale chyron to a new season
-    _AIRED_STEER.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -566,6 +564,15 @@ def stash_preresolved_announcements(user, adv) -> None:
         _AIRED_STEER[key] = (_AIRED_STEER_TURNS, heads)
     except Exception as _e:  # never break a turn over observability
         logger.debug("[orwell] stash_preresolved_announcements skipped: %s", _e)
+
+
+def clear_preresolve_debt(user) -> None:
+    """Drop any owed chyron / aired-fact steer — ONLY where no live season exists (a reset/ended game). Deliberately
+    NOT part of `clear_social_runway`: the pre-resolve itself calls that when it lands on a player decision, which
+    would delete the announcement it just stashed (review on #1998)."""
+    key = _runway_key(user)
+    _PENDING_CHYRON.pop(key, None)
+    _AIRED_STEER.pop(key, None)
 
 
 def pop_pending_chyron(user) -> list:
@@ -5107,6 +5114,7 @@ async def apply_game_framing(
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again
         clear_social_runway(user)  # no live season — drop any held runway so a new one starts clean
+        clear_preresolve_debt(user)  # F-2/F-4: and never owe a stale chyron to a new season
         _DR_INVITED_BEATS.pop(_gkey, None)  # 0013 §5: a fresh season re-invites cleanly
         # #1626: a new season for the SAME user must re-resolve its own producer byline — clear the
         # last season's cached name at the season-reset BOUNDARY (active→inactive) so

@@ -67,9 +67,15 @@ def test_no_announcements_means_no_steer_and_no_debt():
     assert chat_helpers.pop_pending_chyron("u") == [] and chat_helpers._aired_fact_steer("u") is None
 
 
-def test_a_reset_drops_a_stale_debt():
+def test_the_pre_resolves_own_runway_clear_never_deletes_the_debt_it_just_stashed():
     chat_helpers.stash_preresolved_announcements("u", {"announcements": [ANN]})
-    chat_helpers.clear_social_runway("u")
+    chat_helpers.clear_social_runway("u")  # the pre-resolve calls this when it lands on a player decision
+    assert chat_helpers.pop_pending_chyron("u") == [ANN]
+
+
+def test_a_season_with_no_live_game_drops_a_stale_debt():
+    chat_helpers.stash_preresolved_announcements("u", {"announcements": [ANN]})
+    chat_helpers.clear_preresolve_debt("u")
     assert chat_helpers.pop_pending_chyron("u") == [] and chat_helpers._aired_fact_steer("u") is None
 
 
