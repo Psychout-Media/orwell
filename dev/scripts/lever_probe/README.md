@@ -49,3 +49,14 @@ ceremony beats (which production already forces with `tool_choice` via `required
 the last closed-set phase the walk reached (eviction), not the social moment. `export_scenarios.ts` now requests the
 `social` moment for them (and fails loudly if a scenario is missing); those two rows should be re-measured before they
 are relied on. The closed-set rows (advance beats) are unaffected. The tool menu is a curated subset of production's.
+
+### Re-measure on the corrected social-moment prompt (2026-11-03; `--rounds 3`, n=10, deal only — the $0.25/variant cap was spent on the deal row)
+
+| scenario | base | `deal-desc` (makeDeal description reword) |
+|---|---|---|
+| deal (makeDeal), social moment | **9/10** | 9/10 |
+
+**Conclusion: on the right prompt the base model already lands `makeDeal` 9/10 within 3 rounds, so no fix is needed**
+and the earlier 5/10 was an artefact of measuring under the eviction prompt. The description reword changes nothing
+(9/10) and was not shipped. Confide was not re-measured (budget); its earlier 5/10 shares the same flaw and should be
+treated as unknown. Cost: $0.51. The `deal-desc` variant remains in the harness for re-checks.

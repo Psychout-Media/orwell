@@ -15,7 +15,11 @@ import argparse, json, os, sys, time, urllib.error, urllib.request, importlib
 PRICE_IN, PRICE_OUT = 0.30, 0.60
 
 
-def load_tools():
+DEAL_DESC = ("Call IMMEDIATELY when the player's own move completes a handshake in the scene — do not gather "
+             "npcVoice/getGameState first, and note recordInteraction does NOT create a deal.")
+
+
+def load_tools(variant="base"):
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend"))
     importlib.import_module("src.agent_tools")
     ts = importlib.import_module("src.tool_schemas")
@@ -24,7 +28,15 @@ def load_tools():
     # exact replay of production's menu.
     keep = {"advanceGame", "submitDecision", "makeDeal", "confide", "recordInteraction", "getGameState",
             "npcVoice", "whereabouts", "moveTo", "socialRead", "askProducers", "socialInitiatives", "diaryRoom"}
-    return [t for t in ts.FUNCTION_TOOL_SCHEMAS if t["function"]["name"] in keep]
+    tools = [t for t in ts.FUNCTION_TOOL_SCHEMAS if t["function"]["name"] in keep]
+    if variant == "deal-desc":  # candidate makeDeal description reword (harness-only override; no product change)
+        import copy
+        tools = copy.deepcopy(tools)
+        for t in tools:
+            if t["function"]["name"] == "makeDeal":
+                t["function"]["description"] = t["function"]["description"].replace(
+                    "Call when a handshake actually happens in the scene.", DEAL_DESC)
+    return tools
 
 
 REMINDER = ("LEVER CHECK before you write a word: if the player's move strikes a deal, call makeDeal; if it presses "
@@ -68,7 +80,7 @@ def main():
     ap.add_argument("--cap-usd", type=float, default=1.5)
     ap.add_argument("--rounds", type=int, default=1, help="max model rounds per trial (stubbed tool results between)")
     ap.add_argument("--only", default="", help="comma-separated scenario ids to run")
-    ap.add_argument("--variant", default="base", choices=["base", "tail-reminder", "scoped"], help="base | scoped | tail-reminder (a short last-message lever reminder)")
+    ap.add_argument("--variant", default="base", choices=["base", "tail-reminder", "scoped", "deal-desc"], help="base | scoped | tail-reminder (a short last-message lever reminder)")
     ap.add_argument("--tool-choice", default="auto", choices=["auto", "required"],
                     help="auto | required (required = an ANY-tool baseline: the model may satisfy it with any available tool)")
     ap.add_argument("--price-in", type=float, default=PRICE_IN, help="USD per 1M prompt tokens (defaults: DeepSeek flash)")
@@ -79,7 +91,7 @@ def main():
     key = os.environ.get("DEEPSEEK_API_KEY")
     if not key:
         sys.exit("DEEPSEEK_API_KEY not set in the environment (never pass it on the command line or write it to a file)")
-    tools = load_tools()
+    tools = load_tools(a.variant)
     scenarios = json.load(open(a.scenarios))
     if a.only:
         scenarios = [x for x in scenarios if x["id"] in a.only.split(",")]
