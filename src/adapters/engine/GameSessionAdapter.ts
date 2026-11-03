@@ -1934,6 +1934,8 @@ export class GameSessionAdapter implements GameSession {
    * remembers exactly what the player has been told (non-degradation, 0007/0030).
    */
   private confideState: Record<EntityId, { tier: DisclosureTier; truthful: boolean }> = {};
+  /** 0129 slice 4 — contents the player was told by a juror through `askJuror` (persisted; append-only). */
+  private jurorTold = new Set<string>();
   /** 0075 — the per-season count of lies told TO the player (the hard `CONFIDENCE.maxLiesPerSeason` cap). */
   private lieCount = 0;
   /**
@@ -3461,6 +3463,7 @@ export class GameSessionAdapter implements GameSession {
       // persisted so a restored game remembers exactly what the player was told and never re-opens the
       // lie cap or re-tells a secret at a lower tier (non-degradation, 0007/0030).
       ...(Object.keys(this.confideState).length ? { confideState: cloneSession(this.confideState) } : {}),
+      ...(this.jurorTold.size ? { jurorTold: [...this.jurorTold] } : {}),
       ...(this.lieCount > 0 ? { confideLieCount: this.lieCount } : {}),
       // 0093/0099 — secrets as power: which learned secrets the player has SPENT (`usedAs`) + the per-
       // season expose/trade/bluff counts. Persisted so a restored game remembers a spent secret can't be
@@ -3792,6 +3795,7 @@ export class GameSessionAdapter implements GameSession {
     // 0075 — restore the confidence ledger (absent on pre-0075 saves ⇒ empty/zero, never re-confides
     // a secret the player already heard, the cap intact).
     this.confideState = core.confideState ? cloneSession(core.confideState) : {};
+    this.jurorTold = new Set(core.jurorTold ?? []);
     this.lieCount = core.confideLieCount ?? 0;
     // 0093/0099 — restore the secrets-as-power ledger (absent on pre-0093 saves ⇒ empty/zero): which
     // secrets the player has spent + the per-season caps, so a spent secret stays spent across a restart.
@@ -5272,6 +5276,7 @@ export class GameSessionAdapter implements GameSession {
       this.eruptionCount = 0; // 0091 — a fresh season starts with no eruptions + an unspent cap
       this.triggerTickCount = 0;
       this.confideState = {};
+    this.jurorTold = new Set();
       this.lieCount = 0;
       this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets and an unspent cap
       this.resetTieSurfacing(); // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent
@@ -5574,6 +5579,7 @@ export class GameSessionAdapter implements GameSession {
     this.eruptionCount = 0; // 0091 — a fresh season starts with no eruptions + an unspent cap
     this.triggerTickCount = 0;
     this.confideState = {};
+    this.jurorTold = new Set();
     this.lieCount = 0;
     this.resetSecretPower(); // 0093/0099 — a warmed/fresh cast has spent no secrets, the caps unspent
     this.resetTieSurfacing(); // 0059 §5 — a warmed/fresh cast carries no tie-surfacing history
@@ -5944,6 +5950,7 @@ export class GameSessionAdapter implements GameSession {
     this.triggerTickCount = 0;
     // 0075 — a fresh season has heard no confidences and spent no lies.
     this.confideState = {};
+    this.jurorTold = new Set();
     this.lieCount = 0;
     this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets, the caps unspent
     // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent, the stream at 0.
@@ -8835,12 +8842,40 @@ export class GameSessionAdapter implements GameSession {
     const pick = candidates[Math.floor(rng.next() * candidates.length)]!;
     const content = this.onJurorTell(jurorId, pick.factId!, 0.7);
     if (content === null) return none;
+    this.jurorTold.add(content); // the informed vote card reads ONLY tellings made here, in the jury house
     this.onPlayerEvent?.(`${this.nameOf(jurorId)} tells ${this.nameOf(PLAYER)} something in the jury house`, [PLAYER, jurorId], "conversation");
     this.persist();
     const result: AskJurorResult = { told: true, bearing: juror.bearing, content: this.humanize(content) };
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, result);
     return result;
   }
+
+  /**
+   * 0129 slice 4 — the informed juror-vote card's brief: what the PLAYER was told by fellow jurors (`told-by:<juror>`
+   * facts in the player's own knowledge — the sole source, so nothing a juror merely holds can ride), grouped by the
+   * finalist it concerned (the fact's subject, or the finalist named in it), most recent last, capped per finalist.
+   * `undefined` when nothing relevant was told (the card is then unchanged).
+   */
+  private jurorBriefFor(finalists: readonly EntityId[]): Array<{ finalist: NamedRef; heard: string[] }> | undefined {
+    const jurorIds = new Set((this.juryHouseView()?.jurors ?? []).map((j) => j.id));
+    if (jurorIds.size === 0) return undefined;
+    const told = (this.playerKnowledgeReader?.() ?? []).filter((k) => {
+      const m = /^told-by:(.+)$/.exec(k.pathway ?? "");
+      return !!m && jurorIds.has(m[1]!) && this.jurorTold.has(k.content);
+    });
+    if (told.length === 0) return undefined;
+    const out: Array<{ finalist: NamedRef; heard: string[] }> = [];
+    for (const f of finalists) {
+      const name = this.nameOf(f);
+      const heard = told
+        .filter((k) => k.subject === f || (name.length > 0 && k.content.includes(name)))
+        .slice(-GameSessionAdapter.JUROR_BRIEF_CAP)
+        .map((k) => this.humanize(k.content));
+      if (heard.length > 0) out.push({ finalist: { id: f, name }, heard });
+    }
+    return out.length > 0 ? out : undefined;
+  }
+  private static readonly JUROR_BRIEF_CAP = 4;
 
   /**
    * 0129 — the jury house roster (slice 1): the OTHER jurors the juror-player lives with, each with a categorical
@@ -10920,7 +10955,10 @@ export class GameSessionAdapter implements GameSession {
           options: refs([p.finalist]), finalist: this.named(p.finalist)!, pick: 0,
         };
       case "juror-vote":
-        return { kind: p.kind, by, prompt: "You sit on the jury — cast your vote for the winner.", options: refs(p.finalists), pick: 1 };
+        return {
+          kind: p.kind, by, prompt: "You sit on the jury — cast your vote for the winner.", options: refs(p.finalists), pick: 1,
+          ...(() => { const jb = this.jurorBriefFor(p.finalists); return jb ? { jurorBrief: jb } : {}; })(),
+        };
       case "self-evict":
         // 0061: the self-evict confirmation never lives on `this.live.pending` (it rides
         // `selfEvictPending`, surfaced above), so this branch is unreachable — handled for

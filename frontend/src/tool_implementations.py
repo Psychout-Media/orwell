@@ -5663,7 +5663,8 @@ async def do_ask_juror(content: str, owner: Optional[str] = None) -> Dict:
         args = _parse_tool_args(content)
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
-    juror_id = (args.get("jurorId") or args.get("juror_id") or args.get("npcId") or "").strip()
+    raw = args.get("jurorId") or args.get("juror_id") or args.get("npcId") if isinstance(args, dict) else None
+    juror_id = raw.strip() if isinstance(raw, str) else ""
     if not juror_id:
         return {"error": "jurorId (the fellow juror being asked) is required", "exit_code": 1}
     try:

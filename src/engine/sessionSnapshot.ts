@@ -380,6 +380,8 @@ export interface SessionCore {
    * tier, and never re-opens the lie cap. Absent on pre-0075 saves ⇒ empty/zero (non-degradation).
    */
   confideState?: Record<EntityId, { tier: "none" | "tease" | "partial" | "full"; truthful: boolean }>;
+  /** 0129 slice 4 — the contents of facts a juror TOLD the player in the jury house via `askJuror` (the informed vote card's only source). Append-only. */
+  jurorTold?: string[];
   confideLieCount?: number;
   /**
    * Features 0093 + 0099 — secrets as power. `secretUsedAs` maps each learned `factId` the player has
@@ -821,6 +823,11 @@ export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSn
   // `GameSessionAdapter.confide`), so only presence is guarded — not tier-rank monotonicity.
   const laterConfide = later.confideState ?? {};
   for (const id of Object.keys(earlier.confideState ?? {})) if (!(id in laterConfide)) return false;
+
+  // jurorTold (0129 slice 4): the contents a juror told the player in the jury house — append-only; a dropped
+  // telling would silently erase part of the informed vote card.
+  const laterJurorTold = new Set(later.jurorTold ?? []);
+  for (const c of earlier.jurorTold ?? []) if (!laterJurorTold.has(c)) return false;
 
   // secretUsedAs (0093/0099): once a wielded secret is recorded, the record is never lost. Its value can
   // still transition traded→exposed, so only presence is guarded, not value stability.

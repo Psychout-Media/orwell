@@ -649,6 +649,25 @@
       card.appendChild(still);
     }
 
+    // 0129 slice 4 — the INFORMED jury vote: what fellow jurors TOLD the player (their own knowledge, by finalist).
+    // textContent only (model-adjacent text never goes through innerHTML). Absent ⇒ the card is unchanged.
+    if (kind === "juror-vote" && Array.isArray(pending.jurorBrief) && pending.jurorBrief.length) {
+      const brief = document.createElement("div");
+      brief.className = "odec-stillin";
+      brief.setAttribute("tabindex", "0");
+      brief.setAttribute("role", "region");
+      brief.setAttribute("aria-label", "what the jurors told you");
+      const head = document.createElement("strong");
+      head.textContent = "What the jurors told you:";
+      brief.appendChild(head);
+      pending.jurorBrief.forEach((b) => {
+        const row = document.createElement("div");
+        row.textContent = `${(b.finalist && b.finalist.name) || ""} — ${(b.heard || []).join("; ")}`;
+        brief.appendChild(row);
+      });
+      card.appendChild(brief);
+    }
+
     const opts = document.createElement("div");
     opts.className = "odec-opts";
     card.appendChild(opts);

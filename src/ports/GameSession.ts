@@ -1317,6 +1317,14 @@ export interface PendingDecisionView {
   juror?: NamedRef;
   /** The finalist being questioned, for a `juror-question` (E37); absent otherwise. */
   finalist?: NamedRef;
+  /**
+   * 0129 slice 4 — the INFORMED juror-vote card (ASSUMED, pending Ryne): for a `juror-vote`, what the player was
+   * TOLD by fellow jurors in the jury house, grouped by the finalist it concerned. The player's OWN knowledge only
+   * (facts that reached them through `told-by:<juror>`), capped, humanized — no vote lean, no number, nothing a
+   * juror holds that was not actually told. Absent unless at least one such telling exists (⇒ the card is
+   * byte-identical to before).
+   */
+  jurorBrief?: Array<{ finalist: NamedRef; heard: string[] }>;
   /** The evictee receiving the player's goodbye, for a `goodbye-message` (E34); absent otherwise. */
   evictee?: NamedRef;
   /**
