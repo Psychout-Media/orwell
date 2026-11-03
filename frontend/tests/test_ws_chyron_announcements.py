@@ -44,7 +44,9 @@ def test_the_dispatch_uses_the_same_event_the_chyron_listens_for_and_is_the_only
     assert s.count("new CustomEvent('orwell:announcements'") == 1, "exactly one dispatch site in the WS splice"
     deco = _src("orwellDecision.js")
     assert 'addEventListener("orwell:announcements"' in deco
-    assert "_chyronSeen" in deco, "the chyron dedups by id, so a frame seen on SSE + WS cannot double-render"
+    # pin the guard itself (not just the identifier): render returns early for an id already seen, then records it
+    assert re.search(r"if \(!a \|\| !a\.id \|\| _chyronSeen\.has\(a\.id\)\) return;\s*_chyronSeen\.add\(a\.id\);", deco), \
+        "the chyron dedups by id, so a frame seen on SSE + WS cannot double-render"
 
 
 def test_chat_routes_forwards_the_owed_announcements_event():
