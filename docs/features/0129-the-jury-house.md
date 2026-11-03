@@ -158,3 +158,24 @@ The optional roundtable sub-scope touches the finale calibration (juryReach), he
 **Open decision (deferred to build time):** whether to ship the optional NPC-juror-vote roundtable effect at
 all, or keep 0129 purely the player's *experience* (perspectives + Q&A + informed own-vote). Spec ships the
 experience as the core; the vote-nudging is flagged and optional.
+
+## 9. Build addendum (A-13, 2026-11-03) — sliced; what is built, what is held
+
+Built on A-8's spectator machinery (0133). **Slice 1 — the roster projection (built):** `GameStateView.juryHouse`,
+present only while the player holds a juror's seat (never for a self-evicted player, 0061): the OTHER jurors in the
+order they joined, each `{id, name, evictedWeek, bearing}` where `bearing` (`warm | even | cool | sour`) is a categorical
+read of the **recorded** jury-management manner toward the player (the eviction manner plus any broken-deal demerit; no number, no hidden lean). Read-only, so the
+seeded spine is byte-identical (`tests/unit/juryHouse0129.test.ts`: whitelist keys, Vault sentinel, manner → bearing,
+read-only determinism). The existing 0100 `juryHouse.ts` is the grudge book (a different concern) — unchanged.
+
+**Slices to come (same feature, each its own PR):** (2) per-juror *shareable knowledge* — each juror's own
+witness-bounded memory + the broadcast + jury gossip, via a Vault-free per-juror reader wired from the composition root,
+with the 0001 canary extended to it; (3) the narrator side — a `jury-house` moment fragment and the Q&A through the
+existing social-approach seam (player-witnessed, answered only from the addressed juror's view, no pathway back to the
+live house), with the model-callable lever wired through the FE tool layer in the same change (the lever-drift trap);
+(4) the informed `juror-vote` card. The roundtable (NPC vote nudging) stays deferred behind `ORWELL_JURY_ROUNDTABLE`
+(default off).
+
+**HELD for Ryne (not built, default chosen):** whether a juror-player may skip/watch through the jury house or leave it
+early. Default per his rulings: jurors are sequestered through the finale; there is no skip/watch for jurors.
+

@@ -364,6 +364,22 @@ export interface WeekDigestView {
   juryCount: number;
 }
 
+/** How a juror regards the player, read from the RECORDED manner of their eviction (categorical; no numbers). */
+export type JurorBearing = "warm" | "even" | "cool" | "sour";
+
+export interface JuryHouseJurorView {
+  id: EntityId;
+  name: string;
+  /** The week they went home (public record). */
+  evictedWeek: number | null;
+  bearing: JurorBearing;
+}
+
+export interface JuryHouseView {
+  /** The other jurors, in the order they joined the jury. Never includes the player. */
+  jurors: JuryHouseJurorView[];
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -381,6 +397,13 @@ export interface GameStateView {
    * week-by-week digests since their eviction (public broadcast facts only). Absent otherwise.
    */
   weekDigests?: WeekDigestView[];
+  /**
+   * 0129 — the JURY HOUSE: present ONLY while the player holds a juror's seat (0046). The other houseguests who are
+   * on the jury right now, with the player's own public read of each. Vault-free by construction: the roster is the
+   * public eviction order; `bearing` is a CATEGORICAL read of the recorded eviction manner toward the player (the
+   * player witnessed how they left) — never an edge number, never a hidden lean. Absent for everyone else.
+   */
+  juryHouse?: JuryHouseView;
   /**
    * The in-game TIME OF DAY (ADR 0006): "morning" | "afternoon" | "evening" | "night" | "late-night".
    * A coarse, PUBLIC, shared band (one clock for the whole house) — never a wall-clock, never a number.
