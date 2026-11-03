@@ -94,7 +94,8 @@ function startedGame(seed: number) {
 
 describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE commit", () => {
   it("nominations: the veto field is already drawn immediately after submitDecision — no follow-up advanceGame needed", () => {
-    const { session } = startedGame(81000);
+    // Seed 81003 (re-selected 2026-11-02, 0044 §9): the player reaches HOH within the drive.
+    const { session } = startedGame(81003);
     const pending = driveToPendingKind(session, "nominations");
 
     // Before the fix, resolving `nominations` left the loop sitting at "veto-competition, nothing
@@ -210,7 +211,8 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
     // honors the same lull gate as a plain advanceGame call (the offer opportunity is never skipped).
     // PO ruling 2026-11-01: a floated offer is open state the narrator voices — it NEVER blocks the week,
     // so the chained step still draws its beat in the same single commit.
-    const { session } = startedGame(3);
+    // Seed 7 (re-selected 2026-11-02, 0044 §9 reshaped the trajectory): an offer floats on a chained call.
+    const { session } = startedGame(7);
     session.setNpcDealOffersEnabled(true);
 
     let view: AdvanceView = session.advanceGame();
@@ -229,7 +231,7 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
       view = session.advanceGame();
     }
 
-    expect(caught, "seed 3 should float a deal offer on a chained submitDecision call").not.toBeNull();
+    expect(caught, "seed 7 should float a deal offer on a chained submitDecision call").not.toBeNull();
     const offer = session.getGameState().openDealOffer!;
     expect(offer.from.id).not.toBe("player");
     expect(["safety", "final-two"]).toContain(offer.kind);
@@ -266,7 +268,7 @@ describe("T0-2 — a failed persist rolls back BOTH the pending's resolution and
     const store = new FlakyStore();
     const runtime = composeRuntime({ saveStore: store, clock: new FakeClock() });
     const user = "t0-2-fault";
-    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81000 });
+    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81003 }); // re-selected 2026-11-02 (0044 §9)
 
     const pending = driveToPendingKind(runtime.registry.sandboxFor(user).session, "nominations");
     expect(runtime.registry.sandboxFor(user).session.gameStatus().veto.players.length).toBe(0);

@@ -82,21 +82,29 @@ describe("0041 — mood-aware nominations (decision leaning)", () => {
     set(top, 0.9, 0.5);         // clear top threat
     set(trusted, 0.6, 0.9);     // 2nd by threat, but trusted
     set(distrusted, 0.5, 0.0);  // lower threat, but deeply distrusted
+    // 0044 §9: keep the floater read out of this mood test — every candidate has someone in their corner,
+    // so only threat + the paranoia term separate them (no tight MUTUAL pairs, so no duo read either).
+    // A fifth houseguest is in everyone's corner (one-way, so no mutual pair forms); the HOH trusts them.
+    const fan = npc(5);
+    for (const c of [top, trusted, distrusted]) { const e = r.edge(fan, c); e.trust = 0.9; e.affinity = 0.9; }
+    const h = r.edge(hoh, fan); h.trust = 0.9; h.affinity = 0.9; h.threat = 0;
     return r;
   }
-  const active = [hoh, top, trusted, distrusted];
+  const active = [hoh, top, trusted, distrusted, npc(5)];
 
-  it("a calm HOH ranks purely by threat — identical to the threat-only read", () => {
+  it("a calm HOH adds no mood term — identical to the mood-free strategic read", () => {
+    // 0044 §9 (2026-11-02): the strategic read now also weighs floater / duo reads per the HOH's style,
+    // so "calm" is pinned against the SAME read with no mood, not the bare threat-only ranking.
     const r = rel();
     const calm = nominationStrategy(hoh, active, r, { mood: 0.5 });
-    expect(calm).toEqual(chooseNominations(hoh, active, r)); // byte-identical at the baseline
-    expect(calm).toEqual([top, trusted]);
+    expect(calm).toEqual(nominationStrategy(hoh, active, r, {}));
+    expect(calm[0]).toBe(top); // the biggest threat still goes up
   });
 
   it("a rattled HOH nominates measurably differently — paranoia surfaces the distrusted one", () => {
     const r = rel();
     const rattled = nominationStrategy(hoh, active, r, { mood: 0.0 });
-    expect(rattled).not.toEqual(chooseNominations(hoh, active, r));
+    expect(rattled).not.toEqual(nominationStrategy(hoh, active, r, { mood: 0.5 }));
     expect(rattled).toEqual([top, distrusted]);   // the trusted 2nd is displaced by the distrusted one
     // Hard rule still holds: two distinct nominees, the HOH never on their own block.
     expect(new Set(rattled).size).toBe(2);

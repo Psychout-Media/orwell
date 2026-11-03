@@ -85,15 +85,25 @@ interface BlocCoordination {
 // Seed 1 over a 10-week window reliably produces BOTH: a baseline mate-nomination the bloc then shields
 // (1→0), and a clear vote-alignment lift (≈0.50→0.75 over the trio's ballots). The mechanism itself is
 // seed-independent (unit-pinned below: every member computes the same negative shielded read).
-const BL_LIFT_SEED = 1;
+// Summed over several seeds (2026-11-02): a single pinned seed broke whenever balance tuning reshaped
+// the trajectory; the lift is a property of the mechanism, so it is measured across a small seed set.
+const BL_LIFT_SEEDS = [1, 2, 3, 4, 5];
 const BL_LIFT_WEEKS = 10;
 let blBaseline: BlocCoordination | undefined;
 let blConditioned: BlocCoordination | undefined;
 
 function blPlayLiveRun(seedBonds: boolean, user: string, members: EntityId[]): BlocCoordination {
+  const runs = BL_LIFT_SEEDS.map((seed) => blPlayOne(seedBonds, `${user}-${seed}`, members, seed));
+  return runs.reduce((a, r) => ({
+    agreePairs: a.agreePairs + r.agreePairs, votePairs: a.votePairs + r.votePairs, mateNoms: a.mateNoms + r.mateNoms,
+    trioHohWeeks: a.trioHohWeeks + r.trioHohWeeks, mateNomViolations: [...a.mateNomViolations, ...r.mateNomViolations],
+  }));
+}
+
+function blPlayOne(seedBonds: boolean, user: string, members: EntityId[], seed: number): BlocCoordination {
   const reg = new GameSessionRegistry();
   const sb = reg.sandboxFor(user);
-  sb.session.createCharacter({ playerName: "The Player", seed: BL_LIFT_SEED });
+  sb.session.createCharacter({ playerName: "The Player", seed });
   if (seedBonds) {
     // Seed the trio's iron mutual bonds ONCE; from here the engine's live folds own the graph.
     for (const a of members) for (const b of members) if (a !== b) {

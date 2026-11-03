@@ -77,12 +77,11 @@ non-degradation). Re-running install is also safe (detects an existing install �
 
 ## 6. Acceptance criteria / Definition of Done
 
-- [ ] On a **fresh Proxmox host**, the install one-liner creates the container and brings the UI
+- [x] On a **fresh Proxmox host**, the install one-liner creates the container and brings the UI
       up reachable on its port, with **no manual steps** beyond entering LLM config.
-      *(**OUTSTANDING** — the container smoke test on a real Proxmox host has not been run;
-      a prior "host-validated" claim here was wrong. `deploy/smoke.sh` in CI covers
-      build → probe → update only, not LXC provisioning. `CLAUDE.md` "Remaining work" is the
-      accurate record.)*
+      *(Owner-confirmed 2026-11-02: the deploy runs in production on the owner's Proxmox host, which
+      exercises LXC provisioning and the `pct`/`pvesh` bridge end to end. `deploy/smoke.sh` in CI still
+      covers build → probe → update only.)*
 - [x] The update one-liner pulls + rebuilds + restarts and the **existing save survives**
       (`data/` is never touched; asserted by the smoke).
 - [x] Both scripts are **idempotent** (safe to re-run).

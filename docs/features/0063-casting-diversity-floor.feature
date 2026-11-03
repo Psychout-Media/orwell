@@ -90,7 +90,9 @@ Feature: 0063 — Casting diversity floor (a cast that authentically reflects th
     Then every houseguest carries a multi-facet profile beyond their ethnicity and orientation
     And no player surface reduces a houseguest to a single identity label
 
-  # §5 — anti-sycophancy: identity never bends a seeded outcome
+  # §5 — anti-sycophancy: identity never bends a seeded COMPETITION outcome. (PO ruling 2026-11-02:
+  # orientation may shape social play through realistic showmances — decision #3 — so later
+  # nominations/votes can differ; competition odds and results never do.)
   Scenario: ethnicity and orientation never alter a competition outcome
     Given two casts identical except for one houseguest's ethnicity and orientation facets at seed "0063-11"
     When the identical seeded competition is resolved for both

@@ -22,6 +22,9 @@ This ledger tracks **PO sign-off** — it is distinct from the **build status** 
 [`README.md`](./README.md) (which tracks *built vs. spec-only vs. deferred*). A feature can be
 built but not yet PO-reviewed, or PO-approved but not yet built.
 
+> **Build-status reconcile (2026-11-02):** the *Build status* column was synced to `README.md` and the
+> source per the 2026-10-25 audit (`docs/audits/2026-10-25-full-feature-audit/`). PO decisions were not changed.
+
 ## Decision legend
 
 | Mark | Meaning |
@@ -115,7 +118,7 @@ built but not yet PO-reviewed, or PO-approved but not yet built.
 | 0077 | House map, privacy & eyeshot | ✅ Built | ⬜ Pending | — | — |
 | 0078 | Motivated society & intentional movement | ✅ Built | ⬜ Pending | — | — |
 | 0079 | Runtime overseer & diagnostic log | ✅ Built | ⬜ Pending | — | — |
-| 0080 | Active overseer (acts on its verdict) | 📝 Spec only | ⬜ Pending | — | — |
+| 0080 | Active overseer (acts on its verdict) | ✅ Built | ⬜ Pending | — | — |
 | 0081 | Narration-faithfulness gate | ✅ Built | ⬜ Pending | — | — |
 | 0084 | Character voice & grounded mood | ✅ Built | ⬜ Pending | — | — |
 | 0085 | NPC campaigns & the scramble | ✅ Built | ⬜ Pending | — | — |
@@ -126,23 +129,23 @@ built but not yet PO-reviewed, or PO-approved but not yet built.
 | 0090 | Per-archetype voice | ✅ Built | ⬜ Pending | — | — |
 | 0091 | Trigger secrets → house events | ✅ Built | ⬜ Pending | — | — |
 | 0092 | Secret-pacing drip | ✅ Built | ⬜ Pending | — | — |
-| 0093 | Secrets as strategic levers | 🟢 Build-ready (PO resolved) | ⬜ Pending | — | Index notes PO-resolved 2026-06-27 (build w/ 0099) — confirm here |
-| 0094 | Distorted gossip has consequences | 📝 Spec only | ⬜ Pending | — | — |
-| 0095 | Pre-show ties → time-bombs | 📝 Spec only | ⬜ Pending | — | — |
-| 0096 | Emergent nemesis | 📝 Spec only | ⬜ Pending | — | — |
-| 0097 | Suspicion ledger | ❄️ Frozen/parked | ⬜ Pending | — | Index notes parked 2026-06-27 (over-tells player) — confirm Defer |
+| 0093 | Secrets as strategic levers | ✅ Built | ⬜ Pending | — | Index notes PO-resolved 2026-06-27 (build w/ 0099) — confirm here |
+| 0094 | Distorted gossip has consequences | ✅ Built | ⬜ Pending | — | — |
+| 0095 | Pre-show ties → time-bombs | ✅ Built | ⬜ Pending | — | — |
+| 0096 | Emergent nemesis | ✅ Built | ⬜ Pending | — | — |
+| 0097 | Suspicion ledger | ⚙️ Engine core built, unwired (README: reopened) | ⬜ Pending | — | Index notes parked 2026-06-27 (over-tells player) — confirm Defer |
 | 0098 | Confidence-calibrated reads | ❄️ Frozen/parked | ⬜ Pending | — | Index notes parked 2026-06-27 — confirm Defer |
-| 0099 | Secrets as currency | 🟢 Build-ready (PO resolved) | ⬜ Pending | — | Index notes PO-resolved 2026-06-27 (build w/ 0093) — confirm here |
+| 0099 | Secrets as currency | ✅ Built | ⬜ Pending | — | Index notes PO-resolved 2026-06-27 (build w/ 0093) — confirm here |
 | 0100 | Jury grudge book | ✅ Built | ⬜ Pending | — | — |
-| 0101 | NPC myth-making | 📝 Spec only | ⬜ Pending | — | — |
-| 0102 | Weekly recap → daily bedtime recap | 🟢 Build-ready (PO resolved) | ⬜ Pending | — | Redesigned 2026-06-27; filename rename pending. (Collision resolved 2026-07-05: the premiere spec moved to **0111**.) |
-| 0103 | Edit-bay foreshadowing | ❄️ Frozen/parked | ⬜ Pending | — | Index notes parked 2026-06-27 (spoiler-adjacent) — confirm Defer |
+| 0101 | NPC myth-making | ✅ Built | ⬜ Pending | — | — |
+| 0102 | Weekly recap → daily bedtime recap | ✅ Built | ⬜ Pending | — | Redesigned 2026-06-27; filename rename pending. (Collision resolved 2026-07-05: the premiere spec moved to **0111**.) |
+| 0103 | Edit-bay foreshadowing | ⚙️ Engine core built, unwired (README: reopened) | ⬜ Pending | — | Index notes parked 2026-06-27 (spoiler-adjacent) — confirm Defer |
 | 0104 | Season-over-season notoriety | ✅ Built | ⬜ Pending | — | — |
 | 0105 | Drive-anchored suspicion | ✅ Built | ⬜ Pending | — | — |
 | 0106 | Whole-house events are exclusive set-pieces | ✅ Built | ⬜ Pending | — | — |
 | 0107 | Named alliances | ✅ Built | ⬜ Pending | — | (Collision resolved 2026-07-05: the observability draft moved to **0112**.) |
-| 0108 | Real-model golden-path CI gate | 📝 Spec only | ⬜ Pending | — | — |
-| 0109 | Negotiated deal duration | 🟢 Build-ready | ⬜ Pending | — | Amends 0039 |
+| 0108 | Real-model golden-path CI gate | 🗑️ Decommissioned 2026-07-21 (owner) | ⬜ Pending | — | — |
+| 0109 | Negotiated deal duration | ✅ Built | ⬜ Pending | — | Amends 0039 |
 | 0110 | Vote deduction (process of elimination) | ✅ Built | ✅ Approved (built) | 2026-06-28 | **NEW feature specced AND built this session** from the PO's process-of-elimination idea (0023 review, option B). The secret-ballot jury grudge folds on a DEDUCED belief (public count + eligible pool + the evictee's reads, `deduceEvictionVoters`), not the true vote list: deducible → grudge, undeducible → none (secrecy honored), wrong → misattribution (dramatic irony). Opt-in `ORWELL_VOTE_DEDUCTION` (byte-identical off; juryReach unmoved). Gates: `voteDeduction.test.ts` + BDD `0110` (11 scenarios, in `cucumber.cjs`). True tally still unsealed at 0048 |
 | 0124 | Deeper character evolution | ✅ Built | ✅ Approved (built) | 2026-07-12 | **NEW feature specced AND built this session** from the 0041 review — three deepening axes on the character-evolution linchpin: (1) **multi-axis affect** (independent `distress` + `confidence` so a houseguest can be cocky AND on-edge at once, not one slider); (2) **strategic-temperament drift** (a repeatedly-burned houseguest hardens toward paranoia, mean-reverting toward their true baseline — the soul bends, the static CHARACTER never does); (3) **personality-tuned reactivity** (the PO's catch — wire NPC starting volatility + settle rate to their **disposition** instead of the current flat `rng.next()`, so a temperamental houseguest is genuinely more sensitive on the on-edge dial and settles slower). One default-off flag `ORWELL_SOUL_DEPTH` + dedicated/draw-preserving rng ⇒ byte-identical off (juryReach + golden untouched). Hidden layer only, CHARACTER byte-stable. `emotionalArc.ts` + `GameSessionAdapter` (flag `ORWELL_SOUL_DEPTH`); BDD `0124` (7 scenarios) + `deeperEvolution.test.ts` + `deeperEvolutionLive.test.ts`; juryReach byte-identical off; deploy opt-in. |
 | 0123 | NPC-initiated deal offers | ✅ Built | ✅ Approved (built) | 2026-07-12 | **NEW feature specced AND built this session** from the PO's ask ("we need a pathway for NPCs to make deals with the player or other NPCs"). Investigation found NPC↔NPC deals already exist (`mintNpcDeal`, hidden) and player→NPC (`makeDeal`) — the real gap was **NPC→player**, now closed: a motivated houseguest **floats the player a deal at a lull**, surfaced as a `deal-offer` pending resolved via the existing `submitDecision` (**no new tool** ⇒ golden-safe; the FE generic card renders it). Grounded kind (strong bond ⇒ final-two, else safety); **accept** → a real player↔NPC deal on the same spine; **decline** → no deal + a small hidden cooling. Player-witnessed (not hidden), Vault-safe, bounded (≤1 open, ≤1/week), seeded. **Calibration-safe:** default-off `ORWELL_NPC_DEAL_OFFERS` + dedicated rng + lull-only ⇒ **juryReach byte-identical**, golden untouched. `GameSessionAdapter`/`liveSeason`/`DECISION.playerOffer` + FE `orwellDecision.js`; BDD `0123` (6 scenarios) + `npcDealOffers.test.ts`; deploy opt-in. |

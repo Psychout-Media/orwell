@@ -432,6 +432,7 @@ When("the identical seeded competition is resolved for both", function (this: Bb
           : p.kind === "juror-vote" ? { kind: p.kind, vote: o[0]?.id }
           : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" }
           : p.kind === "juror-question" ? { kind: p.kind, statement: "x" }
+          : p.kind === "exit-interview" ? { kind: p.kind, vote: "gracious" } // 0130: an evicted player's exit stance
           : { kind: p.kind };
         const sub = sb.session.submitDecision(ans as never) as { finished: boolean; event?: { beat?: string; content?: string } | null };
         if (sub.event?.content) beats.push(norm(sub.event.beat, sub.event.content));
@@ -449,7 +450,19 @@ When("the identical seeded competition is resolved for both", function (this: Bb
 
 Then("the seeded outcome is byte-identical across the two casts", function (this: BbWorld) {
   const w = this as unknown as { dvWith?: string; dvWithout?: string };
-  assert.equal(w.dvWith, w.dvWithout, "the diversity layer perturbed a seeded outcome");
+  // PO ruling 2026-11-02: identity never changes a COMPETITION result directly (stats, temperature,
+  // odds) — but orientation legitimately shapes who can form a showmance (0063 decision #3 / #840),
+  // and showmances move the social graph, so later nominations/votes may differ. The guarantee is
+  // therefore pinned on the opening competition(s), resolved over the identical field before any
+  // social divergence can change who is playing: everything up to the first nomination ceremony.
+  const comps = (json: string): string[] => {
+    const beats: string[] = JSON.parse(json).beats;
+    const end = beats.findIndex((b) => b.startsWith("nominations:"));
+    return beats.slice(0, end < 0 ? beats.length : end).filter((b) => /^(hoh-competition|comp-elimination):/.test(b));
+  };
+  const a = comps(w.dvWith!);
+  assert.ok(a.some((b) => b.startsWith("hoh-competition:")), "the opening HOH competition resolved");
+  assert.deepEqual(a, comps(w.dvWithout!), "the diversity layer perturbed a competition result");
 });
 
 Then("both casts carry byte-identical ethnicity-grounded identity facets", function (this: BbWorld) {

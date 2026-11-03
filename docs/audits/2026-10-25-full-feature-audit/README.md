@@ -68,7 +68,7 @@ Fixed by #1908 (A), #1910 (B), #1911 (C), #1912 (D), #1914 (Tier 1), #1915 (a11y
 | One master check for decision kinds | ✅ #1911 |
 | Tests that test code the live game doesn't use (0003, 0008, 0019, 0023); 0024/0072 tests assert nothing | ❌ Open |
 | CLAUDE.md stale (golden path, models, 0115–0132) | ✅ #1914 |
-| PO ledger disagrees with the feature index on ~11 features | ❌ Open |
+| PO ledger disagrees with the feature index on ~11 features | ✅ Build-status column synced 2026-11-02 (PO decisions untouched; 0010 smoke status needs the owner) |
 | Seven late-July features have no spec | ❌ Open |
 | Cleanup: real-time-mode leftovers, dead code (`foreshadow.ts`), missing icons, stray bytes in one core file | ❌ Open |
 

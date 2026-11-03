@@ -187,11 +187,13 @@ describe("0130 — Vault-safe + deterministic + calibration-neutral", () => {
   });
 
   it("byte-identical spine: the eviction order matches the pre-0130 baseline (the beat is inert)", () => {
-    // Captured from main BEFORE 0130 (the complete seeded trajectory anchor).
+    // Captured from main BEFORE 0130 (the complete seeded trajectory anchor); re-anchored 2026-11-02 when
+    // the 0044 §9 difficulty rulings (floaters as pawns, the HOH-referendum vote, per-houseguest nomination
+    // styles) reshaped the seeded trajectory. The exit-interview beat must stay inert against this anchor.
     const BASELINE: Record<number, string[]> = {
-      7: ["npc:9","npc:13","npc:4","npc:15","npc:10","npc:3","npc:5","npc:1","npc:12","npc:11","npc:7","npc:6","npc:2","npc:8"],
-      42: ["npc:4","npc:13","npc:1","npc:12","npc:8","npc:15","npc:3","npc:7","npc:2","npc:14","npc:5","player","npc:9","npc:6"],
-      108: ["npc:13","npc:3","npc:1","npc:7","npc:6","npc:4","npc:9","npc:5","npc:11","npc:10","npc:12","player","npc:14","npc:8"],
+      7: ["npc:7","npc:13","npc:15","npc:3","npc:10","npc:6","npc:5","npc:4","npc:12","npc:2","npc:1","npc:11","player","npc:9"],
+      42: ["npc:2","npc:13","npc:1","npc:3","npc:8","npc:9","npc:4","npc:15","npc:5","player","npc:14","npc:11","npc:7","npc:10"],
+      108: ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","player","npc:11","npc:4","npc:13","npc:14","npc:15","npc:6"],
     };
     for (const [seed, expected] of Object.entries(BASELINE)) {
       const sb = newGame(Number(seed));

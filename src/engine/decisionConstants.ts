@@ -24,6 +24,12 @@ export const DECISION = {
      */
     runawaySpread: 0.3,
     /**
+     * Floater / duo reads (PO 2026-11-02): a floater read is 1 when the closest bond anyone holds toward
+     * them is at the edge baseline, 0 once it reaches baseline + this span. How much each HOH weighs it
+     * is their own NOMINATION_STYLE (below).
+     */
+    floaterBondSpan: 0.35,
+    /**
      * Which tactic each disposition favors on a quiet week (the archetype gate): a loyalist (bond)
      * sits a PAWN beside the target and shields their own; a ruthless schemer (clash) plays the
      * BACKDOOR (bait the veto, name the real target as the replacement); everyone else is DIRECT.
@@ -56,6 +62,13 @@ export const DECISION = {
      * runaway threat read. Discounts a nominee by this × the voter's own bondStrength toward them.
      */
     bondKeepWeight: 0.35,
+    /**
+     * The eviction vote is a REFERENDUM ON THE HOH (PO ruling 2026-11-02): a voter aligned with the
+     * HOH (bond above baseline, little threat) gives the HOH their target; a voter opposed to the HOH
+     * denies it and sends the pawn home instead. Adds this × the voter's HOH alignment to the HOH's
+     * target's eviction score. Bounded — it shades, a runaway threat read still dominates.
+     */
+    hohReferendumWeight: 0.6,
   },
   /**
    * NPC↔NPC deal minting (audit E46): as a week's block goes up, the closest unbound NPC pair may
@@ -118,3 +131,52 @@ export const APPROACH_GATE = {
  * stream that might one day read it is perturbed. The threshold lives HERE, not inline (B59).
  */
 export const APPROACH_COOLDOWN_STRETCHES = 2;
+
+/**
+ * Per-houseguest NOMINATION STYLE (PO ruling 2026-11-02 — "don't remove NPC agency"). Each NPC reads the
+ * block through their own lens, fixed by their archetype for the whole season, so different HOHs make
+ * different, learnable calls. Threat, bonds, blocs and grudges still decide first; a style only weights
+ * the floater / duo reads that tip close calls. Hidden, engine-only.
+ */
+export type NominationStyle = "threat-hunter" | "floater-cleaner" | "duo-breaker" | "loyalist";
+
+export interface NominationStyleWeights {
+  floaterWeight: number;
+  pawnSeatFloaterBonus: number;
+  duoWeight: number;
+  duoPartnerBonus: number;
+}
+
+/**
+ * The ONE house-pressure dial (2026-11-02): scales every style's floater / duo weights together. More
+ * pressure ⇒ the house leans harder on floaters and tight pairs ⇒ harder for the player. Monotone, so the
+ * difficulty targets are hit by searching this single number, not by hand-tuning each style.
+ */
+export const NOMINATION_PRESSURE = 1.0;
+
+export const NOMINATION_STYLES: Record<NominationStyle, NominationStyleWeights> = {
+  /** Goes after the biggest competitor; barely cares who's floating. */
+  "threat-hunter": { floaterWeight: 0.25, pawnSeatFloaterBonus: 0.4, duoWeight: 0.3, duoPartnerBonus: 0.2 },
+  /** "You're not doing anything, you're going up." */
+  "floater-cleaner": { floaterWeight: 0.9, pawnSeatFloaterBonus: 0.7, duoWeight: 0, duoPartnerBonus: 0 },
+  /** Splits up power pairs — puts both halves on the block. */
+  "duo-breaker": { floaterWeight: 0.3, pawnSeatFloaterBonus: 0.3, duoWeight: 0.7, duoPartnerBonus: 0.7 },
+  /** Protects their people; the pawn is whoever nobody will miss. */
+  loyalist: { floaterWeight: 0.4, pawnSeatFloaterBonus: 0.7, duoWeight: 0.1, duoPartnerBonus: 0 },
+};
+
+/** Archetype → nomination style. Unknown archetypes (and the player's NPC proxy) read as threat hunters. */
+export const NOMINATION_STYLE_BY_ARCHETYPE: Record<string, NominationStyle> = {
+  "comp-beast": "threat-hunter",
+  hothead: "threat-hunter",
+  analyst: "threat-hunter",
+  floater: "threat-hunter",
+  villain: "floater-cleaner",
+  mastermind: "duo-breaker",
+  wildcard: "duo-breaker",
+  "social-butterfly": "loyalist",
+  underdog: "loyalist",
+  flirt: "loyalist",
+  loyalist: "loyalist",
+  peacemaker: "loyalist",
+};

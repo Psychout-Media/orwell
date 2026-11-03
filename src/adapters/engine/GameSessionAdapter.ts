@@ -62,7 +62,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
-import { DECISION } from "../../engine/decisionConstants";
+import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
 
@@ -6261,8 +6261,9 @@ export class GameSessionAdapter implements GameSession {
    * `confide` sibling: the model previews/voices "you two knew each other, didn't you?", the ENGINE
    * decides + commits). Checks the SEALED 0059 layer: a real tie between the pair LANDS (jumps straight
    * to `public` — a landed accusation is a witnessed, public confrontation) and folds the betrayal-grade
-   * fallout; a pair with no tie MISSES (no Vault read beyond the check itself, recorded as an ordinary
-   * social scene, no edge touched). Returns a Vault-safe `{ landed }` — no number, no tell on a miss.
+   * fallout on the houseguests actually present; a pair with no tie MISSES (no Vault read beyond the
+   * check itself, no edge touched — the scene itself is recorded by the FE's 0055 auto-record belt, not
+   * here). Returns a Vault-safe `{ landed }` — no number, no tell on a miss.
    */
   accuseTie(aId: EntityId, bId: EntityId, expectedBeatSeq?: number): AccuseTieResult | null {
     this.guardBeatSeq(expectedBeatSeq);
@@ -6282,7 +6283,14 @@ export class GameSessionAdapter implements GameSession {
     // house-wide FLAG — each learner's own directed edge moves by the same seeded amount).
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:accuse-tie:${aId}:${bId}:${this.week}:${this.phase}`));
     const impact = scaleImpact(RELATIONSHIP_CONSTANTS.BETRAYAL_SHOCK, TIE_REVEAL.directWitnessConfidence);
-    const learners = this.livingIds().filter((id) => id !== aId && id !== bId);
+    // Audit 2026-10-25 (band D F5): only houseguests who were actually THERE react — those in the
+    // player's room (the whole house during a gathered event, via `whereabouts`) and awake. Fails OPEN to
+    // every living houseguest when there is no presence read (a placeless/standalone session).
+    const here = this.whereabouts();
+    const inRoom = here ? new Set(here.present.map((p) => p.id)) : null;
+    const learners = this.awakeAmong(
+      this.livingIds().filter((id) => id !== aId && id !== bId && (id === PLAYER || !inRoom || inRoom.has(id))),
+    );
     for (const learner of learners) {
       for (const member of [aId, bId] as const) this.rel.applyImpactDirected(learner, member, impact, rng);
     }
@@ -6972,6 +6980,10 @@ export class GameSessionAdapter implements GameSession {
       // 0124 (part B): with soul-depth on, the EFFECTIVE disposition (baseline bent by temperament drift)
       // gates it instead — a repeatedly-burned houseguest plays more defensively. Off ⇒ the static baseline.
       dispositionOf: (id) => this.dispositionReadOf(id),
+      // 0044 §9: an NPC's style comes from their archetype; the player's NPC proxy (admin fast-forward)
+      // always reads as a threat hunter — the player's own character never picks an NPC lens.
+      nominationStyleOf: (id) =>
+        id === PLAYER ? "threat-hunter" : NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
       // #1320 night-gate: the HOH→nominations day boundary is live ONLY when the clock pacing is running
       // (the per-conversation clock AND the master clock) — it is the "deeper half" of the fast-forward
       // fix and rides the same pair, so the golden replay (which pins `ORWELL_TIME_PER_CONVERSATION=0`)

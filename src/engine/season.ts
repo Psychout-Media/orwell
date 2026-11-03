@@ -2,9 +2,11 @@ import type { EntityId } from "../domain/ids";
 import { RelationshipModel } from "./relationships";
 import { blocFor, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
-import { DECISION } from "./decisionConstants";
+import { DECISION, NOMINATION_STYLES, NOMINATION_PRESSURE } from "./decisionConstants";
+import type { NominationStyle } from "./decisionConstants";
 import type { NominationTactic } from "./decisionConstants";
 import type { RelationshipDisposition } from "./relationshipConstants";
+import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 
 /**
  * Shared season primitives (feature 0011). The weekly loop itself lives in `liveSeason.ts` — the
@@ -73,6 +75,43 @@ export function politicalTemperature(active: readonly EntityId[], rel: Relations
   return { spread, runaway: spread > DECISION.nomination.runawaySpread };
 }
 
+/**
+ * How much of a FLOATER a houseguest is (PO ruling 2026-11-02): 1 when nobody in the house holds a
+ * bond toward them above the edge baseline, 0 once someone's bond reaches baseline +
+ * `floaterBondSpan`. Hidden, engine-only — never crosses to the player.
+ */
+export function floaterRead(t: EntityId, active: readonly EntityId[], rel: RelationshipModel): number {
+  const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  let maxBond = base;
+  for (const o of active) if (o !== t) maxBond = Math.max(maxBond, rel.bondStrength(o, t));
+  return Math.max(0, Math.min(1, 1 - (maxBond - base) / DECISION.nomination.floaterBondSpan));
+}
+
+/**
+ * How locked-in a houseguest is with someone ELSE (PO ruling 2026-11-02, the "break up the duo" read):
+ * the strongest MUTUAL bond they share with anyone but the HOH, 0 at the edge baseline → 1 at baseline
+ * + `floaterBondSpan`. A tight pair is a threat to an outside HOH. Hidden, engine-only.
+ */
+export function duoRead(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel): number {
+  const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  let best = base;
+  for (const o of active) if (o !== t && o !== hoh) best = Math.max(best, Math.min(rel.bondStrength(o, t), rel.bondStrength(t, o)));
+  return Math.max(0, Math.min(1, (best - base) / DECISION.nomination.floaterBondSpan));
+}
+
+/** The target's tight-pair partner (mutual bond ≥ half the duo span above baseline), if any — not the HOH. */
+export function duoPartner(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel): EntityId | undefined {
+  const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  let best: EntityId | undefined;
+  let bestBond = base + DECISION.nomination.floaterBondSpan / 2;
+  for (const o of active) {
+    if (o === t || o === hoh) continue;
+    const b = Math.min(rel.bondStrength(o, t), rel.bondStrength(t, o));
+    if (b > bestBond) { bestBond = b; best = o; }
+  }
+  return best;
+}
+
 /** The signals the strategic nomination read consumes — all optional so it degrades to threat-only. */
 export interface NominationRead {
   /** The house's current derived blocs (0043) — bloc-mates are shielded from the block. */
@@ -81,6 +120,8 @@ export interface NominationRead {
   mood?: number;
   /** The HOH's static disposition — gates WHICH tactic they play (a loyalist ≠ a schemer). */
   disposition?: RelationshipDisposition;
+  /** The HOH's own nomination style (PO 2026-11-02) — weights the floater / duo reads. Absent ⇒ threat hunter. */
+  style?: NominationStyle;
 }
 
 /**
@@ -96,20 +137,66 @@ export interface NominationRead {
 export function nominationStrategy(
   hoh: EntityId, active: EntityId[], rel: RelationshipModel, read: NominationRead = {},
 ): [EntityId, EntityId] {
-  const { blocs = [], mood = 0.5, disposition = "neutral" } = read;
+  const { blocs = [], mood = 0.5, disposition = "neutral", style = "threat-hunter" } = read;
+  const S = NOMINATION_STYLES[style];
+  const P = NOMINATION_PRESSURE;
+  const W = { floaterWeight: S.floaterWeight * P, pawnSeatFloaterBonus: S.pawnSeatFloaterBonus * P, duoWeight: S.duoWeight * P, duoPartnerBonus: S.duoPartnerBonus * P };
   let cands = active.filter((h) => h !== hoh);
   // Bloc protection (0043): keep bloc-mates off the block entirely while two legal others remain.
   const mates = blocFor(blocs, hoh)?.members ?? [];
   const nonMates = cands.filter((c) => !mates.includes(c));
   if (nonMates.length >= 2) cands = nonMates;
-  const score = (t: EntityId): number => nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t);
+  const N = DECISION.nomination;
+  const score = (t: EntityId): number =>
+    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + W.floaterWeight * floaterRead(t, active, rel) +
+    W.duoWeight * duoRead(t, hoh, active, rel);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
     : DECISION.nomination.tacticFor[disposition];
   if (tactic === "backdoor" && ranked.length >= 3) return [ranked[1]!, ranked[2]!];
-  if (tactic === "pawn" && ranked.length >= 3) return [ranked[0]!, ranked[ranked.length - 1]!];
-  return [ranked[0]!, ranked[1]!];
+  if (tactic === "pawn" && ranked.length >= 3) {
+    // The pawn is the biggest FLOATER (nobody fights for them); ties keep the lowest-ranked read.
+    const pool = ranked.slice(1).reverse();
+    const pawn = pool.reduce((best, c) => (floaterRead(c, active, rel) > floaterRead(best, active, rel) ? c : best), pool[0]!);
+    return [ranked[0]!, pawn];
+  }
+  // The SECOND seat is where pawns come from (PO ruling 2026-11-02, "pawns go home"): the HOH pairs
+  // the target with whoever is cheapest to put up — the next read, pulled further toward a floater.
+  const rest = ranked.slice(1);
+  // Break up the duo (PO 2026-11-02): when the target is locked in a tight pair, the HOH puts the
+  // PARTNER up beside them — one of the two goes home unless the veto saves them.
+  const partner = duoPartner(ranked[0]!, hoh, active, rel);
+  const seat2 = (c: EntityId): number =>
+    score(c) + W.pawnSeatFloaterBonus * floaterRead(c, active, rel) + (c === partner ? W.duoPartnerBonus : 0);
+  const pawn = rest.reduce((best, c) => (seat2(c) > seat2(best) ? c : best), rest[0]!);
+  return [ranked[0]!, pawn];
+}
+
+/**
+ * The HOH's REPLACEMENT nominee after a veto (0044 §9, PO 2026-11-02). Two cases, read from the HOH's own
+ * strategic score: if the houseguest still on the block is the HOH's TARGET (the pawn came down), the
+ * replacement is a new PAWN — the same pawn-seat read as nominations (floater / duo-partner pull, by the
+ * HOH's style); if the target was saved (or this is a backdoor), the replacement is the new TARGET — the
+ * top strategic read among the legal options. Deterministic; legality is the caller's (`options`).
+ */
+export function replacementPick(
+  hoh: EntityId, remaining: EntityId, options: readonly EntityId[], active: EntityId[], rel: RelationshipModel,
+  read: NominationRead = {},
+): EntityId {
+  const { blocs = [], mood = 0.5, style = "threat-hunter" } = read;
+  const S = NOMINATION_STYLES[style];
+  const P = NOMINATION_PRESSURE;
+  const score = (t: EntityId): number =>
+    nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) +
+    S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel);
+  const ranked = [...options].sort((a, b) => score(b) - score(a));
+  const targetStillUp = score(remaining) >= score(ranked[0]!);
+  if (!targetStillUp) return ranked[0]!; // the target came down / a backdoor — name the real target
+  const partner = duoPartner(remaining, hoh, active, rel);
+  const pawnScore = (c: EntityId): number =>
+    score(c) + S.pawnSeatFloaterBonus * P * floaterRead(c, active, rel) + (c === partner ? S.duoPartnerBonus * P : 0);
+  return ranked.reduce((best, c) => (pawnScore(c) > pawnScore(best) ? c : best), ranked[0]!);
 }
 
 /** Tally a jury vote: most votes wins; a tie is broken by the last-evicted juror. */

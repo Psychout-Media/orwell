@@ -11,7 +11,7 @@ import {
 } from "../../../src/domain/eligibility";
 import type { WeekState } from "../../../src/domain/eligibility";
 import type { Stats } from "../../../src/engine/season";
-import { nominationStrategy, nominationScore, tallyJury } from "../../../src/engine/season";
+import { nominationStrategy, nominationScore, replacementPick, tallyJury } from "../../../src/engine/season";
 import { detectBlocs, blocTerm } from "../../../src/engine/blocs";
 import type { Bloc } from "../../../src/engine/blocs";
 import { DECISION } from "../../../src/engine/decisionConstants";
@@ -460,8 +460,19 @@ function currentBlocs(s: LiveSeasonState, ctx: SeasonCtx): Bloc[] {
  * Engine-decided + bounded: the terms shade the threat-primary read, never replace it; voting
  * blocs vote TOGETHER because every member computes the same derived bloc (decision 0002).
  */
-export function voteChoice(voter: EntityId, fn: [EntityId, EntityId], ctx: SeasonCtx, blocs: readonly Bloc[] = []): EntityId {
+export function voteChoice(
+  voter: EntityId, fn: [EntityId, EntityId], ctx: SeasonCtx, blocs: readonly Bloc[] = [], hoh?: EntityId,
+): EntityId {
   const V = DECISION.vote;
+  // Mirrors the live vote model's HOH-referendum term (PO 2026-11-02) — a DECISION rule shared by both
+  // engines, not a staging difference, so the staged-vs-non-staged litmus keeps comparing like with like.
+  const B = RELATIONSHIP_CONSTANTS.baseline;
+  const hohTarget = hoh && hoh !== voter && !fn.includes(hoh)
+    ? (ctx.rel.edge(hoh, fn[0]).threat >= ctx.rel.edge(hoh, fn[1]).threat ? fn[0] : fn[1])
+    : undefined;
+  const hohAlignment = hohTarget
+    ? (ctx.rel.bondStrength(voter, hoh!) - (B.trust + B.affinity) / 2) - (ctx.rel.edge(voter, hoh!).threat - B.threat)
+    : 0;
   const paranoia = Math.max(0, (0.5 - (ctx.emotionalOf?.(voter) ?? 0.5)) * 2); // 0 calm … 1 fully rattled
   const deals = ctx.dealsOf?.(voter) ?? [];
   const dealBound = (n: EntityId): boolean =>
@@ -471,7 +482,8 @@ export function voteChoice(voter: EntityId, fn: [EntityId, EntityId], ctx: Seaso
     blocTerm(blocs, voter, n) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
-    V.bondKeepWeight * ctx.rel.bondStrength(voter, n);
+    V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
+    (n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0);
   return score(fn[0]) >= score(fn[1]) ? fn[0] : fn[1];
 }
 
@@ -485,7 +497,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
   const votes: Record<EntityId, number> = { [fn[0]]: 0, [fn[1]]: 0 };
   const voteOf = new Map<EntityId, EntityId>();
   for (const v of voters) {
-    const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs);
+    const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined);
     votes[target]++;
     voteOf.set(v, target);
   }
@@ -1066,11 +1078,11 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // The replacement reads the same blended strategy (0044): threat + the rattled-paranoia term +
   // the bloc shield. This is also what COMPLETES a backdoor — the real target, left off the block
   // at nominations, tops this ranking the moment the veto comes off.
-  const mood = ctx.emotionalOf?.(s.hoh!) ?? 0.5;
-  const blocs = currentBlocs(s, ctx);
-  const replacement = [...options].sort((a, b) =>
-    (nominationScore(s.hoh!, b, ctx.rel, mood) + blocTerm(blocs, s.hoh!, b)) -
-    (nominationScore(s.hoh!, a, ctx.rel, mood) + blocTerm(blocs, s.hoh!, a)))[0]!;
+  // Mirrors the live pawn-or-target replacement read (0044 §9) — a shared DECISION rule, not a staging
+  // difference, so the staged-vs-non-staged litmus keeps comparing like with like.
+  const replacement = replacementPick(s.hoh!, otherNominee(s), options, s.active, ctx.rel, {
+    blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+  });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
     beat: "veto-ceremony",
@@ -1116,7 +1128,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
     case "replacement":
       return { kind: "replacement", replacement: byThreat(p.by, p.options) };
     case "eviction-vote":
-      return { kind: "eviction-vote", vote: voteChoice(p.by, p.nominees, ctx, currentBlocs(s, ctx)) };
+      return { kind: "eviction-vote", vote: voteChoice(p.by, p.nominees, ctx, currentBlocs(s, ctx), s.hoh ?? undefined) };
     case "tie-break":
       return { kind: "tie-break", evict: voteChoice(p.by, p.nominees, ctx, currentBlocs(s, ctx)) };
     case "final-eviction":
