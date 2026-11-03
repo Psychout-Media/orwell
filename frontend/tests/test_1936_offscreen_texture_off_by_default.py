@@ -88,3 +88,10 @@ def test_the_setting_is_read_through_get_setting(monkeypatch):
     assert T.enrichment_enabled() is True
     monkeypatch.setattr(settings_mod, "get_setting", lambda k, d=None: (_ for _ in ()).throw(RuntimeError("x")))
     assert T.enrichment_enabled() is False  # fail-closed
+
+
+@pytest.mark.parametrize("raw", ["false", "False", "0", "no", "off", "", 0, 1, "true", "yes", None, [], {}])
+def test_only_a_real_boolean_true_turns_it_on(monkeypatch, raw):
+    """bool("false") is True — a serialized/malformed setting must never switch the paid calls on."""
+    monkeypatch.setattr(settings_mod, "get_setting", lambda k, d=None: raw if k == "offscreen_texture_enrichment" else d)
+    assert T.enrichment_enabled() is False, repr(raw)

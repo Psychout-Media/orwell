@@ -41,7 +41,9 @@ def enrichment_enabled() -> bool:
     prose is routed into a player-visible overhear/gossip surface. Fail-closed on any settings hiccup."""
     try:
         from src.settings import get_setting
-        return bool(get_setting("offscreen_texture_enrichment", False))
+        # Only a real boolean True enables it: bool("false") is True, so a malformed admin value / a restored
+        # serialized "false" must NOT switch the paid calls on (fail-closed).
+        return get_setting("offscreen_texture_enrichment", False) is True
     except Exception:
         return False
 
