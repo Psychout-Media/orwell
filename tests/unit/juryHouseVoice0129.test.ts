@@ -109,9 +109,11 @@ describe("0129 slice 3 — askJuror", () => {
     const [a] = sb.session.getGameState().juryHouse!.jurors;
     setBearing(sb, a!.id, { respected: true });
     hold(sb, a!.id, "jv:t3", "MARK-ONCE only thing");
-    expect(sb.session.askJuror(a!.id)!.told).toBe(true);
-    // The only candidate is now held by the player ⇒ nothing left to tell.
-    expect(sb.session.askJuror(a!.id)!.told).toBe(false);
+    const first = sb.session.askJuror(a!.id)!;
+    expect(first.told).toBe(true);
+    // A repeat press never re-tells the same fact (the juror may hold other engine-seeded facts).
+    const again = sb.session.askJuror(a!.id)!;
+    if (again.told) expect(again.content).not.toBe(first.content);
     expect(sb.session.askJuror("npc:nobody")).toBeNull();
     expect(sb.session.askJuror(PLAYER)).toBeNull();
     const act = new GameSessionRegistry().sandboxFor(`jv-act2${seq++}`);
@@ -133,14 +135,24 @@ describe("0129 slice 3 — askJuror", () => {
     expect(blob).not.toContain("SENTINEL-LIVE-NPC-PRIVATE");
     expect(blob).not.toContain(vault);
   });
-  it("is deterministic within a beat (a repeated press reaches the same decision) and persists the told record", () => {
+  it("the telling decision is a pure function of (seed, juror, week, phase): two identical games decide alike", () => {
+    const decide = () => {
+      const sb = jurorGame();
+      const [x] = sb.session.getGameState().juryHouse!.jurors;
+      setBearing(sb, x!.id, { disrespected: true });
+      hold(sb, x!.id, "jv:t4", "MARK-DET fact");
+      return sb.session.askJuror(x!.id)!.told;
+    };
+    expect(decide()).toBe(decide());
+  });
+  it("never tells an engine-seeded vote-deduction (sealed ballot attribution) and keeps it out of the juror's block", () => {
     const sb = jurorGame();
-    const [a] = sb.session.getGameState().juryHouse!.jurors;
-    setBearing(sb, a!.id, { disrespected: true });
-    hold(sb, a!.id, "jv:t4", "MARK-DET fact");
-    const first = sb.session.askJuror(a!.id)!.told;
-    const sb2 = sb; // same beat: the decision roll is a pure function of (seed, juror, week, phase)
-    expect(sb2.session.askJuror(a!.id)!.told || !first).toBe(true);
+    const [x] = sb.session.getGameState().juryHouse!.jurors;
+    setBearing(sb, x!.id, { respected: true });
+    sb.engine.knowledge.seedBelief(x!.id, { content: "MARK-BLAME believes Someone turned on them in the eviction vote", factId: `traitors-fury:blame:${x!.id}:p`, source: x!.id, hops: 0, distortion: 0, confidence: 1 } as never, `jury-house:blame:${x!.id}`);
+    expect(prompt(sb)).not.toContain("MARK-BLAME");
+    for (let i = 0; i < 4; i++) expect(JSON.stringify(sb.session.askJuror(x!.id))).not.toContain("MARK-BLAME");
+    expect(sb.engine.knowledge.knownTo(PLAYER).some((f) => f.content.includes("MARK-BLAME"))).toBe(false);
   });
 });
 

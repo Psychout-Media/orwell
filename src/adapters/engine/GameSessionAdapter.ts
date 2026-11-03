@@ -8796,6 +8796,13 @@ export class GameSessionAdapter implements GameSession {
     return this.advanceView(last);
   }
 
+  /** 0129 — an engine-seeded vote-DEDUCTION belief ("X believes A turned on them in the eviction vote", 0110 / the
+   *  traitors-fury blame seeding). It attributes a SEALED ballot (E12), so it never rides a juror's telling or the
+   *  jury-house prompt block — it unseals only through the 0048 retrospective. */
+  private static isSealedAttribution(f: { pathway?: string; factId?: string }): boolean {
+    return (f.pathway ?? "").startsWith("jury-house:blame") || (f.factId ?? "").startsWith("traitors-fury:blame");
+  }
+
   /**
    * 0129 slice 3 — the juror-player ASKS a fellow juror what they know. Seam reuse (no new knowledge reader): the
    * candidates are the SAME witnessed-or-told set `npcVoice(juror).knows` already exposes (never the Diary Room
@@ -8820,7 +8827,8 @@ export class GameSessionAdapter implements GameSession {
     const heldIds = new Set(playerHolds.map((k) => k.factId).filter((f): f is string => !!f));
     const heldText = new Set(playerHolds.map((k) => k.content));
     const candidates = this.npcKnowledge.known(jurorId)
-      .filter((f) => f.factId && f.pathway !== "diary-room" && !heldIds.has(f.factId) && !heldText.has(f.content));
+      .filter((f) => f.factId && f.pathway !== "diary-room" && !GameSessionAdapter.isSealedAttribution(f)
+        && !heldIds.has(f.factId) && !heldText.has(f.content));
     const roll = rng.next();
     const none: AskJurorResult = { told: false, bearing: juror.bearing };
     if (roll >= chance || candidates.length === 0 || !this.onJurorTell) return none;
@@ -11135,7 +11143,9 @@ export class GameSessionAdapter implements GameSession {
     // 0129 slice 2 — a juror-player is not in the live house, so "who is present" is the OTHER jurors they live
     // with. Seam reuse: the SAME per-person `npcVoice` scope (that juror's own witnessed-or-told set), labelled
     // under THEIR name — no new reader, no cross-juror bleed, nothing from the live house's private knowledge.
-    const present: NamedRef[] = this.juryHouseView()?.jurors.map((j) => ({ id: j.id, name: j.name })) ?? this.whereabouts()?.present ?? [];
+    const juryRoster = this.juryHouseView()?.jurors;
+    const juryMode = juryRoster !== undefined;
+    const present: NamedRef[] = juryRoster?.map((j) => ({ id: j.id, name: j.name })) ?? this.whereabouts()?.present ?? [];
     return present
       .map((p) => {
         const v = this.npcVoice(p.id);
@@ -11143,10 +11153,17 @@ export class GameSessionAdapter implements GameSession {
         // Audit band D F2 — also carry the Vault-safe carriage cues (0084 mood / 0088 currentRead /
         // 0096 rivalry) npcVoice already computed, so the narrator gets them every turn without the
         // under-called tool. Each only when set (absent ⇒ the entry is byte-identical to before).
+        // 0129: in the jury house a juror's block omits the engine-seeded vote-deduction beliefs (sealed ballot, E12).
+        const knows = juryMode
+          ? (this.npcKnowledge?.known(p.id) ?? [])
+              .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
+              .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
+              .map((f) => this.humanize(f.content))
+          : v.knows;
         const e: import("../../ports/GameSession").PresentKnowledgeView = {
           id: p.id,
           name: v.houseguest.name,
-          knows: v.knows,
+          knows,
           suspects: v.suspects,
           ...(v.mood ? { mood: v.mood } : {}),
           ...(v.currentRead ? { currentRead: v.currentRead } : {}),

@@ -1045,7 +1045,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "broadcasts and their growing read of who deserves to win; reveal no off-screen content. They cast " +
     "their own vote at the finale. The hidden story stays SEALED until the finale crowns a winner — " +
     "never offer the hidden story while the house is still playing. The player lives in the JURY HOUSE with " +
-    "the other jurors (the WHO-IS-HERE block names them, each with what THEY legitimately know): talk and " +
+    "the other jurors (each is named in the per-guest knowledge block with what THEY legitimately know): talk and " +
     "silences between jurors are real scenes, but a juror voices ONLY from their own block and never knows the " +
     "live house's private scheming. When the player asks a juror what they know, call askJuror — the GAME " +
     "decides whether they tell and what; you only voice it. Jurors cannot affect the house.",

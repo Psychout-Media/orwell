@@ -184,7 +184,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
       // hidden event, Vault confessional — is planted OUTSIDE the knowledge layer and must still NEVER cross.
       const KNOWLEDGE_LAYER_TAG = "-npcknow-";
       const sentinelsFor = (name: string): string[] =>
-        name === "knowledgeScopeManifest" || name === "askJuror" ? sentinels.filter((s) => !s.includes(KNOWLEDGE_LAYER_TAG)) : sentinels;
+        name === "knowledgeScopeManifest" ? sentinels.filter((s) => !s.includes(KNOWLEDGE_LAYER_TAG)) : sentinels;
       // askJuror may legitimately relay the JUROR's own knowledge layer (same as npcVoice) — the npcknow sentinel is exempt.
       const sweep = async (server: McpServer, name: string): Promise<void> => {
         swept.add(name);
@@ -229,7 +229,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
           swept.add("askJuror");
           if ((told as { told?: boolean } | null)?.told) jurorsTold++;
           const blob = JSON.stringify(told);
-          for (const s2 of sentinelsFor("askJuror")) expect(blob.includes(s2), `seed ${seed}: askJuror leaked ${s2}`).toBe(false);
+          for (const s2 of (j.id === npc(2) ? sentinelsFor("knowledgeScopeManifest") : sentinels)) expect(blob.includes(s2), `seed ${seed}: askJuror leaked ${s2}`).toBe(false);
         }
 
         // Finale projection lock (no pre-reveal tally): while the finale stages, no winner crosses, and
