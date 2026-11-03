@@ -1677,8 +1677,28 @@ function recordEvictionManner(s: LiveSeasonState, evictee: EntityId, responsible
   const row = (map[evictee] ??= {});
   for (const r of responsible) {
     if (r === evictee) continue; // a houseguest is never "responsible" for their own eviction
-    row[r] = mannerToward(evictee, r, ctx);
+    row[r] = mergeManner(row[r], mannerToward(evictee, r, ctx));
   }
+}
+
+/**
+ * #1964: merge a fresh manner read into one already on file for the same (evictee, responsible) pair — OR the
+ * booleans, keep the strongest intensity — so an earlier `recordDealBetrayal` flag is never erased by the eviction read.
+ */
+export function mergeManner(prior: EvictionManner | undefined, fresh: EvictionManner): EvictionManner {
+  if (!prior) return fresh;
+  const out: EvictionManner = { ...prior, ...fresh };
+  for (const k of ["betrayed", "blindsided", "disrespected", "respected"] as const) {
+    if (prior[k] || fresh[k]) out[k] = true;
+  }
+  // Precedence matches `mannerLeanOf`: a grievance (betrayed / blindsided / disrespected) supersedes `respected`, so one
+  // eviction never counts toward both the loyalty and the treachery facets.
+  if (out.betrayed || out.blindsided || out.disrespected) delete out.respected;
+  // An ABSENT intensity means full strength (a boolean-only demerit), so it dominates a graded read.
+  if (prior.intensity !== undefined || fresh.intensity !== undefined) {
+    out.intensity = Math.max(prior.intensity ?? 1, fresh.intensity ?? 1);
+  }
+  return out;
 }
 
 /**

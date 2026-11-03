@@ -189,6 +189,7 @@ import { strategicDriveWeight } from "../../engine/offscreen";
 import type { EmotionalEvent } from "../../engine/emotionalArc";
 import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
+import { MANNER_GRADING, MANNER_THRESHOLDS } from "../../engine/juryConstants";
 import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
@@ -8650,8 +8651,18 @@ export class GameSessionAdapter implements GameSession {
           fold(s.saved, s.vetoHolder, "veto-saved"); // gratitude bond + E54 evidence
         }
         if (s.replacement && s.hoh) {
+          // #1965: the betrayal shock lands only on a replacement who TRUSTED the HOH (read PRE-fold), graded by how
+          // deep that trust ran (as `mannerToward` grades it); a replacement who never trusted them takes the plain
+          // nomination conflict instead — being put up is still a slight, but it is not a betrayal.
+          const trust = this.rel.edge(s.replacement, s.hoh).trust;
           this.rememberFriendAct(s.replacement, s.hoh, "replaced-by-friend");
-          fold(s.replacement, s.hoh, "replaced");     // betrayal-shock if trusted
+          const { trustBetrayal } = MANNER_THRESHOLDS;
+          if (trust > trustBetrayal) {
+            const g = MANNER_GRADING.grievanceFloor + (1 - MANNER_GRADING.grievanceFloor) * clamp01((trust - trustBetrayal) / (1 - trustBetrayal));
+            fold(s.replacement, s.hoh, "replaced", g);
+          } else {
+            fold(s.replacement, s.hoh, "nominated");
+          }
         }
         break;
       }

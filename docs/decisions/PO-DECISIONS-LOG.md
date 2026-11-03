@@ -75,6 +75,12 @@ live ledger of owner calls as they happen.
   and ties stay Vault-sealed, surfaced only through in-game pathways. Making a `rival`/`ex` tie lean NEGATIVE (a signed bias) is
   a separate balance decision for the owner.
 
+- **#1964/#1965 (0024 review follow-ups).** `recordEvictionManner` now MERGES into an existing manner record (OR the
+  booleans, strongest intensity; absent = full strength) so a `recordDealBetrayal` flag survives the eviction read. The
+  veto-ceremony `replaced` fold now lands the betrayal shock only on a replacement who trusted the HOH pre-fold (graded
+  by that trust, as `mannerToward` grades it). **ASSUMED, pending Ryne:** a replacement who did NOT trust the HOH takes
+  the plain `nominated` conflict instead of nothing (being put up is still a slight, just not a betrayal).
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
