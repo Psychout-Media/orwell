@@ -33,6 +33,7 @@ function autoResolve(p) {
   switch (p.kind) {
     case 'nominations': return { kind: 'nominations', choice: [p.options[0].id, p.options[1].id] };
     case 'veto-decision': return { kind: 'veto-decision', use: false };
+    case 'secret-veto': return { kind: 'secret-veto', use: false }; // 0025: hold; an explicit boolean is required
     case 'comp-intent': return { kind: 'comp-intent', intent: 'compete' };
     case 'comp-round': return { kind: 'comp-round', intent: 'compete' };
     case 'houseguests-choice': return { kind: 'houseguests-choice', vote: p.options[0].id };

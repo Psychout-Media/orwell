@@ -41,7 +41,7 @@ Fixed by #1908 (A), #1910 (B), #1911 (C), #1912 (D), #1914 (Tier 1), #1915 (a11y
 | 15 | Booth Receipts mostly can't fire; raw ids | ✅ #1914 |
 | 16 | `playerReceipts` / `playerDossier` advertised but not callable | ✅ #1910 |
 | 17 | Wipeout reel, generated comps, memory callbacks switched off | ⏸ Off by PO ruling |
-| 18 | Secret veto / battle-back off; turning on would freeze | ✅ freeze fixed (#1911); ⏸ still off by PO ruling |
+| 18 | Secret veto / battle-back off; turning on would freeze | ✅ freeze fixed (#1911), FE chain + engine boundary now test-pinned (A-4: `secretVetoBoundary.test.ts`, `test_0025_secret_veto_relay.py`; a missing `use` is refused at the MCP boundary); ⏸ still off by PO ruling — before enabling: narrator guidance for the secret-veto pause, flag registration in featureFlags.ts / the God-Mode dial, and a juryReach/calibration re-check |
 
 ### Tier 2 — correctness and follow-ups
 

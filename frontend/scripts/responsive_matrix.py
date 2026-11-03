@@ -208,6 +208,10 @@ def _auto_resolve(p):
         return {"kind": kind, "choice": [opt(0), opt(1)]}
     if kind == "veto-decision":
         return {"kind": kind, "use": False}
+    if kind == "secret-veto":
+        # 0025 (ORWELL_REACTIVE_TWISTS): hold the one-time safety — an explicit boolean is REQUIRED
+        # (the engine boundary refuses a missing `use`), and holding is the cheapest legal answer.
+        return {"kind": kind, "use": False}
     if kind in ("comp-intent", "comp-round"):
         return {"kind": kind, "intent": "compete"}
     if kind == "houseguests-choice":
