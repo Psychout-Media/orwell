@@ -28,7 +28,8 @@
 #       fastembed provider (version-pinned; model prefetched into <data_dir>/models, offline thereafter).
 #       Missing ⇒ the engine falls back to DEGRADED deterministic recall.
 #   ORWELL_NPC_MEMORY           NPC memory acts (0024) — a betrayal/favor/broken-promise ledger tilts votes and noms.
-#       NOT emitted yet: it ships OFF and joins the opt-in set with the default-flip re-baseline.
+#       PO ruling 2026-11-03: memories ON. Measured outcome-identical ON vs OFF (200 seeds x 3 arms): the residual
+#       floor means the edge already carries a fresh betrayal, so the tilt reads 0 within a season today.
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -100,6 +101,7 @@ ORWELL_STRATEGIC_CADENCE=1
 ORWELL_SCHEME_TARGETS=1
 ORWELL_CONFESSIONAL_DEPTH=1
 ORWELL_DEAL_DEPTH=1
+ORWELL_NPC_MEMORY=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_COMP_MECHANICS_PLUS=1

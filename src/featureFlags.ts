@@ -60,7 +60,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_VOTE_DEDUCTION',         key: 'voteDeduction',          parser: 'defaultOn' },
   { envKey: 'ORWELL_TIME_OF_DAY',            key: 'timeOfDay',              parser: 'defaultOn' },
   { envKey: 'ORWELL_DEAL_DEPTH',             key: 'dealDepth',              parser: 'defaultOn' },
-  { envKey: 'ORWELL_NPC_MEMORY',             key: 'npcMemory',              parser: 'strict' },
+  { envKey: 'ORWELL_NPC_MEMORY',             key: 'npcMemory',              parser: 'defaultOn' },
   { envKey: 'ORWELL_STRATEGIC_CADENCE',      key: 'strategicCadence',       parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },

@@ -13,7 +13,10 @@ live ledger of owner calls as they happen.
 
 - **0024 NPC memory: YES, NPCs act on what they remember.** Betrayals, favors and broken promises change
   how an NPC treats the player. Engine work that moves balance: sequenced after #1937 and before the
-  default-flip re-baseline so one re-measure covers both.
+  default-flip re-baseline so one re-measure covers both. **PO ruling 2026-11-03: memories ON** — `ORWELL_NPC_MEMORY`
+  now defaults ON (code default, `deploy/orwell-env-defaults.sh`, the `/health` registry). Measured outcome-identical
+  ON vs OFF over 200 seeds x 3 arms (the residual floor lets the relationship edge already carry a fresh betrayal, so the
+  memory tilt reads 0 within a season): the flip changes no trajectory today; making memories actually move decisions is a goal of the belief-centered NPC-strategy slice (#2017).
 - **0129 jury house: FULLY SEQUESTERED.** The player can talk to jurors only if the player is a juror;
   jurors mix only with other jurors. (Engine check 2026-11-03: a still-active player cannot reach a juror
   through any mutating tool, and the event store shows no juror/non-juror mixing after a juror is seated,
