@@ -44,14 +44,23 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
     "all 4 player decision types are exercised across the 12-seed run set",
     async () => {
       // Re-run a representative subset (seeds 1-5) to verify coverage without
-      // re-running the full 12-seed suite (which runs in the uat-12seed lane).
+      // re-running the full 12-seed suite (which runs in the uat-12seed lane). The player only gets a
+      // `nominations` decision when they win HOH, and which seeds do that moves with the balance (#1941:
+      // the deployed profile's 1-5 no longer include one). So the set is SEARCHED, not pinned: seeds 1-5 are
+      // always played, then further seeds are added (up to MAX_SEEDS) only until every required decision
+      // type has been hit. The assertions below are unchanged.
+      const MIN_SEEDS = 5;
+      const MAX_SEEDS = 40;
+      const REQUIRED: PendingDecision["kind"][] = ["nominations", "eviction-vote"];
       const runs: RunResult[] = [];
-      for (const s of [1, 2, 3, 4, 5]) runs.push(await runFullGame(harness.base, s, "never-use-veto"));
       const merged: Partial<Record<PendingDecision["kind"], number>> = {};
-      for (const r of runs) {
+      for (let s = 1; s <= MAX_SEEDS; s++) {
+        const r = await runFullGame(harness.base, s, "never-use-veto");
+        runs.push(r);
         for (const [k, v] of Object.entries(r.decisionCounts) as [PendingDecision["kind"], number][]) {
           merged[k] = (merged[k] ?? 0) + v;
         }
+        if (s >= MIN_SEEDS && REQUIRED.every((k) => (merged[k] ?? 0) > 0)) break;
       }
       // Nominations and eviction-vote must appear (player is always a voter when not a nominee).
       expect(merged["nominations"] ?? 0, "nominations decisions hit").toBeGreaterThan(0);
@@ -63,7 +72,7 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
     // per-beat work on top of the transport cost; assertions unchanged, only the wall-clock
     // budget breathes). UAT_TIMEOUT_SCALE (default 1) lets the deployed-profile CI lane widen the budget:
     // that profile simulates several times slower (#1922), and only the budget moves, never an assertion.
-    { timeout: 180_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1) },
+    { timeout: 600_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1) },
   );
 
   // ── Health endpoint reachable (sanity) ────────────────────────────────────
