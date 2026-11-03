@@ -5,7 +5,7 @@ import {
   HIDDEN_ELEMENT_GATES, CONCEALED_APTITUDES,
 } from "./characterFactory";
 import type { Archetype, HiddenElement, HiddenElementKind } from "./characterFactory";
-import { TIE_NATURES } from "./seededRelationships";
+import { normalizeTieNature } from "./seededRelationships";
 import type { PreGameTie, TieNature } from "./seededRelationships";
 import {
   GENESIS_TOTAL_BAND, GENESIS_STAT_CLAMP, GENESIS_VARIANCE_FLOOR,
@@ -852,7 +852,7 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
     }
     seenPairs.add(pairKey);
     tiedNpcs.add(a); tiedNpcs.add(b);
-    const nature: TieNature = TIE_NATURES.includes(t?.nature as TieNature) ? (t!.nature as TieNature) : "old-acquaintance";
+    const nature: TieNature = normalizeTieNature(t?.nature) ?? "old-acquaintance"; // a legacy "showmance" aliases to "prior-romance"
     ties.push({ a, b, nature, exposure: "sealed" });
   }
 

@@ -546,7 +546,14 @@ _ARCHETYPES = (
     "comp-beast", "mastermind", "social-butterfly", "floater", "villain", "underdog",
     "flirt", "loyalist", "wildcard", "analyst", "hothead", "peacemaker",
 )
-_TIE_NATURES = ("casting-callback", "mutual-friend", "shared-hometown", "old-acquaintance", "showmance")
+# Mirror of the engine's TIE_NATURES (src/engine/seededRelationships.ts). #1909: the pre-show romance nature was renamed
+# "showmance" -> "prior-romance" (the in-house Showmance ARC keeps the word); "showmance" is still ACCEPTED from older
+# model output / prompts and aliased forward. Natures are flavour only: no nature is a competition or vote input.
+_TIE_NATURES = (
+    "casting-callback", "mutual-friend", "shared-hometown", "old-acquaintance", "prior-romance",
+    "family", "ex", "old-friend", "rival", "former-teammate", "online-acquaintance",
+)
+_LEGACY_TIE_NATURE_ALIASES = {"showmance": "prior-romance"}
 # The freely-authorable hidden-element kinds. `concealed-aptitude` is engine-stat-gated (a free-text one
 # is stripped) and `trigger` is engine-armed (never proposable), so we steer the model AWAY from both —
 # the engine strips them regardless; omitting them keeps the per-NPC count above the 3-min floor.
@@ -654,7 +661,8 @@ _SYSTEM = (
     '"ties": an array of 0 to ' + str(GENESIS_TIE_BUDGET) + " pre-show connections between houseguests "
     '(sparse by design — often just one, sometimes none), each { "a", "b", "nature", "backstory" } '
     "where a and b are two DIFFERENT houseguest ids from the roster, nature is one of "
-    f"{', '.join(_TIE_NATURES)}, and backstory is one sentence. No houseguest may appear in more than "
+    f"{', '.join(_TIE_NATURES)} (family means siblings or cousins; rival means real bad blood; keep them plausible for a "
+    "reality-show cast and vary them), and backstory is one sentence. No houseguest may appear in more than "
     "one tie.\n"
     "COHERE every houseguest's name, look, hometown, vocation, and age with each other and with the "
     "season brief. Make the cast reflect a real, diverse American crew. Assign EVERY id in the roster.\n"
@@ -1010,8 +1018,10 @@ def parse_genesis_proposal(text: str, valid_ids: set) -> dict:
                 continue
             tie = {"a": a, "b": b}
             nature = raw.get("nature")
-            if isinstance(nature, str) and nature.strip() in _TIE_NATURES:
-                tie["nature"] = nature.strip()
+            if isinstance(nature, str):
+                n = _LEGACY_TIE_NATURE_ALIASES.get(nature.strip(), nature.strip())
+                if n in _TIE_NATURES:
+                    tie["nature"] = n
             backstory = _clean_str(raw.get("backstory"), 300)
             if backstory:
                 tie["backstory"] = backstory

@@ -64,6 +64,16 @@ live ledger of owner calls as they happen.
   switch `CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED = true`. **ASSUMED, pending Ryne (technical detail):** the NPC
   campaign re-planner no longer rewrites a player's declared campaign (it used to flip a nominated player's evict
   campaign into "protect them"), so the player cannot get an unearned shield now that `protect` has effect.
+- **#1909 pre-game tie natures: renamed and broadened (built 2026-11-03; the proposed set is ASSUMED, pending Ryne).** The
+  preexisting-romance tie nature is now `prior-romance`, so the word "showmance" belongs only to the in-house arc (`spark → bond →
+  visible → resolved`); a legacy `showmance` tie nature in an old save or an older cast-genesis prompt/output is aliased forward at
+  load, and the engine and the front-end audit found no other reader of the literal. The set, per the owner's "family, exes, old
+  friends and rivals/bad blood are all allowed, get creative": `casting-callback`, `mutual-friend`, `shared-hometown`,
+  `old-acquaintance`, `prior-romance` (existing) plus **`family`** (siblings/cousins), **`ex`**, **`old-friend`**, **`rival`**
+  (bad blood), and the proposed extras **`former-teammate`** and **`online-acquaintance`**. A nature is flavour only: every tie
+  folds the same small standing affinity bias, no nature is a competition or vote input (calibration-neutral, standing ruling),
+  and ties stay Vault-sealed, surfaced only through in-game pathways. Making a `rival`/`ex` tie lean NEGATIVE (a signed bias) is
+  a separate balance decision for the owner.
 
 ## 2026-11-02
 

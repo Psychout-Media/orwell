@@ -21,10 +21,18 @@ import type { Houseguest } from "./characterFactory";
  * PURE + seed-deterministic, player-INDEPENDENT (keys off the cast names): same seed ⇒ same layer.
  */
 
-/** Why two houseguests already know each other (flavor only — never a deterministic advantage). `showmance`
- * is a pre-show romantic SPARK (owner casting-craft upgrade — lets a romance nucleus seed); the hidden game
- * weight/magnitude of any tie stays engine-seeded (Vault Wall), only the PUBLIC texture is authored. */
-export type TieNature = "casting-callback" | "mutual-friend" | "shared-hometown" | "old-acquaintance" | "showmance";
+/**
+ * Why two houseguests already know each other (flavor only — never a deterministic advantage). `prior-romance` is a
+ * pre-show romantic SPARK or fling (owner casting-craft upgrade — lets a romance nucleus seed); it was named `showmance`
+ * until #1909, which collided with the in-house `Showmance` ARC (`spark → bond → visible → resolved`), so the arc keeps the
+ * word and the preexisting-romance NATURE got its own (`LEGACY_TIE_NATURE_ALIASES` maps old saves/prompts). The hidden game
+ * weight/magnitude of any tie stays engine-seeded (Vault Wall) and is IDENTICAL for every nature (see `TIE_AFFINITY_BIAS`) —
+ * the nature is only the PUBLIC texture, so no nature is a competition or vote input. PO ruling 2026-11-03 (#1909): family
+ * (siblings/cousins), exes, old friends and rivals/bad blood are all allowed, plus a few more plausible-for-a-BB-cast ones.
+ */
+export type TieNature =
+  | "casting-callback" | "mutual-friend" | "shared-hometown" | "old-acquaintance" | "prior-romance"
+  | "family" | "ex" | "old-friend" | "rival" | "former-teammate" | "online-acquaintance";
 /** A showmance's arc, advancing only as the live relationship genuinely develops (never instant). */
 export type ShowmanceStage = "spark" | "bond" | "visible" | "resolved";
 
@@ -75,7 +83,33 @@ export interface SeededRelationships {
   showmances: Showmance[];
 }
 
-export const TIE_NATURES: readonly TieNature[] = ["casting-callback", "mutual-friend", "shared-hometown", "old-acquaintance", "showmance"];
+export const TIE_NATURES: readonly TieNature[] = [
+  "casting-callback", "mutual-friend", "shared-hometown", "old-acquaintance", "prior-romance",
+  "family", "ex", "old-friend", "rival", "former-teammate", "online-acquaintance",
+];
+
+/** Pre-#1909 spellings of a tie nature → today's (persisted saves, earlier cast-genesis prompts/outputs). */
+export const LEGACY_TIE_NATURE_ALIASES: Readonly<Record<string, TieNature>> = { showmance: "prior-romance" };
+
+/** Read any stored/authored nature string as a `TieNature`: today's names pass, legacy spellings alias, else `undefined`. */
+export function normalizeTieNature(raw: unknown): TieNature | undefined {
+  if (typeof raw !== "string") return undefined;
+  const v = raw.trim();
+  if ((TIE_NATURES as readonly string[]).includes(v)) return v as TieNature;
+  return Object.hasOwn(LEGACY_TIE_NATURE_ALIASES, v) ? LEGACY_TIE_NATURE_ALIASES[v] : undefined; // own keys only: `constructor` etc. are not aliases
+}
+
+/**
+ * Load-time migration (0007/0030 non-degradation): a persisted layer carries tie natures by string, so a pre-#1909 `showmance`
+ * tie is re-read as `prior-romance` (same prose, same effect). Any other unknown nature falls back to `old-acquaintance` rather
+ * than leaving an unreadable tie. Returns a NEW layer; showmances (the arc) are untouched.
+ */
+export function migrateSeededRelationships(sr: SeededRelationships): SeededRelationships {
+  return {
+    ...sr,
+    ties: sr.ties.map((t) => ({ ...t, nature: normalizeTieNature(t.nature) ?? "old-acquaintance" })),
+  };
+}
 /** Chance an enabled tie/showmance slot is actually loaded (often none, even when budgeted). */
 export const SEED_LOAD_PROB = 0.5;
 /** The small standing affinity bias a pre-game tie folds between the pair (each direction). Never large. */
@@ -175,7 +209,13 @@ const TIE_NATURE_PROSE: Record<TieNature, string> = {
   "mutual-friend": "shared a mutual friend coming in",
   "shared-hometown": "are from the same hometown",
   "old-acquaintance": "already knew each other before the show",
-  "showmance": "came in with a pre-show romantic spark",
+  "prior-romance": "came in with a pre-show romantic spark",
+  "family": "are family — related by blood or marriage",
+  "ex": "used to date before the show",
+  "old-friend": "go back years as friends",
+  "rival": "have bad blood from before the show",
+  "former-teammate": "used to play on the same team",
+  "online-acquaintance": "know each other from online, long before the show",
 };
 
 /** 0095 — the Vault-free prose of WHY a tied pair knew each other, for a reveal's diffused content. */

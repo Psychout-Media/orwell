@@ -241,7 +241,7 @@ import {
 } from "../../engine/deepProfile";
 import { THREAD } from "../../engine/threadConstants";
 import {
-  loadSeededRelationships, TIE_AFFINITY_BIAS, SHOWMANCE_SPARK_BIAS,
+  loadSeededRelationships, migrateSeededRelationships, normalizeTieNature, TIE_AFFINITY_BIAS, SHOWMANCE_SPARK_BIAS,
   DEFAULT_TIE_BUDGET, DEFAULT_SHOWMANCE_BUDGET, nextShowmanceStage,
   preGameTieToRetrospectiveProse, showmanceToRetrospectiveProse,
   tieExposureOf, tieNatureProse, exposedTies, nextTieExposure,
@@ -3800,7 +3800,7 @@ export class GameSessionAdapter implements GameSession {
     // reset on restore). Absent on pre-0059 saves ⇒ re-seed deterministically off the persisted seed,
     // gated by the 0063 showmance-eligibility predicate (which reads the just-restored identities).
     if (core.seededRelationships) {
-      this.seededRels = cloneSession(core.seededRelationships);
+      this.seededRels = migrateSeededRelationships(cloneSession(core.seededRelationships)); // #1909: a legacy tie nature aliases forward
     } else if (core.house && core.seed !== undefined) {
       this.seededRels = loadSeededRelationships(
         core.house.npcs, this.tieBudget, this.showmanceBudget,
@@ -5265,7 +5265,11 @@ export class GameSessionAdapter implements GameSession {
       // 0116 — carry the model-authored genesis layer off the warm: the validated tie graph (preferred
       // over the floor draw by seedSeededRelationships below), the seeded season brief, and the provenance.
       // Absent on a non-genesis warm ⇒ null/false, so seedSeededRelationships draws the floor ties.
-      this.genesisTies = adopt.genesisTies ?? null;
+      // #1909: a pre-#1909 casting save paused mid-casting carries authored ties under `prewarm.genesisTies` with the old
+      // spelling — re-read each nature through the same alias so `seedSeededRelationships` never sees an invalid one.
+      this.genesisTies = adopt.genesisTies
+        ? adopt.genesisTies.map((t) => ({ ...t, nature: normalizeTieNature(t.nature) ?? "old-acquaintance" }))
+        : null;
       this.seasonBrief = adopt.seasonBrief ?? null;
       this.genesisAuthored = adopt.genesisAuthored ?? false;
       this.prewarm = null; // consumed

@@ -250,6 +250,23 @@ def test_parser_keeps_valid_shapes_and_drops_garbage():
     assert proposal["ties"][0]["nature"] == "casting-callback"
 
 
+def test_parser_aliases_the_legacy_showmance_tie_nature_and_accepts_the_new_ones():
+    """#1909: the pre-show romance nature is 'prior-romance' now (the in-house Showmance ARC keeps the word); an older
+    prompt/model output that still says 'showmance' is aliased forward, and the broadened natures pass through."""
+    import json
+    base = json.loads(_valid_proposal_json())
+    cases = [("showmance", "prior-romance")] + [(n, n) for n in G._TIE_NATURES]  # EVERY canonical nature must survive the parser
+    assert {"old-friend", "former-teammate", "prior-romance"} <= set(G._TIE_NATURES)
+    for raw, expected in cases:
+        base["ties"] = [{"a": "npc:1", "b": "npc:2", "nature": raw, "backstory": "x"}]
+        out = G.parse_genesis_proposal(json.dumps(base), _VALID_IDS)
+        assert out["ties"][0]["nature"] == expected, raw
+    assert "showmance" not in G._TIE_NATURES  # the arc keeps that word; the nature has its own
+    base["ties"] = [{"a": "npc:1", "b": "npc:2", "nature": "not-a-nature"}]
+    out = G.parse_genesis_proposal(json.dumps(base), _VALID_IDS)
+    assert "nature" not in out["ties"][0]  # an unknown nature is dropped, the tie itself survives
+
+
 def test_parser_drops_unknown_ids_bad_stats_and_out_of_set_natures():
     import json
     raw = json.dumps({
