@@ -10,6 +10,7 @@ import type { EdgeSignals } from "../../src/engine/relationshipConstants";
 import { assertNoSentinels } from "../../tests/support/assertions";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { answerPending } from "../support/answerPending";
 
 // Feature 0037 — the LIVE jury-vote choreography over liveSeason.ts + GameSessionAdapter
 // (advanceGame/submitDecision through the MCP player channel). HARD rule: roles only —
@@ -77,7 +78,10 @@ async function driveFinaleSeam(
       else if (d.kind === "nominations") await p.callTool("submitDecision", { kind: "nominations", choice: [d.options[0]!.id, d.options[1]!.id] });
       else if (d.kind === "veto-decision") await p.callTool("submitDecision", { kind: "veto-decision", use: false });
       else if (d.kind === "replacement") await p.callTool("submitDecision", { kind: "replacement", replacement: d.options[0]!.id });
-      else await p.callTool("submitDecision", { kind: d.kind, vote: d.options[0]!.id });
+      else {
+        const req = answerPending(d); // any other kind: the shared driver (unknown kinds throw)
+        if (req) await p.callTool("submitDecision", req as unknown as Record<string, unknown>);
+      }
     }
   }
   return views;

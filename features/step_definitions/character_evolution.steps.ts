@@ -14,6 +14,7 @@ import type { McpServer } from "../../src/adapters/mcp/McpServer";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import type { GameHouse, Soul } from "../../src/engine/characterFactory";
 import { npc } from "../../src/domain/ids";
+import { answerPending } from "../support/answerPending";
 
 // Feature 0041 — a season changes a houseguest: live emotional evolution that modulates behavior,
 // accumulates as a recall-able arc, while the static CHARACTER stays byte-stable. Hidden layer only.
@@ -29,13 +30,8 @@ async function driveLive(player: McpServer, steps: number): Promise<void> {
     if (adv.finished) return;
     const p = adv.pending;
     if (!p) continue;
-    if (p.kind === "nominations") await player.callTool("submitDecision", { kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-    else if (p.kind === "veto-decision") await player.callTool("submitDecision", { kind: "veto-decision", use: false });
-    else if (p.kind === "replacement") await player.callTool("submitDecision", { kind: "replacement", replacement: p.options[0]!.id });
-    else if (p.kind === "finale-statement") await player.callTool("submitDecision", { kind: "finale-statement", statement: "x" });
-    else if (p.kind === "finale-answer") await player.callTool("submitDecision", { kind: "finale-answer", appeal: p.appeals![0]! });
-    else if (p.kind === "juror-vote") await player.callTool("submitDecision", { kind: "juror-vote", vote: p.options[0]!.id });
-    else await player.callTool("submitDecision", { kind: p.kind, vote: p.options[0]!.id });
+    const req = answerPending(p);
+    if (req) await player.callTool("submitDecision", req as unknown as Record<string, unknown>);
   }
 }
 

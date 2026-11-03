@@ -54,6 +54,11 @@ function resolveLive(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"
     case "finale-answer": return submit({ kind: "finale-answer", appeal: (p as { appeals: string[] }).appeals![0]! });
     case "juror-question": return submit({ kind: "juror-question", statement: "x" });
     case "final-eviction": return submit({ kind: "final-eviction", vote: p.options[0]!.id });
+    case "eviction-vote": return submit({ kind: "eviction-vote", vote: p.options[0]!.id });
+    case "tie-break": return submit({ kind: "tie-break", vote: p.options[0]!.id });
+    case "juror-vote": return submit({ kind: "juror-vote", vote: p.options[0]!.id });
+    case "exit-interview": return submit({ kind: "exit-interview", vote: p.stances?.[0] ?? "gracious" });
+    case "deal-offer": return submit({ kind: "deal-offer", vote: "decline" });
     default: throw new Error(`reserve_twists: unhandled pending decision kind '${String(p.kind)}' — answer it explicitly here (BDD PAT-1: never default an answer)`);
   }
 }
