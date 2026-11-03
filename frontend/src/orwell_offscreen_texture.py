@@ -12,6 +12,8 @@ Hard rules (0070 §§3-6):
 - FAIL-SOFT — no model OR no usable output ⇒ the deterministic template content simply stands;
   the game advance is never blocked.
 - NOT a model lever — the GM-facing manifest does not list these tools; they are FE/infra only.
+- OFF by default (#1936, `offscreen_texture_enrichment`): the prose has no player-visible surface yet, so the
+  paid calls are not made until (a) lands.
 - Never surfaces enriched prose directly to the player — the existing overhear/gossip pathways
   remain the only route from a hidden scene to the player's knowledge.
 - Budget-capped — at most ``MAX_SCENES_PER_TICK`` scenes voiced per tick; skeletons beyond
@@ -32,6 +34,19 @@ import logging
 from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+def enrichment_enabled() -> bool:
+    """#1936 — the enrichment is OFF by default: its prose is never shown to the player, so the paid calls
+    buy nothing (option (b) of the audit). Flip `offscreen_texture_enrichment` on only once the voiced
+    prose is routed into a player-visible overhear/gossip surface. Fail-closed on any settings hiccup."""
+    try:
+        from src.settings import get_setting
+        # Only a real boolean True enables it: bool("false") is True, so a malformed admin value / a restored
+        # serialized "false" must NOT switch the paid calls on (fail-closed).
+        return get_setting("offscreen_texture_enrichment", False) is True
+    except Exception:
+        return False
+
 
 # Hard cap: voice at most this many scenes per off-screen tick. Each voicing is one LLM call;
 # the parallel fan-out keeps latency low but we bound the total call count per tick.
@@ -161,7 +176,12 @@ async def run_enrich(owner: Optional[str] = None) -> dict:
     Called from the FE after each off-screen tick (via :func:`kickoff_enrich` from ``do_advance_game``).
     Best-effort + background — never blocks the game advance. Uses the SAME proven plumbing as the
     other FE-driven write-backs: the shared utility-LLM resolver (``orwell_cast_authoring``) and the
-    engine player-channel client (``orwell_engine``)."""
+    engine player-channel client (``orwell_engine``).
+
+    #1936: a no-op unless `offscreen_texture_enrichment` is on — checked FIRST, before any model resolve, so
+    no LLM call is made and the strict enrichment policy records no "unwired class" failure for it."""
+    if not enrichment_enabled():
+        return {"voiced": 0, "total": 0, "reason": "disabled"}
     strict = False
     try:
         from src import enrichment_policy
@@ -278,6 +298,8 @@ def kickoff_enrich(owner: Optional[str] = None) -> None:
     """Fire-and-forget the off-screen texture enrichment in the background after an advance tick.
     Never blocks the advance; never raises into the caller. A per-user in-flight guard drops a second
     overlapping run for the same user (the next tick, after this one finishes, runs normally)."""
+    if not enrichment_enabled():  # #1936 — don't even schedule a task (no model resolve, no engine read)
+        return
     k = _key(owner)
     if k in _IN_FLIGHT:
         return

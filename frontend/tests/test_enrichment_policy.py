@@ -334,6 +334,7 @@ def test_strict_zeitgeist_no_model_is_loud(monkeypatch, run):
 def test_strict_offscreen_texture_no_model_is_loud(monkeypatch, run):
     monkeypatch.setenv("ORWELL_ENRICHMENT_POLICY", "strict")
     tex = importlib.import_module("src.orwell_offscreen_texture")
+    monkeypatch.setattr(tex, "enrichment_enabled", lambda: True)  # #1936: the policy applies to the ENABLED path
     ep.clear_failures("olga")
     monkeypatch.setattr(ca, "_resolve_llm_fn", _none)
     result = run(tex.run_enrich(owner="olga"))
@@ -356,6 +357,7 @@ def test_strict_cast_identity_no_model_is_loud(monkeypatch, run):
 def test_soft_sites_record_nothing(monkeypatch, run):
     monkeypatch.setenv("ORWELL_ENRICHMENT_POLICY", "soft")
     tex = importlib.import_module("src.orwell_offscreen_texture")
+    monkeypatch.setattr(tex, "enrichment_enabled", lambda: True)  # #1936: the policy applies to the ENABLED path
     cid = importlib.import_module("src.orwell_cast_identity")
     ep.clear_failures("ruth")
     monkeypatch.setattr(ca, "_resolve_llm_fn", _none)
