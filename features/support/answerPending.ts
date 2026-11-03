@@ -39,7 +39,10 @@ export function answerPending(p: PendingView, policy: AnswerPolicy = {}): Submit
     case "finale-statement": return { kind: "finale-statement", statement: "I played my own game." };
     case "finale-answer": return { kind: "finale-answer", appeal: p.appeals?.[0] ?? "own-game" };
     case "secret-veto": return { kind: "secret-veto", use: false };
-    case "deal-offer": return { kind: "deal-offer", vote: "decline" };
+    // Intentionally never auto-answered: `self-evict` (the out-of-character walk-out confirmation) and `deal-offer` (the engine
+    // surfaces a floated deal through `openDealOffer`, which needs an explicit chat answer — a shared driver must not decline it
+    // by accident). The type union lists both kinds, so they are named here instead of falling into the throwing default.
+    case "deal-offer":
     case "self-evict": return null;
     default: {
       const unknown: never = p.kind;
