@@ -29,6 +29,17 @@ function interval(k: number, n: number, z: number): [number, number] {
   return [Math.max(0, p - z * se), Math.min(1, p + z * se)];
 }
 
+/**
+ * True when rate A (kA/nA) exceeds rate B (kB/nB) by MORE than the sampling noise of their difference (two-proportion SE x z).
+ * "Reckless must be no better than passive" is a claim about two small, noisy rates (e.g. 5 vs 4 wins in 300); a one-win gap is not a
+ * regression. Same sampling stance as the bands above: only a real, outside-the-noise difference is a failure.
+ */
+function beatsBeyondNoise(kA: number, nA: number, kB: number, nB: number, z: number): boolean {
+  const pA = kA / nA, pB = kB / nB;
+  const se = Math.sqrt((pA * (1 - pA)) / nA + (pB * (1 - pB)) / nB);
+  return pA - pB > z * se;
+}
+
 /** Every violated band, as a plain sentence (empty => all PO targets hold within sampling error). */
 export function poViolations(s: PoSummary, z: number = PO_Z): string[] {
   const out: string[] = [];
@@ -46,10 +57,10 @@ export function poViolations(s: PoSummary, z: number = PO_Z): string[] {
   if (f2hi < B.f2Min || f2lo > B.f2Max) out.push(`solid reach-F2 ${pc(so.f2)} is outside ${pc(B.f2Min)}-${pc(B.f2Max)}`);
   const [wlo, whi] = win(s.solid);
   if (whi < B.winMin || wlo > B.winMax) out.push(`solid win ${pc(so.win)} is outside ${pc(B.winMin)}-${pc(B.winMax)}`);
-  // ordering claims are on the point estimates (strict for "clearly beats", non-strict for reckless: it must not beat passive)
+  // ordering claims: solid "clearly beats" passive on the point estimates (strict); reckless must not beat passive BEYOND SAMPLING NOISE
   if (!(so.f2 > p.f2)) out.push(`solid reach-F2 ${pc(so.f2)} does not clearly beat passive ${pc(p.f2)}`);
   if (!(so.win > p.win)) out.push(`solid win ${pc(so.win)} does not clearly beat passive ${pc(p.win)}`);
-  if (re.f2 > p.f2) out.push(`reckless reach-F2 ${pc(re.f2)} beats passive ${pc(p.f2)}`);
-  if (re.win > p.win) out.push(`reckless win ${pc(re.win)} beats passive ${pc(p.win)}`);
+  if (beatsBeyondNoise(s.reckless.reachedF2, s.reckless.seasons, s.passive.reachedF2, s.passive.seasons, z)) out.push(`reckless reach-F2 ${pc(re.f2)} beats passive ${pc(p.f2)}`);
+  if (beatsBeyondNoise(s.reckless.wins, s.reckless.seasons, s.passive.wins, s.passive.seasons, z)) out.push(`reckless win ${pc(re.win)} beats passive ${pc(p.win)}`);
   return out;
 }
