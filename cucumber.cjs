@@ -106,6 +106,7 @@ module.exports = {
       "docs/features/0126-expanded-competition-mechanics.feature",
       "docs/features/0127-mixed-type-competitions.feature",
       "docs/features/0130-exit-interviews.feature",
+      "docs/features/0133-early-eviction-skip-or-watch.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

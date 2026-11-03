@@ -1,4 +1,3 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628) — wired by the 0133 engine PR (#1986), which removes this marker.
 Feature: Early eviction — skip to the finale or watch the skeleton season, and still be in the finale
   The player is voted out before the jury forms. They choose to skip to the finale reveal or keep watching a
   condensed version of the rest of the season, and either way they take part in the finale.
@@ -12,13 +11,14 @@ Feature: Early eviction — skip to the finale or watch the skeleton season, and
     Given a seeded live season where the player is evicted before the jury forms
     When the player chooses to watch
     And the remaining weeks are advanced
-    Then each completed week produced exactly one week digest
+    Then each completed eviction night produced exactly one week digest
     And every digest contains only public broadcast facts
-    And every digest is recorded as a non-hidden event the player witnessed
+    And the digests are public game-state records, never hidden events
 
   Scenario: Skipping fast-forwards to the finale reveal in one step
     Given a seeded live season where the player is evicted before the jury forms
     When the player chooses to skip
+    And the game is advanced once
     Then the season is at the finale reveal
     And the skipped weeks' digests are available to read
 
@@ -26,6 +26,7 @@ Feature: Early eviction — skip to the finale or watch the skeleton season, and
     Given a seeded live season where the player is evicted before the jury forms
     When the player chooses to watch
     And the player switches to skip
+    And the game is advanced once
     Then the season is at the finale reveal
     When the player tries to choose watch again
     Then the answer is refused and the player is still skipping
@@ -40,7 +41,7 @@ Feature: Early eviction — skip to the finale or watch the skeleton season, and
     And the season reaches the crowning
     Then a "finale-interview" decision is pending for the player
     When the player answers with a stance and optional words
-    Then the interview is recorded as a public event
+    Then the interview is recorded on the season's public record
     And it appears in the season-end retrospective
     And no jury vote and no winner changed
 

@@ -39,7 +39,7 @@ import type {
 const KNOWN_PENDING_KINDS = new Set<string>([
   "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice", "replacement",
   "eviction-vote", "tie-break", "final-eviction", "goodbye-message", "exit-interview", "finale-statement",
-  "finale-answer", "juror-question", "juror-vote",
+  "finale-answer", "juror-question", "juror-vote", "spectator-choice", "finale-interview",
 ]);
 
 type Pending = NonNullable<AdvanceView["pending"]>;
@@ -62,6 +62,8 @@ function resolve(s: GameSessionAdapter, p: Pending): void {
     case "final-eviction": s.submitDecision({ kind: "final-eviction", vote: o(0) }); break;
     case "goodbye-message": s.submitDecision({ kind: "goodbye-message", vote: o(0), statement: "x" }); break;
     case "exit-interview": s.submitDecision({ kind: "exit-interview", vote: o(0), statement: "x" }); break;
+    case "spectator-choice": s.submitDecision({ kind: "spectator-choice", vote: "watch" }); break;
+    case "finale-interview": s.submitDecision({ kind: "finale-interview", vote: o(0), statement: "x" }); break;
     case "finale-statement": s.submitDecision({ kind: "finale-statement", statement: "x" }); break;
     case "finale-answer": s.submitDecision({ kind: "finale-answer", appeal: p.appeals?.[0] ?? "own-game" }); break;
     case "juror-question": s.submitDecision({ kind: "juror-question", statement: "x" }); break;

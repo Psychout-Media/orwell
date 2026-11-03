@@ -120,6 +120,9 @@ export type Beat =
   // that draws NO rng and mutates NO seeded state (the NPC stance is a read of the already-fixed manner;
   // the record feeds only the 0048 retrospective), so it never perturbs the seeded trajectory.
   | "exit-interview"
+  // 0133 — the early-evicted player's spectator choice and finale-night interview: presentation/record-only
+  // beats (no rng, no fold, no clock tick) — see INERT_BEATS.
+  | "spectator-choice" | "finale-interview"
   // the player's voluntary walk-out (0061) — a recorded, witnessed, non-hidden exit event; emitted
   // on BeatEvent only (the structural transition is the player's removal + the terminal `selfEvicted`).
   | "self-eviction"
@@ -144,7 +147,8 @@ export type Beat =
  * it must NOT advance the ADR-0006 clock either — an extra eviction-night tick would shift fatigue/rest
  * into later competitions when time-of-day is enabled, contradicting the feature's no-seeded-state contract.
  */
-const INERT_BEATS: ReadonlySet<Beat> = new Set<Beat>(["comp-elimination", "day-break", "exit-interview"]);
+const INERT_BEATS: ReadonlySet<Beat> = new Set<Beat>(
+  ["comp-elimination", "day-break", "exit-interview", "spectator-choice", "finale-interview"]);
 
 /** Whether a beat is an inert, presentation-only staged reveal (no rng / no fold / no clock advance). */
 export function isInertBeat(beat: Beat): boolean {
@@ -173,6 +177,10 @@ export type PendingDecision =
   | { kind: "goodbye-message"; by: EntityId; evictee: EntityId; tones: GoodbyeTone[] }
   // --- exit interview (0130): the player, as the EVICTEE, answers the producers in their own words/posture ---
   | { kind: "exit-interview"; by: EntityId; evictee: EntityId; stances: ExitStance[] }
+  // --- early eviction (0133): the pre-jury evictee chooses to skip to the finale or keep watching ---
+  | { kind: "spectator-choice"; by: EntityId; modes: SpectatorMode[] }
+  // --- early eviction (0133): the pre-jury evictee's finale-night interview (posture + optional words) ---
+  | { kind: "finale-interview"; by: EntityId; stances: ExitStance[] }
   // --- finale (0037) ---
   | { kind: "finale-statement"; by: EntityId }
   | { kind: "finale-answer"; by: EntityId; juror: EntityId; appeals: FinaleAppeal[] }
@@ -226,6 +234,36 @@ export type ExitStance = "gracious" | "defiant" | "bitter";
 
 /** The legal exit-interview stances offered to the player-evictee (their own words, their own posture). */
 export const EXIT_STANCES: readonly ExitStance[] = ["gracious", "defiant", "bitter"];
+
+/** 0133 — how a pre-jury-evicted player follows the rest of the season: skip to the finale or watch the skeleton. */
+export type SpectatorMode = "watch" | "skip";
+export const SPECTATOR_MODES: readonly SpectatorMode[] = ["watch", "skip"];
+
+/**
+ * 0133 — ONE public line per completed week, built at the week's roll from PUBLIC ceremony facts only (HOH,
+ * nominees, veto holder/use, who left, jury size so far). Recorded on every season (no rng, no fold) so a
+ * spectating player's "watch" is the engine's own condensed record — nothing is told that is not recorded.
+ */
+export interface WeekDigest {
+  week: number;
+  hoh: EntityId | null;
+  nominees: EntityId[];
+  vetoHolder: EntityId | null;
+  vetoUsed: boolean;
+  evictee: EntityId | null;
+  juryCount: number;
+}
+
+/** The first `castSize − 11` evictions are pre-jury; the next 9 form the jury (cast size is conserved). */
+export function preJuryEvictionCount(s: { evictionOrder: EntityId[]; active: EntityId[] }): number {
+  return Math.max(0, s.evictionOrder.length + s.active.length - 2 - 9);
+}
+
+/** Is `id` out of the game BEFORE the jury formed (a pre-jury evictee)? Self-eviction is judged by the caller. */
+export function isPreJuryEvictee(s: { evictionOrder: EntityId[]; active: EntityId[] }, id: EntityId): boolean {
+  const idx = s.evictionOrder.indexOf(id);
+  return idx >= 0 && idx < preJuryEvictionCount(s);
+}
 
 /**
  * The live eviction sub-state machine (0047): the weekly eviction staged like the finale (0037) —
@@ -470,6 +508,16 @@ export interface LiveSeasonState {
    * Expressive/retrospective ONLY — it feeds no seeded decision, so it never perturbs the game trajectory.
    */
   exitInterviews?: Array<{ week: number; evictee: EntityId; stance: ExitStance; message?: string }>;
+  /**
+   * 0133 — early eviction. `spectator` is the pre-jury-evicted player's chosen way to follow the rest of the
+   * season (set when they answer the `spectator-choice` card); `spectatorOffered` marks the one-time offer;
+   * `weekDigests` is the public one-line-per-week record; `finaleInterview` is the evicted player's finale-night
+   * interview (posture + words). All ENGINE state, no rng, no number; the interview feeds no vote or winner.
+   */
+  spectator?: { mode: SpectatorMode; sinceWeek: number };
+  spectatorOffered?: boolean;
+  weekDigests?: WeekDigest[];
+  finaleInterview?: { stance: ExitStance; message?: string };
   /**
    * The in-progress STAGED competition sub-loop (0006 staged-rounds evolution); set while an
    * endurance-style HOH/veto comp plays out its elimination rounds, cleared when a winner remains.
@@ -795,6 +843,8 @@ export type DecisionInput =
   // --- eviction night (E34): the tone is the player's CHOICE; the prose is the model's to voice ---
   | { kind: "goodbye-message"; tone: GoodbyeTone; message?: string }
   | { kind: "exit-interview"; stance: ExitStance; message?: string }
+  | { kind: "spectator-choice"; mode: SpectatorMode }
+  | { kind: "finale-interview"; stance: ExitStance; message?: string }
   // --- finale (0037) ---
   | { kind: "finale-statement"; statement: string }
   | { kind: "finale-answer"; appeal: FinaleAppeal }
@@ -1931,6 +1981,13 @@ function removeEvictee(s: LiveSeasonState, evictee: EntityId): void {
 
 /** Roll into the next week (or the finale at Final 3 → 2): clear the week's ceremony state. */
 function rollWeek(s: LiveSeasonState): void {
+  // 0133 — the week's public digest, taken BEFORE the ceremony state clears. No rng, no fold. A twist night's
+  // second eviction (same week number) gets its own line.
+  (s.weekDigests ??= []).push({
+    week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])],
+    vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee: s.evictee ?? null,
+    juryCount: Math.max(0, s.evictionOrder.length - preJuryEvictionCount(s)),
+  });
   s.outgoingHoh = s.hoh;
   s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined;
   s.vetoHolder = undefined; s.vetoUsed = false; s.saved = undefined;
@@ -2240,6 +2297,12 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
     }
     case "result": {
       const evictee = e.evictee!;
+      // 0133 — a PRE-JURY-evicted PLAYER chooses how to follow the rest of the season (once). The card is the
+      // player's own choice; nothing here draws rng or mutates seeded state.
+      if (evictee === ctx.player && !s.selfEvicted && !s.spectatorOffered && isPreJuryEvictee(s, ctx.player)) {
+        s.pending = { kind: "spectator-choice", by: ctx.player, modes: [...SPECTATOR_MODES] };
+        return null;
+      }
       s.eviction = undefined;
       rollWeek(s); // the week's ceremony state clears and the house rolls on (or into the finale)
       return { beat: "eviction-result", content: `${evictee} leaves the house`, participants: [evictee] };
@@ -2463,6 +2526,12 @@ function advanceFinale(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource
       // All votes revealed: tally (last-evicted-juror tie-break, reused) and crown the winner.
       const winner = tallyJury(f.jury, f.finalists, (j) => f.votes![j]!, s.evictionOrder);
       s.finalTwo = f.finalists; s.jury = f.jury; s.winner = winner; s.finished = true; s.beat = "complete";
+      // 0133 — a pre-jury-evicted PLAYER takes part in the finale night with an interview (posture + words). It is
+      // raised AFTER the jury has decided, so it can never move a vote or the winner, and it never blocks the
+      // crowning (the season is already crowned when it is offered).
+      if (!s.selfEvicted && !s.finaleInterview && isPreJuryEvictee(s, ctx.player)) {
+        s.pending = { kind: "finale-interview", by: ctx.player, stances: [...EXIT_STANCES] };
+      }
       const loser = f.finalists.find((x) => x !== winner)!;
       return { beat: "finale-result", content: `${winner} wins the season over ${loser}`, participants: [...f.finalists] };
     }
@@ -2809,6 +2878,10 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       // 0130 — the same manner-derived stance an NPC evictee would take (auto-play default; the live
       // player answers for themselves through submitDecision).
       return { kind: "exit-interview", stance: npcExitStance(p.evictee, s) };
+    case "spectator-choice":
+      return { kind: "spectator-choice", mode: "watch" };
+    case "finale-interview":
+      return { kind: "finale-interview", stance: npcExitStance(p.by, s) };
     case "finale-statement":
       return { kind: "finale-statement", statement: "" };
     case "finale-answer":
@@ -2971,6 +3044,30 @@ export function applyDecision(
         content: exitInterviewContent(e.evictee!, input.stance),
         participants: [e.evictee!],
       };
+    }
+    // --- early eviction (0133) -------------------------------------------------
+    case "spectator-choice": {
+      const p = s.pending;
+      if (!p || p.kind !== "spectator-choice") throw new Error("no pending spectator choice");
+      if (!SPECTATOR_MODES.includes(input.mode)) throw new Error("a legal spectator mode is required (watch / skip)");
+      s.pending = undefined;
+      s.spectatorOffered = true;
+      s.spectator = { mode: input.mode, sinceWeek: s.week };
+      return {
+        beat: "spectator-choice",
+        content: input.mode === "skip"
+          ? `${p.by} chooses to skip ahead to the finale`
+          : `${p.by} chooses to keep watching the rest of the season`,
+        participants: [p.by],
+      };
+    }
+    case "finale-interview": {
+      const p = s.pending;
+      if (!p || p.kind !== "finale-interview") throw new Error("no pending finale interview");
+      if (!EXIT_STANCES.includes(input.stance)) throw new Error("a legal interview stance is required (gracious / defiant / bitter)");
+      s.pending = undefined;
+      s.finaleInterview = { stance: input.stance, ...(input.message ? { message: input.message } : {}) };
+      return { beat: "finale-interview", content: `${p.by} is interviewed on the finale night`, participants: [p.by] };
     }
     // --- secret veto (0025 reactive redesign) ---------------------------------
     case "secret-veto": {

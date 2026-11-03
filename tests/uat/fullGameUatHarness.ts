@@ -44,7 +44,7 @@ export interface NamedRef { id: string; name: string; }
 
 export interface PendingDecision {
   kind: "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
-      | "goodbye-message" | "exit-interview" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote";
+      | "goodbye-message" | "exit-interview" | "spectator-choice" | "finale-interview" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote";
   by: NamedRef;
   options: NamedRef[];
   pick: number;
@@ -130,6 +130,10 @@ export function autoResolve(p: PendingDecision, strategy: DecisionStrategy): Rec
       return { kind: "goodbye-message", vote: p.options[0]!.id, statement: "Take care." };
     case "exit-interview": // 0130: the player-evictee's exit posture rides `vote` (first legal stance).
       return { kind: "exit-interview", vote: p.options[0]!.id, statement: "I gave it everything." };
+    case "spectator-choice": // 0133: an early-evicted player — watch the condensed season.
+      return { kind: "spectator-choice", vote: "watch" };
+    case "finale-interview": // 0133: the post-crowning interview posture rides `vote`.
+      return { kind: "finale-interview", vote: p.options[0]!.id, statement: "It was a good season." };
     // --- 0037 interactive finale ---
     case "finale-statement":
       return { kind: "finale-statement", statement: "I played my own game." };

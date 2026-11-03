@@ -33,6 +33,8 @@ function autoResolve(p) {
   switch (p.kind) {
     case 'nominations': return { kind: 'nominations', choice: [p.options[0].id, p.options[1].id] };
     case 'veto-decision': return { kind: 'veto-decision', use: false };
+    case 'spectator-choice': return { kind: 'spectator-choice', vote: 'skip' }; // 0133
+    case 'finale-interview': return { kind: 'finale-interview', vote: 'gracious' };
     case 'secret-veto': return { kind: 'secret-veto', use: false }; // 0025: hold; an explicit boolean is required
     case 'comp-intent': return { kind: 'comp-intent', intent: 'compete' };
     case 'comp-round': return { kind: 'comp-round', intent: 'compete' };
@@ -73,7 +75,12 @@ for (; i < 4000; i++) {
     // a player-visible beat that names a specific houseguest AS a specific voter ("X voted to evict")
     if (/\bvoted to evict\b/i.test(c) && /[A-Z][a-z]+ voted to evict/.test(c)) anomalies.push({ where: 'evict-beat#' + i, leak: 'per-voter ballot attribution in player beat', sample: c.slice(0, 120) });
   }
-  if (a.finished) { finished = true; lastWinner = a.winner; break; }
+  if (a.finished) {
+    finished = true; lastWinner = a.winner;
+    // 0133: the crowning response can carry the post-crowning finale-interview card — answer it before stopping.
+    if (a.pending && a.pending.kind === 'finale-interview') { const fi = await tool('submitDecision', autoResolve(a.pending)); scan(fi.raw, 'submit:finale-interview'); }
+    break;
+  }
   const p = a.pending;
   if (p) {
     if (/finale|juror/.test(p.kind)) finaleKinds.add(p.kind);

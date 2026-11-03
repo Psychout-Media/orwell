@@ -1,13 +1,13 @@
 # 0133 — Early eviction: skip to the finale or watch the skeleton season, and still be in the finale
 
-> **Status:** 📝 **Spec only** (2026-11-03). **Amends 0046** (player eviction & the juror's seat) for the
+> **Status:** ✅ **Built** (2026-11-03, #1986; engine + FE card). **Amends 0046** (player eviction & the juror's seat) for the
 > **pre-jury** path, and shares its spectator machinery with the player-as-juror work (A-13).
 > **PO ruling (Ryne, 2026-11-03):** when the player is evicted before the jury forms, offer BOTH a **skip to
 > the season-finale reveal** and a **keep-watching** option; "watch" is a deliberately **skeleton** version of
 > the rest of the season (condensed weekly beats, not a full click-through); and **either way** the evicted
 > player still takes part in the finale — at minimum an interview.
 > **Executable spec:** [`0133-early-eviction-skip-or-watch.feature`](./0133-early-eviction-skip-or-watch.feature)
-> (not yet wired into `cucumber.cjs`).
+> (wired into `cucumber.cjs`).
 
 ## 1. Summary
 

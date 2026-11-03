@@ -64,6 +64,8 @@ function answer(p: PendingView): Record<string, unknown> {
     case "tie-break": return { kind: "tie-break", vote: first };
     case "goodbye-message": return { kind: "goodbye-message", vote: "respectful" };
     case "exit-interview": return { kind: "exit-interview", vote: "gracious" };
+    case "spectator-choice": return { kind: "spectator-choice", vote: "watch" }; // 0133
+    case "finale-interview": return { kind: "finale-interview", vote: "gracious" };
     default: throw new Error(`unhandled pending kind before the first goodbye: ${p.kind}`);
   }
 }
