@@ -20,4 +20,4 @@ Returns only the player's own words, never engine truth or hidden state (`readsV
 `tests/unit/playerDossier.test.ts` (6 cases: grouping, filtering, feature boundary, privacy), `portDispatchCoverage.test.ts`, lever-manifest test.
 
 ## Known gaps
-Not verified: FE wiring. The prompt names the lever, so the five-place FE tool wiring (CLAUDE.md lever-drift trap, `test_c13_lever_drift.py`) should be checked; the PR touched no `frontend/` files.
+None open. FE wiring verified present for `playerDossier`: `tool_schemas.py`, `agent_tools.py`, `orwell_engine.py`, `tool_execution.py`, `tool_implementations.py` (`do_player_dossier`), plus `orwellToolBeats.js` (landed after #1901, which touched no `frontend/` files).

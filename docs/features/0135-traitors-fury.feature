@@ -10,6 +10,13 @@ Feature: Traitors' Fury (jury bearing and misdirected blame)
     Then the juror's bearing is one of settled, cold, warm or burning
     And no grudge number is present
 
+  Scenario: A deduced culprit stays a juror-only belief
+    Given a juror who deduced, possibly wrongly, who voted them out
+    When the blame is routed and diffused through the jury house
+    Then the belief is held in the jurors' own knowledge only
+    And it is not added to the player's knowledge
+    And it applies no relationship fold
+
   Scenario: The reveal regrouping never changes the result
     Given a seeded finale played with the flag on and off
     When the votes are revealed

@@ -7,8 +7,8 @@ A deal struck in front of a crowd and one struck in a quiet room were mechanical
 
 ## What shipped
 - The deal record gains `formationWitnesses`: the co-present houseguests at the `makeDeal` commit, excluding both parties, sourced from presence ground truth (`src/domain/deal.ts`, `GameSessionAdapter.ts`).
-- Formation trust-fold scales with audience size: `formationAudienceScale = min(maxScale, 1 + perWitness * n)` in `src/engine/deals.ts`, with `perWitness` 0.08 and the existing 1.6 cap (`relationshipConstants.ts`, ADR 0005: the engine owns magnitude).
-- At breach, the fact reaches each formation witness (a witnessed betrayal event per witness), exactly that set, no over-reach.
+- The audience scale `formationAudienceScale = min(maxScale, 1 + perWitness * n)` (`src/engine/deals.ts`) is applied to the KEPT-deal (honored) fold in `applyHonor`, only when `dealsWitnesses` is on; with `dealDepth` also on, the loyalty-streak multiplier overwrites the audience scale (a bigger audience does not then raise the fold). Constants: `perWitness` 0.08 and the existing 1.6 cap (`relationshipConstants.ts`, ADR 0005: the engine owns magnitude).
+- At breach, the wronged party learns via the existing reveal (when it witnesses the break), and `revealToWitness` additionally sends a collateral copy to each formation witness, exactly that set, no over-reach.
 - Purely diegetic lever (pick the room and company); no new tool.
 
 ## Flag
@@ -18,7 +18,7 @@ Flag `ORWELL_DEAL_WITNESSES`, deploy default ON; OFF leaves `formationWitnesses`
 Bounded and inside existing fold paths; breach knowledge reaches only players who were actually present (no pathway invented). Does not move the `juryReach` band.
 
 ## Tests
-`tests/unit/deals.test.ts` (capture, scaled-fold-capped, breach-scope no-over-reach, flag-off byte-identical); `juryReach` per the PR.
+`tests/unit/deals.test.ts`: TEST 1 capture; TEST 2 the `formationAudienceScale` multiplier math and cap only (no fold assertion); TEST 3 `revealToWitness` reaches exactly the witness set; TEST 4 with the flag off no witness callback fires and no record is set (it does not assert fold or diffusion byte-identity); `juryReach` per the PR.
 
 ## Known gaps
 No FE surface; the lever is not advertised to the player.

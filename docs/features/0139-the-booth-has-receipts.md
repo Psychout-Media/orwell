@@ -20,4 +20,4 @@ Pure over plain data with no Vault/soul/edge handle; dependency-cruiser rule `no
 `tests/unit/receipts.test.ts`, `receiptsLive.test.ts` (plays a real season), `portDispatchCoverage.test.ts`, `healthFlags.test.ts`.
 
 ## Known gaps
-Not verified: FE tool wiring (see 0138). The DR-vs-public flip detector is text-heuristic.
+FE tool wiring verified present for `playerReceipts` (the five C13 paths plus `orwellToolBeats.js`; see 0138). The DR-vs-public flip detector is text-heuristic.
