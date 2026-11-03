@@ -129,6 +129,12 @@ export interface NominationRead {
    * pre-#1948 save) ⇒ the score inference, byte-identical to before.
    */
   target?: EntityId;
+  /**
+   * #1937 — the bounded, signed CAMPAIGN push on a houseguest as a nominee, from campaigns the HOH is AWARE of
+   * (evict adds, protect subtracts; `campaignPushFor`). Added LAST to the strategic score, next to (never over)
+   * the style terms. Absent ⇒ +0, byte-identical.
+   */
+  campaignPush?: (target: EntityId) => number;
 }
 
 /** A nomination pair plus the HOH's actual TARGET (a backdoor leaves the target OFF the block). */
@@ -166,7 +172,7 @@ export function nominationPlan(
   const N = DECISION.nomination;
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + W.floaterWeight * floaterRead(t, active, rel) +
-    W.duoWeight * duoRead(t, hoh, active, rel);
+    W.duoWeight * duoRead(t, hoh, active, rel) + (read.campaignPush?.(t) ?? 0);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
@@ -206,7 +212,8 @@ export function replacementPick(
   const P = NOMINATION_PRESSURE;
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) +
-    S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel);
+    S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel) +
+    (read.campaignPush?.(t) ?? 0);
   const ranked = [...options].sort((a, b) => score(b) - score(a));
   // #1948: branch on the HOH's stored target when we have it; otherwise infer it from the scores (legacy).
   const targetStillUp = target !== undefined ? remaining === target : score(remaining) >= score(ranked[0]!);

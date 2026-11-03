@@ -44,6 +44,16 @@ live ledger of owner calls as they happen.
   (`MODEL_SUBMITTABLE_KINDS` in `frontend/src/orwell_engine.py`). Rationale: ADR 0003 and the C20 definition
   of done ("a hedge in prose cannot bind"); a live check found the narrator submitting a competition choice
   from the player's prose, with only prompt wording holding the line for the bigger choices.
+- **Player lobbying sways NPCs at every stage (owner, relayed 2026-11-03).** The player's own campaigns sway NPC
+  nominations, the replacement nominee and the veto save, as well as the eviction vote — still bounded
+  (`CAMPAIGN.base` per push, net clamped), and the NPCs still decide. **This supersedes the 2026-06-27 "no player
+  input may modulate a seeded outcome distribution" principle (0098) ONLY for social influence the player EARNS
+  through real, recorded moves and that reaches an outcome only through an NPC's own decision** (a campaign the NPC
+  is aware of, bounded, character-mediated). The boundary stays: mechanics that shift seeded odds DIRECTLY (a stat,
+  a roll, a threshold) remain barred, and no future outcome change is approved under this precedent. Implemented in #1937 as the single
+  switch `CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED = true`. **ASSUMED, pending Ryne (technical detail):** the NPC
+  campaign re-planner no longer rewrites a player's declared campaign (it used to flip a nominated player's evict
+  campaign into "protect them"), so the player cannot get an unearned shield now that `protect` has effect.
 
 ## 2026-11-02
 
