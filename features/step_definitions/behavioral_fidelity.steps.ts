@@ -7,6 +7,7 @@ import { liveRichnessMetrics, TYPED_SCENES } from "../../src/engine/richness";
 import { RICHNESS } from "../../src/engine/richnessConfig";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 /**
  * 0003 — behavioral fidelity, measured on the LIVE game (audit 2026-10-25: this BDD used to drive
@@ -20,12 +21,7 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 const WEEKS = 4;
 
 function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "comp-intent" || p.kind === "comp-round") s.submitDecision({ kind: p.kind, intent: "compete" } as never);
-  else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+  resolvePending(p, (req) => s.submitDecision(req));
 }
 
 function playLive(world: BbWorld, seed: number): void {

@@ -10,6 +10,7 @@ import { PRESENCE } from "../../src/engine/presenceConstants";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0049 — house presence & lingering play. HARD rule: roles only — no names.
 
@@ -59,14 +60,7 @@ Then("no evicted houseguest occupies any room", function (this: BbWorld) {
   for (let i = 0; i < 600; i++) {
     const v = s.advanceGame();
     if (v.pending) {
-      const p = v.pending;
-      if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-      else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
-      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-      else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-      else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-      else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+      resolvePending(v.pending, (req) => s.submitDecision(req));
     }
     const evicted = new Set(s.snapshot().live?.evictionOrder ?? []);
     const occ = s.occupancy();

@@ -7,6 +7,7 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { npc } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 // Feature 0127 — mixed-type competitions. HARD rule: roles only — no names.
 
@@ -21,14 +22,7 @@ function hybridWinRate(field: () => Competitor[], secondary: "physical" | "menta
 
 /** Answer whatever pending the live game raises with a legal, deterministic choice (roles only). */
 function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
-  else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
-  else if (p.kind === "houseguests-choice") s.submitDecision({ kind: "houseguests-choice", vote: p.options[0]!.id });
-  else if (p.kind === "goodbye-message") s.submitDecision({ kind: "goodbye-message", vote: p.options[0]!.id });
-  else if (p.options?.[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+  resolvePending(p, (req) => s.submitDecision(req));
 }
 
 /** Play a seeded game to completion with hybrid resolution on/off; return the eviction order. */

@@ -7,21 +7,14 @@ import type { AdvanceView, EvictionView, SubmitDecisionReq } from "../../src/por
 import { goodbyeMannerFor } from "../../src/engine/liveSeason";
 import { juryLean } from "../../src/engine/jury";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0047 — eviction night live. Driven through the live MCP seam (createCharacter →
 // advanceGame / submitDecision). HARD rule: roles only — no names.
 
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): AdvanceView {
-  const submit = (req: SubmitDecisionReq): AdvanceView => s.submitDecision(req);
-  if (p.kind === "nominations") return submit({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  if (p.kind === "veto-decision") return submit({ kind: "veto-decision", use: false });
-  if (p.kind === "replacement") return submit({ kind: "replacement", replacement: p.options[0]!.id });
-  if (p.kind === "comp-intent") return submit({ kind: "comp-intent", intent: "compete" });
-  if (p.kind === "comp-round") return submit({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-  if (p.kind === "finale-statement") return submit({ kind: "finale-statement", statement: "x" });
-  if (p.kind === "finale-answer") return submit({ kind: "finale-answer", appeal: p.appeals![0]! });
-  if (p.kind === "juror-vote") return submit({ kind: "juror-vote", vote: p.options[0]!.id });
-  return submit({ kind: p.kind, vote: p.options[0]!.id });
+  // `self-evict` is intentionally never auto-answered; the eviction-night scenarios never raise it.
+  return resolvePending(p, (req) => s.submitDecision(req)) as AdvanceView;
 }
 
 /** Drive a fresh game to the FIRST staging eviction (stage "votes"); collect the advance views from there. */

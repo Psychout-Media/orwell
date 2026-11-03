@@ -6,22 +6,14 @@ import type { UserSandbox } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { AdvanceView, SubmitDecisionReq } from "../../src/ports/GameSession";
 import { PLAYER } from "../../src/domain/ids";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 // Feature 0046 — player eviction & the juror's seat. Driven through the live MCP seam
 // (createCharacter → advanceGame/submitDecision). HARD rule: roles only — no names.
 
 /** A simple, deterministic player policy: compete, take the first legal options, never use the veto. */
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
-  const submit = (req: SubmitDecisionReq): void => void s.submitDecision(req);
-  if (p.kind === "nominations") submit({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") submit({ kind: "veto-decision", use: false });
-  else if (p.kind === "replacement") submit({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.kind === "comp-intent") submit({ kind: "comp-intent", intent: "compete" });
-  else if (p.kind === "comp-round") submit({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-  else if (p.kind === "finale-statement") submit({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") submit({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.kind === "juror-vote") submit({ kind: "juror-vote", vote: p.options[0]!.id });
-  else submit({ kind: p.kind, vote: p.options[0]!.id });
+  resolvePending(p, (req) => void s.submitDecision(req));
 }
 
 const evictionOrder = (s: GameSessionAdapter): string[] => s.snapshot().live?.evictionOrder ?? [];

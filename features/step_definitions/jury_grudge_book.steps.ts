@@ -12,6 +12,7 @@ import type { AdvanceView } from "../../src/ports/GameSession";
 import type { McpServer } from "../../src/adapters/mcp/McpServer";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { answerPending } from "../support/answerPending";
 
 /**
  * Feature 0100 — the jury grudge book. The last-nine evictees keep living in a sequestered jury house,
@@ -268,10 +269,8 @@ async function finaleWinner(
     if (v.finished) break;
     if (v.pending) {
       const d = v.pending;
-      if (d.kind === "finale-statement") await p.callTool("submitDecision", { kind: "finale-statement", statement: "x" });
-      else if (d.kind === "finale-answer") await p.callTool("submitDecision", { kind: "finale-answer", appeal: d.appeals![0]! });
-      else if (d.kind === "juror-vote") await p.callTool("submitDecision", { kind: "juror-vote", vote: d.options[0]!.id });
-      else await p.callTool("submitDecision", { kind: d.kind, vote: d.options[0]?.id });
+      const req = answerPending(d);
+      if (req) await p.callTool("submitDecision", req as unknown as Record<string, unknown>);
     }
   }
   return final?.winner?.id as EntityId | undefined;
@@ -386,10 +385,8 @@ When("the finale stages that juror's question and the vote reveal", async functi
     if (v.finished) break;
     if (v.pending) {
       const d = v.pending;
-      if (d.kind === "finale-statement") await p2.callTool("submitDecision", { kind: "finale-statement", statement: "x" });
-      else if (d.kind === "finale-answer") await p2.callTool("submitDecision", { kind: "finale-answer", appeal: d.appeals![0]! });
-      else if (d.kind === "juror-vote") await p2.callTool("submitDecision", { kind: "juror-vote", vote: d.options[0]!.id });
-      else await p2.callTool("submitDecision", { kind: d.kind, vote: d.options[0]?.id });
+      const req = answerPending(d);
+      if (req) await p2.callTool("submitDecision", req as unknown as Record<string, unknown>);
     }
   }
   const status = await p2.callTool("gameStatus", {});
