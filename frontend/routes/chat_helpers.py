@@ -1862,6 +1862,12 @@ def _beat_signature(status: dict, state: dict) -> dict:
         # A-9: the competition's own round-aware identity (the pending's still-in set), so "the competition did
         # not progress this turn" is checkable without the raw beat counter (which unrelated mutations bump).
         "compSig": _comp_pending_signature(status, state),
+        # F-3: the veto competition's actual FIELD (public {id,name} the House Status gadget shows) + the player's id,
+        # so narration that seats the player in a field the engine excluded them from is checkable structurally.
+        "vetoFieldIds": sorted(str(p.get("id")) for p in (veto.get("players") or []) if isinstance(p, dict) and p.get("id")),
+        "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
+                                 if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
+        "playerId": player_id,
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
 
@@ -2455,8 +2461,13 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "your own REMOVAL / EXPULSION from the game (the engine shows you are STILL in the game)"
     # (8) A-9: a SPECIFIC competition event narrated while the engine's competition is unsettled and nothing
     #     progressed this turn (structural — see `_unsettled_competition_result`).
-    if not desync:
-        desync = _unsettled_competition_result(text, after, before)
+    _a9 = None if desync else _unsettled_competition_result(text, after, before)
+    # (9) F-3: the player seated in a veto field the engine excluded them from (membership is engine truth).
+    # Run BOTH and merge the labels so a sentence combining field membership with an elimination claim gets
+    # the re-ground that names the real field, not only the generic unresolved-competition correction.
+    _f3 = None if desync else _player_seated_in_excluded_field(text, after)
+    if _a9 or _f3:
+        desync = "; and ".join(x for x in (_f3, _a9) if x)
 
     if not desync:
         return None
@@ -3417,6 +3428,55 @@ def _comp_pending_signature(status: dict, state: dict):
     return None
 
 
+# F-3 (A-11 playtest): narration that SEATS THE PLAYER in the veto competition. Checked ONLY against an engine field
+# that excludes the player (never on uncertainty). Collective "N of you" and the player as the actor of a competition verb.
+_CLAIM_PLAYER_IN_FIELD_RE = re.compile(
+    # collective: "the six of you", "all four of you"
+    r"\b(?:the|all|both|only)\s+(?:two|three|four|five|six|seven|eight)\s+of\s+you\b"
+    # the player stated AS a veto competitor — competition-specific only (never "you're in the kitchen", "you step into…")
+    r"|\byou(?:(?:'|’)?re|\s+are)\s+(?:in the (?:veto|comp|competition|field|running)|competing|playing in the (?:veto|comp|competition)"
+    r"|one of the (?:six|players|competitors))\b"
+    r"|\byou\s+(?:take your (?:place|mark|spot|position)|line up|compete|step (?:up|onto) (?:to )?the (?:pedestal|platform|podium|ledge|mark|line))\b"
+    r"|\byour\s+(?:pedestal|platform|podium|ledge|lane|chip|disc|ball|buzzer|button|sequence)\b",
+    re.IGNORECASE,
+)
+
+
+_NUM_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
+
+
+def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
+    """F-3 — the narration seats the player in the veto competition but the engine's field EXCLUDES them. Returns a
+    LABEL naming the real field (public names), or None. Stands down on every uncertainty (no field read, no player id,
+    not a veto-competition phase, the player IS in the field, hypothetical/past clause)."""
+    if not isinstance(live, dict) or "veto" not in str(live.get("phase") or "").lower():
+        return None
+    if "competition" not in str(live.get("phase") or "").lower():
+        return None
+    field, pid = live.get("vetoFieldIds") or [], live.get("playerId")
+    if not field or not pid or str(pid) in field:
+        return None
+    for sent in re.split(r"(?<=[.!?\n])", text or ""):
+        if not sent.strip():
+            continue
+        for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
+            # a past-week phrase exempts only ITS OWN clause ("Last week you played, but the six of you are off now")
+            m = None
+            for cand in (_CLAIM_PLAYER_IN_FIELD_RE.finditer(clause) if clause.strip() else ()):
+                coll = re.match(r"(?:the|all|both|only)\s+(\w+)\s+of\s+you", cand.group(0), re.IGNORECASE)
+                # the collective cue is only a field claim when its number IS the field size ("the two of you talk
+                # in the kitchen" is social prose) — and a mismatched one must not hide a LATER cue in the same clause
+                if coll and _NUM_WORDS.get(coll.group(1).lower()) != len(field):
+                    continue
+                m = cand
+                break
+            if (m and not _COMP_PAST_RE.search(clause) and not _COMP_HYPOTHETICAL_RE.search(clause)):
+                names = ", ".join(live.get("vetoFieldNames") or [])
+                return ("the PLAYER competing in the veto competition (the engine's veto field is "
+                        + (names or "set") + " — the player is NOT in it)")
+    return None
+
+
 def _unsettled_competition_result(text: str, live: dict, before: dict) -> Optional[str]:
     """A-9 — STRUCTURAL screen: the engine's competition is UNSETTLED (a competition phase, still waiting on
     the player's `comp-intent`/`comp-round` approach) and the COMPETITION did not progress this turn, so any
@@ -3433,7 +3493,9 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         return None
     if "competition" not in str(live.get("phase") or "").lower():
         return None
-    if live.get("pending") not in ("comp-intent", "comp-round"):
+    # F-3: the player may not be IN the field at all (a veto draw that excluded them) — then the engine raises no
+    # approach pending, yet the competition is just as unsettled; a result narrated with NO progress is invented.
+    if live.get("pending") not in (None, "comp-intent", "comp-round"):
         return None
     for k in ("phase", "pending", "hoh", "vetoHolder", "compSig"):
         if before.get(k) != live.get(k):
@@ -3474,6 +3536,7 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
         or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
         or _CLAIM_COMP_ELIM_STRONG_RE.search(text)
         or _CLAIM_COMP_ELIM_WEAK_RE.search(text)
+        or _CLAIM_PLAYER_IN_FIELD_RE.search(text)  # F-3: the player seated in a veto field (verified against the engine's field)
     )
 
 
