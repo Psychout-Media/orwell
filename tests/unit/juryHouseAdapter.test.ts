@@ -309,6 +309,23 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     expect(sb.session.snapshot().juryHouseTickCount).toBe(tick);
   });
 
+  it("a legacy save whose arrival counter ran AHEAD (it counted pre-jury evictions) replays the newest juror's stretch once, then settles", () => {
+    const { reg, sbOf } = growingJury("limbo-legacy", 22, 3);
+    // A pre-membership-fix save counted every eviction as an arrival: 5 pre-jury + 3 jurors = 8, ahead of the 3 jurors.
+    const snap = reg.snapshot("limbo-legacy") as SessionSnapshot;
+    snap.juryHouseArrivals = 8;
+    snap.juryHouseTickCount = 5;
+    reg.restore("limbo-legacy", snap);
+    reg.sandboxFor("limbo-legacy").session.setJuryHouseEnabled(true);
+    const sb = sbOf();
+    sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    const after = sb.session.snapshot();
+    expect(after.juryHouseArrivals, "settled to the juror count").toBe(3);
+    expect(after.juryHouseTickCount, "exactly one replayed stretch").toBe(6);
+    for (let t = 0; t < 10; t++) sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().juryHouseTickCount, "and never again").toBe(6);
+  });
+
   it("each arrival plays 1–3 hidden juror scenes, and a double eviction plays both owed stretches", () => {
     const { sbOf, arrive } = growingJury("limbo-arrive", 22, 2);
     let sb = sbOf();

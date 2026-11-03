@@ -7874,7 +7874,10 @@ export class GameSessionAdapter implements GameSession {
     // after. Running the arrival's stretch only once the stage has closed lets a cold goodbye count (#1932).
     if (this.live.eviction) return;
     const arrivals = juryEvictees.length; // a pre-jury eviction is not an arrival: nobody joined the jury house
-    if (this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = arrivals; // a save counted pre-jury evictions
+    // A save that counted pre-jury evictions as arrivals is AHEAD of the juror count. Pull it back to one short, so
+    // the newest juror's stretch is played (once) under the correct membership instead of being skipped; after that
+    // the counters are equal and this never fires again.
+    if (this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
     if (this.juryHouseArrivals === null) {
       // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival
       // marker) is treated as caught up to now, so the NEXT eviction resumes the jury house normally.

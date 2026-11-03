@@ -25,6 +25,9 @@ import type { EntityId } from "../../src/domain/ids";
 const FINALIST = npc(14);
 const OTHER_FINALIST = npc(15);
 const JURORS: EntityId[] = Array.from({ length: 9 }, (_, i) => npc(i + 1));
+// PO ruling 2026-11-03: only jurors belong in the jury house — the first `cast − 2 − 9 = 5` evictees are pre-jury.
+// Crafted eviction orders seat five such evictees first so the jurors sit at the jury-start index.
+const PRE_JURY: EntityId[] = Array.from({ length: 5 }, (_, i) => npc(101 + i));
 const BETRAYED = npc(1);
 const CLOSE = npc(2);
 const ISOLATED = npc(9);
@@ -56,7 +59,7 @@ function juryPhaseLive(opts: { grievanceAgainst?: EntityId; preJurorIncluded?: b
   if (opts.grievanceAgainst) manner[BETRAYED] = { [opts.grievanceAgainst]: { betrayed: true } };
   return {
     week: 9, beat: "hoh-competition", active: [FINALIST, OTHER_FINALIST], vetoUsed: false,
-    evictionOrder: [...JURORS], finished: false, mannerByEvictee: manner,
+    evictionOrder: [...PRE_JURY, ...JURORS], finished: false, mannerByEvictee: manner,
   };
 }
 
@@ -151,8 +154,8 @@ Given("a pre-jury-evictee who was cut before the jury formed", function (this: B
   const preJuror = npc(10); // an early evictee, NOT in the last-nine
   const live: LiveSeasonState = {
     week: 11, beat: "hoh-competition", active: [FINALIST, OTHER_FINALIST], vetoUsed: false,
-    // 10 evictees: npc:10 (pre-jury) then the last-nine npc:1..npc:9. slice(-9) drops npc:10.
-    evictionOrder: [preJuror, ...JURORS], finished: false,
+    // 14 evictees: five pre-jury (npc:10 first) then the last-nine npc:1..npc:9 — only the nine are the jury.
+    evictionOrder: [preJuror, ...PRE_JURY.slice(0, 4), ...JURORS], finished: false,
     mannerByEvictee: { [preJuror]: { [FINALIST]: { betrayed: true } } }, // even a grievance: it never spreads
   };
   const snap = reg.snapshot(user) as SessionSnapshot;
@@ -245,7 +248,7 @@ async function finaleWinner(
   // Two NPC finalists (so the engine decides every vote; no player turn to drive in the vote math).
   const live: LiveSeasonState = {
     week: 9, beat: "finale", active: [FINALIST, OTHER_FINALIST], vetoUsed: false,
-    evictionOrder: [...JURORS], finished: false,
+    evictionOrder: [...PRE_JURY, ...JURORS], finished: false,
     ...(manner ? { mannerByEvictee: manner } : {}),
     ...(grudge ? { juryGrudge: grudge } : {}),
   };
