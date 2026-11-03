@@ -2527,8 +2527,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     _n1 = None if desync else _veto_holder_contradiction(text, after)
     # (11) N-3: a "not yet" about a closed-set fact the engine has ALREADY committed (the HOH, the nominees, the veto).
     _n3 = None if desync else _stale_denial_contradiction(text, after)
-    if _a9 or _f3 or _n1 or _n3:
-        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3) if x)
+    # (12) N-15: the PLAYER's own card-gated choice narrated as made while its card is still open (never recorded).
+    _n15 = None if desync else _uncommitted_player_choice(text, after)
+    if _a9 or _f3 or _n1 or _n3 or _n15:
+        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15) if x)
 
     if not desync:
         return None
@@ -3618,6 +3620,54 @@ _DENY_VETO_RE = re.compile(
     r"|\b(?:nobody|no\s+one)\s+(?:holds|has|owns)\s+(?:the\s+)?(?:power\s+of\s+)?(?:veto|pov)\b", re.IGNORECASE)
 
 
+# N-15 (A-14 playtest) — while a card-gated decision is still PENDING the narrator narrated the player's choice as
+# already made ("Marcus. You have cast your vote ..."), a choice the engine never recorded (big choices bind ONLY via
+# the card — owner ruling). Each pending kind has its own claim shapes; a claim only counts against ITS card, in a
+# sentence that is not a hypothetical, an invitation or another person's act. Closed-set only.
+_PLAYER_CHOICE_BY_PENDING = {
+    "eviction-vote": r"you(?:'ve|\s+have)?\s+(?:just\s+)?(?:cast|casted|locked\s+in|submitted)\s+(?:your\s+)?(?:vote|ballot)\b"
+                     r"|your\s+(?:vote|ballot)\s+(?:is|has\s+been|was)\s+(?:cast|in|locked|submitted|recorded)\b"
+                     r"|you\s+vote[d]?\s+(?:to\s+evict|for)\b|you(?:'ve|\s+have)\s+voted\b"
+                     r"|you(?:'ve|\s+have)?\s+(?:chose|chosen|decided)\s+to\s+evict\b",
+    "tie-break": r"you(?:'ve|\s+have)?\s+(?:broke|broken|break|cast)\s+the\s+tie\b|your\s+tie-?break(?:ing)?\s+(?:vote\s+)?(?:is|has\s+been|was)\s+(?:cast|in|locked|recorded)\b"
+                 r"|you\s+vote[d]?\s+(?:to\s+evict|for)\b|you(?:'ve|\s+have)?\s+(?:chose|chosen|decided)\s+to\s+evict\b",
+    "nominations": r"you(?:'ve|\s+have)?\s+(?:nominate[d]?|name[d]?\s+(?:\w+\s+and\s+\w+|your\s+nominees))\b|your\s+nominees\s+(?:are|will\s+be)\b",
+    "veto-decision": r"you(?:'ve|\s+have)?\s+(?:use[d]?|(?:choose|chose|chosen|decide[d]?)\s+(?:not\s+)?to\s+use)\s+(?:the|your)\s+(?:power\s+of\s+)?veto\b"
+                     r"|you\s+(?:did\s+not|didn(?:'|’)?t)\s+use\s+(?:the|your)\s+(?:power\s+of\s+)?veto\b",
+    "replacement": r"you\s+name[d]?\s+\w+(?:\s+\w+)?\s+as\s+(?:the\s+)?replacement\b",
+    "secret-veto": r"you(?:'ve|\s+have)?\s+(?:used|played|activated|revealed)\s+your\s+(?:secret\s+)?(?:power|veto|safety|secret\s+veto)\b"
+                   r"|you\s+(?:use|play|activate|reveal)\s+(?:your\s+)?(?:secret\s+)?(?:power|veto|safety|secret\s+veto)\b"
+                   r"|you\s+(?:pull|take)\s+yourself\s+off\s+the\s+block\b",
+    "goodbye-message": r"your\s+goodbye(?:\s+message)?\s+(?:is|has\s+been|was)\s+(?:recorded|saved|sent|delivered|locked)\b"
+                       r"|you(?:'ve|\s+have)?\s+(?:recorded|left|sent)\s+(?:your|a)\s+(?:goodbye|farewell)(?:\s+message)?\b"
+                       r"|you\s+(?:record|leave|send)\s+(?:your|a)\s+(?:goodbye|farewell)(?:\s+message)?\b",
+    "juror-vote": r"you\s+(?:cast|casted)\s+your\s+(?:jury\s+)?vote\b|you\s+vote[d]?\s+for\b[^.!?\n]{0,40}\bto\s+win\b"
+                  r"|you\s+crown(?:ed)?\b",
+}
+_PLAYER_CHOICE_RES = {k: re.compile(v, re.IGNORECASE) for k, v in _PLAYER_CHOICE_BY_PENDING.items()}
+_PLAYER_CHOICE_RE = re.compile("|".join("(?:" + v + ")" for v in _PLAYER_CHOICE_BY_PENDING.values()), re.IGNORECASE)
+_N15_NOT_A_CLAIM_RE = re.compile(
+    r"\b(?:if|when|once|unless|whether|before|until|should|would|could|might|may|want\s+to|asks?\s+you\s+to|"
+    r"invites?\s+you\s+to|ready\s+to|going\s+to|about\s+to|hopes?|hoped|wish(?:es)?|wants?\s+you\s+to|tells?\s+you\s+to|"
+    r"(?:he|she|they|the\s+voice|production)\s+says?\s+you\s+(?:must|should|will|can))\b", re.IGNORECASE)
+
+
+def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
+    """N-15 — the narration claims the player's choice for the card that is STILL OPEN. Returns a LABEL or None."""
+    if not isinstance(live, dict) or not text:
+        return None
+    rx = _PLAYER_CHOICE_RES.get(str(live.get("pending") or ""))
+    if rx is None:
+        return None
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        m = rx.search(sent) if sent.strip() else None
+        # the exemption markers must sit in the claim's OWN clause: "If you hesitate, but you have cast your vote" still trips
+        if m and not _N15_NOT_A_CLAIM_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.end()]):
+            return ("the player's choice as already MADE while its decision card (" + str(live.get("pending"))
+                    + ") is still open and nothing is recorded — the player decides ONLY through the card")
+    return None
+
+
 # the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
 # first clause cannot hide an explicit later contradiction
 _N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
@@ -3712,6 +3762,7 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
         or _CLAIM_VETO_INTENT_RE.search(text)  # N-1: a non-holder 'going to use it'
         or _CLAIM_PLAYER_IN_FIELD_RE.search(text)  # F-3: the player seated in a veto field (verified against the engine's field)
         or _DENY_HOH_RE.search(text) or _DENY_NOMS_RE.search(text) or _DENY_VETO_RE.search(text)  # N-3: stale "not yet"
+        or _PLAYER_CHOICE_RE.search(text)  # N-15: the player's own card choice narrated as made (verified vs the open pending)
     )
 
 
@@ -4763,7 +4814,8 @@ def current_game_moment(user) -> Optional[str]:
     return _LAST_FRAMED_GAME_MOMENT.get(user or "default")
 
 
-async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None) -> dict:
+async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None,
+                                    _after_day_break: bool = False) -> dict:
     """If the live game sits at an unresolved engine-driven beat with NO player decision pending,
     advance that single beat (one advanceGame) so the moment prompt carries the engine's real
     outcome — but ONLY after the player has had their SOCIAL RUNWAY in the current beat (the
@@ -4938,6 +4990,14 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if ready:
                 # The player asked to move the day along — voice the crossing, then let the normal
                 # framing (and the beat force, where live) drive the ceremony this same turn.
+                # N-14 (A-14): drive it NOW, in this same pre-resolve pass, so the engine COMMITS the ceremony
+                # before the narration is written. Leaving it to the model/belt let the narrator invent the
+                # outcome (keys handed to the very houseguests the engine then nominated) and a belt commit
+                # `advanceGame` silently AFTER the text. One extra advance, once (never recursive); a player
+                # decision pending after the day-break still stops it (the card leads, as always).
+                if not _after_day_break:
+                    return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
+                                                           _after_day_break=True)
                 return new_state
             _arm_runway(user, sig)  # same signature — a day-break never moves (week:phase)
             _RUNWAY_LEFT[rkey] = _DAY_BREAK_SOCIAL_TURNS
