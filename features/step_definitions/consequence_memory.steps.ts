@@ -8,6 +8,8 @@ import { chooseNominations } from "../../src/engine/season";
 import { InMemoryEventStore } from "../../src/adapters/inmemory/InMemoryEventStore";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { startLiveSweep, setLive, liveOf, livePlayerSurfaces, livePlayerProse, livePlayerProjections } from "../support/liveSweep";
+import { assertNoNumericRelationshipFields, assertNoRelationshipValueProse, assertNoOpinionChangedProse } from "../support/relationshipLeakChecks";
 
 // Reuses: "a running game sandbox with a fully populated Producer's Vault" (Background),
 // "any player-facing surface is produced" (vault_wall), "no Vault sentinel value appears" (god_mode).
@@ -58,18 +60,41 @@ Then("the same actions under the same seed produce the same shifts", function ()
 // --- The change is invisible --------------------------------------------------
 
 When("the player's action shifts a houseguest's hidden opinion", function (this: BbWorld) {
-  freshEngine(1).record({ initiator: PLAYER, witnessSet: [PLAYER, npc(1)], content: "a chat", kind: "bonding" });
-  // The opinion layer is engine-only; the player surfaces never carry it. Capture a surface so the
-  // reused "no Vault sentinel value appears" (checks lastView) is meaningful here too.
-  this.lastView = this.sandbox!.allPlayerOutputs();
+  // PAT-2: drive the action through the LIVE game's own command seam (which folds the hidden opinion in the
+  // engine's relationship model), with sentinels planted in that game's hidden state. The reused
+  // "no Vault sentinel value appears" sweep then reads THAT game's surfaces (not a fresh engine's/the canary's).
+  const live = startLiveSweep({ seed: 1, user: "pat2-opinion" });
+  setLive(this, live);
+  const mate = live.sb.session.snapshot().house!.npcs[0]!.id;
+  live.sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, mate], content: "a chat", kind: "bonding", toward: [mate] });
+  // ONE moment-prompt read for the whole scenario: getMomentPrompt consumes the one-shot Producer Read, so the
+  // sentinel sweep, the structured walk and the prose backstop must all look at this same prompt.
+  live.momentPrompt = live.sb.session.getMomentPrompt({});
+  this.lastView = livePlayerSurfaces(live.sb, live.momentPrompt);
 });
 
+/** The text to prose-sweep: the live game's ENGINE-GENERATED player text (the moment prompt's fixed instruction template is cut out; its dynamic context is swept). */
+const proseOf = (w: BbWorld): string => {
+  const live = liveOf(w);
+  return live?.sb ? livePlayerProse(live.sb, live.momentPrompt) : w.lastOutput;
+};
+
 Then("no opinion number or relationship value appears", function (this: BbWorld) {
-  assert.ok(!/trust|affinity|threat/i.test(this.lastOutput), "no relationship signal names surface");
+  // PAT-2: (1) the STRONG check walks the live game's STRUCTURED player projections (HUD, npcVoice, whereabouts,
+  // journal, moment prompt) and fails on ANY numeric value under a trust/affinity/threat/opinion/relationship/edge
+  // key; (2) the prose regex is the backstop for a value rendered into text ("trust 7", "threat (8)", "trust: 0.8").
+  // The prose is the live game's engine-generated text (the fixed moment-prompt template is cut out, its dynamic context swept) — its plain words ("can I trust you?", a speech tell
+  // "makes a threat sound like small talk") are legitimate, and the fixed moment-prompt template is not swept.
+  const live = liveOf(this);
+  assert.ok(live?.sb, "the scenario drives a live game, so its structured projections can be walked");
+  assertNoNumericRelationshipFields(livePlayerProjections(live.sb!, live.momentPrompt));
+  assertNoRelationshipValueProse(proseOf(this));
 });
 
 Then("no message states that the houseguest's opinion changed", function (this: BbWorld) {
-  assert.ok(!/opinion|feels? .* about you|changed .* toward/i.test(this.lastOutput));
+  // PAT-2: clause-bounded (no `.*` across the text) so unrelated sentences don't match; covers "soured", "softened",
+  // "warmed", "cooled", "thinks less of you", "no longer trusts you", "likes you more", ... Engine text only.
+  assertNoOpinionChangedProse(proseOf(this));
 });
 
 // --- Wins and votes are consequential -----------------------------------------

@@ -9,7 +9,7 @@ import { DeterministicEmbedding } from "../../src/adapters/embedding/Determinist
 import { confessionalFor, involvedConfessionals, recordConfessionalToSoul } from "../../src/engine/confessionals";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
-import { buildSandbox } from "../../tests/support/sandbox";
+import { startLiveSweep, setLive, liveOf, livePlayerSurfaces, liveAdminSurface } from "../support/liveSweep";
 import { PLAYER, npc } from "../../src/domain/ids";
 
 // HARD rule: roles only — NPC, HOH, nominee, juror. No names.
@@ -110,11 +110,14 @@ Then("it is not an invented stance improvised by the narrator", function (this: 
 // player + admin surfaces — so we can prove no confessional value bleeds onto either. ("no Vault
 // sentinel value appears" reuses the god_mode step, which reads this.lastView + this.sandbox.sentinels.)
 
+// PAT-2: the scenarios below run over a LIVE game (the real engine mints its confessionals as the off-screen
+// clock advances) with sentinels planted in that same game's hidden state — not the canary fixture's separate
+// engine, which the player/admin surfaces swept here never read.
 const sandboxConfessionals = (w: BbWorld) =>
-  w.sandbox.engine.events.queryAll().filter((e) => e.type === "confessional");
+  liveOf(w)!.sb!.engine.events.queryAll().filter((e) => e.type === "confessional");
 
 Given("a started game in which houseguests have confessed", function (this: BbWorld) {
-  this.sandbox = buildSandbox(3);
+  setLive(this, startLiveSweep({ seed: 3, ticks: 6, user: "pat2-confessed" }));
   assert.ok(sandboxConfessionals(this).length > 0, "the house has confessed");
 });
 
@@ -128,8 +131,9 @@ When("any player surface is read", function (this: BbWorld) {
     this.lastView = this.blSandbox.player.getVisibleState();
     return;
   }
-  this.lastOutput = this.sandbox.allPlayerOutputs();
-  this.lastView = this.sandbox.player.getVisibleState();
+  const live = liveOf(this)!.sb!;
+  this.lastOutput = livePlayerSurfaces(live);
+  this.lastView = live.player.getVisibleState();
 });
 
 Then("no confessional content appears", function (this: BbWorld) {
@@ -146,8 +150,8 @@ Then("no confessional witnesses the player", function (this: BbWorld) {
 });
 
 When("the admin \\/ God-Mode surface is read", function (this: BbWorld) {
-  this.lastView = this.sandbox.admin.inspect();
-  this.lastOutput = this.sandbox.adminOutput();
+  this.lastOutput = liveAdminSurface(liveOf(this)!.sb!);
+  this.lastView = this.lastOutput;
 });
 
 // --- Scenario: deepen the soul (accumulate + recall) ---------------------------

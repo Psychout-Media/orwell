@@ -6,7 +6,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GOSSIP_CONSEQUENCE } from "../../src/engine/beliefReliability";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
-import { buildSandbox } from "../../tests/support/sandbox";
+import { liveAdminSurface } from "../support/liveSweep";
 
 /**
  * Feature 0094 — distorted gossip has consequences. Role-only (the-player, an ally, a target, a
@@ -238,7 +238,9 @@ Then("the wrongness is expressed only through a divergent outcome and a later ho
 });
 
 When("an admin inspects every admin and God-Mode surface", function (this: BbWorld) {
-  dg(this).dgAdminBlob = buildSandbox(1).adminOutput();
+  // PAT-2: the admin surface of THE SAME live game that holds the planted distorted belief (was: a fresh,
+  // unrelated canary sandbox that never saw this game, so the sweep could not fail).
+  dg(this).dgAdminBlob = liveAdminSurface(dg(this).dgSb!);
 });
 
 Then("no admin surface reveals which of the player's beliefs are wrong", function (this: BbWorld) {
