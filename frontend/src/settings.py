@@ -66,6 +66,12 @@ DEFAULT_SETTINGS = {
     "login_particles_speed": 0.25,     # 0.05..1.2
     "login_particles_color": "",       # blank ⇒ default neutral white (client floor)
     "image_gen_enabled": True,
+    # #1936 (0070) — the off-screen society TEXTURE enrichment pays for up to MAX_SCENES_PER_TICK LLM calls
+    # per advance to voice hidden NPC-to-NPC scenes as prose that NO surface ever shows (the existing
+    # overhear/gossip pathways carry the engine's deterministic templates). OFF until the prose is routed
+    # into a player-visible surface (audit 2026-10-25 Tier 1 #10, option (b)). Presentation-only: no balance
+    # or game-state effect either way.
+    "offscreen_texture_enrichment": False,
     # OOB default image model. OpenRouter is the default provider and serves Google's Gemini
     # flash-image models via /chat/completions; gemini-3.1-flash-image is the out-of-box pick —
     # newest-generation Gemini photorealism at ~current-default cost (~1.2x gemini-2.5-flash-image,

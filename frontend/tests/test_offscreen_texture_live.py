@@ -12,7 +12,16 @@ Roles only — no names (CLAUDE.md testing rule). Flavor only — nothing here t
 """
 import asyncio
 
+import pytest
+
 from src import orwell_offscreen_texture as T
+
+
+@pytest.fixture(autouse=True)
+def _enrichment_on(monkeypatch):
+    """#1936: the enrichment is OFF by default; these tests exercise the ENABLED path (the gate itself is
+    pinned in test_1936_offscreen_texture_off_by_default.py)."""
+    monkeypatch.setattr(T, "enrichment_enabled", lambda: True)
 
 
 def _run(coro):

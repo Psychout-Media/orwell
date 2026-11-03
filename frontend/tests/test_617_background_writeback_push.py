@@ -50,6 +50,7 @@ def test_publish_game_updated_is_fail_soft(monkeypatch):
 
 def test_offscreen_texture_run_pushes_on_voiced(monkeypatch):
     tex = importlib.import_module("src.orwell_offscreen_texture")
+    monkeypatch.setattr(tex, "enrichment_enabled", lambda: True)  # #1936: exercise the ENABLED path
     cast = importlib.import_module("src.orwell_cast_authoring")
     gs = importlib.import_module("src.orwell_game_session")
 
@@ -89,6 +90,7 @@ def test_offscreen_texture_run_pushes_on_voiced(monkeypatch):
 
 def test_offscreen_texture_does_not_push_when_nothing_voiced(monkeypatch):
     tex = importlib.import_module("src.orwell_offscreen_texture")
+    monkeypatch.setattr(tex, "enrichment_enabled", lambda: True)  # #1936: exercise the ENABLED path
     cast = importlib.import_module("src.orwell_cast_authoring")
     gs = importlib.import_module("src.orwell_game_session")
 
