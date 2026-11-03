@@ -1564,6 +1564,14 @@ FUNCTION_TOOL_SCHEMAS = [
                     "with": {"type": "string", "description": "The houseguest id the deal is made with (from the roster)."},
                     "kind": {"type": "string", "enum": ["safety", "vote", "final-two", "target-other"], "description": "The deal's nature."},
                     "terms": {"type": "string", "description": "The terms as spoken in the scene, briefly."},
+                    "term": {
+                        "type": "object",
+                        "description": "Feature 0109 — OPTIONAL negotiated term, only when the scene actually named one. {weeks} = how many weeks the promise runs counting THIS week ('this week only' = 1, 'for two weeks' = 2); {vague: true} = the term was deliberately left unspoken. The ENGINE bounds it and decides how hard a later break hurts. Omit for an ordinary deal.",
+                        "properties": {
+                            "weeks": {"type": "integer", "description": "Weeks the promise runs, counting the current week (>= 1)."},
+                            "vague": {"type": "boolean", "description": "True when the parties left the term unspoken."},
+                        },
+                    },
                     "leverage": {
                         "type": "object",
                         "description": "Feature 0093 — OPTIONAL: a secret the player holds ABOUT the deal partner ('with'), pressed to make them more likely to enter/honor the deal ('keep me safe or this gets out'). Provide factId (a secret the player has actually LEARNED about the partner), or {bluff: true, subject} to press a secret the player does NOT actually hold. Omit entirely for an ordinary deal — the ENGINE decides whether the pressure lands, and a wary partner can refuse and resent it.",

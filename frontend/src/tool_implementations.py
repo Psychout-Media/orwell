@@ -5617,9 +5617,20 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
     # interpreted). Absent ⇒ the call to the engine is unchanged from the pre-0093/0099 shape.
     leverage = _parse_secret_lever(args.get("leverage"))
     traded_secret = _parse_secret_lever(args.get("tradedSecret") or args.get("traded_secret"))
+    # 0109 — OPTIONAL negotiated term {weeks?, vague?}: shape-filtered here, bounded by the ENGINE.
+    term = None
+    _raw_term = args.get("term")
+    if isinstance(_raw_term, dict):
+        term = {}
+        if isinstance(_raw_term.get("weeks"), int) and not isinstance(_raw_term.get("weeks"), bool):
+            term["weeks"] = _raw_term["weeks"]
+        if _raw_term.get("vague") is True:
+            term["vague"] = True
+        term = term or None
     try:
+        _extra = {"term": term} if term is not None else {}  # absent ⇒ the call is byte-identical to pre-0109
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
-                                            traded_secret=traded_secret, user=owner)
+                                            traded_secret=traded_secret, user=owner, **_extra)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

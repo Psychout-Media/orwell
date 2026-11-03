@@ -184,6 +184,8 @@ export interface DealView {
   kind: string;
   terms: string;
   status: "open" | "kept" | "broken";
+  /** 0109 — the NEGOTIATED term, when one exists (the player's own knowledge; never a derived magnitude). */
+  term?: { expiresWeek?: number; vague?: boolean };
 }
 
 /** A portrait prompt for one houseguest (0051) — returned at season start for the FE to call the image API. */
@@ -750,6 +752,15 @@ export interface MakeDealReq {
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
   kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
   terms: string;
+  /**
+   * 0109 — OPTIONAL negotiated term, PROPOSED by the narrator from what was said in the scene. `weeks` =
+   * how many weeks the promise runs counting the current one ("this week only" = 1, "for two weeks" = 2);
+   * `vague` = the term was left unspoken. The ENGINE validates and bounds it (`DEAL_TERM_MAX_WEEKS`; a
+   * non-integer / non-positive / non-finite `weeks` is ignored; an explicit `weeks` wins over `vague`) and
+   * owns the break-severity magnitude it modulates. Absent / invalid ⇒ the kind-implied horizon,
+   * byte-identical to 0039.
+   */
+  term?: { weeks?: number; vague?: boolean };
   /**
    * 0093 — OPTIONAL leverage: a secret the player holds ABOUT the deal partner (`with`), pressed to make
    * them more likely to enter/honor the deal. The threat persists while the deal is open (owner R4);

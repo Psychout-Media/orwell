@@ -344,3 +344,23 @@ export class DealLedger {
     this.seq = this.deals.reduce((m, d) => Math.max(m, Number(d.id.split(":")[1]) || 0), 0);
   }
 }
+
+/**
+ * 0109 / #1993 — validate and bound a narrator-PROPOSED negotiated term into the ledger's `duration`.
+ * Pure, no rng. `weeks` counts the current week ("this week only" = 1), so `expiresWeek = madeWeek + weeks - 1`
+ * (a deal binds through that week's close; `expireWeekScoped` resolves it kept once `currentWeek > expiresWeek`).
+ * A non-integer / non-positive / non-finite `weeks` is ignored; a valid one is clamped to
+ * `DEAL_DURATION.maxTermWeeks`; an explicit term wins over `vague`. Nothing usable ⇒ `undefined`, so the
+ * deal is byte-identical to a pre-0109 one.
+ */
+export function boundDealTerm(
+  term: { weeks?: unknown; vague?: unknown } | undefined,
+  madeWeek: number,
+): { expiresWeek?: number; vague?: boolean } | undefined {
+  if (!term || typeof term !== "object") return undefined;
+  const w = term.weeks;
+  if (typeof w === "number" && Number.isFinite(w) && Number.isInteger(w) && w >= 1) {
+    return { expiresWeek: madeWeek + Math.min(w, DEAL_DURATION.maxTermWeeks) - 1 };
+  }
+  return term.vague === true ? { vague: true } : undefined;
+}
