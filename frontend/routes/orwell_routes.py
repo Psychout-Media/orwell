@@ -230,6 +230,45 @@ def _clear_decision_failure(user: Optional[str], decision: dict) -> None:
 
 # ── Shared post-submit tail (extracted for HTTP/WS parity, fix #1866) ─────────────
 
+# 0130 — after the player's goodbye the engine still owes exit-interview → eviction-result (→ rollWeek).
+# The loop is bounded so a misbehaving engine can never spin it; the chain is 2 beats today.
+_POST_GOODBYE_MAX_ADVANCES = 6
+
+
+def _eviction_night_over(res) -> bool:
+    """True once the engine reports the eviction sub-loop is done (or needs the player / is finished):
+    the result beat landed, the staged-eviction projection is gone, a pending decision is open, or the
+    season ended. A non-dict result (error shape) also stops the loop."""
+    if not isinstance(res, dict):
+        return True
+    if res.get("pending") or res.get("finished"):
+        return True
+    ev = res.get("event")
+    if isinstance(ev, dict) and ev.get("beat") == "eviction-result":
+        return True
+    return not res.get("eviction")
+
+
+async def _advance_through_eviction_night(res: dict, user: Optional[str], dec_ik: Optional[str]) -> dict:
+    """Drive ``advance_game`` until the eviction sub-loop is done (bounded), returning the last good view.
+
+    Each step carries its own idempotency key (CON-16: derived from the goodbye card's key so a retried
+    goodbye cannot double-roll the result) — a shared key would replay the first view instead of advancing."""
+    from src import orwell_engine
+    for i in range(_POST_GOODBYE_MAX_ADVANCES):
+        _ik = None
+        if isinstance(dec_ik, str):
+            _ik = dec_ik + (":gb-adv" if i == 0 else f":gb-adv:{i}")
+        try:
+            nxt = await orwell_engine.advance_game(expected_beat_seq=None, idempotency_key=_ik, user=user)
+        except Exception as _adv_e:
+            logger.warning(f"[orwell] post-goodbye follow-up advance skipped: {_adv_e}")
+            return res
+        res = nxt
+        if _eviction_night_over(res):
+            break
+    return res
+
 
 async def _post_decision_tail(
     decision: dict,
@@ -244,8 +283,9 @@ async def _post_decision_tail(
     WS ``_handle_decision`` relay runs the EXACT same post-submit seams:
 
       * **F14 post-goodbye advance_game** — when ``kind == 'goodbye-message'`` and no
-        player pending remains, drive ONE follow-up ``advance_game`` to roll the
-        result (idempotent; engine-direct, never authoring content).
+        player pending remains, advance until the engine reports the eviction night done
+        (exit-interview → result; bounded, per-step idempotency keys, engine-direct,
+        never authoring content).
       * **Pending cache (F5 safety)** — after submit, call ``remember_pending`` /
         ``clear_pending`` matching the engine's ``pending`` key.
       * **Publish game-updated** — 0064 cross-device HUD reconcile.
@@ -262,14 +302,7 @@ async def _post_decision_tail(
                 and isinstance(res, dict)
                 and not _pending_is_player(res.get("pending"), user))
     if _gb_done:
-        try:
-            # CON-16: guard the follow-up advance with an idempotency key derived from the
-            # goodbye card's key, so a retried goodbye cannot double-roll the eviction result.
-            _gb_ik = (dec_ik + ":gb-adv") if isinstance(dec_ik, str) else None
-            res = await orwell_engine.advance_game(
-                expected_beat_seq=None, idempotency_key=_gb_ik, user=user)
-        except Exception as _adv_e:
-            logger.warning(f"[orwell] post-goodbye follow-up advance skipped: {_adv_e}")
+        res = await _advance_through_eviction_night(res, user, dec_ik)
     # D3/E66 + F5: pending cache. A successful submit means the just-resolved card is gone,
     # so if the engine's result didn't carry an explicit `pending`, clear it here.
     if isinstance(res, dict) and "pending" not in res:
