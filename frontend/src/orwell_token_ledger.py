@@ -10,7 +10,7 @@ single, structured, body-free source of truth.
 Each turn produces one entry::
 
     { ts, turnId, session, callClass, inputTokens, cachedTokens, reasoningTokens,
-      outputTokens, appliedMaxTokens, finishReason, cost, contextPercent, provider }
+      outputTokens, appliedMaxTokens, finishReason, cost, costEstimated, contextPercent, provider }
 
 ``appliedMaxTokens`` is the OUTPUT cap that was actually sent on the wire for the turn (ADR 0010
 follow-on #1 — the admin-editable per-class value), and ``finishReason`` is the provider's terminal
@@ -131,6 +131,7 @@ def _entry(
     cost: Any,
     context_percent: Any,
     provider: Any,
+    cost_estimated: Any = False,
 ) -> dict:
     """Build the bounded, Vault-free entry. Every field is coerced to a number / id /
     known token; there is no path for a free-form body to land in the stored shape."""
@@ -148,6 +149,9 @@ def _entry(
         "appliedMaxTokens": _clean_int(applied_max_tokens),
         "finishReason": _clean_id(finish_reason),
         "cost": _clean_float(cost),
+        # A-3: True when `cost` is the FE's estimate from published prices (DeepSeek returns no dollar cost),
+        # not a provider-reported figure — so admin totals never present an estimate as authoritative.
+        "costEstimated": bool(cost_estimated),
         "contextPercent": _clean_float(context_percent),
         "provider": _clean_id(provider),
     }
@@ -171,6 +175,7 @@ def record_turn(
     cost: Any = 0.0,
     context_percent: Any = None,
     provider: Any = None,
+    cost_estimated: Any = False,
 ) -> None:
     """Append one Vault-free per-turn token/cost record for ``user`` (per-user scoped),
     bounded by a per-user ring, and emit one structured ``[orwell]`` log line.
@@ -193,6 +198,7 @@ def record_turn(
             cost=cost,
             context_percent=context_percent,
             provider=provider,
+            cost_estimated=cost_estimated,
         )
         k = _key(user)
         with _LOCK:

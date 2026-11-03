@@ -6355,6 +6355,7 @@ async def _stream_agent_loop_impl(
     real_cached_tokens = 0       # ADR 0010 meter: cached-prompt tokens (cheap reads)
     real_reasoning_tokens = 0    # ADR 0010 meter: reasoning/thinking tokens (the cost driver)
     real_cost = 0.0              # ADR 0010 meter: authoritative per-request cost (usage.cost)
+    real_cost_estimated = False  # A-3: True when any round's cost is the FE's price-table estimate (DeepSeek)
     _usage_provider = None       # ADR 0010 meter: which provider served (cache stickiness)
     last_round_input_tokens = 0  # Last round's input tokens (for context % peak)
     has_real_usage = False
@@ -6970,6 +6971,8 @@ async def _stream_agent_loop_impl(
                                 real_cost += float(u.get("cost") or 0)
                             except (TypeError, ValueError):
                                 pass
+                            if u.get("cost_estimated"):
+                                real_cost_estimated = True
                         if u.get("provider"):
                             _usage_provider = u.get("provider")
                         last_round_input_tokens = round_input
@@ -9976,6 +9979,7 @@ async def _stream_agent_loop_impl(
                 applied_max_tokens=_effective_max_tokens,
                 finish_reason=_round_finish_reason,
                 cost=real_cost,
+                cost_estimated=real_cost_estimated,
                 context_percent=metrics.get("context_percent", 0),
                 provider=_usage_provider,
             )

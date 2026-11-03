@@ -710,6 +710,39 @@ def _is_anthropic_model(model: str) -> bool:
     return "claude" in m or m.startswith("anthropic/")
 
 
+
+# DeepSeek's own API returns token counts but no dollar cost. Estimate it (labelled `cost_estimated`) from the
+# published per-1M-token prices (api-docs.deepseek.com pricing page, read 2026-11-03). Off-peak rates; peak
+# (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri) is exactly 2x. Unknown models price at None (no estimate).
+_DEEPSEEK_PRICES_OFFPEAK = {   # model -> (cache-hit in, cache-miss in, out) USD per 1M tokens
+    "deepseek-flash": (0.003, 0.15, 0.6),
+    "deepseek-v4-flash": (0.003, 0.15, 0.6),
+    "deepseek-chat": (0.003, 0.15, 0.6),
+    "deepseek-v4-pro": (0.022, 0.66, 1.98),
+}
+
+
+def _deepseek_peak_now(now=None) -> bool:
+    import datetime as _dt
+    n = now or _dt.datetime.now(_dt.timezone.utc)
+    if n.weekday() >= 5:
+        return False
+    return (1 <= n.hour < 4) or (6 <= n.hour < 10)
+
+
+def _deepseek_cost_estimate(model: str, prompt_tokens: int, cached_tokens: int, output_tokens: int,
+                            now=None) -> Optional[float]:
+    """Estimated USD cost of one DeepSeek call, or None for an unpriced model. Reasoning tokens are already
+    inside `output_tokens` (DeepSeek bills them as output)."""
+    price = _DEEPSEEK_PRICES_OFFPEAK.get((model or "").lower())
+    if not price:
+        return None
+    hit = max(0, min(int(cached_tokens or 0), int(prompt_tokens or 0)))
+    miss = max(0, int(prompt_tokens or 0) - hit)
+    mult = 2.0 if _deepseek_peak_now(now) else 1.0
+    return round(mult * (hit * price[0] + miss * price[1] + int(output_tokens or 0) * price[2]) / 1_000_000, 8)
+
+
 def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     """DeepSeek's OWN API (api.deepseek.com) defaults thinking ON, and with ``tools`` on the wire a
     thinking turn 400s unless ``reasoning_content`` is echoed back on every later request. The agent
@@ -1774,14 +1807,25 @@ async def _llm_call_async_impl(
                 if _u:
                     _ptd = _u.get("prompt_tokens_details") or {}
                     _ctd = _u.get("completion_tokens_details") or {}
+                    _cached = _ptd.get("cached_tokens")
+                    if _cached is None:
+                        _cached = _u.get("prompt_cache_hit_tokens")  # DeepSeek's own field
+                    _cost = _u.get("cost")
+                    _estimated = False
+                    if _cost is None and _host_match(url, "deepseek.com"):
+                        _cost = _deepseek_cost_estimate(model, _u.get("prompt_tokens", 0), _cached or 0,
+                                                        _u.get("completion_tokens", 0))
+                        _estimated = _cost is not None
                     usage_sink.update({
                         "input_tokens": _u.get("prompt_tokens", 0),
                         "output_tokens": _u.get("completion_tokens", 0),
-                        "cached_tokens": _ptd.get("cached_tokens", 0) or 0,
+                        "cached_tokens": _cached or 0,
                         "reasoning_tokens": _ctd.get("reasoning_tokens", 0) or 0,
-                        "cost": _u.get("cost"),
+                        "cost": _cost,
                         "provider": provider,
                     })
+                    if _estimated:
+                        usage_sink["cost_estimated"] = True
             _finish_local: Optional[str] = None
             _saw_tool_calls = False
             try:
@@ -2325,8 +2369,17 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                     or _delta0.get("thinking")
                                     or _delta0.get("tool_calls")
                                 )
-                                if "usage" in j and not _delta_has_output:
-                                    u = j["usage"] or {}
+                                # DeepSeek (and other gateways) put usage on the FINAL chunk, which ALSO carries the last
+                                # delta text + finish_reason, and send `"usage": null` on every earlier chunk. The old
+                                # gate (`"usage" in j and not _delta_has_output`) therefore emitted 0/0 for each early chunk
+                                # and dropped the real counts — the token meter missed DeepSeek spend (A-3). Only a
+                                # NON-EMPTY usage object counts, and it is captured even when the chunk carries output
+                                # (the delta is then processed normally below).
+                                _usage_obj = j.get("usage") if isinstance(j.get("usage"), dict) else None
+                                _has_usage = bool(_usage_obj)
+                                _usage_rides_output = _has_usage and bool(_delta_has_output)
+                                if _has_usage:
+                                    u = _usage_obj
                                     _usage_data = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
                                     _diag["usage_seen"] = True
                                     _diag["output_tokens"] = _usage_data["output_tokens"]
@@ -2339,12 +2392,21 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                     _ctd = u.get("completion_tokens_details") or {}
                                     if _ptd.get("cached_tokens") is not None:
                                         _usage_data["cached_tokens"] = _ptd.get("cached_tokens")
+                                    elif u.get("prompt_cache_hit_tokens") is not None:  # DeepSeek's own field
+                                        _usage_data["cached_tokens"] = u.get("prompt_cache_hit_tokens")
                                     if _ctd.get("reasoning_tokens") is not None:
                                         _usage_data["reasoning_tokens"] = _ctd.get("reasoning_tokens")
                                     if u.get("cost") is not None:
                                         _usage_data["cost"] = u.get("cost")
                                     if u.get("cost_details") is not None:
                                         _usage_data["cost_details"] = u.get("cost_details")
+                                    if u.get("cost") is None and _host_match(url, "deepseek.com"):
+                                        _est = _deepseek_cost_estimate(
+                                            _actual_model or model, u.get("prompt_tokens", 0),
+                                            _usage_data.get("cached_tokens", 0), u.get("completion_tokens", 0))
+                                        if _est is not None:
+                                            _usage_data["cost"] = _est
+                                            _usage_data["cost_estimated"] = True
                                     if provider:
                                         _usage_data["provider"] = provider
                                     # llama.cpp puts a `timings` block alongside `usage` with the
@@ -2363,7 +2425,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                         if not _same_model_identity(_actual_model, model):
                                             _usage_data["requested_model"] = model
                                     yield f'data: {json.dumps({"type": "usage", "data": _usage_data})}\n\n'
-                                elif "choices" in j:
+                                if (not _has_usage or _usage_rides_output) and "choices" in j:
                                     _c0 = (j["choices"] or [None])[0]
                                     if _c0 is None:
                                         continue

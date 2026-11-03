@@ -37,7 +37,7 @@ _ALLOWED_ENTRY_KEYS = {
     "inputTokens", "cachedTokens", "reasoningTokens", "outputTokens",
     # ADR 0010 follow-on #3: the applied output cap (count) + terminal stop reason (short token).
     "appliedMaxTokens", "finishReason",
-    "cost", "contextPercent", "provider",
+    "cost", "costEstimated", "contextPercent", "provider",
 }
 _SENTINEL = "VAULT_SECRET_SENTINEL_must_never_cross"
 
