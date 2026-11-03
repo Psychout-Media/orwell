@@ -9388,15 +9388,39 @@ export class GameSessionAdapter implements GameSession {
    * jury demerit, a witnessed reveal, and the betrayer leaves the alliance (it fractures). Gated by a
    * SHARED alliance existing ⇒ no alliances ⇒ no fold ⇒ the seeded spine is byte-identical.
    */
+  /**
+   * #1963 — is this break tied to the SECRET weekly eviction ballot AND observable through the wronged party's behaviour?
+   * Only an NPC's vote-evict that is backed by the CURRENT staged ballot (`live.eviction.voteOf`) counts: the Final-3 vote is
+   * the final HOH's open personal vote (no secret ballot exists), a stale ballot from a previous week must never attribute a
+   * later break, and a PLAYER-wronged break keeps the full fold (nothing acts on the player's hidden read).
+   */
+  private sealedBreak(wronged: EntityId, breaker: EntityId, kind: BindingAction["kind"]): boolean {
+    return kind === "vote-evict" && breaker !== PLAYER && wronged !== PLAYER && this.live?.eviction?.voteOf?.[breaker] === wronged;
+  }
+
+  /** Everyone who voted to evict `wronged` on the CURRENT staged weekly ballot (the set a sealed break is shared across). */
+  private ballotSuspects(wronged: EntityId): EntityId[] {
+    const voteOf = this.live?.eviction?.voteOf ?? {};
+    return Object.entries(voteOf).filter(([, target]) => target === wronged).map(([voter]) => voter as EntityId);
+  }
+
   private reconcileAllianceBetrayals(action: BindingAction): void {
     if (!this.live || !ALLIANCE_ADVERSE.has(action.kind)) return;
     for (const target of action.targets) {
       if (target === action.actor) continue;
       for (const al of this.alliances.shared(action.actor, target)) {
-        const e = this.rel.edge(target, action.actor);
-        e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump);
-        e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump);
-        recordDealBetrayal(this.live, target, action.actor);
+        // #1963: a betrayal tied to the SECRET weekly ballot (an NPC wronged by an NPC's vote-evict) must not single the
+        // betrayer out through the wronged ally's hidden read either, so the bump is SHARED across every voter who voted to
+        // evict them and no jury demerit names the betrayer. Public actions (nominate / replace / the open Final-3 vote) and
+        // the player-wronged path keep the attributed fold.
+        const sealed = this.sealedBreak(target, action.actor, action.kind);
+        const pool = sealed ? [...new Set([...this.ballotSuspects(target), action.actor])].sort() : [action.actor];
+        for (const who of pool) {
+          const e = this.rel.edge(target, who);
+          e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump / pool.length);
+          e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump / pool.length);
+        }
+        if (!sealed) recordDealBetrayal(this.live, target, action.actor);
         // A7/E12: mirrors the deal-break seal below — a betrayal TRIGGERED by the SEALED eviction
         // ballot must not name the betrayer to the wronged ally before the retrospective unseals it
         // (nominate/replace are public ceremonies and reveal normally; the player's OWN vote is never
@@ -9763,6 +9787,11 @@ export class GameSessionAdapter implements GameSession {
         );
       },
       juryDemerit: (wronged, breaker) => recordDealBetrayal(this.live!, wronged, breaker),
+      // #1963: a break tied to a SECRET eviction ballot (an NPC's vote-evict; the player's own vote is never sealed from
+      // themselves) is not attributable by any hidden fold an NPC acts on, so it is skipped when the PLAYER is the wronged
+      // party (nothing acts on the player's hidden read). The suspects are every voter who voted to evict the wronged.
+      sealed: (wronged, breaker, kind) => this.sealedBreak(wronged, breaker, kind),
+      suspects: (wronged) => this.ballotSuspects(wronged),
       // 0002: the wronged party learns the break as a witnessed event (a public ceremony break) —
       // UNLESS the triggering action is the SEALED eviction ballot (E12/A7). Naming the breaker there
       // would deanonymize their vote before the same terminal gate the primary eviction reveal and the

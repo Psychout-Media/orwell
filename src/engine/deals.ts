@@ -78,6 +78,19 @@ export interface ReconcileSink {
    * primary eviction reveal (E12) and the 0048 retrospective use, or it deanonymizes a sealed ballot.
    */
   reveal?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BindingAction["kind"]) => string | undefined;
+  /**
+   * #1963 — is this break SEALED (a break tied to a secret eviction ballot, E12/A7) AND observable through the wronged
+   * party's behaviour? A sealed break must not be attributed to the breaker by ANY hidden fold the wronged party ACTS on
+   * (an NPC's noms/votes/deals would otherwise name who voted against them). When the wronged party is the PLAYER nothing
+   * acts on their hidden read (they form their own), so the engine keeps the full fold. Absent ⇒ never sealed ⇒ byte-identical.
+   */
+  sealed?: (wronged: EntityId, breaker: EntityId, actionKind: BindingAction["kind"]) => boolean;
+  /**
+   * #1963 — the houseguests the wronged party can SUSPECT for a sealed break (everyone who voted to evict them), so
+   * the betrayal fold is shared across all of them instead of landing wholly on the real breaker. The breaker is always
+   * included. Absent / empty ⇒ only the breaker (the pre-fix behaviour).
+   */
+  suspects?: (wronged: EntityId, breaker: EntityId) => readonly EntityId[];
   /** Whether the wronged party witnesses/learns this break (default: true for a public ceremony break). */
   witnessed?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BindingAction["kind"]) => boolean;
   /**
@@ -284,13 +297,25 @@ export class DealLedger {
     // 0026 + 0109: the wronged party's hidden read of the breaker takes the large, slow-decaying
     // betrayal hit — SCALED by how much negotiated life the deal had left (a near/at-end or vague break
     // hurts less; a freshly-renewed one more). No duration / no week ⇒ scale 1 ⇒ byte-identical to 0039.
+    const sealed = sink.sealed?.(wronged, breaker, actionKind) ?? false;
     if (sink.rel && sink.rng) {
-      sink.rel.applyDirected(wronged, breaker, "betrayal", sink.rng, breakSeverityScale(deal, sink.currentWeek));
+      const severity = breakSeverityScale(deal, sink.currentWeek);
+      if (sealed) {
+        // #1963: the ballot is SECRET, so the wronged party's hidden read must not single out the breaker. Share the
+        // betrayal shock across everyone who could have cast it (the voters who sent them out); the real breaker is one
+        // of them and carries only its share. Ordered for determinism.
+        const pool = [...new Set([...(sink.suspects?.(wronged, breaker) ?? []), breaker])].sort();
+        for (const suspect of pool) sink.rel.applyDirected(wronged, suspect, "betrayal", sink.rng, severity / pool.length);
+      } else {
+        sink.rel.applyDirected(wronged, breaker, "betrayal", sink.rng, severity);
+      }
     }
     // 0121: a betrayal resets the breaker's loyalty streak with the wronged party (you broke faith).
     if (sink.dealDepth) this.streaks.delete(`${breaker}->${wronged}`);
-    // 0014: a discrete jury-management demerit (weighs that juror's later lean against the breaker).
-    sink.juryDemerit?.(wronged, breaker, deal);
+    // 0014: a discrete jury-management demerit (weighs that juror's later lean against the breaker). NOT for a sealed
+    // break (#1963): it names the breaker, so a juror's later lean would unseal the ballot; the evictee's blame for a
+    // sealed ballot is the possibly-wrong deduction (0110), never the true voter.
+    if (!sealed) sink.juryDemerit?.(wronged, breaker, deal);
     // 0002: the wronged party learns it as a witnessed event when they see/learn the break. `actionKind`
     // threads through so the sink can seal a `vote-evict`-triggered reveal (A7/E12) rather than name the
     // breaker while the ballot that produced it is still sealed.
