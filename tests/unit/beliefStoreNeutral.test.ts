@@ -16,9 +16,10 @@ import { npc } from "../../src/domain/ids";
 const SEED = 7;
 let seq = 0;
 
-function playSeason(on: boolean): { s: GameSessionAdapter; live: LiveSeasonState } {
+function playSeason(on: boolean, deduction = true): { s: GameSessionAdapter; live: LiveSeasonState } {
   vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
   const s = new GameSessionRegistry().sandboxFor(`bs${seq++}`).session;
+  s.setVoteDeductionEnabled(deduction);
   s.createCharacter({ playerName: "P", seed: SEED });
   for (let i = 0; i < 8000; i++) {
     const v = s.advanceGame();
@@ -93,8 +94,7 @@ describe("the belief store in a live season (S0a)", () => {
   }, 300_000);
 
   it("with vote deduction OFF the store records nothing (the true ballot is never labelled a deduced guess)", () => {
-    vi.stubEnv("ORWELL_VOTE_DEDUCTION", "0");
-    const on = playSeason(true);
+    const on = playSeason(true, false);
     expect(on.live.beliefs, "ON but no deduction ⇒ no claims").toBeUndefined();
   }, 300_000);
 
