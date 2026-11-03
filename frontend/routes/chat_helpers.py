@@ -3408,13 +3408,15 @@ def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
             continue
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             # a past-week phrase exempts only ITS OWN clause ("Last week you played, but the six of you are off now")
-            m = _CLAIM_PLAYER_IN_FIELD_RE.search(clause) if clause.strip() else None
-            if m and re.match(r"(?:the|all|both|only)\s+(\w+)\s+of\s+you", m.group(0), re.IGNORECASE):
+            m = None
+            for cand in (_CLAIM_PLAYER_IN_FIELD_RE.finditer(clause) if clause.strip() else ()):
+                coll = re.match(r"(?:the|all|both|only)\s+(\w+)\s+of\s+you", cand.group(0), re.IGNORECASE)
                 # the collective cue is only a field claim when its number IS the field size ("the two of you talk
-                # in the kitchen" is social prose) — review on #1999
-                n = _NUM_WORDS.get(re.match(r"(?:the|all|both|only)\s+(\w+)", m.group(0), re.IGNORECASE).group(1).lower())
-                if n != len(field):
-                    m = None
+                # in the kitchen" is social prose) — and a mismatched one must not hide a LATER cue in the same clause
+                if coll and _NUM_WORDS.get(coll.group(1).lower()) != len(field):
+                    continue
+                m = cand
+                break
             if (m and not _COMP_PAST_RE.search(clause) and not _COMP_HYPOTHETICAL_RE.search(clause)):
                 names = ", ".join(live.get("vetoFieldNames") or [])
                 return ("the PLAYER competing in the veto competition (the engine's veto field is "

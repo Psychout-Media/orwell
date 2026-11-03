@@ -93,3 +93,8 @@ def test_the_collective_cue_must_match_the_field_size():
 def test_non_contracted_forms_are_caught_too():
     assert ch._player_seated_in_excluded_field("You are competing in the veto competition.", _sig())
     assert ch._player_seated_in_excluded_field("You're competing in the veto competition.", _sig())
+
+
+def test_a_mismatched_collective_cue_does_not_hide_a_later_cue_in_the_same_clause():
+    text = "The two of you talk in the kitchen, and you are competing in the veto competition."
+    assert ch._player_seated_in_excluded_field(text, _sig())
