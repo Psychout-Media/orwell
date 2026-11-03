@@ -55,3 +55,23 @@ def test_prose_about_a_different_decision_or_other_people_or_hypotheticals_does_
 
 def test_the_claims_are_part_of_the_cheap_closed_set_gate():
     assert ch._sentence_has_closed_set_claim("You have cast your vote.")
+
+
+def test_the_secret_veto_is_not_narrated_as_used_while_its_card_is_open():
+    for t in ("You used your secret power and the room gasps.", "You play your secret veto and pull yourself off the block.",
+              "You've used your secret veto."):
+        assert verdict(t, phase="eviction", pending="secret-veto"), t
+    n15 = lambda t, **kw: ch._uncommitted_player_choice(t, sig(**kw))
+    assert not n15("If you play your secret veto, there is no taking it back.", pending="secret-veto")   # hypothetical
+    assert not n15("You used your secret power.", pending="eviction-vote")                                # another card is open
+    assert not n15("You used your secret power.", pending=None)
+
+
+def test_the_goodbye_message_is_not_narrated_as_recorded_while_its_card_is_open():
+    for t in ("Your goodbye message is recorded, and the door closes behind them.", "You leave a goodbye message for the evictee.",
+              "You've recorded your goodbye and step back from the camera."):
+        assert verdict(t, phase="eviction", pending="goodbye-message"), t
+    n15 = lambda t, **kw: ch._uncommitted_player_choice(t, sig(**kw))
+    assert not n15("Production asks you to leave a goodbye message.", pending="goodbye-message")        # an invitation
+    assert not n15("The evictee records a goodbye message for the house.", pending="goodbye-message")   # someone else's act
+    assert not n15("Your goodbye message is recorded.", pending=None)

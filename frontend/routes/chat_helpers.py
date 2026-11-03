@@ -3631,6 +3631,12 @@ _PLAYER_CHOICE_BY_PENDING = {
     "nominations": r"you\s+(?:nominate[d]?|name[d]?\s+(?:\w+\s+and\s+\w+|your\s+nominees))\b|your\s+nominees\s+(?:are|will\s+be)\b",
     "veto-decision": r"you\s+(?:use[d]?|(?:choose|decide[d]?)\s+(?:not\s+)?to\s+use)\s+(?:the|your)\s+(?:power\s+of\s+)?veto\b",
     "replacement": r"you\s+name[d]?\s+\w+(?:\s+\w+)?\s+as\s+(?:the\s+)?replacement\b",
+    "secret-veto": r"you(?:'ve|\s+have)?\s+(?:used|played|activated|revealed)\s+your\s+(?:secret\s+)?(?:power|veto|safety|secret\s+veto)\b"
+                   r"|you\s+(?:use|play|activate|reveal)\s+(?:your\s+)?(?:secret\s+)?(?:power|veto|safety|secret\s+veto)\b"
+                   r"|you\s+(?:pull|take)\s+yourself\s+off\s+the\s+block\b",
+    "goodbye-message": r"your\s+goodbye(?:\s+message)?\s+(?:is|has\s+been|was)\s+(?:recorded|saved|sent|delivered|locked)\b"
+                       r"|you(?:'ve|\s+have)?\s+(?:recorded|left|sent)\s+(?:your|a)\s+(?:goodbye|farewell)(?:\s+message)?\b"
+                       r"|you\s+(?:record|leave|send)\s+(?:your|a)\s+(?:goodbye|farewell)(?:\s+message)?\b",
     "juror-vote": r"you\s+(?:cast|casted)\s+your\s+(?:jury\s+)?vote\b|you\s+vote[d]?\s+for\b[^.!?\n]{0,40}\bto\s+win\b"
                   r"|you\s+crown(?:ed)?\b",
 }
