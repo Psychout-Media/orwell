@@ -3325,11 +3325,17 @@ _CLAIM_COMP_RESULT_RE = re.compile(
     re.IGNORECASE,
 )
 # A named houseguest (or "you") eliminated in progress — case-SENSITIVE name so ordinary lowercase prose is skipped.
-# Only counts WITH competition context in the same sentence (`_COMP_CONTEXT_RE`) and never "out of your/my…".
-_CLAIM_COMP_ELIM_RE = re.compile(
-    r"\b(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)\s+(?:goes|went|is|are|falls|fell|drops|dropped|slides|slid|slips|slipped|steps|stepped)"
-    r"\s+(?:out|off|down|eliminated|early)\b(?!\s+(?:of\s+(?:your|my|his|her|their|our)\b|in\s+the\b|at\s+the\b|by\s+the\b))"
-)
+# STRONG forms use competition-elimination verbs ("goes out", "drops off", "slips down") and stand on their own;
+# idioms are excluded ("goes out for a walk", "out of your…", "out in the yard"). The WEAK copula forms
+# ("X is out", "you are out") are ambiguous prose and only count with competition context (`_COMP_CONTEXT_RE`).
+_ELIM_NAME = r"(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
+_ELIM_NOT_IDIOM = (r"(?!\s+(?:of\s+(?:your|my|his|her|their|our)\b|in\s+the\b|at\s+the\b|by\s+the\b|"
+                   r"for\b|to\b|with\b|into\b|onto\b|there\b|again\b|later\b))")
+_CLAIM_COMP_ELIM_STRONG_RE = re.compile(
+    r"\b" + _ELIM_NAME + r"\s+(?:goes|went|falls|fell|drops|dropped|slides|slid|slips|slipped|steps|stepped)"
+    r"\s+(?:out|off|down|early)\b" + _ELIM_NOT_IDIOM)
+_CLAIM_COMP_ELIM_WEAK_RE = re.compile(
+    r"\b" + _ELIM_NAME + r"\s+(?:is|are)\s+(?:out|off|eliminated|early)\b" + _ELIM_NOT_IDIOM)
 _COMP_CONTEXT_RE = re.compile(
     r"\b(?:comp|competition|challenge|podium|platform|ledge|beam|button|buzzer|round|wall|pedestal|disc|ball|slop|"
     r"water|tank|endurance|field|eliminated|first out|drops? out)\b", re.IGNORECASE)
@@ -3385,8 +3391,8 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
                 continue
-            if _CLAIM_COMP_RESULT_RE.search(clause) or (
-                    _CLAIM_COMP_ELIM_RE.search(clause) and _COMP_CONTEXT_RE.search(sent)):
+            if (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
+                    or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent))):
                 return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
                         "still waiting on the player's approach)")
     return None
@@ -3413,7 +3419,8 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
         or _CLAIM_VETO_USE_RE.search(text)  # T0-3: the veto USE decision (distinct from who WON it)
         or _CLAIM_PLAYER_EXPULSION_RE.search(text)  # #1659 R2: "you're being removed/expelled from the game"
         or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
-        or _CLAIM_COMP_ELIM_RE.search(text)
+        or _CLAIM_COMP_ELIM_STRONG_RE.search(text)
+        or _CLAIM_COMP_ELIM_WEAK_RE.search(text)
     )
 
 

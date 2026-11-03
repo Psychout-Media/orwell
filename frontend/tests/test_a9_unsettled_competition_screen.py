@@ -50,7 +50,7 @@ def test_the_captured_seed_1717_leak_is_a_phantom_while_the_competition_is_unset
 
 
 @pytest.mark.parametrize("sentence", [
-    "Contestant Alpha goes out first in the opening round, laughing it off.",
+    "Contestant Alpha goes out first, laughing it off.",
     "The competition went to somebody else entirely.",
     "You outlasted every last one of them.",
     "Your pedestal dropped and the field thinned.",
@@ -97,6 +97,8 @@ def test_it_stands_down_outside_an_unsettled_competition_and_on_unknowns():
     "Last week's HOH won the key and still talks about it.",                       # past-week reference
     "The outgoing HOH's room is still full of her things; the HOH room smells of lavender.",
     "Contestant Alpha is out in the yard, sunbathing.",                           # 'out' with no competition context
+    "Contestant Alpha goes out for a walk and Contestant Beta goes down to the kitchen.",   # idiom uses of the verbs
+    "Contestant Alpha is out again, late for the meeting, as usual.",
     "She takes the competition seriously and stretches for ten minutes.",         # 'takes the competition' idiom
     "You're out of your mind if you think that works, she says.",                 # idiom, not an elimination
     "Contestant Beta had won the veto the week before and never lets anyone forget it.",
@@ -209,3 +211,11 @@ def test_the_real_agent_loop_never_emits_the_phantom_win(monkeypatch, board):
     assert text.strip(), "the loop must emit SOMETHING (the diegetic cutaway) — an empty turn would pass the negatives"
     for phantom in ("hoh room", "key ceremony", "two keys", "first key", "yard erupts", "disc sits past"):
         assert phantom not in text, f"the phantom competition result reached the player: {phantom!r}"
+
+
+def test_a_named_elimination_in_progress_is_dropped_with_or_without_competition_words():
+    """#1960 review: 'goes out first' is a named elimination and must stay caught even with no competition noun."""
+    for s in ("Contestant Alpha goes out first, laughing it off.",
+              "Then Contestant Beta slips off the ledge and is out.",
+              "Contestant Alpha is out of the competition."):
+        assert ch._unsettled_competition_result(s, _sig(), _sig()), s
