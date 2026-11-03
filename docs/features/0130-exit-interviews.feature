@@ -41,7 +41,19 @@ Feature: Exit interviews (the producer's eviction-night sit-down)
     When the exit-interview stages and the retrospective reel are read
     Then no hidden stat, score, or sealed state appears anywhere in them
 
-  Scenario: The exit interview moves no seeded outcome
+  # Renamed 2026-11-03 (BDD audit AMEND 0130): this scenario proves the seeded spine is DETERMINISTIC and PINNED, not that the
+  # beat is inert. The inertness claim - the exit-interview beat draws no rng, is clock-free, and replays the pre-0130 eviction
+  # order byte-for-byte under ORWELL_FLAGS_OFF=1 - rests on tests/unit/exitInterview.test.ts ("is an INERT beat",
+  # "byte-identical spine"). The seed-108 order pinned below is RE-ANCHORED on every owner-approved balance change.
+  Scenario: The seeded eviction order is deterministic and pinned
     Given the same seed played to completion twice
     Then the eviction order is identical both times
     And it matches the approved seeded trajectory anchor
+
+  # Added 2026-11-03 (BDD audit AMEND 0130): a restart while the player sits at their exit interview resumes at the same
+  # interview and the night still completes (0030). Real seeded game, real pending, the registry snapshot/restore door.
+  Scenario: A restart mid-interview keeps the same exit interview waiting
+    Given the player evicted and facing their exit interview
+    When the engine restarts at the exit interview
+    Then the same exit interview is waiting with the same options
+    And answering it completes the night

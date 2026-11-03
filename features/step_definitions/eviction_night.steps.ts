@@ -4,10 +4,12 @@ import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { AdvanceView, EvictionView, SubmitDecisionReq } from "../../src/ports/GameSession";
-import { goodbyeMannerFor } from "../../src/engine/liveSeason";
 import { juryLean } from "../../src/engine/jury";
+import { RELATIONSHIP_CONSTANTS } from "../../src/engine/relationshipConstants";
+import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { resolvePending } from "../support/answerPending";
+import { liveGameAtPlayerPending, cloneSnapshot, resumeFrom, edgeIn, freshScratch } from "../support/liveEvictionNight";
 
 // Feature 0047 — eviction night live. Driven through the live MCP seam (createCharacter →
 // advanceGame / submitDecision). HARD rule: roles only — no names.
@@ -230,20 +232,79 @@ Then("goodbye messages from the house are recorded", function (this: BbWorld) {
 });
 
 // --- Scenario: a warm vs a cold goodbye move the jury differently ----------------
+// AMEND 0047 (2026-11-03): this used to call `juryLean`/`goodbyeMannerFor` directly after an EMPTY When. It now plays two
+// same-seed live games from one shared snapshot taken AT the player's goodbye pending - one real warm goodbye, one real cold
+// one, each submitted through `submitDecision` - and reads the evictee's hidden lean toward the player from the live state.
 
-Given("the same evictee sent out with respectful goodbyes versus cold ones", function (this: BbWorld) {
-  // The pure property the live goodbye folds into manner: tone → respected/disrespected → lean shift.
-  const rel = { trust: 0.5, affinity: 0.5, threat: 0.3 };
-  this.enWarmLean = juryLean(rel, goodbyeMannerFor("warm"));
-  this.enColdLean = juryLean(rel, goodbyeMannerFor("cold"));
+Given("the same live evictee about to hear the player's goodbye", function (this: BbWorld) {
+  const n = freshScratch();
+  const found = liveGameAtPlayerPending("goodbye-message");
+  n.game = found.game; n.pending = found.pending;
+  n.snap = cloneSnapshot(found.game);
+  n.facts.evictee = found.pending.evictee!.id;
+  this.night = n;
 });
 
-When("that evictee later leans as a juror", function () {
-  // The leans were computed from the recorded goodbye manner in the Given.
+When("the player sends a warm goodbye in one game and a cold one in a same-seed game", function (this: BbWorld) {
+  const n = this.night!;
+  for (const tone of ["warm", "cold"] as const) {
+    const g = resumeFrom(n.snap!, n.game!.seed, `goodbye-${tone}`);
+    // The restored game stands at the very same decision (same seed, same state) before the player chooses.
+    const standing = g.session.advanceGame();
+    assert.equal(standing.pending?.kind, "goodbye-message");
+    assert.equal(standing.pending?.evictee?.id, n.facts.evictee);
+    const submitted = g.session.submitDecision({ kind: "goodbye-message", vote: tone });
+    const snap = cloneSnapshot(g); // the hidden state right after the goodbye lands
+    const views: AdvanceView[] = [];
+    for (let i = 0; i < 6; i++) {
+      const v = g.session.advanceGame();
+      views.push(v);
+      if (v.event?.beat === "eviction-result") break;
+    }
+    assert.equal(views[views.length - 1]!.event?.beat, "eviction-result", `the ${tone} night reaches its result`);
+    n.branches[tone] = { views, submitted, snap, stateJson: JSON.stringify(g.session.getGameState()) };
+  }
 });
 
-Then("the respectful send-off yields a measurably more favorable lean", function (this: BbWorld) {
-  assert.ok(this.enWarmLean! > this.enColdLean!, "a warm send-off lifts the juror lean above a cold one");
+/** The evictee's hidden lean toward the sender, from the live state exactly as the finale reads it (relationship + grudge cooling + recorded manner). */
+function leanTowardPlayer(snap: SessionSnapshot, evictee: string): number {
+  const e = edgeIn(snap, evictee as never, PLAYER);
+  const grudge = snap.live?.juryGrudge?.[evictee as never]?.[PLAYER] ?? 0;
+  const cool = (x: number): number => Math.max(0, Math.min(1, x - grudge));
+  const manner = snap.live?.mannerByEvictee?.[evictee as never]?.[PLAYER];
+  assert.ok(manner, "the evictee holds a recorded manner toward the player after the goodbye");
+  return juryLean(
+    { trust: cool(e.trust), affinity: cool(e.affinity), threat: e.threat, reliability: (e.reliability ?? RELATIONSHIP_CONSTANTS.baseline.reliability) - RELATIONSHIP_CONSTANTS.baseline.reliability },
+    manner,
+  );
+}
+
+Then("the evictee's hidden lean toward the player is measurably more favorable after the warm one", function (this: BbWorld) {
+  const n = this.night!;
+  const evictee = n.facts.evictee as string;
+  const warm = n.branches.warm!.snap;
+  const cold = n.branches.cold!.snap;
+  assert.equal(warm.live!.mannerByEvictee![evictee as never]![PLAYER]!.goodbye, "warm", "the warm goodbye is on file");
+  assert.equal(cold.live!.mannerByEvictee![evictee as never]![PLAYER]!.goodbye, "cold", "the cold goodbye is on file");
+  // Isolate the cause: the goodbye moves ONLY the recorded manner - every relationship edge is identical across the two games.
+  assert.deepEqual(warm.relationships, cold.relationships, "the two games differ in nothing but the goodbye tone");
+  const warmLean = leanTowardPlayer(warm, evictee);
+  const coldLean = leanTowardPlayer(cold, evictee);
+  assert.ok(warmLean - coldLean > 0.01, `a warm send-off lifts the juror lean measurably above a cold one (warm ${warmLean}, cold ${coldLean})`);
+});
+
+Then("nothing the player can see tells the two games apart beyond the tone they chose", function (this: BbWorld) {
+  const n = this.night!;
+  const warm = n.branches.warm!;
+  const cold = n.branches.cold!;
+  // The rest of the night plays out identically on every player-facing view, and the lean never rides a view.
+  assert.equal(JSON.stringify(warm.views), JSON.stringify(cold.views), "the interview and result views are identical either way");
+  const mask = (j: string): string => j.replace(/\b(warm|cold)\b/g, "TONE");
+  assert.equal(mask(JSON.stringify(warm.submitted)), mask(JSON.stringify(cold.submitted)), "the goodbye beat differs only by the tone the player picked");
+  assert.equal(mask(warm.stateJson), mask(cold.stateJson), "the public game state differs only by the tone the player picked");
+  for (const b of [warm, cold]) {
+    assert.ok(!/"(lean|manner|goodbye|grudge)"/i.test(JSON.stringify(b.views) + b.stateJson), "no hidden lean or manner crosses to the player");
+  }
 });
 
 // --- Scenario: the staging runs through the seam and survives a restart ----------

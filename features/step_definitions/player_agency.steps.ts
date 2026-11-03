@@ -9,6 +9,8 @@ import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import type { AdvanceView } from "../../src/ports/GameSession";
+import { liveGameAtPlayerPending, cloneSnapshot, freshScratch } from "../support/liveEvictionNight";
 
 // E34 (0047 amendment) + E37 (0037 amendment) — the player's goodbye message and the
 // player-juror's question are REAL pending decisions: the engine never speaks for the player.
@@ -18,49 +20,111 @@ const ctxOf = (rel: RelationshipModel): SeasonCtx => ({
   player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel,
 });
 
-// --- E34: the player's goodbye message ------------------------------------------
+// --- E34: the player's goodbye message (LIVE: real pendings on the real adapter) ---
+// AMEND 0047 (2026-11-03): these steps used to drive a hand-built 7-person pure `liveSeason`. They now play a real
+// seeded game through `advanceGame`/`submitDecision` until the PLAYER survives an eviction and faces the engine's own
+// `goodbye-message` pending (seed-searched; it fails loudly if no seed reaches it).
 
 Given("an eviction whose result has landed with the player surviving", function (this: BbWorld) {
-  // The player is HOH (survives by construction); four NPC voters send a nominee out 3–1.
-  const s = newLiveSeason([PLAYER, npc(1), npc(2), npc(3), npc(4), npc(5), npc(6)]);
-  s.beat = "eviction"; s.hoh = PLAYER; s.finalNominees = [npc(1), npc(2)];
-  const rel = new RelationshipModel(0.5);
-  for (const v of [npc(3), npc(4), npc(5)]) { rel.edge(v, npc(2)).threat = 0.9; rel.edge(v, npc(1)).threat = 0.1; }
-  rel.edge(npc(6), npc(1)).threat = 0.9; rel.edge(npc(6), npc(2)).threat = 0.1;
-  this.agS = s; this.agCtx = ctxOf(rel); this.agBeats = [];
+  this.night = freshScratch();
 });
 
 When("the goodbye stage reaches the player", function (this: BbWorld) {
-  const s = this.agS!;
-  const rng = new SeededRandom(7);
-  for (let g = 0; g < 100 && !s.pending; g++) {
-    const ev = advance(s, this.agCtx!, rng);
-    if (ev) this.agBeats!.push(ev);
-  }
+  const n = this.night!;
+  const found = liveGameAtPlayerPending("goodbye-message");
+  n.game = found.game; n.pending = found.pending; n.seen = found.seen;
+  n.snap = cloneSnapshot(found.game);
 });
 
 Then("the loop pauses for the player's goodbye message", function (this: BbWorld) {
-  const p = this.agS!.pending;
-  assert.ok(p && p.kind === "goodbye-message", "a goodbye-message decision is pending");
-  assert.equal(p.by, PLAYER);
-  assert.deepEqual((p as { tones: string[] }).tones, ["warm", "respectful", "cold"]);
+  const n = this.night!;
+  const p = n.pending!;
+  assert.equal(p.kind, "goodbye-message");
+  assert.equal(p.by.id, PLAYER, "the goodbye is the player's own");
+  assert.deepEqual(p.options.map((o) => o.id), ["warm", "respectful", "cold"], "the player chooses among the three tones");
+  assert.notEqual(p.evictee?.id, PLAYER, "the player is the sender, not the evictee");
+  // Genuinely paused: the engine state holds the same pending, and advancing again changes nothing.
+  assert.equal(n.game!.session.snapshot().live?.pending?.kind, "goodbye-message");
+  const again = n.game!.session.advanceGame();
+  assert.equal(again.pending?.kind, "goodbye-message", "advancing again still waits on the player");
+  assert.equal(again.beatSeq, n.seen[n.seen.length - 1]!.beatSeq, "no beat fired while the player had not decided");
 });
 
 Then("no player goodbye beat exists before the decision is resolved", function (this: BbWorld) {
-  for (const b of this.agBeats!.filter((b) => b.beat === "eviction-goodbye")) {
-    assert.notEqual(b.participants[0], PLAYER, "the engine never authored a player goodbye");
-  }
+  const n = this.night!;
+  // Only THIS night's beats count: from the eviction that sent the evictee out up to the pending.
+  const commit = n.seen.map((v) => v.event?.beat).lastIndexOf("eviction");
+  assert.ok(commit >= 0, "the night's eviction beat was seen on the way");
+  const goodbyes = n.seen.slice(commit).filter((v) => v.event?.beat === "eviction-goodbye");
+  assert.ok(goodbyes.length > 0, "the house's own goodbyes were staged before the player's turn");
+  for (const v of goodbyes) assert.notEqual(v.event!.participants?.[0]?.id, PLAYER, "the engine never authored a player goodbye");
 });
 
 Then("the player's chosen tone folds into the evictee's manner toward the player", function (this: BbWorld) {
-  const s = this.agS!;
-  const evictee = s.evictionOrder[s.evictionOrder.length - 1]!;
-  const ev = applyDecision(s, { kind: "goodbye-message", tone: "cold" }, this.agCtx!);
-  assert.equal(ev.beat, "eviction-goodbye");
-  assert.equal(ev.participants[0], PLAYER);
+  const n = this.night!;
+  const s = n.game!.session;
+  const evictee = n.pending!.evictee!.id;
+  const before = s.snapshot().live!.mannerByEvictee?.[evictee]?.[PLAYER]?.goodbye;
+  assert.equal(before, undefined, "no tone is on file for the player before they choose");
+  const sub = s.submitDecision({ kind: "goodbye-message", vote: "cold" });
+  assert.equal(sub.event?.beat, "eviction-goodbye");
+  assert.equal(sub.event?.participants?.[0]?.id, PLAYER, "the goodbye beat is the player's own");
   // The fold honors the player's CHOICE (goodbyeMannerFor), exactly as an NPC tone would fold.
   // SOC-NEW-1: the tone is recorded as the `goodbye` field (applied with precedence in juryLean).
-  assert.equal(s.mannerByEvictee![evictee]![PLAYER]!.goodbye, "cold");
+  assert.equal(s.snapshot().live!.mannerByEvictee![evictee]![PLAYER]!.goodbye, "cold");
+});
+
+// --- AMEND 0047 item 1: after the goodbye the night ends at the result, never stalling at the interview ---
+
+When("the player records a respectful goodbye", function (this: BbWorld) {
+  const n = this.night!;
+  const s = n.game!.session;
+  n.facts.week = s.snapshot().live!.week;
+  n.facts.evictee = n.pending!.evictee!.id;
+  n.submitted = s.submitDecision({ kind: "goodbye-message", vote: "respectful" });
+  // The engine still owes the interview and the result: only advanceGame delivers them. Bounded (<= 6 steps).
+  let last: AdvanceView = n.submitted;
+  for (let i = 0; i < 6 && last.eviction && !last.pending && !last.finished; i++) {
+    last = s.advanceGame({ expectedBeatSeq: last.beatSeq });
+    n.chain.push(last);
+  }
+});
+
+Then("the night runs on through the exit interview to the result in a few steps", function (this: BbWorld) {
+  const n = this.night!;
+  assert.equal(n.submitted!.pending, null, "no player gate remains after the goodbye");
+  assert.ok(n.submitted!.eviction, "the night is still staging right after the goodbye");
+  const beats = n.chain.map((v) => v.event?.beat);
+  assert.ok(n.chain.length <= 6, `bounded: the night finished in ${n.chain.length} steps`);
+  const interview = beats.indexOf("exit-interview");
+  assert.ok(interview >= 0, `the exit interview is staged (saw ${beats.join(" -> ")})`);
+  assert.equal(beats[beats.length - 1], "eviction-result", `the night ends at the result, not at the interview (saw ${beats.join(" -> ")})`);
+  assert.ok(interview < beats.length - 1, "the result comes AFTER the interview");
+  assert.equal(n.chain[n.chain.length - 1]!.eviction ?? null, null, "the eviction projection is gone once the result lands");
+});
+
+Then("no further decision is asked of the player on the way", function (this: BbWorld) {
+  const n = this.night!;
+  for (const v of n.chain) {
+    assert.equal(v.pending, null, "the night never asks the surviving player for anything after their goodbye");
+    assert.equal(v.finished, false);
+  }
+  assert.equal(n.game!.session.snapshot().live!.pending, undefined, "nothing is pending in the engine either");
+});
+
+Then("the evictee is out and the next week's first phase opens", function (this: BbWorld) {
+  const n = this.night!;
+  const live = n.game!.session.snapshot().live!;
+  const evictee = n.facts.evictee as string;
+  assert.ok(!live.active.includes(evictee as never), "the evictee is out of the house");
+  assert.equal(live.evictionOrder[live.evictionOrder.length - 1], evictee, "the evictee is recorded as the latest eviction");
+  assert.equal(live.eviction, undefined, "the eviction sub-loop is cleared");
+  assert.ok(
+    (live.exitInterviews ?? []).some((x) => x.evictee === evictee && x.week === n.facts.week),
+    "the evictee's exit interview is on the record",
+  );
+  assert.ok(["hoh-competition", "twist-reveal", "finale"].includes(live.beat), `the house rolled on to its next phase (beat is ${live.beat})`);
+  if (live.beat === "hoh-competition") assert.equal(live.week, (n.facts.week as number) + 1, "the next week's HOH phase");
 });
 
 // --- E37: the player-juror question ----------------------------------------------
