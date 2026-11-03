@@ -176,10 +176,15 @@ _client_factory = None
 _client_loop = None  # weakref to the loop `_client` was built on (N-5)
 _other_loop_clients = None  # WeakKeyDictionary: loop -> client, for loops other than `_client_loop`
 import threading as _threading
-_other_loop_clients_lock = _threading.Lock()
+_other_loop_clients_lock = _threading.RLock()  # re-entrant: guards the primary-claim AND the other-loop cache in one critical section
 
 
 def _shared_client():
+    with _other_loop_clients_lock:
+        return _shared_client_locked()
+
+
+def _shared_client_locked():
     """The engine client for the CURRENT event loop (N-5): an httpx pool is bound to the loop that
     opened its sockets, and the FE runs many ``asyncio.run`` background tasks in worker threads —
     sharing one client across those loops strands keep-alive sockets (CLOSE-WAIT) and stalls the

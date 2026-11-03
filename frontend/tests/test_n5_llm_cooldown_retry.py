@@ -156,18 +156,18 @@ def test_http_client_is_per_event_loop():
                 await asyncio.sleep(0.01)
         asyncio.run(a())
 
-    ta = threading.Thread(target=run_a)
+    ta = threading.Thread(target=run_a, daemon=True)
     ta.start()
-    assert a_got.wait(5)
 
     async def grab_b():
         seen["b"] = (lc._get_http_client(), lc._get_http_client())
 
     try:
+        assert a_got.wait(5), "loop A never became ready"
         asyncio.run(grab_b())
     finally:
         b_done.set()
-        ta.join()
+        ta.join(timeout=5)
     assert seen["a"][0] is seen["a"][1] and seen["b"][0] is seen["b"][1]
     assert seen["a"][0] is not seen["b"][0]
 
@@ -208,9 +208,40 @@ def test_engine_run_isolated_closes_its_client():
     assert seen["c"].is_closed
 
 
-def test_engine_other_loop_clients_are_lock_guarded():
+def test_engine_other_loop_clients_are_consistent_under_concurrent_loops():
+    """Concurrent worker loops (all alive at once) each get exactly ONE client of their own: no loop shares one, none gets two."""
     from src import orwell_engine as oe
-    assert hasattr(oe._other_loop_clients_lock, "acquire")
+    oe._client = None
+    oe._client_factory = None
+    n = 8
+    ready = threading.Barrier(n + 1)
+    release = threading.Event()
+    seen = {}
+
+    def worker(i):
+        async def job():
+            a = oe._shared_client()
+            ready.wait(10)           # every loop is alive and has asked once before any asks again
+            b = oe._shared_client()
+            seen[i] = (a, b)
+            while not release.is_set():
+                await asyncio.sleep(0.005)
+        asyncio.run(job())
+
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(n)]
+    try:
+        for t in threads:
+            t.start()
+        ready.wait(10)
+    finally:
+        release.set()
+        for t in threads:
+            t.join(timeout=10)
+    assert len(seen) == n
+    assert all(a is b for a, b in seen.values()), "one client per loop, stable across calls"
+    assert len({id(a) for a, _ in seen.values()}) == n, "no two live loops share a client"
+    oe._client = None
+    oe._client_factory = None
 
 
 def _drive(monkeypatch, fake):
