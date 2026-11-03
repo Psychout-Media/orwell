@@ -10,7 +10,7 @@ single, structured, body-free source of truth.
 Each turn produces one entry::
 
     { ts, turnId, session, callClass, inputTokens, cachedTokens, reasoningTokens,
-      outputTokens, appliedMaxTokens, finishReason, cost, contextPercent, provider }
+      outputTokens, appliedMaxTokens, finishReason, cost, costEstimated, contextPercent, provider }
 
 ``appliedMaxTokens`` is the OUTPUT cap that was actually sent on the wire for the turn (ADR 0010
 follow-on #1 — the admin-editable per-class value), and ``finishReason`` is the provider's terminal

@@ -157,9 +157,10 @@ def test_unpriced_models_have_no_estimate_and_cached_never_exceeds_prompt():
 
 # ── the estimate flag survives to the ledger and the admin totals (#1973 review) ─────────────────────
 
-def test_ledger_persists_the_estimated_flag_and_admin_totals_surface_it():
+def test_ledger_persists_the_estimated_flag_and_admin_totals_surface_it(monkeypatch, tmp_path):
     tl = importlib.import_module("src.orwell_token_ledger")
-    tl.clear("est-user")
+    # An ISOLATED ledger file: never touch (or race on) the shared application store.
+    monkeypatch.setattr(tl, "LEDGER_PATH", tmp_path / "ledger.json")
     tl.record_turn("est-user", session="s1", turn_id="t1", call_class="narration", input_tokens=10,
                    output_tokens=3, cost=0.001, cost_estimated=True, provider="openai")
     tl.record_turn("est-user", session="s1", turn_id="t2", call_class="narration", input_tokens=10,
@@ -170,7 +171,6 @@ def test_ledger_persists_the_estimated_flag_and_admin_totals_surface_it():
     summary = ah._token_economy("est-user")["summary"]
     assert summary["totalCost"] == pytest.approx(0.003)
     assert summary["estimatedCost"] == pytest.approx(0.001) and summary["costIsEstimated"] is True
-    tl.clear("est-user")
 
 
 def test_agent_loop_carries_the_estimated_flag_from_usage_to_the_ledger():
