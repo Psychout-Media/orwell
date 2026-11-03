@@ -61,7 +61,7 @@ Feature: Eviction night live
   # player's choice; the prose is the model's to voice) — folded into the evictee's manner
   # exactly as NPC tones are. Jury management's signature lever belongs to the player.
   Scenario: The player's goodbye message is their own decision
-    Given an eviction whose result has landed with the player surviving
+    Given a live eviction night with the player surviving
     When the goodbye stage reaches the player
     Then the loop pauses for the player's goodbye message
     And no player goodbye beat exists before the decision is resolved
@@ -74,12 +74,12 @@ Feature: Eviction night live
   # result - bounded, never stalling at the interview, with no further player gate (an NPC evictee's interview is a beat, not
   # a player decision; the player's OWN interview as the evictee is 0130).
   Scenario: After the player's goodbye the night ends at the result and never stalls at the interview
-    Given an eviction whose result has landed with the player surviving
+    Given a live eviction night with the player surviving
     When the goodbye stage reaches the player
     And the player records a respectful goodbye
     Then the night runs on through the exit interview to the result in a few steps
     And no further decision is asked of the player on the way
-    And the evictee is out and the next week's first phase opens
+    And the evictee is out and the house rolls on to its next phase
 
   # Added 2026-11-03 (BDD audit AMEND 0047, Vault-flavored; #1963 / #1976 / #1987). Eviction votes are SECRET BALLOTS, so a
   # deal broken by one must not be attributable by any hidden fold an NPC acts on: the betrayal shock is shared across

@@ -175,7 +175,7 @@ Then("it matches the approved seeded trajectory anchor", function (this: BbWorld
 
 // --- restart mid-interview (AMEND 0130, 2026-11-03) -----------------------------------
 // A real seeded game parked at the player's own exit-interview pending; the registry snapshot is restored into a FRESH registry
-// (the door a server restart uses, 0030) and the same pending must stand, then answering it must complete the night.
+// (an in-memory snapshot rebuild; the disk save/load round-trip is covered by the durable-persistence scenarios, 0030) and the same pending must stand, then answering it must complete the night.
 Given("the player evicted and facing their exit interview", function (this: BbWorld) {
   const found = liveGameAtPlayerPending("exit-interview");
   this.night = { ...freshScratch(), game: found.game, pending: found.pending, seen: found.seen, snap: cloneSnapshot(found.game) };

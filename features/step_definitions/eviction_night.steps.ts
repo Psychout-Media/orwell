@@ -303,7 +303,7 @@ Then("nothing the player can see tells the two games apart beyond the tone they 
   assert.equal(mask(JSON.stringify(warm.submitted)), mask(JSON.stringify(cold.submitted)), "the goodbye beat differs only by the tone the player picked");
   assert.equal(mask(warm.stateJson), mask(cold.stateJson), "the public game state differs only by the tone the player picked");
   for (const b of [warm, cold]) {
-    assert.ok(!/"(lean|manner|goodbye|grudge)"/i.test(JSON.stringify(b.views) + b.stateJson), "no hidden lean or manner crosses to the player");
+    assert.ok(!/"[^"]*(lean|manner|grudge)[^"]*"\s*:|"goodbye"\s*:/i.test(JSON.stringify(b.views) + b.stateJson), "no hidden lean or manner crosses to the player");
   }
 });
 

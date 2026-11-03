@@ -25,7 +25,7 @@ const ctxOf = (rel: RelationshipModel): SeasonCtx => ({
 // seeded game through `advanceGame`/`submitDecision` until the PLAYER survives an eviction and faces the engine's own
 // `goodbye-message` pending (seed-searched; it fails loudly if no seed reaches it).
 
-Given("an eviction whose result has landed with the player surviving", function (this: BbWorld) {
+Given("a live eviction night with the player surviving", function (this: BbWorld) {
   this.night = freshScratch();
 });
 
@@ -112,7 +112,7 @@ Then("no further decision is asked of the player on the way", function (this: Bb
   assert.equal(n.game!.session.snapshot().live!.pending, undefined, "nothing is pending in the engine either");
 });
 
-Then("the evictee is out and the next week's first phase opens", function (this: BbWorld) {
+Then("the evictee is out and the house rolls on to its next phase", function (this: BbWorld) {
   const n = this.night!;
   const live = n.game!.session.snapshot().live!;
   const evictee = n.facts.evictee as string;

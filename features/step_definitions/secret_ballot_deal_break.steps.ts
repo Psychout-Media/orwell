@@ -154,8 +154,10 @@ Then("the breaker is not an outlier among those voters", function (this: BbWorld
   const drop = (s: EntityId): number => trust(c.control, c.wronged, s) - trust(c.broken, c.wronged, s);
   const others = c.suspects.filter((s) => s !== c.breaker).map(drop);
   assert.ok(drop(c.breaker) > EPS, "the real breaker carries its share");
-  // Indistinguishable within the temperature jitter: the breaker's drop sits inside the innocent suspects' range, not above it.
-  assert.ok(drop(c.breaker) / Math.max(...others) < 2.5, `the breaker (${drop(c.breaker)}) is no outlier among the other voters (${others.join(", ")})`);
+  // Indistinguishable within the temperature jitter: the breaker's drop sits in the innocent suspects' range (bounded against both their smallest and their largest drop).
+  const [lo, hi] = [Math.min(...others), Math.max(...others)];
+  assert.ok(drop(c.breaker) / hi < 2.5, `the breaker (${drop(c.breaker)}) is not an outlier ABOVE the other voters (${others.join(", ")})`);
+  assert.ok(drop(c.breaker) * 2.5 > lo, `the breaker (${drop(c.breaker)}) is not an outlier BELOW the other voters (${others.join(", ")})`);
 });
 
 Then("no jury demerit names the breaker", function (this: BbWorld) {

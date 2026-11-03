@@ -10,8 +10,8 @@ import { resolvePending } from "./answerPending";
 
 /**
  * Shared live-driving helpers for the eviction-night scenarios (0047 + 0130). Everything here goes through the REAL
- * live adapter (`createCharacter` -> `advanceGame` / `submitDecision`) and the registry's snapshot/restore seam (the
- * same door a server restart uses) - never a hand-built pure season. Roles only.
+ * live adapter (`createCharacter` -> `advanceGame` / `submitDecision`) and the registry's in-memory snapshot/restore seam (a rebuild from a
+ * snapshot; the disk save/load round-trip is exercised by the durable-persistence scenarios) - never a hand-built pure season. Roles only.
  */
 export type LivePending = NonNullable<AdvanceView["pending"]>;
 
