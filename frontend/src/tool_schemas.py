@@ -1376,7 +1376,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "submitDecision",
-            "description": "Resolve the player's pending game decision and continue. Use the `kind` from the pending decision and the houseguest ids from its `options`. The engine validates the choice (legality is enforced server-side).",
+            "description": "Resolve the player's pending game decision and continue — ONLY for the competition approach (comp-intent / comp-round) and the in-chat deal-offer answer, using the `kind` from the pending decision. Every other binding choice (nominations, vetoes, votes, goodbye messages, finale picks, self-evict…) is committed ONLY by the player's own confirm on its decision card: present it and WAIT; submitting it here is refused. The engine validates legality server-side.",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -448,6 +448,18 @@ DECISION_KINDS: frozenset = frozenset({
     "deal-offer",
 })
 
+# PO RULING 2026-11-03 (Ryne): big irreversible choices must be confirmed on the decision CARD — prose never
+# binds them, even a clearly-worded line. The model's `submitDecision` tool may therefore submit ONLY these
+# low-stakes / in-chat kinds (an allow-list, so a NEW decision kind is card-only by default — fail closed):
+#   comp-intent / comp-round — the player's competition approach (the engine owns the outcome);
+#   deal-offer               — the in-chat accept/decline of an NPC's open offer (a light social choice).
+# Every other kind (nominations, veto-decision, secret-veto, eviction-vote, tie-break, final-eviction,
+# goodbye-message, finale-*, juror-*, exit-interview, replacement, houseguests-choice, self-evict) is bound
+# ONLY by the player's own confirm on its card (POST /api/orwell/decision or the WS relay — unchanged).
+# `tests/test_a6_model_submit_gate.py` pins this set and its parity with the card's HIGH_STAKES_KINDS.
+MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer"})
+CARD_ONLY_KINDS: frozenset = DECISION_KINDS - MODEL_SUBMITTABLE_KINDS
+
 
 # ── season-reset listeners ──────────────────────────────────────────────────────────────────────
 # Every season start (first game, confirmed restart, next season) goes through createCharacter, and

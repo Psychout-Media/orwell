@@ -273,7 +273,7 @@ def test_submit_decision_stale_retries_once_then_succeeds(monkeypatch):
         return {"beatSeq": 10}
 
     monkeypatch.setattr(orwell_engine, "submit_decision", fake_submit)
-    out = _run(ti.do_submit_decision('{"kind":"eviction-vote","vote":"npc:1"}', owner="owner"))
+    out = _run(ti.do_submit_decision('{"kind":"deal-offer","vote":"accept"}', owner="owner"))
     assert out["exit_code"] == 0 and '"beatSeq": 10' in out["output"]
     assert len(keys) == 2 and keys[0] == keys[1], "the decision retry reuses the SAME (kind-keyed) key"
     assert chat_helpers.stale_beat_rejections() == 1

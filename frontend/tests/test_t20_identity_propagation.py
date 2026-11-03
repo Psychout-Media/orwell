@@ -145,7 +145,7 @@ def test_tool_relay_passes_the_owner_to_the_engine(transport):
 
 
 def test_tool_relay_distinguishes_two_owners(transport):
-    decision = json.dumps({"kind": "eviction-vote", "vote": "npc:2"})
+    decision = json.dumps({"kind": "deal-offer", "vote": "accept"})
     assert _run(tool_impl.do_submit_decision(decision, owner="owner-a")).get("exit_code") == 0
     assert _run(tool_impl.do_submit_decision(decision, owner="owner-b")).get("exit_code") == 0
     users = [

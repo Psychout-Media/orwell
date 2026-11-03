@@ -167,10 +167,10 @@ def test_f1_model_submit_decision_attaches_both_tokens_and_scopes_key_by_kind(mo
     monkeypatch.setattr(orwell_engine, "remember_pending", lambda *a, **k: None)
     chat_helpers._LAST_BEAT_SEQ["owner"] = 12
 
-    out = _run(ti.do_submit_decision('{"kind":"eviction-vote","vote":"npc:1"}', owner="owner"))
+    out = _run(ti.do_submit_decision('{"kind":"deal-offer","vote":"accept"}', owner="owner"))
     assert out["exit_code"] == 0
     assert captured["expected_beat_seq"] == 12
-    assert isinstance(captured["idempotency_key"], str) and "eviction-vote" in captured["idempotency_key"]
+    assert isinstance(captured["idempotency_key"], str) and "deal-offer" in captured["idempotency_key"]
     assert chat_helpers.last_beat_seq("owner") == 13
 
 

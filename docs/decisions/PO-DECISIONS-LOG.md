@@ -9,6 +9,19 @@ live ledger of owner calls as they happen.
 
 ---
 
+## 2026-11-03
+
+- **Big irreversible choices are confirmed on the decision card — prose never binds them (Ryne, A-6).**
+  The model's `submitDecision` tool may commit only the low-stakes kinds (`comp-intent`, `comp-round`, and
+  the in-chat `deal-offer` answer). Every other kind (nominations, the veto, the secret veto, eviction and
+  jury votes, tie-breaks, the final eviction, goodbye and exit messages, finale picks, replacements,
+  Houseguest's Choice, self-evict) binds only on the player's own confirm on its card, even when the player
+  words the choice clearly in chat. The tool refuses those with "present the card; only the player's confirm
+  binds it". Fail-closed: a new decision kind is card-only until it is added to the allow-list
+  (`MODEL_SUBMITTABLE_KINDS` in `frontend/src/orwell_engine.py`). Rationale: ADR 0003 and the C20 definition
+  of done ("a hedge in prose cannot bind"); a live check found the narrator submitting a competition choice
+  from the player's prose, with only prompt wording holding the line for the bigger choices.
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
