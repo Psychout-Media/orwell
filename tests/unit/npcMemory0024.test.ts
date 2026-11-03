@@ -193,7 +193,7 @@ describe("the adapter wiring (live)", () => {
     expect(p(d2.session).live.npcMemory?.[d2.ids[1]!]?.[d2.ids[0]!]?.[0]?.kind).toBe("deal-broken");
   });
 
-  it("NO player-facing projection carries the ledger (a planted sentinel never surfaces)", async () => {
+  it("NO player-facing projection carries a REAL planted ledger entry (it is in the save, absent from every projection)", async () => {
     const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
     const user = "memory-leak";
     const mcp = runtime.registry.resolver()("player", user);
@@ -202,12 +202,26 @@ describe("the adapter wiring (live)", () => {
     sb.session.setNpcMemoryEnabled(true);
     const state = (await mcp.callTool("getGameState", {})) as { house: Array<{ id: string }> };
     const [h, subj] = [state.house[0]!.id as EntityId, state.house[1]!.id as EntityId];
-    (sb.session as unknown as Priv).remember(h, subj, "deal-broken", 1);
-    expect((sb.session as unknown as Priv).live.npcMemory?.[h]?.[subj]).toBeDefined();
-    for (const [tool, args] of [["getGameState", {}], ["whereabouts", {}], ["socialRead", { id: h }], ["npcVoice", { id: h }], ["stateDelta", {}], ["seasonRecap", {}]] as const) {
-      const out = JSON.stringify(await mcp.callTool(tool, args as Record<string, unknown>));
-      expect(out, `${tool} must not carry the memory ledger`).not.toMatch(/npcMemory|deal-broken|nominated-by-friend|replaced-by-friend|veto-saved/);
-    }
+    // A distinctive severity so the check is on the ENTRY, not on kind names that could never appear anyway.
+    const SENTINEL = 0.817346;
+    (sb.session as unknown as Priv).remember(h, subj, "deal-broken", SENTINEL);
+    expect(JSON.stringify((sb.session as unknown as Priv).live.npcMemory)).toContain("0.817346"); // really planted
+    expect(JSON.stringify(sb.session.snapshot())).toContain("0.817346"); // and really persisted in the save
+    const sweep = async (label: string): Promise<void> => {
+      for (const [tool, args] of [
+        ["getGameState", {}], ["whereabouts", {}], ["socialRead", { id: h }], ["npcVoice", { id: h }], ["npcVoice", { id: subj }],
+        ["stateDelta", {}], ["seasonRecap", {}], ["dailyRecap", {}], ["getVisibleStateFor", { entity: "player" }], ["socialInitiatives", {}],
+        ["playerDossier", {}], ["playerReceipts", {}],
+      ] as const) {
+        let out: string;
+        try { out = JSON.stringify(await mcp.callTool(tool, args as Record<string, unknown>)); } catch { continue; } // a tool unavailable pre-premiere
+        expect(out, `${label}: ${tool} must not carry the planted entry`).not.toContain("0.817346");
+        expect(out, `${label}: ${tool} must not expose the ledger key`).not.toContain("npcMemory");
+      }
+    };
+    await sweep("fresh");
+    for (let i = 0; i < 12; i++) await mcp.callTool("advanceGame", {}); // the projections after the loop has run
+    await sweep("after advancing");
   });
 
   it("the ledger persists with the live state and survives a snapshot/restore", () => {

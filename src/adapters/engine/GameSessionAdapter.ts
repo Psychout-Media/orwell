@@ -7006,10 +7006,10 @@ export class GameSessionAdapter implements GameSession {
       // AWARE of (knownTo) pushes their vote, scaled by owner persuasiveness × voter susceptibility ×
       // trust × progress (the engine tallies; narration only voices). Bounded; never crosses the wall.
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
-      // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
-      // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
+      // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
         campaignPushFor: (target: EntityId, decider: EntityId) => decider === PLAYER ? 0 : campaignPushFor(
           this.campaigns, target, decider,

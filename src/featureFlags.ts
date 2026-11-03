@@ -37,7 +37,7 @@ export interface FeatureFlagDef {
 }
 
 /**
- * All 29 flags in display (and deployment-doc) order.
+ * All flags in display (and deployment-doc) order.
  *
  * ADDING A NEW FLAG: append it here and it will automatically appear in `/health` and the guard
  * test. DELETING: remove the entry and the contract shrinks cleanly.
