@@ -540,6 +540,59 @@ def clear_social_runway(user) -> None:
 # `ORWELL_TIME_PER_CONVERSATION=0`, so the night-gate never fires under record/replay and this
 # framing never renders there.
 _DAY_BREAK_STEER: dict = {}
+
+# F-2/F-4 (A-11 playtest, #1781): a beat the FE PRE-RESOLVED (engine-committed during framing) must ALWAYS reach
+# the player — the model may return blank or skip it (an HOH crowned / noms set that chat never voiced, then
+# "the competition is still running"). The engine's Vault-free `announcements` (the production chyron, built
+# only from public ids) are stashed here and EMITTED to the client by the agent loop at turn start, regardless
+# of what the model says; the headlines also ride a short framing steer for `_AIRED_STEER_TURNS` turns so the
+# next scene is grounded on the committed state (never "not yet" / "before the ceremony"). Keyed via `_runway_key`.
+_PENDING_CHYRON: dict = {}
+_AIRED_STEER: dict = {}
+_AIRED_STEER_TURNS = 2
+
+
+def stash_preresolved_announcements(user, adv) -> None:
+    """Record the engine announcements of a pre-resolved advance for emission + grounding. Fail-open."""
+    try:
+        anns = [a for a in ((adv or {}).get("announcements") or []) if isinstance(a, dict) and a.get("headline")]
+        if not anns:
+            return
+        key = _runway_key(user)
+        _PENDING_CHYRON[key] = list(_PENDING_CHYRON.get(key, [])) + anns
+        heads = " ".join(str(a["headline"]).strip() for a in anns)
+        _AIRED_STEER[key] = (_AIRED_STEER_TURNS, heads)
+    except Exception as _e:  # never break a turn over observability
+        logger.debug("[orwell] stash_preresolved_announcements skipped: %s", _e)
+
+
+def clear_preresolve_debt(user) -> None:
+    """Drop any owed chyron / aired-fact steer — ONLY where no live season exists (a reset/ended game). Deliberately
+    NOT part of `clear_social_runway`: the pre-resolve itself calls that when it lands on a player decision, which
+    would delete the announcement it just stashed (review on #1998)."""
+    key = _runway_key(user)
+    _PENDING_CHYRON.pop(key, None)
+    _AIRED_STEER.pop(key, None)
+
+
+def pop_pending_chyron(user) -> list:
+    """The announcements still owed to the player's client (consumed once)."""
+    return _PENDING_CHYRON.pop(_runway_key(user), [])
+
+
+def _aired_fact_steer(user) -> Optional[str]:
+    """One short framing line grounding the scene on an engine-committed beat the chyron has aired."""
+    key = _runway_key(user)
+    cur = _AIRED_STEER.get(key)
+    if not cur:
+        return None
+    left, heads = cur
+    if left <= 1:
+        _AIRED_STEER.pop(key, None)
+    else:
+        _AIRED_STEER[key] = (left - 1, heads)
+    return ("ENGINE-COMMITTED (already announced to the player on the production chyron): " + heads +
+            " This HAS happened — let the scene reflect it; never say it has not happened yet, never re-decide it.")
 _DAY_BREAK_SOCIAL_TURNS = 1  # held social turns after a consumed day-break (the new day's morning)
 
 
@@ -4610,6 +4663,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 return game_state  # reconciled — the S1b force picks it up next round
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
+        stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says
         # comp-intent (player in the field — engine pauses, never auto-decides), or resolve an NPC beat.
         # Observability (CLAUDE.md: "when debugging 'the game won't advance', look here"): the
         # pre-resolve is otherwise silent on success, so a staged eviction walking one beat per turn
@@ -5020,6 +5074,12 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _db_steer
         except Exception as e:
             logger.warning("[orwell] day-break steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _aired = _aired_fact_steer(user)
+            if _aired:
+                gm_prompt = gm_prompt + "\n\n" + _aired
+        except Exception as e:
+            logger.warning("[orwell] aired-fact steer framing skipped for user=%s: %s", _gkey, e)
         # Feature #1394 — narrator memory callbacks (default OFF via ORWELL_MEMORY_CALLBACKS). When ON,
         # recall 1–2 WITNESSED past moments involving the houseguest(s) the player is in a scene with
         # (the presence seam), ranked against the player's message, and hand them to the narrator as
@@ -5054,6 +5114,7 @@ async def apply_game_framing(
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again
         clear_social_runway(user)  # no live season — drop any held runway so a new one starts clean
+        clear_preresolve_debt(user)  # F-2/F-4: and never owe a stale chyron to a new season
         _DR_INVITED_BEATS.pop(_gkey, None)  # 0013 §5: a fresh season re-invites cleanly
         # #1626: a new season for the SAME user must re-resolve its own producer byline — clear the
         # last season's cached name at the season-reset BOUNDARY (active→inactive) so
