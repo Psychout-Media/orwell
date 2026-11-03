@@ -326,3 +326,48 @@ def test_possession_forms_of_the_veto_are_matched(verb):
 def test_possession_verbs_do_not_catch_the_veto_event_nouns():
     for t in ["Other Delta has the veto ceremony tonight.\n", "Other Delta has the veto competition to look forward to.\n"]:
         assert not stripped(t, sig(vetoHolderName="Vetoer Gamma"))[1], t
+
+
+# ── invented nominees in ceremony dialogue (A-15 follow-up) — real strings + novel phrasings ─────────────────────────
+EVS = dict(phase="eviction", nomNames=["Nom Alpha", "Nom Beta"], evictionBallots=3, pending=None)
+
+INVENTED_NOMINEES = [
+    '@[Hoh Person] "Other Delta, Vetoer Gamma — you\'ll make your case tonight. This house will decide."',   # the real rehearsal shape
+    '@[Hoh Person] "Other Delta and Vetoer Gamma, facing eviction, step forward."',
+    "Other Delta and Vetoer Gamma are up tonight.",
+    "The nominees, Other Delta and Vetoer Gamma, take the two chairs.",
+    "Other Delta pleads with the room to stay one more week.",
+    "Vetoer Gamma stands to make his final case to the house.",
+    "That's eight votes for Other Delta, five for Vetoer Gamma.",
+    "Hoh Person casts the vote for Other Delta.",
+]
+
+
+@pytest.mark.parametrize("line", INVENTED_NOMINEES)
+def test_dialogue_that_puts_the_wrong_people_up_at_the_eviction_is_stripped(line):
+    kept, out, _ = stripped(line + "\n", sig(**EVS))
+    assert out, f"must strip: {line!r}"
+
+
+VALID_ADDRESS = [
+    '@[Hoh Person] "Nom Alpha, Nom Beta — you\'ll make your case tonight. This house will decide."',
+    "Nom Alpha and Nom Beta are up tonight.",
+    "The nominees, Nom Alpha and Nom Beta, take the two chairs.",
+    "Nom Beta pleads with the room to stay one more week.",
+    "That's eight votes for Nom Alpha, five for Nom Beta.",
+    "Other Delta tells Hoh Person he needs to make his case to the veto holder first.",   # not the eviction address cue's shape (no nominee binding)
+    "Hoh Person wonders who will make a case tonight.",                                  # hypothetical clause
+]
+
+
+@pytest.mark.parametrize("line", VALID_ADDRESS)
+def test_the_same_address_naming_the_real_nominees_passes(line):
+    kept, out, _ = stripped(line + "\n", sig(**EVS))
+    assert not out, f"must pass: {line!r} -> {out}"
+
+
+def test_address_cues_do_not_fire_before_the_engine_committed_nominees_or_outside_the_eviction():
+    # nominations phase: lobbying the HOH ("make your case") is legitimate play, and nobody is committed yet
+    assert not stripped("Other Delta makes his case to Hoh Person tonight.\n", sig(phase="nominations", nomNames=[]))[1]
+    assert not stripped("Other Delta makes his case to the house tonight.\n", sig(phase="veto-competition"))[1]
+    assert not stripped("Other Delta makes his case to the house tonight.\n", sig(phase="eviction", nomNames=[]))[1]

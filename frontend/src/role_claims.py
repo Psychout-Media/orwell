@@ -39,7 +39,7 @@ _HOHW = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:competition|comp|room
 _HOHW_WIN = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:room|ceremony|reign|week|key))"  # "wins the HOH competition" IS a claim
 
 # (role, regex, bind direction, max gap in chars between the cue and the bound name)
-_CUES: "list[tuple[str, re.Pattern, str, int]]" = [
+_CUES: "list[tuple]" = [  # (role, regex, bind, gap[, dash_ok])
     # ── veto: who WON / HOLDS it ───────────────────────────────────────────────────────────────────────────────────
     ("veto-hold", re.compile(r"\b(?:wins?|won|winning|holds?(?:\s+up)?|holding|clutch\w*|grips?|gripp\w*|lifts?|lifted|lifting|raises?|raised|"
                             r"wears?|wearing|claims?|claimed|earns?|earned|takes?(?!\s+place)|took|taken)\s+" + _OBJ_DET + r"(?:[A-Za-z'’-]+\s+){0,2}?" + _VETO_OBJ + r"\b",
@@ -64,6 +64,15 @@ _CUES: "list[tuple[str, re.Pattern, str, int]]" = [
     ("nominee", re.compile(r"\b(?:nominates?|nominated|nominating|puts?\s+up|put\s+up)\b\s*", re.IGNORECASE), "after", 70),
     ("nominee", re.compile(r"\b(?:on\s+the\s+block|up\s+for\s+eviction)\b", re.IGNORECASE), "before", 40),
     ("nominee", re.compile(r"\bthe\s+nominees?\s+(?:are|is)\s*", re.IGNORECASE), "after", 6),
+    # ── ceremony ADDRESS (A-15 follow-up: the narrator invented different nominees in dialogue — "Eli, Jeremy — you'll make your case
+    # tonight" — while the engine's were someone else; phrasing carries no "nominate"/"on the block") ───────────────────────────
+    ("nominee", re.compile(r"\b(?:up\s+tonight|facing\s+eviction|in\s+the\s+hot\s+seat)\b", re.IGNORECASE), "before", 40),
+    ("nominee", re.compile(r"\bthe\s+(?:two\s+)?nominees?\s*[,:\u2014\u2013-]\s*", re.IGNORECASE), "after", 8, True),
+    ("nominee-addr", re.compile(r"\b(?:make|makes|making|state|states|stating|plead|pleads|pleading|campaign|campaigns|campaigning)\s+(?:(?:his|her|their|your)\s+)?(?:final\s+)?case\b"
+                               r"(?=[^.!?\n]{0,40}\b(?:tonight|to\s+the\s+(?:house|room)|before\s+the\s+vote|one\s+last\s+time)\b)", re.IGNORECASE), "before", 45, True),
+    ("nominee-addr", re.compile(r"\b(?:plead|pleads|pleading|beg|begs|begging|pitch|pitches|pitching)\b[^.!?\n]{0,25}\bto\s+(?:stay|be\s+saved|keep\s+(?:him|her|them))\b", re.IGNORECASE), "before", 45, True),
+    # a vote readout names ONLY the real nominees — before AND after the engine has revealed ballots (eviction phase)
+    ("vote-for", re.compile(r"\b(?:votes?\s+(?:for|to\s+evict)|(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)\s+(?:votes?\s+)?for)\s*", re.IGNORECASE), "after", 4),
     # ── eviction RESULTS (the bare event noun — "the eviction is tonight", "a vote to evict X" — is NOT a cue) ───────────
     ("evict", re.compile(r"\b(?:evicted|voted\s+out|sent\s+home|going\s+home|leaving\s+the\s+(?:big\s+brother\s+)?house|leaves\s+the\s+(?:big\s+brother\s+)?house|"
                          r"left\s+the\s+(?:big\s+brother\s+)?house|out\s+of\s+the\s+(?:big\s+brother\s+)?house)\b", re.IGNORECASE), "both", 30),
@@ -187,13 +196,15 @@ def cue_instances(unit: str, phase: str) -> "list[dict]":
     s = _clean(unit)
     ph = str(phase or "").lower()
     out: "list[dict]" = []
-    for role, rx, bind, gap in _CUES:
+    for role, rx, bind, gap, *_flags in _CUES:
         if role == "evict-weak" and not ph.startswith(_EVICTION_PHASES):
+            continue
+        if role in ("nominee-addr", "vote-for") and not ph.startswith("eviction"):
             continue
         for m in rx.finditer(s):
             if _non_assertive(s, m.start(), m.end()):
                 continue
-            out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap})
+            out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap, "dash": bool(_flags and _flags[0])})
     if ph.startswith("eviction") and _BALLOT_RE.search(s) and "?" not in s:
         out.append({"role": "ballot", "a": 0, "b": len(s), "bind": "all", "gap": len(s)})
     return out
@@ -213,8 +224,10 @@ def _bound(s: str, cue: dict, spans: "list[tuple[str, int, int]]") -> "list[str]
         return [n for n, _a, _b in spans]
     got: "list[str]" = []
 
+    breaks = ".!?" if cue.get("dash") else ";:\u2014\u2013.!?"  # an address cue ("Eli, Jeremy — you'll make your case") reads across a dash
+
     def _clear(between: str) -> bool:
-        return not any(ch in between for ch in ";:\u2014\u2013.!?")
+        return not any(ch in between for ch in breaks)
 
     if cue["bind"] in ("before", "both"):
         before = [t for t in spans if t[2] <= cue["a"]]
@@ -290,6 +303,10 @@ def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, ca
     bad = [n for n in by_role.get("hoh", []) if not _matches_any(n, [hoh])]
     if bad:
         return "HOH uncommitted" if not hoh else "HOH is not " + ", ".join(sorted(set(bad)))
+    if noms:  # only judged once the engine HAS committed nominees (before that the unit is lobbying or speculation)
+        bad = [n for n in by_role.get("nominee-addr", []) + by_role.get("vote-for", []) if not _matches_any(n, noms)]
+        if bad:
+            return "named a non-nominee at the eviction: " + ", ".join(sorted(set(bad)))
     bad = [n for n in by_role.get("nominee", []) if not _matches_any(n, noms)]
     if bad:
         return "nominees uncommitted" if not noms else "named a non-nominee: " + ", ".join(sorted(set(bad)))

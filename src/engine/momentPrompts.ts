@@ -1617,7 +1617,39 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       if (bits.length) lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }
+  // A-15 (rehearsal 2026-11-03): the committed BOARD, last in the terminal block (nearest generation). In the ceremony phases the
+  // narrator invented veto winners, evictees and even different nominees because these facts lived only mid-prompt. Short,
+  // engine-committed, Vault-free (the same public ceremony projection GAME CONTEXT carries). Byte-identical outside ceremonies.
+  const board = renderBoardRecap(view);
+  if (board) lines.push(...board);
   return lines.join("\n");
+}
+
+const CEREMONY_PHASE_PREFIXES = ["nominations", "veto", "eviction", "final-eviction"];
+
+/** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
+export function renderBoardRecap(view: GameStateView): string[] | undefined {
+  const phase = String(view.phase ?? "").toLowerCase();
+  if (!CEREMONY_PHASE_PREFIXES.some((p) => phase.startsWith(p))) return undefined;
+  const cer = view.ceremony;
+  if (!cer || !(cer.hoh || cer.nominees.length || cer.veto.holder || (cer.veto.players ?? []).length)) return undefined;
+  const noms = cer.nominees.map((nm) => nm.name);
+  const lines = [
+    "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
+    `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : "nobody yet — name no nominees"}.`,
+    `    Veto: ${cer.veto.holder
+      ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
+      : "still being played or not yet decided — name no winner and no holder"}.`,
+  ];
+  if (phase.startsWith("eviction") || phase.startsWith("final-eviction")) {
+    const revealed = view.eviction?.votesRevealed.length ?? 0;
+    if (view.pending?.kind === "eviction-vote") {
+      lines.push("    The player's eviction-vote card is OPEN: no ballot has been read — stage no ballot, tally or result; set the room, present the vote, then wait.");
+    } else {
+      lines.push(`    Ballots revealed so far: ${revealed} (each anonymized). Read no ballot, tally or evictee beyond what the game hands you.`);
+    }
+  }
+  return lines;
 }
 
 /**
