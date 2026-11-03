@@ -139,7 +139,8 @@ When("the player submits an illegal nomination", async function (this: BbWorld) 
   try {
     await this.livePlayer!.callTool("submitDecision", { kind: "nominations", choice: [p.options[0]!.id, p.options[0]!.id] });
     this.liveRefused = false;
-  } catch {
+  } catch (e) {
+    assert.match(String((e as Error).message), /cannot nominate the same houseguest twice/, "refused for the RIGHT reason");
     this.liveRefused = true;
   }
 });
@@ -177,7 +178,9 @@ When("the player votes to evict a houseguest who is not a nominee", async functi
   try {
     await this.livePlayer!.callTool("submitDecision", { kind: "eviction-vote", vote: notNominee });
     this.liveRefused = false;
-  } catch {
+  } catch (e) {
+    // Only the engine's own legality refusal counts — an unrelated tool/engine failure must NOT pass as "refused".
+    assert.match(String((e as Error).message), /can only vote to evict a final nominee/, "refused for the RIGHT reason");
     this.liveRefused = true;
   }
 });

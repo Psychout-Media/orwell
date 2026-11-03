@@ -24,7 +24,8 @@ live consequence loop) and **0030** (live persistence).
 > replacement, veto use and pick, eviction votes, juror votes, goodbye, self-evict) bind only through the
 > player's decision card. The model may submit on the player's behalf only comp-intent, comp-round and
 > deal-offer (#1951); that rule is proven in `frontend/tests/test_a6_model_submit_gate.py`. The engine seam
-> itself still refuses an illegal choice of any kind (the two refusal scenarios below).
+> itself still refuses an illegal choice — the `.feature` pins two cases: an illegal nomination and an eviction vote
+> for a non-nominee.
 
 > **Amendment (Wave 2 — endgame & agency).** The binding-decision seam grew new `pending` kinds, all
 > validated through the SAME `submitDecision` contract (no choice ever parsed from prose): **`comp-intent`**
