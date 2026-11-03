@@ -324,3 +324,62 @@ def test_engine_client_is_per_event_loop():
     oe._client_factory = None
     assert seen["a"][0] is seen["a"][1] and seen["b"][0] is seen["b"][1]
     assert seen["a"][0] is not seen["b"][0]
+
+
+def test_engine_loop_keeps_its_client_when_the_primarys_loop_closes_mid_flight():
+    """The CI-seen failure: a foreign (e.g. leaked background) loop holds the module-global primary and closes while other
+    live loops already hold their own clients. Those loops must keep THEIR client, not be handed a fresh one."""
+    from src import orwell_engine as oe
+    oe._client = None
+    oe._client_factory = None
+    oe._client_loop = None
+    foreign_claimed = threading.Event()
+    close_foreign = threading.Event()
+    foreign_closed = threading.Event()
+
+    def foreign():
+        async def job():
+            oe._shared_client()          # claims the primary
+            foreign_claimed.set()
+            while not close_foreign.is_set():
+                await asyncio.sleep(0.005)
+        asyncio.run(job())
+        foreign_closed.set()
+
+    n = 4
+    got_first = threading.Barrier(n + 1)
+    primary_gone = threading.Event()
+    done = threading.Barrier(n + 1)
+    seen = {}
+
+    def worker(i):
+        async def job():
+            a = oe._shared_client()
+            got_first.wait(10)
+            while not primary_gone.is_set():
+                await asyncio.sleep(0.005)
+            seen[i] = (a, oe._shared_client())
+            done.wait(10)
+        asyncio.run(job())
+
+    tf = threading.Thread(target=foreign, daemon=True)
+    tf.start()
+    assert foreign_claimed.wait(5)
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(n)]
+    try:
+        for t in threads:
+            t.start()
+        got_first.wait(10)               # every worker holds its own (other-loop) client
+        close_foreign.set()
+        assert foreign_closed.wait(5)    # the primary's loop is now closed
+        primary_gone.set()
+        done.wait(10)
+    finally:
+        close_foreign.set()
+        primary_gone.set()
+        for t in threads:
+            t.join(timeout=10)
+    assert len(seen) == n and all(a is b for a, b in seen.values()), "each loop keeps the client it already had"
+    oe._client = None
+    oe._client_factory = None
+    oe._client_loop = None

@@ -198,6 +198,13 @@ def _shared_client_locked():
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
+    # A loop that already holds a LIVE client in the per-loop cache keeps it, whatever happens to the module-global primary
+    # (its loop closing, another loop claiming it): the primary is only ever the FIRST loop's client, never a reason to
+    # hand a loop a DIFFERENT client than the one it already has (that would split its keep-alive sockets across two pools).
+    if loop is not None and _other_loop_clients is not None and _client_factory is factory:
+        _mine = _other_loop_clients.get(loop)
+        if _mine is not None and not getattr(_mine, "is_closed", False):
+            return _mine
     bound = _client_loop() if _client_loop is not None else None
     stale_loop = bound is None or (hasattr(bound, "is_closed") and bound.is_closed())
     if _client is None or _client_factory is not factory or getattr(_client, "is_closed", False) \
