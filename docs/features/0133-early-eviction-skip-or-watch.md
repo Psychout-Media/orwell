@@ -45,12 +45,14 @@ changing how NPCs are evicted or how the season is simulated.
 - **Determinism (calibration-neutral).** The player has no decisions in either mode, so the NPC-only path draws
   **exactly the RNG it draws today**. No new rng, no new seeded state: `watch`, `skip` and the pre-feature
   behavior produce the same evictions, finalists, jury and **winner** for a seed (pinned by a test).
-- **Finale participation — the finale-night interview.** At the finale reveal a pre-jury evictee gets a
-  `finale-interview` pending (card-only): `stance` (`gracious | defiant | bitter`, the 0130 shape) plus
-  optional `words`. The answer is recorded as a **witnessed public event**, voiced in the reunion beat, and
-  carried into the 0048 retrospective. It has **no effect on the vote or the winner** (anti-sycophancy: the
-  jury decided before the interview). If the player never answers, the reveal does not block (the pending is
-  non-blocking at the crowning, like the NPC interviews).
+- **Finale participation — the finale-night interview.** Once the jury has voted and the winner is crowned, a
+  pre-jury evictee gets a `finale-interview` pending (card-only): `stance` (`gracious | defiant | bitter`, the 0130
+  shape) plus optional `words`. It is raised **after the crowning is recorded** (the season is already finished),
+  so it can never move a vote or the winner and **cannot block the crowning**: `advanceGame` is a no-op once the
+  season is finished, an unanswered card simply stays open, and a late answer is still accepted and recorded. The
+  answer is recorded as a **witnessed public event**, voiced in the reunion beat, and carried into the 0048
+  retrospective. This is the **finale-night** interview, separate from the 0130 **eviction-night** exit interview
+  (the existing post-eviction beat), which still happens at the eviction.
 - **Vault Wall.** The digest and the skip summary come from the public ceremony record. The hidden story stays
   sealed until the crowning (0048 unsealing is unchanged and is the only door). The 0001 canary is extended to
   the spectator, digest and finale-interview projections.
@@ -72,8 +74,8 @@ advanceGame (spectator active) → runs one WHOLE player-less week, returns its 
 - [ ] `watch` yields one recorded, public `week-digest` per remaining week; `skip` lands at the finale with the
       digests available.
 - [ ] Same seed ⇒ same evictions, finalists, jury and winner across {watch, skip, pre-feature}.
-- [ ] Both modes end in a `finale-interview`; the answer is recorded, voiced, in the retrospective, and moves
-      no vote.
+- [ ] Both modes end in a `finale-interview` raised after the crowning; the answer is recorded, voiced, in the
+      retrospective, moves no vote, and an unanswered card never blocks anything.
 - [ ] A self-evicted player gets none of it (0061 forfeit unchanged).
 - [ ] Vault canary green for the new projections; no hidden story before the crowning.
 - [ ] FE: the two new kinds have decision cards; `DECISION_KINDS` and the card-only gate (A-6) cover them.

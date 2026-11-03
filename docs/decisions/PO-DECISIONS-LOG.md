@@ -39,7 +39,7 @@ live ledger of owner calls as they happen.
   finale (Ryne).** When the player is voted out before the jury forms they are offered BOTH a skip to the
   season-finale reveal and a keep-watching option. "Watch" is a deliberately skeleton version of the rest of
   the season: condensed weekly beats, not a full click-through. Either way the evicted player takes part in the
-  finale, at minimum an interview (a post-eviction or finale-night interview). Spec: `docs/features/0133-early-eviction-skip-or-watch.md`.
+  finale, at minimum an interview — implemented as a FINALE-NIGHT interview (separate from the 0130 eviction-night exit interview, which still happens at the eviction). Spec: `docs/features/0133-early-eviction-skip-or-watch.md`.
   Design details settled with the coordinator under the ruling and anti-sycophancy (decided, not assumed): the
   interview has no effect on the jury or the winner; skip is irreversible while watch can be switched to skip; a
   self-evicted player (0061) gets none of this. *Held for Ryne:* whether JURORS are also offered skip/watch
