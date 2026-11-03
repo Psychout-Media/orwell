@@ -3,12 +3,12 @@
 // NODE_OPTIONS="--import tsx" in the `test:bdd` npm script.
 //
 // `paths` lists exactly the features that have executable step definitions
-// (features/step_definitions/**). A `.feature` that is NOT listed here is a spec-only design
+// (features/step_definitions/**). A Gherkin feature file NOT listed here is a spec-only design
 // contract (its header says so) and is verified elsewhere (Vitest, FE pytest); see the
-// per-feature status index in docs/features/README.md. A feature is added here once its steps
-// are green. The `.feature` files live under docs/features/ and are executable specs: CI treats
-// them as engine changes (a scenario-only edit still runs the BDD gate), so keep any scenario
-// edit paired with its step code.
+// per-feature status index in the features README. A feature is added here once its steps
+// are green. Gherkin feature files live in the docs features folder and are executable specs:
+// CI treats them as engine changes (a scenario-only edit still runs the BDD gate), so keep any
+// scenario edit paired with its step code.
 module.exports = {
   default: {
     paths: [
