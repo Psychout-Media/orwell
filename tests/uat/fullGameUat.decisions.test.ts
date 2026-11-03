@@ -27,6 +27,12 @@ import {
   type PendingDecision,
 } from "./fullGameUatHarness";
 
+// The per-test budget: 10 min base, scaled by UAT_TIMEOUT_SCALE (the deployed lane sets 10), capped at 40 min so it
+// always outlives-nothing: the `heavy-sims-deployed` job is capped at 45. The seed-search budget below is DERIVED from
+// it (75%, leaving one season's headroom), so it fires at every scale — a fixed 25 min never would at scale 1.
+const TEST_TIMEOUT_MS = Math.min(600_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1), 40 * 60_000);
+const SEARCH_BUDGET_MS = Math.floor(TEST_TIMEOUT_MS * 0.75);
+
 describe("full-game UAT — decision-type coverage (real HTTP)", () => {
   let harness: UatHarness;
 
@@ -51,9 +57,8 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
       // type has been hit. The assertions below are unchanged.
       const MIN_SEEDS = 5;
       const MAX_SEEDS = 40;
-      // Bound the search by TIME too, well under the per-test cap and the 45-minute `heavy-sims-deployed` job
-      // timeout, so a worst case fails here with a diagnostic instead of the runner killing the job.
-      const SEARCH_BUDGET_MS = 25 * 60_000;
+      // Bound the search by TIME too (75% of the per-test budget, itself capped under the 45-minute `heavy-sims-deployed`
+      // job timeout), so a worst case fails here with a diagnostic instead of the runner killing the job.
       const startedAt = Date.now();
       const REQUIRED: PendingDecision["kind"][] = ["nominations", "eviction-vote"];
       const runs: RunResult[] = [];
@@ -80,7 +85,7 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
     // that profile simulates several times slower (#1922), and only the budget moves, never an assertion.
     // Capped at 40 minutes: the deployed lane scales the budget by 10, and an uncapped ~100 min would outlive
     // the 45-minute job timeout (the runner would kill the job with no diagnostic).
-    { timeout: Math.min(600_000 * (Number(process.env.UAT_TIMEOUT_SCALE) || 1), 40 * 60_000) },
+    { timeout: TEST_TIMEOUT_MS },
   );
 
   // ── Health endpoint reachable (sanity) ────────────────────────────────────
