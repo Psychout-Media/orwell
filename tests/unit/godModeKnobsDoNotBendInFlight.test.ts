@@ -30,9 +30,12 @@ function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>):
   else submit({ kind: p.kind, vote: p.options[0]!.id } as never);
 }
 
+/** The full public trajectory: every advance view (comp winners, nominations, veto, votes, announcements) in order. */
+let trace: string[] = [];
 function drive(s: GameSessionAdapter, beats: number): boolean {
   for (let i = 0; i < beats; i++) {
     const v = s.advanceGame();
+    trace.push(JSON.stringify(v));
     if (v.pending) resolve(s, v.pending);
     if (v.finished) return true;
   }
@@ -50,13 +53,16 @@ const KNOBS = { reserveTwists: 0, tieBudget: 0, showmanceBudget: 0 };
 describe("#2007 — a sandbox rebuild never bends a season in flight", () => {
   it("knobs changed mid-season, then the sandbox evicted and resumed: the remaining trajectory is identical to never rebuilding", () => {
     // A: never rebuilt
+    trace = [];
     const regA = new GameSessionRegistry(new FileSaveStore(mkdtempSync(join(tmpdir(), "kn-a-"))), { maxResident: 1 });
     const a = regA.sandboxFor("player-a");
     a.session.createCharacter({ playerName: "The Player", seed: SEED });
     drive(a.session, 30);
     a.admin.configure(KNOBS);
     const fa = finish(regA.sandboxFor("player-a").session);
+    const traceA = trace;
 
+    trace = [];
     // B: same, but the sandbox is evicted (a second user displaces it, maxResident 1) and RESUMED from its save after the knobs were set
     const regB = new GameSessionRegistry(new FileSaveStore(mkdtempSync(join(tmpdir(), "kn-b-"))), { maxResident: 1 });
     const b = regB.sandboxFor("player-a");
@@ -72,9 +78,12 @@ describe("#2007 — a sandbox rebuild never bends a season in flight", () => {
     expect(rb.live?.reserve?.length ?? 0, "the in-flight season keeps the reserve twists it was dealt").toBe(reservedBefore);
     expect(rb.seededRelationships?.ties.length ?? 0, "…and the ties it was dealt").toBe(tiesBefore);
     const fb = finish(resumed.session);
+    const traceB = trace;
 
     expect((fa.order as unknown[]).length, "a real multi-eviction season was played to the end").toBeGreaterThan(8);
     expect(fa.winner, "…and crowned").toBeTruthy();
+    expect(traceA.length, "a real trajectory was recorded").toBeGreaterThan(100);
+    expect(traceB, "every beat's public view (not just the end state) is identical after the rebuild").toEqual(traceA);
     expect(fb.order).toEqual(fa.order);
     expect(fb.winner).toEqual(fa.winner);
     expect(fb.reserve).toBe(fa.reserve);

@@ -79,6 +79,8 @@ export class AdminPort {
    * layer wires this per-sandbox, Vault-free delegate to the session (reserve-twist COUNT, tie/showmance budgets);
    * every response now carries `knobsApplied` / `knobsNotApplied` so the truth is visible. A knob the engine owns or
    * doesn't expose (phase, week, temperature...) is still recorded in the projection but reported as NOT applied.
+   * RUNTIME-ONLY: the knob memory lives in the in-process registry, not the save, so it survives a sandbox rebuild (LRU
+   * evict/resume) but RESETS on an ENGINE restart — the same contract as the behavioral-flag dial.
    */
   private liveKnobsDelegate?: (knobs: Record<string, unknown>) => LiveKnobResult;
 
