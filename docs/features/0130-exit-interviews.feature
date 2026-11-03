@@ -44,4 +44,4 @@ Feature: Exit interviews (the producer's eviction-night sit-down)
   Scenario: The exit interview moves no seeded outcome
     Given the same seed played to completion twice
     Then the eviction order is identical both times
-    And it matches the trajectory from before the feature existed
+    And it matches the approved seeded trajectory anchor

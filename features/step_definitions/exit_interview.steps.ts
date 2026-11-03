@@ -165,6 +165,9 @@ Given("the same seed played to completion twice", function (this: BbWorld) {
 Then("the eviction order is identical both times", function (this: BbWorld) {
   assert.deepEqual(this.xiOrderA, this.xiOrderB);
 });
-Then("it matches the trajectory from before the feature existed", function (this: BbWorld) {
+// The anchor is the APPROVED seeded trajectory: it is re-captured, with the change recorded next to it, whenever an owner-approved
+// balance change legitimately reshapes the seeded spine (0044 §9, #1948). The exit-interview beat itself must stay inert against it:
+// the two same-seed runs above agree, and the beat draws no rng and mutates no seeded state (its own unit tests).
+Then("it matches the approved seeded trajectory anchor", function (this: BbWorld) {
   assert.deepEqual(this.xiOrderA, BASELINE_108);
 });
