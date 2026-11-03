@@ -2314,6 +2314,32 @@ def _eviction_evictee_mismatch(text: str, before: dict, after: dict) -> bool:
     return any(_name_matches(named, a) for a in active)
 
 
+# N-7 (A-14 playtest) — the eviction moment prompt tells the narrator to voice each staged, anonymized ballot as
+# "a vote to evict <nominee>", and the outcome guard used to read that exact phrase as a phantom EVICTION and drop it
+# (the reveal then reached the player as "the first ballot comes through:" with no ballot). An anonymized ballot that
+# names a current NOMINEE during the eviction phase is the sanctioned reveal; it is stripped before the eviction
+# claim regexes run. Everything else still trips: the result ("X is evicted"), a tally, a non-nominee, a voter named.
+_BALLOT_PHRASE_RE = re.compile(
+    r"\b(?:a|another|one\s+more|the\s+(?:first|second|third|next|last|final))\s+(?:vote|ballot)\s+(?:to|for)\s+evict\s+"
+    r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
+
+
+def _strip_anonymized_ballots(text: str, live: dict) -> str:
+    """Remove "a vote to evict <current nominee>" reveal phrases (eviction phase only) so they are not read as an
+    eviction claim. Returns the text unchanged outside the eviction phase or when the named person is not a nominee."""
+    if not text or not isinstance(live, dict) or not str(live.get("phase") or "").lower().startswith("eviction"):
+        return text
+    noms = {str(n).strip().lower() for n in (live.get("nomNames") or []) if str(n).strip()}
+    if not noms:
+        return text
+
+    def _repl(m):
+        name = m.group(1).strip().lower()
+        return "" if any(name == n or name.split()[0] == n.split()[0] for n in noms) else m.group(0)
+
+    return _BALLOT_PHRASE_RE.sub(_repl, text)
+
+
 def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict) -> Optional[str]:
     """Compare the turn's narration against the before→after board delta. Return a SPECIFIC
     re-ground directive when the narration asserts an outcome the engine did NOT commit; else
@@ -2323,6 +2349,9 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     before = before_sig if isinstance(before_sig, dict) else {}
     after = after_sig if isinstance(after_sig, dict) else {}
     if not text.strip() or not after:
+        return None
+    text = _strip_anonymized_ballots(text, after)  # N-7: the sanctioned anonymized-ballot reveal is not an eviction claim
+    if not text.strip():
         return None
 
     desync = None  # the specific outcome the narration claimed that the board never moved on
