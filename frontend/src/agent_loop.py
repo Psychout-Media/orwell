@@ -4917,6 +4917,21 @@ def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_activ
     return cleaned_round
 
 
+_BLANK_FALLBACK_MODEL = (
+    "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
+_BLANK_FALLBACK_UPSTREAM = (
+    "Big Brother cuts to a brief technical interlude — the feed dropped before that scene could air. "
+    "Say or do that again in a moment and it will pick up.")
+
+
+def _blank_turn_fallback_line(*, upstream_failed: bool) -> str:
+    """F-8 (A-11 playtest): a blank turn caused by an UPSTREAM failure (the narrator provider was unreachable) must
+    not masquerade as the narrator choosing a quiet beat — that hid the outage and invited the player to carry on
+    as if the scene had aired. Say what happened, diegetically (no machinery), and invite a retry. A blank the
+    model produced on its own (no upstream error) keeps the in-character continuation."""
+    return _BLANK_FALLBACK_UPSTREAM if upstream_failed else _BLANK_FALLBACK_MODEL
+
+
 async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_visible: bool,
                               cutaway_emitted: bool) -> "_GuardedScene":
     """A2 (2026-07-03) — run one leak-scrubbed stream chunk through BOTH the whole-scene circuit-breaker
@@ -8749,9 +8764,7 @@ async def _stream_agent_loop_impl(
                     logger.info(
                         f"[orwell] double-blank guard: re-prompt also produced no narration — emitting "
                         f"a minimal in-character continuation round {round_num} user={owner}")
-                    _blank_fallback = (
-                        "The moment hangs for a beat. The house keeps moving around you — "
-                        "what do you want to do?")
+                    _blank_fallback = _blank_turn_fallback_line(upstream_failed=_turn_had_error)
                     full_response += _blank_fallback
                     _emitted_visible = True
                     yield f'data: {json.dumps({"delta": _blank_fallback})}\n\n'
