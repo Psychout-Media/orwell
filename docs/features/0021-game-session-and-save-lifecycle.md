@@ -6,6 +6,7 @@
 > Introduces **cross-user (multi-tenant) isolation** as a first-class guarantee — a new axis
 > alongside the Vault Wall.
 > **Executable spec:** [`0021-game-session-and-save-lifecycle.feature`](./0021-game-session-and-save-lifecycle.feature)
+> **Also proven by:** `tests/unit/registry.test.ts`
 
 ## 1. Summary
 

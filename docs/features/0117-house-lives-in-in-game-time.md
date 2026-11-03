@@ -10,6 +10,7 @@
 > watcher (deleted, real-time purge 2026-07-10). In-game time still advances *only* from the player's own
 > committed turns and the ceremony beats; the house still does **not** live while the player is away.
 > **Executable spec:** [`0117-house-lives-in-in-game-time.feature`](./0117-house-lives-in-in-game-time.feature)
+> **Also proven by:** `tests/unit/houseLivesInInGameTime.test.ts`
 
 ## 1. Summary — the gap this closes
 

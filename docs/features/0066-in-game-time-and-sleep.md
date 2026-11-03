@@ -39,7 +39,7 @@ bedtime** (never auto-slept). A simple time-of-day graphic surfaces in the HUD.
 - A hidden, bounded sleep→competition penalty (symmetric; never protective).
 - The player's bedtime lever (`turnIn`) and their own qualitative rest cue.
 - Vault-free `timeOfDay` + player `restStatus` projections; the HUD clock + rest cue.
-- **Opt-in** via `ORWELL_TIME_OF_DAY` (default off) so the seeded calibration spine is byte-identical.
+- **Flag-gated** via `ORWELL_TIME_OF_DAY`: the engine's code default is off, so the seeded calibration spine stays byte-identical, but the **deploy profile boots it ON** (`deploy/orwell-env-defaults.sh`) and the FE session default is ON, so real play runs with the clock on.
 
 **Out (clean follow-ups):**
 - NPC fatigue bleeding into **next-day social volatility**; a compounding fatigue meter (ADR 0006
@@ -70,7 +70,7 @@ comp:    Competitor.restPenalty? (0..1) → score −= restPenalty·sleepPenalty
 ctx:     SeasonCtx.restOf?(id)   (player: last night; npc: bedtime habit; 0 unless clock running)
 lever:   GameSession.turnIn()    (player-only; rolls to morning, banks the bedtime)
 read:    GameStateView.timeOfDay, PublicGameStatus.timeOfDay, PlayerCard.restStatus  (Vault-free)
-flag:    ORWELL_TIME_OF_DAY (default off) gates every clock mutation + restOf
+flag:    ORWELL_TIME_OF_DAY (code default off; ON in the deploy profile) gates every clock mutation + restOf
 ```
 
 ## 6. Definition of Done
@@ -134,8 +134,8 @@ flag:    ORWELL_TIME_OF_DAY (default off) gates every clock mutation + restOf
 > priority-ordered per the owner: per-conversation clock advance first (pacing-only), then NPC next-day
 > social fatigue, then the compounding multi-night meter. **Extension 4** has no separate flag — it is the
 > *definition* of the NPC sleep deficit and rides the master clock, byte-identical when the clock is off (or
-> when the co-owl company count is 0). The env-default split stays (engine `ORWELL_TIME_OF_DAY` OFF for
-> calibration; the FE session default ON for real play, ruling #583). See `docs/decisions/PO-DECISIONS-LOG.md`
+> when the co-owl company count is 0). The env-default split stays for the code (engine `ORWELL_TIME_OF_DAY` OFF for
+> calibration; the FE session default ON for real play, ruling #583), but the **deploy profile boots the engine ON too** (#1912) so an engine-only restart never leaves the clock dark. See `docs/decisions/PO-DECISIONS-LOG.md`
 > (2026-06-27/28).
 
 1. **Per-conversation clock advance** — `ORWELL_TIME_PER_CONVERSATION`. The clock advances as the player

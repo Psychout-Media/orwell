@@ -8,6 +8,7 @@
 > live game** (durably via 0030; committed through the 0031 orchestrator checkpoint). This
 > feature was that wiring — and the tests that prove it works.
 > **Executable spec:** [`0023-consequence-and-memory.feature`](./0023-consequence-and-memory.feature)
+> **Also proven by:** `tests/unit/consequence.test.ts`
 
 ## 1. Summary
 

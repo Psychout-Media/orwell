@@ -9,6 +9,7 @@
 > co-presence as a witness pathway, adjacency as a **bidirectional, low-confidence overhear pathway**, and
 > the guarantee that milling around **never advances the week**.
 > **Executable spec:** [`0049-house-presence-and-lingering.feature`](./0049-house-presence-and-lingering.feature)
+> **Superseded detail (0077 Phase 2):** `whereabouts()` now lists the occupants of rooms within **sightline** (eyeshot, `HOUSE_SIGHTLINE`), not raw adjacency, and closed-door rooms are opaque; wherever this note says "adjacent" for what the player can *see*, read "within sightline". Adjacency still governs movement and the overhear roll.
 > **Provenance:** `docs/audits/2026-06-10-v1-transcript-meta-feedback-audit.md` §3.7, §4.4, §5.6 · ADR 0003 §4/§7/§8.
 
 ## 1. Summary
@@ -127,7 +128,7 @@ loop:    mill/move/talk turns ⇒ no change to week | phase | pending ceremony; 
   the existing `KnowledgeService.surface` with `overheard:<eventId>` pathways (both directions).
 - `src/ports/GameSession.ts` + `src/adapters/engine/GameSessionAdapter.ts` — `whereabouts()` projection
   (mirror the existing Vault-free read-tool pattern); mount on the player channel in the MCP tool registry.
-- `src/composition/gameWatcher.ts` — milling/social turns reset the idle clock (activity, not idleness).
+- *(Removed: the former `src/composition/gameWatcher.ts` "idle clock" touch point; that file no longer exists. Milling/social turns are ordinary activity for the orchestrator spine.)*
 - `src/engine/momentPrompts.ts` — the lever manifest gains `whereabouts` (the model already knows
   `surfaceInformationTo`/overhearing exists; now it has the ground truth to use it honestly).
 - Extend the **0001** sentinel canary to `whereabouts()`; extend 0002's pathway tests for generated

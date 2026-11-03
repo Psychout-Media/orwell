@@ -7,6 +7,7 @@
 > hybrid comp rewards a **well-rounded** houseguest over a one-dimensional one — while the primary stat
 > still dominates and the engine still decides on stats.
 > **Executable spec:** [`0127-mixed-type-competitions.feature`](./0127-mixed-type-competitions.feature)
+> **Also proven by:** `tests/unit/mixedCompetition.test.ts`
 
 ## 1. Summary
 

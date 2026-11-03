@@ -1,7 +1,8 @@
 # 0100 — The jury grudge book, made felt (evicted jurors gossip; goodbyes decide the crown)
 
-> **Status:** ✅ **BUILT (2026-06-27; Tracks #882).** Engine-internal, opt-in behind `ORWELL_JURY_HOUSE`
-> (default off ⇒ byte-identical calibration): `src/engine/juryHouse.ts` (`runJuryHouseStretch`) +
+> **Disambiguation:** "jury house" names two things. **This spec (0100) is the built, hidden NPC↔NPC layer** (`src/engine/juryHouse.ts`). [0129](./0129-the-jury-house.md) is the *player-facing* sequestered jury house a juror-player would visit (unbuilt).
+> **Status:** ✅ **BUILT (2026-06-27; Tracks #882).** Engine-internal, behind `ORWELL_JURY_HOUSE`
+> (code default off ⇒ byte-identical calibration; the deploy profile sets it ON). **Cadence (owner ruling 2026-11-02, #1922; PR #1932): the jury house is a fast-forward limbo, one short stretch of 1–3 hidden juror scenes per new juror ARRIVAL (about once a week), not one per off-screen tick**; the text below that says "per tick" is the original design. It holds only jurors (see 0129): `src/engine/juryHouse.ts` (`runJuryHouseStretch`) +
 > `src/engine/juryHouseConstants.ts` (`JURY_HOUSE`), wired from the orchestrator's off-screen tick via the
 > self-gated adapter `juryHouseTick`, accumulated into the persisted `live.juryGrudge`, consumed at the
 > finale by `edgeAsJuryRel`. Gated by `tests/unit/juryHouse.test.ts`, `tests/unit/juryHouseAdapter.test.ts`,
@@ -199,7 +200,7 @@ The player **never** sees a jury-house event, a grudge tally, or a lean. What th
   in a single `JURY_HOUSE` tunable (the `GOSSIP`/`SOCIETY`/`juryConstants` sibling; covered by the B59
   grep gate).
 - `src/engine/juryHouseConstants.ts` *(new)* — the `JURY_HOUSE` tunable: the stretch size per
-  sequestered tick, the grudge-diffusion transmit/decay (or a reuse of `GOSSIP`), the **bounded**
+  sequestered tick (now per juror arrival, `scenesPerArrival`), the grudge-diffusion transmit/decay (or a reuse of `GOSSIP`), the **bounded**
   grudge-adjustment cap, and the per-juror saturation (a grudge can't run away). Sized *under* the
   manner+relationship terms so it deepens, never dominates (the 0086 ruling-#1 calibration discipline).
 - `composition/orchestrator.ts` `defaultApply` — **after** the main-house stretch, when a jury exists
@@ -266,7 +267,7 @@ sycophancy, and without flattening the open set.
 
 - **The jury house lives:** once jurors exist and the flag is on, sequestered jurors produce hidden
   juror↔juror scenes (multiple natures, not one canned verb) between turns — a *separate* society from
-  the (still evictee-excluding) main house. Bounded per tick; seed-deterministic.
+  the (still evictee-excluding) main house. Bounded per juror arrival (one short stretch each, #1932); seed-deterministic.
 - **The player is the subject, never the recipient:** jury-house gossip is *about* the player, but no
   jury-house pathway ever terminates at the player during sequester — the player's knowledge is
   unchanged by it (the player is not in the jury house). A sentinel sweep finds no jury-house scene
@@ -298,7 +299,7 @@ sycophancy, and without flattening the open set.
 
 ## Open questions / defaults (resolve at build)
 
-1. **Stretch cadence & size.** Run the jury-house stretch every sequestered off-screen tick (cheap,
+1. **Stretch cadence & size.** *(Resolved by owner ruling 2026-11-02, #1922 / PR #1932: once per new juror arrival, 1–3 scenes, a fast-forward limbo.)* Originally: run the jury-house stretch every sequestered off-screen tick (cheap,
    responsive) vs. once per evicted-week. Default: per tick, small (≈1–2 scenes), so the room's
    bitterness builds gradually over real sequester time rather than in one jump. Tune against
    `juryReach`.

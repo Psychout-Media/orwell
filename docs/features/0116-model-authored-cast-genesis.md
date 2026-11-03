@@ -1,6 +1,6 @@
 # 0116 — Model-authored cast genesis inside an engine validation envelope (phase 2 of the casting upgrade)
 
-> **Status:** 📝 **SPEC — drafted 2026-07-11; the seven genesis design questions are OWNER-DECIDED
+> **Status:** ✅ **BUILT (2026-07-12, #1403; engine envelope #1485, FE driver #1540) and BDD-gated in `cucumber.cjs`.** Casting has since been reworked by the One Casting Bible (#1780): a seeded `FacetLedger` is dealt before any model call, genesis runs one 15-wide wave (`GENESIS_CHUNK_SIZE` 5 to 15), and a generic closed-facet-diff validator guards `recordCastProfile`; read the phasing and chunking language below as the original design. *(Original status:)* 📝 **SPEC — drafted 2026-07-11; the seven genesis design questions are OWNER-DECIDED
 > (2026-07-11) and baked in below as decided, not open.** Phase **2** of the casting upgrade: phase 1
 > (in flight, branch `claude/cast-authoring-upgrade`) re-routes **deep** authoring (0058) to the
 > narration model at temperature 1.1 under the **strict enrichment policy**; this spec re-routes the

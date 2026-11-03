@@ -8,6 +8,7 @@
 > **In-game time ONLY** — no wall clock. Gated so the seeded calibration spine and golden replay are
 > byte-identical (no re-record).
 > **Executable spec:** [`0119-per-event-felt-durations.feature`](./0119-per-event-felt-durations.feature)
+> **Multi-step events (owner ruling 2026-11-01, #1912):** eviction night and the finale cost about **two in-game hours in total**, not about 2h per step. `eventBeatHours` (`src/engine/liveSeason.ts`) charges the event's budget (`eventSpanHours("eviction")`) on its first presentation step (vote reveal batches, goodbye, the 0130 exit-interview stage, result) and 0 on every later step, tracked on `live.eventClock` (survives save and restart). The per-beat felt durations below apply to single-step beats (competition about 3h, ceremony about 1h).
 
 ## 1. Summary — the gap this closes
 

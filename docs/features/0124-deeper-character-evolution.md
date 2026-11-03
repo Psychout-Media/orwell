@@ -5,9 +5,10 @@
 > confidence↔distress slider + volatility), personality-flat (an NPC's reactivity is a **random draw**, not
 > their character), and mood-only (their *strategy* never hardens). This deepens all three, so the house
 > evolves like real people: independent feelings, a temperament that bends under pressure, and reactivity
-> that actually reflects who each houseguest is. Hidden layer only; **calibration-safe** (one default-off
-> flag ⇒ byte-identical) so the seeded spine + golden fixture are untouched.
+> that actually reflects who each houseguest is. Hidden layer only; **calibration-safe** (one flag, code default off, ON in the deploy profile
+> ⇒ byte-identical when off) so the seeded spine + golden fixture are untouched.
 > **Executable spec:** [`0124-deeper-character-evolution.feature`](./0124-deeper-character-evolution.feature)
+> **Also proven by:** `tests/unit/deeperEvolution.test.ts`
 
 ## 1. Summary
 

@@ -1,6 +1,6 @@
 # 0110 — Vote deduction (process of elimination): the secret ballot becomes a deduced belief
 
-> **Status:** 📝 **SPEC — drafted 2026-06-28 during the PO-review sweep.** Realizes **option B** of the
+> **Status:** ✅ **BUILT (2026-06-28) and BDD-gated in `cucumber.cjs`** (`tests/unit/voteDeduction.test.ts`; flag `ORWELL_VOTE_DEDUCTION`, code default off, ON in the deploy profile). Originally drafted 2026-06-28 during the PO-review sweep. Realizes **option B** of the
 > PO's secret-vote-grudge ruling (0023 review): the jury grudge must not enact off the *true* secret
 > ballot. Instead the evictee **deduces** who moved against them by **process of elimination**, and the
 > grudge folds on that (possibly wrong) belief.
@@ -94,7 +94,7 @@ current model until the flag is on.
 ## Calibration (the load-bearing guarantee)
 
 This **changes who the jury resents**, which feeds the jury vote and the "playing pays off" band. So it
-ships **opt-in** behind a dedicated flag (e.g. `ORWELL_VOTE_DEDUCTION`, default **off**), on its own seeded
+ships **opt-in** behind a dedicated flag (e.g. `ORWELL_VOTE_DEDUCTION`, code default **off**; the deploy profile sets it ON), on its own seeded
 sub-stream:
 
 - **Off ⇒ byte-identical** — `recordEvictionManner` folds `[s.hoh, ...votesToEvict]` exactly as today; the

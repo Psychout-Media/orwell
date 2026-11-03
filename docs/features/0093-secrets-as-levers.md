@@ -1,8 +1,8 @@
 # 0093 — Secrets as strategic levers (information becomes power)
 
-> **Status:** 🟢 **PO REVIEW RESOLVED (owner, 2026-06-27) — BUILD-READY.** R1–R4 settled; builds as ONE *secrets-as-power* spec WITH 0099 (#880) — expose = first-class `exposeSecret` lever, leverage = `makeDeal` descriptor, real-but-recoverable ceiling, **deception / bluff first-class**. See § "PO review" + `docs/decisions/PO-DECISIONS-LOG.md` (2026-06-27) + #862.
-> Tracks **#862**. This is a *design proposal awaiting decisions*; it likely warrants its **own build
-> spec** once R1–R4 are ruled. Nothing here is implemented.
+> **Status:** ✅ **BUILT (2026-06-27)** — PO review resolved, shipped as ONE spec with 0099; the live `exposeSecret` lever and the BDD gate (`secrets_as_power.steps.ts`, in `cucumber.cjs`) exist. The review text below is the original spec. *(Original status:)* 🟢 **PO REVIEW RESOLVED (owner, 2026-06-27) — BUILD-READY.** R1–R4 settled; builds as ONE *secrets-as-power* spec WITH 0099 (#880) — expose = first-class `exposeSecret` lever, leverage = `makeDeal` descriptor, real-but-recoverable ceiling, **deception / bluff first-class**. See § "PO review" + `docs/decisions/PO-DECISIONS-LOG.md` (2026-06-27) + #862.
+> Tracks **#862**. *(Original text, before the rulings and the build:)* a design proposal awaiting decisions;
+> it likely warrants its own build spec once R1–R4 are ruled. R1–R4 are now ruled and the feature is built (see the status above).
 > **Builds on (does NOT duplicate):** **0075** (trust-gated confidences — the pathway by which a player
 > *learns* a real secret; `src/engine/confidence.ts`, the `confide` lever, `ConfideResult`,
 > `mayConfide`), **0039** (deals & promises — the first-class `Deal` / `DealLedger`; `src/engine/deals.ts`),

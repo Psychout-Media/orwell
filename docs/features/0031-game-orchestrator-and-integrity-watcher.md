@@ -10,6 +10,7 @@
 > wall time). Answers the question *"is there an orchestrator that tracks each game and verifies
 > integrity?"*
 > **Executable spec:** [`0031-game-orchestrator-and-integrity-watcher.feature`](./0031-game-orchestrator-and-integrity-watcher.feature)
+> **Also proven by:** `tests/unit/orchestrator.test.ts`
 
 ## 1. Summary
 

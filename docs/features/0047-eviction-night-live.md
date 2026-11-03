@@ -10,6 +10,7 @@
 > Vault-free (names + the votes read so far only). Adds **no new pending decision kind** (the player's
 > eviction vote / tie-break are unchanged) — so no front-end relay mirror is needed.
 > **Executable spec:** [`0047-eviction-night-live.feature`](./0047-eviction-night-live.feature)
+> **Since built:** (1) **0130** added an `exit-interview` stage, so the order is now `votes → goodbye → exit-interview → result`, and for a player evictee that stage IS a pending decision (the "no new pending decision kind" line above describes the original build). (2) **Owner ruling 2026-11-01 (#1912): eviction night takes about two in-game hours in total**, not a flat +3h per step. The first presentation step charges the ~2h budget (`eventBeatHours`, `eventSpanHours("eviction")`) and every later step (reveal batches, goodbye, exit interview, result) costs 0; the spend is tracked on `live.eventClock`, so it survives a save or restart.
 > **Tests:** `tests/unit/evictionNight.test.ts` (reveal mechanics, determinism, goodbye→lean, restart,
 > Vault-free `EvictionView`) + the name-agnostic `.feature` (`features/step_definitions/eviction_night.steps.ts`).
 
@@ -47,7 +48,7 @@ already-decided vote); the finale (0037 — reused as the pattern, not re-built)
 ## 4. Design
 
 - **Staged sub-loop (reuse 0037's shape).** While an eviction is resolving, `advanceGame` returns an
-  `EvictionView` with the current `stage` (`votes | goodbye | result`) and the **reveals so far** — exactly
+  `EvictionView` with the current `stage` (`votes | goodbye | exit-interview | result`; the exit-interview stage was added by 0130) and the **reveals so far** — exactly
   as `FinaleView` does for the finale. Each advance reveals the **next** vote.
 - **Ordered reveal, no leak.** Votes are revealed **one at a time in a seeded order**; the projection carries
   **only the revealed tally** — never a pre-reveal count of unread votes, never the evictee before the last
@@ -63,7 +64,7 @@ already-decided vote); the finale (0037 — reused as the pattern, not re-built)
 
 ```
 AdvanceView += eviction?: EvictionView | null            // present only while an eviction stages
-EvictionView: { stage: "votes"|"goodbye"|"result", nominees: NamedRef[], votesRevealed: { voter, votedFor }[] }
+EvictionView: { stage: "votes"|"goodbye"|"exit-interview"|"result", nominees: NamedRef[], votesRevealed: { voter, votedFor }[] }
 reveal: one vote per advance, seeded order; revealed-only tally; outcome lands on the last vote (HOH tie-break)
 goodbye: an evictee goodbye beat + goodbye messages (tone) → eviction manner (0037 §4.2) → jury lean (0014)
 invariants: engine-decided + seeded reveal; no pre-reveal tally/leak (0001); persisted (0030)

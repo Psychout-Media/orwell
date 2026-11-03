@@ -1,6 +1,6 @@
 # 0098 — Confidence-calibrated reads (bold correct reads pay off; blind faith burns)
 
-> **Status:** 🟨 **REOPENED + DOMAIN TERM BUILT, DEFAULT-INERT (2026-07-12).** The domain mechanic is built &
+> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; `CLAUDE.md` is authoritative). It is **not reopened**. A domain term built 2026-07-12 is preserved but DEFAULT-INERT and not live: the domain mechanic is built &
 > property-green — `Competitor.conviction?` (default `1`) in `src/domain/competitionOutcome.ts` +
 > `convictionVarianceGain`/`convictionVarianceCap` in `src/domain/temperatureConstants.ts`;
 > `tests/unit/confidenceCalibration.test.ts` (10 cases) proves BYTE-IDENTICAL at conviction 1/undefined,
@@ -11,7 +11,7 @@
 > `conviction`, so the live game + every heavy-sim seed stay byte-identical. The live adapter pass-through
 > (deriving `conviction` from the 0002 belief `confidence`) is DELIBERATELY WITHHELD pending explicit owner
 > re-ratification of R1. GOLDEN-NEUTRAL. *(Previously: ❄️ FROZEN — parked 2026-06-27; #879 closed not planned;
-> reopened by owner ruling "Everything".)*
+> a 2026-07-12 "Everything" sweep built the inert term, but the freeze stands.)*
 > Owner ruling + **standing principle for all future specs:** a player input must never modulate a seeded
 > outcome distribution — not the direction, and **not even the variance**. The certainty is the human's to
 > feel; the game must not model "how sure you are" and let it touch outcomes. See

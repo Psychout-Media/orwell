@@ -1,6 +1,6 @@
 # 0064 — Live multi-device game sync (the canonical game chat)
 
-**Status:** 📝 Spec only (authored 2026-06-20). **Gate:** FE (pytest) + browser smoke.
+**Status:** ✅ Built (authored 2026-06-20; parts A, B/D, C and F shipped, see *Shipped so far* below and the README index). **Gate:** FE (pytest) + browser smoke.
 **Depends on:** 0021 (per-user sandboxes / one game per user), 0032 (the game build), 0050
 (casting interview), 0054 (gadget rail HUD). **Supersedes** the per-tab/per-device onboarding
 guards described in *Implementer handoff → What this replaces*.

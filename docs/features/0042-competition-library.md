@@ -1,6 +1,7 @@
 # 0042 — Competition library (structured variety + narrative formats)
 
-> **Status:** Draft. PARTIAL today. The **resolution math is done** (`domain/competitionOutcome.ts`:
+> **Status:** ✅ **Built & green** (BDD-gated in `cucumber.cjs`): `src/engine/competitionLibrary.ts` (`COMPETITION_LIBRARY` + the seeded `drawCompetition`) replaced the hardcoded `HOH_TYPES`/`VETO_TYPES` rotation in `liveSeason.ts`; later widened by 0125/0126/0127. *The rest of this note is the original problem statement and design, written before the build.*
+> *(Original status, pre-build:)* PARTIAL. The **resolution math is done** (`domain/competitionOutcome.ts`:
 > `CompetitionType` → governing stat via `RELEVANT`, `OUTCOME_WEIGHTS`, `resolveCompetition` =
 > stat·weight + temperature + emotion + intent). What's **missing** is a competition *library*: comp **type
 > rotation is hardcoded by week index** (`liveSeason.ts` `HOH_TYPES`/`VETO_TYPES`), there are **no named

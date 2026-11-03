@@ -1,4 +1,4 @@
-# PO-REVIEW SPEC — NOT yet implemented; NOT in cucumber.cjs. Add only after the PO rulings (R1-R4) and build.
+# BUILT (2026-06-27) and wired into cucumber.cjs (steps: features/step_definitions/secrets_as_power.steps.ts). Originally a PO-review spec; R1-R4 are ruled.
 # Feature 0093 — Secrets as strategic levers. A LEARNED secret unlocks a concrete option; the ENGINE owns the magnitude.
 # HARD rule: roles only (the-player, a houseguest, a rival, the wronged houseguest, a bystander, the admin). No names.
 # Builds on 0075 (learn a secret), 0039 (deals), 0002 (pathway). Bounded by the Vault Wall, anti-sycophancy, ADR 0005.

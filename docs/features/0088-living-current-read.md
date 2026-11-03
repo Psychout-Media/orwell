@@ -1,7 +1,7 @@
 # 0088 — A living, current read of the player (your reputation, shifting in real time)
 
-> **Status:** ✅ **BUILT.** Tracks issue **#864**.
-> **Gate (planned):** engine (Vitest + a property/distribution gate + the dependency-cruiser Vault
+> **Status:** ✅ **BUILT.** Tracks issue **#864**. The cue reaches the model both ways: pulled via `npcVoice`, and pushed with the present-company cues (`presentKnowledgeForPrompt` carries `currentRead` beside `mood`) into the moment prompt.
+> **Gate:** engine (Vitest + a property/distribution gate + the dependency-cruiser Vault
 > boundary + BDD `0088-living-current-read.feature`) and front-end (the voicing path consumes the new
 > Vault-safe `currentRead` carriage cue through `getMomentPrompt`/`npcVoice`, pytest-gated).
 > **Depends on:** 0001 (the Vault Wall — the read is hidden state, surfaced behavior-only), 0002/0017/0026

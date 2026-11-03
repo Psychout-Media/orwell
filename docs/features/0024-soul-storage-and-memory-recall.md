@@ -8,6 +8,7 @@
 > weighted by relevant history). The engine where "accumulate and deepen" (0007) and "the house
 > remembers" (0023) become *intelligent* memory.
 > **Executable spec:** [`0024-soul-storage-and-memory-recall.feature`](./0024-soul-storage-and-memory-recall.feature)
+> **Also proven by:** `tests/unit/soul.test.ts`
 
 ## 1. Summary
 

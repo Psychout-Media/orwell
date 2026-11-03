@@ -8,6 +8,7 @@
 > Endurance" the next — giving **100s of visibly distinct competitions** and a **repeat-free season**,
 > while the mechanic (and therefore who wins) is unchanged.
 > **Executable spec:** [`0125-competition-theme-variety.feature`](./0125-competition-theme-variety.feature)
+> **Also proven by:** `tests/unit/competitionThemes.test.ts`
 
 ## 1. Summary
 

@@ -133,13 +133,13 @@ built but not yet PO-reviewed, or PO-approved but not yet built.
 | 0094 | Distorted gossip has consequences | ✅ Built | ⬜ Pending | — | — |
 | 0095 | Pre-show ties → time-bombs | ✅ Built | ⬜ Pending | — | — |
 | 0096 | Emergent nemesis | ✅ Built | ⬜ Pending | — | — |
-| 0097 | Suspicion ledger | ⚙️ Engine core built, unwired (README: reopened) | ⬜ Pending | — | Index notes parked 2026-06-27 (over-tells player) — confirm Defer |
+| 0097 | Suspicion ledger | ❄️ Frozen (unwired engine core preserved; owner reaffirmed 2026-11-03) | ⬜ Pending | — | Index notes parked 2026-06-27 (over-tells player) — confirm Defer |
 | 0098 | Confidence-calibrated reads | ❄️ Frozen/parked | ⬜ Pending | — | Index notes parked 2026-06-27 — confirm Defer |
 | 0099 | Secrets as currency | ✅ Built | ⬜ Pending | — | Index notes PO-resolved 2026-06-27 (build w/ 0093) — confirm here |
 | 0100 | Jury grudge book | ✅ Built | ⬜ Pending | — | — |
 | 0101 | NPC myth-making | ✅ Built | ⬜ Pending | — | — |
 | 0102 | Weekly recap → daily bedtime recap | ✅ Built | ⬜ Pending | — | Redesigned 2026-06-27; filename rename pending. (Collision resolved 2026-07-05: the premiere spec moved to **0111**.) |
-| 0103 | Edit-bay foreshadowing | ⚙️ Engine core built, unwired (README: reopened) | ⬜ Pending | — | Index notes parked 2026-06-27 (spoiler-adjacent) — confirm Defer |
+| 0103 | Edit-bay foreshadowing | ❄️ Frozen (unwired engine core preserved; owner reaffirmed 2026-11-03) | ⬜ Pending | — | Index notes parked 2026-06-27 (spoiler-adjacent) — confirm Defer |
 | 0104 | Season-over-season notoriety | ✅ Built | ⬜ Pending | — | — |
 | 0105 | Drive-anchored suspicion | ✅ Built | ⬜ Pending | — | — |
 | 0106 | Whole-house events are exclusive set-pieces | ✅ Built | ⬜ Pending | — | — |

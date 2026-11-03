@@ -1,5 +1,7 @@
 # 0065 — Cast pre-warm: deep-author the cast *before* portraits
 
+> **Two features carry the number 0065.** This is cast pre-warm (it owns `0065-cast-prewarm.feature`). The other is [0065 — The LLM↔engine sync spine](./0065-llm-engine-sync-spine.md) (no `.feature`).
+
 **Status:** building (engine + FE). **Priority:** after 0058/0051 (depends on both).
 **Owner ruling:** the player must start the actual game with a **fully warmed authorship**
 *before any portrait is ever generated.* Author warm starts at the earliest possible moment (a

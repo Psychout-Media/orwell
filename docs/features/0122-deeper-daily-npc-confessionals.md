@@ -9,6 +9,7 @@
 > AND admin) and **calibration-safe** (default-off flag + dedicated randomness ⇒ byte-identical until the
 > deploy turns it on).
 > **Executable spec:** [`0122-deeper-daily-npc-confessionals.feature`](./0122-deeper-daily-npc-confessionals.feature)
+> **Also proven by:** `tests/unit/deeperConfessionals.test.ts`
 
 ## 1. Summary
 

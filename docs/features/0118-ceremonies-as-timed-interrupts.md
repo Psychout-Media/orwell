@@ -10,6 +10,7 @@
 > **In-game time ONLY** — no wall clock; gated on the per-conversation clock exactly like 0117, so the
 > seeded calibration spine and golden replay are untouched.
 > **Executable spec:** [`0118-ceremonies-as-timed-interrupts.feature`](./0118-ceremonies-as-timed-interrupts.feature)
+> **Also proven by:** `tests/unit/dayScheduleTimedInterrupts.test.ts`
 
 ## 1. Summary — the two caps, one soft one hard
 

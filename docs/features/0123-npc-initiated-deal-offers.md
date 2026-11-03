@@ -6,6 +6,7 @@
 > pulls the player aside at a lull and floats a deal the player can **accept** or **decline** — grounded in
 > the NPC's real read, Vault-safe, bounded, and calibration-safe (default-off flag ⇒ byte-identical).
 > **Executable spec:** [`0123-npc-initiated-deal-offers.feature`](./0123-npc-initiated-deal-offers.feature)
+> **Also proven by:** `tests/unit/npcDealOffers.test.ts`
 
 > **Amended 2026-11-01 (PO ruling — "should play out within the LLM … not really wanting a pop up").**
 > The first build surfaced the offer as a `deal-offer` **pending decision card** that **blocked the week**

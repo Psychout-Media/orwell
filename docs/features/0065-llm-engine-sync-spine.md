@@ -1,6 +1,8 @@
 # 0065 — The LLM↔engine sync spine (versioned, at-most-once, self-correcting)
 
-**Status:** 📝 Spec (authored 2026-06-20). **Gate:** engine (Vitest + dependency-cruiser + BDD where
+> **Two features carry the number 0065.** This is the sync spine (no `.feature`; engine Vitest + FE pytest). The other is [0065 — Cast pre-warm](./0065-cast-prewarm.md), which has a `.feature` (`0065-cast-prewarm.feature`).
+
+**Status:** ✅ Built (authored 2026-06-20; Parts A–E are all in the code: `beatSeq` CAS, idempotency keys, the pre-emission outcome guard, the sync ledger `frontend/src/orwell_sync_ledger.py`, and the `beatSeq`-keyed delta feed; gates `tests/unit/syncSpine.test.ts` + `tests/unit/stateDelta.test.ts`). **Gate:** engine (Vitest + dependency-cruiser + BDD where
 it touches a `.feature`) and front-end (pytest). **Depends on:** 0009 (MCP tool boundary), 0023
 (consequence loop), 0031 (per-sandbox orchestrator & integrity checkpoint), 0064 (canonical session
 + Messenger-style turn serialization). **Bounded by:** ADR **0005** (split authority by openness),

@@ -4,7 +4,7 @@
 > rulings O1/O2/O4 closed, see §10). Implemented as `FaithfulnessJudge` + `dispatch_correction` +
 > `faithfulness_mode`/`faithfulness_unreframable_mode` (`frontend/src/faithfulness.py`) and the
 > `_faith_check` post-turn hook + casting seam (`frontend/src/agent_loop.py`); 58 gates in
-> `frontend/tests/test_0081_*.py`. Default **off** — opt-in via its own `/admin/status` dial. The
+> `frontend/tests/test_0081_*.py`. Default **active** since the owner ruling 2026-07-13 (`faithfulness_mode` resolver default, `frontend/src/faithfulness.py`; an explicit `off` still disables), so it costs one judge call on each claim-bearing turn; it keeps its own `/admin/status` dial. *(As first built it was default off, opt-in.)* The
 > **second overseer role** that
 > [0079](./0079-runtime-overseer-and-diagnostic-log.feature) deliberately deferred ("the narration
 > **faithfulness gate** … a *separate, future* role, deliberately not in this feature"). Where 0079/0080

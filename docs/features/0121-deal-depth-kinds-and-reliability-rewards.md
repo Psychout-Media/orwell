@@ -15,6 +15,7 @@
 > **Calibration-safe by construction:** all new behavior is gated behind a dedicated flag `ORWELL_DEAL_DEPTH`
 > (default OFF); off ⇒ 0039/0109 behavior exactly (byte-identical seeded spine). Enabled in the live deploy.
 > **Executable spec:** [`0121-deal-depth-kinds-and-reliability-rewards.feature`](./0121-deal-depth-kinds-and-reliability-rewards.feature)
+> **Also proven by:** `tests/unit/dealDepth.test.ts`
 
 ## 1. Two dials
 

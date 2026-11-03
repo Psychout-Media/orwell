@@ -1,7 +1,7 @@
 # Executable spec — IMPLEMENTED & green; BDD-gated in cucumber.cjs. (Originally drafted failing-first.)
 # Feature 0042 — Competition library: a seeded, curated set of competition definitions (name, governing
 # stat, format, Vault-free narrative scaffold) drawn deterministically; the ENGINE still decides the winner.
-# HARD rule: roles only (player, houseguest, favorite). Add to cucumber.cjs when green.
+# HARD rule: roles only (player, houseguest, favorite). (Wired into cucumber.cjs.)
 
 Feature: Competition library
 
