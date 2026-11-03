@@ -37,3 +37,5 @@ orwell-debug-bundle-unsealed*.json
 # a .venv SYMLINK (worktree convenience) is not matched by the `.venv/` dir pattern — never commit it
 /frontend/.venv
 /node_modules
+/frontend/data.*/
+/data.*/
