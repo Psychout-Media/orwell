@@ -1632,6 +1632,28 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * 0016 — apply the God-Mode knobs the LIVE engine honors (a Vault-free count-only surface; never content). Recognized: `reserveTwists`
+   * (the reserve-twist COUNT, 0-5), `tieBudget` and `showmanceBudget` (the pre-game tie / showmance COUNTS, 0-6; 0059 "the admin may
+   * override the COUNT like the twist budget"). They shape the NEXT season's setup (a season in flight keeps what it was dealt). Anything else
+   * (phase, week, temperature...) is the engine's own state or a constant it does not expose and is reported as not applied.
+   */
+  applyAdminKnobs(knobs: Record<string, unknown>): { applied: string[]; notApplied: string[] } {
+    const applied: string[] = [];
+    const notApplied: string[] = [];
+    const count = (v: unknown, max: number): number | undefined =>
+      typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max ? Math.floor(v) : undefined;
+    for (const [k, v] of Object.entries(knobs ?? {})) {
+      const n = k === "reserveTwists" ? count(v, 5) : k === "tieBudget" || k === "showmanceBudget" ? count(v, 6) : undefined;
+      if (n === undefined) { notApplied.push(k); continue; }
+      if (k === "reserveTwists") this.setTwistCount(n);
+      else if (k === "tieBudget") this.tieBudget = n;
+      else this.showmanceBudget = n;
+      applied.push(k);
+    }
+    return { applied, notApplied };
+  }
+
+  /**
    * 0025 reactive redesign (PO ruling 2026-07-06): when on, a NEW season arms the standing reactive
    * pool (all three twists watch the live house, per-season seeded triggers) instead of the legacy
    * pre-scheduled double-eviction-only path. Default OFF ⇒ the setup + loop are byte-identical to
