@@ -154,6 +154,10 @@ tactic layer here; they are not a new system:
   | duo breaker | mastermind, wildcard | splits power pairs, often both halves |
   | loyalist | social-butterfly, underdog, flirt, loyalist, peacemaker | protects their own; the pawn is whoever nobody will miss |
 
+- **Pawn or target as the replacement (PO 2026-11-02).** After a veto, `replacementPick` (`season.ts`) checks
+  whether the houseguest still on the block is the HOH's target. If yes (the pawn came down), the
+  replacement is a new **pawn**, chosen by the same pawn-seat read. If no (the target came down, or it's a
+  backdoor), the replacement is the new **target**. The player's NPC proxy uses the same read.
 - **Comp wins raise threat more:** `COMP_WON_IMPACT.threat` 0.14 → 0.20 (`relationshipConstants.ts`).
 
 All of these are engine-decided, deterministic per seed (no new rng draw), hidden (no number crosses to
