@@ -41,7 +41,11 @@ echo "contents: <app>/data (engine .env + saves; the models/ embedding cache is 
 # -mtime +N`, so a fresh install with only one backup prunes nothing).
 if [[ "$RETENTION_DAYS" -gt 0 ]] 2>/dev/null; then
   PRUNED="$(find "$DEST" -maxdepth 1 -name 'orwell-backup-*.tar.gz' -mtime "+${RETENTION_DAYS}" -print -delete 2>/dev/null | wc -l | tr -d ' ')" || true
-  [[ "${PRUNED:-0}" -gt 0 ]] && echo "retention: pruned ${PRUNED} backup(s) older than ${RETENTION_DAYS} days"
+  # `if`, not `[[ ]] && echo`: when nothing was pruned (the normal case) the `&&` list is false and, as the
+  # script's LAST command, made a fully successful backup exit 1 — systemd then reported the unit failed.
+  if [[ "${PRUNED:-0}" -gt 0 ]]; then
+    echo "retention: pruned ${PRUNED} backup(s) older than ${RETENTION_DAYS} days"
+  fi
 else
   echo "retention: disabled (ORWELL_BACKUP_RETENTION_DAYS=0) — no backups pruned"
 fi

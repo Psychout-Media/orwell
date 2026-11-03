@@ -610,6 +610,12 @@ if [[ "$APP_DIR" == "/opt/orwell" ]]; then
   #     daemon-reload + the existing final restart below; the backup TIMER is enabled + restarted after
   #     the daemon-reload (see below), mirroring systemd_services().
   echo "==> reconciling engine/frontend/backup unit content from the checkout"
+  # orwell-backup.service sandboxes with ReadWritePaths=/opt/orwell/backups; systemd fails the unit with
+  # 226/NAMESPACE when that path is missing. install creates it, but a box provisioned before the backup
+  # timer existed (reconciled only by this updater) never got it — so the nightly backup failed forever.
+  # Mirrors orwell-install.sh (DEPLOY-9); idempotent. The unit's ExecStartPre= re-creates it if removed.
+  mkdir -p "${APP_DIR}/backups"
+  if id -u orwell >/dev/null 2>&1; then chown orwell:orwell "${APP_DIR}/backups"; fi
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-engine.service"   /etc/systemd/system/orwell-engine.service
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-frontend.service" /etc/systemd/system/orwell-frontend.service
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-backup.service"   /etc/systemd/system/orwell-backup.service
