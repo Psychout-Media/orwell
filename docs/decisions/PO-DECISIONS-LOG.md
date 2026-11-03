@@ -35,6 +35,16 @@ live ledger of owner calls as they happen.
 - **0097 / 0098 / 0103 stay frozen.**
 - **Technical call (coordinator): the diary tools (player-dossier, booth-receipts) must switch off when
   their features are off.** Folded into the default-flip PR.
+- **Early eviction (0046, pre-jury): offer skip-to-finale AND keep-watching; the evicted player is still in the
+  finale (Ryne).** When the player is voted out before the jury forms they are offered BOTH a skip to the
+  season-finale reveal and a keep-watching option. "Watch" is a deliberately skeleton version of the rest of
+  the season: condensed weekly beats, not a full click-through. Either way the evicted player takes part in the
+  finale, at minimum an interview (a post-eviction or finale-night interview). Spec: `docs/features/0133-early-eviction-skip-or-watch.md`.
+  Design details settled with the coordinator under the ruling and anti-sycophancy (decided, not assumed): the
+  interview has no effect on the jury or the winner; skip is irreversible while watch can be switched to skip; a
+  self-evicted player (0061) gets none of this. *Held for Ryne:* whether JURORS are also offered skip/watch
+  (it may conflict with his "jurors experience the sequestered jury house" ruling) — not part of this ruling.
+
 - **Big irreversible choices are confirmed on the decision card — prose never binds them (Ryne, A-6).**
   The model's `submitDecision` tool may commit only the low-stakes kinds (`comp-intent`, `comp-round`, and
   the in-chat `deal-offer` answer). Every other kind (nominations, the veto, the secret veto, eviction and
