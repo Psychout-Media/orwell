@@ -21,6 +21,7 @@
     "test:heavy:uat-12seed-c": "UAT12_SHARDS=3 UAT12_SHARD=2 vitest run tests/uat/fullGameUat.12seed.test.ts",
     "test:heavy:uat-5seed": "vitest run tests/uat/fullGameUat.5seed.test.ts",
     "test:heavy:uat-decisions": "vitest run tests/uat/fullGameUat.decisions.test.ts",
+    "test:calib:po": "vitest run tests/calibration/calibrationPoTarget.test.ts",
     "test:heavy:jury": "vitest run tests/property/juryReach.property.test.ts",
     "test:heavy:jury:aggregate": "vitest run tests/property/juryReachAggregate.property.test.ts",
     "test:heavy:gradient": "vitest run tests/property/calibrationGradient.property.test.ts",
