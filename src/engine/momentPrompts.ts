@@ -1625,14 +1625,15 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
   return lines.join("\n");
 }
 
-const CEREMONY_PHASE_PREFIXES = ["nominations", "veto", "eviction", "final-eviction"];
+const CEREMONY_PHASE_PREFIXES = ["hoh-competition", "nominations", "veto", "eviction", "final-eviction"];
 
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
   if (!CEREMONY_PHASE_PREFIXES.some((p) => phase.startsWith(p))) return undefined;
   const cer = view.ceremony;
-  if (!cer || !(cer.hoh || cer.nominees.length || cer.veto.holder || (cer.veto.players ?? []).length)) return undefined;
+  const hohComp = phase.startsWith("hoh-competition");
+  if (!cer || (!hohComp && !(cer.hoh || cer.nominees.length || cer.veto.holder || (cer.veto.players ?? []).length))) return undefined;
   const noms = cer.nominees.map((nm) => nm.name);
   const lines = [
     "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
@@ -1641,6 +1642,15 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
       ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
       : "still being played or not yet decided — name no winner and no holder"}.`,
   ];
+  // The PLAYER's own seat, stated flatly: the live rehearsal had the narrator tell the player "the power's yours" (a won HOH the
+  // engine had given to someone else) and invite them to name nominees — second-person fiction the third-person facts above never stop.
+  const pid = view.player?.id;
+  const pl: string[] = [];
+  if (hohComp && !cer.hoh) pl.push("the HOH is NOT decided yet — name no winner and never tell the player they won; the game hands you the result");
+  if (cer.hoh && pid && cer.hoh.id !== pid) pl.push("NOT the Head of Household (never offer them the nomination keys or say the power is theirs)");
+  if (noms.length && pid && !cer.nominees.some((nm) => nm.id === pid)) pl.push("NOT on the block");
+  if (cer.veto.holder && pid && cer.veto.holder.id !== pid) pl.push("NOT the veto holder");
+  if (pl.length) lines.push(`    The player (you, the second person) is: ${pl.join("; ")}.`);
   if (phase.startsWith("eviction") || phase.startsWith("final-eviction")) {
     const revealed = view.eviction?.votesRevealed.length ?? 0;
     if (view.pending?.kind === "eviction-vote") {

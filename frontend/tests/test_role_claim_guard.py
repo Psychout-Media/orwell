@@ -371,3 +371,24 @@ def test_address_cues_do_not_fire_before_the_engine_committed_nominees_or_outsid
     assert not stripped("Other Delta makes his case to Hoh Person tonight.\n", sig(phase="nominations", nomNames=[]))[1]
     assert not stripped("Other Delta makes his case to the house tonight.\n", sig(phase="veto-competition"))[1]
     assert not stripped("Other Delta makes his case to the house tonight.\n", sig(phase="eviction", nomNames=[]))[1]
+
+
+# ── second person: the player told they won what the engine gave someone else (live rehearsal, week 3) ────────────────
+def test_second_person_claims_are_the_players_and_judged_against_the_engine():
+    s = sig(phase="hoh-competition", hohName=None)
+    for t in ["The board holds green and the power's yours.\n", "You're the new Head of Household.\n", "You win the HOH competition!\n",
+              "You take the Power of Veto.\n"]:
+        assert stripped(t, sig(phase="veto-competition", hohName="Hoh Person", vetoHolderName="Vetoer Gamma"))[1], t
+    assert not stripped("You're the new Head of Household.\n", sig(hohName="Player Epsilon"))[1], "true when the player IS the HOH"
+    assert not stripped("You take the Power of Veto.\n", sig(vetoHolderName="Player Epsilon"))[1]
+
+
+def test_second_person_is_not_bound_to_the_nominee_address_cues():
+    t = '@[Hoh Person] "Nom Alpha, Nom Beta — you\'ll make your case tonight."\n'
+    assert not stripped(t, sig(**EVS))[1]
+
+
+def test_you_inside_unrelated_prose_is_untouched():
+    for t in ["Hoh Person thanks you for coming and hands you a drink.\n", "You walk across the yard and sit by the pool.\n",
+              "You wonder who will win the veto.\n"]:
+        assert not stripped(t, sig(vetoHolderName="Vetoer Gamma"))[1], t

@@ -57,9 +57,11 @@ _CUES: "list[tuple]" = [  # (role, regex, bind, gap[, dash_ok])
                             re.IGNORECASE), "before", 25),
     # ── Head of Household ──────────────────────────────────────────────────────────────────────────────────────────
     ("hoh", re.compile(r"\b(?:is|are|as|becomes?|became|crowned|named)\s+" + _OBJ_DET + r"(?:new\s+|next\s+|latest\s+|current\s+|reigning\s+)?" + _HOHW, re.IGNORECASE), "before", 25),
+    ("hoh", re.compile(r"['’](?:re|s)\s+" + _OBJ_DET + r"(?:new\s+|next\s+|latest\s+|current\s+|reigning\s+)?" + _HOHW, re.IGNORECASE), "before", 2),
     ("hoh", re.compile(r"\b(?:wins?|won|winning|claims?|earns?)\s+" + _OBJ_DET + r"(?:first\s+|new\s+|next\s+)?" + _HOHW_WIN, re.IGNORECASE), "before", 25),
     ("hoh", re.compile(r"\b(?:new|next|latest)\s+" + _HOHW + r"\s*(?:is|was|:)\s*", re.IGNORECASE), "after", 6),
     ("hoh", re.compile(r"\b" + _HOHW + r"\s+(?:is|goes\s+to|winner|champion)\s*", re.IGNORECASE), "after", 6),
+    ("hoh", re.compile(r"\b(?:the\s+)?(?:power|crown|keys?|HOH\s+room|nomination\s+keys?)(?:\s+(?:is|are)|'s|’s)\s+(?:now\s+|all\s+)?", re.IGNORECASE), "after", 6),
     # ── nominees ───────────────────────────────────────────────────────────────────────────────────────────────────
     ("nominee", re.compile(r"\b(?:nominates?|nominated|nominating|puts?\s+up|put\s+up)\b\s*", re.IGNORECASE), "after", 70),
     ("nominee", re.compile(r"\b(?:on\s+the\s+block|up\s+for\s+eviction)\b", re.IGNORECASE), "before", 40),
@@ -156,10 +158,19 @@ def _name_patterns(names: Iterable[str]) -> "list[tuple[str, re.Pattern]]":
     return pats
 
 
-def name_spans(s: str, names: Iterable[str]) -> "list[tuple[str, int, int]]":
-    """(canonical name, start, end) for every occurrence in `s`; longer matches mask shorter ones."""
+_SECOND_PERSON_RE = re.compile(r"(?<![\w'’])(?:you|your|yours|yourself)(?![\w])|(?<![\w'’])you(?:'re|’re|'ve|’ve|'ll|’ll|'d|’d)(?![\w])", re.IGNORECASE)
+
+
+def name_spans(s: str, names: Iterable[str], player: Optional[str] = None) -> "list[tuple[str, int, int]]":
+    """(canonical name, start, end) for every occurrence in `s`; longer matches mask shorter ones. With `player`, the second person
+    ("you", "you're", "yours") IS the player — the live rehearsal told the player "the power's yours" for an HOH the engine gave
+    someone else, which no third-person name check ever sees."""
     taken: "list[tuple[int, int]]" = []
     out: "list[tuple[str, int, int]]" = []
+    if player:
+        for m in _SECOND_PERSON_RE.finditer(s):
+            out.append((player, m.start(), m.end()))
+            taken.append((m.start(), m.end()))
     for canon, pat in _name_patterns(names):
         for m in pat.finditer(s):
             if any(m.start() < b and m.end() > a for a, b in taken):
@@ -169,9 +180,9 @@ def name_spans(s: str, names: Iterable[str]) -> "list[tuple[str, int, int]]":
     return sorted(out, key=lambda t: t[1])
 
 
-def names_in(unit: str, names: Iterable[str]) -> "list[str]":
+def names_in(unit: str, names: Iterable[str], player: Optional[str] = None) -> "list[str]":
     seen: "list[str]" = []
-    for canon, _a, _b in name_spans(_clean(unit), names):
+    for canon, _a, _b in name_spans(_clean(unit), names, player):
         if canon not in seen:
             seen.append(canon)
     return seen
@@ -276,18 +287,20 @@ def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, ca
     if not instances and not carried and not phase.startswith("eviction"):
         return None
     s = _clean(unit)
-    spans = name_spans(s, roster)
+    player = sig.get("playerName")
+    spans = name_spans(s, roster, player)
     if not spans:
         return None
-    player = sig.get("playerName")
     veto_holder, hoh = sig.get("vetoHolderName"), sig.get("hohName")
     noms = list(sig.get("nomNames") or [])
     evicted = list(sig.get("evictedNames") or [])
     if sig.get("playerStatus") not in (None, "active") and player:
         evicted = evicted + [player]
     by_role: "dict[str, list[str]]" = {}
+    spans_third = name_spans(s, roster)  # no second person: "Eli, Jeremy — you'll make your case" addresses the NAMED, not the player
     for c in instances:
-        by_role.setdefault(c["role"], []).extend(_bound(s, c, spans))
+        use = spans_third if c["role"] in ("nominee", "nominee-addr", "vote-for") else spans
+        by_role.setdefault(c["role"], []).extend(_bound(s, c, use))
     for role in (carried or set()):
         if _non_assertive(s, 0, 0):
             continue
@@ -343,7 +356,7 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
                 continue
             drop_closers = False
             inst = cue_instances(unit, phase)
-            names = names_in(unit, roster)
+            names = names_in(unit, roster, sig.get("playerName"))
             starts_cont = bool(re.match(r"^[\s*_\"“”‘’`]*" + _ELL, unit))
             carried = set(carry["roles"]) if (carry["ttl"] > 0 and (starts_cont or names)) else set()
             reason = judge(unit, inst, roster, sig, carried) if names else None

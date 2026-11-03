@@ -55,8 +55,25 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     expect(hc(s)).toContain(`Ballots revealed so far: ${ballots}`);
   });
 
-  it("outside the ceremonies the block carries no BOARD section (byte-identical)", () => {
+  it("the HOH competition itself: no winner is decided yet, and the player is never told they won", () => {
     const s = driveTo((ss) => ss.getGameState().phase === "hoh-competition" && !ss.getGameState().ceremony.hoh);
+    const block = hc(s);
+    expect(block).toContain("BOARD");
+    expect(block).toMatch(/HOH is NOT decided yet[^\n]*never tell the player they won/i);
+  });
+
+  it("states the PLAYER's own seat flatly (not HOH / not on the block / not the veto holder) — the second-person fiction the third-person facts never stop", () => {
+    const s = driveTo((ss) => {
+      const g = ss.getGameState();
+      return g.phase === "veto-competition" && g.ceremony.nominees.length === 2 && !!g.player && g.ceremony.hoh?.id !== g.player.id
+        && !g.ceremony.nominees.some((nm) => nm.id === g.player!.id);
+    });
+    const block = hc(s);
+    expect(block).toMatch(/The player \(you, the second person\) is: [^\n]*NOT the Head of Household[^\n]*NOT on the block/);
+  });
+
+  it("outside the ceremonies the block carries no BOARD section (byte-identical)", () => {
+    const s = driveTo((ss) => ss.getGameState().phase === "premiere" || ss.getGameState().phase === "setup" || (ss.getGameState().week ?? 0) === 0);
     expect(hc(s)).not.toContain("BOARD");
   });
 });
