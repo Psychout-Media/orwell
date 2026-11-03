@@ -72,7 +72,7 @@ advanceGame (spectator active) → runs one WHOLE player-less week, returns its 
 ## 5. Definition of Done
 
 - [x] A pre-jury eviction raises the `spectator-choice` card; `watch` and `skip` both complete the season.
-- [x] `watch` yields one public `week-digest` per EVICTION NIGHT after the player's own (a double-eviction week has two rows with the same week number); `skip` lands at the finale with the `skip` lands at the finale with the
+- [x] `watch` yields one public `week-digest` per EVICTION NIGHT after the player's own (a double-eviction week has two rows with the same week number); `skip` lands at the finale with the
       digests available.
 - [x] Same seed ⇒ same evictions, finalists, jury and winner across {watch, skip, pre-feature}.
 - [x] Both modes end in a `finale-interview` raised after the crowning; the answer is recorded, voiced, in the
