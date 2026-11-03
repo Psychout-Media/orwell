@@ -8803,6 +8803,52 @@ export class GameSessionAdapter implements GameSession {
     return this.advanceView(last);
   }
 
+  /** 0129 — an engine-seeded vote-DEDUCTION belief ("X believes A turned on them in the eviction vote", 0110 / the
+   *  traitors-fury blame seeding). It attributes a SEALED ballot (E12), so it never rides a juror's telling or the
+   *  jury-house prompt block — it unseals only through the 0048 retrospective. */
+  private static isSealedAttribution(f: { pathway?: string; factId?: string }): boolean {
+    return (f.pathway ?? "").startsWith("jury-house:blame") || (f.factId ?? "").startsWith("traitors-fury:blame");
+  }
+
+  /**
+   * 0129 slice 3 — the juror-player ASKS a fellow juror what they know. Seam reuse (no new knowledge reader): the
+   * candidates are the SAME witnessed-or-told set `npcVoice(juror).knows` already exposes (never the Diary Room
+   * class), minus what the player already holds; the ENGINE gates the telling on the juror's recorded bearing
+   * (sour never, cool sometimes, even usually, warm always — seeded per juror/beat so a repeat press in one beat
+   * reaches the same decision) and picks which fact; the telling reaches the player ONLY via the content-anchored
+   * `told-by:<juror>` pathway (`onJurorTell`), recorded as a player-witnessed event. Folds nothing into the live
+   * house (a juror has no pathway back to it) and mutates no relationship. Null unless the player holds a juror's
+   * seat and `jurorId` is another juror.
+   */
+  askJuror(jurorId: EntityId, expectedBeatSeq?: number, idempotencyKey?: string): AskJurorResult | null {
+    const idemKey = this.foldLedgerKey("askJuror", idempotencyKey);
+    const replay = this.foldReplay<AskJurorResult | null>(idemKey);
+    if (replay.hit) return replay.value;
+    this.guardBeatSeq(expectedBeatSeq);
+    const jh = this.juryHouseView();
+    const juror = jh?.jurors.find((j) => j.id === jurorId);
+    if (!jh || !juror || !this.npcKnowledge) return null;
+    const chance = { warm: 1, even: 0.75, cool: 0.4, sour: 0 }[juror.bearing];
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:ask-juror:${jurorId}:${this.week}:${this.phase}`));
+    const playerHolds = this.playerKnowledgeReader?.() ?? [];
+    const heldIds = new Set(playerHolds.map((k) => k.factId).filter((f): f is string => !!f));
+    const heldText = new Set(playerHolds.map((k) => k.content));
+    const candidates = this.npcKnowledge.known(jurorId)
+      .filter((f) => f.factId && f.pathway !== "diary-room" && !GameSessionAdapter.isSealedAttribution(f)
+        && !heldIds.has(f.factId) && !heldText.has(f.content));
+    const roll = rng.next();
+    const none: AskJurorResult = { told: false, bearing: juror.bearing };
+    if (roll >= chance || candidates.length === 0 || !this.onJurorTell) return none;
+    const pick = candidates[Math.floor(rng.next() * candidates.length)]!;
+    const content = this.onJurorTell(jurorId, pick.factId!, 0.7);
+    if (content === null) return none;
+    this.onPlayerEvent?.(`${this.nameOf(jurorId)} tells ${this.nameOf(PLAYER)} something in the jury house`, [PLAYER, jurorId], "conversation");
+    this.persist();
+    const result: AskJurorResult = { told: true, bearing: juror.bearing, content: this.humanize(content) };
+    if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, result);
+    return result;
+  }
+
   /**
    * 0129 slice 4 — the informed juror-vote card's brief: what the PLAYER was told by fellow jurors (`told-by:<juror>`
    * facts in the player's own knowledge — the sole source, so nothing a juror merely holds can ride), grouped by the

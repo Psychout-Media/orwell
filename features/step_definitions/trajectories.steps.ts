@@ -311,25 +311,6 @@ Then("no betrayal is ever produced unless the prior-bond and incentive gate is a
 
 // === Rule: deterministic and calibration-neutral ========================================================
 
-Given("a fixed seed and the trajectory layer disabled", function (this: BbWorld) {
-  const off = stretchNatures(42); // no trajectoryOf ⇒ the pre-feature path
-  const baseline = stretchNatures(42); // re-run the same to stand in for the pre-feature build
-  tw(this).twNatures = { off: off.natures, on: baseline.natures };
-  tw(this).twDraws = { off: off.draws, on: baseline.draws };
-});
-
-When("the off-screen society and the seeded competitions and votes are run", function () { /* run in the Given */ });
-
-Then("the off-screen scene sequence is byte-identical to the pre-feature build", function (this: BbWorld) {
-  assert.deepEqual(tw(this).twNatures!.on, tw(this).twNatures!.off, "scene sequence byte-identical with the layer off");
-});
-
-Then("every seeded competition and vote outcome is byte-identical to the pre-feature build", function (this: BbWorld) {
-  // The shared rng draw stream is byte-identical with the layer off ⇒ every roll the competition/vote spine
-  // takes off that same stream is unchanged.
-  assert.deepEqual(tw(this).twDraws!.on, tw(this).twDraws!.off, "the shared draw stream is byte-identical with the layer off");
-});
-
 Given("a fixed seed and the trajectory layer enabled", function (this: BbWorld) {
   const off = stretchNatures(42);
   const on = stretchNatures(42, () => ({ phase: "souring", momentum: 1 })); // maximal tilt

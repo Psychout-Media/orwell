@@ -52,20 +52,8 @@ Then("the difference is slight, never a wild skew", function (this: BbWorld) {
   assert.ok(this.scSharpDrive! / this.scPassiveDrive! < 3, "the skew is slight (< 3x), not a wild dominance");
 });
 
-Given("two games from the same seed with the strategic cadence off", function (this: BbWorld) {
-  const a = scGame(33, false);
-  const b = scGame(33, false);
-  for (let t = 0; t < 8; t++) { a.orch.advance(a.user, "offscreen-tick"); b.orch.advance(b.user, "offscreen-tick"); }
-  this.scOffStream = stream(a.sb);
-  this.scOnStream = stream(b.sb); // reuse as the second OFF stream for the identity check
-});
-
 When("the same off-screen ticks run on each", function () {
   // Ticks already applied in the Given (deterministic setup).
-});
-
-Then("their hidden societies are identical", function (this: BbWorld) {
-  assert.deepEqual(this.scOffStream, this.scOnStream, "same seed, cadence off ⇒ byte-identical society");
 });
 
 Given("the same seed with the strategic cadence on versus off", function (this: BbWorld) {

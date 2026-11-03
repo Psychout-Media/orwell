@@ -69,9 +69,10 @@ Feature: 0092 — Secret-pacing drip (the paced "I knew it" payoff)
       And no sealed premise appears on the admin surface
       And the ripeness scores, the weekly drip counter, and any number never appear on any surface
 
-    Scenario: The drip is deterministic and calibration-neutral when off
+    # Calibration neutrality (the shared draw stream is byte-identical drip ON vs OFF) is gated by
+    # tests/unit/secretPacingNeutral.test.ts; the former last line compared an unpaced run to a replay of itself.
+    Scenario: The drip is deterministic and takes no draws when off
       Given two seasons played from the same seed and the same history
       Then the secrets that drip and the weeks they drip in are identical
       Given a season played with the secret-pacing drip disabled
       Then no pacing draws are taken
-      And the seeded competition, vote, and jury outcomes are byte-identical to the unpaced game

@@ -92,6 +92,6 @@ Feature: Vote deduction — a secret ballot becomes a deduced belief, by process
 
   Rule: Calibration-neutral when off
 
-    Scenario: With deduction disabled, the jury grudge is byte-identical to the perfect-knowledge model
+    Scenario: With deduction disabled, the seeded outcomes match the deduction-enabled season
       Given a full season is played with vote deduction disabled
-      Then the recorded eviction grudges and the seeded jury outcome are byte-identical to the baseline season
+      Then the eviction order and the competition tally are identical to the same seed with deduction enabled

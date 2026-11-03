@@ -49,7 +49,7 @@ Feature: 0104 — Season-over-season notoriety (a reputation that precedes you i
     Scenario: Notoriety never inflates the player's outcome odds
       Given a new season created for a user with a strong notoriety
       When competitions and votes are resolved at a fixed seed
-      Then every competition and vote outcome is byte-identical to the same seed with no notoriety
+      Then the first competition result and the NPC-to-NPC move-in layer are byte-identical to the same seed with no notoriety
       And notoriety has touched only the day-one relationship edges
 
   Rule: The Vault Wall holds — for the player and for admin

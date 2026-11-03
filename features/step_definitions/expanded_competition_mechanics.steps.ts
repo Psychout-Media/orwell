@@ -52,23 +52,24 @@ Then("the new expanded mechanics are actually used", function (this: BbWorld) {
 
 // --- Scenario: With the expanded pool off the season is the bare base library --------------
 
-Given("two games started from the same seed played with the expanded pool off", function (this: BbWorld) {
+Given("one seed played once with the expanded pool off and once with it on", function (this: BbWorld) {
   this.cmp = {};
 });
 
-When("each expanded-pool game is played to completion", function (this: BbWorld) {
+When("both expanded-pool games are played to completion", function (this: BbWorld) {
+  // PAT-3: a real OFF-vs-ON contrast on one seed (the OFF path is the bare base library; the former step compared two OFF runs).
   this.cmp!.a = cmpPlay("cmp-off-a", 77, false);
-  this.cmp!.b = cmpPlay("cmp-off-b", 77, false);
+  this.cmp!.b = cmpPlay("cmp-on-b", 77, true);
 });
 
-Then("the same houseguests are evicted in identical order in each game", function (this: BbWorld) {
-  assert.deepEqual(this.cmp!.a!.evictionOrder, this.cmp!.b!.evictionOrder);
-  assert.ok(this.cmp!.a!.evictionOrder.length > 0, "houseguests were evicted");
-});
-
-Then("no expanded-only mechanic is ever drawn", function (this: BbWorld) {
+Then("no expanded-only mechanic is drawn with the pool off", function (this: BbWorld) {
   const drawn = [...this.cmp!.a!.hoh, ...this.cmp!.a!.veto];
+  assert.ok(drawn.length > 0, "competitions were drawn");
   assert.ok(!drawn.some((id) => PLUS_IDS.has(id)), "an expanded mechanic leaked with the pool off");
+});
+
+Then("the same seed with the pool on does draw expanded-only mechanics", function (this: BbWorld) {
+  assert.ok([...this.cmp!.b!.hoh, ...this.cmp!.b!.veto].some((id) => PLUS_IDS.has(id)), "the flag is inert: no expanded mechanic drawn when on");
 });
 
 // --- Scenario: The expanded pool preserves the competition stat balance --------------------

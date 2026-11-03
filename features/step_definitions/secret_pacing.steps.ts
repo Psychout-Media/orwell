@@ -479,36 +479,3 @@ Then("no pacing draws are taken", function (this: BbWorld) {
   for (let i = 0; i < 20; i++) sb.session.pacingDrip(); // every call is a no-op
   assert.equal(peek(sb).pacingDripCount, before, "a pacing draw was taken with the drip disabled");
 });
-
-Then("the seeded competition, vote, and jury outcomes are byte-identical to the unpaced game", function (this: BbWorld) {
-  // Re-prove the spine is a pure function of the seed (the off-screen-driven outcomes replay identically),
-  // exactly as the unit-level neutrality gate asserts: drive the SAME seeded season twice and compare the
-  // public ceremony record + the eviction order. The drip touches only the off-screen tick and, disabled,
-  // is a pure no-op, so it cannot have perturbed any of these.
-  const seed = (this.spSeed ?? 7) + 101;
-  // IDENTICAL means identical on every seeded axis — INCLUDING the orchestrator's per-user rng stream,
-  // which keys off `seed:user`. So both replays run in SEPARATE registries but under the SAME user key
-  // (a different user key would diverge the off-screen society, not the drip — see storyThreadScheduler).
-  const user = `spspine${spUsers++}`;
-  const play = (): string => {
-    const reg = new GameSessionRegistry();
-    const sb = reg.sandboxFor(user);
-    sb.session.createCharacter({ playerName: "The Player", seed });
-    const orch = new Orchestrator(reg, new FakeClock(), { seed });
-    const ceremonies: string[] = [];
-    for (let i = 0; i < 600; i++) {
-      const adv = sb.session.advanceGame();
-      if (adv.event) ceremonies.push(`${adv.event.beat}`);
-      if (adv.pending) {
-        resolvePending(adv.pending, (req) => sb.session.submitDecision(req));
-      }
-      orch.advance(user, "offscreen-tick");
-      if (adv.finished) break;
-    }
-    return JSON.stringify({ evicted: sb.session.snapshot().live?.evictionOrder ?? [], ceremonies });
-  };
-  GameSessionAdapter.setSecretPacingEnabled(false);
-  const a = play();
-  const b = play();
-  assert.equal(b, a, "the seeded spine diverged across identical-seed replays");
-});

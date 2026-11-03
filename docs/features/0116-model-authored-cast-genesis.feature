@@ -1,4 +1,4 @@
-# BUILT (2026-07-12, #1403) — NOW WIRED into the cucumber BDD gate: this .feature is listed in cucumber.cjs `paths` with executable step definitions in features/step_definitions/cast_genesis.steps.ts (all 32 scenarios green). Its scenarios remain ALSO covered 1:1 by the castGenesis vitest suite (tests/unit/castGenesis.test.ts + castGenesisBoundary.test.ts + castGenesisByteNeutral.test.ts) and frontend/tests/test_0116_cast_genesis.py — the per-feature vitest gate in the reconciled index (docs/features/README.md). (TEST-3 convention, #628: a .feature may ALSO gate via vitest.)
+# BUILT (2026-07-12, #1403) — NOW WIRED into the cucumber BDD gate: this .feature is listed in cucumber.cjs `paths` with executable step definitions in features/step_definitions/cast_genesis.steps.ts (all 31 scenarios green). Its scenarios remain ALSO covered 1:1 by the castGenesis vitest suite (tests/unit/castGenesis.test.ts + castGenesisBoundary.test.ts + castGenesisByteNeutral.test.ts) and frontend/tests/test_0116_cast_genesis.py — the per-feature vitest gate in the reconciled index (docs/features/README.md). (TEST-3 convention, #628: a .feature may ALSO gate via vitest.)
 # Feature 0116 — Model-authored cast genesis inside an engine validation envelope. SPEC — drafted
 # failing-first 2026-07-11; the seven genesis design questions are OWNER-DECIDED (cast-sketch + 15
 # deep calls; player-blind; banded variable stat totals; free names inside validators; the seeded
@@ -247,11 +247,10 @@ Feature: Model-authored cast genesis — the model proposes the cast, the engine
 
   Rule: The test floor is unchanged; the committed genesis is the recorded world-gen artifact
 
-    Scenario: With no model wired the deterministic factory stands byte-identically
-      Given a sandbox with no genesis-capable model wired
-      When the cast is generated
-      Then the cast is byte-identical to the deterministic factory's output for that seed
-      # Stubbed lanes, keyless CI, calibration sims, and golden replay ride this floor untouched.
+    # "No model wired => the deterministic factory stands byte-identically" is gated by
+    # tests/unit/castGenesisByteNeutral.test.ts (a preSeedCast->createCharacter adopt path vs a direct createCharacter,
+    # compared roster-for-roster, plus "a floor cast carries no genesis provenance"). Stubbed lanes, keyless CI,
+    # calibration sims, and golden replay ride this floor untouched. The former BDD scenario ran createCharacter twice.
 
     Scenario: A reload reads the committed genesis from the store, never the model
       Given a committed model-authored cast persisted to the save

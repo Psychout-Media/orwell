@@ -23,10 +23,9 @@ Feature: Mixed-type competitions
     When the hybrid competition is resolved many times
     Then the primary-aptitude houseguest still wins a strong majority
 
-  Scenario: With hybrid resolution off the season is byte-identical
-    Given two games started from the same seed played with hybrid resolution off
-    When each hybrid game is played to completion
-    Then the same houseguests are evicted in identical order in each hybrid game
+  # (The OFF path is the pure stat model by construction — no independent pre-feature baseline exists to compare against, so no
+  #  OFF-neutral claim is asserted. The former OFF-vs-OFF "byte-identical" scenario was removed. The real ON-vs-OFF contrast is
+  #  the scenario below.)
 
   Scenario: Turning hybrid resolution on changes seeded outcomes
     Given a set of seeds played once with hybrid resolution on and once off

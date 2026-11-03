@@ -81,24 +81,6 @@ Then("the primary-aptitude houseguest still wins a strong majority", function (t
   assert.ok(this.mix!.hybridRate! > 0.6, `primary should dominate; won ${this.mix!.hybridRate}`);
 });
 
-// --- Scenario: With hybrid resolution off the season is byte-identical ----------------------
-
-Given("two games started from the same seed played with hybrid resolution off", function (this: BbWorld) {
-  this.mix = {};
-});
-
-When("each hybrid game is played to completion", function (this: BbWorld) {
-  this.mix!.a = mixPlay("mix-off-a", 77, false);
-  this.mix!.b = mixPlay("mix-off-b", 77, false);
-});
-
-Then("the same houseguests are evicted in identical order in each hybrid game", function (this: BbWorld) {
-  assert.deepEqual(this.mix!.a, this.mix!.b);
-  assert.ok((this.mix!.a?.length ?? 0) > 0, "houseguests were evicted");
-});
-
-// --- Scenario: Turning hybrid resolution on changes seeded outcomes ------------------------
-
 Given("a set of seeds played once with hybrid resolution on and once off", function (this: BbWorld) {
   this.mix = {};
 });

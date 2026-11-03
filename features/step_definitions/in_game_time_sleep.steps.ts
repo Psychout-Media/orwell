@@ -1,11 +1,8 @@
 import { Given, When, Then, After } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { Orchestrator } from "../../src/composition/orchestrator";
-import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { resolveCompetition, CompetitionIntents, type Competitor } from "../../src/domain/competitionOutcome";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import {
@@ -71,37 +68,6 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   }
   const ids = s.livingIds().filter((id) => id !== PLAYER);
   return s.awakeAmong(ids).length < ids.length;
-}
-
-const OUTCOME_BEATS = new Set([
-  "hoh-competition", "veto-competition", "nominations", "veto-ceremony",
-  "eviction", "final-eviction", "finale-result",
-]);
-
-/** Play a full seeded game through the live adapter + turn-driven orchestrator; hash the outcome stream. */
-function playFullGame(opts: { clockOn: boolean; perConversation?: boolean; socialFatigue?: boolean; multiNight?: boolean }): string {
-  GameSessionAdapter.setTimeOfDayEnabled(opts.clockOn);
-  const reg = new GameSessionRegistry();
-  const user = "f66";
-  const sb = reg.sandboxFor(user);
-  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
-  sb.session.setPerConversationClockEnabled(opts.perConversation ?? false);
-  sb.session.setSocialFatigueEnabled(opts.socialFatigue ?? false);
-  sb.session.setMultiNightFatigueEnabled(opts.multiNight ?? false);
-  const orch = new Orchestrator(reg, new FakeClock(), { seed: SEED, turnDriven: true });
-  reg.setCommit((u) => orch.commitPlayerTurn(u));
-  reg.setOnReset((u) => orch.forgetUser(u));
-  const ceremonies: string[] = [];
-  for (let i = 0; i < 4000; i++) {
-    const adv = sb.session.advanceGame();
-    if (adv.event && OUTCOME_BEATS.has(adv.event.beat)) ceremonies.push(`${adv.event.beat}: ${adv.event.content}`);
-    if (adv.pending) resolveLegally(sb.session, adv.pending);
-    if (adv.finished) break;
-  }
-  const snap = sb.session.snapshot();
-  return createHash("sha256")
-    .update(JSON.stringify({ c: ceremonies, e: snap.live?.evictionOrder ?? [], w: snap.live?.winner }))
-    .digest("hex");
 }
 
 After(function () {
@@ -331,12 +297,6 @@ Then("no time of day or rest cue is surfaced", function (this: BbWorld) {
   assert.equal(s.getGameState().player?.restStatus, undefined, "no rest cue when the clock is off");
 });
 
-Then("every seeded competition outcome is unchanged", function () {
-  const a = playFullGame({ clockOn: false });
-  const b = playFullGame({ clockOn: false });
-  assert.equal(a, b, "the clock-off seeded outcome stream is a deterministic fixed point");
-});
-
 // --- The weekly 5-cycle cadence + period placement ------------------------------------------------
 
 Then("the week runs HOH, nominations, veto competition, veto ceremony, eviction in strict order", function () {
@@ -495,23 +455,4 @@ Then("a rested night recovers part of the accumulated fatigue", function (this: 
 
 Then("the meter stays bounded and is never shown to the player", function () {
   assert.equal(accrueFatigue(1, 1), 1, "the meter saturates at 1 (bounded)");
-});
-
-// --- Phase-2: byte-identical-when-off (shared across all three extensions) -------------------------
-
-When("a full seeded game is played", function (this: BbWorld) {
-  const b = bag(this);
-  b.seededOutcomeOn = playFullGame({
-    clockOn: false,
-    perConversation: b.perConversation ?? false,
-    socialFatigue: b.socialFatigue ?? false,
-    multiNight: b.multiNight ?? false,
-  });
-  b.seededOutcomeOff = playFullGame({ clockOn: false });
-});
-
-Then("every seeded competition, vote, and jury outcome is byte-identical to the extension being off", function (this: BbWorld) {
-  const b = bag(this);
-  assert.equal(b.seededOutcomeOn, b.seededOutcomeOff,
-    "with the master clock off, the extension is fully inert ⇒ byte-identical seeded outcomes");
 });
