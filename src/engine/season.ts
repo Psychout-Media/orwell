@@ -223,6 +223,7 @@ export function replacementPick(
   const ranked = [...options].sort((a, b) => score(b) - score(a));
   // #1948: branch on the HOH's stored target when we have it; otherwise infer it from the scores (legacy).
   const targetStillUp = target !== undefined ? remaining === target : score(remaining) >= score(ranked[0]!);
+  if (!targetStillUp && target === undefined) return ranked[0]!; // legacy no-stored-target inference: unchanged (a human HOH's nominations, an old save)
   if (!targetStillUp) {
     // #1971: the HOH is naming the REAL target again, so rank by the target-oriented read (threat + bloc + mood + the
     // campaign/memory pushes) WITHOUT the pawn-seat floater/duo pull — a pawn or duo partner must not outrank the HOH's top read.
