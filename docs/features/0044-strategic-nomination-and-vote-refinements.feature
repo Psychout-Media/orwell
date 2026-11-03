@@ -44,3 +44,25 @@ Feature: Strategic nomination & vote refinements
     When the same weeks are played in each
     Then the same nominations and votes result
     And every magnitude comes from a single tunable constants module
+
+  # A-14 AMEND (BDD auditor): the three styles/terms below were guarded only by the nightly, non-required calibration
+  # bands, so a sign flip or a dead style passed every required check. These run the LIVE decision functions
+  # (`nominationPlan` with a style, `voteChoice` with the HOH). Principle: an NPC HOH decides from the NPC's OWN
+  # perspective, to benefit that NPC — never random, never the player's wishes.
+  Scenario: A floater takes the pawn seat
+    Given an HOH whose style spends the second seat on whoever nobody will miss, facing a house with one floater
+    When the HOH nominates
+    Then the target is the top threat read
+    And the second seat goes to the floater, not to the better-protected houseguest with the higher threat read
+
+  Scenario: A duo-breaker puts the target's partner up beside them
+    Given a duo-breaking HOH whose top target is locked in a tight pair
+    When the HOH nominates
+    Then the target and the target's duo partner are the two nominees
+
+  Scenario: The HOH's target is a referendum on the HOH
+    Given a house vote on an HOH's target and a pawn
+    When an aligned voter and an opposed voter each cast their eviction vote
+    Then the aligned voter sends the HOH's target home
+    And the opposed voter keeps the target and sends the pawn home
+
