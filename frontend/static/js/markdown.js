@@ -263,6 +263,55 @@ function _segmentLeadingOocAside(reply) {
   return { aside, prose };
 }
 
+// F-6 / N-9 (playtest blockers): an OUT-OF-CHARACTER `((...))` aside is only ever handled above when it LEADS the reply or wraps the WHOLE
+// message. Anything else - an aside glued to the end of a quote, or in the middle of prose (the stacked rounds of one turn join with no
+// separator, so round 2's opening `((...))` lands mid-bubble) - used to render with literal `((` / `))` markers inside the in-character bubble.
+// Pull every remaining balanced `((...))` block OUT of the prose (they render as producer-aside bubbles after it) and drop any leftover
+// unbalanced marker token. Pure. No aside present => the reply comes back byte-identical.
+const _OOC_INLINE_RE = /\(\(([\s\S]*?)\)\)/g;
+function _extractInlineOocAsides(reply) {
+  if (!reply || (reply.indexOf('((') < 0 && reply.indexOf('))') < 0)) return { prose: reply, asides: [] };
+  const asides = [];
+  let prose = String(reply).replace(_OOC_INLINE_RE, (_m, inner) => {
+    const a = (inner || '').trim();
+    if (a) asides.push(a);
+    return '';
+  });
+  prose = prose.replace(/\(\(|\)\)/g, '');                 // stray markers (an unbalanced open/close) never render
+  if (prose === reply) return { prose: reply, asides };
+  prose = prose.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { prose, asides };
+}
+
+// F-6 (the DOUBLED reply): the anti-stale release valve / other mid-turn re-prompts can make the model answer the SAME question twice in one
+// turn; the rounds stack into one bubble. A later `@[Name] ...` block that restates an earlier block by the SAME speaker - sharing a verbatim
+// run of 8+ words - is the second rendition: drop it (the player already read the first). Paragraphs that are genuinely new are kept; blocks by
+// other speakers, and text with no speaker blocks, are never touched. Pure; no restatement => the text is returned unchanged.
+function _collapseRestatedReply(text) {
+  if (!text || text.indexOf('@[') < 0) return text;
+  const paras = String(text).split(/\n{2,}/);
+  const words = (s) => s.toLowerCase().replace(/@\[[^\]]*\]/g, ' ').replace(/[^a-z0-9']+/g, ' ').trim().split(' ').filter(Boolean);
+  const shingles = (w, n) => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' ')); return out; };
+  const speakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
+  const seen = new Map();            // speaker -> Set of 8-word shingles already shown
+  const kept = [];
+  let dropped = false;
+  for (const p of paras) {
+    const sp = speakerOf(p);
+    if (!sp) { kept.push(p); continue; }
+    const sh = shingles(words(p), 8);
+    const prior = seen.get(sp);
+    let restated = false;
+    if (prior) for (const s of sh) { if (prior.has(s)) { restated = true; break; } }
+    if (restated) { dropped = true; continue; }
+    const acc = prior || new Set();
+    sh.forEach((s) => acc.add(s));
+    seen.set(sp, acc);
+    kept.push(p);
+  }
+  return dropped ? kept.join('\n\n') : text;
+}
+
 export function redactRawIds(text) {
   if (!text) return text;
   const lines = String(text).split('\n');
@@ -1236,6 +1285,8 @@ export function processWithThinking(text) {
     // HTML below. A bare/malformed raw id is untouched here and still scrubs as today.
     let spk = { text: reply, chips: [] };
     if (reply) {
+      // F-6: drop a second rendition of the same speaker's answer BEFORE the tags become inert chips.
+      reply = _collapseRestatedReply(reply);
       spk = extractSpeakerTags(reply);
       reply = spk.text;
       const stripped = normalizePlainThinking(reply);
@@ -1292,6 +1343,14 @@ export function processWithThinking(text) {
         reply = _salvageLeadingOocFragment(reply);
       }
     }
+    // F-6 / N-9: any balanced `((...))` still inside the prose (mid-reply or glued to the end of a quote) is an out-of-character aside that
+    // leaked into the in-character bubble: pull it out (it renders as its own producer-aside bubble AFTER the prose) and drop stray markers.
+    let inlineAsides = [];
+    if (reply && !oocAside) {
+      const ex = _extractInlineOocAsides(reply);
+      reply = ex.prose;
+      inlineAsides = ex.asides;
+    }
     // Prepend the reasoning accordion (collapsed by default), then the clean
     // reply. The accordion is debug-only chrome; it never touches the reply text.
     //
@@ -1329,6 +1388,9 @@ export function processWithThinking(text) {
       // speaker line (chip in the gutter beside the dialogue). No-op when there were no tags.
       const replyHtml = restoreSpeakerChips(mdToHtml(reply), spk.chips);
       gbHtml += oocAside ? `<div class="ooc-producer-aside">${replyHtml}</div>` : replyHtml;
+    }
+    for (const a of inlineAsides) {
+      gbHtml += `<div class="ooc-producer-aside">${restoreSpeakerChips(mdToHtml(a), spk.chips)}</div>`;
     }
     return _useSvgEmoji() ? svgifyEmoji(gbHtml) : gbHtml;
   }
