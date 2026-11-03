@@ -2279,6 +2279,70 @@ def _nomination_mismatch(text: str, before: dict, after: dict) -> bool:
     return False
 
 
+# N-6 (2026-11-03): a `((...))` PRODUCTION ASIDE answers the player's direct question and so RESTATES the board ("the nominees are X and Y;
+# Z holds the veto"). The turn-delta verifier above cannot judge a restatement (nothing MOVED this turn, so it reads a true restatement as a
+# phantom), and the scene breaker used to cut it with the cutaway line. These STATE-based patterns let an aside be checked claim-by-claim
+# against the live board instead: a TRUE restatement passes, a contradicted one (a houseguest named as veto holder / HOH / nominee / evictee
+# the board says is not) is dropped. Names only; never a hidden field.
+_ASIDE_VETO_STATE_RES = (
+    re.compile(rf"\b({_NAME_TOKEN})(?i:\s+(?:holds|is holding|has)\s+the\s+(?:power of\s+)?veto)\b"),
+    re.compile(rf"(?i:\bthe\s+(?:power of\s+)?veto\s+(?:holder|winner)\s+(?:is|was)\s+)({_NAME_TOKEN})"),
+    re.compile(rf"\b({_NAME_TOKEN})(?i:\s+(?:is|was)\s+the\s+(?:power of\s+)?veto\s+(?:holder|winner))\b"),
+)
+_ASIDE_HOH_STATE_RES = (
+    re.compile(rf"\b({_NAME_TOKEN})(?i:\s+(?:is|was)\s+(?:the\s+)?(?:current\s+)?(?:head of household|hoh))\b"),
+    re.compile(rf"(?i:\bthe\s+(?:current\s+)?(?:head of household|hoh)\s+(?:is|was)\s+)({_NAME_TOKEN})"),
+)
+_ASIDE_NOM_STATE_RES = (
+    re.compile(rf"(?i:\bthe\s+nominees?\s+(?:are|is|were)\s+)" + _COORD_NAMES),
+    re.compile(_COORD_NAMES + r"(?i:\s+are\s+(?:the\s+)?(?:two\s+)?nominees)\b"),
+)
+
+
+def _aside_sentence_makes_board_claim(sentence: str) -> bool:
+    """N-6: does this aside sentence make a claim worth checking against the board STATE? The usual closed-set outcome detector PLUS the
+    state-restatement phrasings an aside uses ("X holds the veto", "Y is the HOH", "the nominees are X and Y"). Pure; no board read."""
+    if not sentence or not sentence.strip():
+        return False
+    if _sentence_has_closed_set_claim(sentence):
+        return True
+    return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES)
+
+
+def _aside_claim_contradicts_board(sentence: str, live: dict) -> bool:
+    """N-6: STATE-based truth check of ONE sentence inside a `((...))` production aside against the live board signature. True => the
+    sentence names a houseguest in a closed-set role (veto winner/holder, HOH, nominee, evictee) that the board says they do not hold -> the
+    caller drops it. False => the claim is backed, names nobody checkable, or is not a board claim. A name that matches no ACTIVE houseguest
+    is never a contradiction (the roster guard's job, not this check's). Pure."""
+    if not sentence or not isinstance(live, dict) or not live:
+        return False
+    nv = _named_title_winner(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES)
+    if nv and _name_matches_active(nv, live):
+        holder = live.get("vetoHolderName")
+        if not (holder and _name_matches(nv, holder)):
+            return True
+    nh = _named_title_winner(sentence, _HOH_NAME_RES + _ASIDE_HOH_STATE_RES)
+    if nh and _name_matches_active(nh, live):
+        hoh = live.get("hohName")
+        if not (hoh and _name_matches(nh, hoh)):
+            return True
+    named: List[str] = []
+    for rx in _NOMINEE_NAME_RES + _ASIDE_NOM_STATE_RES:
+        m = rx.search(sentence)
+        if m and (m.group(1) or "").strip():
+            named = _split_named_people(m.group(1))
+            break
+    if named:
+        noms = [str(n).strip() for n in (live.get("nomNames") or []) if str(n).strip()]
+        for n in named:
+            if _name_matches_active(n, live) and not any(_name_matches(n, nm) for nm in noms):
+                return True
+    ev = _named_evictee_in_claim(sentence)
+    if ev and _name_matches_active(ev, live):
+        return True  # the board lists them ACTIVE, yet the aside says they were evicted
+    return False
+
+
 def _named_title_winner(text: str, res) -> Optional[str]:
     for rx in res:
         m = rx.search(text or "")

@@ -129,4 +129,7 @@ def test_a_hung_submit_times_out_visibly_and_is_retryable(_app):
     assert r["after"]["disabled"] is False, f"Confirm must be re-enabled after the timeout: {r}"
     assert "Locking in" not in r["after"]["label"], r
     assert "taking too long" in r["after"]["err"].lower(), r
+    # Ryne's ruling: big choices bind ONLY via the card, so the copy must not point the player at "deciding in conversation".
+    assert "conversation" not in r["after"]["err"].lower(), r
+    assert "try again" in r["after"]["err"].lower(), r
     assert r["retried"], f"the player can retry (a second POST goes out): {r}"

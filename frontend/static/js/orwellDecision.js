@@ -1099,7 +1099,7 @@
           _recoverFrom409(); // API-2: actually DO the refresh the copy above promises
         } else if (_ && _.timedOut) {
           // N-12: no answer within the bound. The submit key is stable per card, so a retry is a verbatim replay (never a double-apply).
-          err.textContent = "That is taking too long — it may not have reached the house. Tap Confirm to try again (it is safe), or decide in conversation.";
+          err.textContent = "That is taking too long — it may not have reached the house. Tap Confirm to try again (it is safe).";
         } else if (status === 400) {
           err.textContent = "That move isn't legal right now — pick another, or decide in conversation.";
         } else {

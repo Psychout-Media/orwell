@@ -5035,23 +5035,105 @@ def _ooc_outside_text(chunk: str, in_aside: bool) -> "tuple[str, bool]":
     return "".join(out), in_aside
 
 
-async def _guard_stream_chunk(clean: str, owner, *, ooc_open: bool, scene_broken: bool, emitted_visible: bool,
-                              cutaway_emitted: bool) -> "tuple[_GuardedScene, bool]":
-    """N-6 (playtest, Med): run `_emit_guarded_scene` only on the text OUTSIDE an out-of-character `((...))` aside, carrying the aside state
-    across chunks. A production answer RESTATES the board ("The nominees are X and Y; Z holds the veto") - it narrates no event - yet its
-    sentences match the closed-set claim detectors, so the A2 circuit-breaker used to cut it with the "live feeds cut away" line and leave a
-    stray `))`. Narration outside an aside is still screened exactly as before (an unbacked board change is still cut); an entirely-aside chunk
-    streams as-is. The Vault walls (knowledge / presence) run AFTER this at the call sites and are untouched. Returns (guarded, new_ooc_open)."""
-    outside, new_open = _ooc_outside_text(clean, ooc_open)
-    if not outside.strip():
-        return _GuardedScene(clean, scene_broken, cutaway_emitted), new_open
-    if outside == clean and not ooc_open and not new_open:
+def _ooc_segments(chunk: str, in_aside: bool) -> "tuple[list[tuple[str, bool]], bool]":
+    """N-6: split one streamed chunk into ordered (text, is_aside) segments, plus the aside state to carry. Aside segments keep their `((` / `))`
+    markers verbatim, so joining the segments reproduces the chunk exactly. Same state machine as `_ooc_outside_text`. Pure."""
+    segs: "list[tuple[str, bool]]" = []
+    i = 0
+    n = len(chunk or "")
+    while i < n:
+        if in_aside:
+            j = chunk.find("))", i)
+            if j < 0:
+                segs.append((chunk[i:], True))
+                return segs, True
+            segs.append((chunk[i:j + 2], True))
+            i = j + 2
+            in_aside = False
+        else:
+            j = chunk.find("((", i)
+            if j < 0:
+                segs.append((chunk[i:], False))
+                break
+            if j > i:
+                segs.append((chunk[i:j], False))
+            i = j
+            k = chunk.find("))", j + 2)
+            if k < 0:
+                segs.append((chunk[j:], True))
+                return segs, True
+            segs.append((chunk[j:k + 2], True))
+            i = k + 2
+    return segs, in_aside
+
+
+async def _screen_aside_text(text: str, owner) -> str:
+    """N-6: truth-check the sentences of one `((...))` aside segment against the LIVE board STATE (`chat_helpers._aside_claim_contradicts_board`).
+    A sentence that makes a closed-set claim the board contradicts is DROPPED (never replaced by the cutaway line); a true restatement passes.
+    If the engine is unreadable, a sentence carrying a closed-set claim is dropped (an unverifiable outcome must not stream); claim-free
+    sentences always pass. Returns the surviving text. Fail-open on an internal error (never gag a healthy turn)."""
+    if not text:
+        return text
+    try:
+        from routes import chat_helpers
+        parts = re.split(r"(?<=[.!?\n])", text)
+        if not any(chat_helpers._aside_sentence_makes_board_claim(p) for p in parts):
+            return text
+        live = await chat_helpers._capture_beat_signature(owner)
+        kept = []
+        for p in parts:
+            if p and chat_helpers._aside_sentence_makes_board_claim(p) and (not live or chat_helpers._aside_claim_contradicts_board(p, live)):
+                continue
+            kept.append(p)
+        return "".join(kept)
+    except Exception:
+        return text
+
+
+async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool, emitted_visible: bool,
+                              cutaway_emitted: bool) -> "tuple[_GuardedScene, str]":
+    """N-6 (playtest, Med): a production answer in `((...))` restates the board ("the nominees are X and Y; Z holds the veto") and used to be cut by
+    the A2 scene circuit-breaker with the "live feeds cut away" line. The breaker is for fabricated NARRATION, so aside text is exempt from it and
+    from the cutaway line ONLY. It is still held to the truth: each aside sentence is checked claim-by-claim against the live board STATE
+    (`_screen_aside_text`) - a true restatement streams, a contradicted claim (e.g. a false veto winner) is stripped. Narration outside an aside is
+    screened exactly as before. `ooc_open` is the carried aside state: False/"" outside, True/"aside" inside, "drop" inside an aside whose earlier
+    sentence was stripped (the rest of that aside is dropped too, so no half-aside and no stray `))` survives). Returns (guarded, new_state)."""
+    state = "drop" if ooc_open == "drop" else ("aside" if ooc_open else "")
+    segs, still_open = _ooc_segments(clean, state != "")
+    if not any(is_aside for _t, is_aside in segs):
         g = await _emit_guarded_scene(clean, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-        return g, new_open
-    g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-    if g.scene_broken or g.text != outside:
-        return g, new_open  # the narration part was cut/trimmed: the fabricated scene (and any aside glued to it) goes with it
-    return _GuardedScene(clean, g.scene_broken, g.cutaway_emitted), new_open
+        return g, ""
+    dropping = state == "drop"
+    out: "list[str]" = []
+    ce = cutaway_emitted
+    shown = emitted_visible
+    for idx, (seg, is_aside) in enumerate(segs):
+        last_and_open = still_open and idx == len(segs) - 1
+        if is_aside:
+            if dropping:
+                if not last_and_open:
+                    dropping = False
+                continue  # the rest of a stripped aside never streams
+            kept = await _screen_aside_text(seg, owner)
+            if kept != seg:
+                if last_and_open:
+                    dropping = True
+                if not kept.replace("((", "").replace("))", "").strip():
+                    continue
+            out.append(kept)
+            shown = shown or bool(kept.strip())
+        else:
+            if not seg.strip():
+                out.append(seg)
+                continue
+            g = await _emit_guarded_scene(seg, owner, scene_broken=scene_broken, emitted_visible=shown, cutaway_emitted=ce)
+            if g.scene_broken:
+                return g, ("drop" if still_open else "")  # a fabricated scene cuts the whole chunk, as before
+            ce = g.cutaway_emitted
+            out.append(g.text)
+            shown = shown or bool(g.text.strip())
+    new_state = ("drop" if dropping else "aside") if still_open else ""
+    return _GuardedScene("".join(out), scene_broken, ce), new_state
 
 
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
@@ -6718,7 +6800,7 @@ async def _stream_agent_loop_impl(
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
-        _ooc_open = False  # N-6: carried across this round's streamed chunks - are we inside a `((...))` production aside?
+        _ooc_open = ""  # N-6: carried across this round's streamed chunks: "" outside a `((...))` production aside, "aside" inside, "drop" inside one being stripped
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
