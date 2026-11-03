@@ -135,6 +135,13 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       guardSyncFields(true); // 0065 Parts A+B — optional expectedBeatSeq + idempotencyKey
       if (!isStr(args["kind"])) refuse("kind", "a decision kind (string)");
       if (args["choice"] !== undefined && !isStrArray(args["choice"])) refuse("choice", "an array of houseguest ids when present");
+      // 0025: the secret veto is a one-time, irreversible-if-played safety. The engine reads a missing /
+      // non-boolean `use` as a falsy HOLD (and then does not re-offer it this week), so a client that
+      // omits the boolean would silently decline the player's safety. Refuse it at the boundary instead;
+      // the pending stays open (nothing was dispatched).
+      if (args["kind"] === "secret-veto" && typeof args["use"] !== "boolean") {
+        refuse("use", "a boolean when kind is secret-veto (true plays the secret veto, false holds it)");
+      }
       return;
     case "turnIn":
       guardSyncFields(true); // 0065 Parts A+B — optional expectedBeatSeq + idempotencyKey (a mutating progression tool)
