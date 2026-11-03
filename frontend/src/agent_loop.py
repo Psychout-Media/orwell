@@ -1873,6 +1873,27 @@ _ANTI_STALE_FORCED_VOICE = (
     "stuck on, and never a result you guessed. Just bring the player to the present moment the engine "
     "reports.")
 
+# F-6 (playtest, the CAUSE of the doubled reply): the release valve's forced voice carried only the generic CONTINUE-NEVER-REOPEN contract,
+# so on a turn where round 1 had already answered the player's message the model re-answered it (two renditions, fused into one bubble). The
+# directive now QUOTES what the player has already read this turn, so round 2 knows exactly what is covered and must only add what is new.
+_FORCED_VOICE_SHOWN_TAIL = 900
+
+
+def _anti_stale_forced_voice(emitted_visible: bool, shown_text: str) -> str:
+    """The in-turn forced-voice directive. When a scene already streamed this turn it carries the CONTINUE-NEVER-REOPEN contract AND the
+    tail of what was shown ("already read - do not repeat, rephrase or re-answer it"); otherwise it is the plain forced voice. Pure."""
+    if not emitted_visible:
+        return _ANTI_STALE_FORCED_VOICE
+    shown = (shown_text or "").strip()[-_FORCED_VOICE_SHOWN_TAIL:]
+    parts = [_CONTINUE_NEVER_REOPEN]
+    if shown:
+        parts.append(
+            "ALREADY SHOWN TO THE PLAYER THIS TURN (they have read exactly this, and their message was ALREADY answered in it - do NOT "
+            "repeat, rephrase, re-answer or re-voice any of it; add only what is NEW, picking up after it):\n<<<\n" + shown + "\n>>>")
+    parts.append(_ANTI_STALE_FORCED_VOICE)
+    return "\n\n".join(parts)
+
+
 # 0079/0080 ACTIVE OVERSEER — the CONTINUE-NEVER-REOPEN contract (the "stuttering narrator" fix,
 # 2026-07-16). The active overseer's re-prompting levers (nudge / force-advance / reinject-delta) can
 # fire AFTER a scene has ALREADY streamed to the player this turn — e.g. a desync/stale-409 gets
@@ -8334,12 +8355,9 @@ async def _stream_agent_loop_impl(
                                 # NOT a further advance — so the model narrates where the engine actually is.
                                 _holds = _ANTI_STALE_CAP_HOLDS.get(_belt_key(owner), 0)
                                 if _holds >= 2:
-                                    _voice = _ANTI_STALE_FORCED_VOICE
-                                    if _emitted_visible:
-                                        # A scene already streamed this turn — carry the CONTINUE-NEVER-REOPEN
-                                        # contract (same as every sibling mid-turn re-prompt) so the forced
-                                        # voice reads as "bring us to the present moment", not "re-narrate".
-                                        _voice = _CONTINUE_NEVER_REOPEN + "\n\n" + _voice
+                                    # A scene already streamed this turn — carry the CONTINUE-NEVER-REOPEN contract AND quote what
+                                    # was shown (F-6), so the forced voice reads as "bring us to the present moment", not "re-answer".
+                                    _voice = _anti_stale_forced_voice(_emitted_visible, full_response)
                                     logger.info("[orwell] ANTI-STALE RELEASE VALVE — forcing an IN-TURN voice "
                                                 f"of the current moment (hold #{_holds}, phase={_phase}), NOT a "
                                                 f"further advance round {round_num} user={owner}")
