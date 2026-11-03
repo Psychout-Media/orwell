@@ -1,6 +1,6 @@
 # 0064 — Live multi-device game sync (the canonical game chat)
 
-**Status:** ✅ Built (authored 2026-06-20; parts A, B/D, C and F shipped, see *Shipped so far* below and the README index). **Gate:** FE (pytest) + browser smoke.
+**Status:** ✅ Built (authored 2026-06-20; parts A, B/D and C shipped; part F shipped as cross-device layout sync and was then **superseded by ADR [0017](../decisions/0017-multiplexed-websocket-session-transport.md)** (owner call 2026-07-09: window/HUD geometry is remembered **per device**, not synced cross-device); see *Shipped so far* below and the README index). **Gate:** FE (pytest) + browser smoke.
 **Depends on:** 0021 (per-user sandboxes / one game per user), 0032 (the game build), 0050
 (casting interview), 0054 (gadget rail HUD). **Supersedes** the per-tab/per-device onboarding
 guards described in *Implementer handoff → What this replaces*.
@@ -28,7 +28,7 @@ These resolve §7's open questions and steer the build:
 
 - **A — canonical game session** (#399, merged): every device converges on one chat; existing
   cross-device sync engages.
-- **F — window/HUD layout sync** (this PR): open/minimized/docked + size + position sync across
+- **F — window/HUD layout sync** (this PR; **policy superseded by ADR 0017** — layout is now per-device, not cross-device; the store/route/SSE plumbing below remains, scoped by device id): open/minimized/docked + size + position originally synced across
   devices (`orwell_layout.py` store + `GET/PATCH /api/orwell/layout` + a `layout-changed` SSE event
   + kit capture/apply in `orwellWindow.js` + `orwellLayoutSync.js`).
 - **B/D — `game-updated` instant HUD reconcile, the cast-photo onboarding fix, and the once-only
@@ -77,14 +77,12 @@ then leans on the existing sync so all screens render the **same conversation li
   every device resolves and opens *that* session for the game.
 - **B. Engage the existing live-sync** for the canonical session (verify + harden late-join,
   hidden-kickoff reconciliation, HUD reconciliation).
-- **C. Turn ownership** — a per-user (== per game session) turn lock: at most one in-flight run;
-  other devices are live **spectators** with an explicit, guarded **take-over**.
+- **C. Turn serialization** — *(original design was a per-user turn lock with live spectators and a guarded take-over; superseded by the locked **Messenger** decision above.)* As shipped: a game-framed turn **queues** behind any in-flight run for the canonical session (`agent_runs.start(..., queue=True)`); no lock, no spectator mode, no take-over.
 - **D. Once-only casting kickoff** — the producers' opener fires once per game, not once per device.
 - **E. Robustness** — late join (replay + live), reconnect, FE-restart catch-up, multi-tab,
   cross-user isolation, Vault-free throughout.
 - **F. Window & HUD layout sync** — the gadget-rail and every OrwellWindow kit window's
-  **open / minimized / docked** state, **size (w,h)**, and **position (x,y)** sync across the user's
-  devices (currently per-device `localStorage`).
+  **open / minimized / docked** state, **size (w,h)**, and **position (x,y)**. *(Originally specified to sync across the user's devices; **superseded by ADR 0017** — geometry is now remembered per device and only the same device's tabs mirror each other.)*
 
 **Out of scope / non-goals:**
 
@@ -215,7 +213,7 @@ The producers' opener must fire **once per game**, not once per device. Today `_
 (in-memory) + `SEAT_TAKEN_KEY` (`sessionStorage`) are per-page-load / per-tab. Re-anchor the guard
 to game state, two layers:
 
-1. **Server (authoritative):** the turn lock (C) already prevents a second concurrent kickoff run.
+1. **Server (authoritative):** the turn queue (C) already serializes a second concurrent kickoff run behind the first.
    Additionally, the kickoff should only fire when the canonical session has **no prior assistant
    turn** — i.e. the game session is empty. The FE can check session history length before sending
    the cue; the engine's casting intake (`updateCasting` "next" status) is the deeper truth (a
@@ -223,23 +221,23 @@ to game state, two layers:
 2. **Client:** `_orwellOpenGameAfterCasting` fires the cue only if (a) this is the canonical
    session, (b) the session has no messages yet, and (c) no run is active (existing
    `hasActiveStream` guard). A second device finding the opener already present simply renders it
-   live and joins as spectator.
+   live and joins the shared thread.
 
 ### E. Robustness
 
 - **Late join:** §B.1 (replay + live).
 - **Reconnect:** `EventSource` auto-reconnects; `sessionSync.js` already re-establishes with capped
   backoff on hard-close.
-- **FE restart mid-turn:** `agent_runs` / `session_events` / the turn lock are in-memory, so a
-  restart drops the in-flight run **and** clears the lock (fail-open — a new turn can be driven).
+- **FE restart mid-turn:** `agent_runs` / `session_events` / the turn queue are in-memory, so a
+  restart drops the in-flight run **and** any queued turns (fail-open — a new turn can be driven).
   Devices catch up from **persisted history** (the wrapped generator saved the assistant message on
   completion, or its partial on cancel); the next poll / open reloads it. No run survives a restart
   by design (non-goal).
-- **Multi-tab, one device:** same session id ⇒ one driver, the rest spectate (identical to
+- **Multi-tab, one device:** same session id ⇒ turns serialize through the queue (identical to
   multi-device).
 - **Cross-user isolation (0021):** `/api/chat/events/{id}` already owner-guards (W2);
   `/api/orwell/game-session` is `_current_user`-scoped and never returns another user's session;
-  the turn lock is keyed by the user's own session id. No call for user A can observe user B.
+  the turn queue is keyed by the user's own session id. No call for user A can observe user B.
 
 ### F. Window & HUD layout sync across devices
 
@@ -302,9 +300,9 @@ serialization (C) — it can ship in its own slice.
 | `frontend/src/orwell_game_session.py` | **new** FE store | `get/set/clear_game_session(user)`; JSON in `DATA_DIR`; atomic + lock; Vault-free (ids only). |
 | `GET /api/orwell/game-session` | **new** route | `_current_user`-scoped; resolves-or-mints the canonical session; idempotent under concurrency; `{sessionId, created}`. |
 | `/api/orwell/{new-game,next-season,reset-progress}` | **amend** | also `clear_game_session(user)` on reset (rotate the session for the new season). |
-| `frontend/src/game_turn_lock.py` | **new** FE lock | per-session acquire/release; `is_held(session)`; in-memory; auto-released on run terminal state. |
-| `POST /api/chat/stream` (game-framed) | **amend** | acquire the lock before `agent_runs.start`; on a held lock for a *different* driver, return **409 `turn-in-progress`** instead of stomping; release on terminal. |
-| `POST /api/chat/stop/{id}` | **reuse** | the take-over path; releases the lock. |
+| ~~`frontend/src/game_turn_lock.py`~~ | **not built** | superseded by the Messenger decision (no turn lock / spectator / take-over). |
+| `POST /api/chat/stream` (game-framed) | **amend** | **as shipped:** opts into `agent_runs.start(..., queue=True)` via `ctx.framed`, so a second device's game turn **queues** behind the in-flight run instead of stomping it or being refused (no 409). |
+| `POST /api/chat/stop/{id}` | **reuse** | unchanged plain stop; no lock to release. |
 | `GET /api/chat/events/{id}`, `/resume/{id}` | **reuse** | the existing per-session SSE + run-attach; now engaged because devices share `id`. |
 | `static/js/orwellOnboarding.js` | **amend** | resolve + `selectSession` the canonical session instead of minting a device-local one. |
 | `static/js/sessionSync.js` | **reuse/verify** | already reconciles `run-started` / `message-added`; verify late-join attach. |
@@ -329,9 +327,9 @@ clients. No names in any fixture (roles only). Concrete suites:
   /api/orwell/game-session` for one user return the **same** id; a different user gets a **different**
   id; a reset (`/next-season`, `/reset-progress`) **rotates** the id; a stored id that no longer
   exists is re-minted.
-- **Turn lock (`test_0064_turn_lock.py`)** — while a game run is active, a second game-turn submit
-  returns **409 `turn-in-progress`**; after the run reaches terminal, a submit **succeeds**;
-  `POST /api/chat/stop` releases the lock; a plain (non-game) chat is unaffected.
+- **Turn queue (`test_0064_turn_queue.py`)** — while a game run is active, a second game-turn submit
+  **queues** and runs after the first (no stomp, no 409, no spectator state); a plain (non-game) chat
+  keeps cancel-on-double-send. *(Replaces the original turn-lock / 409 `turn-in-progress` suite, which was never built.)*
 - **Live sync (`test_0064_session_sync.py`)** — a subscriber to `/api/chat/events/{id}` receives
   `run-started` + `message-added` for the shared session; a subscriber for a **different user's**
   session id is refused (owner guard); event payloads carry **no message body** and no Vault
@@ -344,8 +342,8 @@ clients. No names in any fixture (roles only). Concrete suites:
   concurrent patch of the same window.
 - **Browser smoke (extend `scripts/browser_smoke.py`)** — two headless contexts, same account:
   device A drives a casting turn; device B (already open) renders the **same** producer message and
-  the live stream; B's composer is disabled with the spectator banner during A's turn; after A's
-  turn B can drive the next one.
+  the live stream; B's composer stays enabled (Messenger model, no spectator banner) and a turn B
+  sends during A's turn queues behind it.
 
 **Definition of done:** the pytest suites green; the browser smoke shows two devices on one
 conversation with one-driver-at-a-time; an owner-guard + Vault-sentinel assertion on every new
@@ -358,16 +356,17 @@ route; the two-device casting-interview no longer produces two reasoning chains.
 1. Two devices on one account always open the **same** game `session_id`.
 2. A game turn driven on one device **streams live** on every other device (tokens, not just the
    final message).
-3. At most **one** game reasoning chain runs at a time per user; a second device's attempt is a
-   clean **409 + spectator mode**, never a stomp and never a second chain.
+3. At most **one** game reasoning chain runs at a time per user; a second device's turn is
+   **queued behind** the in-flight run (Messenger model), never a stomp, never a 409 / spectator lockout, and never a second parallel chain.
 4. The casting producers reach out **once** per game regardless of device count.
 5. A device opening mid-turn **catches up** (replay + live); a reconnect resumes; an FE restart
    degrades to history catch-up without a stuck game.
 6. A season reset **rotates** the canonical session (no dead-season bleed-through).
 7. Every new surface is **owner-scoped and Vault-free**; no cross-user observation.
-8. A window's **open/minimized/docked** state, **size**, and **position** set on one device appear on
-   every other device (live, and on next load), without yanking a window the user is actively
-   dragging.
+8. A window's **open/minimized/docked** state, **size**, and **position** are persisted server-side
+   **per device** (ADR 0017 superseded the original cross-device sync: a desktop and a phone keep
+   independent arrangements; only the same device's tabs mirror each other), without yanking a window
+   the user is actively dragging.
 
 ---
 
@@ -387,7 +386,7 @@ route; the two-device casting-interview no longer produces two reasoning chains.
 
 **What this replaces.** The per-tab / per-device onboarding guards (`_openSent`, `SEAT_TAKEN_KEY`,
 the `currentSessionId` localStorage default, the per-session `_SESSION_GAME_FRAMED`) are no longer
-the coordination mechanism — the **server-side canonical session + turn lock** are. Leave the JS
+the coordination mechanism — the **server-side canonical session + turn queue** are. Leave the JS
 guards as cheap local fast-paths, but they must never be the only thing standing between two devices
 and two reasoning chains.
 

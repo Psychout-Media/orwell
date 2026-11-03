@@ -56,8 +56,11 @@ started), a social (aux) turn is **no longer silenced**:
   every seeded competition/jury roll is **byte-identical**. The off-screen society already uses side-rng
   (never the seeded spine), so even the extra live-game ticks can't perturb a seeded outcome.
 - **Golden record/replay (0108, historical — decommissioned 2026-07-21):** the golden driver pinned
-  `ORWELL_TIME_PER_CONVERSATION=0`. The same property (clock off ⇒ `perConversationClockLive()` is `false`,
-  **no new tick fires**) is now guarded by `perConversationClockNeutral`.
+  `ORWELL_TIME_PER_CONVERSATION=0`. The same property is now guarded in two parts:
+  `perConversationClockNeutral` proves the seeded competition/vote/jury **outcome** stream is byte-identical,
+  and `tests/unit/houseLivesInInGameTime.test.ts` proves that with the **master in-game clock off**
+  `perConversationClockLive()` is `false` and no extra off-screen society tick fires on social turns. The
+  master-on / per-conversation-off combination is not separately asserted as a no-tick case.
 - **No token cost:** the off-screen society is **pure engine simulation** (templates + seeded rng), not an
   LLM call, so a livelier cadence costs no tokens — only richer hidden state.
 

@@ -6,8 +6,9 @@
 > narration model at temperature 1.1 under the **strict enrichment policy**; this spec re-routes the
 > **skeleton itself** — the model proposes the ENTIRE 15-NPC cast, and the engine validates, clamps,
 > and commits it inside an envelope it owns.
-> **Requires owner sign-off on the [ruling #1 amendment](#5-ruling-1-amendment-owner-sign-off-required)
-> below before build.**
+> **Historical (pre-build) requirement:** the spec once required owner sign-off on the [ruling #1 amendment](#5-ruling-1-amendment-owner-sign-off-required)
+> below before build. The feature has since been built; §5 and §9 #1 are retained as the original sign-off ask,
+> and the formal ruling-doc ratification is tracked in the audit ledger / `PO-REVIEW-LEDGER.md`, not here.
 > **Builds on (does NOT duplicate):** **0004** (replayability & naming — amended by this spec),
 > **0058/0065** (deep profiles + the pre-warm/`recordCastProfile` write-back seam — the model already
 > authors the *depth*; this extends the same propose→validate→seal discipline to the *skeleton*),
@@ -159,6 +160,8 @@ enters the house):
 
 ## 5. RULING #1 AMENDMENT (owner sign-off required)
 
+> *Historical: this was the pre-build sign-off ask. The feature is built; read the "Ask" below as the original request, not an open blocker.*
+
 **Product ruling #1 (2026-06-10, "no fixed cast")** currently binds the *mechanism*: NPC names are
 **seeded samples from the vendored real-name corpora** — corpora as raw material, no hard-coded
 full-name+persona pairing, the legacy Bible's names banned. This spec **amends the mechanism while
@@ -258,7 +261,7 @@ gate, portrait gating, the `recordCastProfile` cross-character guards).
 - **Calibration property gate:** seeded-random envelope-*passing* casts through the jury sim keep
   the `EARNED_WINS` band (the genesis-shaped analog of `juryReach`).
 
-## 9. Open decisions (PO) — what remains after the 2026-07-11 answers
+## 9. Open decisions (PO) — what remained after the 2026-07-11 answers (historical; the feature is built)
 
 1. **Ratify the ruling #1 amendment** (§5) — the blocking decision.
 2. **Exact envelope constants** (`GENESIS_TOTAL_MAX`, the 70–100% band edges, per-stat clamps,

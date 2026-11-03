@@ -101,6 +101,6 @@ renderGameContext(view): string                            // primes the narrato
 
 Builds on **0117** (the per-conversation clock that carries time through social play — its `SOCIETY_TICK_HOURS`
 sibling), **0106** (the whole-house gather set-piece, reused unchanged), **0066 / ADR 0006** (in-game time +
-the night-gate day structure), and the FE **L39b** forced-advance nudge (made time-aware). Preserves **0108**
-(and, historically, golden replay, decommissioned 2026-07-21) and the seeded spine by gating strictly on the per-conversation clock. Phase 2 of the
+the night-gate day structure), and the FE **L39b** forced-advance nudge (made time-aware). Preserves the seeded spine by gating strictly on the per-conversation clock
+(historically this also kept the 0108 golden record/replay intact; 0108 was decommissioned 2026-07-21). Phase 2 of the
 in-game-time pivot (owner directive 2026-07-11; interrupt-must-be-telegraphed confirmed 2026-07-12).

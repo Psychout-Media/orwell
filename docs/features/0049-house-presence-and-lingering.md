@@ -9,7 +9,7 @@
 > co-presence as a witness pathway, adjacency as a **bidirectional, low-confidence overhear pathway**, and
 > the guarantee that milling around **never advances the week**.
 > **Executable spec:** [`0049-house-presence-and-lingering.feature`](./0049-house-presence-and-lingering.feature)
-> **Superseded detail (0077 Phase 2):** `whereabouts()` now lists the occupants of rooms within **sightline** (eyeshot, `HOUSE_SIGHTLINE`), not raw adjacency, and closed-door rooms are opaque; wherever this note says "adjacent" for what the player can *see*, read "within sightline". Adjacency still governs movement and the overhear roll.
+> **Superseded detail (0077 Phase 2):** `whereabouts()` now lists the occupants of rooms within **sightline** (eyeshot, `HOUSE_SIGHTLINE`), not raw adjacency, and closed-door rooms are opaque to the live ambient read (`present`/`nearby`; the player only ever sees a closed room's occupants through the separate `tracked` field — earned doorway sightings, never the live map); wherever this note says "adjacent" for what the player can *see*, read "within sightline". Adjacency still governs movement and the overhear roll.
 > **Provenance:** `docs/audits/2026-06-10-v1-transcript-meta-feedback-audit.md` §3.7, §4.4, §5.6 · ADR 0003 §4/§7/§8.
 
 ## 1. Summary

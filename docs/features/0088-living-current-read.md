@@ -2,7 +2,7 @@
 
 > **Status:** ✅ **BUILT.** Tracks issue **#864**. The cue reaches the model both ways: pulled via `npcVoice`, and pushed with the present-company cues (`presentKnowledgeForPrompt` carries `currentRead` beside `mood`) into the moment prompt.
 > **Gate:** engine (Vitest + a property/distribution gate + the dependency-cruiser Vault
-> boundary + BDD `0088-living-current-read.feature`) and front-end (the voicing path consumes the new
+> boundary, which runs as the Vitest test `tests/architecture/vault-boundary.test.ts` inside the engine lane's `test:ci` — the standalone `npm run test:arch` CLI is not a separate CI step + BDD `0088-living-current-read.feature`) and front-end (the voicing path consumes the new
 > Vault-safe `currentRead` carriage cue through `getMomentPrompt`/`npcVoice`, pytest-gated).
 > **Depends on:** 0001 (the Vault Wall — the read is hidden state, surfaced behavior-only), 0002/0017/0026
 > (the directed, graded, asymmetric NPC→player relationship edge this read is *computed from* — the

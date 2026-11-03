@@ -1,6 +1,6 @@
 # 0097 — The suspicion ledger (a player-private "called it / wrong" scorecard)
 
-> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; `CLAUDE.md` is authoritative). It is **not reopened**. A pure engine core built 2026-07-12 is preserved in the tree but is unwired and not live: the pure ledger core is built & unit-green
+> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; [`docs/features/README.md`](./README.md) is the authoritative status index). It is **not reopened**. A pure engine core built 2026-07-12 is preserved in the tree but is unwired and not live: the pure ledger core is built & unit-green
 > (`src/engine/suspicionLedger.ts` + `suspicionConstants.ts`, `tests/unit/suspicionLedger.test.ts`) — logging
 > (verbatim/lossless), the sanctioned-reveal matcher (`resolveAgainstReveal`: a model-proposed verdict COMMITTED,
 > or the deterministic keyword/about/topic floor; frozen-on-resolve; NEVER a live Vault read), and the 0048

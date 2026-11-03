@@ -1,6 +1,6 @@
 # 0098 — Confidence-calibrated reads (bold correct reads pay off; blind faith burns)
 
-> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; `CLAUDE.md` is authoritative). It is **not reopened**. A domain term built 2026-07-12 is preserved but DEFAULT-INERT and not live: the domain mechanic is built &
+> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; [`docs/features/README.md`](./README.md) is the authoritative status index). It is **not reopened**. A domain term built 2026-07-12 is preserved but DEFAULT-INERT and not live: the domain mechanic is built &
 > property-green — `Competitor.conviction?` (default `1`) in `src/domain/competitionOutcome.ts` +
 > `convictionVarianceGain`/`convictionVarianceCap` in `src/domain/temperatureConstants.ts`;
 > `tests/unit/confidenceCalibration.test.ts` (10 cases) proves BYTE-IDENTICAL at conviction 1/undefined,

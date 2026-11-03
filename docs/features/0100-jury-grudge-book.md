@@ -299,10 +299,7 @@ sycophancy, and without flattening the open set.
 
 ## Open questions / defaults (resolve at build)
 
-1. **Stretch cadence & size.** *(Resolved by owner ruling 2026-11-02, #1922 / PR #1932: once per new juror arrival, 1–3 scenes, a fast-forward limbo.)* Originally: run the jury-house stretch every sequestered off-screen tick (cheap,
-   responsive) vs. once per evicted-week. Default: per tick, small (≈1–2 scenes), so the room's
-   bitterness builds gradually over real sequester time rather than in one jump. Tune against
-   `juryReach`.
+1. **Stretch cadence & size.** *(Resolved by owner ruling 2026-11-02, #1922 / PR #1932: the jury-house stretch runs once per new juror arrival, 1–3 scenes, a fast-forward limbo; the earlier per-tick 1–2-scene default was dropped. Tune against `juryReach`.)*
 2. **Grudge-adjustment magnitude & saturation.** The bounded per-juror cap and the diffusion
    transmit/decay. Default: reuse `GOSSIP` transmit/decay; size the adjustment cap *under* `MANNER_LEAN`
    so it deepens (never swamps) the eviction-manner baseline. Calibrate (felt, never deterministic;

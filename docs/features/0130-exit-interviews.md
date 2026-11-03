@@ -17,7 +17,7 @@
 > + FE `frontend/tests/test_m3_4_decision_faces.py` (buildPayload byte-parity for the new kind).
 > **Executable spec:** [`0130-exit-interviews.feature`](./0130-exit-interviews.feature)
 > **Also proven by:** `tests/unit/exitInterview.test.ts`
-> **Post-goodbye chain (#1945):** after the player's goodbye the engine owes `exit-interview → eviction result`. The front-end now advances through that whole chain in one bounded loop (at most 6 steps, each compare-and-swapped on the prior `beatSeq` with its own idempotency key; it stops when the result beat lands, the eviction view is gone, a pending decision appears, or the season finishes), shared by the HTTP and WebSocket decision paths. Before this it fired a single advance and eviction night stalled at the exit interview. Pinned by `tests/unit/postGoodbyeBeatChain.test.ts` + `frontend/tests/test_0130_post_goodbye_advance.py`.
+> **Post-goodbye chain (#1945):** after the player's goodbye the engine owes `exit-interview → eviction result`. The front-end now advances through that whole chain in one bounded loop (at most 6 steps, each compare-and-swapped on the prior `beatSeq`, and — when the goodbye carried an idempotency key (the HTTP path always has one, client-supplied or minted; a keyless WebSocket decision has none) — with its own key derived from it; it stops when the result beat lands, the eviction view is gone, a pending decision appears, or the season finishes), shared by the HTTP and WebSocket decision paths. Before this it fired a single advance and eviction night stalled at the exit interview. Pinned by `tests/unit/postGoodbyeBeatChain.test.ts` + `frontend/tests/test_0130_post_goodbye_advance.py`.
 
 ## 1. Summary
 

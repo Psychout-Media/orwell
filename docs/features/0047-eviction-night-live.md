@@ -2,7 +2,7 @@
 
 > **Status:** ✅ **Built & green** (queue **B49**; in `cucumber.cjs`). The weekly eviction — _Big Brother_'s
 > **defining beat, ~13×/season** — was **one line**; it is now staged through the **0034 seam** like the
-> finale (0037): an **ordered, one-at-a-time vote reveal** (revealed-only tally, never a pre-reveal winner)
+> finale (0037): an **ordered, batched vote reveal** (a seeded order, read a few ballots per advance; revealed-only, never a pre-reveal winner)
 > via a `EvictionProgress` sub-state machine, an **evictee goodbye** beat, and **goodbye messages** from a
 > seeded selection of houseguests — recorded as events whose **relationship-derived tone** folds into the
 > evictee's **manner** (0037 §4.2) and thus their **jury lean** (0014). The reveal order is engine-decided +
@@ -16,7 +16,7 @@
 
 ## 1. Summary
 
-Eviction night is the show's heartbeat: the votes read one at a time, the tension of a building tally, the
+Eviction night is the show's heartbeat: the ballots read out in order, the tension of a building tally, the
 evicted houseguest's exit, and the goodbye messages that reveal who really had their back. Today the engine
 resolves all of that into a single recorded line. 0047 gives the eviction the same live, staged treatment
 the finale already has — a dramatic, Vault-safe sub-loop — and makes the **goodbye** matter: a warm send-off
@@ -35,7 +35,7 @@ pattern (a staged view on `AdvanceView`, advanced through the decision seam).
 ## 3. Scope
 
 **In:** stage the eviction through the **0034 seam** as a sub-loop (mirroring 0037): an **`EvictionView`** on
-`AdvanceView` (`{ stage, nominees, votesRevealed[] }`) advanced beat-by-beat; an **ordered one-at-a-time vote
+`AdvanceView` (`{ stage, nominees, votesRevealed[] }`) advanced beat-by-beat; an **ordered, batched vote
 reveal** (revealed-only running tally; the outcome lands only when the last vote is read; HOH tie-break as
 today); an **evictee goodbye** beat; **goodbye messages** from selected houseguests recorded as events that
 feed eviction **manner** (0037 §4.2) + **jury lean** (0014). Reveal order **engine-decided + seeded**
@@ -49,11 +49,11 @@ already-decided vote); the finale (0037 — reused as the pattern, not re-built)
 
 - **Staged sub-loop (reuse 0037's shape).** While an eviction is resolving, `advanceGame` returns an
   `EvictionView` with the current `stage` (`votes | goodbye | exit-interview | result`; the exit-interview stage was added by 0130) and the **reveals so far** — exactly
-  as `FinaleView` does for the finale. Each advance reveals the **next** vote.
-- **Ordered reveal, no leak.** Votes are revealed **one at a time in a seeded order**; the projection carries
+  as `FinaleView` does for the finale. Each advance reveals the **next batch** of ballots (the batch size is derived from the total ballot count, so the votes stage lands in a handful of rounds; presentation only, no randomness).
+- **Ordered reveal, no leak.** Ballots are revealed **in a seeded order, a batch per advance** (each ballot still read individually, in order); the projection carries
   **only the revealed tally** — never a pre-reveal count of unread votes, never the evictee before the last
   vote lands. The engine already decided the tally (0034); 0047 only choreographs the **reveal**.
-- **Goodbye + goodbye messages.** After the result, an **evictee goodbye** beat; then **goodbye messages**
+- **Goodbye + goodbye messages.** Once the last ballot is read and the tally decides the evictee (the stage order is `votes → goodbye → exit-interview → result`, where `result` is the terminal stage), an **evictee goodbye** beat; then **goodbye messages**
   from a seeded selection of houseguests, each recorded as an event with a **tone** (warm/cold/respectful)
   that folds into the evictee's **eviction manner** (0037 §4.2) and thus their later **jury lean** (0014).
 - **Vault Wall / anti-sycophancy.** Reveal order + tally are engine-decided and seeded; goodbye tone is
@@ -64,15 +64,15 @@ already-decided vote); the finale (0037 — reused as the pattern, not re-built)
 
 ```
 AdvanceView += eviction?: EvictionView | null            // present only while an eviction stages
-EvictionView: { stage: "votes"|"goodbye"|"exit-interview"|"result", nominees: NamedRef[], votesRevealed: { voter, votedFor }[] }
-reveal: one vote per advance, seeded order; revealed-only tally; outcome lands on the last vote (HOH tie-break)
+EvictionView: { stage: "votes"|"goodbye"|"exit-interview"|"result", nominees: NamedRef[], votesRevealed: { votedFor: NamedRef }[] }   // anonymized secret ballots: the nominee each ballot names, NEVER the voter
+reveal: one batch of ballots per advance, seeded order; revealed-only tally; outcome lands once the last ballot is read (HOH tie-break)
 goodbye: an evictee goodbye beat + goodbye messages (tone) → eviction manner (0037 §4.2) → jury lean (0014)
 invariants: engine-decided + seeded reveal; no pre-reveal tally/leak (0001); persisted (0030)
 ```
 
 ## 6. Definition of Done
 
-- [x] **Staged reveal:** an eviction reveals votes **one at a time** in a **seed-deterministic** order, with
+- [x] **Staged reveal:** an eviction reveals ballots in **batches** in a **seed-deterministic** order, with
       a revealed-only tally; the evictee is not knowable before the last vote.
 - [x] **No leak:** no pre-reveal tally or hidden vote appears on the `EvictionView` / advance surface (a
       planted Vault sentinel never crosses; the projection carries only the votes read so far).
@@ -105,4 +105,4 @@ here gets the goodbye beat).
 them for the weekly eviction. **Test targets:** `tests/unit/evictionNight.test.ts` +
 `docs/features/0047-*.feature` → `cucumber.cjs`. Assert §6 (esp. seeded reveal order, no pre-reveal leak, and
 the warm-vs-cold goodbye → jury-lean delta).
-**No open decisions.** Reveal one vote per advance, seeded order, revealed-only tally — the 0037 shape.
+**No open decisions.** Reveal a batch of ballots per advance, seeded order, revealed-only tally — the 0037 shape.

@@ -194,10 +194,10 @@ length" rarely gets to matter.
   in-fiction, but turn count can never run the clock away. Degrades gracefully if boundary detection misfires
   (a scene that never "closes" still can't exceed its cap).
 - **The scene's duration is sourced** (best-available, all bounded to `SCENE_FELT_MINUTES`): the narrator's
-  `feltMinutes` when proposed (Extension 5) → else a **deterministic** richness/turn estimate (turns-in-scene ×
-  a small per-exchange rate, capped) → the floor only as the last resort. *(Wiring the narrator/auto-record
-  `feltMinutes` as the PREFERRED source is the follow-on that touches the prompts and therefore touches the recorded prompts
-  (historically a golden re-record; the golden replay was decommissioned 2026-07-21); the deterministic estimate ships first and is prompt-free.)*
+  `feltMinutes` when proposed (Extension 5; shipped as the **preferred** source: the moment prompt asks the
+  narrator to always include it on `recordInteraction`, and `EngineCommandsAdapter` feeds it to the clock;
+  see also 0119 for per-event felt durations) → else a **deterministic** richness/turn estimate (turns-in-scene ×
+  a small per-exchange rate, capped), which is now the **fallback** → the floor only as the last resort.
 - **Solo time is NOT free.** The player alone in a room is a real scene that accrues time (capped, same
   machinery). It is **theirs to end** — they leave or turn in, nothing force-marches them (ADR 0003) — **or an
   NPC walks in**, which is a participant-set change that closes the solo scene and opens a social one (ties

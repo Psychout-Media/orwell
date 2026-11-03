@@ -4,11 +4,13 @@
 //
 // `paths` lists exactly the features that have executable step definitions
 // (features/step_definitions/**). A Gherkin feature file NOT listed here is a spec-only design
-// contract (its header says so) and is verified elsewhere (Vitest, FE pytest); see the
-// per-feature status index in the features README. A feature is added here once its steps
-// are green. Gherkin feature files live in the docs features folder and are executable specs:
-// CI treats them as engine changes (a scenario-only edit still runs the BDD gate), so keep any
-// scenario edit paired with its step code.
+// contract (its header says so) that Cucumber does not execute; any verification outside Cucumber
+// (Vitest, FE pytest, deployment scripts, host smoke) is recorded in that feature's status entry in
+// the per-feature index (docs/features/README.md), not implied here. A feature is added here once
+// its steps are green. Gherkin feature files live in the docs features folder: CI treats ANY edit
+// to one as an engine change (deliberately broad, so a scenario-only edit still runs the BDD gate and
+// a later wiring into this file can't slip through), but only the paths listed here are executed.
+// Keep scenario edits to listed features paired with their step code.
 module.exports = {
   default: {
     paths: [

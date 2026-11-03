@@ -3,8 +3,8 @@
 > **Status:** ✅ **BUILT** (2026-06-24, PR #778 — phases P1–P6, FE-only; the mandate boundary +
 > rulings O1/O2/O4 closed, see §10). Implemented as `FaithfulnessJudge` + `dispatch_correction` +
 > `faithfulness_mode`/`faithfulness_unreframable_mode` (`frontend/src/faithfulness.py`) and the
-> `_faith_check` post-turn hook + casting seam (`frontend/src/agent_loop.py`); 58 gates in
-> `frontend/tests/test_0081_*.py`. Default **active** since the owner ruling 2026-07-13 (`faithfulness_mode` resolver default, `frontend/src/faithfulness.py`; an explicit `off` still disables), so it costs one judge call on each claim-bearing turn; it keeps its own `/admin/status` dial. *(As first built it was default off, opt-in.)* The
+> `_faith_check` post-turn hook + casting seam (`frontend/src/agent_loop.py`); 61 gates in
+> `frontend/tests/test_0081_*.py`. Default **active** since the owner ruling 2026-07-13 (`faithfulness_mode` resolver default, `frontend/src/faithfulness.py`; an explicit `off` still disables), so, when a judge model resolves (live mode), it costs one judge call on each turn that is claim-bearing **or** an engaged player-NPC scene (plus a bounded retro-judge catch-up for any turn queued while the judge was down); deterministic/keyless lanes and an unresolved judge model make no judge call and the seeded floor stands. It keeps its own dial under **Settings → AI** (Runtime overseer card, "Faithfulness gate"); `/admin/status` only reports the resolved mode and judge health, it is not a control. *(As first built it was default off, opt-in.)* The
 > **second overseer role** that
 > [0079](./0079-runtime-overseer-and-diagnostic-log.feature) deliberately deferred ("the narration
 > **faithfulness gate** … a *separate, future* role, deliberately not in this feature"). Where 0079/0080

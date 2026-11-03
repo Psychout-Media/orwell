@@ -89,7 +89,8 @@ jobs:
 
           # ENGINE: TS sources, all tests, BDD step code (features/) AND the Gherkin itself — the .feature
           # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
-          # the build/test config, this workflow.
+          # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
+          # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
           ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$)'

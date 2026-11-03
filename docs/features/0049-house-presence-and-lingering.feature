@@ -1,6 +1,6 @@
 # Executable spec — IMPLEMENTED & green; BDD-gated in cucumber.cjs. (Originally drafted failing-first.)
 # NOTE (0077 Phase 2): in the whereabouts scenario below, "adjacent rooms" now means rooms within SIGHTLINE (eyeshot);
-# closed-door rooms are opaque. Adjacency still governs movement and the overhear roll.
+# closed-door rooms are opaque to the live ambient read (the separate `tracked` field carries earned doorway sightings). Adjacency still governs movement and the overhear roll.
 # Feature 0049 — House presence & lingering play: rooms + adjacency ground witnessing and
 # overhearing (both directions), and milling around never advances the week.
 # HARD rule: roles only (HOH, nominee, NPC, player, schemer, overhearer). Add to cucumber.cjs when green.

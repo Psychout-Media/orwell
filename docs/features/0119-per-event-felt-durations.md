@@ -37,8 +37,13 @@ Unlike Phases 1–2, the per-beat clock is active whenever the master clock is o
 is deliberately the **per-conversation clock**:
 
 - **Per-conversation clock off** ⇒ `perConversationClockLive()` false ⇒
-  `feltHours` is never applied ⇒ every beat still advances the flat `perBeatHours` ⇒ the time-of-day/beat
-  stream is **unchanged** (guarded by `perEventFeltDurations.test.ts`). *(Historically this also kept the
+  `feltHours` is never applied ⇒ every ordinary beat still advances the flat `perBeatHours` ⇒ the
+  time-of-day/beat stream is **unchanged** for them (guarded by `perEventFeltDurations.test.ts`).
+  **Exception — the multi-step event path:** eviction-night and finale beats go through
+  `eventBeatHours` (the 2026-11-01 owner ruling, #1912), which is gated on the master time-of-day clock
+  only, NOT on the per-conversation clock. With time-of-day on and the per-conversation clock off, an
+  eviction/finale event therefore still charges its ~2h budget once on its first step and 0 on every later
+  step, instead of the flat `perBeatHours` per step. *(Historically this also kept the
   0108 golden replay stable; decommissioned 2026-07-21.)*
 - **Seeded calibration spine:** time-of-day **off** ⇒ the whole per-beat clock block is skipped ⇒
   **byte-identical** (proven by `perConversationClockNeutral`).

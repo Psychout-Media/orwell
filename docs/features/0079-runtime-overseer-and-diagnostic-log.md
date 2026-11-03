@@ -1,6 +1,6 @@
 # 0079 — Runtime loop overseer & diagnostic log (diagnose-and-unstick, wide eyes / small hands)
 
-> **Status:** ✅ **Built** (PRs #717, #741) and **shipped DEFAULT ACTIVE** since the owner ruling 2026-07-13 (the `overseer_mode` resolver default is `active`, `frontend/src/overseer.py`; an explicit `off` setting or env value still disables it). The text below is the original 2026-06-24 spec, which scoped it opt-in / default off. *(Original status:)* 📝 **SPEC** (drafted 2026-06-24). A **reasoning overseer for the engine↔LLM IO loop**.
+> **Status:** ✅ **Built** (PRs #717, #741) and **shipped DEFAULT ACTIVE** since the owner ruling 2026-07-13 (the `overseer_mode` resolver default is `active`, `frontend/src/overseer.py`; resolution is settings-first, then env, then the `active` default: an explicitly saved `off` setting, or `ORWELL_OVERSEER_MODE=off` when no saved setting overrides it, disables it, while a saved enabled setting beats an env `off`). The text below is the original 2026-06-24 spec, which scoped it opt-in / default off. *(Original status:)* 📝 **SPEC** (drafted 2026-06-24). A **reasoning overseer for the engine↔LLM IO loop**.
 > The boundary is *already* supervised today — but by brittle, scattered deterministic heuristics in the
 > front-end agent loop (the progression stall-nudge, `_auto_record_scene` (0055), the L39b forced-advance
 > ladder, the `markHouseguestMet` auto-belt, the `createCharacter` finalize fallback) that pattern-match
