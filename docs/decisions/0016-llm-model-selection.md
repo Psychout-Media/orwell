@@ -162,7 +162,8 @@ API), and **persisted stores keep whatever they carry** — nothing is migrated 
 
 - **First-boot seed:** if `DEEPSEEK_API_KEY` is set and the `model_endpoints` table is empty, the front-end
   creates one shared DeepSeek endpoint through the normal `ModelEndpoint` row (key `EncryptedText`) and
-  sets only `default_endpoint_id` (`frontend/src/deepseek_seed.py`). Any existing endpoint ⇒ no-op.
+  sets only `default_endpoint_id` (`frontend/src/deepseek_seed.py`). Any existing endpoint ⇒ no-op, with one exception: a lone, incomplete seed (a single
+  shared DeepSeek endpoint whose default was never bound) is re-bound, never re-created or rewritten.
 - **Thinking is sent OFF** on the DeepSeek host (`{"thinking": {"type": "disabled"}}`): DeepSeek defaults
   thinking ON, and with `tools` on the wire a thinking turn 400s unless `reasoning_content` is echoed back —
   the agent loop is a tool loop, so it is disabled at the wire (`llm_core._apply_deepseek_thinking_off`).

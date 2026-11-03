@@ -229,22 +229,28 @@ def test_seed_recovers_a_partial_boot_that_never_bound_the_default():
     assert _saved() is None
     assert seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-y"}) == "seeded1"
     assert _saved() == {"default_endpoint_id": "seeded1"}
+    assert _rows()[0].api_key == "sk-x"  # recovery re-binds only; the stored key is never rewritten
     assert seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-y"}) is None  # now complete
     assert len(_rows()) == 1
 
 
 def test_concurrent_first_boot_creates_exactly_one_endpoint():
     import threading
-    results = []
+    results, errors = [], []
     gate = threading.Barrier(8)
 
     def _boot():
-        gate.wait()
-        results.append(seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-race"}))
+        try:
+            gate.wait()
+            results.append(seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-race"}))
+        except BaseException as e:  # a crashed worker must fail the test, not silently shrink `results`
+            errors.append(repr(e))
 
     threads = [threading.Thread(target=_boot) for _ in range(8)]
     [t.start() for t in threads]
     [t.join() for t in threads]
+    assert errors == []
+    assert len(results) == 8
     assert len(_rows()) == 1
     assert len([r for r in results if r]) == 1
 
