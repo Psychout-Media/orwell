@@ -11,6 +11,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import type { StoryThread } from "../../src/engine/deepProfile";
 import { THREAD } from "../../src/engine/threadConstants";
 import { SECRET_PACING } from "../../src/engine/secretPacingConstants";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0092 — the secret-pacing drip. HARD rule: roles only, no names. A thin, relationship-aware
 // PACING layer over 0060: the engine decides WHICH sealed secret is ripe to edge toward THIS player and
@@ -499,14 +500,7 @@ Then("the seeded competition, vote, and jury outcomes are byte-identical to the 
       const adv = sb.session.advanceGame();
       if (adv.event) ceremonies.push(`${adv.event.beat}`);
       if (adv.pending) {
-        const p = adv.pending;
-        if (p.kind === "nominations") sb.session.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-        else if (p.kind === "veto-decision") sb.session.submitDecision({ kind: "veto-decision", use: false });
-        else if (p.kind === "replacement") sb.session.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-        else if (p.kind === "finale-statement") sb.session.submitDecision({ kind: "finale-statement", statement: "x" });
-        else if (p.kind === "finale-answer") sb.session.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-        else if (p.kind === "juror-vote") sb.session.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
-        else sb.session.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
+        resolvePending(adv.pending, (req) => sb.session.submitDecision(req));
       }
       orch.advance(user, "offscreen-tick");
       if (adv.finished) break;

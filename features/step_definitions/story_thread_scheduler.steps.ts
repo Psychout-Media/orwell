@@ -10,6 +10,7 @@ import type { EntityId } from "../../src/domain/ids";
 import { STORY_THREAD_KIND } from "../../src/engine/deepProfile";
 import type { StoryThread } from "../../src/engine/deepProfile";
 import { THREAD } from "../../src/engine/threadConstants";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0060 — the story-thread trigger/resolution scheduler (0058 Phase 2). HARD rule: roles only,
 // no names. The seeded, sealed threads PLAY OUT — dormant → active (0023 fold) → surfaced (0038 gossip
@@ -40,14 +41,7 @@ function stStart(w: BbWorld, label: string): { sb: UserSandbox; orch: Orchestrat
 function stepLoop(sb: UserSandbox): { finished: boolean } {
   const adv = sb.session.advanceGame();
   if (adv.pending) {
-    const p = adv.pending;
-    if (p.kind === "nominations") sb.session.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-    else if (p.kind === "veto-decision") sb.session.submitDecision({ kind: "veto-decision", use: false });
-    else if (p.kind === "replacement") sb.session.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-    else if (p.kind === "finale-statement") sb.session.submitDecision({ kind: "finale-statement", statement: "I played my game." });
-    else if (p.kind === "finale-answer") sb.session.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-    else if (p.kind === "juror-vote") sb.session.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
-    else sb.session.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
+    resolvePending(adv.pending, (req) => sb.session.submitDecision(req));
   }
   return { finished: adv.finished };
 }

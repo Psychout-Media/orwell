@@ -3,6 +3,7 @@ import type { UserSandbox } from "../../src/composition/registry";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import { selectableReplacements } from "../../src/domain/eligibility";
 import { PLAYER } from "../../src/domain/ids";
+import { resolvePending } from "./answerPending";
 
 /**
  * 0019/0020 — a LIVE game parked at a player decision. The 0019/0020 BDDs used to exercise
@@ -18,17 +19,9 @@ export interface LiveDecisionGame {
   pending: LivePending;
 }
 
-/** A simple, legal player policy: compete, take the first legal option, use a veto when holding one. */
+/** A simple, legal player policy: compete, take the first legal option, use a veto when holding one. Unknown kinds throw (PAT-1). */
 export function resolveLegally(sb: UserSandbox, p: LivePending): void {
-  const s = sb.session;
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") {
-    s.submitDecision(p.options[0] ? { kind: "veto-decision", use: true, save: p.options[0].id } : { kind: "veto-decision", use: false });
-  } else if (p.kind === "comp-intent" || p.kind === "comp-round") s.submitDecision({ kind: p.kind, intent: "compete" } as never);
-  else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id } as never);
+  resolvePending(p, (req) => sb.session.submitDecision(req), { useVeto: true });
 }
 
 /** Play seeds in order until the player faces a `kind` decision; return the game parked there. */
