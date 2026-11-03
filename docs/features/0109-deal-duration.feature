@@ -3,6 +3,8 @@
 # scales with how much life was left, and turning after a mutually-known expiry is fair game.
 # HARD rule: roles only (promisor, partner, the wronged party). Amends 0039. The ENGINE owns the magnitude.
 
+# PAT-5 (#1982) VERDICT: producer MISSING (a gap, not deferred: no spec/commit defers it, 15b65172 added DealLedger.make's optional `duration` but nothing in play passes one), so the scaling and the dailyRecap hook are unreachable live; only scenario 1 is live today, 2-5 are @standalone-module.
+
 Feature: Negotiated deal duration
 
   A deal (0039) gains an optional negotiated DURATION — either an explicit term the parties named
@@ -16,22 +18,26 @@ Feature: Negotiated deal duration
     When the promisor breaks it with no week context
     Then the betrayal-shock folded is exactly the unscaled 0039 magnitude
 
+  @standalone-module
   Scenario: Explicit expiry is fair game once the term has passed un-broken
     Given a season-horizon deal with an explicit two-week term
     When the negotiated term passes without a break
     Then the engine resolves the deal kept
 
+  @standalone-module
   Scenario: Breaking early scales the betrayal-shock up with the life remaining
     Given two identical deals with an explicit term, broken at the same seed
     When one is broken with many weeks of term left and the other with one week left
     Then the many-weeks-left break raises the wronged party's threat more than the one-week-left break
 
+  @standalone-module
   Scenario: A vague promise softens the betrayal when broken
     Given an open deal left vague and an equivalent deal with no duration
     When each is broken at the same seed
     Then the vague break folds a smaller betrayal-shock than the no-duration break
     But the vague break is still a betrayal: threat rises and trust falls
 
+  @standalone-module
   Scenario: The negotiated term persists; the derived magnitude never reaches the player
     Given a deal with a negotiated term and the vague label
     When the deals are serialized and reloaded

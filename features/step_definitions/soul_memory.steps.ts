@@ -9,34 +9,70 @@ import { generateHouse } from "../../src/engine/characterFactory";
 import { vaultBoundaryViolations } from "../../tests/support/architecture";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { startLiveSweep, setLive, liveOf, livePlayerSurfaces } from "../support/liveSweep";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { UserSandbox } from "../../src/composition/registry";
 
 // Reuses: Background (mcp_boundary), "any player-facing surface is produced" (vault_wall),
 // "no Vault sentinel value appears" (god_mode, checks this.lastView).
+//
+// PAT-5 (#1982): `SoulProvider.recall` (and `soulOf`) have NO production caller in src/ — the live soul index is
+// write-only (`recordToSoul`), and the live game's durable soul is each houseguest's `soul.memory` mirror
+// (`session.recordSceneMemory`), restored by `rebuildSoulIndex`. What the live game DOES recall is the narrator's
+// scene callback, `session.recallSceneMemories` (registry-wired `recallWitnessedMoments` over the player's
+// Vault-free visible events). So: scenarios 1, 3, 4, 8 drive those live paths; the SoulStore-only scenarios
+// (relationship-read sharpening, diary sections, soul-vs-character) are tagged @standalone-module in the feature.
 
 const fake = new DeterministicEmbedding();
 const embed = (t: string): number[] => fake.embed(t);
 const HG = npc(1);
 
-// --- Relevance, not recency ---------------------------------------------------
+// --- Relevance, not recency (LIVE narrator scene recall) ----------------------
+
+/**
+ * A live registry-built game, plus the live narrator-recall seam (`session.recallSceneMemories`). Who actually
+ * WITNESSES a recorded scene is the engine's call (presence, 0049), so try successive seeds until the first (key)
+ * scene is witnessed by a houseguest; the scene's houseguests are then the whole house (the recall narrows the
+ * player's visible record to scenes involving them, and ranks by relevance).
+ */
+function liveSceneGame(seed: number, keyScene: string): { sb: UserSandbox; mate: string; house: string[] } {
+  for (let s = seed; s < seed + 40; s++) {
+    const sb = new GameSessionRegistry().sandboxFor(`pat5-recall-${s}`);
+    sb.session.createCharacter({ playerName: "Player One", seed: s });
+    const house = sb.session.snapshot().house!.npcs.map((n) => n.id as string);
+    witnessed(sb, house[0]!, keyScene);
+    // The recall reads the PLAYER-VISIBLE projection, where a scene names the houseguests the player saw witness it.
+    const last = sb.player.getVisibleState().visibleEvents.at(-1);
+    if (last?.witnessSet.some((w) => w !== PLAYER)) return { sb, mate: house[0]!, house };
+  }
+  throw new Error("no seed had a houseguest witness the key scene");
+}
+function witnessed(sb: UserSandbox, mate: string, content: string): void {
+  sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, mate], content, kind: "bonding", toward: [mate] });
+}
+const sceneRecall = (g: { sb: UserSandbox; house: string[] }, cue: string): string[] =>
+  g.sb.session.recallSceneMemories({ withIds: g.house, cue }).moments;
+const liveScene = new WeakMap<object, { sb: UserSandbox; mate: string; house: string[] }>();
 
 Given("a houseguest whose soul holds one old salient memory and many recent trivial ones", function (this: BbWorld) {
-  this.soul = new SoulStore(embed);
-  this.npc = HG;
-  this.soul.recordToSoul(HG, "a brutal veto betrayal that cut deep");
-  for (let i = 0; i < 8; i++) this.soul.recordToSoul(HG, `trivial chat about breakfast cereal ${i}`);
+  // The player-witnessed record the live narrator recalls from: one old salient scene, then many recent trivial ones.
+  const g = liveSceneGame(1, "a brutal veto betrayal that cut deep");
+  liveScene.set(this, g);
+  for (let i = 0; i < 8; i++) witnessed(g.sb, g.mate, `trivial chat about breakfast cereal ${i}`);
 });
 
 When("memory is recalled for a context matching the old salient one", function (this: BbWorld) {
-  this.recalled = this.soul!.recall(this.npc!, "the veto betrayal", 1);
+  const g = liveScene.get(this)!;
+  this.lastOutput = JSON.stringify(sceneRecall(g, "the veto betrayal"));
 });
 
 Then("the old salient memory is recalled", function (this: BbWorld) {
-  assert.ok(this.recalled!.length >= 1);
-  assert.match(this.recalled![0]!.content, /veto betrayal/);
+  const moments = JSON.parse(this.lastOutput) as string[];
+  assert.ok(moments.length >= 1);
+  assert.match(moments[0]!, /veto betrayal/);
 });
 
 Then("it is not crowded out by the recent trivial memories", function (this: BbWorld) {
-  assert.ok(!/trivial/.test(this.recalled![0]!.content));
+  assert.ok(!/trivial/.test((JSON.parse(this.lastOutput) as string[])[0]!));
 });
 
 // --- Recall sharpens the relationship read (mechanics) ------------------------
@@ -66,22 +102,23 @@ Then("the read reflects the adverse history even after a quiet recent stretch", 
 // --- Recall gives the narrator a specific memory (narration) ------------------
 
 Given("a houseguest about to speak to the player about a past event they both witnessed", function (this: BbWorld) {
-  this.soul = new SoulStore(embed);
-  this.npc = HG;
-  this.soul.recordToSoul(HG, "the kitchen alliance pact we made at midnight");
-  for (let i = 0; i < 5; i++) this.soul.recordToSoul(HG, `idle backyard moment ${i}`);
+  const g = liveSceneGame(2, "the kitchen alliance pact we made at midnight");
+  liveScene.set(this, g);
+  for (let i = 0; i < 5; i++) witnessed(g.sb, g.mate, `idle backyard moment ${i}`);
 });
 
 When("the narrator's context is assembled", function (this: BbWorld) {
-  this.recalled = this.soul!.recall(this.npc!, "kitchen alliance pact", 2);
+  // The live narrator seam: the MCP `recallSceneMemories` tool -> `session.recallSceneMemories` (registry-wired).
+  const g = liveScene.get(this)!;
+  this.lastOutput = JSON.stringify(sceneRecall(g, "kitchen alliance pact"));
 });
 
 Then("it includes the recalled specific memory", function (this: BbWorld) {
-  assert.ok(this.recalled!.some((m) => /kitchen alliance pact/.test(m.content)));
+  assert.ok((JSON.parse(this.lastOutput) as string[]).some((m) => /kitchen alliance pact/.test(m)));
 });
 
 Then("the houseguest can reference that specific past beat", function (this: BbWorld) {
-  assert.match(this.recalled![0]!.content, /kitchen alliance pact/);
+  assert.match((JSON.parse(this.lastOutput) as string[])[0]!, /kitchen alliance pact/);
 });
 
 // --- A recalled HIDDEN memory shapes behavior but does not leak ---------------
@@ -93,9 +130,10 @@ Given("a houseguest recalls a memory the player did not witness and was never to
   setLive(this, live);
   this.npc = HG;
   this.hiddenMemory = "a secret off-screen deal SOULSENTINEL with another houseguest";
-  live.sb.engine.soul.recordToSoul(HG, this.hiddenMemory);
+  // PAT-5: through the live seam (`recordSceneMemory`): the persisted `soul.memory` mirror + the index — the
+  // engine-side memory the live game keeps (`SoulProvider.recall` itself has no production caller).
+  live.sb.session.recordSceneMemory(HG, this.hiddenMemory);
   live.hiddenContents.push(this.hiddenMemory);
-  this.recalled = live.sb.engine.soul.recall(HG, "secret deal", 50); // engine-side: informs behavior
 });
 
 Then("the hidden memory does not appear", function (this: BbWorld) {
@@ -106,7 +144,12 @@ Then("the hidden memory does not appear", function (this: BbWorld) {
 });
 
 Then("the houseguest's behavior may still reflect it", function (this: BbWorld) {
-  assert.ok(this.recalled!.some((m) => m.content === this.hiddenMemory), "recall fed the behavior layer");
+  const live = liveOf(this)!;
+  const mem = live.sb!.session.snapshot().house!.npcs.find((n) => n.id === HG)!.soul.memory;
+  assert.ok(mem.includes(this.hiddenMemory!), "the engine-side soul memory the live game persists holds it");
+  // ...and it survives the live save -> resume path (rebuilt into the index by `rebuildSoulIndex`).
+  const resumed = new GameSessionRegistry().restore(live.user!, JSON.parse(JSON.stringify(live.reg!.snapshot(live.user!))));
+  assert.ok(resumed.session.snapshot().house!.npcs.find((n) => n.id === HG)!.soul.memory.includes(this.hiddenMemory!), "still held after resume");
 });
 
 // --- Option B: the inner diary is organised into sections ---------------------
@@ -194,19 +237,20 @@ Then("no outward module depends on the vector index or the full soul", function 
   assert.deepEqual(this.archViolations, []);
 });
 
-// --- Deterministic recall -----------------------------------------------------
+// --- Deterministic recall (LIVE narrator scene recall) -------------------------
 
 Given("a fixed seed and the deterministic test embedding", function (this: BbWorld) {
-  this.soul = new SoulStore(embed);
-  this.npc = HG;
-  this.soul.recordToSoul(HG, "the veto betrayal");
-  this.soul.recordToSoul(HG, "a quiet kitchen chat");
-  this.soul.recordToSoul(HG, "the comp win celebration");
+  const g = liveSceneGame(3, "the veto betrayal"); // registry sandboxes use the deterministic embedding unless fastembed is set
+  liveScene.set(this, g);
+  witnessed(g.sb, g.mate, "a quiet kitchen chat");
+  witnessed(g.sb, g.mate, "the comp win celebration");
 });
 
 When("memory is recalled twice for the same context", function (this: BbWorld) {
-  const a = this.soul!.recall(this.npc!, "betrayal", 3).map((m) => m.id);
-  const b = this.soul!.recall(this.npc!, "betrayal", 3).map((m) => m.id);
+  const g = liveScene.get(this)!;
+  const a = sceneRecall(g, "betrayal");
+  const b = sceneRecall(g, "betrayal");
+  assert.ok(a.length >= 1, "the recall actually returned something to compare");
   this.lastOutput = JSON.stringify([a, b]);
 });
 

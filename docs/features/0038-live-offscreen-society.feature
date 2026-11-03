@@ -34,7 +34,7 @@ Feature: Live off-screen society
     Given a started game the player has left idle
     When the off-screen society runs several ticks
     Then each houseguest's soul accumulates the off-screen scenes it lived
-    And a later recall can surface a specific past off-screen moment
+    And a specific past off-screen moment is still held in the soul after the game is saved and resumed
     And no previously recorded soul detail is lost
 
   Scenario: The off-screen society is bounded and deterministic

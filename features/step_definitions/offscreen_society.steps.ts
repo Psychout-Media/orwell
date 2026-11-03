@@ -139,18 +139,17 @@ Then("each houseguest's soul accumulates the off-screen scenes it lived", functi
   assert.ok(deepened.length > 0, "off-screen life deepened the souls");
 });
 
-Then("a later recall can surface a specific past off-screen moment", function (this: BbWorld) {
+Then("a specific past off-screen moment is still held in the soul after the game is saved and resumed", function (this: BbWorld) {
+  // PAT-5 (#1982): `SoulProvider.recall` has no production caller. What the live game actually keeps of a lived
+  // off-screen scene is the houseguest's persisted `soul.memory` mirror (`recordSceneMemory`), which a resume
+  // restores and `rebuildSoulIndex` re-derives. Assert THAT: the exact lived note survives the live save -> resume.
   const core = this.osSandbox!.session.snapshot();
   const someone = core.house!.npcs.find((n) => n.soul.memory.length > 0)!;
-  // Recall must genuinely RETURN the recorded off-screen content — not merely "answer" (T3). Query
-  // the soul index with a specific lived note and assert that exact past moment comes back.
   const target = someone.soul.memory[0]!;
-  const recalled = this.osSandbox!.engine.soul.recall(someone.id, target, 3);
-  assert.ok(recalled.length >= 1, "the recall index surfaces at least one lived off-screen moment");
-  assert.ok(
-    recalled.some((m) => m.content === target),
-    "the specific off-screen note the houseguest lived is recallable by its own content",
-  );
+  const snap = JSON.parse(JSON.stringify(this.osRegistry!.snapshot(this.osUser!)));
+  const resumed = new GameSessionRegistry().restore(this.osUser!, snap);
+  const after = resumed.session.snapshot().house!.npcs.find((n) => n.id === someone.id)!;
+  assert.ok(after.soul.memory.includes(target), "the specific off-screen note the houseguest lived survives save -> resume");
 });
 
 Then("no previously recorded soul detail is lost", function (this: BbWorld) {

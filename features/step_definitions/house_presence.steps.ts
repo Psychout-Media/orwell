@@ -345,10 +345,19 @@ Then("the week, the phase, and the pending ceremony are unchanged", function (th
   assert.equal(s.advanceGame().pending?.kind, this.hpBefore!.kind);
 });
 
-Then("the watcher treats the milling as activity rather than idleness", function (this: BbWorld) {
-  // Every mill turn touched the idle clock — the player reads as ACTIVE at the final timestamp,
-  // so the watcher's idle gate cannot fast-forward over a lingering player.
-  assert.equal(this.hpOrch!.idleSince(this.hpUser!), this.hpClock!.t);
+Then("each milling turn is a clean committed turn, never an idle fast-forward", function (this: BbWorld) {
+  // PAT-5 (#1982): the integrity WATCHER was purged, so `Orchestrator.idleSince` has no production reader (it is
+  // only ever read by tests). The live behavior is the per-committed-turn orchestration: every mill turn commits
+  // through `commitPlayerTurn` (wired via registry.setCommit), which checkpoints, persists and records health.
+  // Assert the live record: the last turn was a clean committed player turn at the final timestamp, the circuit is
+  // closed, no integrity fault was logged, and the week is still the pre-mill week.
+  const h = this.hpOrch!.sandboxHealth(this.hpUser!) as import("../../src/composition/orchestrator").HealthRecord;
+  assert.equal(h.lastTrigger, "player-turn", "the last mill turn was a committed player turn");
+  assert.equal(h.lastAdvanceAt, this.hpClock!.t, "stamped at the final mill turn's timestamp");
+  assert.equal(h.lastIntegrity, "ok");
+  assert.equal(h.circuitOpen, false);
+  assert.deepEqual(h.faults, []);
+  assert.equal(h.week, this.hpBefore!.week, "milling did not advance the week");
 });
 
 Then("the day's meaningful event is still the scheduled beat", function (this: BbWorld) {

@@ -20,10 +20,10 @@ Feature: Character evolution & season arc
     Then the rattled version behaves measurably differently from the calm version
     But emotion never overrides a hard rule
 
-  Scenario: The change accumulates into a recall-able arc
+  Scenario: The change accumulates into a persisted arc
     Given a houseguest who has been through several season-shaping events
     Then their soul accumulates those moments without losing earlier ones
-    And a recall surfaces a specific past inflection that colors their later play
+    And a specific past inflection is held in the persisted arc and survives save and resume
 
   Scenario: The static character stays byte-stable while the soul drifts
     Given a houseguest at the start and deep into the season

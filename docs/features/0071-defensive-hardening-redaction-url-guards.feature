@@ -18,6 +18,10 @@ Feature: 0071 — defensive hardening: log redaction & URL/path guards
     When a log record containing a secret shape is emitted
     Then the persisted log line shows the secret masked
 
+  # @standalone-module: frontend/src/url_safety.py's is_safe_url/assert_safe_url/safe_join have NO production caller (verified by grep over frontend/); the
+  # live outbound guard is check_outbound_url (embedding/gallery/note/contacts routes, skill_importer), which no test covers (follow-up gap). These two scenarios also
+  # run a TypeScript mirror of the Python helpers (see defensive_hardening.steps.ts), the unit proof being frontend/tests/test_url_safety.py.
+  @standalone-module
   Scenario: the URL guard fails closed on unsafe addresses
     Given the URL safety guard
     Then a loopback URL is rejected
@@ -25,6 +29,7 @@ Feature: 0071 — defensive hardening: log redaction & URL/path guards
     And a link-local or IPv6-scope-id URL is rejected
     And a public URL is allowed
 
+  @standalone-module
   Scenario: the path join rejects traversal
     Given a base directory and the safe-join helper
     When a segment contains a parent-directory or absolute traversal

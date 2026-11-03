@@ -106,33 +106,47 @@ Then("emotion never overrides a hard rule", function (this: BbWorld) {
   }
 });
 
-// --- Scenario: the change accumulates into a recall-able arc ---------------------
+// --- Scenario: the change accumulates into a persisted arc (LIVE path) -----------
+// PAT-5 (#1982): this used to drive a standalone `SoulStore` and assert `SoulProvider.recall`, which has no
+// production caller. The live arc is `GameSessionAdapter.inflect`: it appends an `arcNote` to the houseguest's
+// persisted `soul.memory` and `emotionalHistory`, which the save -> resume path restores. Assert THAT, on a
+// season actually played through the live loop.
 
-Given("a houseguest who has been through several season-shaping events", function (this: BbWorld) {
-  this.evoSoulStore = new SoulStore((t) => fake.embed(t));
-  this.evoSoul = settledSoul();
-  this.confessor = npc(1);
-  const inflect = (event: Parameters<typeof arcNote>[0], week: number): void => {
-    evolveEmotion(this.evoSoul!, event);
-    const note = arcNote(event, week);
-    this.evoSoul!.memory.push(note);
-    this.evoSoulStore!.recordToSoul(this.confessor!, note);
-  };
-  inflect("comp-win", 1);
-  inflect("blindside", 4);   // the inflection a later recall should surface
-  inflect("survived-vote", 5);
+const ARC_NOTE = /^week \d+: /;
+type ArcState = { id: string; notes: string[]; history: number };
+const arcCtx = new WeakMap<object, { player: McpServer; arc: ArcState }>();
+const arcOf = (reg: GameSessionRegistry, user: string): ArcState[] =>
+  houseOf(reg, user).npcs.map((n) => ({ id: n.id, notes: n.soul.memory.filter((m) => ARC_NOTE.test(m)), history: n.soul.emotionalHistory.length }));
+
+Given("a houseguest who has been through several season-shaping events", async function (this: BbWorld) {
+  const reg = new GameSessionRegistry();
+  this.registry = reg; this.liveUser = "evo-bdd-arc";
+  const player = reg.resolver()("player", this.liveUser) as McpServer;
+  await player.callTool("createCharacter", { playerName: "P", seed: 2 });
+  await driveLive(player, 200);
+  const arcs = arcOf(reg, this.liveUser).filter((a) => a.notes.length > 0);
+  assert.ok(arcs.length > 0, "the played season inflected at least one houseguest (an arc note was recorded)");
+  const focal = arcs.sort((x, y) => y.notes.length - x.notes.length)[0]!;
+  arcCtx.set(this, { player, arc: focal });
 });
 
-Then("their soul accumulates those moments without losing earlier ones", function (this: BbWorld) {
-  const mems = this.evoSoulStore!.soulOf(this.confessor!).memories;
-  assert.ok(mems.length >= 3, "the moments accumulate");
-  assert.ok(mems.some((m) => m.content.includes("won a competition")), "the earliest inflection is retained");
-  assert.equal(this.evoSoul!.emotionalHistory.length, 3, "the persisted arc grew monotonically");
+Then("their soul accumulates those moments without losing earlier ones", async function (this: BbWorld) {
+  const { player, arc: before } = arcCtx.get(this)!;
+  await driveLive(player, 120); // the season goes on...
+  const after = arcOf(this.registry!, this.liveUser!).find((a) => a.id === before.id)!;
+  assert.ok(after.notes.length >= before.notes.length, "the arc only grows");
+  assert.deepEqual(after.notes.slice(0, before.notes.length), before.notes, "every earlier inflection is retained, in order");
+  assert.ok(after.history >= before.history, "the persisted emotional arc grew monotonically");
+  arcCtx.set(this, { player, arc: after });
 });
 
-Then("a recall surfaces a specific past inflection that colors their later play", function (this: BbWorld) {
-  const hits = this.evoSoulStore!.recall(this.confessor!, "blindsided rattled", 3);
-  assert.ok(hits.length > 0 && hits.some((m) => m.content.includes("blindsided")), "recall surfaces the blindside");
+Then("a specific past inflection is held in the persisted arc and survives save and resume", function (this: BbWorld) {
+  const held = arcCtx.get(this)!.arc;
+  const snap = JSON.parse(JSON.stringify(this.registry!.snapshot(this.liveUser!)));
+  const resumed = new GameSessionRegistry().restore(this.liveUser!, snap);
+  const hg = resumed.session.snapshot().house!.npcs.find((n) => n.id === held.id)!;
+  for (const note of held.notes) assert.ok(hg.soul.memory.includes(note), `the inflection "${note}" survives resume`);
+  assert.equal(hg.soul.emotionalHistory.length, held.history, "the persisted emotional arc survives resume");
 });
 
 // --- Scenario: the static character stays byte-stable while the soul drifts ------

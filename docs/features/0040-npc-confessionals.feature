@@ -34,6 +34,11 @@ Feature: NPC Diary Room confessionals
     Then no confessional content appears
     And no Vault sentinel value appears
 
+  # @standalone-module (the recall half): live confessionals are written to the soul index (recordConfessionalToSoul, GameSessionAdapter),
+  # but SoulProvider.recall/soulOf have no production caller, so nothing reads them back. The live game grounds a later confessional via
+  # confessionalFor over the current relationship edges + recent events, proven by "A confessional reflects the NPC's real engine-grounded
+  # read" and the seed-determinism scenario, both of which run the live game.
+  @standalone-module
   Scenario: Confessionals deepen the soul and ground later voice
     Given a houseguest who has confessed across several beats
     Then their soul accumulates those confessionals without losing earlier ones

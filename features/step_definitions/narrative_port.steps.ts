@@ -7,13 +7,22 @@ import { LlmNarrativePort, safeFallbackLine, type NarratorTransport } from "../.
 import { loadNarratorConfig } from "../../src/adapters/narrative/narratorConfig";
 import { resolveCompetition, CompetitionIntents } from "../../src/domain/competitionOutcome";
 import type { Competitor } from "../../src/domain/competitionOutcome";
-import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { UserSandbox } from "../../src/composition/registry";
+import { ALL_PLAYER_SURFACES } from "../../tests/support/sandbox";
+import { startLiveSweep, setLive, sentinelsFor, hiddenFor } from "../support/liveSweep";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
 
 // Reuses: Background "a running game sandbox with a fully populated Producer's Vault" (mcp_boundary),
 // "the game state is unchanged" (agent_play_loop — asserts nothing was executed; no-op here).
 
+// PAT-5 (#1982): `LlmNarrativePort` (and `buildStreamingNarrator`/`loadNarratorConfig`) have NO production caller. The live
+// engine composes `EchoNarrativePort`; the real LLM narration runs in the Python FE, reading the engine's Vault-free
+// context (`assembleNarrationContext` + `session.getMomentPrompt`). So the "Vault-free context" and "never changes an
+// outcome" scenarios drive THAT live seam, while the adapter-only scenarios (failure fallback, config) are tagged
+// @standalone-module in the feature.
+const narrationCtx = new WeakMap<object, { visible: ReturnType<UserSandbox["player"]["getVisibleState"]>; sb?: UserSandbox }>();
 const MOMENT_PROMPT = "You are the voice of the house. Narrate the moment in character; the engine decides outcomes.";
 
 /** A seed-deterministic engine decision — re-running it is how we 're-read the engine'. */
@@ -42,26 +51,30 @@ function erroringPort(): LlmNarrativePort {
 // --- The adapter receives only Vault-free context -----------------------------
 
 When("narration is requested for the player", function (this: BbWorld) {
-  // Assembled by the outward surface (proven Vault-free, 0001) + the managed moment prompt (0018).
-  const ctx = this.sandbox!.player.assembleNarrationContext("scene");
-  ctx.systemPrompt = MOMENT_PROMPT;
+  // PAT-5: the context the LIVE narrator is handed — the registry-built game's outward surface (proven Vault-free,
+  // 0001) plus its managed moment prompt (0018) — with sentinels planted in THAT game's hidden state.
+  const live = startLiveSweep({ seed: 1, user: "pat5-narration", ticks: 2 });
+  setLive(this, live);
+  const ctx = live.sb.player.assembleNarrationContext("scene");
+  ctx.systemPrompt = live.sb.session.getMomentPrompt({}).systemPrompt;
   this.narrationCtx = ctx;
+  narrationCtx.set(this, { visible: live.sb.player.getVisibleState() });
 });
 
 Then("the context handed to the adapter contains no Vault sentinel value", function (this: BbWorld) {
   const json = JSON.stringify(this.narrationCtx);
-  assertNoSentinels(json, this.sandbox!.sentinels);
-  assertNoneAppear(json, this.sandbox!.hiddenContents);
+  assertNoSentinels(json, sentinelsFor(this));
+  assertNoneAppear(json, hiddenFor(this));
 });
 
 Then("it contains only the visible projection and the moment prompt", function (this: BbWorld) {
   const ctx = this.narrationCtx!;
   const allowed = new Set(["forEntity", "mode", "visibleEvents", "knowledge", "fidelity", "systemPrompt"]);
   for (const key of Object.keys(ctx)) assert.ok(allowed.has(key), `unexpected context key leaked in: ${key}`);
-  const vs = this.sandbox!.player.getVisibleState();
+  const vs = narrationCtx.get(this)!.visible;
   assert.deepEqual(ctx.visibleEvents, vs.visibleEvents); // exactly the visible projection
   assert.deepEqual(ctx.knowledge, vs.knowledge);
-  assert.equal(ctx.systemPrompt, MOMENT_PROMPT); // and the moment prompt
+  assert.ok(typeof ctx.systemPrompt === "string" && ctx.systemPrompt.length > 0, "and the moment prompt");
 });
 
 // --- Streaming concatenates to the full narration -----------------------------
@@ -106,34 +119,28 @@ Then("re-reading the engine gives the same result", function (this: BbWorld) {
 });
 
 // --- Narration never changes an outcome ---------------------------------------
-// T5: re-pointed at a LIVE sandbox (was `decideWinner(11)`, a pure local function called twice —
-// proving only that a pure function is pure). Resolve a real competition through the LIVE
-// GameSessionAdapter, then let a HALLUCINATING narrator narrate it, and prove the live engine's
-// result AND its whole game state are unmoved: narration is text, never an outcome.
+// T5: a LIVE game. PAT-5: narration is produced through the LIVE player surfaces (the engine's own narrator seam, not the
+// unwired `LlmNarrativePort`); the prose is text out and the engine has no inbound path from it, so the result AND the
+// whole game state are unmoved by narrating the resolved competition.
 
 Given("the engine has decided a competition result", function (this: BbWorld) {
-  const game = new GameSessionAdapter();
-  game.createCharacter({ playerName: "Player One", seed: 11 });
-  this.liveCompGame = game;
-  this.liveCompResult = game.runCompetition({ type: "endurance" });
+  const sb = new GameSessionRegistry().sandboxFor("pat5-narration-comp");
+  sb.session.createCharacter({ playerName: "Player One", seed: 11 });
+  this.liveCompGame = sb.session;
+  narrationCtx.set(this, { visible: sb.player.getVisibleState(), sb });
+  this.liveCompResult = sb.session.runCompetition({ type: "endurance" });
   assert.ok(this.liveCompResult.winner, "the engine produced the winner the narrator must voice");
   // The full Vault-free engine state right after the engine decided — narration must not move it.
-  this.liveStateBefore = JSON.stringify(game.getGameState());
+  this.liveStateBefore = JSON.stringify(sb.session.getGameState());
 });
 
-When("the narrator produces narration for it", async function (this: BbWorld) {
-  // A 'hallucinating' provider asserts a bogus winner — it is only ever text.
-  const hallucinating: NarratorTransport = {
-    async *stream() {
-      yield "And against all odds, somehow everyone wins!";
-    },
-  };
-  const port = new LlmNarrativePort(
-    { provider: "ollama", endpoint: "http://127.0.0.1:0", model: "m", apiKey: undefined, timeoutMs: 20, maxRetries: 0 },
-    hallucinating,
-  );
-  this.narrationCtx = this.sandbox!.player.assembleNarrationContext("scene");
-  this.narrationOut = await port.narrate(this.narrationCtx);
+When("the narrator produces narration for it", function (this: BbWorld) {
+  const sb = narrationCtx.get(this)!.sb!;
+  this.narrationOut = [
+    ...ALL_PLAYER_SURFACES.map((surface) => sb.player.produce(surface)),
+    JSON.stringify(sb.player.assembleNarrationContext("scene")),
+    sb.player.renderScene("full"),
+  ].join("\n---\n");
 });
 
 Then("the engine's result is unchanged", function (this: BbWorld) {
@@ -144,7 +151,7 @@ Then("the engine's result is unchanged", function (this: BbWorld) {
 
 Then("even a hallucinated result in the prose changes no game state", function (this: BbWorld) {
   assert.ok(this.narrationOut && this.narrationOut.length > 0); // the prose said something...
-  // ...and the live engine's whole game state is byte-identical: the hallucination moved nothing.
+  // ...and the live engine's whole game state is byte-identical: narrating moved nothing (the engine never reads prose back).
   assert.equal(JSON.stringify(this.liveCompGame!.getGameState()), this.liveStateBefore, "no game state changed");
 });
 
