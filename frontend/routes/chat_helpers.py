@@ -1895,6 +1895,7 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        "playerName": (str(player.get("name")).strip() if isinstance(player, dict) and isinstance(player.get("name"), str) and str(player.get("name")).strip() else None),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
 
@@ -4587,6 +4588,49 @@ def _sentence_names_wrong_nominee(sentence: str, nom_names, active_names) -> Opt
                 if _NOMINEE_STATUS_RE.search(window):
                     return name
     return None
+
+
+# A-15 (rehearsal 2026-11-03) — ROLE-CLAIM screening: the narrator voices ceremonies as host-PA quotes split across an
+# ellipsis ("The winner of the Power of Veto..." / "...is Rowan."), which the subject-verb claim detectors never matched.
+# `src/role_claims.py` (pure) screens on name + role co-occurrence against the engine's committed roles; this is its
+# stateful wrapper: the live board read, the per-turn ellipsis carry (the halves arrive in different stream chunks), and
+# the next-turn re-ground. Fail-open: any hiccup returns the text untouched.
+_ROLE_CARRY: dict = {}
+
+
+async def screen_role_claims(user, text: str) -> str:
+    try:
+        if not text or not text.strip():
+            return text
+        from src import role_claims as _rc
+        _dkey = _desync_key(user)
+        turn_tag = id(_LAST_BEAT_SIG.get(_dkey))  # a new turn re-captures the signature ⇒ the carry never leaks across turns
+        carry = _ROLE_CARRY.get(_dkey)
+        if not isinstance(carry, dict) or carry.get("turn") != turn_tag:
+            carry = {"roles": set(), "ttl": 0, "turn": turn_tag}
+        phase_hint = str((_LAST_BEAT_SIG.get(_dkey) or {}).get("phase") or "")
+        if not _rc.cues_in(_rc._norm(text), phase_hint) and carry["ttl"] <= 0:
+            return text  # cheap pre-filter: no role cue and nothing carried ⇒ creative prose, untouched (ADR 0005 #1)
+        live = await _capture_beat_signature(user)
+        if not live:
+            return text
+        kept, stripped, new_carry = _rc.screen_role_units(text, live, carry)
+        new_carry = dict(new_carry or {})
+        new_carry["turn"] = turn_tag
+        _ROLE_CARRY[_dkey] = new_carry
+        if stripped:
+            logger.warning(
+                "[orwell] role-claim guard STRIPPED %d unit(s) for user=%s: %s", len(stripped), user,
+                "; ".join(f"{u['reason']} ← {u['unit'].strip()[:70]!r}" for u in stripped))
+            _reground_enqueue(_dkey, (
+                "RE-GROUND ON TITLES AND WHO LEAVES — last turn an announcement named someone as a veto winner/holder, "
+                "Head of Household, nominee or evictee that the game has NOT committed to them. Those are engine truth, not "
+                "yours to improvise: voice only what the House Status panel and the production chyron show, and never name "
+                "a winner, holder or evictee the game has not announced."))
+        return kept
+    except Exception as e:
+        logger.debug("[orwell] role-claim guard skipped for user=%s: %s", user, e)
+        return text
 
 
 async def screen_streamed_nominee(user, sentence: str) -> bool:

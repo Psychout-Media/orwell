@@ -70,6 +70,7 @@ def test_beat_signature_shape_from_sample_dicts():
         "vetoFieldIds": [],            # F-3 — the veto competition field (none in this sample)
         "vetoFieldNames": [],
         "playerId": None,              # F-3 — the player id (no player in this sample)
+        "playerName": None,            # A-15 — the player's display name (role-claim guard roster; none in this sample)
         "beatSeq": None,               # A-9 — the engine beat counter (absent in this sample)
     }
 

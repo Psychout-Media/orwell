@@ -1,0 +1,79 @@
+"""Wiring of the role-claim guard (src/role_claims.py) into the pre-emission path: the stateful wrapper in
+chat_helpers (live board read, per-turn ellipsis carry, re-ground) and the call site in agent_loop. Roles only."""
+import asyncio
+import importlib
+import os
+import re
+
+import pytest
+
+ch = importlib.import_module("routes.chat_helpers")
+FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+BOARD = {
+    "phase": "veto-competition", "activeNames": ["Hoh Person", "Nom Alpha", "Nom Beta", "Vetoer Gamma"], "evictedNames": [],
+    "playerName": "Player Epsilon", "hohName": "Hoh Person", "vetoHolderName": None, "nomNames": ["Nom Alpha", "Nom Beta"],
+    "playerStatus": "active",
+}
+
+
+@pytest.fixture
+def board(monkeypatch):
+    state = {"sig": dict(BOARD), "calls": 0}
+
+    async def fake_capture(user):
+        state["calls"] += 1
+        return state["sig"]
+
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    ch._ROLE_CARRY.clear()
+    ch._LAST_BEAT_SIG.clear()
+    ch._LAST_BEAT_SIG["gs:t"] = dict(BOARD)
+    monkeypatch.setattr(ch, "_desync_key", lambda user: "gs:t")
+    enq = []
+    monkeypatch.setattr(ch, "_reground_enqueue", lambda k, d: enq.append(d))
+    state["enq"] = enq
+    return state
+
+
+def run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+def test_creative_prose_never_reaches_the_board_read(board):
+    t = "Hoh Person pours coffee and glares at Nom Alpha across the kitchen.\n"
+    assert run(ch.screen_role_claims(None, t)) == t
+    assert board["calls"] == 0, "no role cue ⇒ no engine read (the open set is untouched, ADR 0005 #1)"
+
+
+def test_a_phantom_veto_winner_is_stripped_across_two_stream_chunks_and_a_reground_is_queued(board):
+    a = run(ch.screen_role_claims(None, '**"The winner of the Power of Veto..."**\n'))
+    assert "winner of the Power of Veto" in a
+    b = run(ch.screen_role_claims(None, '**"...is Player Epsilon."**\n'))
+    assert "Player Epsilon" not in b
+    assert board["enq"] and "RE-GROUND ON TITLES" in board["enq"][-1]
+
+
+def test_the_carry_does_not_leak_into_the_next_turn(board):
+    run(ch.screen_role_claims(None, '**"The winner of the Power of Veto..."**\n'))
+    ch._LAST_BEAT_SIG["gs:t"] = dict(BOARD)  # a new turn re-captures the signature (a new object)
+    out = run(ch.screen_role_claims(None, "Other houseguests drift in. Nom Beta laughs.\n"))
+    assert "Nom Beta" in out
+
+
+def test_fail_open_when_the_board_read_hiccups(board, monkeypatch):
+    async def boom(user):
+        raise RuntimeError("engine blip")
+
+    monkeypatch.setattr(ch, "_capture_beat_signature", boom)
+    t = "Player Epsilon takes the veto.\n"
+    assert run(ch.screen_role_claims(None, t)) == t
+
+
+def test_the_pre_emission_guard_calls_the_role_screen_before_the_sentence_screens():
+    with open(os.path.join(FRONTEND, "src", "agent_loop.py"), encoding="utf-8") as f:
+        src = f.read()
+    i = src.index("async def _pre_emission_outcome_guard(")
+    body = src[i: i + 9000]
+    assert "chat_helpers.screen_role_claims(owner, text)" in body
+    assert body.index("screen_role_claims") < body.index("chat_helpers._sentence_has_closed_set_claim(")

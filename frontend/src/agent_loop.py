@@ -4799,6 +4799,16 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
         from routes import chat_helpers
     except Exception:
         return text
+    # A-15 (rehearsal 2026-11-03): ROLE-CLAIM screen on name + role co-occurrence, with ellipsis/quote-split announcements
+    # joined into one unit — the host-PA phrasing ("The winner of the Power of Veto..." / "...is X.") the sentence-level
+    # claim detectors below never matched. Strips only a unit asserting a veto/HOH/nominee/evictee role the engine did
+    # not commit to that person; creative prose with no role cue is untouched. Fail-open.
+    try:
+        text = await chat_helpers.screen_role_claims(owner, text)
+    except Exception:
+        pass
+    if not text.strip():
+        return text
     # Cheap synchronous pass first: if NO sentence even mentions a closed-set outcome OR an
     # out-of-house houseguest (ADR 0009 D3 Part B), emit verbatim without splitting/awaiting (the
     # common case — and the open-set guarantee in the hot path).
