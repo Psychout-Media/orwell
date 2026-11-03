@@ -8796,6 +8796,33 @@ export class GameSessionAdapter implements GameSession {
     return this.advanceView(last);
   }
 
+  /**
+   * 0129 slice 4 — the informed juror-vote card's brief: what the PLAYER was told by fellow jurors (`told-by:<juror>`
+   * facts in the player's own knowledge — the sole source, so nothing a juror merely holds can ride), grouped by the
+   * finalist it concerned (the fact's subject, or the finalist named in it), most recent last, capped per finalist.
+   * `undefined` when nothing relevant was told (the card is then unchanged).
+   */
+  private jurorBriefFor(finalists: readonly EntityId[]): Array<{ finalist: NamedRef; heard: string[] }> | undefined {
+    const jurorIds = new Set((this.juryHouseView()?.jurors ?? []).map((j) => j.id));
+    if (jurorIds.size === 0) return undefined;
+    const told = (this.playerKnowledgeReader?.() ?? []).filter((k) => {
+      const m = /^told-by:(.+)$/.exec(k.pathway ?? "");
+      return !!m && jurorIds.has(m[1]!);
+    });
+    if (told.length === 0) return undefined;
+    const out: Array<{ finalist: NamedRef; heard: string[] }> = [];
+    for (const f of finalists) {
+      const name = this.nameOf(f);
+      const heard = told
+        .filter((k) => k.subject === f || (name.length > 0 && k.content.includes(name)))
+        .slice(-GameSessionAdapter.JUROR_BRIEF_CAP)
+        .map((k) => this.humanize(k.content));
+      if (heard.length > 0) out.push({ finalist: { id: f, name }, heard });
+    }
+    return out.length > 0 ? out : undefined;
+  }
+  private static readonly JUROR_BRIEF_CAP = 4;
+
   /** 0129 — an engine-seeded vote-DEDUCTION belief ("X believes A turned on them in the eviction vote", 0110 / the
    *  traitors-fury blame seeding). It attributes a SEALED ballot (E12), so it never rides a juror's telling or the
    *  jury-house prompt block — it unseals only through the 0048 retrospective. */
@@ -10920,7 +10947,10 @@ export class GameSessionAdapter implements GameSession {
           options: refs([p.finalist]), finalist: this.named(p.finalist)!, pick: 0,
         };
       case "juror-vote":
-        return { kind: p.kind, by, prompt: "You sit on the jury — cast your vote for the winner.", options: refs(p.finalists), pick: 1 };
+        return {
+          kind: p.kind, by, prompt: "You sit on the jury — cast your vote for the winner.", options: refs(p.finalists), pick: 1,
+          ...(() => { const jb = this.jurorBriefFor(p.finalists); return jb ? { jurorBrief: jb } : {}; })(),
+        };
       case "self-evict":
         // 0061: the self-evict confirmation never lives on `this.live.pending` (it rides
         // `selfEvictPending`, surfaced above), so this branch is unreachable — handled for

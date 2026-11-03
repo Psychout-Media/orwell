@@ -32,3 +32,12 @@ def test_dispatch_forwards_only_juror_id(monkeypatch):
     res = _run(ti.do_ask_juror(json.dumps({"jurorId": "npc:4"}), owner="u"))
     assert res["exit_code"] == 0 and seen == {"juror_id": "npc:4", "user": "u"}
     assert _run(ti.do_ask_juror(json.dumps({}), owner="u"))["exit_code"] == 1
+
+
+def test_the_juror_vote_card_renders_the_brief_with_textcontent_only():
+    import os
+    js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "js", "orwellDecision.js"), encoding="utf-8").read()
+    i = js.index('kind === "juror-vote" && Array.isArray(pending.jurorBrief)')
+    block = js[i:i + 1200]
+    assert "What the jurors told you" in block
+    assert "innerHTML" not in block, "model-adjacent juror text must never go through innerHTML"
