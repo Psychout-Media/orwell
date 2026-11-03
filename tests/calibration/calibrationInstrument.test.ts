@@ -487,7 +487,11 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
         seasons: { passive, solid, reckless },
       };
 
-      const outDir = process.env.ORWELL_CALIB_OUT ?? resolve(__dirname, "../../docs/audits/data");
+      // A sharded run (SEED_START ≠ 1) without an explicit ORWELL_CALIB_OUT writes to its own subfolder, so
+      // concurrent shards never overwrite each other's artifact.
+      const outDir = process.env.ORWELL_CALIB_OUT ?? (SEED_START === 1
+        ? resolve(__dirname, "../../docs/audits/data")
+        : resolve(__dirname, "../../docs/audits/data", `seeds-${SEED_START}-${SEED_START + SEEDS - 1}`));
       mkdirSync(outDir, { recursive: true });
       const outPath = resolve(outDir, "2026-06-19-calibration-data.json");
       writeFileSync(outPath, JSON.stringify(artifact, null, 2) + "\n", "utf8");

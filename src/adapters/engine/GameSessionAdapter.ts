@@ -6980,7 +6980,10 @@ export class GameSessionAdapter implements GameSession {
       // 0124 (part B): with soul-depth on, the EFFECTIVE disposition (baseline bent by temperament drift)
       // gates it instead — a repeatedly-burned houseguest plays more defensively. Off ⇒ the static baseline.
       dispositionOf: (id) => this.dispositionReadOf(id),
-      nominationStyleOf: (id) => NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
+      // 0044 §9: an NPC's style comes from their archetype; the player's NPC proxy (admin fast-forward)
+      // always reads as a threat hunter — the player's own character never picks an NPC lens.
+      nominationStyleOf: (id) =>
+        id === PLAYER ? "threat-hunter" : NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
       // #1320 night-gate: the HOH→nominations day boundary is live ONLY when the clock pacing is running
       // (the per-conversation clock AND the master clock) — it is the "deeper half" of the fast-forward
       // fix and rides the same pair, so the golden replay (which pins `ORWELL_TIME_PER_CONVERSATION=0`)

@@ -29,8 +29,10 @@ live ledger of owner calls as they happen.
   sensible social game); a RECKLESS test player checks that bad strategy doesn't beat doing nothing.
 - **In-game clock (0066 / `ORWELL_TIME_OF_DAY`) is ON everywhere, tests included.** Resolves the conflict
   between the 2026-06-23 ruling (flip the default ON, #583) and the 2026-06-27 line (engine env OFF for
-  calibration). The 06-27 line is retired: tests and calibration run with the clock ON, matching the deploy
-  and real play. It lands with the default flip (#1921 / #1922).
+  calibration). The 06-27 line is retired: tests and calibration are to run with the clock ON, matching the
+  deploy and real play. **This is the ruling; the code/test default flip has not landed yet** — it ships with
+  the default flip (#1921 / #1922). Until then an unset `ORWELL_TIME_OF_DAY` still reads OFF in the engine;
+  the balance measurements here sourced the deploy env, so they ran with the clock ON.
 - **Identity and outcomes (0063 §5).** A houseguest's background (ethnicity, orientation) never changes
   a competition's odds or result. It MAY shape social play through realistic showmances (orientation
   gates who can form one, decision #3 / #840), and showmances move friendships, nominations and votes.

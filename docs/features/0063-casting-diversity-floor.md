@@ -144,6 +144,10 @@ showmance or pre-game tie**:
   player's interest.
 - **No orientation-gated determinism.** Orientation informs *who a showmance could be*, never a
   competition outcome, a vote, or a hard rule. It is texture and drama, never a mechanical edge.
+  *(PO ruling 2026-11-02: there is no **direct** weight — no competition, nomination or vote term reads
+  identity. But a showmance moves affinity like any bond, and affinity shapes later nominations/votes,
+  so orientation may change social play **indirectly** through the showmances it makes plausible.
+  Competition odds and results stay identity-neutral; the 0063 BDD golden pins the opening competition.)*
 
 ## 5. Vault-Wall guarantees (the non-negotiables)
 

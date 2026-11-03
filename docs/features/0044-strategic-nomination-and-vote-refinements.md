@@ -139,8 +139,9 @@ tactic layer here; they are not a new system:
   than the HOH. When the target has such a partner (`duoPartner`), a duo-minded HOH puts the partner up
   beside them.
 - **The eviction vote is a referendum on the HOH.** `voteChoice` adds `vote.hohReferendumWeight` × the
-  voter's alignment with the HOH (bond above baseline, minus threat) to the HOH's target. Aligned voters
-  give the HOH their target; opposed voters keep the target and send the pawn home.
+  voter's alignment with the HOH (bond above baseline, minus threat) to the HOH's target — a bounded term
+  among the others. Aligned voters tend to give the HOH their target; opposed voters tend to keep the
+  target and send the pawn home.
 - **Per-houseguest NOMINATION STYLE (agency).** No single house-wide rule. Each NPC reads the block through
   a style fixed by archetype for the season (`NOMINATION_STYLES` / `NOMINATION_STYLE_BY_ARCHETYPE` in
   `decisionConstants.ts`). Threat, blocs, bonds and grudges still decide first; a style only weights the
