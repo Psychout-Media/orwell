@@ -251,7 +251,8 @@ def _auto_resolve(p):
 # audit can render a real endgame decision card even after the game has finished (the card renders
 # purely from its Vault-free PendingDecisionView detail — measuring it needs no live game).
 _FINALE_KINDS = {"final-eviction", "finale-statement", "finale-answer",
-                 "juror-question", "juror-vote", "goodbye-message", "tie-break"}
+                 "juror-question", "juror-vote", "goodbye-message", "tie-break",
+                 "finale-interview"}
 
 
 def finish_game():
@@ -282,6 +283,11 @@ def finish_game():
         consec_fail = 0
         if adv.get("finished"):
             finished = True
+            # 0133: the crowning response can carry the post-crowning `finale-interview` card — keep it as the
+            # endgame card for the audit to render (a real card, deliberately left unanswered).
+            fp = adv.get("pending")
+            if fp and fp.get("kind") in _FINALE_KINDS:
+                endgame_pending = fp
             break
         p = adv.get("pending")
         if not p:

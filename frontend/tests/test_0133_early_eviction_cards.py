@@ -54,3 +54,40 @@ def test_the_throwaway_fast_forward_drivers_answer_both_kinds():
     mjs = open(os.path.join(os.path.dirname(FRONTEND), "docs", "audits", "playtest-harness", "s4ff.mjs"),
                encoding="utf-8").read()
     assert "case 'spectator-choice'" in mjs and "case 'finale-interview'" in mjs
+
+
+def test_the_card_builds_the_real_wire_payload_at_runtime():
+    """Runtime pin (not source text): evaluate the card's REAL `SINGLE_PICK_FIELD` + `buildPayload` in node and
+    assert the exact payload for both kinds, so a dropped `statement`, a wrong field or a `null` can't pass."""
+    import json
+    import shutil
+    import subprocess
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    js = _read("static", "js", "orwellDecision.js")
+    start = js.index("const SINGLE_PICK_FIELD = {")
+    table = js[start: js.index("};", start) + 2]
+    fstart = js.index("function buildPayload(")
+    depth, i = 0, js.index("{", fstart)
+    for j in range(i, len(js)):
+        depth += (js[j] == "{") - (js[j] == "}")
+        if depth == 0:
+            fn = js[fstart: j + 1]
+            break
+    prog = table + "\n" + fn + """
+console.log(JSON.stringify([
+  buildPayload("spectator-choice", ["watch"], "", null),
+  buildPayload("spectator-choice", [], "", null),
+  buildPayload("finale-interview", ["gracious"], "thanks all", null),
+  buildPayload("finale-interview", [], "", null),
+]));"""
+    out = subprocess.run([node, "-e", prog], capture_output=True, text=True, check=True).stdout
+    assert json.loads(out) == [
+        {"kind": "spectator-choice", "vote": "watch"},
+        None,  # no mode picked => Confirm stays disabled
+        {"kind": "finale-interview", "vote": "gracious", "statement": "thanks all"},
+        None,  # no posture picked => Confirm stays disabled
+    ]

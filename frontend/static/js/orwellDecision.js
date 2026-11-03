@@ -783,8 +783,9 @@
       // 0130 / 0133: the player's own interview — pick a posture (the binding part) + optional words.
       (pending.options || []).forEach((o) => addChip(o.name || String(o.id), o.id));
       textarea = document.createElement("textarea");
-      textarea.placeholder = "Your exit interview (optional — the posture is what binds)…";
-      textarea.setAttribute("aria-label", "Your exit interview (optional)"); // J5-02
+      const interviewLabel = kind === "finale-interview" ? "Your finale-night interview" : "Your exit interview";
+      textarea.placeholder = interviewLabel + " (optional — the posture is what binds)…";
+      textarea.setAttribute("aria-label", interviewLabel + " (optional)"); // J5-02
       textarea.addEventListener("input", sync);
       card.appendChild(textarea);
     } else if (kind === "finale-answer") {
