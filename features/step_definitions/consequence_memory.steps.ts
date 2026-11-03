@@ -67,24 +67,27 @@ When("the player's action shifts a houseguest's hidden opinion", function (this:
   setLive(this, live);
   const mate = live.sb.session.snapshot().house!.npcs[0]!.id;
   live.sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, mate], content: "a chat", kind: "bonding", toward: [mate] });
-  this.lastView = livePlayerSurfaces(live.sb);
+  // ONE moment-prompt read for the whole scenario: getMomentPrompt consumes the one-shot Producer Read, so the
+  // sentinel sweep, the structured walk and the prose backstop must all look at this same prompt.
+  live.momentPrompt = live.sb.session.getMomentPrompt({});
+  this.lastView = livePlayerSurfaces(live.sb, live.momentPrompt);
 });
 
-/** The text to prose-sweep: the live game's ENGINE-GENERATED player text (not the moment prompt's fixed instruction template). */
+/** The text to prose-sweep: the live game's ENGINE-GENERATED player text (the moment prompt's fixed instruction template is cut out; its dynamic context is swept). */
 const proseOf = (w: BbWorld): string => {
   const live = liveOf(w);
-  return live?.sb ? livePlayerProse(live.sb) : w.lastOutput;
+  return live?.sb ? livePlayerProse(live.sb, live.momentPrompt) : w.lastOutput;
 };
 
 Then("no opinion number or relationship value appears", function (this: BbWorld) {
   // PAT-2: (1) the STRONG check walks the live game's STRUCTURED player projections (HUD, npcVoice, whereabouts,
   // journal, moment prompt) and fails on ANY numeric value under a trust/affinity/threat/opinion/relationship/edge
   // key; (2) the prose regex is the backstop for a value rendered into text ("trust 7", "threat (8)", "trust: 0.8").
-  // The prose is the live game's engine-generated text only — its plain words ("can I trust you?", a speech tell
+  // The prose is the live game's engine-generated text (the fixed moment-prompt template is cut out, its dynamic context swept) — its plain words ("can I trust you?", a speech tell
   // "makes a threat sound like small talk") are legitimate, and the fixed moment-prompt template is not swept.
   const live = liveOf(this);
   assert.ok(live?.sb, "the scenario drives a live game, so its structured projections can be walked");
-  assertNoNumericRelationshipFields(livePlayerProjections(live.sb!));
+  assertNoNumericRelationshipFields(livePlayerProjections(live.sb!, live.momentPrompt));
   assertNoRelationshipValueProse(proseOf(this));
 });
 

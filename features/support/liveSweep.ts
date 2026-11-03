@@ -8,6 +8,9 @@ import { assertNoSentinels, assertNoneAppear } from "../../tests/support/asserti
 import { npc } from "../../src/domain/ids";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { AdminPort } from "../../src/surfaces/admin/AdminPort";
+import type { MomentPromptView } from "../../src/ports/GameSession";
+import { BASE_GAME_MASTER_PROMPT, momentFragment } from "../../src/engine/momentPrompts";
+import { generatedPromptText } from "./relationshipLeakChecks";
 import { InMemoryGameStateRepository } from "../../src/adapters/inmemory/InMemoryGameStateRepository";
 
 /**
@@ -36,6 +39,8 @@ export interface LiveSweep extends SweepTargets {
   reg: GameSessionRegistry;
   user: string;
   sb: UserSandbox;
+  /** The ONE moment-prompt read of the scenario (getMomentPrompt consumes the one-shot Producer Read, so a second read sees a different prompt). */
+  momentPrompt?: MomentPromptView;
 }
 
 /** Plant a unique sentinel into a houseguest's hidden material (hidden element + soul memory). */
@@ -125,7 +130,7 @@ export function assertLiveSweepClean(output: string, targets: SweepTargets): voi
 // ---- Surfaces of the live game ---------------------------------------------------------------------
 
 /** Every player-facing surface of THE LIVE GAME (the session's projections + the outward surfaces). */
-export function livePlayerSurfaces(sb: UserSandbox): string {
+export function livePlayerSurfaces(sb: UserSandbox, mp: MomentPromptView = sb.session.getMomentPrompt({})): string {
   const ids = (sb.session.snapshot().house?.npcs ?? []).map((n) => n.id);
   return [
     ...ALL_PLAYER_SURFACES.map((s) => sb.player.produce(s)),
@@ -139,7 +144,7 @@ export function livePlayerSurfaces(sb: UserSandbox): string {
     JSON.stringify(sb.session.getGameState()),
     JSON.stringify(sb.session.gameStatus()),
     JSON.stringify(sb.session.whereabouts()),
-    JSON.stringify(sb.session.getMomentPrompt({})),
+    JSON.stringify(mp),
     ...ids.map((id) => JSON.stringify(sb.session.npcVoice(id))),
   ].join("\n---\n");
 }
@@ -150,14 +155,14 @@ export function livePlayerSurfaces(sb: UserSandbox): string {
  * state (`getVisibleState`), and the moment prompt object (whose `systemPrompt` is a string, so only a
  * numeric sibling field could trip the walk).
  */
-export function livePlayerProjections(sb: UserSandbox): Record<string, unknown> {
+export function livePlayerProjections(sb: UserSandbox, mp: MomentPromptView = sb.session.getMomentPrompt({})): Record<string, unknown> {
   const ids = (sb.session.snapshot().house?.npcs ?? []).map((n) => n.id);
   const out: Record<string, unknown> = {
     gameStatus: sb.session.gameStatus(),
     getGameState: sb.session.getGameState(),
     whereabouts: sb.session.whereabouts(),
     journal: sb.player.getVisibleState(),
-    momentPrompt: sb.session.getMomentPrompt({}),
+    momentPrompt: mp,
   };
   for (const id of ids) out[`npcVoice:${id}`] = sb.session.npcVoice(id);
   return out;
@@ -165,14 +170,14 @@ export function livePlayerProjections(sb: UserSandbox): Record<string, unknown> 
 
 /**
  * The ENGINE-GENERATED player-facing text of THE LIVE GAME, for the prose backstop. Same as
- * `livePlayerSurfaces` except the moment prompt's `systemPrompt` is left out: that is a ~tens-of-KB FIXED
- * instruction template (it talks about spectators "form[ing] opinions", power "changed hands", ...), not engine
- * output, so a prose regex over it only ever matches the template. Its engine-generated `hardConstraints`
- * block (scene occupancy / pronoun locks) IS kept.
+ * `livePlayerSurfaces` except the moment prompt's FIXED instruction template (`BASE_GAME_MASTER_PROMPT` + the
+ * moment's beat fragment: ~tens of KB that talk about spectators "form[ing] opinions", power "changed hands", ...)
+ * is cut out of `systemPrompt`. Everything else in `systemPrompt` is engine-generated (game context, world
+ * context, story facts, freshly surfaced facts, the producer read) and IS swept, as is `hardConstraints`.
+ * Pass the SAME `mp` the structured walk got (`getMomentPrompt` consumes a one-shot Producer Read).
  */
-export function livePlayerProse(sb: UserSandbox): string {
+export function livePlayerProse(sb: UserSandbox, mp: MomentPromptView = sb.session.getMomentPrompt({})): string {
   const ids = (sb.session.snapshot().house?.npcs ?? []).map((n) => n.id);
-  const mp = sb.session.getMomentPrompt({});
   return [
     ...ALL_PLAYER_SURFACES.map((s) => sb.player.produce(s)),
     JSON.stringify(sb.player.assembleNarrationContext("scene")),
@@ -185,7 +190,7 @@ export function livePlayerProse(sb: UserSandbox): string {
     JSON.stringify(sb.session.getGameState()),
     JSON.stringify(sb.session.gameStatus()),
     JSON.stringify(sb.session.whereabouts()),
-    mp.hardConstraints ?? "",
+    generatedPromptText(mp, [BASE_GAME_MASTER_PROMPT, momentFragment(mp.moment)]),
     ...ids.map((id) => JSON.stringify(sb.session.npcVoice(id))),
   ].join("\n---\n");
 }
