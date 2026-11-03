@@ -29,7 +29,7 @@ call to `npcVoice`/`getGameState` before the lever is a miss here but not in the
 signal, not a rate; the closed-set beats are covered in production by forced `tool_choice` (`requiredLever`) for models that honor it — `deepseek-flash` is on the forced-`tool_choice` denylist, so for it the textual fallback applies and these numbers are the relevant ones.
 `tail-reminder` appends a one-paragraph "call the lever FIRST" system message after the hard-constraints block.
 
-### Multi-round pass (lever must land within 3 rounds; stubbed tool results; n=10; `--rounds 3 --variant scoped`)
+### Multi-round pass — SUPERSEDED for the deal/confide rows by the social-moment re-measure at the bottom (the 5/10 deal figure and the 'mixed' verdict below were measured under a closed-set prompt); the ceremony rows stand. (lever must land within 3 rounds; stubbed tool results; n=10; `--rounds 3 --variant scoped`)
 
 `scoped` = the reminder only on the deal / veto-ceremony / eviction beats (never confide).
 
@@ -56,7 +56,11 @@ are relied on. The closed-set rows (advance beats) are unaffected. The tool menu
 |---|---|---|
 | deal (makeDeal), social moment | **9/10** | 9/10 |
 
-**Conclusion: on the right prompt the base model already lands `makeDeal` 9/10 within 3 rounds, so no fix is needed**
-and the earlier 5/10 was an artefact of measuring under the eviction prompt. The description reword changes nothing
-(9/10) and was not shipped. Confide was not re-measured (budget); its earlier 5/10 shares the same flaw and should be
+**Conclusion (n=10, a single pass — read as a signal, not a rate): on the right prompt the base model lands `makeDeal`
+9/10 within 3 rounds, which clears the ≥8/10 bar, so no fix was pursued**; the earlier 5/10 came from measuring under
+the eviction prompt. The description reword showed no difference at this sample size (9/10 vs 9/10) and was not shipped. Confide was not re-measured (budget); its earlier 5/10 shares the same flaw and should be
 treated as unknown. Cost: $0.51. The `deal-desc` variant remains in the harness for re-checks.
+
+**Confide scenario caveat:** `export_scenarios.ts` swaps in the `social` moment prompt, but that changes only the
+prompt — it does not stage the chosen houseguest as a present 1:1 ally. A confide rate from this harness is therefore a
+rough proxy, not the production situation; build a staged scene (present, bonded NPC) before relying on it.
