@@ -52,12 +52,17 @@ function driveToPendingKind(s: GameSessionAdapter, kind: PendingDecisionView["ki
   throw new Error(`never reached a '${kind}' pending within ${maxIterations} iterations`);
 }
 
-/** `driveToPendingKind`, retried over a small SEED FAN-OUT: which role the player draws (HOH, veto
+/** The seed fan-out: the known-good seeds first, then a long tail of consecutive ones. Which seed hands the
+ *  player a given role moves whenever the balance does (#1941 shifted them), so a short pinned list goes stale;
+ *  the search stops at the first seed that reaches the target, so the tail costs nothing unless it is needed. */
+const SEED_FAN_OUT: number[] = [81000, ...Array.from({ length: 60 }, (_, i) => 4001 + i)];
+
+/** `driveToPendingKind`, retried over a SEED FAN-OUT: which role the player draws (HOH, veto
  *  holder…) varies seed-to-seed (a legitimate outcome — the player may simply never win HOH a given
  *  season), so a single fixed seed is not a reliable way to reach a role-specific pending. Builds and
  *  returns its OWN fresh session/game (via `startedGame`) on whichever seed first reaches `kind`. */
 function driveToPendingKindAcrossSeeds(
-  kind: PendingDecisionView["kind"], seeds: number[] = [81000, 4001, 4002, 4003, 4004, 4005],
+  kind: PendingDecisionView["kind"], seeds: number[] = SEED_FAN_OUT,
 ): { session: GameSessionAdapter; pending: PendingDecisionView } {
   let lastErr: unknown;
   for (const seed of seeds) {
@@ -238,10 +243,10 @@ describe("T0-3 — no announcement for a rolled-back commit", () => {
     const store = new FlakyStore();
     const runtime = composeRuntime({ saveStore: store, clock: new FakeClock() });
     const user = "t0-3-fault";
-    // Seed fan-out (see `driveToPendingKindAcrossSeeds`'s comment): retry a couple of seeds until one
+    // Seed fan-out (see `driveToPendingKindAcrossSeeds`'s comment): search the seed fan-out until one
     // hands the player the HOH crown, so this doesn't depend on one fixed seed always doing so.
     let pending: PendingDecisionView | undefined;
-    for (const seed of [81000, 4001, 4002, 4003]) {
+    for (const seed of SEED_FAN_OUT) {
       runtime.registry.sandboxFor(user).session.createCharacter({
         playerName: "P", seed, confirmRestart: true,
       });
