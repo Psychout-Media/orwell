@@ -8101,6 +8101,29 @@ async def _stream_agent_loop_impl(
                         # advance) silently and end the turn — the board catches up to the scene shown,
                         # and the next real beat is voiced on the player's next turn. Falls through to
                         # the text-nudge path only when the silent commit could not run.
+                        # A-10: the silent commit ENDS the turn (`break`), so the scene-record block at the
+                        # bottom of this branch is never reached on a belt-forced advance — a social scene
+                        # the player just watched (a public confrontation at the premiere's third
+                        # same-gate turn) was never folded into the consequence loop. Bank the shown scene
+                        # FIRST (same constrained extraction + recordInteraction as the bottom block; the
+                        # model's own recording still wins via `_recorded`/`_want_record`).
+                        # …the same goes for a deal the shown scene struck without a makeDeal call (0039): it
+                        # runs first and, once banked, its fold satisfies the generic scene record below.
+                        if (_emitted_visible and _want_deal
+                                and _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])):
+                            _turn_deal_nudges += 1  # once per turn
+                            if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
+                                                       _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                _turn_record_nudges = max(_turn_record_nudges, 1)  # the deal banked the fold
+                                _note_belt(owner, "auto-record-deal")
+                        if (_emitted_visible and _want_record
+                                and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
+                                and _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])):
+                            _turn_record_nudges += 1  # once per turn
+                            if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
+                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                        session_id=session_id):
+                                _note_belt(owner, "auto-record-scene")  # success-gated, like the bottom block
                         if _emitted_visible:
                             if await _commit_advance_silently(
                                     "preview-commit" if _previewed_uncommitted
