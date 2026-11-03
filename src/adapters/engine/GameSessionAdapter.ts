@@ -1663,11 +1663,11 @@ export class GameSessionAdapter implements GameSession {
   /**
    * 0025 reactive redesign (PO ruling 2026-07-06): when on, a NEW season arms the standing reactive
    * pool (all three twists watch the live house, per-season seeded triggers) instead of the legacy
-   * pre-scheduled double-eviction-only path. Default OFF ⇒ the setup + loop are byte-identical to
-   * before (the tuned calibration baseline is untouched); the whole reactive path is gated by whether
+   * pre-scheduled double-eviction-only path. Default ON (PO ruling 2026-11-03, "I want to know if this breaks the game");
+   * `ORWELL_REACTIVE_TWISTS=0` or `ORWELL_FLAGS_OFF=1` restores the legacy path byte-identically; the whole reactive path is gated by whether
    * `s.twistPlan` is set at setup, so an in-flight legacy game never changes shape.
    */
-  private reactiveTwistsEnabled = process.env.ORWELL_REACTIVE_TWISTS === "1";
+  private reactiveTwistsEnabled = flagDefaultOn("ORWELL_REACTIVE_TWISTS");
 
   setReactiveTwistsEnabled(on: boolean): void {
     this.reactiveTwistsEnabled = on;
@@ -7973,7 +7973,10 @@ export class GameSessionAdapter implements GameSession {
     // A save that counted pre-jury evictions as arrivals is AHEAD of the juror count. Pull it back to one short, so
     // the newest juror's stretch is played (once) under the correct membership instead of being skipped; after that
     // the counters are equal and this never fires again.
-    if (this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
+    // NEVER after a battle-back (0025): its returnee leaves `evictionOrder`, so the juror count legitimately dips below the processed-arrivals counter,
+    // and lowering a persisted monotonic counter reads as DEGRADATION to the integrity checkpoint (every later commit refused; the circuit opens).
+    const battleBackFired = (this.live.firedTwists ?? []).some((t) => t.kind === "battle-back");
+    if (!battleBackFired && this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
     if (this.juryHouseArrivals === null) {
       // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival
       // marker) is treated as caught up to now, so the NEXT eviction resumes the jury house normally.

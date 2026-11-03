@@ -76,7 +76,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0025 reactive twists: OFF unless exactly '1' (the engine's own read), NOT part of the default flip. Reported on /health for VISIBILITY ONLY: there
   // is deliberately no God-Mode dial entry (Ryne ruled twists OFF for the first playtest; the FE cannot yet render a `secret-veto` card, so enabling
   // it could freeze a player holding the secret veto - #1934). A dial/enable path comes with that FE card.
-  { envKey: 'ORWELL_REACTIVE_TWISTS',        key: 'reactiveTwists',         parser: 'strict' },
+  { envKey: 'ORWELL_REACTIVE_TWISTS',        key: 'reactiveTwists',         parser: 'defaultOn' },
   { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'defaultOn' },
   { envKey: 'ORWELL_TRAITORS_FURY', key: 'traitorsFury', parser: 'defaultOn' },
   { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },

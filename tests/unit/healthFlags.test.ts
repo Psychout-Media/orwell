@@ -42,8 +42,8 @@ describe("/health flag parsing matches what the engine actually runs", () => {
 
   it("the default flip: every default-on flag (derived from the registry) reports ON unset, OFF for each of 0/false/off, and ORWELL_FLAGS_OFF=1 forces all OFF", () => {
     const FLIPPED = FEATURE_FLAGS.filter((d) => d.parser === "defaultOn");
-    expect(FLIPPED.length, "the registry carries the 27 flipped flags").toBe(27);
-    const NOT_FLIPPED = ["multiNightFatigue", "reactiveTwists"];
+    expect(FLIPPED.length, "the registry carries the 28 flipped flags").toBe(28);
+    const NOT_FLIPPED = ["multiNightFatigue"];
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
     let f = bootFlagsFromEnv();
     for (const d of FLIPPED) expect(f[d.key], `${d.key} defaults ON`).toBe(true);
@@ -62,18 +62,15 @@ describe("/health flag parsing matches what the engine actually runs", () => {
     for (const d of FLIPPED) expect(f[d.key], `${d.key} off under ORWELL_FLAGS_OFF`).toBe(false);
   });
 
-  it("reactiveTwists is reported on /health, OFF unless exactly '1', untouched by the default flip, and has no dial entry", () => {
+  it("reactiveTwists is reported on /health: ON by default (PO ruling 2026-11-03), OFF for 0/false/off, and forced OFF by ORWELL_FLAGS_OFF=1", () => {
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
-    expect(bootFlagsFromEnv().reactiveTwists).toBe(false);
-    for (const v of ["0", "true", "on", "yes", ""]) {
+    expect(bootFlagsFromEnv().reactiveTwists).toBe(true);
+    for (const v of ["0", "false", "off"]) {
       process.env.ORWELL_REACTIVE_TWISTS = v;
       expect(bootFlagsFromEnv().reactiveTwists, `ORWELL_REACTIVE_TWISTS=${JSON.stringify(v)}`).toBe(false);
     }
-    process.env.ORWELL_REACTIVE_TWISTS = "1";
-    expect(bootFlagsFromEnv().reactiveTwists).toBe(true);
-    process.env.ORWELL_FLAGS_OFF = "1"; // the diagnostic switch only forces the DEFAULT-ON set off; this opt-in flag reports its own env
-    expect(bootFlagsFromEnv().reactiveTwists).toBe(true);
-    // No enable path through the God-Mode dial (ruling: twists OFF for the first playtest).
-    expect(Object.keys(new GameSessionAdapter().behavioralFlagsSnapshot())).not.toContain("reactiveTwists");
+    delete process.env.ORWELL_REACTIVE_TWISTS;
+    process.env.ORWELL_FLAGS_OFF = "1";
+    expect(bootFlagsFromEnv().reactiveTwists).toBe(false);
   });
 });

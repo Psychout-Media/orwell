@@ -2775,6 +2775,9 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const winner = resolveComp(field, def, ctx, rng, "compete").winner;
   s.evictionOrder = s.evictionOrder.filter((h) => h !== winner);
   s.active.push(winner);
+  // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep
+  // fast-forwarding their own weeks as if they were still watching from outside (found by the reactive-twists player-path guard).
+  if (winner === ctx.player) s.spectator = undefined;
   if (s.mannerByEvictee) delete s.mannerByEvictee[winner]; // the voided eviction leaves no jury grudge
   (s.firedTwists ??= []).push({ kind: "battle-back", beat: s.week });
   s.beat = "hoh-competition";

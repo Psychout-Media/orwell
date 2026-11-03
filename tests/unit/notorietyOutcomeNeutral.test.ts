@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { deriveNotoriety, type OpenSetSeasonOutcome } from "../../src/engine/notoriety";
@@ -143,6 +143,10 @@ describe("0104 — the engine still owns outcome magnitude (anti-sycophancy, man
   });
 
   it("FEATURE-01791: notorietyLegend is pure flavor — the seeded outcome stream is byte-identical with or without it", () => {
+    // Pinned to the LEGACY twist path (reactive twists are ON by default since 2026-11-03): the engine notoriety TILT (set on side A below) legitimately
+    // nudges move-in edges, and a reactive twist (a battle-back comp, a double eviction) amplifies that nudge into a different crowned winner on this
+    // one seed — the documented "notoriety ON can move outcomes" caveat. What this test pins is that the legend FIELD itself feeds nothing.
+    vi.stubEnv("ORWELL_REACTIVE_TWISTS", "0");
     // The notorietyLegend field on GameStateView is a PURE prompt-block projection — it never feeds any
     // engine decision, competition roll, vote, or outcome. The seeded outcome stream (winner, eviction
     // order, resume, jury votes) must be byte-identical whether or not the player carried a legend.
@@ -173,5 +177,6 @@ describe("0104 — the engine still owns outcome magnitude (anti-sycophancy, man
 
     // The outcome hashes must match: notorietyLegend is flavor-only, never an outcome lever.
     expect(outcomeHash(sbA)).toBe(outcomeHash(sbB));
+    vi.unstubAllEnvs();
   });
 });

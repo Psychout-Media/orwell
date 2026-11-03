@@ -1,4 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// The LEGACY pre-scheduled twist path (reserve schedule + the `reserveTwists` count knob): reactive twists are ON by default now (PO ruling 2026-11-03),
+// so these legacy-path gates pin the legacy path explicitly. The reactive path has its own gates (reactiveTwistsLive / reactiveTwistsGuard).
+beforeEach(() => { vi.stubEnv("ORWELL_REACTIVE_TWISTS", "0"); });
+afterEach(() => { vi.unstubAllEnvs(); });
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { loadReserveTwists } from "../../src/engine/reserveTwists";
 import { hashSeed } from "../../src/engine/characterFactory";
