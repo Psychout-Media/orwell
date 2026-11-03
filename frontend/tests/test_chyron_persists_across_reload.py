@@ -165,3 +165,12 @@ def test_owed_announcements_are_captured_for_the_stopped_save_too():
     assert "_owed_anns.extend(" in src, "the route captures owed announcements off the stream"
     assert '_stopped_md2["announcements"] = _owed_anns' in src, "a cut-short turn keeps the cards the player was shown"
     assert '"announcements": _owed_anns' in src, "the normal save merges them into the stored metadata"
+
+
+def test_the_owed_announcements_frame_is_forwarded_to_the_client_not_just_captured():
+    """The agent route's chunk chain had no branch for a bare {"announcements": [...]} frame, so it was dropped and `orwell:announcements`
+    never fired on the SSE path. It must be captured for storage AND forwarded (yield chunk) in the same chain."""
+    src = open(os.path.join(FRONTEND, "routes", "chat_routes.py"), encoding="utf-8").read()
+    i = src.index('yield chunk  # the owed-chyron frame')
+    branch = src[src.rindex("elif isinstance(data, dict)", 0, i):i]
+    assert '"type" not in data' in branch and 'data.get("announcements"), list' in branch
