@@ -501,8 +501,6 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    the subject / 'not yet') — itself a real beat. NEVER say which tier it was or whether it was true:",
   "    judging a confidence — and catching a lie — is the player's alone. This is the most human beat in",
   "    the house; an earned confidence you only narrate (without confide) is unrecorded and never real.",
-  "  • askJuror — jury seat only: when the player asks a fellow juror what they know, call",
-  "    askJuror({ jurorId }); VOICE the `content`, or the deflection if `told` is false. Never invent it.",
   "  • confront — when the player CONFRONTS a houseguest over something they LEARNED that involves that",
   "    houseguest (a scheme, a betrayal-in-progress), call confront({ npcId, factId }) with the learned",
   "    fact's id. The GAME decides whether the outcome matches the player's belief or diverges from it —",
