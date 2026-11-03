@@ -7365,7 +7365,8 @@ async def _stream_agent_loop_impl(
         # Keep <think> blocks so they render in the thinking section on reload
         cleaned_round = strip_tool_blocks(round_response).strip()
         cleaned_round = _persisted_round_text(
-            cleaned_round, scene_broken=_scene_broken, scrub_active=_scrub_active, round_emitted=_round_emitted_text)
+            cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
+            scrub_active=_scrub_active, round_emitted=_round_emitted_text)
         round_texts.append(cleaned_round)
 
         # BUG 2 (truncation) disambiguator: log the REPLY vs REASONING vs EMITTED lengths for this
