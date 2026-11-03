@@ -18,7 +18,6 @@ Feature: Weekly loop orchestration — the playable week and season
   Scenario: Each week follows the canonical phase order
     Given a week begins with an HOH competition
     Then it proceeds nominations, veto competition, veto ceremony, eviction vote, live eviction
-    And a phase begins only after its predecessor has produced a result
 
   Scenario: The loop enforces the per-week legality rules
     Given an HOH, two nominees, and a veto holder for the week
@@ -38,16 +37,17 @@ Feature: Weekly loop orchestration — the playable week and season
     Then the finalist with the most votes wins
     And a tied jury vote is broken by the last-evicted juror
 
-  # NOTE (PO review 2026-06-28): this scenario pins the BASELINE nomination read — the bare
-  # threat-primary `chooseNominations`. The LIVE game refines it via `nominationStrategy`, layered
-  # on in later features (each with its own tests): 0044 personality tactics (direct / backdoor /
-  # pawn) + rattled-HOH paranoia + runaway-threat override; 0043 bloc/0107 alliance protection
-  # (mates kept off the block); 0039 deals + 0085 campaigns + 0086 drives tilt who gets nominated.
-  # This spine test is the floor, not the whole story.
-  Scenario: NPC decisions are relationship-driven, not random
+  # BDD AMEND (Ryne): an NPC HOH decides from ITS OWN perspective and always tries to benefit itself —
+  # never random, never the player's wishes. This scenario drives the live logic (`nominationStrategy`,
+  # `voteChoice`) on a quiet house (no deals or campaigns) and proves the outcome is a function of the NPC's
+  # own reads by swapping them across 20 seeds. Later features keep their own tests (0044 tactics and the
+  # HOH-referendum term, 0043/0107 blocs, 0039 deals, 0085 campaigns, 0086 drives).
+  Scenario: An NPC's nominations and votes come from its own read of the house and serve its own interests
     Given an NPC holds power at a decision point
-    When it nominates or votes across many seeded runs
-    Then its target reflects its relationship reads (threat / trust), not chance
+    When it nominates and votes across many seeded runs
+    Then its nominations follow its own reads of the house, not chance
+    And a bloc-mate is not named while an alternative exists
+    And its eviction vote goes to the nominee it reads as the bigger threat
 
   Scenario: A player decision point is surfaced and validated
     Given the player holds power at a decision point

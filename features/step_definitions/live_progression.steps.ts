@@ -52,6 +52,11 @@ async function driveToKind(p: Player, kind: string): Promise<AdvanceView> {
   throw new Error(`never reached ${kind}`);
 }
 
+/** The pending decision as it stood before an illegal submit — kind AND option ids (a refusal must not reshape it). */
+const pendingBefore = new WeakMap<BbWorld, { kind: string; optionIds: string[] }>();
+const snap = (d: NonNullable<AdvanceView["pending"]>): { kind: string; optionIds: string[] } =>
+  ({ kind: d.kind, optionIds: (d.options ?? []).map((o) => o.id) });
+
 const newLive = (user: string, seed: number): { reg: GameSessionRegistry; player: Player } => {
   const reg = new GameSessionRegistry();
   const player = reg.resolver()("player", user) as Player;
@@ -129,6 +134,7 @@ Given("a live game advanced to a nomination decision", async function (this: BbW
 
 When("the player submits an illegal nomination", async function (this: BbWorld) {
   const p = this.lastAdvance!.pending!;
+  pendingBefore.set(this, snap(p));
   // Naming the same houseguest twice is illegal (0005 legality enforced in liveSeason.applyDecision).
   try {
     await this.livePlayer!.callTool("submitDecision", { kind: "nominations", choice: [p.options[0]!.id, p.options[0]!.id] });
@@ -142,10 +148,46 @@ Then("the seam refuses it", function (this: BbWorld) {
   assert.equal(this.liveRefused, true, "the illegal choice was rejected");
 });
 
+Given("a live game advanced to an eviction-vote decision for the player", async function (this: BbWorld) {
+  // The player must be a plain voter (not HOH / nominee) — which depends on the seed, so search for one and
+  // FAIL LOUDLY if none lands (never skip the scenario silently).
+  let lastErr: unknown;
+  for (let seed = 5; seed < 45; seed++) {
+    const { reg, player } = newLive(`vote-${seed}`, seed);
+    await player.callTool("createCharacter", { playerName: "Player", seed });
+    try {
+      const view = await driveToKind(player, "eviction-vote");
+      this.registry = reg; this.livePlayer = player; this.lastAdvance = view;
+      return;
+    } catch (e) { lastErr = e; }
+  }
+  throw new Error(`no seed in 5..44 put the player at an eviction-vote decision: ${String(lastErr)}`);
+});
+
+When("the player votes to evict a houseguest who is not a nominee", async function (this: BbWorld) {
+  const p = this.lastAdvance!.pending!;
+  pendingBefore.set(this, snap(p));
+  const nominees = new Set(p.options.map((o) => o.id));
+  // The HOH is a real, present houseguest who is never one of the two nominees.
+  const state = (await this.livePlayer!.callTool("getGameState", {})) as { ceremony?: { hoh: { id: string } | null } };
+  const notNominee = state.ceremony?.hoh?.id && !nominees.has(state.ceremony.hoh.id)
+    ? state.ceremony.hoh.id
+    : Array.from({ length: 15 }, (_, i) => npc(i + 1)).find((id) => !nominees.has(id));
+  assert.ok(notNominee, "fixture: a houseguest outside the two nominees exists");
+  try {
+    await this.livePlayer!.callTool("submitDecision", { kind: "eviction-vote", vote: notNominee });
+    this.liveRefused = false;
+  } catch {
+    this.liveRefused = true;
+  }
+});
+
 Then("the same pending decision still stands", async function (this: BbWorld) {
   const again = await adv(this.livePlayer!);
   assert.ok(again.pending, "still pending after the refusal");
-  assert.equal(again.pending!.kind, "nominations");
+  const before = pendingBefore.get(this)!;
+  assert.equal(again.pending!.kind, before.kind);
+  assert.deepEqual(again.pending!.options.map((o) => o.id), before.optionIds, "the SAME options, not a reshaped decision");
 });
 
 // --- S4: restart ---------------------------------------------------------------

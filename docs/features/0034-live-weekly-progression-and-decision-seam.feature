@@ -29,6 +29,12 @@ Feature: Live weekly progression & binding-decision seam
     Then the seam refuses it
     And the same pending decision still stands
 
+  Scenario: An illegal vote is refused and the decision still stands
+    Given a live game advanced to an eviction-vote decision for the player
+    When the player votes to evict a houseguest who is not a nominee
+    Then the seam refuses it
+    And the same pending decision still stands
+
   Scenario: The live position survives an engine restart
     Given a live game advanced several beats
     When the engine restarts and resumes from the durable save
