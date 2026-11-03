@@ -253,14 +253,19 @@ async def _advance_through_eviction_night(res: dict, user: Optional[str], dec_ik
     """Drive ``advance_game`` until the eviction sub-loop is done (bounded), returning the last good view.
 
     Each step carries its own idempotency key (CON-16: derived from the goodbye card's key so a retried
-    goodbye cannot double-roll the result) — a shared key would replay the first view instead of advancing."""
+    goodbye cannot double-roll the result) — a shared key would replay the first view instead of advancing.
+
+    Each step is also a compare-and-swap on the PRIOR view's ``beatSeq`` (0065 Part A): if a concurrent
+    caller advanced the game between iterations (e.g. past ``eviction-result`` into the next week), the
+    engine rejects the stale step and we stop, rather than advancing the new week from this tail."""
     from src import orwell_engine
+    _key = dec_ik.strip() if isinstance(dec_ik, str) else ""
     for i in range(_POST_GOODBYE_MAX_ADVANCES):
-        _ik = None
-        if isinstance(dec_ik, str):
-            _ik = dec_ik + (":gb-adv" if i == 0 else f":gb-adv:{i}")
+        _ik = (_key + (":gb-adv" if i == 0 else f":gb-adv:{i}")) if _key else None
+        _seq = res.get("beatSeq") if isinstance(res, dict) else None
         try:
-            nxt = await orwell_engine.advance_game(expected_beat_seq=None, idempotency_key=_ik, user=user)
+            nxt = await orwell_engine.advance_game(
+                expected_beat_seq=_seq if isinstance(_seq, int) else None, idempotency_key=_ik, user=user)
         except Exception as _adv_e:
             logger.warning(f"[orwell] post-goodbye follow-up advance skipped: {_adv_e}")
             return res

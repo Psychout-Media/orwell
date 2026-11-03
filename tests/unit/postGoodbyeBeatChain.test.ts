@@ -14,7 +14,15 @@ const deployedProfile = execFileSync(
   { encoding: "utf8" },
 )
   .split("\n")
-  .filter((l) => /^ORWELL_[A-Z0-9_]+=\S+$/.test(l) && !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+  .map((l) => l.trim())
+  .filter((l) => l !== "")
+  .map((l) => {
+    // A malformed line means the profile source changed shape — fail loudly, never silently play a
+    // different profile than the deploy (the same stance as the `heavy-sims-deployed` CI lane).
+    if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`);
+    return l;
+  })
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
 for (const line of deployedProfile) {
   const i = line.indexOf("=");
   process.env[line.slice(0, i)] = line.slice(i + 1);
@@ -38,7 +46,7 @@ const { composeRuntime } = await import("../../src/composition/runtime");
 interface NamedRef { id: string; name: string }
 interface PendingView { kind: string; options?: NamedRef[]; appeals?: string[]; tones?: string[]; stances?: string[] }
 interface BeatEv { beat?: string }
-interface View { started: boolean; finished: boolean; pending: PendingView | null; event?: BeatEv | null; eviction?: unknown }
+interface View { started: boolean; beatSeq: number; finished: boolean; pending: PendingView | null; event?: BeatEv | null; eviction?: unknown }
 
 function answer(p: PendingView): Record<string, unknown> {
   const first = p.options?.[0]?.id;
@@ -94,7 +102,9 @@ describe("0130 — the beat chain after the player's goodbye ends in eviction-re
     const beats: string[] = [];
     let last: View = sub;
     for (let i = 0; i < 6 && last.eviction && !last.pending && !last.finished; i++) {
-      last = (await mcp.callTool("advanceGame", {})) as View;
+      // The route passes the PRIOR view's beatSeq as the CAS token (0065 Part A): each owed step must be
+      // accepted with it, and a concurrent advance would make the next step stale.
+      last = (await mcp.callTool("advanceGame", { expectedBeatSeq: last.beatSeq })) as View;
       if (last.event?.beat) beats.push(last.event.beat);
     }
     expect(beats.length, `one advance is not enough (saw ${beats.join(" → ")})`).toBeGreaterThan(1);
