@@ -1,4 +1,4 @@
-# Executable spec - BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0139 - The Booth Has Receipts. Roles only.
+# spec-only: BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0139 - The Booth Has Receipts. Roles only.
 
 Feature: The Booth Has Receipts
 

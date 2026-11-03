@@ -1,4 +1,4 @@
-# Executable spec - BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0138 - The Player Dossier. Roles only.
+# spec-only: BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0138 - The Player Dossier. Roles only.
 
 Feature: The Player Dossier
 

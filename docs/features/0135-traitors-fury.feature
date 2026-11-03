@@ -1,4 +1,4 @@
-# Executable spec - BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0135 - Traitors' Fury (jury bearing and misdirected blame). Roles only.
+# spec-only: BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0135 - Traitors' Fury (jury bearing and misdirected blame). Roles only.
 
 Feature: Traitors' Fury (jury bearing and misdirected blame)
 
