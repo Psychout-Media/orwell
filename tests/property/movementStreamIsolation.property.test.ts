@@ -32,6 +32,11 @@ import { MOVEMENT_PERSONALITY } from "../../src/engine/presenceConstants";
  * movement stream were not isolated, the extreme weighting would shift the shared stream and the
  * outcomes would diverge. (The companion permanent gate is `juryReach.property.test.ts` itself.)
  *
+ * SCOPE (#1934 item 1): the claim is "movement weighting uses its OWN stream", proven on the profile
+ * where nothing else reads co-presence (`ORWELL_DEAL_DEPTH` / `ORWELL_TRIGGERS` pinned off in
+ * `seasonBeatLog`). Those layers consume co-presence — which weighted movement changes on purpose
+ * (0078) — so their outcomes may differ per weighting without any stream being shared.
+ *
  * Roles only — no houseguest names; outcomes are read off the public beat content, never the Vault.
  */
 
@@ -90,6 +95,15 @@ async function seasonBeatLog(seed: number): Promise<string[]> {
     clock: new FakeClock(),
     seed: 1,
   });
+  // Pin the two co-presence layers OFF for this sandbox, whatever the process env says (#1934 item 1):
+  // `ORWELL_DEAL_DEPTH` and `ORWELL_TRIGGERS` both ACT on who is in the room together (deal offers,
+  // eruption sparks). Weighted movement changes co-presence by design (the 0078 coupling), so with
+  // either on, the public beat log legitimately differs between weightings. Neither draws from the
+  // movement stream — deal depth rides `beatRng()` (week/beat keyed), triggers a `triggers:<tick>`
+  // stream — so the isolation claim holds, and is asserted here on the flags-off profile.
+  const sandbox = runtime.registry.sandboxFor(`move-iso-${seed}`);
+  sandbox.session.setDealDepthEnabled(false);
+  sandbox.session.setTriggersEnabled(false);
   const mcp = runtime.registry.resolver()("player", `move-iso-${seed}`);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
   const log: string[] = [];
