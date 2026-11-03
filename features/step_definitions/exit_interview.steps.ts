@@ -155,7 +155,7 @@ Then("no hidden stat, score, or sealed state appears anywhere in them", function
 });
 
 // --- moves no seeded outcome ----------------------------------------------------------
-const BASELINE_108 = ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","npc:6","npc:13","npc:4","player","npc:15","npc:11","npc:2"]; // re-anchored 2026-11-02 (0044 §9)
+const BASELINE_108 = ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","player","npc:11","npc:4","npc:13","npc:14","npc:15","npc:6"]; // re-anchored 2026-11-03 (0044 §9)
 Given("the same seed played to completion twice", function (this: BbWorld) {
   const a = newGame(108); playToEnd(a);
   const b = newGame(108); playToEnd(b);

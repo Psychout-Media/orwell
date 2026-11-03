@@ -173,7 +173,7 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * The mission-critical empirical fact behind the #1106 diagnosis: the ENGINE's contested-eviction
    * path — the staged secret-ballot reveal in batched rounds, a genuinely TIED vote, the player-HOH
    * tie-break pending, the goodbye stage, the week rollover — commits CLEAN through the production
-   * spine (composeRuntime: LogicalClock, turn-driven ticks, the checkpointed commit funnel). Seed 13
+   * spine (composeRuntime: LogicalClock, turn-driven ticks, the checkpointed commit funnel). Seed 44
    * deterministically produces a tied eviction vote with the player as HOH. Zero integrity faults on
    * the whole drive proves the #1106 faults were EXTERNALLY-induced degrading candidates (the
    * narrate-ahead writes), not an eviction-path bug and not a checkpoint false-positive on mid-stage
@@ -193,7 +193,7 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * checkpoint story this test exists to pin is orthogonal to which seed reaches the contested beat.
    *
    * Seed re-selected again 2026-11-02 (0044 §9 difficulty rulings — floaters as pawns, the HOH-referendum
-   * vote, per-houseguest nomination styles reshape who sits on the block): seed 13 now produces the
+   * vote, per-houseguest nomination styles, the pawn-or-target replacement reshape the block): seed 44 produces the
    * player-HOH tie. Same harness-only retune; the integrity story is unchanged.
    */
   it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", () => {
@@ -205,7 +205,7 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
     const runtime = composeRuntime({ saveStore: new FileSaveStore(dir) }); // the PRODUCTION clock/wiring
     const reg = runtime.registry;
     const orch = runtime.orchestrator;
-    reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed: 13 });
+    reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed: 44 });
 
     // Drive the real game to the CONTESTED beat: a tied eviction vote with the player holding HOH.
     let view: AdvanceView = reg.sandboxFor(user).session.advanceGame();

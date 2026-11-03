@@ -191,9 +191,9 @@ describe("0130 — Vault-safe + deterministic + calibration-neutral", () => {
     // the 0044 §9 difficulty rulings (floaters as pawns, the HOH-referendum vote, per-houseguest nomination
     // styles) reshaped the seeded trajectory. The exit-interview beat must stay inert against this anchor.
     const BASELINE: Record<number, string[]> = {
-      7: ["npc:7","npc:13","npc:15","npc:3","npc:8","npc:11","npc:5","npc:4","npc:12","npc:9","npc:2","player","npc:6","npc:14"],
+      7: ["npc:7","npc:13","npc:15","npc:3","npc:10","npc:6","npc:5","npc:4","npc:12","npc:2","npc:1","npc:11","player","npc:9"],
       42: ["npc:2","npc:13","npc:1","npc:3","npc:8","npc:9","npc:4","npc:15","npc:5","player","npc:14","npc:11","npc:7","npc:10"],
-      108: ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","npc:6","npc:13","npc:4","player","npc:15","npc:11","npc:2"],
+      108: ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","player","npc:11","npc:4","npc:13","npc:14","npc:15","npc:6"],
     };
     for (const [seed, expected] of Object.entries(BASELINE)) {
       const sb = newGame(Number(seed));
