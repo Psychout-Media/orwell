@@ -53,8 +53,8 @@ export function claimId(c: Pick<BeliefClaim, "holder" | "kind" | "subject" | "ob
 }
 
 /** Record a claim for its holder (idempotent by id; a re-record keeps the HIGHER confidence). Returns true when the store changed. */
-export function recordClaim(store: BeliefStore, claim: Omit<BeliefClaim, "id">): boolean {
-  const full: BeliefClaim = { ...claim, id: claimId(claim) };
+export function recordClaim(store: BeliefStore, claim: Omit<BeliefClaim, "id"> & { id?: string }): boolean {
+  const full: BeliefClaim = { ...claim, id: claim.id ?? claimId(claim) };
   const list = (store[full.holder] ??= []);
   const at = list.findIndex((c) => c.id === full.id);
   if (at >= 0) {
@@ -107,14 +107,15 @@ export function refuteClaim(
 ): EdgeDelta {
   const claim = store[holder]?.find((c) => c.id === id);
   if (!claim || claim.refuted) return {};
+  if (!claim.impact || !COMPONENTS.some((c) => claim.impact![c])) return {};   // nothing was absorbed: nothing to take back, and the claim stays as it was
   claim.refuted = true;
-  if (!claim.impact) return {};
+  const bounded = Math.max(0, Math.min(REFUTE_REVERSAL_FRACTION, fraction));    // a caller can narrow the reversal, never widen it past the bound
   const edge = edgeOf(claim.holder, claim.subject);
   const back: EdgeDelta = {};
   for (const c of COMPONENTS) {
     const moved = claim.impact[c];
     if (!moved) continue;
-    const take = moved * fraction;             // same sign as the original move, strictly bounded by `fraction` of it
+    const take = moved * bounded;             // same sign as the original move, strictly bounded by `fraction` of it
     const next = clamp01(edge[c] - take);
     const actual = edge[c] - next;             // what the clamp actually allowed back
     if (actual !== 0) { edge[c] = next; back[c] = actual; }
@@ -127,7 +128,12 @@ export function refuteClaim(
 export function recordRumorClaim(
   store: BeliefStore, r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }, week: number,
 ): boolean {
+  // One record PER RECEIPT: repeated receipts for the same (holder, subject, week) each moved the edge, so each keeps its own provenance and its own
+  // refutation state (a shared id would overwrite the earlier impact — making it unrefutable — and reset `refuted`).
+  const base = claimId({ holder: r.listener, kind: "heard-rumor", subject: r.subject, week });
+  const n = (store[r.listener] ?? []).filter((c) => c.id === base || c.id.startsWith(base + "#")).length;
   return recordClaim(store, {
+    id: n === 0 ? base : `${base}#${n + 1}`,
     holder: r.listener, kind: "heard-rumor", subject: r.subject, value: true, origin: "gossip", nature: r.type,
     confidence: Math.max(0, Math.min(1, r.confidence)), week, impact: r.delta,
   });

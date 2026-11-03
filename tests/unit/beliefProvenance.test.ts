@@ -65,7 +65,12 @@ describe("refuting a claim", () => {
     const before = { trust: e.trust, affinity: e.affinity, threat: e.threat };
     e.trust -= 0.2; e.threat += 0.3;                       // the rumor moved the edge
     recordRumorClaim(store, { listener: npc(11), subject: A, type: "betrayal", confidence: 0.7, delta: edgeDelta(before, e) }, 2);
-    return { rel, store, id: claimsOf(store, npc(11))[0]!.id, before };
+    const stored = claimsOf(store, npc(11))[0]!;
+    expect(stored.kind).toBe("heard-rumor");
+    expect(stored.origin).toBe("gossip");
+    expect(stored.nature).toBe("betrayal");
+    expect(stored.impact).toEqual({ trust: expect.closeTo(-0.2, 9), threat: expect.closeTo(0.3, 9) });
+    return { rel, store, id: stored.id, before };
   };
   it("takes back a bounded fraction as a delta on the CURRENT edge (a later event is kept)", () => {
     const { rel, store, id, before } = mk();
@@ -88,7 +93,10 @@ describe("refuting a claim", () => {
     expect(first.trust).toBeDefined();
     const bare: BeliefStore = {};
     recordRumorClaim(bare, { listener: npc(12), subject: A, type: "gossip", confidence: 0.5, delta: {} }, 1);
+    const claimsBefore = JSON.stringify(bare), edgeBefore = JSON.stringify(rel.edge(npc(12), A));
     expect(refuteClaim(bare, npc(12), claimsOf(bare, npc(12))[0]!.id, (h, s) => rel.edge(h, s))).toEqual({});
+    expect(JSON.stringify(bare), "an impact-less claim is left exactly as it was (not marked refuted)").toBe(claimsBefore);
+    expect(JSON.stringify(rel.edge(npc(12), A))).toBe(edgeBefore);
   });
   it("clamps to [0,1]", () => {
     const rel = new RelationshipModel(0.5);
@@ -97,5 +105,31 @@ describe("refuting a claim", () => {
     recordRumorClaim(store, { listener: npc(13), subject: A, type: "betrayal", confidence: 1, delta: { threat: 0.4 } }, 1);
     refuteClaim(store, npc(13), claimsOf(store, npc(13))[0]!.id, (h, s) => rel.edge(h, s));
     expect(rel.edge(npc(13), A).threat).toBe(0);
+    // and the upper bound: a NEGATIVE recorded impact near 1 clamps to 1
+    rel.edge(npc(14), A).trust = 0.98;
+    recordRumorClaim(store, { listener: npc(14), subject: A, type: "gossip", confidence: 1, delta: { trust: -0.6 } }, 1);
+    refuteClaim(store, npc(14), claimsOf(store, npc(14))[0]!.id, (h, s) => rel.edge(h, s));
+    expect(rel.edge(npc(14), A).trust).toBe(1);
+  });
+  it("repeated receipts for one holder/subject/week keep separate provenance and separate refutation", () => {
+    const rel = new RelationshipModel(0.5);
+    const store: BeliefStore = {};
+    recordRumorClaim(store, { listener: npc(15), subject: A, type: "betrayal", confidence: 0.4, delta: { threat: 0.1 } }, 3);
+    recordRumorClaim(store, { listener: npc(15), subject: A, type: "betrayal", confidence: 0.9, delta: { threat: 0.2 } }, 3);
+    const cs = claimsOf(store, npc(15));
+    expect(cs).toHaveLength(2);
+    expect(cs.map((c) => c.impact!.threat)).toEqual([0.1, 0.2]);
+    rel.edge(npc(15), A).threat = 0.5;
+    refuteClaim(store, npc(15), cs[0]!.id, (h, s) => rel.edge(h, s));
+    expect(cs[0]!.refuted).toBe(true);
+    expect(cs[1]!.refuted, "the other receipt is untouched").toBeUndefined();
+  });
+  it("a caller can narrow the reversal but never widen it past the bound", () => {
+    const rel = new RelationshipModel(0.5);
+    const store: BeliefStore = {};
+    rel.edge(npc(16), A).threat = 0.8;
+    recordRumorClaim(store, { listener: npc(16), subject: A, type: "betrayal", confidence: 1, delta: { threat: 0.4 } }, 1);
+    const back = refuteClaim(store, npc(16), claimsOf(store, npc(16))[0]!.id, (h, s) => rel.edge(h, s), 5);
+    expect(back.threat).toBeCloseTo(0.4 * REFUTE_REVERSAL_FRACTION, 9);
   });
 });
