@@ -4,6 +4,7 @@ failure (pre-byte only, bounded) before the blank-turn fallback. Also: HTTP clie
 import asyncio
 import json
 import threading
+import time
 
 import httpx
 import pytest
@@ -363,10 +364,10 @@ def test_engine_loop_keeps_its_client_when_the_primarys_loop_closes_mid_flight()
         asyncio.run(job())
 
     tf = threading.Thread(target=foreign, daemon=True)
-    tf.start()
-    assert foreign_claimed.wait(5)
     threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(n)]
     try:
+        tf.start()
+        assert foreign_claimed.wait(5)
         for t in threads:
             t.start()
         got_first.wait(10)               # every worker holds its own (other-loop) client
@@ -375,11 +376,66 @@ def test_engine_loop_keeps_its_client_when_the_primarys_loop_closes_mid_flight()
         primary_gone.set()
         done.wait(10)
     finally:
+        # ONE cleanup path: always release + join every thread and reset the engine client state, whatever failed above
         close_foreign.set()
         primary_gone.set()
-        for t in threads:
-            t.join(timeout=10)
+        for t in [tf, *threads]:
+            if t.is_alive():
+                t.join(timeout=10)
+        oe._client = None
+        oe._client_factory = None
+        oe._client_loop = None
     assert len(seen) == n and all(a is b for a, b in seen.values()), "each loop keeps the client it already had"
+
+
+def test_engine_secondary_client_is_rebuilt_when_the_factory_changes(monkeypatch):
+    """A loop's cached client built by an OLD httpx.AsyncClient must not be reused after the constructor is replaced."""
+    from src import orwell_engine as oe
     oe._client = None
     oe._client_factory = None
     oe._client_loop = None
+    made = []
+
+    class F1:
+        is_closed = False
+        def __init__(self, **kw): made.append(("F1", self))
+
+    class F2:
+        is_closed = False
+        def __init__(self, **kw): made.append(("F2", self))
+
+    got = {}
+
+    def foreign_primary():
+        async def job():
+            monkeypatch.setattr(oe.httpx, "AsyncClient", F1)
+            oe._shared_client()                       # the foreign loop claims the primary under F1
+            got["ready"] = True
+            while not got.get("stop"):
+                await asyncio.sleep(0.005)
+        asyncio.run(job())
+
+    t = threading.Thread(target=foreign_primary, daemon=True)
+    try:
+        t.start()
+        for _ in range(500):
+            if got.get("ready"):
+                break
+            time.sleep(0.01)
+        assert got.get("ready")
+
+        async def mine():
+            first = oe._shared_client()                # secondary under F1
+            monkeypatch.setattr(oe.httpx, "AsyncClient", F2)
+            second = oe._shared_client()               # factory changed: rebuilt under F2
+            third = oe._shared_client()                # and stable afterwards
+            return first, second, third
+        first, second, third = asyncio.run(mine())
+        assert type(first) is F1 and type(second) is F2 and second is third
+    finally:
+        got["stop"] = True
+        t.join(timeout=10)
+        oe._client = None
+        oe._client_factory = None
+        oe._client_loop = None
+        oe._other_loop_clients = None

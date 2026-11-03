@@ -174,7 +174,7 @@ def _is_transient(exc: Exception) -> bool:
 _client = None
 _client_factory = None
 _client_loop = None  # weakref to the loop `_client` was built on (N-5)
-_other_loop_clients = None  # WeakKeyDictionary: loop -> client, for loops other than `_client_loop`
+_other_loop_clients = None  # WeakKeyDictionary: loop -> (factory, client), for loops other than `_client_loop`
 import threading as _threading
 _other_loop_clients_lock = _threading.RLock()  # re-entrant: guards the primary-claim AND the other-loop cache in one critical section
 
@@ -201,10 +201,10 @@ def _shared_client_locked():
     # A loop that already holds a LIVE client in the per-loop cache keeps it, whatever happens to the module-global primary
     # (its loop closing, another loop claiming it): the primary is only ever the FIRST loop's client, never a reason to
     # hand a loop a DIFFERENT client than the one it already has (that would split its keep-alive sockets across two pools).
-    if loop is not None and _other_loop_clients is not None and _client_factory is factory:
-        _mine = _other_loop_clients.get(loop)
-        if _mine is not None and not getattr(_mine, "is_closed", False):
-            return _mine
+    if loop is not None and _other_loop_clients is not None:
+        _hit = _other_loop_clients.get(loop)  # (factory, client): an entry built by a DIFFERENT constructor is stale
+        if _hit is not None and _hit[0] is factory and not getattr(_hit[1], "is_closed", False):
+            return _hit[1]
     bound = _client_loop() if _client_loop is not None else None
     stale_loop = bound is None or (hasattr(bound, "is_closed") and bound.is_closed())
     if _client is None or _client_factory is not factory or getattr(_client, "is_closed", False) \
@@ -218,12 +218,13 @@ def _shared_client_locked():
     with _other_loop_clients_lock:
         if _other_loop_clients is None:
             _other_loop_clients = weakref.WeakKeyDictionary()
-        c = _other_loop_clients.get(loop)
+        _e = _other_loop_clients.get(loop)
+        c = _e[1] if (_e is not None and _e[0] is factory) else None
         if c is None or getattr(c, "is_closed", False):
             for _l in [l for l in list(_other_loop_clients.keys()) if l.is_closed()]:
                 _other_loop_clients.pop(_l, None)  # a dead loop's client is never reusable
             c = factory(timeout=_TIMEOUT)
-            _other_loop_clients[loop] = c
+            _other_loop_clients[loop] = (factory, c)
         return c
 
 
@@ -238,7 +239,8 @@ async def aclose_loop_client() -> None:
     c = None
     with _other_loop_clients_lock:
         if _other_loop_clients is not None:
-            c = _other_loop_clients.pop(loop, None)
+            _pe = _other_loop_clients.pop(loop, None)
+            c = _pe[1] if _pe is not None else None
     if c is None and _client_loop is not None and _client_loop() is loop and _client is not None:
         c, _client, _client_loop = _client, None, None
     if c is not None and not getattr(c, "is_closed", False):
