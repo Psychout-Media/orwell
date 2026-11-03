@@ -27,6 +27,8 @@
 #   ORWELL_EMBEDDINGS / ORWELL_EMBED_CACHE  Semantic recall (ADR 0004 / E86a): the REAL local-ONNX
 #       fastembed provider (version-pinned; model prefetched into <data_dir>/models, offline thereafter).
 #       Missing ⇒ the engine falls back to DEGRADED deterministic recall.
+#   ORWELL_NPC_MEMORY           NPC memory acts (0024) — a betrayal/favor/broken-promise ledger tilts votes and noms.
+#       NOT emitted yet: it ships OFF and joins the opt-in set with the default-flip re-baseline.
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).

@@ -60,6 +60,7 @@ import {
 import type { WeekState } from "../domain/eligibility";
 import type { Stats } from "./season";
 import { nominationStrategy, nominationPlan, nominationScore, replacementPick, tallyJury } from "./season";
+import type { NpcMemoryLedger } from "./npcMemory";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
@@ -389,6 +390,11 @@ export interface LiveSeasonState {
    * no rng; cleared at the week roll. Persisted with the live state.
    */
   nominationTarget?: EntityId;
+  /**
+   * 0024 — the NPC MEMORY ledger (`holder → subject → entries`), written only while `ORWELL_NPC_MEMORY` is on (absent
+   * otherwise ⇒ flags-off saves are byte-identical). Engine-only; persisted with the live state; never projected.
+   */
+  npcMemory?: NpcMemoryLedger;
   vetoField?: EntityId[];
   vetoHolder?: EntityId;
   vetoUsed: boolean;
@@ -705,6 +711,13 @@ export interface SeasonCtx {
    * PLAYER as decider. ENGINE-ONLY — never crosses the wall.
    */
   campaignPushFor?: (target: EntityId, decider: EntityId) => number;
+  /**
+   * 0024 — the signed, bounded RESIDUAL memory tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`,
+   * net of what the relationship edge still carries): a broken deal, a trusted friend who nominated/replaced them,
+   * a veto save. Feeds the NPC eviction vote and the NPC HOH's nomination / replacement scores. Omitted ⇒ 0, so
+   * flags-off stays BYTE-IDENTICAL. 0 for the PLAYER as holder. ENGINE-ONLY — never crosses the wall.
+   */
+  memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -1597,7 +1610,9 @@ export function voteChoice(
     blocTerm(blocs, voter, n) +
     // 0085: a campaign to evict `n` that this voter is aware of pushes the vote toward `n` — bounded,
     // character-mediated, engine-tallied. Absent provider ⇒ 0 ⇒ byte-identical (the juryReach spine).
-    (ctx.campaignTiltFor?.(n, voter) ?? 0) -
+    (ctx.campaignTiltFor?.(n, voter) ?? 0) +
+    // 0024: this voter's own residual memory of `n` (a grudge raises the odds they evict `n`, a favor lowers them).
+    (ctx.memoryTiltFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
     V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
@@ -2493,6 +2508,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
         style: ctx.nominationStyleOf?.(s.hoh!),
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
+        ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
@@ -2702,6 +2718,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     style: ctx.nominationStyleOf?.(s.hoh!),
     target: s.nominationTarget,
     ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
+    ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
