@@ -2325,28 +2325,26 @@ def _aside_matches(sentence: str, res):
 def _aside_claim_contradicts_board(sentence: str, live: dict) -> bool:
     """N-6: STATE-based truth check of ONE sentence inside a `((...))` production aside against the live board signature. True => the
     sentence ASSERTS (plain present/past tense) a houseguest in a closed-set role (veto winner/holder, HOH, nominee, evictee) that the board
-    says they do not hold -> the caller drops it. EVERY extracted claim is checked, not just the first. Phase-gated: a role is only contradicted
-    when it is actually COMMITTED in the live state (an uncommitted veto/HOH/nominee set has nothing to contradict). Hypothetical / conditional /
+    says they do not hold -> the caller drops it. EVERY extracted claim is checked, not just the first. Phase-aware: a COMMITTED role must match the name; an UNcommitted
+    role has nothing true to assert, so an assertive claim that someone holds/won it is unbacked (N-1) and is dropped. Hypothetical / conditional /
     past-week sentences ("if X wins the veto", "would", "when") are exempt. A name that matches no ACTIVE houseguest is never a contradiction
     (the roster guard's job, not this check's). Pure."""
     if not sentence or not isinstance(live, dict) or not live:
         return False
     holder = live.get("vetoHolderName")
-    if holder:
-        for nv, _m in _aside_matches(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES):
-            if _name_matches_active(nv, live) and not _name_matches(nv, holder):
-                return True
+    for nv, _m in _aside_matches(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES):
+        # Committed role: the name must match. UNcommitted role: an assertive "X won/holds the veto" is unbacked (N-1) -> strip.
+        if _name_matches_active(nv, live) and not (holder and _name_matches(nv, holder)):
+            return True
     hoh = live.get("hohName")
-    if hoh:
-        for nh, _m in _aside_matches(sentence, _HOH_NAME_RES + _ASIDE_HOH_STATE_RES):
-            if _name_matches_active(nh, live) and not _name_matches(nh, hoh):
-                return True
+    for nh, _m in _aside_matches(sentence, _HOH_NAME_RES + _ASIDE_HOH_STATE_RES):
+        if _name_matches_active(nh, live) and not (hoh and _name_matches(nh, hoh)):
+            return True
     noms = [str(n).strip() for n in (live.get("nomNames") or []) if str(n).strip()]
-    if noms:
-        for raw, _m in _aside_matches(sentence, _NOMINEE_NAME_RES + _ASIDE_NOM_STATE_RES):
-            for n in _split_named_people(raw):
-                if _name_matches_active(n, live) and not any(_name_matches(n, nm) for nm in noms):
-                    return True
+    for raw, _m in _aside_matches(sentence, _NOMINEE_NAME_RES + _ASIDE_NOM_STATE_RES):
+        for n in _split_named_people(raw):
+            if _name_matches_active(n, live) and not any(_name_matches(n, nm) for nm in noms):
+                return True
     # N-7: "a vote to evict <current nominee>" is the sanctioned anonymized-ballot reveal during the eviction phase - not an eviction claim.
     stripped = _strip_anonymized_ballots(sentence, live)
     for rx in _EVICTEE_NAME_RES:

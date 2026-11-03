@@ -196,12 +196,16 @@ def test_hypothetical_and_conditional_sentences_are_exempt_but_plain_assertions_
         assert f(bad, LIVE) is True, bad
 
 
-def test_roles_are_phase_gated_on_what_is_committed():
+def test_uncommitted_role_assertions_are_unbacked_and_stripped_but_hypotheticals_pass():
+    """N-1: before a role is committed, an assertive 'X won/holds it' has nothing behind it -> stripped. Hypothetical/future wording passes."""
     f = chat_helpers._aside_claim_contradicts_board
     early = dict(LIVE, phase="hoh", vetoHolderName=None, vetoHolder=None, nomNames=[])
-    assert f("Houseguest1 holds the veto.", early) is False, "no veto holder is committed yet - nothing to contradict"
-    assert f("The nominees are Houseguest1 and Nominee1.", early) is False
-    assert f("Houseguest2 is the HOH.", early) is True, "the HOH IS committed in that state"
+    assert f("Houseguest1 won the veto.", early) is True, "no veto holder yet: a winner claim is premature"
+    assert f("Houseguest1 holds the veto.", early) is True
+    assert f("The nominees are Houseguest1 and Nominee1.", early) is True
+    assert f("Houseguest2 is the HOH.", early) is True, "the HOH IS committed and is someone else"
+    for ok in ("Whoever wins the veto decides.", "If Houseguest1 wins the veto they could save a nominee.", "Houseguest1 might win the veto."):
+        assert f(ok, early) is False, ok
 
 
 def test_the_anonymized_ballot_reveal_is_not_an_eviction_claim():
