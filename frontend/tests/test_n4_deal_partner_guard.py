@@ -16,7 +16,12 @@ ROSTER = [
 ]
 
 
-from tests.conftest import _run  # closes its loop (no leaked event loops)
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 _TOKENS = []
