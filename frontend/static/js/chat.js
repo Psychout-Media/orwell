@@ -2194,6 +2194,10 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 resetIdleTimeout();
                 clearProcessingProbe();
               }
+              // F-2/F-4: engine announcements owed for a FE-pre-resolved beat (the model may never voice it).
+              if (Array.isArray(json.announcements) && json.announcements.length) {
+                try { window.dispatchEvent(new CustomEvent('orwell:announcements', { detail: { announcements: json.announcements } })); } catch (_) {}
+              }
               if (json.delta) {
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();

@@ -6344,6 +6344,15 @@ async def _stream_agent_loop_impl(
     first_token_received = False
     tool_events = []   # Persist tool executions for history reload
     round_texts = []   # Cleaned text per round for history reload
+    # F-2/F-4: owed chyron — announcements of a beat the FE pre-resolved this turn reach the client whatever
+    # the model says (blank, skipped, or contradicting). Consumed once; the client dispatches `orwell:announcements`.
+    try:
+        from routes import chat_helpers as _ch_owed
+        _owed = _ch_owed.pop_pending_chyron(owner)
+        if _owed:
+            yield f'data: {json.dumps({"announcements": _owed})}\n\n'
+    except Exception:
+        pass
     # Completion-verifier state (mechanism 3a). _effectful_used flips on when
     # a tool that produces a checkable artifact runs; the verifier only fires
     # on such turns and at most _VERIFIER_MAX_ROUNDS times.
