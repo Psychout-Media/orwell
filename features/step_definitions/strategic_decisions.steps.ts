@@ -162,6 +162,23 @@ Then("they honor or break the deal with its consequence — decided by the engin
   assert.equal(deal2.status, "broken");
 });
 
+/** Play a live game's first weeks and return each week's HOH + nominee pair (the engine's nomination decisions). */
+function nominationTrail(s: ReturnType<GameSessionRegistry["sandboxFor"]>["session"]): string[] {
+  const trail: string[] = [];
+  for (let i = 0; i < 160; i++) {
+    const v = s.advanceGame();
+    if (v.pending) {
+      resolvePending(v.pending, (req) => s.submitDecision(req));
+    }
+    const status = s.gameStatus();
+    if (status.nominees.length === 2) {
+      trail.push(`${status.week}:${status.hoh?.id}:${status.nominees.map((n) => n.id).sort().join("+")}`);
+    }
+    if (v.status.week >= 4 || v.finished) break;
+  }
+  return trail;
+}
+
 // --- Scenario: The engine decides every nomination and vote ---------------------------------
 
 Given("any nomination or eviction vote", function (this: BbWorld) {
@@ -172,13 +189,36 @@ Given("any nomination or eviction vote", function (this: BbWorld) {
 });
 
 Then("it is computed from the hidden signals and seeded temperature", function (this: BbWorld) {
-  // Structural: the live loop's nomination/vote reads are pure functions of the relationship
-  // graph + soul mood + blocs + deals — re-reading the same signals yields the same choice.
+  // The hidden signals are the ONLY input: swap the HOH's threat reads and the nominations follow them...
   const { rel, active } = sdHouse();
-  assert.deepEqual(
-    nominationStrategy(sdHoh, active, rel, { disposition: "clash" }),
-    nominationStrategy(sdHoh, active, rel, { disposition: "clash" }),
-  );
+  const before = nominationStrategy(sdHoh, active, rel, {});
+  const flipped = sdHouse();
+  flipped.rel.edge(sdHoh, npc(1)).threat = 0.15;
+  flipped.rel.edge(sdHoh, npc(4)).threat = 0.6;
+  const after = nominationStrategy(sdHoh, flipped.active, flipped.rel, {});
+  assert.notDeepEqual([...before].sort(), [...after].sort(), "nominations ignore the hidden threat reads");
+  assert.ok(before.includes(npc(1)) && !before.includes(npc(4)), "the top-threat houseguest is nominated");
+  assert.ok(after.includes(npc(4)) && !after.includes(npc(1)), "...and when the reads swap, so does the block");
+  // ...and so does a voter's choice of who goes home.
+  const voter = npc(5);
+  const v = sdHouse();
+  v.rel.edge(voter, npc(1)).threat = 0.9; v.rel.edge(voter, npc(2)).threat = 0.1;
+  const voteBefore = voteChoice(voter, [npc(1), npc(2)], sdVoteCtx(v.rel));
+  v.rel.edge(voter, npc(1)).threat = 0.1; v.rel.edge(voter, npc(2)).threat = 0.9;
+  const voteAfter = voteChoice(voter, [npc(1), npc(2)], sdVoteCtx(v.rel));
+  assert.equal(voteBefore, npc(1));
+  assert.equal(voteAfter, npc(2), "a vote ignores the voter's hidden threat reads");
+  // The seeded part: a season's signals (and the temperature rolls that shaped them) come from its seed — the same
+  // seed makes the same nominations, a different seed makes different ones.
+  const trail = (seed: number): string[] => {
+    const sb = new GameSessionRegistry().sandboxFor(`sd-seed-${seed}`);
+    sb.session.createCharacter({ playerName: "The Player", seed });
+    return nominationTrail(sb.session);
+  };
+  const t9 = trail(9);
+  assert.ok(t9.length > 0, "nominations were made");
+  assert.deepEqual(trail(9), t9, "the same seed reproduces the same nominations");
+  assert.notDeepEqual(trail(10), t9, "a different seed produces different nominations");
 });
 
 Then("it is never decided or altered by narration", function (this: BbWorld) {
@@ -212,24 +252,8 @@ When("the same weeks are played in each", function (this: BbWorld) {
   this.sdRegistryB = new GameSessionRegistry();
   this.sdRegistryA.sandboxFor("sd-det-a").session.createCharacter({ playerName: "The Player", seed: 21 });
   this.sdRegistryB.sandboxFor("sd-det-b").session.createCharacter({ playerName: "The Player", seed: 21 });
-  const play = (reg: GameSessionRegistry, user: string): string[] => {
-    const s = reg.sandboxFor(user).session;
-    const trail: string[] = [];
-    for (let i = 0; i < 160; i++) {
-      const v = s.advanceGame();
-      if (v.pending) {
-        resolvePending(v.pending, (req) => s.submitDecision(req));
-      }
-      const status = s.gameStatus();
-      if (status.nominees.length === 2) {
-        trail.push(`${status.week}:${status.hoh?.id}:${status.nominees.map((n) => n.id).sort().join("+")}`);
-      }
-      if (v.status.week >= 4 || v.finished) break;
-    }
-    return trail;
-  };
-  this.sdTrailA = play(this.sdRegistryA!, "sd-det-a");
-  this.sdTrailB = play(this.sdRegistryB!, "sd-det-b");
+  this.sdTrailA = nominationTrail(this.sdRegistryA!.sandboxFor("sd-det-a").session);
+  this.sdTrailB = nominationTrail(this.sdRegistryB!.sandboxFor("sd-det-b").session);
 });
 
 Then("the same nominations and votes result", function (this: BbWorld) {

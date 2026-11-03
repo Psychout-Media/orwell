@@ -31,7 +31,7 @@ anti-sycophancy + correctness hole). 0045 makes the endgame legal, modeled, and 
 ## 3. Scope
 
 **In:** amend **0005** eligibility with **field-size degradation** (veto field = `min(6, remaining
-eligible)`; at **F4** the **veto holder is the sole eviction vote**); add the **F3 branch** to `liveSeason`
+eligible)`; at **F4** the **one houseguest who is neither HOH nor a final nominee is the sole eviction vote** — usually the veto holder, but if the HOH or a nominee won the veto, it's whoever is left); add the **F3 branch** to `liveSeason`
 (skip nominations/veto; run a **final-HOH competition**; the winner **personally evicts** via a new
 `final-eviction` `submitDecision` kind — **pending** if the player is final HOH, **relationship-driven**
 (`npcChoice`) if an NPC, with eviction **manner** recorded for the jury); preserve the **0034 pending-decision
@@ -45,7 +45,7 @@ built); the player-evicted path (**0046**); the eviction-night staging (**0047**
 
 - **Field-size degradation (0005).** `vetoParticipants` (and the chip draw incl. "Houseguest's Choice")
   compute the field as `min(6, eligible.length)`; below six, **everyone eligible plays** (no chip draw
-  needed). At **F4**, the eviction electorate is just the **veto holder** (HOH + 2 noms are excluded;
+  needed). At **F4**, the eviction electorate is the **one houseguest who is neither HOH nor a final nominee** — normally the veto holder (HOH + 2 noms are excluded;
   one remains) — they cast the sole vote; no tie possible. The invariants (outgoing-HOH can't play next HOH;
   veto winner can't be the replacement; HOH breaks ties) hold **under** the smaller field.
 - **The F3 branch (`liveSeason`).** At `active.length === 3`: **skip** nominations + veto; run a
@@ -63,7 +63,7 @@ built); the player-evicted path (**0046**); the eviction-night staging (**0047**
 
 ```
 eligibility (0005): vetoField = min(6, eligible); below 6 → all eligible play (no chip draw)
-                    F4 eviction electorate = { veto holder } (sole vote; no tie)
+                    F4 eviction electorate = { the one non-HOH, non-nominee } (sole vote; no tie)
 F3 branch (liveSeason): skip noms/veto → final-HOH competition → final HOH evicts one of two → Final 2
 decision: kind "final-eviction" { options: [two ids], pick: 1 }   // pending if player-HOH; npcChoice if NPC
 manner recorded on the eviction (0014/0037); persisted (0030); seed-deterministic

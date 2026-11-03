@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { BASE_GAME_MASTER_PROMPT } from "../../src/engine/momentPrompts";
+import { VOICE_ARCHETYPE_BIAS, VOICE_ARCHETYPE_SIGNATURES } from "../../src/engine/voice";
 import type { EntityId } from "../../src/domain/ids";
 
 /**
@@ -65,20 +66,40 @@ Then("the cast spans a range of registers and rhythms, not one default", functio
 });
 
 Given("two houseguests share an archetype", function (this: BbWorld) {
-  const s = cv(this).cvSession!;
-  const byArch = new Map<string, EntityId[]>();
-  for (const id of cv(this).cvIds!) {
-    const a = s.npcVoice(id)!.persona.archetype!;
-    (byArch.get(a) ?? byArch.set(a, []).get(a)!).push(id);
+  // Pick a pair sharing an archetype that actually HAS a voice leaning (a lean-less archetype is uncorrelated by
+  // design, so it could not show correlation either way); walk seeds until a season casts such a pair.
+  for (let seed = 2026; seed < 2066; seed++) {
+    const { session, ids } = seed === 2026 ? { session: cv(this).cvSession!, ids: cv(this).cvIds! } : started(seed);
+    const byArch = new Map<string, EntityId[]>();
+    for (const id of ids) {
+      const a = session.npcVoice(id)!.persona.archetype!;
+      (byArch.get(a) ?? byArch.set(a, []).get(a)!).push(id);
+    }
+    const pair = [...byArch.entries()].find(([a, g]) => g.length >= 2 && VOICE_ARCHETYPE_BIAS[a]);
+    if (pair) {
+      cv(this).cvSession = session;
+      cv(this).cvIds = pair[1].slice(0, 2);
+      return;
+    }
   }
-  const pair = [...byArch.values()].find((g) => g.length >= 2);
-  assert.ok(pair, "the cast has two houseguests of one archetype");
-  cv(this).cvIds = pair!.slice(0, 2);
+  assert.fail("no generated cast has two houseguests of one lean-bearing archetype");
 });
 
 Then("their voice fingerprints are correlated with that archetype", function (this: BbWorld) {
   const s = cv(this).cvSession!;
-  for (const id of cv(this).cvIds!) assert.ok(s.npcVoice(id)!.persona.voice, "voice present");
+  for (const id of cv(this).cvIds!) {
+    const view = s.npcVoice(id)!;
+    const arch = view.persona.archetype!;
+    const voice = view.persona.voice!;
+    const lean = VOICE_ARCHETYPE_BIAS[arch];
+    assert.ok(lean, `the archetype '${arch}' has a voice lean to be correlated with`);
+    // The archetype's core dials win ~80% of the time each; a voice matching NONE of them is not archetype-correlated.
+    const matches = Object.entries(lean).filter(([dial, value]) => (voice as unknown as Record<string, string>)[dial] === value).length;
+    assert.ok(matches >= 1, `${id} (${arch}) matches none of its archetype's voice leanings`);
+    // ...and the prose signature is dealt from the archetype's own pool, not a generic one.
+    const pool = VOICE_ARCHETYPE_SIGNATURES[arch];
+    if (pool) assert.ok(pool.includes(voice.signature), `${id} (${arch}) signature '${voice.signature}' is not from the archetype's pool`);
+  }
 });
 
 Then("they are not identical to each other", function (this: BbWorld) {
@@ -224,9 +245,17 @@ Then("the read never names the hidden cause of the mood", function (this: BbWorl
   assert.ok(!(cv(this).cvVoiceBefore ?? "").includes("BETRAYAL-CAUSE-SENTINEL"));
 });
 
-Then("the player is left to infer why for themselves", function () {
-  // Structural: the projection carries the affect word only (asserted above) — no cause field exists.
-  assert.ok(true);
+Then("the player is left to infer why for themselves", function (this: BbWorld) {
+  // All the player gets is an affect: the mood is ONLY the carriage vocabulary, and no field of the read carries a cause.
+  const view = cv(this).cvSession!.npcVoice(cv(this).cvIds![0]!)!;
+  assert.match(
+    view.mood ?? "",
+    /^(worn but |at ease but |shaken, )?(hollowed out|worn down|subdued|muted|even|steady|settled|at ease|riding high)(, on edge)?$/,
+    "the mood is a bare affect word",
+  );
+  assert.ok(!/cause|reason|why|betray|motive/i.test(Object.keys(view).join(" ")), "no cause-shaped field on the read");
+  const blob = JSON.stringify(view);
+  assert.ok(!blob.includes("BETRAYAL-CAUSE-SENTINEL") && !/secret-motive/.test(blob), "the hidden cause is not in the read");
 });
 
 Given("a houseguest with a settled baseline mood", function (this: BbWorld) {

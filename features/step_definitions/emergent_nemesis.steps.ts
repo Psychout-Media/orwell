@@ -7,6 +7,8 @@ import { NEMESIS, type Campaign, type NemesisTrack } from "../../src/engine/camp
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { adminSurfaceOfSession } from "../support/liveSweep";
+import { buildSandbox } from "../../tests/support/sandbox";
+import { seasonTrail } from "../support/seasonTrail";
 
 /**
  * Feature 0096 — emergent nemesis (a personal villain to outlast). Role-only (a houseguest, the
@@ -28,6 +30,8 @@ interface NmWorld {
   nmSeeds?: number[];
   nmWithNemesisTilts?: number[];
   nmBaselineTilts?: number[];
+  nmTiltSession?: GameSessionAdapter;
+  nmTiltVoter?: EntityId;
 }
 const nm = (w: BbWorld): NmWorld => w as unknown as NmWorld;
 
@@ -54,6 +58,14 @@ function nmHouse(seed: number, enableCampaigns: boolean): { session: GameSession
 function aimAtPlayer(rel: RelationshipModel, rival: EntityId, others: EntityId[], threat = NEMESIS.threatThreshold + 0.15): void {
   rel.edge(rival, PLAYER).threat = threat;
   for (const o of others) rel.edge(rival, o).threat = 0.1;
+}
+
+/** The nemesis escalation, observed: a campaign flagged as the nemesis arc, or a drive held at the escalation intensity on the player. */
+function escalationAimedAtPlayer(session: GameSessionAdapter): string[] {
+  const out: string[] = [];
+  for (const c of peek(session).campaigns) if (c.id.endsWith(":nemesis") && c.target === PLAYER) out.push(`campaign ${c.id}`);
+  for (const [id, d] of peek(session).drives) if (d.target === PLAYER && d.intensity >= NEMESIS.escalationIntensity) out.push(`drive ${id}`);
+  return out;
 }
 
 // ── Background (the season-start step is SHARED — defined by 0075's confidence.steps.ts) ──────────
@@ -112,8 +124,8 @@ Then("no houseguest is the player's nemesis", function (this: BbWorld) {
 });
 
 Then("no escalation bias is applied to anyone toward the player", function (this: BbWorld) {
-  // The bias code path is structurally gated by `if (nemesis !== undefined)` — no nemesis ⇒ no bias ran.
   assert.equal(peek(nm(this).nmSession!).nemesisTrack.current, undefined);
+  assert.deepEqual(escalationAimedAtPlayer(nm(this).nmSession!), [], "a one-tick spike was escalated");
 });
 
 Given("no houseguest sustains a high threat toward the player", function (this: BbWorld) {
@@ -154,8 +166,8 @@ Then("that houseguest is no longer the player's nemesis", function (this: BbWorl
 });
 
 Then("no escalation bias is applied toward the player", function (this: BbWorld) {
-  // The bias code path is structurally gated by `if (nemesis !== undefined)` — a lapsed nemesis ⇒ no bias.
   assert.equal(peek(nm(this).nmSession!).nemesisTrack.current, undefined);
+  assert.deepEqual(escalationAimedAtPlayer(nm(this).nmSession!), [], "a lapsed nemesis is still escalated against the player");
 });
 
 Given("a different rival whose sustained threat toward the player clearly overtakes them", function (this: BbWorld) {
@@ -172,8 +184,13 @@ Then("the rival becomes the player's nemesis", function (this: BbWorld) {
 });
 
 Then("at most one houseguest is the player's nemesis at a time", function (this: BbWorld) {
-  const current = peek(nm(this).nmSession!).nemesisTrack.current;
-  assert.ok(current === undefined || typeof current === "string", "the track holds a single id, never a set");
+  const session = nm(this).nmSession!;
+  assert.equal(peek(session).nemesisTrack.current, nm(this).nmChallenger);
+  const escalated = peek(session).campaigns.filter((c) => c.id.endsWith(":nemesis") && c.status === "active" && c.target === PLAYER);
+  assert.ok(escalated.length <= 1, `${escalated.length} nemesis campaigns are active at once`);
+  assert.ok(escalated.every((c) => c.owners[0] === nm(this).nmChallenger), "the escalated campaign belongs to the new nemesis only");
+  const heldOnPlayer = [...peek(session).drives].filter(([id, d]) => d.target === PLAYER && d.intensity >= NEMESIS.escalationIntensity && id === nm(this).nmRival);
+  assert.equal(heldOnPlayer.length, 0, "the old rival is still held at escalation intensity");
 });
 
 // ── Rule: the rivalry is behavior-only — Vault-Wall holds for player AND admin ──────────────────────
@@ -205,10 +222,17 @@ Then("neither surface returns a threat number, a hostility score, or an escalati
   assert.ok(!/hostility|escalationIntensity|threatThreshold|"threat":\s*[0-9.]/i.test(blob));
 });
 
-Then("the player learns of the rivalry only through what the nemesis does", function () {
-  // Proven by the sibling "handed a tone, never the machinery" scenario below — the ONLY surfaced
-  // signal is the Vault-safe `rivalry` tone word, and only inside a live scene.
-  assert.ok(true);
+Then("the player learns of the rivalry only through what the nemesis does", function (this: BbWorld) {
+  const { nmSession: session, nmRival: rival } = nm(this);
+  // Out of a scene, nothing on any player surface hints at it at all...
+  assert.ok(!/rivalry|simmering|"open"/i.test(nm(this).nmPlayerBlob ?? ""), "the rivalry hint rode a player surface outside a scene");
+  // ...and the one place it can show is the nemesis's own manner toward the player, inside a live scene with them.
+  const presence = peek(session!).presence ?? new Map<EntityId, string>();
+  presence.set(PLAYER, "kitchen"); presence.set(rival!, "kitchen");
+  (session as unknown as { presence: Map<EntityId, string> }).presence = presence;
+  const voice = session!.npcVoice(rival!);
+  assert.ok(voice?.rivalry, "in a live scene the nemesis carries an adversarial tone");
+  assert.deepEqual(Object.keys(voice!.rivalry!), ["tone"], "the hint is a tone word and nothing else");
 });
 
 When("the player is in a scene with that houseguest", function (this: BbWorld) {
@@ -258,6 +282,7 @@ Given("a houseguest held as the player's nemesis with a sustained campaign again
     const camp = peek(session).campaigns.find((c) => c.owners[0] === rival && c.status === "active");
     const voter = camp?.knownTo.find((id) => id !== rival) ?? rival!; // a diffused-to ally, else the owner
     withNemesisTilts.push(peek(session).campaignTiltFor(PLAYER, voter));
+    Object.assign(nm(this), { nmTiltSession: session, nmTiltVoter: voter });
 
     // Baseline, SAME seed: nobody's threat toward the player ever rises ⇒ no nemesis, no campaign vs
     // player ever forms ⇒ campaignTiltFor(PLAYER, ·) is structurally 0 for any voter.
@@ -280,11 +305,20 @@ Then("the player's eviction danger is higher than a no-nemesis baseline", functi
   }
 });
 
-Then("the vote effect is carried by the existing campaign and drive tilt with no new term", function () {
-  // Structural: `campaignTiltFor` is the UNCHANGED 0085 formula (progress × persuasiveness ×
-  // susceptibility × trustMult) — 0096 contributes no new provider and no new formula, only re-aims
-  // WHICH campaign the nemesis carries. See src/adapters/engine/GameSessionAdapter.ts campaignTick.
-  assert.ok(true);
+Then("the vote effect is carried by the existing campaign and drive tilt with no new term", function (this: BbWorld) {
+  // The nemesis adds danger ONLY by re-aiming the ordinary campaign: keep the nemesis held but take the campaign away,
+  // and the player's vote tilt from that voter drops to exactly zero — nothing else carries it.
+  const { nmTiltSession: session, nmTiltVoter: voter } = nm(this);
+  assert.ok(peek(session!).nemesisTrack.current !== undefined, "the nemesis is still held");
+  const withCampaign = peek(session!).campaignTiltFor(PLAYER, voter!);
+  assert.ok(withCampaign > 0, "the campaign tilts the vote");
+  const kept = peek(session!).campaigns.slice();
+  peek(session!).campaigns.length = 0;
+  try {
+    assert.equal(peek(session!).campaignTiltFor(PLAYER, voter!), 0, "a held nemesis with no campaign still tilts the vote: that is a new term");
+  } finally {
+    peek(session!).campaigns.push(...kept);
+  }
 });
 
 Given("the campaign layer is disabled", function (this: BbWorld) {
@@ -303,11 +337,15 @@ Then("no nemesis is computed and no escalation bias is applied", function (this:
   assert.equal(peek(nm(this).nmSession!).campaigns.length, 0);
 });
 
-Then("the seeded competition and eviction outcomes are byte-identical to the no-campaign baseline", function () {
-  // `campaignTick` returns before any rng draw or state mutation when `campaignsEnabled` is false
-  // (GameSessionAdapter.campaignTick's very first line), and `campaignTiltFor` is only ever registered
-  // into the vote ctx when campaigns are enabled — so the seeded vote/competition spine is untouched.
-  assert.ok(true);
+Then("the seeded competition and eviction outcomes are byte-identical to the no-campaign baseline", function (this: BbWorld) {
+  // The baseline: the very same would-be-nemesis board with the layer off, where campaignTick was NEVER called.
+  // Ticking the layer while it is off must not move a single seeded HOH, nominee, or eviction.
+  const { session: baseline, rel, ids } = nmHouse(2026, false);
+  const [rival, ...rest] = ids;
+  aimAtPlayer(rel, rival!, rest);
+  const ticked = seasonTrail(nm(this).nmSession!, 200);
+  assert.ok(ticked.length > 100, "a season was actually played");
+  assert.equal(ticked, seasonTrail(baseline, 200), "campaignTick moved the seeded outcomes with the layer off");
 });
 
 When("the game is saved and restored into a fresh context", function (this: BbWorld) {

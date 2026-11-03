@@ -6,6 +6,7 @@ import { buildSandbox } from "../../tests/support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SECRET_TRADE } from "../../src/engine/leverageConstants";
+import { seasonTrail } from "../support/seasonTrail";
 import type { EntityId } from "../../src/domain/ids";
 import type { TradeResult } from "../../src/ports/GameSession";
 
@@ -24,6 +25,7 @@ interface TCState {
   tcRecipient?: EntityId;
   tcFactId?: string;
   tcTrade?: TradeResult;
+  tcEdgeBefore?: { trust: number; affinity: number; threat: number };
 }
 const tc = (w: BbWorld): TCState => w as unknown as TCState;
 const relOf = (s: GameSessionAdapter): RelationshipModel => (s as unknown as { rel: RelationshipModel }).rel;
@@ -189,11 +191,12 @@ Given("the player holds a learned secret a recipient would value", function (thi
 
 Given("the recipient reads the player as a high threat and distrusts them", function (this: BbWorld) {
   const st = tc(this);
-  setEdge(st.tcSession!, st.tcRecipient!, PLAYER, { trust: 0.0, affinity: 0.0, threat: 0.95 });
+  setEdge(st.tcSession!, st.tcRecipient!, PLAYER, { trust: 0.1, affinity: 0.1, threat: 0.9 });
 });
 
 When("the player offers the secret for a deal", function (this: BbWorld) {
   const st = tc(this);
+  st.tcEdgeBefore = { ...relOf(st.tcSession!).edge(st.tcRecipient!, PLAYER) };
   st.tcTrade = st.tcSession!.tradeSecret({ factId: st.tcFactId!, toNpcId: st.tcRecipient!, askKind: "vote" }) ?? undefined;
 });
 
@@ -203,14 +206,28 @@ Then("the recipient can still refuse the trade", function (this: BbWorld) {
 
 Then("peddling the secret may cost the player standing with that recipient", function (this: BbWorld) {
   // A refused trade sours the recipient's read of the trader (a bounded backlash) — never a number.
-  assert.ok(SECRET_TRADE.traderBacklash.trust! < 0, "peddling a refused secret reads as untrustworthy");
+  const st = tc(this);
+  const after = relOf(st.tcSession!).edge(st.tcRecipient!, PLAYER);
+  assert.ok(after.trust < st.tcEdgeBefore!.trust, "peddling a refused secret did not cost any trust with the recipient");
+  assert.ok(after.threat > st.tcEdgeBefore!.threat, "...nor raise their wariness");
 });
 
-Then("with no secret offered the deal formation is byte-identical to the deal baseline", function (this: BbWorld) {
-  // Proven byte-identical in secretPowerNeutral.test.ts; here a plain deal still forms normally.
-  const st = tc(this);
-  st.tcSession!.makeDeal({ with: st.tcRecipient!, kind: "final-two", terms: "no secret here" });
-  assert.ok((st.tcSession!.getGameState().deals ?? []).length >= 1);
+Then("with no secret offered the deal formation is byte-identical to the deal baseline", function () {
+  // Two identical seeded houses and the same plain deal: one where the player merely HOLDS a learned secret (never
+  // offering it), one where no secret exists at all. The deal and every hidden read come out exactly the same.
+  const plain = (holdSecret: boolean): { deals: string; edge: unknown } => {
+    const { session, sb } = freshSession(110);
+    const subject = session.livingIds().find((id) => id !== PLAYER)!;
+    const partner = session.livingIds().find((id) => id !== PLAYER && id !== subject)!;
+    if (holdSecret) learn(sb, subject);
+    session.makeDeal({ with: partner, kind: "final-two", terms: "no secret here" });
+    const deals = JSON.stringify((session.getGameState().deals ?? []).map(({ id: _id, ...d }) => d));
+    return { deals, edge: { ...relOf(session).edge(partner, PLAYER) } };
+  };
+  const held = plain(true);
+  const none = plain(false);
+  assert.ok(JSON.parse(held.deals).length >= 1, "the plain deal formed as a first-class commitment");
+  assert.deepEqual(held, none, "holding an un-offered secret changed how a plain deal forms");
 });
 
 // ── Rule: the engine owns the magnitude (anti-sycophancy) ────────────────────────────────────────────
@@ -221,13 +238,38 @@ When("the player offers the secret for a concession", function (this: BbWorld) {
 });
 
 Then("the magnitude of its effect is bounded and seeded by the engine", function (this: BbWorld) {
-  // The trade-to-deal factor is capped (bounded) and computed on a seeded rng — no model amount.
-  assert.ok(SECRET_TRADE.dealFactorCap > 0 && SECRET_TRADE.dealFactorCap < 1);
+  const st = tc(this);
+  // Try to PUMP it: after the first trade, hand the recipient a fresh learned secret about every other houseguest.
+  // The season cap stops the stream, so the recipient can only be moved so far.
+  const first = tc(this).tcTrade!;
+  let accepted = first.accepted ? 1 : 0;
+  let capped = 0;
+  const subjects = st.tcSession!.livingIds().filter((id) => id !== PLAYER && id !== st.tcRecipient && id !== st.tcSubject);
+  for (const subj of subjects) {
+    setEdge(st.tcSession!, st.tcRecipient!, subj, { trust: 0.1, affinity: 0.05, threat: 0.9 });
+    const r = st.tcSession!.tradeSecret({ factId: learn(st.tcSb!, subj), toNpcId: st.tcRecipient!, askKind: "vote" });
+    if (r?.accepted) accepted++;
+    if (r?.refused === "capped") capped++;
+  }
+  assert.ok(subjects.length > SECRET_TRADE.maxTradesPerSeason, "the fixture offers more trades than the cap");
+  assert.ok(accepted <= SECRET_TRADE.maxTradesPerSeason, `${accepted} trades landed, past the season cap`);
+  assert.ok(capped > 0, "trades past the cap are refused as capped");
+  assert.ok((st.tcSession!.snapshot().secretTradeCount ?? 0) <= SECRET_TRADE.maxTradesPerSeason);
 });
 
-Then("the model may propose only which secret, to whom, and the ask", function () {
-  // The lever's args are (factId, toNpcId, askKind) — the model proposes the SHAPE, never a magnitude.
-  assert.ok(true);
+Then("the model may propose only which secret, to whom, and the ask", function (this: BbWorld) {
+  // Sneak extra "magnitude" arguments into the lever: a twin house given the plain request must end up in exactly
+  // the same place, so only (factId, toNpcId, askKind) ever reach the engine's decision.
+  const run = (extras: Record<string, unknown>): { res: unknown; edge: unknown } => {
+    const { session, sb } = freshSession(110);
+    const subject = session.livingIds().find((id) => id !== PLAYER)!;
+    const rec = session.livingIds().find((id) => id !== PLAYER && id !== subject)!;
+    setEdge(session, rec, subject, { trust: 0.1, affinity: 0.05, threat: 0.9 });
+    setEdge(session, rec, PLAYER, { trust: 0.5, affinity: 0.5, threat: 0.2 });
+    const res = session.tradeSecret({ factId: learn(sb, subject), toNpcId: rec, askKind: "vote", ...extras } as never);
+    return { res, edge: { ...relOf(session).edge(rec, PLAYER) } };
+  };
+  assert.deepEqual(run({ strength: 1e6, magnitude: 1e6, value: 1e6, tradeValue: 1, dealFactor: 99 }), run({}), "an unknown magnitude argument moved the outcome");
 });
 
 Then("the model cannot inflate how far the trade moves the recipient", function (this: BbWorld) {
@@ -303,13 +345,19 @@ Then("the trade value, the outcome, and the folds are identical both times", fun
 });
 
 Given("a full season is played with no secret traded and off-screen barter disabled", function (this: BbWorld) {
-  // The byte-identity of the untouched seeded stream is proven by secretPowerNeutral.test.ts + the
-  // juryReach / UAT heavy gates; this scenario records that the no-trade path is the calibration floor.
-  ensure(this);
+  // A season in which the player merely HOLDS learned secrets (never trading one) vs a season with none learned.
+  const play = (hold: boolean): string => {
+    const { session, sb } = freshSession(505);
+    if (hold) for (const id of session.livingIds().filter((i) => i !== PLAYER).slice(0, 3)) learn(sb, id);
+    return seasonTrail(session);
+  };
+  (this as unknown as { tcSeasons: [string, string] }).tcSeasons = [play(true), play(false)];
 });
 
-Then("the seeded vote and eviction outcomes are byte-identical to the baseline season", function () {
-  assert.ok(true); // verified by the dedicated neutrality + heavy gates (secretPowerNeutral / juryReach)
+Then("the seeded vote and eviction outcomes are byte-identical to the baseline season", function (this: BbWorld) {
+  const [held, baseline] = (this as unknown as { tcSeasons: [string, string] }).tcSeasons;
+  assert.ok(held.length > 40, "a season was actually played");
+  assert.equal(held, baseline, "holding secrets (without trading) moved the seeded outcomes");
 });
 
 Given("the player has traded a held secret to a recipient", function (this: BbWorld) {

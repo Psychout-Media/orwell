@@ -189,8 +189,14 @@ Then("the wall test helpers import no Vault type", function () {
 Then(
   "the wall test helpers alter no game projection, narration, or engine tool",
   function () {
-    // Structural: settings.py has no I/O and no engine tool calls.
-    // Proven by the no-Vault-import assertion above and the module structure.
+    // The helpers live in settings.py: it may import only stdlib + the constants module, so it has no handle on a
+    // game projection, the narrator, or any engine tool. (Fails the moment someone wires one in.)
+    const src = fs.readFileSync(path.join(FRONTEND_DIR, "src", "settings.py"), "utf8");
+    const imports = src.split("\n").filter((l) => /^(import|from)\s/.test(l));
+    assert.ok(imports.length > 0, "settings.py has imports to inspect");
+    for (const line of imports) {
+      assert.doesNotMatch(line, /orwell|engine|narrat|projection|tools|mcp|vault|routes|services|gateway/i, `settings.py reaches beyond constants: ${line}`);
+    }
     runPyTest("imports_no_vault");
   }
 );

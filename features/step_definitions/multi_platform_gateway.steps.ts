@@ -94,16 +94,17 @@ When("the platform identity sends a turn over the gateway", function () {
 });
 
 Then("the turn runs against that account's game on the player channel", function () {
-  // Isolation invariant: the paired user is resolved by get_paired_user and
-  // the engine call uses x-orwell-user = that user. Proven by the Python suite.
-  assert.ok(true, "isolation invariant proven by test_gateway_isolation.py");
+  // Isolation invariant: the paired user is resolved by get_paired_user and the engine call uses
+  // x-orwell-user = that user. Run the exact tests that assert it (plus the handler's per-user routing).
+  runPyTests("test_gateway_isolation.py::TestPairedIdentityReachesOwnGame");
+  runPyTests("test_gateway_isolation.py::TestCrossUserIsolation::test_handler_uses_paired_user_not_another");
 });
 
 Then("the public reply contains no Vault or secret content", function () {
   // Scrub invariant: the chokepoint fires before delivery.
   // Proven by test_gateway_scrub.py + test_gateway_isolation.py.
   runPyTests("test_gateway_scrub.py");
-  assert.ok(true, "scrub chokepoint proven by test_gateway_scrub.py");
+  runPyTests("test_gateway_build_gate.py::TestScrubAlwaysInDeliveryPath");
 });
 
 // ── Scenario: one human shares one game across platforms ──────────────────────
@@ -118,8 +119,8 @@ When("each platform identity reads the game state over the gateway", function ()
 });
 
 Then("both see the same game under the same user", function () {
-  // Proven: both identities resolve to the same orwell user via get_paired_user.
-  assert.ok(true, "one-human-one-game proven by test_gateway_isolation.py");
+  // Both identities resolve to the same orwell user via get_paired_user.
+  runPyTests("test_gateway_isolation.py::TestOneHumanOneGame::test_two_identities_paired_to_same_user_share_game");
 });
 
 When("a third, unpaired platform identity sends a turn", function () {
@@ -129,7 +130,8 @@ When("a third, unpaired platform identity sends a turn", function () {
 
 Then("it cannot reach any game", function () {
   // get_paired_user returns None → handler returns the unpaired message.
-  assert.ok(true, "unpaired identity blocked by test_gateway_isolation.py");
+  runPyTests("test_gateway_isolation.py::TestUnpairedCannotReachGame");
+  runPyTests("test_gateway_isolation.py::TestOneHumanOneGame::test_third_unpaired_identity_blocked");
 });
 
 // ── Scenario: cross-user isolation holds over the gateway ─────────────────────
@@ -149,7 +151,7 @@ When("that identity sends a turn over the gateway", function () {
 
 Then("no part of the second account's game is returned", function () {
   // Cross-user isolation: get_paired_user(identity_1) !== user_2.
-  assert.ok(true, "cross-user isolation proven by test_gateway_isolation.py");
+  runPyTests("test_gateway_isolation.py::TestCrossUserIsolation");
 });
 
 // ── Scenario: reasoning never reaches the public bubble ──────────────────────
@@ -169,15 +171,15 @@ When(
 Then(
   "the delivered reply is scrubbed of reasoning, operator-asides, and the npc id",
   function () {
-    assert.ok(true, "scrub chokepoint proven by test_gateway_scrub.py");
+    runPyTests("test_gateway_scrub.py::TestCombinedLeaks::test_all_three_leak_types_stripped");
   }
 );
 
 Then(
   "the scrub chokepoint fires regardless of which prompt produced the leak",
   function () {
-    // test_gateway_scrub.py::TestCombinedLeaks::test_chokepoint_fires_on_any_model_output
-    assert.ok(true, "confirmed by test_gateway_scrub.py::test_chokepoint_fires_on_any_model_output");
+    runPyTests("test_gateway_scrub.py::TestCombinedLeaks::test_chokepoint_fires_on_any_model_output");
+    runPyTests("test_gateway_build_gate.py::TestScrubAlwaysInDeliveryPath::test_scrub_is_called_on_every_code_path");
   }
 );
 
@@ -201,7 +203,11 @@ When("the decision is delivered over the gateway", function () {
 });
 
 Then("it is rendered as an inline text prompt", function () {
-  assert.ok(true, "decision degradation enforced by _build_gateway_system_prompt");
+  // The numbered-list instruction must be the one about PENDING DECISIONS (not some unrelated list).
+  const src = fs.readFileSync(path.join(FRONTEND_DIR, "gateway", "handler.py"), "utf8");
+  const at = src.indexOf("numbered list");
+  assert.ok(at >= 0, "the gateway prompt carries a numbered-list instruction");
+  assert.match(src.slice(Math.max(0, at - 400), at + 400), /decision|choice|option/i, "the numbered-list rule is about the player's pending decision");
 });
 
 When("the identity replies with a text choice", function () {
@@ -211,13 +217,12 @@ When("the identity replies with a text choice", function () {
 });
 
 Then("the choice is submitted through the existing decision path", function () {
-  // The existing player-channel call path (orwell_engine) handles submitDecision.
-  // Structural check: handler.py imports from src.orwell_engine (the player channel).
-  const src = fs.readFileSync(
-    path.join(FRONTEND_DIR, "gateway", "handler.py"),
-    "utf8"
-  );
+  // The text reply is routed through the same player-channel call the web client uses (orwell_engine),
+  // never an admin channel.
+  const src = fs.readFileSync(path.join(FRONTEND_DIR, "gateway", "handler.py"), "utf8");
   assert.ok(src.includes("orwell_engine"), "handler must use orwell_engine (player channel)");
+  assert.ok(!/orwell_engine[^\n]*admin|admin[^\n]*orwell_engine/i.test(src), "handler must not route through an admin channel");
+  runPyTests("test_gateway_isolation.py::TestCrossUserIsolation::test_handler_uses_paired_user_not_another");
 });
 
 // ── Scenario: the game build is respected over the gateway ───────────────────
@@ -230,53 +235,43 @@ When(
 );
 
 Then("the tool is unavailable over the gateway", function () {
-  assert.ok(
-    true,
-    "game-build gate proven by test_gateway_build_gate.py::TestDropSetUnavailable"
-  );
+  runPyTests("test_gateway_build_gate.py::TestDropSetUnavailable");
+  runPyTests("test_gateway_build_gate.py::TestGatewayGameBuildFlag");
 });
 
 // ── Scenario: pairing is hardened ────────────────────────────────────────────
 
 Given("the pairing flow", function () {
   // Pairing state is managed by gateway/pairing.py (in-memory, process-local).
-  runPyTests("test_gateway_pairing.py");
+  assert.ok(fs.existsSync(path.join(FRONTEND_DIR, "gateway", "pairing.py")), "the pairing module exists");
 });
 
 When("a code is issued", function () {
-  assert.ok(true, "code generation tested by test_gateway_pairing.py");
+  runPyTests("test_gateway_pairing.py::TestCodeGeneration::test_generate_returns_nonempty_code");
 });
 
 Then(
   "it is stored only as a salted hash with a bounded lifetime",
   function () {
-    // test_gateway_pairing.py::TestCodeGeneration::test_code_is_stored_as_hash_not_plaintext
-    // test_gateway_pairing.py::TestTTL
-    assert.ok(true, "proven by test_gateway_pairing.py::TestCodeGeneration + TestTTL");
+    runPyTests("test_gateway_pairing.py::TestCodeGeneration");
+    runPyTests("test_gateway_pairing.py::TestTTL");
   }
 );
 
 When("an incorrect code is presented repeatedly", function () {
-  // test_gateway_pairing.py::TestLockout
-  assert.ok(true, "lockout tested in test_gateway_pairing.py");
+  runPyTests("test_gateway_pairing.py::TestRateLimit");
 });
 
 Then("the identity is rate-limited and locked out", function () {
-  assert.ok(
-    true,
-    "lockout proven by test_gateway_pairing.py::TestLockout::test_lockout_after_repeated_failures"
-  );
+  runPyTests("test_gateway_pairing.py::TestLockout");
 });
 
 When("an expired code is presented", function () {
-  // test_gateway_pairing.py::TestTTL::test_expired_code_is_refused
-  assert.ok(true, "TTL tested in test_gateway_pairing.py");
+  runPyTests("test_gateway_pairing.py::TestTTL::test_valid_code_within_ttl_verifies");
 });
 
 Then("pairing is refused", function () {
-  assert.ok(
-    true,
-    "expired-code refusal proven by test_gateway_pairing.py::TestTTL::test_expired_code_is_refused"
-  );
+  runPyTests("test_gateway_pairing.py::TestTTL::test_expired_code_is_refused");
+  runPyTests("test_gateway_pairing.py::TestVerifyAndPair::test_incorrect_code_is_refused");
 });
 

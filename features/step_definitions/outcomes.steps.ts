@@ -11,6 +11,7 @@ import type { WeekState } from "../../src/domain/eligibility";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { buildSandbox } from "../../tests/support/sandbox";
+import { assertHardRulesSurviveTemperature } from "../support/eligibilityUnderTemperature";
 
 const RUNS = 600;
 const flat = (v: number): Competitor["stats"] => ({ physical: v, mental: v, social: v });
@@ -45,7 +46,6 @@ Then("resolving again with the same seed yields the identical outcome", function
 // --- Hard rules invariant under temperature -----------------------------------
 
 Given("any temperature roll", function (this: BbWorld) {
-  void rollFor(["outcome", "expression"], new SeededRandom(7)); // a roll happens — it must not matter
   this.week = week({ outgoingHoh: npc(4), vetoWinner: npc(5) });
   this.sandbox = buildSandbox(1);
 });
@@ -53,6 +53,10 @@ Given("any temperature roll", function (this: BbWorld) {
 Then("eligibility rules and the Vault Wall still hold", function (this: BbWorld) {
   assert.ok(!eligibleForHOH(this.week!).includes(npc(4)), "outgoing-HOH rule holds");
   assert.ok(!selectableReplacements(this.week!).includes(npc(5)), "veto-winner-replacement rule holds");
+  // A competition resolved over that field under a deafening temperature weight still never lets them back in.
+  assertHardRulesSurviveTemperature(this.week!);
+  // A resolved competition's result reaches the player stat-free: the Vault stays sealed after the roll too.
+  this.sandbox!.competitionViewForPlayer();
   const out = this.sandbox!.allPlayerOutputs();
   for (const s of this.sandbox!.sentinels) assert.ok(!out.includes(s), "no Vault content leaks");
 });

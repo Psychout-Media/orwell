@@ -125,11 +125,14 @@ export class BbWorld extends World {
   publicStmt?: string;
   drStmt?: string;
   npcActedOn?: string[];
+  npcExpressed?: { dr: import("../../src/engine/conversation").Expression };
 
   // Jury & endgame (0014) scratch state.
   juryRel?: { trust: number; affinity: number; threat: number };
   juryWinner?: Eid;
   juryWinner2?: Eid;
+  oobeSandbox?: import("../../src/composition/registry").UserSandbox;
+  juryLive?: Record<"plain" | "narrated" | "flipped", { winner: string; reveals: string[] }> & { narrations: number };
   finaleScript?: { statements: Eid[]; questions: Array<{ juror: Eid; finalist: Eid }>; revealOrder: Eid[] };
 
   // Replayability & naming (0004) scratch state.
@@ -221,6 +224,7 @@ export class BbWorld extends World {
   // Reactive reserve twists (0025 redesign) scratch state.
   twistPlan?: import("../../src/engine/reserveTwists").TwistPlan;
   twistPlanB?: import("../../src/engine/reserveTwists").TwistPlan;
+  deployTrace?: { crowns: { hoh: string; outgoing: string | undefined; active: number }[]; replacements: { replacement: string; vetoHolder: string }[]; fired: string[] };
   twistLive?: import("../../src/engine/liveSeason").LiveSeasonState;
   twistCtx?: import("../../src/engine/liveSeason").SeasonCtx;
   twistFiredKinds?: import("../../src/engine/reserveTwists").TwistKind[];
@@ -425,6 +429,8 @@ export class BbWorld extends World {
 
   // Endgame structure (0045) scratch state.
   egSession?: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
+  egBallots?: string[];
+  egTieBreakAsked?: boolean;
   egState?: import("../../src/engine/liveSeason").LiveSeasonState;
   egCtx?: import("../../src/engine/liveSeason").SeasonCtx;
   egWeek?: import("../../src/domain/eligibility").WeekState;

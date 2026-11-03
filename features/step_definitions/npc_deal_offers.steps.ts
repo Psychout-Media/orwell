@@ -132,9 +132,31 @@ Then("the floated offer is the player's own knowledge, never hidden Vault conten
 });
 
 Then("only one floated offer stands at a time", function (this: BbWorld) {
-  // The offer is a single field — resolving it clears it; a second cannot stack.
-  this.dofSandbox!.session.submitDecision({ kind: "deal-offer", vote: "decline" });
-  assert.equal(this.dofSandbox!.session.getGameState().openDealOffer, undefined);
+  const sb = this.dofSandbox!;
+  const first = sb.session.getGameState().openDealOffer;
+  assert.ok(first, "an offer is standing");
+  const approaches = offerEvents(sb).length;
+  // TRY to stack a second, straight through the real lull logic (`maybeOfferPlayerDeal`, the code `advanceGame` runs
+  // every beat). The "one per week" cooldown is cleared and the seeded roll is varied across many (week, beat) keys,
+  // so a roll WILL pass; the only thing left stopping a second offer is the one-open-offer rule itself.
+  const inner = sb.session as unknown as {
+    live: { week: number; beat: string; lastDealOfferWeek?: number };
+    maybeOfferPlayerDeal(): void;
+  };
+  const { week, beat, lastDealOfferWeek } = inner.live;
+  for (let w = week; w < week + 40; w++) {
+    for (const b of ["hoh-competition", "nominations", "veto-competition", "veto-ceremony", "eviction-reveal", "eviction"]) {
+      inner.live.week = w; inner.live.beat = b; inner.live.lastDealOfferWeek = undefined;
+      inner.maybeOfferPlayerDeal();
+      const open = sb.session.getGameState().openDealOffer;
+      assert.deepEqual(open, first, `week ${w}/${b}: a second offer replaced or stacked onto the standing one`);
+      assert.equal(offerEvents(sb).length, approaches, `week ${w}/${b}: a second approach was floated while one stood`);
+    }
+  }
+  inner.live.week = week; inner.live.beat = beat; inner.live.lastDealOfferWeek = lastDealOfferWeek;
+  // Resolving the one offer clears it — nothing is left behind.
+  sb.session.submitDecision({ kind: "deal-offer", vote: "decline" });
+  assert.equal(sb.session.getGameState().openDealOffer, undefined);
 });
 
 // ── PO ruling 2026-11-01: never blocks; lapses unanswered ──────────────────────────────────────

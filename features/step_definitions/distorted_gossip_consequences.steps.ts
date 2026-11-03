@@ -7,6 +7,8 @@ import { GOSSIP_CONSEQUENCE } from "../../src/engine/beliefReliability";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { liveAdminSurface } from "../support/liveSweep";
+import { buildSandbox } from "../../tests/support/sandbox";
+import { seasonTrail } from "../support/seasonTrail";
 
 /**
  * Feature 0094 — distorted gossip has consequences. Role-only (the-player, an ally, a target, a
@@ -28,6 +30,8 @@ interface DgWorld {
   dgAdminBlob?: string;
   dgOffSnap?: unknown;
   dgOnSnap?: unknown;
+  dgOffTrail?: string;
+  dgOnTrail?: string;
   dgReplaySnapA?: unknown;
   dgReplaySnapB?: unknown;
   dgEdgeBefore?: { trust: number };
@@ -231,10 +235,30 @@ Then("no raw confidence or distortion number is shown to the player", function (
   assert.ok(!/"confidence":\s*[0-9.]|"distortion":\s*[0-9.]/.test(dg(this).dgPlayerBlob ?? ""));
 });
 
-Then("the wrongness is expressed only through a divergent outcome and a later honest correction", function () {
-  // Proven directly by the two sibling scenarios above (the misfire + the dramatic-irony reveal) —
-  // documentary here.
-  assert.ok(true);
+Then("the wrongness is expressed only through a divergent outcome and a later honest correction", function (this: BbWorld) {
+  GameSessionAdapter.setGossipConsequenceEnabled(true);
+  const sb = dg(this).dgSb!;
+  const known = (): ReturnType<typeof sb.engine.knowledge.knownTo> => sb.engine.knowledge.knownTo(PLAYER).filter((f) => f.factId === "fact:vault");
+  const surfaces = (): string => {
+    const ids = sb!.session.snapshot().house!.npcs.map((n) => n.id);
+    return JSON.stringify([...ids.map((id) => sb!.session.npcVoice(id)), sb!.session.gameStatus(), sb!.session.getGameState()]);
+  };
+  const npcId = sb!.session.snapshot().house!.npcs[0]!.id;
+  // Before acting: the wrong belief sits in the player's knowledge looking like any other, flagged nowhere.
+  assert.equal(known().length, 1);
+  assert.doesNotMatch(surfaces(), /isMateriallyDistorted|"distortion"|this is false|wrong belief/i);
+  // Acting on it: the ONLY signal is the outcome — the move misfires, and the result says nothing about why.
+  const result = sb!.session.confront(npcId, "fact:vault");
+  assert.equal(result?.landed, false, "the divergent outcome");
+  assert.deepEqual(Object.keys(result!).sort(), ["landed"], "the result explains nothing");
+  assert.doesNotMatch(surfaces(), /isMateriallyDistorted|"distortion"|this is false|wrong belief/i);
+  // Only a genuine later pathway brings the honest correction, onto the same lineage.
+  sb!.engine.knowledge.transmitGossip(
+    npcId, PLAYER,
+    { content: `turns out ${npcId} was loyal`, factId: "fact:vault", subject: npcId, distortion: 0, confidence: 1 },
+    `told-by:${npcId}`,
+  );
+  assert.ok(known().some((f) => (f.distortion ?? 0) === 0 && f.confidence === 1), "the honest correction arrived on the same lineage");
 });
 
 When("an admin inspects every admin and God-Mode surface", function (this: BbWorld) {
@@ -256,27 +280,27 @@ Then("no admin surface exposes the truth-value or the raw distortion of a held b
 Given("the distorted-gossip-consequence feature is disabled", function (this: BbWorld) {
   GameSessionAdapter.setGossipConsequenceEnabled(null); // explicit: the default is OFF
   const { sb: off } = dgGame("off", 777);
-  Object.assign(dg(this), { dgOffSnap: off.session.snapshot() });
+  const trail = seasonTrail(off.session, 200);
+  Object.assign(dg(this), { dgOffSnap: off.session.snapshot(), dgOffTrail: trail });
 });
 
 When("a full season is played from a fixed seed", function (this: BbWorld) {
-  // `confront` is reachable ONLY via the player MCP channel (never the automatic off-screen tick/vote/
-  // competition spine) — "playing a season" never invokes it either way, so the flag alone cannot
-  // perturb anything. Prove it directly: the SAME seed with the flag ON produces a byte-identical
-  // session, since nothing in ordinary play ever calls the new lever.
+  // `confront` is reachable ONLY via the player MCP channel (never the automatic off-screen tick/vote/competition
+  // spine) — so the same seed with the flag ON must play out byte-identically through a real season of beats.
   GameSessionAdapter.setGossipConsequenceEnabled(true);
   const { sb: on } = dgGame("on", 777);
-  Object.assign(dg(this), { dgOnSnap: on.session.snapshot() });
+  const trail = seasonTrail(on.session, 200);
+  Object.assign(dg(this), { dgOnSnap: on.session.snapshot(), dgOnTrail: trail });
   GameSessionAdapter.setGossipConsequenceEnabled(null);
 });
 
 Then("no belief-versus-reality divergence is computed and no extra fold is applied", function (this: BbWorld) {
+  assert.ok(dg(this).dgOnTrail!.length > 100, "a season of beats was actually played");
   assert.deepEqual(dg(this).dgOnSnap, dg(this).dgOffSnap);
 });
 
 Then("the seeded competition and jury outcomes are byte-identical to the baseline", function (this: BbWorld) {
-  // Subsumed by the whole-snapshot equality above (which includes `live`/`house`/`events` derivation).
-  assert.ok(true);
+  assert.equal(dg(this).dgOnTrail, dg(this).dgOffTrail, "the flag changed the seeded HOH / nominee / eviction trail");
 });
 
 Given("a fixed seed and an identical history in which the player acts on a distorted belief", function (this: BbWorld) {

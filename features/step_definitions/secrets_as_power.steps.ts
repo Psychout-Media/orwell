@@ -6,6 +6,8 @@ import { buildSandbox } from "../../tests/support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { LEVERAGE, SECRET_TRADE } from "../../src/engine/leverageConstants";
+import { dealAcceptance, leverageDealBoost } from "../../src/engine/leverage";
+import { seasonTrail } from "../support/seasonTrail";
 import type { EntityId } from "../../src/domain/ids";
 import type { ExposeResult, TradeResult } from "../../src/ports/GameSession";
 
@@ -30,6 +32,7 @@ interface SPState {
   spTrade?: TradeResult;
   spDealBefore?: { trust: number; affinity: number; threat: number };
   spEdgeBefore?: { trust: number; affinity: number; threat: number };
+  spControl?: { session: GameSessionAdapter; subject: EntityId };
 }
 const sp = (w: BbWorld): SPState => w as unknown as SPState;
 
@@ -158,16 +161,34 @@ Given("a houseguest whose secret the player has learned", function (this: BbWorl
   st.spFactId = learn(st.spSb!, st.spSubject);
 });
 
+// A partner who is lukewarm-to-hostile toward the player: left to themselves they would REFUSE the plain deal, but a
+// learned secret's bounded boost lifts them over the floor.
+const LUKEWARM = { trust: 0.3, affinity: 0.3, threat: 0.6 } as const;
+const bondOf = (s: GameSessionAdapter, a: EntityId, b: EntityId): number => (relOf(s).edge(a, b).trust + relOf(s).edge(a, b).affinity) / 2;
+
 When("the player offers that secret as leverage while making a deal with them", function (this: BbWorld) {
   const st = sp(this);
-  st.spDealBefore = { ...relOf(st.spSession!).edge(st.spSubject!, PLAYER) };
+  setEdge(st.spSession!, st.spSubject!, PLAYER, LUKEWARM);
+  // The CONTROL: the same seeded house, the same learned secret, the same partner, the same deal, but NO leverage.
+  const ctl = freshSession(101);
+  const csub = ctl.session.livingIds().find((id) => id !== PLAYER)!;
+  learn(ctl.sb, csub);
+  setEdge(ctl.session, csub, PLAYER, LUKEWARM);
+  ctl.session.makeDeal({ with: csub, kind: "safety", terms: "keep me safe" });
+  st.spControl = { session: ctl.session, subject: csub };
   st.spSession!.makeDeal({ with: st.spSubject!, kind: "safety", terms: "keep me safe", leverage: { factId: st.spFactId! } });
 });
 
 Then("the deal becomes more likely to form than the same deal offered without leverage", function (this: BbWorld) {
-  // Structural: with valid leverage on a non-hostile subject, the bounded boost RAISES the acceptance
-  // read over the plain-deal baseline (the engine owns the magnitude — proven on the leverage boost).
-  assert.ok(LEVERAGE.dealFactorCap > 0, "a learned secret contributes a bounded positive boost to formation");
+  const st = sp(this);
+  // The engine's own acceptance read: refused plain, accepted once the learned secret's capped boost is added...
+  const warmth = (LUKEWARM.trust + LUKEWARM.affinity) / 2 - LUKEWARM.threat;
+  assert.equal(dealAcceptance(warmth, 0, LEVERAGE.refusalFloor).accepts, false, "the plain deal would be refused");
+  assert.equal(dealAcceptance(warmth, leverageDealBoost(0.6), LEVERAGE.refusalFloor).accepts, true, "leverage lifts the same partner over the floor");
+  // ...and in the live session the partner who took the leveraged deal is bound tighter than the control who got it plain.
+  const withLeverage = bondOf(st.spSession!, st.spSubject!, PLAYER);
+  const without = bondOf(st.spControl!.session, st.spControl!.subject, PLAYER);
+  assert.ok(withLeverage > without, `leverage did not make the deal land better (${withLeverage} vs ${without})`);
 });
 
 Then("the deal remains a first-class tracked commitment", function (this: BbWorld) {
@@ -185,7 +206,7 @@ Then("the engine owns the bounded magnitude of the leverage, not the narrator", 
 Given("a houseguest who reads the player as a high threat with little warmth", function (this: BbWorld) {
   const st = ensureSession(this);
   st.spSubject = st.spSession!.livingIds().find((id) => id !== PLAYER)!;
-  setEdge(st.spSession!, st.spSubject, PLAYER, { trust: 0.0, affinity: 0.0, threat: 0.95 });
+  setEdge(st.spSession!, st.spSubject, PLAYER, { trust: 0.1, affinity: 0.1, threat: 0.9 });
 });
 
 Given("whose secret the player has learned", function (this: BbWorld) {
@@ -200,14 +221,20 @@ When("the player presses that secret as leverage in a deal", function (this: BbW
 });
 
 Then("the houseguest may still refuse the deal", function (this: BbWorld) {
-  // A hostile subject's acceptance read lands below the refusal floor even with max leverage — they refuse.
-  assert.ok(LEVERAGE.refusalFloor > 0, "a refusal floor exists — leverage is pressure, never a guaranteed yes");
+  const st = sp(this);
+  // Even the strongest possible leverage cannot lift this partner over the refusal floor...
+  const e = st.spEdgeBefore!;
+  const warmth = (e.trust + e.affinity) / 2 - e.threat;
+  assert.equal(dealAcceptance(warmth, leverageDealBoost(1), LEVERAGE.refusalFloor).accepts, false, "max leverage still cannot force a yes");
+  // ...and in the live session they visibly refuse: the squeeze is resented (a refused press folds the backlash).
+  const after = relOf(st.spSession!).edge(st.spSubject!, PLAYER);
+  assert.ok(after.trust < e.trust && after.threat > e.threat, "a refused press leaves the partner colder and warier");
 });
 
 Then("pressing them with the secret can worsen their hidden read of the player", function (this: BbWorld) {
   const st = sp(this);
   const after = relOf(st.spSession!).edge(st.spSubject!, PLAYER);
-  assert.ok(after.trust <= st.spEdgeBefore!.trust && after.threat >= st.spEdgeBefore!.threat, "the squeeze soured their read");
+  assert.ok(after.trust < st.spEdgeBefore!.trust && after.threat > st.spEdgeBefore!.threat, "the squeeze soured their read");
 });
 
 Then("no opinion number is shown to the player", function (this: BbWorld) {
@@ -221,14 +248,21 @@ Given("an open deal made without any leverage", function (this: BbWorld) {
   const st = ensureSession(this);
   const subject = st.spSession!.livingIds().find((id) => id !== PLAYER)!;
   st.spSubject = subject;
+  learn(st.spSb!, subject); // a learned secret exists in the player's knowledge, but it is never wielded
   st.spSession!.makeDeal({ with: subject, kind: "final-two", terms: "ride or die" });
 });
 
 Then("deal formation is identical to deal tracking with no secrets involved", function (this: BbWorld) {
-  // A leverage-free deal forms exactly as 0039 (proven byte-identical in secretPowerNeutral.test.ts).
   const st = sp(this);
-  const deals = st.spSession!.getGameState().deals ?? [];
-  assert.ok(deals.length >= 1, "the plain deal formed as a normal first-class commitment");
+  // The baseline: the same seeded house and the same deal, with NO secret anywhere in the player's knowledge.
+  const base = freshSession(101);
+  const subject = base.session.livingIds().find((id) => id !== PLAYER)!;
+  assert.equal(subject, st.spSubject, "the control house casts the same partner");
+  base.session.makeDeal({ with: subject, kind: "final-two", terms: "ride or die" });
+  const strip = (s: GameSessionAdapter): string => JSON.stringify((s.getGameState().deals ?? []).map(({ id: _id, ...d }) => d));
+  assert.ok((st.spSession!.getGameState().deals ?? []).length >= 1, "the plain deal formed as a normal first-class commitment");
+  assert.equal(strip(st.spSession!), strip(base.session), "holding an unused secret changed how the plain deal formed");
+  assert.deepEqual(relOf(st.spSession!).edge(subject, PLAYER), relOf(base.session).edge(subject, PLAYER), "...or moved the partner's hidden read");
 });
 
 // ── Rule: expose is engine-decided, bounded, recorded, capped ─────────────────────────────────────────
@@ -302,8 +336,19 @@ Then("the attempt is rejected because the secret is already spent", function (th
 
 Then("across a full season the number of exposes never exceeds the season cap", function (this: BbWorld) {
   const st = sp(this);
-  const core = st.spSession!.snapshot();
-  assert.ok((core.secretExposeCount ?? 0) <= LEVERAGE.maxExposesPerSeason);
+  // Try to expose far more secrets than the cap allows, each a distinct learned secret about a distinct houseguest.
+  let exposed = 0;
+  let capped = 0;
+  const others = st.spSession!.livingIds().filter((id) => id !== PLAYER && id !== st.spSubject).slice(0, LEVERAGE.maxExposesPerSeason + 3);
+  for (const id of others) {
+    const r = st.spSession!.exposeSecret({ factId: learn(st.spSb!, id) }) as ExposeResult;
+    if (r.exposed) exposed++;
+    if (r.refused === "capped") capped++;
+  }
+  assert.ok(others.length > LEVERAGE.maxExposesPerSeason, "the fixture tries more exposes than the cap");
+  assert.ok(capped > 0, "exposes past the cap are refused as capped");
+  assert.ok((st.spSession!.snapshot().secretExposeCount ?? 0) <= LEVERAGE.maxExposesPerSeason, "the season's expose count stayed within the cap");
+  assert.ok(exposed + 1 <= LEVERAGE.maxExposesPerSeason, `more than the cap were exposed (${exposed + 1})`); // +1: the one exposed in the Given
 });
 
 Then("the spent state survives an engine restart", function (this: BbWorld) {
@@ -368,8 +413,13 @@ Then("the engine produces the same outcome each time", function (this: BbWorld) 
   assert.deepEqual(relOf(st.spA).edge(st.spSubjA, PLAYER), relOf(st.spB).edge(st.spSubjB, PLAYER));
 });
 
-Then("the untouched seeded vote distribution is unchanged by the feature", function (this: BbWorld) {
-  // The broad byte-identity guarantee is `secretPowerNeutral.test.ts` + the juryReach/UAT heavy gates;
-  // here we assert determinism held (the two identical runs produced identical hidden state above).
-  assert.ok(true);
+Then("the untouched seeded vote distribution is unchanged by the feature", function () {
+  // A season in which the player merely HOLDS learned secrets (never wielding one) plays out exactly like a season
+  // where no secret was ever learned: same HOHs, same nominees, same evictions.
+  const play = (holdSecrets: boolean): string => {
+    const { session, sb } = freshSession(404);
+    if (holdSecrets) for (const id of session.livingIds().filter((i) => i !== PLAYER).slice(0, 3)) learn(sb, id);
+    return seasonTrail(session);
+  };
+  assert.equal(play(true), play(false), "holding learned secrets moved the seeded outcomes");
 });
