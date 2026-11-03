@@ -63,6 +63,7 @@ describe("the live adapter wires the sealed predicate and the suspects (#1963)",
     live: { eviction?: { voteOf: Record<EntityId, EntityId> } };
     deals: { make(p: [EntityId, EntityId], kind: string, terms: string, ev?: string, week?: number): unknown };
     reconcileDeals(a: { actor: EntityId; kind: string; targets: readonly EntityId[] }): void;
+    reconcileAllianceBetrayals(a: { actor: EntityId; kind: string; targets: readonly EntityId[] }): void;
   };
   function house(seed: number) {
     const rel = new RelationshipModel(0.5);
@@ -91,6 +92,45 @@ describe("the live adapter wires the sealed predicate and the suspects (#1963)",
     p.reconcileDeals({ actor: b, kind: "vote-evict", targets: [PLAYER] });
     expect(rel.edge(PLAYER, b).trust).toBeLessThan(bb);
     expect(rel.edge(PLAYER, v1).trust).toBe(b1); // not spread: the player-wronged path is unchanged
+  });
+
+  it("the Final-3 vote has NO staged weekly ballot, so it is a public, attributed break (and a stale ballot never attributes a later one)", () => {
+    const { rel, ids, p } = house(74);
+    const [w, b, v1] = [ids[0]!, ids[1]!, ids[2]!];
+    p.live.eviction = undefined; // no secret ballot exists for the open final-HOH vote
+    p.deals.make([w, b], "safety", "keep each other safe", undefined, 1);
+    const [bb, b1] = [rel.edge(w, b).trust, rel.edge(w, v1).trust];
+    p.reconcileDeals({ actor: b, kind: "vote-evict", targets: [w] });
+    expect(rel.edge(w, b).trust).toBeLessThan(bb); // attributed to the breaker alone
+    expect(rel.edge(w, v1).trust).toBe(b1);
+    // a ballot that exists but does NOT show the breaker voting for the wronged party must not seal their break either
+    const c = house(75);
+    const [w2, b2, v2] = [c.ids[0]!, c.ids[1]!, c.ids[2]!];
+    c.p.live.eviction = { voteOf: { [v2]: w2 } } as never; // the breaker (b2) is not on the current ballot
+    c.p.deals.make([w2, b2], "safety", "keep each other safe", undefined, 1);
+    const before2 = c.rel.edge(w2, v2).trust;
+    c.p.reconcileDeals({ actor: b2, kind: "vote-evict", targets: [w2] });
+    expect(c.rel.edge(w2, v2).trust).toBe(before2); // v2 is NOT blamed for b2's break
+  });
+
+  it("an alliance betrayal tied to the sealed ballot is shared across the voters and records no demerit; a public one is attributed", () => {
+    const sealedRun = (sealedBallot: boolean) => {
+      const { rel, ids, p, session } = house(sealedBallot ? 76 : 77);
+      const [w, b, v1] = [ids[0]!, ids[1]!, ids[2]!];
+      (session as unknown as { alliances: { add(n: string, f: EntityId, m: EntityId[], beat: number): unknown } }).alliances.add("a", w, [w, b], 1);
+      p.live.eviction = (sealedBallot ? { voteOf: { [b]: w, [v1]: w } } : undefined) as never;
+      const [tb, tv] = [rel.edge(w, b).threat, rel.edge(w, v1).threat];
+      p.reconcileAllianceBetrayals({ actor: b, kind: sealedBallot ? "vote-evict" : "nominate", targets: [w] });
+      return { dB: rel.edge(w, b).threat - tb, dV: rel.edge(w, v1).threat - tv, manner: (p.live as { mannerByEvictee?: Record<string, Record<string, unknown>> }).mannerByEvictee?.[w]?.[b] };
+    };
+    const pub = sealedRun(false);
+    expect(pub.dB).toBeGreaterThan(0);
+    expect(pub.dV).toBe(0);
+    expect(pub.manner).toBeDefined(); // the attributed betrayal records the jury demerit
+    const sealed = sealedRun(true);
+    expect(sealed.dV).toBeGreaterThan(0); // shared with the other voter
+    expect(sealed.dB).toBeLessThan(pub.dB); // the real betrayer carries only its share
+    expect(sealed.manner).toBeUndefined(); // no demerit names them
   });
 
   it("the PLAYER's own vote is never sealed from themselves: the break lands on the player alone", () => {
