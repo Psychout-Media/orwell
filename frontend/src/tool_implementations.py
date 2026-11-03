@@ -5595,6 +5595,123 @@ def _parse_secret_lever(raw) -> Optional[Dict]:
     return lever or None
 
 
+
+# N-4 — the makeDeal PARTNER / TERM guard. The engine accepts any valid active houseguest id and any
+# bounded term, so it cannot tell that the narrator named the WRONG partner or invented a duration. The
+# FE (which holds the player's own words for the turn) checks both. Closed-set only: it fires on a
+# POSITIVE mismatch (the player's words name a different houseguest and not the chosen one) and on a
+# term the player never spoke; absent any signal it passes through unchanged.
+import contextvars as _cv
+
+PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_text", default="")
+
+_DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"
+_DEAL_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                   "nine": 9, "ten": 10, "a": 1, "another": 1, "the next": 1, "next": 1}
+# A spoken NUMBER of weeks ("for two weeks", "3-week"). The number is parsed so it can be matched to the term.
+_DEAL_WEEKS_RE = re.compile(
+    r"\b(?:for\s+(?:the\s+)?(?:next\s+)?(" + _DEAL_NUM + r")(?:\s+more)?\s+weeks?"
+    r"|(" + _DEAL_NUM + r")[- ]weeks?)\b", re.I)
+# A spoken ENDPOINT (no week count to compare). Bare "until/through/thru/till/up to" do NOT count - they must be
+# followed by an explicit endpoint, so "I'll go through with it" names no duration.
+_DEAL_OPEN_RE = re.compile(
+    r"\b(?:this\s+week|next\s+week|rest\s+of\s+the\s+(?:week|season|game)|week\s+\d+"
+    r"|(?:until|till|through|thru|up\s+to)\s+(?:the\s+)?(?:end|finale|season|game|jury|eviction"
+    r"|final\s+(?:two|2|three|3|four|4|five|5)|f[2-5]|week\s+\d+)"
+    r"|to\s+the\s+end|end\s+of\s+the\s+(?:season|game)"
+    r"|final\s+(?:two|2|three|3|four|4|five|5)|f[2-5]|forever)\b", re.I)
+
+
+def _spoken_deal_weeks(text: str) -> set:
+    """The distinct week counts the player actually said ("for two weeks" -> {2})."""
+    out = set()
+    for m in _DEAL_WEEKS_RE.finditer(text or ""):
+        tok = (m.group(1) or m.group(2) or "").lower()
+        n = int(tok) if tok.isdigit() else _DEAL_NUM_WORDS.get(tok)
+        if n:
+            out.add(n)
+    return out
+
+
+def _deal_term_named(text: str) -> bool:
+    return bool(_spoken_deal_weeks(text)) or bool(_DEAL_OPEN_RE.search(text or ""))
+
+
+def _reconcile_deal_term(term, text: str):
+    """Match the SUBMITTED term to the SPOKEN duration. Nothing spoken -> None (engine default). A spoken week count
+    forwards the term only if its weeks equal one of them (else None). Only an endpoint phrase ("rest of the
+    season") -> the term passes as given."""
+    if term is None:
+        return None
+    spoken = _spoken_deal_weeks(text)
+    if spoken:
+        return term if term.get("weeks") in spoken else None
+    return term if _DEAL_OPEN_RE.search(text or "") else None
+
+
+def _name_in_text(name: str, text: str) -> bool:
+    """Whole-name OR a first/last token of `name` appears in `text` on word boundaries (case-insensitive)."""
+    toks = [t for t in re.split(r"\s+", (name or "").strip()) if len(t) >= 2]
+    cands = [" ".join(toks)] + toks if toks else []
+    return any(re.search(r"(?<!\w)" + re.escape(c) + r"(?!\w)", text or "", re.I) for c in cands if c)
+
+
+def _deal_partner_mismatch(with_id: str, roster: list, text: str):
+    """Return (partner_name, other_name) when the player's words name a DIFFERENT roster houseguest and
+    NOT the chosen partner; else None (no positive mismatch -> never guess)."""
+    if not text or not roster:
+        return None
+    by_id = {h.get("id"): (h.get("name") or "") for h in roster if isinstance(h, dict)}
+    partner = by_id.get(with_id, "")
+    if partner and _name_in_text(partner, text):
+        return None
+    for h in roster:
+        if isinstance(h, dict) and h.get("id") != with_id and h.get("name") and _name_in_text(h["name"], text):
+            return (partner or with_id, h["name"])
+    return None
+
+
+def _deal_names_anyone(roster: list, text: str) -> bool:
+    return any(isinstance(h, dict) and h.get("name") and _name_in_text(h["name"], text) for h in roster)
+
+
+async def guard_make_deal(with_id: str, term, owner, player_text: str):
+    """N-4 - the ONE guarded path for every makeDeal write (the model-driven `do_make_deal` AND the FE
+    `_auto_record_deal` back-fill). Returns (error_or_None, term_to_forward). No player text => unchanged."""
+    if not player_text:
+        return None, term
+    from src import orwell_engine
+    _roster, _roster_ok = [], False
+    try:
+        _gs = await orwell_engine.get_game_state(user=owner)
+        _house = (_gs or {}).get("house") if isinstance(_gs, dict) else None
+        if isinstance(_house, list):
+            _roster = [h for h in _house if isinstance(h, dict) and h.get("status", "active") == "active"]
+            _roster_ok = True
+    except Exception:
+        pass
+    _mm = _deal_partner_mismatch(with_id, _roster, player_text)
+    if _mm:
+        return (f"makeDeal refused: the player's handshake names {_mm[1]}, not {_mm[0]}. "
+                "Re-issue makeDeal with the right partner or ask the player."), term
+    if _roster_ok and not _deal_names_anyone(_roster, player_text):
+        # The player named nobody ("deal? you keep me safe"): the partner must be co-present (engine truth).
+        # A failed roster read or unreadable presence fails open.
+        try:
+            _wa = await orwell_engine.whereabouts(user=owner)
+        except Exception:
+            _wa = None
+        _here = (_wa or {}).get("present") if isinstance(_wa, dict) else None
+        if isinstance(_here, list):
+            _ids = {p.get("id") for p in _here if isinstance(p, dict)}
+            if with_id not in _ids:
+                _pn = next((h.get("name") for h in _roster if h.get("id") == with_id), None) or with_id
+                _hn = ", ".join(str(p.get("name") or p.get("id")) for p in _here if isinstance(p, dict)) or "nobody"
+                return (f"makeDeal refused: {_pn} is not in the scene with the player (present: {_hn}). "
+                        "Re-issue makeDeal with the right partner or ask the player."), term
+    return None, _reconcile_deal_term(term, player_text)
+
+
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
@@ -5627,6 +5744,9 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         if _raw_term.get("vague") is True:
             term["vague"] = True
         term = term or None
+    _err, term = await guard_make_deal(with_id, term, owner, PLAYER_TURN_TEXT.get())
+    if _err:
+        return {"error": _err, "exit_code": 1}
     try:
         _extra = {"term": term} if term is not None else {}  # absent ⇒ the call is byte-identical to pre-0109
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,

@@ -4138,6 +4138,13 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         # 0109 — a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
         _tw = obj.get("termWeeks")
         _term_kw = {"term": {"weeks": _tw}} if isinstance(_tw, int) and not isinstance(_tw, bool) and _tw >= 1 else {}
+        # N-4: the back-fill rides the SAME partner/term guard as the model-driven write.
+        from src.tool_implementations import guard_make_deal as _guard_deal
+        _g_err, _g_term = await _guard_deal(with_id, _term_kw.get("term"), owner, last_user or "")
+        if _g_err:
+            logger.info(f"[orwell] deal back-fill refused by the N-4 guard: {_g_err} user={owner}")
+            return False
+        _term_kw = {"term": _g_term} if _g_term else {}
         if await _backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,
                                     user=owner, defer_fold=True,
                                     idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw) is None:
@@ -6061,10 +6068,21 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _user_token = _lt.set_call_user(kwargs.get("owner"))
     except Exception as _e:
         logger.debug("1599: set_call_user failed: %s", _e)
+    # N-4: the player's ORIGINAL words for the whole turn (captured here, before any round appends synthetic
+    # tool-result user messages), for the makeDeal partner/term guard; cleared when the turn ends.
+    _ptt = None
+    try:
+        from src.tool_implementations import PLAYER_TURN_TEXT as _ptt
+        _msgs = kwargs.get("messages") if "messages" in kwargs else (args[2] if len(args) > 2 else None)
+        _ptt.set(_extract_last_user_message(_msgs or []) or "")
+    except Exception:
+        _ptt = None
     try:
         async for _evt in _stream_agent_loop_impl(*args, **kwargs):
             yield _evt
     finally:
+        if _ptt is not None:
+            _ptt.set("")
         _reset_turn_observability_context(_obs_token)
         if _user_token is not None:
             try:
