@@ -14,6 +14,8 @@ import os
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+_LEVERS = {}  # the per-test lists the A-10b back-fill fakes append to
+
 ROSTER = [{"id": "npc:1", "name": "Contestant Alpha", "status": "active"},
           {"id": "npc:2", "name": "Contestant Beta", "status": "active"}]
 SCENE = ("The dining room goes quiet. Contestant Alpha sets down a fork and answers the accusation "
@@ -61,6 +63,8 @@ def _drive(monkeypatch, *, loop_stalled, user_msg="At dinner I call out Contesta
     monkeypatch.setattr(oe, "advance_game", fake_advance)
 
     recorded = []
+    confides, exposes, trades = [], [], []
+    _LEVERS.update(confide=confides, expose=exposes, trade=trades)
 
     async def fake_record(narration, last_user, house, *a, **k):
         recorded.append((narration, last_user, [h.get("name") for h in house]))
@@ -74,6 +78,14 @@ def _drive(monkeypatch, *, loop_stalled, user_msg="At dinner I call out Contesta
         return deal_struck
 
     monkeypatch.setattr(al, "_auto_record_deal", fake_deal)
+    for _name, _bucket in (("_auto_confide", confides), ("_auto_expose_secret", exposes),
+                           ("_auto_trade_secret", trades)):
+        def _mk(bucket):
+            async def _fake(narration, last_user, house, *a, **k):
+                bucket.append(last_user)
+                return True
+            return _fake
+        monkeypatch.setattr(al, _name, _mk(_bucket))
     belts = []
     monkeypatch.setattr(al, "_note_belt", lambda owner, name, *a, **k: belts.append(name))
 
@@ -112,14 +124,18 @@ def test_a_quiet_turn_without_a_forced_advance_records_exactly_once(monkeypatch)
     assert not advanced
 
 
-def test_a_scene_with_no_houseguest_is_not_recorded_even_when_force_advanced(monkeypatch):
-    """The solo/no-houseguest precondition still holds on the new path."""
-    recorded, belts, advanced, deals = _drive(monkeypatch, loop_stalled=True, user_msg="I sit alone and think.")
-    # the narration still names houseguests (the fake stream), so narration-touch applies; assert the
-    # contract at unit grain instead: the helper that gates the pre-commit record is the SAME predicate.
-    from src import agent_loop as al
-    assert al._scene_touched_houseguest("The kitchen is empty.", [{"role": "user", "content": "I sit alone."}],
-                                        ["Contestant Alpha", "Contestant Beta"]) is False
+SOLO_SCENE = "The backyard is empty. You sit on the grass and watch the light move across the pool."
+
+
+def test_a_solo_scene_with_no_houseguest_records_nothing_even_when_force_advanced(monkeypatch):
+    """Drives the SOLO case through the real loop: neither the narration nor the player's line names a
+    houseguest, so no back-fill (scene, deal, confide, expose, trade) may run on the forced path."""
+    recorded, belts, advanced, deals = _drive(monkeypatch, loop_stalled=True, scene=SOLO_SCENE,
+                                              user_msg="I sit alone and think about the week.")
+    assert advanced, "precondition: the loop-break force-advanced the beat"
+    assert recorded == [] and deals == []
+    assert _LEVERS["confide"] == [] and _LEVERS["expose"] == [] and _LEVERS["trade"] == []
+    assert "auto-record-scene" not in belts and "auto-record-deal" not in belts
 
 
 DEAL_SCENE = ("Contestant Alpha takes your hand across the table. \"Final two, you and me, no matter what — "
@@ -139,3 +155,26 @@ def test_no_deal_language_means_the_deal_belt_stays_quiet_on_the_forced_path(mon
     recorded, belts, advanced, deals = _drive(monkeypatch, loop_stalled=True)
     assert deals == [] and "auto-record-deal" not in belts
     assert len(recorded) == 1
+
+
+# ── A-10b: confide / exposeSecret / tradeSecret ride the same skipped finishing block ──────────────
+
+@pytest.mark.parametrize("lever,user_msg", [
+    ("confide", "Contestant Alpha, you can tell me what's really going on. Talk to me."),
+    ("expose", "I'm exposing what I know to everyone about Contestant Alpha."),
+    ("trade", "Contestant Alpha, I'll trade you the secret in exchange for your vote."),
+])
+def test_forced_advance_still_runs_the_secret_back_fills(monkeypatch, lever, user_msg):
+    recorded, belts, advanced, deals = _drive(monkeypatch, loop_stalled=True, user_msg=user_msg)
+    assert advanced, "precondition: the loop-break force-advanced the beat"
+    assert len(_LEVERS[lever]) == 1, f"{lever} back-fill must run exactly once on the forced path"
+    name = {"confide": "auto-confide", "expose": "auto-expose-secret", "trade": "auto-trade-secret"}[lever]
+    assert name in belts
+    for other in ("confide", "expose", "trade"):
+        if other != lever:
+            assert _LEVERS[other] == [], f"{other} must stay quiet for a {lever} message"
+
+
+def test_no_press_or_trade_language_leaves_the_secret_back_fills_quiet(monkeypatch):
+    _drive(monkeypatch, loop_stalled=True)
+    assert _LEVERS["confide"] == [] and _LEVERS["expose"] == [] and _LEVERS["trade"] == []

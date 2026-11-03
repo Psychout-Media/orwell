@@ -7885,6 +7885,74 @@ async def _stream_agent_loop_impl(
                     # nudge → another narration) ONLY when nothing visible has been shown yet, where a
                     # single fresh narration is exactly what's wanted. The per-turn cap and the persisted
                     # `_ADVANCE_STALL_LEVEL` escalation are unchanged.
+                    async def _bank_scene_consequences() -> None:
+                        """Fold the social consequences of the scene this turn narrated: a struck deal (0039),
+                        a press-to-open-up (0075), an outing (0093), a secret trade (0099), then the generic
+                        scene record (0055). Called from the finishing block AND — A-10 — just before a
+                        belt-forced silent advance ends the turn. Model-driven calls always win via the
+                        `_want_*` gates and per-turn caps; telemetry is success-gated."""
+                        nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges
+                        _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
+                        # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
+                        # and shows on the deals surface. Runs first; a struck deal already banks the
+                        # consequence (makeDeal records a witnessed event + folds impact), so it also
+                        # satisfies the generic scene-record below (no double fold). HIGH-bar extraction —
+                        # struck=false (loose talk) creates nothing.
+                        _touched_deal = _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])
+                        if _want_deal and _touched_deal:
+                            _turn_deal_nudges += 1  # once per turn
+                            if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
+                                                       _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                _turn_record_nudges = max(_turn_record_nudges, 1)  # deal banked the fold
+                                # gap #3 telemetry — only a genuinely BANKED deal counts (struck=false
+                                # loose talk / a failed extraction is a no-op, not a correction)
+                                _note_belt(owner, "auto-record-deal")
+                        # 0075: the player pressed an ally to open up but the model never called confide, so
+                        # the trust-gated disclosure never fired. Back-fill it — the ENGINE adjudicates
+                        # (whether they disclose, how much, truth-vs-lie); an unearned motive returns
+                        # {disclosed:false} harmlessly. Requires the turn's scene actually touched a houseguest
+                        # (the 1:1-ish precondition — reuse `_touched_deal`, computed over the WHOLE turn, since
+                        # a press+disclosure can sit in an earlier round of a multi-round turn); the extraction
+                        # names WHICH houseguest, the engine decides the rest. Model-driven confide always wins
+                        # (_turn_confide_nudges is set to 1 on its tool call, which makes _want_confide False).
+                        if _want_confide and _touched_deal:
+                            _turn_confide_nudges += 1  # once per turn
+                            if await _auto_confide(_turn_narration, _last_user_for_confide,
+                                                   _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                # gap #3 telemetry — only a confide the belt actually FIRED counts
+                                # (npcId:null / off-roster / failed extraction is a no-op)
+                                _note_belt(owner, "auto-confide")
+                        # 0093: the player outed a secret they already know but the model never called
+                        # exposeSecret. Back-fill it — the ENGINE adjudicates (the standing fold + exposer
+                        # backlash, or a bluff's belief roll); the extraction is grounded ONLY in the
+                        # player's own currently-known facts, so a miss just means no back-fill (never an
+                        # invented secret). Model-driven exposeSecret always wins (precedence set on tool use).
+                        if _want_expose and _touched_deal:
+                            _turn_expose_nudges += 1  # once per turn
+                            if await _auto_expose_secret(_turn_narration, _last_user_for_confide,
+                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                # gap #3 telemetry — only an exposeSecret the belt actually FIRED counts
+                                _note_belt(owner, "auto-expose-secret")
+                        # 0099: the player traded a secret they already know to a specific houseguest but the
+                        # model never called tradeSecret. Same shape — the ENGINE decides whether the
+                        # recipient bites; the extraction is grounded in the player's known facts + the live
+                        # roster only. Model-driven tradeSecret always wins.
+                        if _want_trade and _touched_deal:
+                            _turn_trade_nudges += 1  # once per turn
+                            if await _auto_trade_secret(_turn_narration, _last_user_for_confide,
+                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                # gap #3 telemetry — only a tradeSecret the belt actually FIRED counts
+                                _note_belt(owner, "auto-trade-secret")
+                        if _want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN:
+                            _turn_record_nudges += 1  # once per turn
+                            if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
+                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                        session_id=session_id):
+                                # gap #3 telemetry — only a recordInteraction the belt actually FIRED
+                                # counts (a withIds:[] extraction / failed call is a no-op)
+                                _note_belt(owner, "auto-record-scene")
+
                     if _want_advance and _phase in _ADVANCE_PHASES and not _peer_advanced and not _pre_resolved:
                         # NAR-1: _belt_key on both the read and the write (was `owner or ""` read
                         # vs a raw-`owner`-gated write — L39b's forced-advance escalation could
@@ -8114,29 +8182,13 @@ async def _stream_agent_loop_impl(
                         # advance) silently and end the turn — the board catches up to the scene shown,
                         # and the next real beat is voiced on the player's next turn. Falls through to
                         # the text-nudge path only when the silent commit could not run.
-                        # A-10: the silent commit ENDS the turn (`break`), so the scene-record block at the
-                        # bottom of this branch is never reached on a belt-forced advance — a social scene
-                        # the player just watched (a public confrontation at the premiere's third
-                        # same-gate turn) was never folded into the consequence loop. Bank the shown scene
-                        # FIRST (same constrained extraction + recordInteraction as the bottom block; the
-                        # model's own recording still wins via `_recorded`/`_want_record`).
-                        # …the same goes for a deal the shown scene struck without a makeDeal call (0039): it
-                        # runs first and, once banked, its fold satisfies the generic scene record below.
-                        if (_emitted_visible and _want_deal
-                                and _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])):
-                            _turn_deal_nudges += 1  # once per turn
-                            if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
-                                                       _house, _belt_endpoint, _belt_model, _belt_headers, owner):
-                                _turn_record_nudges = max(_turn_record_nudges, 1)  # the deal banked the fold
-                                _note_belt(owner, "auto-record-deal")
-                        if (_emitted_visible and _want_record
-                                and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
-                                and _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])):
-                            _turn_record_nudges += 1  # once per turn
-                            if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
-                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                        session_id=session_id):
-                                _note_belt(owner, "auto-record-scene")  # success-gated, like the bottom block
+                        # A-10 / A-10b: the silent commit ENDS the turn (`break`), so the finishing block's
+                        # social back-fills (deal / confide / expose / trade / scene record) were never reached
+                        # on a belt-forced advance. Bank the scene the player already saw FIRST, through the
+                        # SAME helper the finishing block uses (`_bank_scene_consequences`), so the two paths
+                        # cannot drift.
+                        if _emitted_visible:
+                            await _bank_scene_consequences()
                         if _emitted_visible:
                             if await _commit_advance_silently(
                                     "preview-commit" if _previewed_uncommitted
@@ -8628,65 +8680,7 @@ async def _stream_agent_loop_impl(
                     # GUARANTEES the fold itself (0055): a constrained extraction + recordInteraction.
                     # Model-driven recording always takes precedence (if it had recorded, _recorded
                     # would be True and we'd never get here). Invisible to the player (hidden weights).
-                    _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
-                    # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
-                    # and shows on the deals surface. Runs first; a struck deal already banks the
-                    # consequence (makeDeal records a witnessed event + folds impact), so it also
-                    # satisfies the generic scene-record below (no double fold). HIGH-bar extraction —
-                    # struck=false (loose talk) creates nothing.
-                    _touched_deal = _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])
-                    if _want_deal and _touched_deal:
-                        _turn_deal_nudges += 1  # once per turn
-                        if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
-                                                   _house, _belt_endpoint, _belt_model, _belt_headers, owner):
-                            _turn_record_nudges = max(_turn_record_nudges, 1)  # deal banked the fold
-                            # gap #3 telemetry — only a genuinely BANKED deal counts (struck=false
-                            # loose talk / a failed extraction is a no-op, not a correction)
-                            _note_belt(owner, "auto-record-deal")
-                    # 0075: the player pressed an ally to open up but the model never called confide, so
-                    # the trust-gated disclosure never fired. Back-fill it — the ENGINE adjudicates
-                    # (whether they disclose, how much, truth-vs-lie); an unearned motive returns
-                    # {disclosed:false} harmlessly. Requires the turn's scene actually touched a houseguest
-                    # (the 1:1-ish precondition — reuse `_touched_deal`, computed over the WHOLE turn, since
-                    # a press+disclosure can sit in an earlier round of a multi-round turn); the extraction
-                    # names WHICH houseguest, the engine decides the rest. Model-driven confide always wins
-                    # (_turn_confide_nudges is set to 1 on its tool call, which makes _want_confide False).
-                    if _want_confide and _touched_deal:
-                        _turn_confide_nudges += 1  # once per turn
-                        if await _auto_confide(_turn_narration, _last_user_for_confide,
-                                               _house, _belt_endpoint, _belt_model, _belt_headers, owner):
-                            # gap #3 telemetry — only a confide the belt actually FIRED counts
-                            # (npcId:null / off-roster / failed extraction is a no-op)
-                            _note_belt(owner, "auto-confide")
-                    # 0093: the player outed a secret they already know but the model never called
-                    # exposeSecret. Back-fill it — the ENGINE adjudicates (the standing fold + exposer
-                    # backlash, or a bluff's belief roll); the extraction is grounded ONLY in the
-                    # player's own currently-known facts, so a miss just means no back-fill (never an
-                    # invented secret). Model-driven exposeSecret always wins (precedence set on tool use).
-                    if _want_expose and _touched_deal:
-                        _turn_expose_nudges += 1  # once per turn
-                        if await _auto_expose_secret(_turn_narration, _last_user_for_confide,
-                                                     _house, _belt_endpoint, _belt_model, _belt_headers, owner):
-                            # gap #3 telemetry — only an exposeSecret the belt actually FIRED counts
-                            _note_belt(owner, "auto-expose-secret")
-                    # 0099: the player traded a secret they already know to a specific houseguest but the
-                    # model never called tradeSecret. Same shape — the ENGINE decides whether the
-                    # recipient bites; the extraction is grounded in the player's known facts + the live
-                    # roster only. Model-driven tradeSecret always wins.
-                    if _want_trade and _touched_deal:
-                        _turn_trade_nudges += 1  # once per turn
-                        if await _auto_trade_secret(_turn_narration, _last_user_for_confide,
-                                                    _house, _belt_endpoint, _belt_model, _belt_headers, owner):
-                            # gap #3 telemetry — only a tradeSecret the belt actually FIRED counts
-                            _note_belt(owner, "auto-trade-secret")
-                    if _want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN:
-                        _turn_record_nudges += 1  # once per turn
-                        if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
-                                                    _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                    session_id=session_id):
-                            # gap #3 telemetry — only a recordInteraction the belt actually FIRED
-                            # counts (a withIds:[] extraction / failed call is a no-op)
-                            _note_belt(owner, "auto-record-scene")
+                    await _bank_scene_consequences()
                         # the scene is banked (or was genuinely solo) — end the turn normally.
                 # BLANK-TURN GUARD (audit 2026-06-18): the model sometimes emits only planning-as-
                 # content ("Let me get the lay of the land…") and stops with no tools — the scrub
