@@ -241,7 +241,7 @@ describe("0101/#1401 Phase-2 — reweight ON re-paces the hidden layer within th
     // it can never "decide a CLOSED-SET outcome". A real (LLM-driven) player, who DOES act on their evolving
     // reads, is the one whose game the pacing re-shapes; the calibration heavy-sims (juryReach/gradient/UAT
     // run ON) prove the DISTRIBUTION stays within-band under the flag.
-    for (const seed of [1, 3]) {
+    for (const seed of [1, 3, 5, 7, 11]) { // widened 2026-11-03, comp-win threat retune (#1953)
       const off = playSeason(seed, false);
       const on = playSeason(seed, true);
       // Non-vacuous: the reweight genuinely re-ordered the scheduler this season.

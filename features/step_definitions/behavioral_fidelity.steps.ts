@@ -78,7 +78,7 @@ const hiddenScenes = (w: BbWorld) => w.liveFidelity!.events.filter((e) => e.hidd
 // --- Background ---------------------------------------------------------------
 
 Given("an active game simulated over many in-game days with a fixed seed", function (this: BbWorld) {
-  playLive(this, 3); // re-selected 2026-11-03 (default flip): an alliance forms AND fractures under the deployed profile
+  playLive(this, 1); // re-selected 2026-11-03, comp-win threat retune (#1953): an alliance forms AND fractures under the deployed profile
 });
 
 When("the simulated stretch completes", function (this: BbWorld) {

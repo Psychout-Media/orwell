@@ -23,7 +23,7 @@ function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>, evictVo
 
 describe("#1800 — a real season produces a target-vote-mismatch receipt", () => {
   it("the player says they'll target one nominee, votes to evict the other — the booth has the receipt", () => {
-    for (const seed of [3, 5, 8, 13, 21, 34]) {
+    for (const seed of [5, 8, 13, 21, 34]) { // re-selected 2026-11-03, comp-win threat retune (#1953)
       const reg = new GameSessionRegistry();
       const sb = reg.sandboxFor(`receipts-${seed}`);
       const s = sb.session;

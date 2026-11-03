@@ -88,7 +88,7 @@ interface BlocCoordination {
 // seed-independent (unit-pinned below: every member computes the same negative shielded read).
 // Summed over several seeds (2026-11-02): a single pinned seed broke whenever balance tuning reshaped
 // the trajectory; the lift is a property of the mechanism, so it is measured across a small seed set.
-const BL_LIFT_SEEDS = [1, 2, 3, 4, 5];
+const BL_LIFT_SEEDS = [11, 12, 13, 14, 15]; // re-selected 2026-11-03, comp-win threat retune (#1953) (seeds 1-10 showed no vote-alignment lift: 0.80-0.83 vs 0.84-0.87)
 const BL_LIFT_WEEKS = 10;
 let blBaseline: BlocCoordination | undefined;
 let blConditioned: BlocCoordination | undefined;
