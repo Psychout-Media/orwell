@@ -24,8 +24,8 @@ Feature: NarrativePort LLM adapter — a real narrator that voices, never decide
     When narration is streamed token by token
     Then the concatenated stream equals the full narration
 
-  # @standalone-module: LlmNarrativePort's timeout/error fallback. The live narration failure path is the Python FE's (frontend/tests/test_1599_failsoft.py,
-  # test_no_silent_failsoft.py); the engine never calls an LLM.
+  # @standalone-module: LlmNarrativePort's timeout/error fallback, proven by tests/unit/narrativePort.test.ts. The live narration failure path is
+  # the Python FE's (frontend/tests/test_1599_failsoft.py, frontend/tests/test_no_silent_failsoft.py); the engine never calls an LLM.
   @standalone-module
   Scenario: A narration failure leaves game state untouched
     Given the narrator provider times out or errors
@@ -40,7 +40,8 @@ Feature: NarrativePort LLM adapter — a real narrator that voices, never decide
     Then the engine's result is unchanged
     And even a hallucinated result in the prose changes no game state
 
-  # @standalone-module: loadNarratorConfig is only reachable through the uncalled buildStreamingNarrator; the FE's own provider config is Python-side.
+  # @standalone-module: loadNarratorConfig is only reachable through the uncalled buildStreamingNarrator, proven by tests/unit/narrativePort.test.ts
+  # ("config comes from env"); the FE's own provider config is Python-side.
   @standalone-module
   Scenario: The provider and secrets come from config, never code
     When the adapter is configured

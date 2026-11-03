@@ -22,7 +22,10 @@ import { PLAYER, npc } from "../../src/domain/ids";
 // context (`assembleNarrationContext` + `session.getMomentPrompt`). So the "Vault-free context" and "never changes an
 // outcome" scenarios drive THAT live seam, while the adapter-only scenarios (failure fallback, config) are tagged
 // @standalone-module in the feature.
-const narrationCtx = new WeakMap<object, { visible: ReturnType<UserSandbox["player"]["getVisibleState"]>; sb?: UserSandbox }>();
+const narrationCtx = new WeakMap<object, { visible: ReturnType<UserSandbox["player"]["getVisibleState"]>; sb?: UserSandbox; reg?: GameSessionRegistry; user?: string }>();
+/** The ENTIRE durable game (session core + event log + hidden relationships + knowledge + Vault) as JSON: any state a narration step could move. */
+const durableState = (reg: GameSessionRegistry, user: string): string => JSON.stringify(reg.snapshot(user));
+const durableBeforeAfter = new WeakMap<object, { before: string; after: string }>();
 const MOMENT_PROMPT = "You are the voice of the house. Narrate the moment in character; the engine decides outcomes.";
 
 /** A seed-deterministic engine decision — re-running it is how we 're-read the engine'. */
@@ -124,23 +127,27 @@ Then("re-reading the engine gives the same result", function (this: BbWorld) {
 // whole game state are unmoved by narrating the resolved competition.
 
 Given("the engine has decided a competition result", function (this: BbWorld) {
-  const sb = new GameSessionRegistry().sandboxFor("pat5-narration-comp");
+  const reg = new GameSessionRegistry();
+  const sb = reg.sandboxFor("pat5-narration-comp");
   sb.session.createCharacter({ playerName: "Player One", seed: 11 });
   this.liveCompGame = sb.session;
-  narrationCtx.set(this, { visible: sb.player.getVisibleState(), sb });
+  narrationCtx.set(this, { visible: sb.player.getVisibleState(), sb, reg, user: "pat5-narration-comp" });
   this.liveCompResult = sb.session.runCompetition({ type: "endurance" });
   assert.ok(this.liveCompResult.winner, "the engine produced the winner the narrator must voice");
   // The full Vault-free engine state right after the engine decided — narration must not move it.
   this.liveStateBefore = JSON.stringify(sb.session.getGameState());
+  durableBeforeAfter.set(this, { before: durableState(reg, "pat5-narration-comp"), after: "" });
 });
 
 When("the narrator produces narration for it", function (this: BbWorld) {
-  const sb = narrationCtx.get(this)!.sb!;
+  const c = narrationCtx.get(this)!;
+  const sb = c.sb!, reg = c.reg!, user = c.user!;
   this.narrationOut = [
     ...ALL_PLAYER_SURFACES.map((surface) => sb.player.produce(surface)),
     JSON.stringify(sb.player.assembleNarrationContext("scene")),
     sb.player.renderScene("full"),
   ].join("\n---\n");
+  durableBeforeAfter.get(this)!.after = durableState(reg, user); // read straight after narrating, before anything else runs
 });
 
 Then("the engine's result is unchanged", function (this: BbWorld) {
@@ -153,6 +160,10 @@ Then("even a hallucinated result in the prose changes no game state", function (
   assert.ok(this.narrationOut && this.narrationOut.length > 0); // the prose said something...
   // ...and the live engine's whole game state is byte-identical: narrating moved nothing (the engine never reads prose back).
   assert.equal(JSON.stringify(this.liveCompGame!.getGameState()), this.liveStateBefore, "no game state changed");
+  // ...and not one byte of the durable game (event log, hidden relationships, knowledge, Vault) moved either.
+  const d = durableBeforeAfter.get(this)!;
+  assert.ok(d.before.length > 0 && d.after.length > 0);
+  assert.equal(d.after, d.before, "narrating moved nothing in the durable game (events, relationships, knowledge, Vault)");
 });
 
 // --- Provider and secrets come from config, never code ------------------------

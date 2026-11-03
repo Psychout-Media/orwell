@@ -31,8 +31,8 @@ Feature: Consequence & memory — actions change the hidden layer, persisted lon
     And no Vault sentinel value appears
 
   # @standalone-module: exercises ConsequenceEngine.recordCompetitionWin/recordVoteAgainstPlayer, which have no production
-  # caller. The live game's win/vote consequences are proven by tests/unit/evictionConsequence.test.ts and
-  # tests/unit/ceremonyConsequence.test.ts (and the live 0034/0037 scenarios).
+  # caller; the standalone module is proven by tests/unit/consequence.test.ts. The live game's win/vote consequences are proven by
+  # tests/unit/evictionConsequence.test.ts and tests/unit/ceremonyConsequence.test.ts (and the live 0034/0037 scenarios).
   @standalone-module
   Scenario: Wins and votes are recorded and consequential
     When a competition is won

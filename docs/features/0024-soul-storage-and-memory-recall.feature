@@ -22,7 +22,8 @@ Feature: Soul storage & memory recall — the house remembers the RIGHT moment
     And it is not crowded out by the recent trivial memories
 
   # @standalone-module: SoulProvider.recall has no production caller and nothing in the live game feeds a recalled memory into the
-  # relationship read. Live relationship folds are proven by 0023 (recordInteraction) and tests/unit/consequence.test.ts.
+  # relationship read. The standalone module is proven by tests/unit/soul.test.ts; live relationship folds by 0023 (recordInteraction)
+  # and tests/unit/consequence.test.ts.
   @standalone-module
   Scenario: Recall sharpens the relationship read (mechanics)
     Given a houseguest with a relevant adverse memory of the player
@@ -43,6 +44,7 @@ Feature: Soul storage & memory recall — the house remembers the RIGHT moment
     But the houseguest's behavior may still reflect it
 
   # @standalone-module: SoulStore.soulOf (the sectioned narrative) has no production reader; the live durable soul is hg.soul.memory.
+  # The standalone sectioning is proven by tests/unit/soul.test.ts ("Option B" block).
   @standalone-module
   Scenario: The inner diary is organised into sections (memories / leanings / feelings)
     Given a houseguest whose soul holds a plain happening, a strategic lean, and an emotional beat
@@ -51,8 +53,9 @@ Feature: Soul storage & memory recall — the house remembers the RIGHT moment
     And a section with no memories shows no heading
     And the sectioning never thins the authoritative memory record
 
-  # @standalone-module: SoulStore.soulOf has no production reader. Live soul deepening is proven by 0038 (off-screen scenes deepen the
-  # souls, via snapshot soul.memory) and by 0041's persisted emotionalHistory; character byte-stability by 0004/0015.
+  # @standalone-module: SoulStore.soulOf has no production reader. The standalone deepening is proven by tests/unit/soul.test.ts; live soul
+  # deepening by 0038 (off-screen scenes deepen the souls, via snapshot soul.memory) and tests/unit/soulIndexDrain.test.ts, and 0041's
+  # persisted emotionalHistory; character byte-stability by 0004/0015.
   @standalone-module
   Scenario: The soul deepens over a game; the character does not
     Given a houseguest at premiere

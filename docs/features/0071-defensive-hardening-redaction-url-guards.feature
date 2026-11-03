@@ -29,6 +29,7 @@ Feature: 0071 — defensive hardening: log redaction & URL/path guards
     And a link-local or IPv6-scope-id URL is rejected
     And a public URL is allowed
 
+  # @standalone-module: safe_join, like the URL guard above, has no production caller; the unit proof is frontend/tests/test_url_safety.py.
   @standalone-module
   Scenario: the path join rejects traversal
     Given a base directory and the safe-join helper

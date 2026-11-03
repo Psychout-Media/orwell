@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { BbWorld } from "../support/world";
 import { ConsequenceEngine } from "../../src/engine/consequence";
 import { RelationshipModel } from "../../src/engine/relationships";
-import { nominationStrategy } from "../../src/engine/season";
+import { nominationPlan } from "../../src/engine/season";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { UserSandbox } from "../../src/composition/registry";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
@@ -37,6 +37,8 @@ function freshEngine(seed = 1): ConsequenceEngine {
 
 interface Live { reg: GameSessionRegistry; user: string; sb: UserSandbox; mates: EntityId[]; ally?: EntityId; eventsBefore?: unknown[]; edgesBefore?: unknown; }
 const lives = new WeakMap<object, Live>();
+/** The hidden edge as it stood at move-in, before any fold — so a persistence check can prove a REAL (non-baseline) read survived. */
+const baselines = new WeakMap<object, Edge>();
 const liveOf = (w: BbWorld): Live => lives.get(w)!;
 type Edge = { trust: number; affinity: number; threat: number };
 
@@ -142,6 +144,7 @@ Given("the player wronged a houseguest several weeks ago", function (this: BbWor
   const [wronged, ally] = l.mates;
   this.npc = wronged!;
   l.ally = ally!;
+  baselines.set(this, edge(l, wronged!));
   interact(l, wronged!, "betrayal", "an old betrayal");
   for (let i = 0; i < 5; i++) interact(l, ally!, "alliance", "alliance");
   l.eventsBefore = eventsOf(l);
@@ -157,7 +160,10 @@ Then("the full event history is restored", function (this: BbWorld) {
 });
 
 Then("that houseguest's hidden read of the player equals what it was before leaving", function (this: BbWorld) {
-  assert.deepEqual(liveOf(this).sb.engine.relationships.edge(this.npc!, PLAYER), this.relBefore);
+  const after = liveOf(this).sb.engine.relationships.edge(this.npc!, PLAYER);
+  assert.deepEqual(after, this.relBefore);
+  // ...and that read is the soured one, not merely the move-in baseline (a restore that lost the fold would also be "equal" to a baseline).
+  assert.ok(after.trust < baselines.get(this)!.trust, "the wronged houseguest's trust is still below its move-in level");
 });
 
 Then("an alliance the player built is still intact", function (this: BbWorld) {
@@ -169,6 +175,7 @@ Then("an alliance the player built is still intact", function (this: BbWorld) {
 Given("a game persisted to the long-term store", function (this: BbWorld) {
   this.saveDir = mkdtempSync(join(tmpdir(), "orwell-0023-"));
   const l = startLive(this, 4, new GameSessionRegistry(new FileSaveStore(this.saveDir)));
+  baselines.set(this, edge(l, l.mates[0]!));
   for (let i = 0; i < 4; i++) interact(l, l.mates[0]!, "bonding", "bond"); // every mutation commits a durable save
   l.eventsBefore = eventsOf(l);
   l.edgesBefore = edgesOf(l);
@@ -183,6 +190,8 @@ When("the engine process is restarted and the game is loaded fresh", function (t
 Then("the events and the hidden relationship state are restored as a superset", function (this: BbWorld) {
   assert.ok(eventsOf(liveOf(this)).length >= liveOf(this).eventsBefore!.length);
   assert.deepEqual(edgesOf(liveOf(this)), liveOf(this).edgesBefore);
+  const l = liveOf(this);
+  assert.ok(edge(l, l.mates[0]!).trust > baselines.get(this)!.trust, "the warmed read survived the restart, not just the move-in baseline");
 });
 
 // --- A hidden change drives behavior ------------------------------------------
@@ -194,14 +203,28 @@ Given("the player has quietly earned a houseguest's distrust", function (this: B
   for (let i = 0; i < 6; i++) interact(l, this.npc, "betrayal", "a quiet betrayal");
 });
 
+/** The LIVE nomination function (0044) for this HOH, over the live roster with the player listed LAST (so a ranking that
+ *  ignores the hidden read cannot "find" the player just by list order). */
+const planFor = (l: Live, hoh: EntityId): ReturnType<typeof nominationPlan> =>
+  nominationPlan(hoh, [...l.mates, PLAYER], l.sb.engine.relationships);
+const plans = new WeakMap<object, ReturnType<typeof nominationPlan>>();
+
 When("houseguest behavior is resolved later", function (this: BbWorld) {
   const l = liveOf(this);
-  // The LIVE nomination function (0044) — not the test-only `chooseNominations`.
-  this.noms = nominationStrategy(this.npc!, [PLAYER, ...l.mates], l.sb.engine.relationships);
+  const plan = planFor(l, this.npc!); // the live nomination function, not the test-only `chooseNominations`
+  plans.set(this, plan);
+  this.noms = plan.nominees;
 });
 
 Then("that houseguest is more likely to seek the player out warily or target them", function (this: BbWorld) {
-  assert.ok(this.noms!.includes(PLAYER), "the distrustful HOH targets the player");
+  const l = liveOf(this);
+  assert.equal(plans.get(this)!.target, PLAYER, "the distrustful HOH's TARGET is the player");
+  assert.ok(this.noms!.includes(PLAYER), "and the player is on the block");
+  // Control: the SAME house (same seed, same HOH) WITHOUT the betrayals does not make the player the target, so it is the
+  // hidden opinion, not roster order or a constant, that drives the choice.
+  const control = startLive(this, 5);
+  assert.notEqual(planFor(control, control.mates[0]!).target, PLAYER, "without the betrayals the player is not the HOH's target");
+  lives.set(this, l); // back to the scenario's own game
 });
 
 Then("this happens without any opinion value ever being shown to the player", function (this: BbWorld) {
