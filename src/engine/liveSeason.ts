@@ -699,6 +699,13 @@ export interface SeasonCtx {
    */
   campaignTiltFor?: (target: EntityId, voter: EntityId) => number;
   /**
+   * #1937 — the signed, bounded campaign PUSH on `target` as seen by `decider` (the NPC HOH naming nominees, the NPC
+   * veto holder): evict adds, protect subtracts, aware campaigns only (`campaignPushFor`). Feeds the nomination /
+   * replacement scores and the veto-save read. Omitted ⇒ 0, so flags-off stays BYTE-IDENTICAL. Returns 0 for the
+   * PLAYER as decider. ENGINE-ONLY — never crosses the wall.
+   */
+  campaignPushFor?: (target: EntityId, decider: EntityId) => number;
+  /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
    * fights; a lay-low houseguest with a strong ally in the field may throw to hand them the power; a
@@ -2485,6 +2492,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
         style: ctx.nominationStyleOf?.(s.hoh!),
+        ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
@@ -2538,7 +2546,11 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // by demonstrated loyalty (E54), so a proven protector outranks an equally-liked stranger.
       const saved = nominees.includes(s.vetoHolder!)
         ? s.vetoHolder!
-        : ctx.rel.chooseVetoSave(s.vetoHolder!, nominees);
+        : ctx.rel.chooseVetoSave(
+          s.vetoHolder!, nominees,
+          // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
+          ctx.campaignPushFor ? (n: EntityId) => -ctx.campaignPushFor!(n, s.vetoHolder!) : undefined,
+        );
       if (!saved) {
         s.vetoUsed = false; s.finalNominees = [nominees[0], nominees[1]]; s.beat = "eviction";
         return { beat: "veto-ceremony", content: `${s.vetoHolder} does not use the veto`, participants: [s.vetoHolder!] };
@@ -2689,6 +2701,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
     style: ctx.nominationStyleOf?.(s.hoh!),
     target: s.nominationTarget,
+    ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {

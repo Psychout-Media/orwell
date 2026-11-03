@@ -142,6 +142,53 @@ export function campaignTilt(
   return c.base * clamp01(progress) * clamp01(persuasiveness) * clamp01(susceptibility) * trustMult;
 }
 
+/**
+ * #1937 — SINGLE SWITCH POINT: do PLAYER-owned campaigns count in the campaign push on NPC nominations, the
+ * veto-save read, and the `protect` netting at the vote? DEFAULT false (excluded) until the owner rules: whether
+ * 0098 ("no player input modulates seeded odds") reaches social influence through the NPCs' own decisions is a
+ * game-design call. The existing eviction-vote `evict` tilt keeps counting the player's campaigns (spec 0085);
+ * only the NEW pushes honor this. Flip it here and nowhere else.
+ */
+export const CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED = false;
+
+export interface CampaignPushDeps {
+  /** The houseguest id of the player (their campaigns are gated by `includePlayerOwned`). */
+  player: EntityId;
+  influenceOf: (id: EntityId) => Influence;
+  /** The owner's trust in / by the decider — read only for owner ≠ decider (never a self-edge). */
+  trustOf: (owner: EntityId, decider: EntityId) => number;
+  includePlayerOwned?: boolean;
+}
+
+/**
+ * #1937 — the signed, bounded campaign PUSH on `target` that `decider` (a decision-maker: the HOH naming
+ * nominees, the veto holder) is AWARE of: an active `evict` campaign adds, a `protect` campaign subtracts, each
+ * the same character-mediated `campaignTilt` the vote uses (persuasiveness × susceptibility × trust × progress).
+ * The net is clamped to ±`CAMPAIGN.base` so up to `maxConcurrent` campaigns can never swamp the threat read.
+ * Skips campaigns the decider owns (their own plan is already in their own strategic read — counting it again
+ * would double-count, and would read a self-edge) and, unless the switch is on, the player's. Pure, no rng.
+ * Awareness is the symmetric-perspective rule: only a campaign the decider is in `knownTo` of can move them.
+ */
+export function campaignPushFor(
+  campaigns: readonly Campaign[], target: EntityId, decider: EntityId, deps: CampaignPushDeps,
+  c: CampaignConstants = CAMPAIGN,
+): number {
+  let net = 0;
+  for (const camp of campaigns) {
+    if (camp.status !== "active" || camp.target !== target) continue;
+    const sign = camp.goal === "evict" ? 1 : camp.goal === "protect" ? -1 : 0;
+    if (sign === 0 || !camp.knownTo.includes(decider)) continue;
+    const owner = camp.owners[0]!;
+    if (owner === decider) continue;
+    if (owner === deps.player && !(deps.includePlayerOwned ?? CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED)) continue;
+    net += sign * campaignTilt(
+      camp.progress, deps.influenceOf(owner).persuasiveness, deps.influenceOf(decider).susceptibility,
+      deps.trustOf(owner, decider), c,
+    );
+  }
+  return Math.max(-c.base, Math.min(c.base, net));
+}
+
 /** One houseguest's strategic situation, distilled for campaign formation (the adapter maps real state to this). */
 export interface CampaignActor {
   id: EntityId;

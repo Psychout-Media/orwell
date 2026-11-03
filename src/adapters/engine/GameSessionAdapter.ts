@@ -34,7 +34,7 @@ import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
 import { nextMilestone, milestoneDue as milestoneDueOf, beatFeltHours } from "../../engine/daySchedule";
 import { driveSuspicion } from "../../engine/suspicion";
 import {
-  formCampaigns, advanceCampaign, replan, campaignTilt, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
+  formCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
   deriveDrive, ownBallotLean, ARCHETYPE_AGGRESSION,
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
@@ -6997,6 +6997,14 @@ export class GameSessionAdapter implements GameSession {
       // AWARE of (knownTo) pushes their vote, scaled by owner persuasiveness × voter susceptibility ×
       // trust × progress (the engine tallies; narration only voices). Bounded; never crosses the wall.
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
+      // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
+      // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
+      ...(this.campaignsEnabled ? {
+        campaignPushFor: (target: EntityId, decider: EntityId) => decider === PLAYER ? 0 : campaignPushFor(
+          this.campaigns, target, decider,
+          { player: PLAYER, influenceOf: (id) => this.influenceOf(id), trustOf: (o, d) => this.rel.edge(o, d).trust },
+        ),
+      } : {}),
       // 0006b: NPCs carry a derived competition intent — present ONLY when enabled (off in the calibration
       // harness ⇒ absent ⇒ every NPC competes ⇒ byte-identical). Live-only strategic throw/play-safe.
       ...(this.compIntentEnabled ? { compIntentOf: (id: EntityId, field: readonly EntityId[]) => this.deriveCompIntent(id, field) } : {}),
@@ -7649,9 +7657,17 @@ export class GameSessionAdapter implements GameSession {
   private campaignTiltFor(target: EntityId, voter: EntityId): number {
     let sum = 0;
     for (const c of this.campaigns) {
-      if (c.status !== "active" || c.goal !== "evict" || c.target !== target) continue;
+      if (c.status !== "active" || (c.goal !== "evict" && c.goal !== "protect") || c.target !== target) continue;
       if (!c.knownTo.includes(voter)) continue; // symmetric perspective: only an aware voter is swayed
       const owner = c.owners[0]!;
+      // #1937 — THE SCRAMBLE: a `protect` campaign on this nominee counters the `evict` push (spec 0085, campaigns
+      // colliding at the vote). The player's own protect campaign is gated by the single switch (default excluded);
+      // a protect owner is the nominee so never reads a self-edge here. The `evict` tilt is exactly as before.
+      if (c.goal === "protect") {
+        if (owner === voter || (owner === PLAYER && !CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED)) continue;
+        sum -= campaignTilt(c.progress, this.influenceOf(owner).persuasiveness, this.influenceOf(voter).susceptibility, this.rel.edge(owner, voter).trust);
+        continue;
+      }
       sum += campaignTilt(c.progress, this.influenceOf(owner).persuasiveness, this.influenceOf(voter).susceptibility, this.rel.edge(owner, voter).trust);
     }
     // 0086 ruling #5: the OWN-BALLOT lean — a voter's own LOW (non-promoted) target drive against this

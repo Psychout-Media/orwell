@@ -392,11 +392,13 @@ export class RelationshipModel {
    * with no protective track record. Ties break by candidate order (deterministic). `undefined`
    * when no candidate clears the bar (the holder keeps the veto in their pocket).
    */
-  chooseVetoSave(holder: EntityId, candidates: readonly EntityId[]): EntityId | undefined {
+  chooseVetoSave(holder: EntityId, candidates: readonly EntityId[], bias?: (candidate: EntityId) => number): EntityId | undefined {
     let best: EntityId | undefined;
     let bestScore = this.constants.thresholds.vetoSave;
     for (const c of candidates) {
-      const score = this.vetoSaveScore(holder, c);
+      // #1937: an optional campaign bias (a `protect` campaign on the candidate pushes toward saving them, an
+      // `evict` one away) — added to the save score before the threshold; absent ⇒ +0, byte-identical.
+      const score = this.vetoSaveScore(holder, c) + (bias?.(c) ?? 0);
       if (score > bestScore) { bestScore = score; best = c; }
     }
     return best;
