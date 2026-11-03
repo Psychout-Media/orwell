@@ -78,13 +78,21 @@ Then("the player's status is marked evicted", function (this: BbWorld) {
   assert.equal(status, "evicted");
 });
 
-Then("the player's next decision is the exit interview or the spectator choice", function (this: BbWorld) {
-  // The evicted player is never left with "nothing": the FIRST decision raised after the eviction resolves is the 0130 exit interview,
-  // or the 0133 spectator-choice card (the exit interview is skipped for a leaver with no interview to give). Advance to the first pending.
+Then("the player's decisions after the eviction are the exit interview, then the spectator choice", function (this: BbWorld) {
+  // The evicted player is never left with "nothing": the ORDERED chain of decisions raised after the eviction resolves is the 0130 exit
+  // interview, THEN the 0133 spectator-choice card. Advance, answering each, and record the kinds in order.
   const s = this.peSandbox!.session;
-  let kind: string | undefined = s.getGameState().pending?.kind;
-  for (let i = 0; kind === undefined && i < 6; i++) kind = s.advanceGame().pending?.kind;
-  assert.ok(kind === "exit-interview" || kind === "spectator-choice", `next pending is the exit interview or the spectator choice, got ${String(kind)}`);
+  const kinds: string[] = [];
+  let pending = s.getGameState().pending;
+  for (let i = 0; i < 12 && kinds[kinds.length - 1] !== "spectator-choice"; i++) {
+    if (!pending) pending = s.advanceGame().pending;
+    if (!pending) continue;
+    kinds.push(pending.kind);
+    if (pending.kind === "spectator-choice") break;
+    resolve(s, pending);
+    pending = undefined as never;
+  }
+  assert.deepEqual(kinds.slice(0, 2), ["exit-interview", "spectator-choice"], `ordered chain after the eviction, got ${kinds.join(" → ")}`);
 });
 
 Then("the season reaches a defined end state for that player", function (this: BbWorld) {

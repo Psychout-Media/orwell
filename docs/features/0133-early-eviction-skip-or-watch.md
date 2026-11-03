@@ -37,7 +37,7 @@ changing how NPCs are evicted or how the season is simulated.
   switch is allowed at any later week through the same decision kind; **skip is irreversible**: a later `watch` after `skip` is refused with a typed
   `EngineRefusal` (a clear reason the narrator can voice), never a silent no-op, and the state is unchanged.
 - **Watch = the skeleton season.** The engine, not the model, runs the player-less weeks. Each completed week
-  produces ONE `week-digest` carried on the view (`weekDigest`): HOH, nominees, veto holder and whether it was
+  produces ONE `week-digest` carried on the view (`weekDigests`): HOH, nominees, veto holder and whether it was
   used, who left, and the new jury size — **public broadcast facts only** (the same set a sequestered juror
   sees under 0046). The digest lives in `live.weekDigests` (persisted season state), **not** an EventStore event: it is a public
   projection of the already-recorded ceremony beats, so nothing is narrated that is not recorded. The narrator voices it in a few lines; it never adds a result.
@@ -72,7 +72,7 @@ advanceGame (spectator active) → runs one WHOLE player-less week, returns its 
 ## 5. Definition of Done
 
 - [x] A pre-jury eviction raises the `spectator-choice` card; `watch` and `skip` both complete the season.
-- [x] `watch` yields one recorded, public `week-digest` per remaining week; `skip` lands at the finale with the
+- [x] `watch` yields one public `week-digest` per EVICTION NIGHT after the player's own (a double-eviction week has two rows with the same week number); `skip` lands at the finale with the `skip` lands at the finale with the
       digests available.
 - [x] Same seed ⇒ same evictions, finalists, jury and winner across {watch, skip, pre-feature}.
 - [x] Both modes end in a `finale-interview` raised after the crowning; the answer is recorded, voiced, in the

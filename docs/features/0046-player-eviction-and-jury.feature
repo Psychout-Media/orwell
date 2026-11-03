@@ -14,7 +14,7 @@ Feature: Player eviction & the juror's seat
     Given a started game in which the player is evicted before the jury
     When the eviction resolves
     Then the player's status is marked evicted
-    And the player's next decision is the exit interview or the spectator choice
+    And the player's decisions after the eviction are the exit interview, then the spectator choice
     And the season reaches a defined end state for that player
 
   Scenario: A jury-phase eviction seats the player on the jury

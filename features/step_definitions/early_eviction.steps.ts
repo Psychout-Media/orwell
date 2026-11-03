@@ -94,13 +94,11 @@ When("the remaining weeks are advanced", function () {
 });
 Then("each completed eviction night produced exactly one week digest", function () {
   const d = ee!.s.getGameState().weekDigests ?? [];
-  const evictionsSinceChoice = ee!.s.snapshot().live!.evictionOrder.length - ee!.evictionsAtChoice;
-  assert.ok(evictionsSinceChoice > 0, "the watched stretch contained at least one eviction");
-  // A twist night (double eviction) has two ceremonies in ONE week number — each gets its own line, so the
-  // invariant is EXACTLY one digest per eviction made after the player's choice (not per week number, not "at least one").
-  assert.equal(d.length, evictionsSinceChoice, "weekDigests.length equals the evictions made after the choice");
-  const evictees = d.map((x) => x.evicted?.id).filter((x) => x !== undefined);
-  assert.equal(new Set(evictees).size, evictees.length, "no eviction digested twice");
+  const after = ee!.s.snapshot().live!.evictionOrder.slice(ee!.evictionsAtChoice);
+  assert.ok(after.length > 0, "the watched stretch contained at least one eviction");
+  // EXACTLY one digest per eviction made after the player's choice, in order — bounded by the eviction order (a double-eviction week has two
+  // eviction nights under one week number; a same-week eviction BEFORE the player's own is not digested).
+  assert.deepEqual(d.map((x) => x.evicted?.id), after, "the digests are the evictions after the choice, one each, in order");
 });
 const DIGEST_KEYS = ["evicted", "hoh", "juryCount", "nominees", "vetoHolder", "vetoUsed", "week"];
 Then("every digest contains only public broadcast facts", function () {

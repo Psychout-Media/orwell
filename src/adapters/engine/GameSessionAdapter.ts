@@ -8939,7 +8939,10 @@ export class GameSessionAdapter implements GameSession {
     if (!live?.spectator) return undefined;
     const since = live.spectator.sinceWeek;
     // The player's OWN eviction night is not a "remaining" week (they lived it; the exit interview voiced it), so it is not digested for them.
-    const rows = (live.weekDigests ?? []).filter((d) => d.week >= since && d.evictee !== PLAYER);
+    // Bounded by the EVICTION ORDER, not just the week: a double-eviction night can hold an NPC eviction BEFORE the player's own in the same week.
+    const order = live.evictionOrder ?? [];
+    const playerAt = order.indexOf(PLAYER);
+    const rows = (live.weekDigests ?? []).filter((d) => d.week >= since && (d.evictee == null || order.indexOf(d.evictee) > playerAt));
     if (rows.length === 0) return undefined;
     return rows.map((d) => ({
       week: d.week,
@@ -9070,6 +9073,11 @@ export class GameSessionAdapter implements GameSession {
     }
     // 0133 — a spectating player may switch WATCH → SKIP later through the same decision kind (no pending needed).
     // SKIP is irreversible and the offer is one-time, so every other answer outside the pending is a safe no-op.
+    // Skip is irreversible: a later `watch` is a deliberate typed refusal (not a silent no-op) so the narrator can tell the player why — WHATEVER
+    // other decision is open at the time (e.g. the finale interview), hence checked before the no-pending branch below.
+    if (req.kind === "spectator-choice" && this.live.spectator?.mode === "skip" && singlePickId(req) === "watch") {
+      throw new EngineRefusal("skipping ahead to the finale is irreversible — the player has already chosen to skip, so watching the rest of the season is no longer an option");
+    }
     if (req.kind === "spectator-choice" && !this.live.pending) {
       const mode = singlePickId(req);
       if (this.live.spectator?.mode === "watch" && mode === "skip" && !this.live.finished) {
@@ -9078,10 +9086,6 @@ export class GameSessionAdapter implements GameSession {
           this.commit({ beat: "spectator-choice", content: `${PLAYER} switches to skipping ahead to the finale`, participants: [PLAYER] });
           return this.advanceView(null);
         }));
-      }
-      // Skip is irreversible: a later `watch` is a deliberate typed refusal (not a silent no-op) so the narrator can tell the player why.
-      if (this.live.spectator?.mode === "skip" && mode === "watch") {
-        throw new EngineRefusal("skipping ahead to the finale is irreversible — the player has already chosen to skip, so watching the rest of the season is no longer an option");
       }
       return remember(this.advanceView(null));
     }
