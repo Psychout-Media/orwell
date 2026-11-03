@@ -47,22 +47,38 @@ describe("0129 slice 4 — the informed juror-vote card", () => {
     expect(pending.jurorBrief).toBeUndefined();
     expect("jurorBrief" in card(sb)).toBe(false);
   });
-  it("shows what a juror TOLD the player about a finalist — and nothing a juror merely holds", () => {
+  it("shows what a juror TOLD the player via askJuror, grouped by finalist — and nothing a juror merely holds", () => {
     const { sb, pending } = toVoteCard();
     const [f1] = pending.options;
     const [juror] = sb.session.getGameState().juryHouse!.jurors;
-    sb.engine.knowledge.seedBelief(juror!.id, { content: `MARK-HELD ${f1!.name} did something unspoken`, originalContent: "x", factId: "jvc:held", confidence: 0.9, hops: 0, distortion: 0, source: juror!.id }, "origin");
+    const core = sb.session.snapshot();
+    core.live!.mannerByEvictee = { ...(core.live!.mannerByEvictee ?? {}), [juror!.id]: { [PLAYER]: { respected: true } } } as never; // warm ⇒ always tells
+    sb.session.restore(core);
+    // The juror holds exactly one thing worth telling (the held-but-untold fact is the control).
     sb.engine.knowledge.seedBelief(juror!.id, { content: `MARK-TOLD ${f1!.name} kept their word`, originalContent: "x", factId: "jvc:told", confidence: 0.9, hops: 0, distortion: 0, source: juror!.id }, "origin");
-    sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: `MARK-TOLD ${f1!.name} kept their word`, subject: f1!.id, confidence: 0.7 }, `told-by:${juror!.id}`);
+    // The juror's other (engine-seeded) facts may be picked first; keep asking until the marked one lands.
+    let landed = false;
+    for (let i = 0; i < 15 && !landed; i++) landed = !!sb.session.askJuror(juror!.id)?.content?.includes("MARK-TOLD");
+    expect(landed, "precondition: the marked fact was told through askJuror").toBe(true);
+    sb.engine.knowledge.seedBelief(juror!.id, { content: `MARK-HELD ${f1!.name} did something unspoken`, originalContent: "x", factId: "jvc:held", confidence: 0.9, hops: 0, distortion: 0, source: juror!.id }, "origin");
     const c = card(sb);
     expect(c.jurorBrief).toBeDefined();
     const row = c.jurorBrief!.find((b) => b.finalist.id === f1!.id)!;
     expect(row.heard.join(" ")).toContain("MARK-TOLD");
-    // grouped by the finalist it concerned: the OTHER finalist has no row for this telling
     expect(c.jurorBrief!.some((b) => b.finalist.id !== f1!.id && b.heard.join(" ").includes("MARK-TOLD"))).toBe(false);
     const blob = JSON.stringify(c);
-    expect(blob).not.toContain("MARK-HELD");                     // held by the juror, never told
+    expect(blob).not.toContain("MARK-HELD");
     for (const banned of ["lean", "trust", "threat", "affinity", "bearing"]) expect(blob.includes(banned), banned).toBe(false);
+  });
+  it("a told-by:<juror> fact that did NOT come through the jury-house askJuror (e.g. told before the juror joined) is not in the brief", () => {
+    const { sb, pending } = toVoteCard();
+    const [f1] = pending.options;
+    const [juror] = sb.session.getGameState().juryHouse!.jurors;
+    const content = `MARK-EARLIER ${f1!.name} was told to me in the house`;
+    sb.engine.knowledge.seedBelief(juror!.id, { content, originalContent: content, factId: "jvc:earlier", confidence: 0.9, hops: 0, distortion: 0, source: juror!.id }, "origin");
+    sb.engine.knowledge.surfaceInformationTo(PLAYER, { content, subject: f1!.id, confidence: 0.7 }, `told-by:${juror!.id}`);
+    expect(sb.engine.knowledge.knownTo(PLAYER).some((f) => f.content.includes("MARK-EARLIER"))).toBe(true); // precondition
+    expect(JSON.stringify(card(sb))).not.toContain("MARK-EARLIER");
   });
   it("ignores facts the player learned from a NON-juror teller, and a vault sentinel never rides the card", () => {
     const { sb, pending } = toVoteCard();
@@ -76,5 +92,20 @@ describe("0129 slice 4 — the informed juror-vote card", () => {
     const blob = JSON.stringify(card(sb));
     expect(blob).not.toContain("MARK-OTHER");
     expect(blob).not.toContain("SENTINEL-0129-card");
+  });
+  it("the told record survives a snapshot -> restore (the brief does not vanish on reload)", () => {
+    const { sb, pending } = toVoteCard();
+    const [f1] = pending.options;
+    const [juror] = sb.session.getGameState().juryHouse!.jurors;
+    const core = sb.session.snapshot();
+    core.live!.mannerByEvictee = { ...(core.live!.mannerByEvictee ?? {}), [juror!.id]: { [PLAYER]: { respected: true } } } as never;
+    sb.session.restore(core);
+    sb.engine.knowledge.seedBelief(juror!.id, { content: `MARK-PERSIST ${f1!.name} said so`, originalContent: "x", factId: "jvc:persist", confidence: 0.9, hops: 0, distortion: 0, source: juror!.id }, "origin");
+    for (let i = 0; i < 15 && !JSON.stringify(card(sb).jurorBrief ?? []).includes("MARK-PERSIST"); i++) sb.session.askJuror(juror!.id);
+    expect(JSON.stringify(card(sb).jurorBrief ?? [])).toContain("MARK-PERSIST");
+    const snap = JSON.parse(JSON.stringify(sb.session.snapshot()));
+    expect(snap.jurorTold?.length).toBeGreaterThan(0);
+    sb.session.restore(snap);
+    expect(JSON.stringify(card(sb).jurorBrief ?? [])).toContain("MARK-PERSIST");
   });
 });

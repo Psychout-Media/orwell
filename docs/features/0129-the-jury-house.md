@@ -1,6 +1,6 @@
 # 0129 — The jury house (living with the evicted: perspectives, Q&A, and an informed vote)
 
-> **Status:** 🏗️ **Partially built (2026-11-03): slices 1–3** (roster projection, jurors voiced from their own knowledge, the `askJuror` lever) — see §9; slice 4 and the roundtable pending. Authored during the 0046 PO review (2026-07-13) (PO: "write
+> **Status:** 🏗️ **Partially built (2026-11-03): slices 1–4** (roster projection, jurors voiced from their own knowledge, the `askJuror` lever, the informed `juror-vote` card — slice 4 is an ASSUMED default pending Ryne) — see §9; jury gossip and the roundtable pending. Authored during the 0046 PO review (2026-07-13) (PO: "write
 > the spec for this and build later again"). **Expands 0046** (player eviction & the juror's seat) and pairs
 > with its **ceremonies-as-broadcast** knowledge model. Today an evicted player on the jury watches a paced,
 > Vault-safe **broadcast** of the remaining weeks — *alone*. This spec adds the **jury house**: the other

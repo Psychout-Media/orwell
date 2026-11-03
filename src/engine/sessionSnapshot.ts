@@ -380,6 +380,8 @@ export interface SessionCore {
    * tier, and never re-opens the lie cap. Absent on pre-0075 saves ⇒ empty/zero (non-degradation).
    */
   confideState?: Record<EntityId, { tier: "none" | "tease" | "partial" | "full"; truthful: boolean }>;
+  /** 0129 slice 4 — the contents of facts a juror TOLD the player in the jury house via `askJuror` (the informed vote card's only source). Append-only. */
+  jurorTold?: string[];
   confideLieCount?: number;
   /**
    * Features 0093 + 0099 — secrets as power. `secretUsedAs` maps each learned `factId` the player has

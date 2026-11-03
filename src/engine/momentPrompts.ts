@@ -1048,7 +1048,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "the other jurors (each is named in the per-guest knowledge block with what THEY legitimately know): talk and " +
     "silences between jurors are real scenes, but a juror voices ONLY from their own block and never knows the " +
     "live house's private scheming. When the player asks a juror what they know, call askJuror — the GAME " +
-    "decides whether they tell and what; you only voice it. Jurors cannot affect the house.",
+    "decides whether they tell and what; when `told` is false they DO NOT tell — play a closed face or a " +
+    "deflection and invent no answer. Jurors cannot affect the house.",
   default:
     "MOMENT — Continue the game. Read getGameState, keep the house in motion true to the GAME " +
     "CONTEXT, and pull the lever the beat calls for.",
