@@ -8,7 +8,7 @@ A deal struck in front of a crowd and one struck in a quiet room were mechanical
 ## What shipped
 - The deal record gains `formationWitnesses`: the co-present houseguests at the `makeDeal` commit, excluding both parties, sourced from presence ground truth (`src/domain/deal.ts`, `GameSessionAdapter.ts`).
 - The audience scale `formationAudienceScale = min(maxScale, 1 + perWitness * n)` (`src/engine/deals.ts`) is applied to the KEPT-deal (honored) fold in `applyHonor`, only when `dealsWitnesses` is on; with `dealDepth` also on, the loyalty-streak multiplier overwrites the audience scale (a bigger audience does not then raise the fold). Constants: `perWitness` 0.08 and the existing 1.6 cap (`relationshipConstants.ts`, ADR 0005: the engine owns magnitude).
-- At breach, the wronged party learns via the existing reveal (when it witnesses the break), and `revealToWitness` additionally sends a collateral copy to each formation witness, exactly that set, no over-reach.
+- At breach, the wronged party learns via the existing reveal (when it witnesses the break), and `revealToWitness` additionally sends a collateral copy to each formation witness, exactly that set, no over-reach. **Known gap:** for a SECRET `vote-evict` break the existing reveal is suppressed (#1963, sealed ballot), but the witness loop does not apply the same `sealed` guard, so `revealToWitness` can still name the breaker to formation witnesses.
 - Purely diegetic lever (pick the room and company); no new tool.
 
 ## Flag

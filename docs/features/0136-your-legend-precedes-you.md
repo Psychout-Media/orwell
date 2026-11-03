@@ -14,7 +14,7 @@ Season notoriety (0087/0088 family) records what a returning player did, but not
 No dedicated flag. The legend is set only when the player returns as the same character (`keepCharacter` -> `carriesNotoriety` -> `setNotoriety` in `src/composition/registry.ts` ~696), from the 0104 notoriety store; otherwise there is no summary and the line is empty. It is also empty outside the premiere / week-1 `social` window.
 
 ## Vault Wall and anti-sycophancy
-Only open-set legend clauses cross; reputation facets, numbers and day-one biases stay in the engine. Notoriety perturbs no outcome (ADR 0003: voiced facts, not scripts).
+Only open-set legend clauses cross; reputation facets, numbers and day-one biases stay in the engine. Notoriety is barred from competition, vote and jury rolls; the day-one bias does shift NPC→player move-in edges (ADR 0003: voiced facts, not scripts).
 
 ## Tests
 `tests/unit/notorietyVault.test.ts` (no numbers/facets/keys on any player, prompt or admin surface), `notoriety.test.ts`, `notorietyOutcomeNeutral.test.ts`, `portDispatchCoverage.test.ts`.

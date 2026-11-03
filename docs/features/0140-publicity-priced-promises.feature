@@ -16,8 +16,8 @@ Feature: Publicity-Priced Promises
     And with the deal-depth layer also on, the loyalty-streak multiplier replaces the audience scale
 
   Scenario: A breach reaches exactly the witnesses
-    Given a witnessed deal that is later broken
+    Given the deal-witnesses flag is on and a witnessed deal that is later broken
     When the breach is recorded
     Then the wronged party learns of it through the existing reveal
     And each formation witness additionally receives a collateral copy
-    And nobody else learns of it
+    And the collateral copy goes to no one outside the formation witnesses
