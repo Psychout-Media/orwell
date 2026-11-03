@@ -94,8 +94,8 @@ live ledger of owner calls as they happen.
   `GOSSIP_CONSEQUENCE`, `MULTI_NIGHT_FATIGUE`, `WIPEOUT_REEL`, and `NPC_MEMORY` (pending its measurement). Consequences: the
   seeded gates now measure the deployed game (juryReach and calibrationGradient both hold, unsharded, with no retune); the
   `heavy-sims-deployed` lane was retired and `heavy-sims` re-sharded into a per-file matrix (45-minute legs); `/health` and the
-  admin dial report the code defaults. **ASSUMED, pending Ryne:** the seed-108 exit-interview anchor was re-captured for the
-  new default trajectory (an owner-approved balance change by definition).
+  admin dial report the code defaults. The seed-108 exit-interview anchor was re-captured for the new default trajectory
+  (a technical re-anchor, not an owner item).
 
 ## 2026-11-02
 
