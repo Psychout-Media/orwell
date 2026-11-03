@@ -2350,7 +2350,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   (s.deducedCulprits ??= {})[evictee] = believedVoters;
   // #2017 S0a — mirror the evictee's possibly-wrong deduction into the belief store as `voted-against-me` claims (origin `deduced`). Flag-gated: OFF ⇒
   // the store is never created. Written from values already computed above (no rng, no new draw) and read by nothing, so it moves no outcome.
-  if (ctx.npcBeliefs) {
+  if (ctx.npcBeliefs && ctx.voteDeduction) {  // only a REAL 0110 deduction is a belief: with deduction off `believedVoters` is the true ballot
     const store = (s.beliefs ??= {});
     for (const v of believedVoters) {
       recordClaim(store, { holder: evictee, kind: "voted-against-me", subject: v, value: true, origin: "deduced", confidence: DEDUCED_CLAIM_CONFIDENCE, week: s.week });

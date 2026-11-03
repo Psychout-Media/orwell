@@ -41,16 +41,23 @@ describe("the belief store (pure)", () => {
     expect(claimsOf(st, npc(1))).toHaveLength(1);
     expect(claimsOf(st, npc(1))[0]!.confidence).toBe(0.8);
   });
-  it("is bounded per holder and compaction is deterministic (lowest confidence, oldest first; never the claim just written)", () => {
-    const fill = (): BeliefStore => {
-      const st: BeliefStore = {};
-      for (let i = 0; i < BELIEF_CAP_PER_HOLDER + 5; i++) recordClaim(st, { ...base, subject: npc(100 + i), week: i, confidence: 0.1 + (i % 7) / 10 });
-      return st;
-    };
-    const a = fill(), b = fill();
-    expect(claimsOf(a, npc(1))).toHaveLength(BELIEF_CAP_PER_HOLDER);
-    expect(a).toEqual(b);
-    expect(claimsOf(a, npc(1)).some((c) => c.week === BELIEF_CAP_PER_HOLDER + 4)).toBe(true);
+  it("is bounded per holder and compaction is deterministic: lowest confidence first, then oldest; never the claim just written", () => {
+    const st: BeliefStore = {};
+    // fill exactly to the cap with distinct confidences; week i is the age (0 = oldest)
+    const conf = (i: number): number => 0.5 + (i % 5) / 20;           // 0.50 .. 0.70
+    for (let i = 0; i < BELIEF_CAP_PER_HOLDER; i++) recordClaim(st, { ...base, subject: npc(100 + i), week: i, confidence: conf(i) });
+    // the lowest confidence is 0.50 (weeks 0,5,10,...): the OLDEST of those is week 0, so it goes first
+    recordClaim(st, { ...base, subject: npc(900), week: 900, confidence: 0.9 });
+    expect(claimsOf(st, npc(1)).map((c) => c.week)).not.toContain(0);
+    expect(claimsOf(st, npc(1)).map((c) => c.week)).toContain(5);
+    // a second overflow takes the NEXT-oldest of the lowest tier (week 5)
+    recordClaim(st, { ...base, subject: npc(901), week: 901, confidence: 0.9 });
+    expect(claimsOf(st, npc(1)).map((c) => c.week)).not.toContain(5);
+    expect(claimsOf(st, npc(1)).map((c) => c.week)).toContain(10);
+    expect(claimsOf(st, npc(1))).toHaveLength(BELIEF_CAP_PER_HOLDER);
+    // the claim just written always survives, even at the lowest confidence
+    recordClaim(st, { ...base, subject: npc(902), week: 902, confidence: 0.01 });
+    expect(claimsOf(st, npc(1)).map((c) => c.week)).toContain(902);
   });
 });
 
@@ -73,12 +80,22 @@ describe("the belief store in a live season (S0a)", () => {
     const all = Object.values(store).flat();
     expect(all.length).toBeGreaterThan(0);
     expect(all.every((c) => c.kind === "voted-against-me" && c.origin === "deduced" && c.value === true && c.confidence > 0 && c.confidence < 1)).toBe(true);
+    // the claims ARE the evictee's deduced voters (same subjects, same order), not an independent computation
+    for (const [holder, claims] of Object.entries(store)) {
+      expect(claims.map((c) => c.subject), `claims for ${holder} mirror live.deducedCulprits`).toEqual([...new Set(on.live.deducedCulprits![holder] ?? [])]);
+    }
     const holders = Object.keys(store);
     expect(holders.every((h) => (on.live.evictionOrder ?? []).includes(h)), "the holder is the evictee who deduced it").toBe(true);
     const core = JSON.parse(JSON.stringify(on.s.snapshot()));
     const revived = new GameSessionRegistry().sandboxFor(`bs${seq++}`).session;
     revived.restore(core);
     expect((revived.snapshot().live as LiveSeasonState).beliefs, "restored intact").toEqual(store);
+  }, 300_000);
+
+  it("with vote deduction OFF the store records nothing (the true ballot is never labelled a deduced guess)", () => {
+    vi.stubEnv("ORWELL_VOTE_DEDUCTION", "0");
+    const on = playSeason(true);
+    expect(on.live.beliefs, "ON but no deduction ⇒ no claims").toBeUndefined();
   }, 300_000);
 
   it("no outward projection mentions beliefs or claim kinds", () => {
