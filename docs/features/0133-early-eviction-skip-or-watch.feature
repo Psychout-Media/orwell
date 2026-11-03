@@ -11,13 +11,14 @@ Feature: Early eviction — skip to the finale or watch the skeleton season, and
     Given a seeded live season where the player is evicted before the jury forms
     When the player chooses to watch
     And the remaining weeks are advanced
-    Then each completed week produced exactly one week digest
+    Then each completed eviction night produced exactly one week digest
     And every digest contains only public broadcast facts
     And the digests are public game-state records, never hidden events
 
   Scenario: Skipping fast-forwards to the finale reveal in one step
     Given a seeded live season where the player is evicted before the jury forms
     When the player chooses to skip
+    And the game is advanced once
     Then the season is at the finale reveal
     And the skipped weeks' digests are available to read
 
@@ -25,6 +26,7 @@ Feature: Early eviction — skip to the finale or watch the skeleton season, and
     Given a seeded live season where the player is evicted before the jury forms
     When the player chooses to watch
     And the player switches to skip
+    And the game is advanced once
     Then the season is at the finale reveal
     When the player tries to choose watch again
     Then the answer is refused and the player is still skipping

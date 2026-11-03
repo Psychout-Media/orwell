@@ -66,6 +66,10 @@ When("the player chooses to watch", function () { ee!.s.submitDecision({ kind: "
 When("the player chooses to skip", function () { ee!.s.submitDecision({ kind: "spectator-choice", vote: "skip" }); });
 When("the player chooses {word}", function (mode: Mode) { ee!.s.submitDecision({ kind: "spectator-choice", vote: mode }); });
 When("the player switches to skip", function () { ee!.s.submitDecision({ kind: "spectator-choice", vote: "skip" }); });
+When("the game is advanced once", function () {
+  const v = ee!.s.advanceGame();
+  if (v.pending) answer(ee!.s, v.pending);
+});
 When("the player tries to choose watch again", function () { ee!.s.submitDecision({ kind: "spectator-choice", vote: "watch" }); });
 
 When("the remaining weeks are advanced", function () {
@@ -76,10 +80,13 @@ When("the remaining weeks are advanced", function () {
     if (s.snapshot().live!.beat === "finale") break;
   }
 });
-Then("each completed week produced exactly one week digest", function () {
+Then("each completed eviction night produced exactly one week digest", function () {
   const d = ee!.s.getGameState().weekDigests ?? [];
   assert.ok(d.length > 0, "at least one week digest");
-  assert.equal(new Set(d.map((x) => x.week)).size, d.length, "no week digested twice");
+  // A twist night (double eviction) has two ceremonies in ONE week number — each gets its own line, so the
+  // invariant is one digest per eviction, never one per week number.
+  const evictees = d.map((x) => x.evictee?.id).filter((x) => x !== undefined);
+  assert.equal(new Set(evictees).size, evictees.length, "no eviction digested twice");
 });
 Then("every digest contains only public broadcast facts", function () {
   for (const d of ee!.s.getGameState().weekDigests ?? []) {
