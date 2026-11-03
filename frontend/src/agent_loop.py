@@ -9177,6 +9177,11 @@ async def _stream_agent_loop_impl(
                         # Sentinel so the drainer knows to stop.
                         await _progress_q.put(None)
 
+                try:  # N-4: the player's own words, for the makeDeal partner/term guard
+                    from src.tool_implementations import PLAYER_TURN_TEXT as _PTT
+                    _PTT.set(_extract_last_user_message(messages) or "")
+                except Exception:
+                    pass
                 _tool_task = asyncio.create_task(_run_tool())
                 # Drain progress events as they arrive — block until the
                 # next event OR the tool finishes (sentinel = None).

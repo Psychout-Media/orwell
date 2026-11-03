@@ -5595,6 +5595,53 @@ def _parse_secret_lever(raw) -> Optional[Dict]:
     return lever or None
 
 
+
+# N-4 — the makeDeal PARTNER / TERM guard. The engine accepts any valid active houseguest id and any
+# bounded term, so it cannot tell that the narrator named the WRONG partner or invented a duration. The
+# FE (which holds the player's own words for the turn) checks both. Closed-set only: it fires on a
+# POSITIVE mismatch (the player's words name a different houseguest and not the chosen one) and on a
+# term the player never spoke; absent any signal it passes through unchanged.
+import contextvars as _cv
+
+PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_text", default="")
+
+_DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"
+_DEAL_TERM_RE = re.compile(
+    r"\b(?:"
+    r"for\s+(?:the\s+)?(?:next\s+)?" + _DEAL_NUM + r"(?:\s+more)?\s+weeks?"
+    r"|" + _DEAL_NUM + r"[- ]weeks?"
+    r"|this\s+week|next\s+week|rest\s+of\s+the\s+(?:week|season|game)"
+    r"|week\s+\d+|until|till|through|thru|up\s+to|to\s+the\s+end|end\s+of\s+the\s+(?:season|game)"
+    r"|final\s+(?:two|2|three|3|four|4|five|5)|f[2-5]|forever"
+    r")\b", re.I)
+
+
+def _deal_term_named(text: str) -> bool:
+    return bool(_DEAL_TERM_RE.search(text or ""))
+
+
+def _name_in_text(name: str, text: str) -> bool:
+    """Whole-name OR a first/last token of `name` appears in `text` on word boundaries (case-insensitive)."""
+    toks = [t for t in re.split(r"\s+", (name or "").strip()) if len(t) >= 2]
+    cands = [" ".join(toks)] + toks if toks else []
+    return any(re.search(r"(?<!\w)" + re.escape(c) + r"(?!\w)", text or "", re.I) for c in cands if c)
+
+
+def _deal_partner_mismatch(with_id: str, roster: list, text: str):
+    """Return (partner_name, other_name) when the player's words name a DIFFERENT roster houseguest and
+    NOT the chosen partner; else None (no positive mismatch -> never guess)."""
+    if not text or not roster:
+        return None
+    by_id = {h.get("id"): (h.get("name") or "") for h in roster if isinstance(h, dict)}
+    partner = by_id.get(with_id, "")
+    if partner and _name_in_text(partner, text):
+        return None
+    for h in roster:
+        if isinstance(h, dict) and h.get("id") != with_id and h.get("name") and _name_in_text(h["name"], text):
+            return (partner or with_id, h["name"])
+    return None
+
+
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
@@ -5627,6 +5674,21 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         if _raw_term.get("vague") is True:
             term["vague"] = True
         term = term or None
+    # N-4 — PARTNER + TERM guard against the player's own words for this turn (no text => unchanged).
+    _ptext = PLAYER_TURN_TEXT.get()
+    if _ptext:
+        try:
+            _gs = await orwell_engine.get_game_state(user=owner)
+            _roster = [h for h in ((_gs or {}).get("house") or [])
+                       if isinstance(h, dict) and h.get("status", "active") == "active"]
+        except Exception:
+            _roster = []
+        _mm = _deal_partner_mismatch(with_id, _roster, _ptext)
+        if _mm:
+            return {"error": (f"makeDeal refused: the player's handshake names {_mm[1]}, not {_mm[0]}. "
+                              "Re-issue makeDeal with the right partner or ask the player."), "exit_code": 1}
+        if term is not None and not _deal_term_named(_ptext):
+            term = None  # the player never named a duration: do not invent one
     try:
         _extra = {"term": term} if term is not None else {}  # absent ⇒ the call is byte-identical to pre-0109
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
