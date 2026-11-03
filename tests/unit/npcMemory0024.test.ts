@@ -134,6 +134,7 @@ describe("the adapter wiring (live)", () => {
 
   it("flags-off: no provider, nothing is ever written, the live state carries no ledger", () => {
     const { session, rel, ids } = liveHouse(41);
+    session.setNpcMemoryEnabled(false); // the default is ON since 2026-11-03 (PO ruling); this pins the OFF path explicitly
     expect(p(session).ctx().memoryTiltFor).toBeUndefined();
     const s = p(session).live;
     s.hoh = ids[0]!;

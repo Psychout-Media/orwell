@@ -9,7 +9,7 @@
 #                                 (add-if-absent, never-clobber), so a box provisioned before a flag
 #                                 was added still gains it on its next update.
 #
-# Why this file exists: every flag below DEFAULTS OFF in engine code (so the seeded calibration + the
+# Why this file exists: most flags below DEFAULT OFF in engine code (a few — e.g. ORWELL_NPC_MEMORY, flipped ON in code 2026-11-03 — now default ON there too, and are listed here only so install/update write them explicitly and a box's .env states its posture; the engine code default, not this list, is the source of truth for those) (so the seeded calibration + the
 # gates stay byte-identical; the 0108 golden fixture that once also rode this was decommissioned 2026-07-21) and is turned ON only by the deploy. The installer used to
 # hand-write them and the updater reconciled NONE of them — so an old box permanently missed whatever
 # flag post-dated it (the one that got noticed: ORWELL_EMBEDDINGS unset ⇒ the engine silently runs
@@ -28,7 +28,8 @@
 #       fastembed provider (version-pinned; model prefetched into <data_dir>/models, offline thereafter).
 #       Missing ⇒ the engine falls back to DEGRADED deterministic recall.
 #   ORWELL_NPC_MEMORY           NPC memory acts (0024) — a betrayal/favor/broken-promise ledger tilts votes and noms.
-#       NOT emitted yet: it ships OFF and joins the opt-in set with the default-flip re-baseline.
+#       PO ruling 2026-11-03: memories ON. Measured outcome-identical ON vs OFF (200 seeds x 3 arms): the residual
+#       floor means the edge already carries a fresh betrayal, so the tilt reads 0 within a season today.
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -100,6 +101,7 @@ ORWELL_STRATEGIC_CADENCE=1
 ORWELL_SCHEME_TARGETS=1
 ORWELL_CONFESSIONAL_DEPTH=1
 ORWELL_DEAL_DEPTH=1
+ORWELL_NPC_MEMORY=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_COMP_MECHANICS_PLUS=1

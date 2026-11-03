@@ -499,12 +499,14 @@ const SCHEME_TARGETS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SCHEME_TARGETS");
  */
 const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
 /**
- * 0024 — whether the NPC MEMORY layer runs by DEFAULT. OFF unless `ORWELL_NPC_MEMORY=1`. A DEDICATED flag (sibling
- * to `ORWELL_DEAL_DEPTH`) so calibration neutrality is provable in isolation: with it unset NO memory is written,
- * `memoryTiltFor` is absent from the ctx, and every seeded decision is byte-identical. Toggleable per session via
- * `setNpcMemoryEnabled`.
+ * 0024 — whether the NPC MEMORY layer runs by DEFAULT. ON unless `ORWELL_NPC_MEMORY=0` (or the diagnostic
+ * `ORWELL_FLAGS_OFF=1`) — PO ruling 2026-11-03: memories ON. A DEDICATED flag (sibling to `ORWELL_DEAL_DEPTH`) so
+ * calibration neutrality stays provable in isolation: with it OFF NO memory is written, `memoryTiltFor` is absent
+ * from the ctx, and every seeded decision is byte-identical. Toggleable per session via `setNpcMemoryEnabled`.
+ * (Measured 2026-11-03: ON vs OFF is outcome-identical over 200 seeds × 3 arms — the residual floor means the
+ * relationship edge already carries a fresh betrayal, so the tilt reads 0 within a season; see the #2017 design.)
  */
-const NPC_MEMORY_ENABLED_DEFAULT = process.env.ORWELL_NPC_MEMORY === "1";
+const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
