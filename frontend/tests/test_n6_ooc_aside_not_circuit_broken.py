@@ -227,6 +227,9 @@ def test_a_dropped_aside_beside_surviving_narration_mirrors_out_exactly(monkeypa
     raw = "The door opens. ((Houseguest1 won the veto. He will use it.)) Then the lights dim."
     g, _ = _g(raw)
     assert "Houseguest1" not in g.text
+    # the COMPLETE guarded text: no surviving sentence or delimiter from the dropped aside
+    assert g.text.replace("  ", " ").strip() == "The door opens. Then the lights dim."
+    assert "((" not in g.text and "))" not in g.text
     assert agent_loop._apply_mirror_ops(raw, g.mirror_ops) == "The door opens.  Then the lights dim."
 
 
