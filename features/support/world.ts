@@ -737,8 +737,6 @@ export class BbWorld extends World {
     fatigueN1?: number;
     fatigueN3?: number;
     fatigueRecovered?: number;
-    seededOutcomeOff?: string;
-    seededOutcomeOn?: string;
     swayOff?: number;
     swayTired?: number;
   };
@@ -808,8 +806,8 @@ export class BbWorld extends World {
     playerSurface?: string;
     adminSurface?: string;
     sentinels?: string[];
-    seasonHashA?: string;
-    seasonHashB?: string;
+    seasonBaseline?: import("./seasonOutcome").SeasonOutcome;
+    seasonRead?: import("./seasonOutcome").SeasonOutcome;
   };
 
   // Feature 0125 — competition theme variety scratch state (one bag).

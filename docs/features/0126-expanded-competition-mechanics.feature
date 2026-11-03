@@ -18,10 +18,10 @@ Feature: Expanded competition mechanics
     And the new expanded mechanics are actually used
 
   Scenario: With the expanded pool off the season is the bare base library
-    Given two games started from the same seed played with the expanded pool off
-    When each expanded-pool game is played to completion
-    Then the same houseguests are evicted in identical order in each game
-    And no expanded-only mechanic is ever drawn
+    Given one seed played once with the expanded pool off and once with it on
+    When both expanded-pool games are played to completion
+    Then no expanded-only mechanic is drawn with the pool off
+    And the same seed with the pool on does draw expanded-only mechanics
 
   Scenario: The expanded pool preserves the competition stat balance
     Given the full expanded mechanic pool

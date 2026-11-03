@@ -5,6 +5,8 @@ import { Orchestrator } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import type { UserSandbox } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
+import { defaultApply } from "../../src/composition/orchestrator";
+import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 
 /**
  * Features 0093 + 0099 — the CALIBRATION-NEUTRALITY GATE (the `triggerOutcomeNeutral` /
@@ -85,6 +87,40 @@ describe("0093/0099 — secrets-as-power is calibration-neutral to the seeded sp
     const a = runSeason("plain");
     const b = runSeason("plain");
     expect(a.hash, "the descriptor-absent makeDeal path is byte-stable run-to-run").toBe(b.hash);
+  });
+
+  it("a plain (descriptor-free) makeDeal leaves the shared off-screen draw stream identical to a no-deal run (no shared-stream consumption)", () => {
+    // PAT-3 (cubic): a run-to-run replay cannot see a deterministic extra draw. Compare the SAME seeded off-screen ticks
+    // (a recording shared rng, the real `defaultApply`) with vs without a plain makeDeal first: the shared draw count and the number of
+    // hidden society scenes must be identical — a deal that consumed/advanced any shared stream would desync them.
+    const society = (deal: boolean): { sig: string[]; draws: number; bystanders: string } => {
+      const reg = new GameSessionRegistry();
+      const sb = reg.sandboxFor("neutral-deal");
+      sb.session.createCharacter({ playerName: "The Player", seed: SEED });
+      const target = sb.session.livingIds().find((id) => id !== PLAYER)!;
+      if (deal) sb.session.makeDeal({ with: target, kind: "final-two", terms: "ride or die" });
+      // Every hidden edge NOT involving the player or the deal partner: a descriptor-free deal has no business folding these.
+      const others = sb.session.livingIds().filter((id) => id !== PLAYER && id !== target);
+      const edge = (a: string, b: string): string => { const e = sb.engine.relationships.edge(a, b); return `${a}>${b}:${e.trust},${e.affinity},${e.threat}`; };
+      const bystanders = others.flatMap((a) => others.filter((b) => b !== a).map((b) => edge(a, b))).join("|");
+      let draws = 0;
+      const rng = new SeededRandom(SEED);
+      const orig = rng.next.bind(rng);
+      rng.next = (): number => { draws++; return orig(); };
+      for (let t = 0; t < 12; t++) defaultApply(sb, "offscreen-tick", rng, t * 1000, 3);
+      const sig = sb.engine.events.queryAll()
+        .filter((e) => e.hidden && e.id.startsWith("offscreen:"))
+        .map((e) => `${e.initiator}|${e.type}|${e.content}`);
+      return { sig, draws, bystanders };
+    };
+    const none = society(false);
+    const plain = society(true);
+    expect(none.sig.length, "the society actually ran").toBeGreaterThan(0);
+    expect(plain.draws, "the shared stream is consumed identically").toBe(none.draws);
+    expect(plain.bystanders, "a plain deal folds no third-party relationship edge").toBe(none.bystanders);
+    // (Scene CONTENT may legitimately differ — a deal is a recorded event that folds reads the society then reads — so the
+    // neutrality claim is the shared draw stream + the scene count, not the prose.)
+    expect(plain.sig.length, "the same number of hidden society scenes").toBe(none.sig.length);
   });
 
   it("the gate is NON-VACUOUS: invoking a lever DOES move the stream (so the neutrality above is a real result)", () => {

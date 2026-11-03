@@ -77,7 +77,8 @@ Feature: In-game time of day and the nightly sleep economy
     Given the in-game clock is disabled
     When the house plays through the day
     Then no time of day or rest cue is surfaced
-    And every seeded competition outcome is unchanged
+    # Calibration neutrality of the clock-off spine is gated by tests/unit/nightGateNeutral.test.ts (master clock OFF,
+    # flag ON vs OFF, outcome hashes compared); the former line compared a clock-off run to another clock-off run.
 
   # --- The weekly 5-cycle cadence + period placement ----------------------------------------------
 
@@ -115,22 +116,10 @@ Feature: In-game time of day and the nightly sleep economy
     Then the time of day presses forward as the player plays
     But lingering never wraps the night past the player's own bedtime choice
 
-  Scenario: Per-conversation clock advance is byte-identical to the calibration spine when off
-    Given the in-game clock is disabled
-    And the per-conversation clock advance is enabled
-    When a full seeded game is played
-    Then every seeded competition, vote, and jury outcome is byte-identical to the extension being off
-
   Scenario: NPC next-day social fatigue — a tired houseguest sways the house less
     Given NPC next-day social fatigue is enabled
     Then a rested houseguest moves another's read at full strength
     And a tired houseguest moves it less, but never to nothing
-
-  Scenario: NPC next-day social fatigue is byte-identical to the calibration spine when off
-    Given the in-game clock is disabled
-    And NPC next-day social fatigue is enabled
-    When a full seeded game is played
-    Then every seeded competition, vote, and jury outcome is byte-identical to the extension being off
 
   Scenario: A compounding multi-night fatigue meter wears a night owl down over a week
     Given the compounding multi-night fatigue meter is enabled
@@ -138,8 +127,6 @@ Feature: In-game time of day and the nightly sleep economy
     And a rested night recovers part of the accumulated fatigue
     And the meter stays bounded and is never shown to the player
 
-  Scenario: The multi-night fatigue meter is byte-identical to the calibration spine when off
-    Given the in-game clock is disabled
-    And the compounding multi-night fatigue meter is enabled
-    When a full seeded game is played
-    Then every seeded competition, vote, and jury outcome is byte-identical to the extension being off
+  # The Phase-2 "byte-identical to the calibration spine when off" claims (per-conversation clock, NPC social fatigue, the
+  # multi-night fatigue meter) are gated by a real flag ON-vs-OFF outcome-hash compare in:
+  #   tests/unit/perConversationClockNeutral.test.ts · tests/unit/socialFatigueNeutral.test.ts · tests/unit/multiNightFatigueNeutral.test.ts

@@ -1,6 +1,5 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -18,6 +17,7 @@ import { chooseNominations } from "../../src/engine/season";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { answerPending, resolvePending } from "../support/answerPending";
+import { playSeasonOutcome, type SeasonOutcome } from "../support/seasonOutcome";
 
 /**
  * FEATURE 0111 — the Day-1 experience (roles only; the cast is procedurally generated).
@@ -260,16 +260,27 @@ Then("the change is recalled later only as observable behavior, never as a numbe
 
 Given("a Day-1 with no consequential social beat taken", function (this: BbWorld) {
   const w = bag(this);
-  // Two fresh engines at the same seed, NEITHER records a beat — the baseline first day.
-  w.baselineRel = JSON.stringify(new ConsequenceEngine(new InMemoryEventStore(), new RelationshipModel(0.5), new SeededRandom(w.seed ?? 111))
-    .relationships().serialize());
-  w.noBeatRel = JSON.stringify(new ConsequenceEngine(new InMemoryEventStore(), new RelationshipModel(0.5), new SeededRandom(w.seed ?? 111))
-    .relationships().serialize());
+  // PAT-3: two REAL sandboxes at the same seed. The baseline first day is left untouched; the other has the player's Day-1
+  // surfaces read (the premiere moment prompt, the game state, the status — not the Diary Room or needle) but records NO beat. If any Day-1
+  // reframe folded something on read, the hidden relationship layer would differ from the untouched baseline.
+  const seed = w.seed ?? 111;
+  const rels = (sb: ReturnType<GameSessionRegistry["sandboxFor"]>): string => JSON.stringify(sb.engine.relationships.serialize());
+  const baseline = new GameSessionRegistry().sandboxFor("day1-fold-baseline");
+  baseline.session.createCharacter({ ...CHARACTER_INTAKE, seed });
+  const read = new GameSessionRegistry().sandboxFor("day1-fold-read");
+  read.session.createCharacter({ ...CHARACTER_INTAKE, seed });
+  read.session.getMomentPrompt({ moment: "premiere" });
+  read.session.getMomentPrompt({});
+  read.session.getGameState();
+  read.session.gameStatus();
+  w.baselineRel = rels(baseline);
+  w.noBeatRel = rels(read);
+  assert.ok(w.baselineRel.length > 100, "the baseline relationship layer is a real move-in layer, not empty");
 });
 
 Then("the relationship folds are byte-identical to the baseline first day", function (this: BbWorld) {
   const w = bag(this);
-  assert.equal(w.noBeatRel, w.baselineRel, "no beat ⇒ byte-identical folds");
+  assert.equal(w.noBeatRel, w.baselineRel, "no beat ⇒ reading Day-1 folds nothing: byte-identical to the untouched first day");
 });
 
 // === Rule: The Diary Room is an enterable room on Day 1 (#907) ====================
@@ -366,20 +377,24 @@ Then("the Diary Room exposes no pathway from the player's confession to any NPC"
 
 Given("a full season is played with the Day-1 reframes inactive", function (this: BbWorld) {
   const w = bag(this);
-  // The needle/consequential-beat reframes draw NO season rng (a dedicated side stream / an opt-in beat),
-  // so a plain full season is byte-identical run to run — the seeded spine is untouched by 0111.
-  const outcome = (user: string): string => {
+  // PAT-3: "inactive" = the Day-1 surfaces (premiere prompt, game state, status) are never read; the baseline season. The
+  // other season reads every Day-1 surface up front, THEN plays. Same seed, a real compare of the protected outcome.
+  const play = (readDay1: boolean, user: string): SeasonOutcome => {
     const sb = new GameSessionRegistry().sandboxFor(user);
     sb.session.createCharacter({ ...CHARACTER_INTAKE, seed: w.seed });
-    assert.ok(sb.session.advanceToFinale().finished);
-    const live = sb.session.snapshot().live!;
-    return createHash("sha256").update(`${live.winner}|${(live.evictionOrder ?? []).join(",")}`).digest("hex");
+    if (readDay1) {
+      sb.session.getMomentPrompt({ moment: "premiere" });
+      sb.session.getGameState();
+      sb.session.gameStatus();
+    }
+    return playSeasonOutcome(sb.session);
   };
-  w.seasonHashA = outcome("day1-season-a");
-  w.seasonHashB = outcome("day1-season-b");
+  w.seasonBaseline = play(false, "day1-season-baseline");
+  w.seasonRead = play(true, "day1-season-read");
 });
 
 Then("the seeded competition and eviction outcomes are byte-identical to the baseline season", function (this: BbWorld) {
   const w = bag(this);
-  assert.equal(w.seasonHashA, w.seasonHashB, "the seeded season outcome is a deterministic fixed point");
+  assert.ok((w.seasonBaseline!.evictionOrder as unknown[]).length > 5, "a real multi-eviction season was played");
+  assert.deepStrictEqual(w.seasonRead, w.seasonBaseline, "reading Day-1 must not move the seeded spine");
 });
