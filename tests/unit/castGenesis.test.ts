@@ -366,6 +366,22 @@ describe("0116 — tie-graph sanity (§3 / 0059 sparseness)", () => {
     expect(res.ties[0]).toMatchObject({ a: npc(3), b: npc(4) });
     expect(res.violations.filter((v) => v.field === "ties").length).toBeGreaterThanOrEqual(3);
   });
+  it("#1909: a model-authored tie nature is kept; a legacy 'showmance' aliases to 'prior-romance'; an unknown one falls back", () => {
+    const ctx = mkCtx(15);
+    const res = validateCastGenesis({
+      npcs: ctx.npcs.map((c) => ({ id: c.id })),
+      ties: [
+        { a: npc(1), b: npc(2), nature: "family" },
+        { a: npc(3), b: npc(4), nature: "showmance" as never }, // a pre-#1909 prompt/output
+      ],
+    }, ctx);
+    expect(res.ties.map((t) => t.nature)).toEqual(["family", "prior-romance"]);
+    const unknown = validateCastGenesis({
+      npcs: ctx.npcs.map((c) => ({ id: c.id })),
+      ties: [{ a: npc(1), b: npc(2), nature: "not-a-nature" as never }],
+    }, ctx);
+    expect(unknown.ties[0]!.nature).toBe("old-acquaintance");
+  });
   it("a duplicate pair is dropped", () => {
     const ctx = mkCtx(15);
     const proposal: CastGenesisProposal = {

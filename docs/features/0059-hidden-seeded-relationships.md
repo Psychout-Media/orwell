@@ -114,3 +114,12 @@ player only as *behavior*.
   (the admin budget knob, count-only).
 - **Not here:** a dating-sim UI, any player-facing "relationship status," or a guaranteed showmance —
   all would break the wall or the earned-not-given discipline.
+
+## Amendment (#1909, 2026-11-03) — tie natures
+
+The pre-game tie NATURE for a preexisting romance is `prior-romance` (it was `showmance`, which collided with the in-house
+`Showmance` arc — `spark → bond → visible → resolved` — that keeps the word). A legacy `showmance` nature in a save or a cast-genesis
+prompt/output is aliased forward (`normalizeTieNature`, `migrateSeededRelationships`). The nature set was broadened per the PO ruling
+(`docs/decisions/PO-DECISIONS-LOG.md`, 2026-11-03): `casting-callback`, `mutual-friend`, `shared-hometown`, `old-acquaintance`,
+`prior-romance`, `family`, `ex`, `old-friend`, `rival`, `former-teammate`, `online-acquaintance`. A nature is flavour only; the standing
+affinity bias is identical for every tie, so no nature is a competition or vote input.
