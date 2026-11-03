@@ -5063,7 +5063,24 @@ async def _screen_aside_text(text: str, owner) -> str:
         return text
 
 
-_GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed"])
+_GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed", "mirror_ops"])
+
+
+def _apply_mirror_ops(round_response: str, ops) -> str:
+    """Mirror a guarded chunk's EXACT drops back into the raw round buffer: each op is a (raw_before, after) pair for ONE
+    segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
+    sentence-diffed against its own survivor only), so a dropped aside beside surviving narration can never misalign
+    the sentence diff. `raw_before` is always text as it appears in `round_response` (never the synthetic flush `))`)."""
+    for before, after in ops or ():
+        if before == after or not before:
+            continue
+        if after == "":
+            idx = round_response.rfind(before)
+            if idx >= 0:
+                round_response = round_response[:idx] + round_response[idx + len(before):]
+        else:
+            round_response = _mirror_wall_drop(round_response, before, after)
+    return round_response
 
 
 def _strip_stray_closers(text: str) -> str:
@@ -5088,11 +5105,12 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
     if not any(is_aside for _t, is_aside in segs):
         outside = _strip_stray_closers(text)
         if not outside.strip():
-            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text), ""
+            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), ""
         g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text), ""
+        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, ((outside, g.text),)), ""
     out: "list[str]" = []
     consumed: "list[str]" = []
+    ops: "list[tuple[str, str]]" = []
     ce = cutaway_emitted
     shown = emitted_visible
     held = ""
@@ -5102,13 +5120,17 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
                 if not flush:
                     held = seg  # an unterminated aside: hold it until its closing `))` arrives
                     continue
+                raw_seg = seg  # what actually sits in the raw round buffer (no synthetic closer)
                 seg = seg + "))"  # end of round: balance it, then screen like any other aside
+            else:
+                raw_seg = seg
             consumed.append(seg)
             kept = await _screen_aside_text(seg, owner)
             if kept == seg:
                 out.append(seg)
                 shown = shown or bool(seg.strip())
-            # else: a contradicted claim - the WHOLE aside is dropped (balanced either way)
+            else:
+                ops.append((raw_seg, ""))  # a contradicted claim - the WHOLE aside is dropped (balanced either way)
         else:
             consumed.append(seg)
             seg = _strip_stray_closers(seg)
@@ -5117,11 +5139,12 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
                 continue
             g = await _emit_guarded_scene(seg, owner, scene_broken=scene_broken, emitted_visible=shown, cutaway_emitted=ce)
             if g.scene_broken:
-                return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text), ""  # a fabricated scene cuts the whole chunk, as before
+                return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, ()), ""  # a fabricated scene cuts the whole chunk, as before
             ce = g.cutaway_emitted
+            ops.append((seg, g.text))
             out.append(g.text)
             shown = shown or bool(g.text.strip())
-    return _GuardedChunk("".join(out), scene_broken, ce, "".join(consumed)), held
+    return _GuardedChunk("".join(out), scene_broken, ce, "".join(consumed), tuple(ops)), held
 
 
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
@@ -7262,8 +7285,8 @@ async def _stream_agent_loop_impl(
                                     # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
                                     # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
                                     # very text the guard cut (a reload or second window would show the invented outcome).
-                                    if _guarded.text != _guarded.consumed and not _scene_broken:
-                                        round_response = _mirror_wall_drop(round_response, _guarded.consumed, _guarded.text)
+                                    if not _scene_broken:
+                                        round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
                                     _round_emitted_text += _guarded_text or ""
                                     if _guarded_text:
                                         full_response += _guarded_text
@@ -7427,8 +7450,8 @@ async def _stream_agent_loop_impl(
                 # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
                 # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
                 # very text the guard cut (a reload or second window would show the invented outcome).
-                if _guarded.text != _guarded.consumed and not _scene_broken:
-                    round_response = _mirror_wall_drop(round_response, _guarded.consumed, _guarded.text)
+                if not _scene_broken:
+                    round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
                 _round_emitted_text += _guarded_text or ""
                 if _guarded_text:
                     full_response += _guarded_text

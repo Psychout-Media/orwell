@@ -220,3 +220,20 @@ def test_wired_at_both_stream_call_sites():
     src = open(agent_loop.__file__, encoding="utf-8").read()
     assert src.count("_guard_stream_chunk(") >= 3, "definition + the mid-loop emit + the trailing flush"
     assert '_ooc_open = ""' in src, "per-round aside state is initialised"
+
+
+def test_a_dropped_aside_beside_surviving_narration_mirrors_out_exactly(monkeypatch):
+    _stub(monkeypatch)
+    raw = "The door opens. ((Houseguest1 won the veto. He will use it.)) Then the lights dim."
+    g, _ = _g(raw)
+    assert "Houseguest1" not in g.text
+    assert agent_loop._apply_mirror_ops(raw, g.mirror_ops) == "The door opens.  Then the lights dim."
+
+
+def test_flush_synthetic_closer_is_not_searched_for_in_the_raw_buffer(monkeypatch):
+    _stub(monkeypatch)
+    raw = "Calm now. ((Houseguest1 won the veto."
+    _, s1 = _g(raw)
+    g2, _ = _run(agent_loop._guard_stream_chunk("", "u", ooc_open=s1, scene_broken=False, emitted_visible=False,
+                                                 cutaway_emitted=False, flush=True))
+    assert agent_loop._apply_mirror_ops(raw, g2.mirror_ops) == "Calm now. "

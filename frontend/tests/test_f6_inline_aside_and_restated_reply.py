@@ -148,4 +148,4 @@ def test_one_shared_phrase_does_not_drop_a_paragraph_with_new_content():
 def test_closing_parens_in_ordinary_prose_survive_without_an_opener():
     out = _run("_extractInlineOocAsides", consts=("const _OOC_INLINE_RE =",), cases=["He nods (quietly (very)) and leaves.", "He laughs. )) Then ((leaves"])
     assert out[0] == {"prose": "He nods (quietly (very)) and leaves.", "asides": []}
-    assert "((" not in out[1]["prose"] and "))" not in out[1]["prose"]
+    assert out[1] == {"prose": "He laughs. Then leaves", "asides": []}
