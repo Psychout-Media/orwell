@@ -10,7 +10,7 @@ import type {
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
   PreSeedNextSeasonReq, PreSeedNextSeasonView,
-  RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView,
+  RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
   WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult,
@@ -8788,6 +8788,32 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0133 — the PUBLIC week digests an early-evicted, spectating player may read (named, Vault-free). */
+  /**
+   * 0129 — the jury house roster (slice 1): the OTHER jurors the juror-player lives with, each with a categorical
+   * `bearing` read off the recorded eviction manner toward the player. Public record only (the eviction order, the
+   * vote record's week, the manner flags the player witnessed) — never a hidden lean, never an edge number.
+   * Absent unless the player currently holds a juror's seat. Read-only: draws no rng and mutates nothing, so the
+   * seeded spine is byte-identical whether or not anything reads it.
+   */
+  private juryHouseView(): JuryHouseView | undefined {
+    const live = this.live;
+    if (!live || this.playerStatus() !== "jury") return undefined;
+    const start = this.juryStartIndex();
+    const manner = live.mannerByEvictee ?? {};
+    const jurors: JuryHouseJurorView[] = [];
+    live.evictionOrder.forEach((id, i) => {
+      if (i < start || id === PLAYER) return;
+      const m = manner[id]?.[PLAYER];
+      const bearing: JurorBearing = !m ? "even"
+        : (m.betrayed || m.blindsided) ? "sour"
+        : m.disrespected ? "cool"
+        : m.respected ? "warm" : "even";
+      const week = live.voteRecord?.find((r) => r.evictee === id)?.week ?? null;
+      jurors.push({ id, name: this.nameOf(id), evictedWeek: week, bearing });
+    });
+    return { jurors };
+  }
+
   private weekDigestViews(): WeekDigestView[] | undefined {
     const live = this.live;
     if (!live?.spectator) return undefined;
@@ -11677,6 +11703,8 @@ export class GameSessionAdapter implements GameSession {
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
       ...(this.weekDigestViews() ? { weekDigests: this.weekDigestViews() } : {}),
+      // 0129: the jury house — present only while the player holds a juror's seat.
+      ...(this.juryHouseView() ? { juryHouse: this.juryHouseView() } : {}),
       // #1411: the closed-set required lever (present ONLY at a comp/ceremony/eviction beat) — the FE's
       // engine-signaled force directive. Absent everywhere else ⇒ byte-identical / no forcing.
       ...(requiredLever ? { requiredLever } : {}),
