@@ -191,13 +191,19 @@ Then("that thread is now active and its hidden weight folded into the relationsh
 
 // --- Scenario: persistence + full-fidelity recall -----------------------------------------------
 
-Then("a houseguest's biography established at cast time is recallable in full later", function (this: BbWorld) {
+Then("a houseguest's biography established at cast time is held in full later", function (this: BbWorld) {
   const sb = this.dpSandbox!;
   const card = sb.session.getGameState().house.find((h) => h.status === "active")!;
-  // The PUBLIC biography is byte-stable on the card; the AUTHORED hidden detail is indexed into the
-  // soul (L27b). Recall the hidden secret content for this houseguest and prove it is non-empty.
-  const recalled = sb.engine.soul.recall(card.id, "secret backstory", 5);
-  assert.ok(recalled.length > 0, "no authored detail was recallable from the soul");
+  // PAT-5 (#1982): `SoulProvider.recall` has no production caller. The AUTHORED hidden detail the live game keeps
+  // is in each NPC's persisted `soul.memory` (the mirror the soul index is rebuilt from on resume). Assert that
+  // it is there, and that a live save -> resume restores it.
+  const memOf = (s: UserSandbox): string[] => s.session.snapshot().house!.npcs.find((n) => n.id === card.id)!.soul.memory;
+  const held = memOf(sb).find((m) => m.startsWith("deep-profile ") && m.includes("secrets:"));
+  assert.ok(held, "no authored hidden detail is held in the soul");
+  const reg = this.dpRegistry!;
+  const user = reg.usernames().find((u) => reg.sandboxFor(u) === sb)!;
+  const resumed = new GameSessionRegistry().restore(user, JSON.parse(JSON.stringify(reg.snapshot(user))));
+  assert.ok(memOf(resumed).includes(held!), "the authored hidden detail survives save -> resume in full");
   // The full biography text persists byte-stable on the card (not flattened to a one-liner).
   assert.ok(card.biography!.length > 40, "the biography was flattened");
 });

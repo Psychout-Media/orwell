@@ -62,5 +62,5 @@ Feature: House presence and lingering play
     Given a started game mid-week with a pending scheduled beat
     When the player spends many consecutive turns moving rooms, milling, and talking
     Then the week, the phase, and the pending ceremony are unchanged
-    And the watcher treats the milling as activity rather than idleness
+    And each milling turn is a clean committed turn, never an idle fast-forward
     And the day's meaningful event is still the scheduled beat

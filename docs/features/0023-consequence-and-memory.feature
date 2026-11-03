@@ -2,6 +2,10 @@
 # Feature 0023 — Consequence & memory. The live loop: act -> hidden opinion shift -> persist -> recall.
 # HARD rule: roles only. The opinion ledger is hidden; the player sees consequences, never numbers.
 
+# PAT-5 (#1982): `ConsequenceEngine`/`restoreMemory` have no production caller. Every scenario here but one drives the LIVE path
+# (`recordInteraction` -> `engine.relationships`/`engine.events`; registry `snapshot`/`restore`/`FileSaveStore`; `nominationStrategy`).
+# The exception is tagged @standalone-module (live wins/votes are `house-event`s; see its comment).
+
 Feature: Consequence & memory — actions change the hidden layer, persisted long-term
 
   In the live game, every happening is recorded, folds its hidden impact into how houseguests feel
@@ -26,6 +30,10 @@ Feature: Consequence & memory — actions change the hidden layer, persisted lon
     And no message states that the houseguest's opinion changed
     And no Vault sentinel value appears
 
+  # @standalone-module: exercises ConsequenceEngine.recordCompetitionWin/recordVoteAgainstPlayer, which have no production
+  # caller; the standalone module is proven by tests/unit/consequence.test.ts. The live game's win/vote consequences are proven by
+  # tests/unit/evictionConsequence.test.ts and tests/unit/ceremonyConsequence.test.ts (and the live 0034/0037 scenarios).
+  @standalone-module
   Scenario: Wins and votes are recorded and consequential
     When a competition is won
     Then the win is recorded as an event

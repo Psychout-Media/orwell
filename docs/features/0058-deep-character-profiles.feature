@@ -36,9 +36,9 @@ Feature: 0058 — Deep character profiles (born deep, persist, play out)
     Then that thread is now active and its hidden weight folded into the relationship layer
 
   # §6 / L27b — full-fidelity recall + byte-stable persistence
-  Scenario: authored depth persists byte-stable and recalls in full fidelity
+  Scenario: authored depth persists byte-stable and is held in full fidelity
     Given a deep-profile season started with seed "0058-5"
-    Then a houseguest's biography established at cast time is recallable in full later
+    Then a houseguest's biography established at cast time is held in full later
     And the public profile survives snapshot and restore byte-identical
     And the sealed hidden threads survive snapshot and restore
 
