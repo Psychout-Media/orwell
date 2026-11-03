@@ -165,6 +165,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         refuse("term", "an object ({ weeks?, vague? }) when present");
       }
       return;
+    case "askJuror": // 0129 slice 3
+      guardSyncFields(true);
+      if (!isStr(args["jurorId"])) refuse("jurorId", "a juror's houseguest id (string)");
+      return;
     case "formAlliance": // 0107
       guardSyncFields(false);
       if (!isStr(args["name"])) refuse("name", "an alliance name (string)");
@@ -498,6 +502,12 @@ export class McpServer {
         // pick it up via their req cast; confide takes positional args, so thread it here).
         return this.deps.session.confide(
           args["npcId"] as EntityId,
+          args["expectedBeatSeq"] as number | undefined,
+          args["idempotencyKey"] as string | undefined,
+        );
+      case "askJuror": // 0129 slice 3 — the engine gates + picks + records; the model voices the result
+        return this.deps.session.askJuror(
+          args["jurorId"] as EntityId,
           args["expectedBeatSeq"] as number | undefined,
           args["idempotencyKey"] as string | undefined,
         );

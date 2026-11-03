@@ -386,6 +386,15 @@ function buildUserSandbox(user = "default"): UserSandbox {
     const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content, subject: npcId, confidence }, `told-by:${npcId}`);
     return fact !== null;
   });
+  // 0129 slice 3 — a JUROR tells the player something they already hold. The telling is content-anchored: the
+  // juror's own fact (looked up by lineage id in THEIR knowledge) surfaces to the player `told-by:<juror>`.
+  // A fact the juror does not hold cannot be surfaced (no lookup hit ⇒ null). Never a Vault read.
+  session.setOnJurorTell((jurorId, factId, confidence) => {
+    const held = engine.knowledge.knownTo(jurorId).find((f) => f.factId === factId);
+    if (!held) return null;
+    const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content: held.content, ...(held.subject ? { subject: held.subject } : {}), confidence }, `told-by:${jurorId}`);
+    return fact ? held.content : null;
+  });
   // 0093/0099 — secrets as power. The player's own knowledge READER (so a wielded `factId` is validated
   // against what the player legitimately holds — the Vault bright line; a non-learned secret is rejected,
   // no minting). Returns the player's facts with id + content + subject + lineage factId. 0094 (distorted

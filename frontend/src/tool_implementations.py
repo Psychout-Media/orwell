@@ -5655,6 +5655,24 @@ async def do_confide(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+async def do_ask_juror(content: str, owner: Optional[str] = None) -> Dict:
+    """Feature 0129 slice 3 — the juror-player asks a fellow juror what they know. The ENGINE is the single
+    authority (gate on the juror's bearing, pick what they share, record via told-by); we forward {jurorId}."""
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    juror_id = (args.get("jurorId") or args.get("juror_id") or args.get("npcId") or "").strip()
+    if not juror_id:
+        return {"error": "jurorId (the fellow juror being asked) is required", "exit_code": 1}
+    try:
+        res = await orwell_engine.ask_juror(juror_id, user=owner)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
 async def do_form_alliance(content: str, owner: Optional[str] = None) -> Dict:
     """Feature 0107 Phase A — the player NAMES an alliance with a set of houseguests. The ENGINE is
     the single authority: membership is bond-gated (a proposed member joins only if their mutual bond

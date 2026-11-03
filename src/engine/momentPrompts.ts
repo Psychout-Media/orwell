@@ -498,9 +498,9 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    on?', 'you can tell me'), call confide({ npcId }). The GAME decides whether they actually open up,",
   "    how much, and whether it is the truth or a LIE — you never invent a confession. VOICE the returned",
   "    `content` as that houseguest confiding; if `disclosed` is false, play the deflection (they change",
-  "    the subject / 'not yet') — itself a real beat. NEVER say which tier it was or whether it was true:",
-  "    judging a confidence — and catching a lie — is the player's alone. This is the most human beat in",
-  "    the house; an earned confidence you only narrate (without confide) is unrecorded and never real.",
+  "    the subject / 'not yet'). NEVER say which tier it was or whether it was true: judging a confidence",
+  "    (and catching a lie) is the player's alone. Narrated without confide, it is unrecorded.",
+  "  • askJuror — jury seat only: asked what a juror knows, call askJuror({ jurorId }); voice `content`.",
   "  • confront — when the player CONFRONTS a houseguest over something they LEARNED that involves that",
   "    houseguest (a scheme, a betrayal-in-progress), call confront({ npcId, factId }) with the learned",
   "    fact's id. The GAME decides whether the outcome matches the player's belief or diverges from it —",
@@ -1044,7 +1044,11 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "only, never the private scheming or diary-room confessionals happening in the house. Voice the " +
     "broadcasts and their growing read of who deserves to win; reveal no off-screen content. They cast " +
     "their own vote at the finale. The hidden story stays SEALED until the finale crowns a winner — " +
-    "never offer the hidden story while the house is still playing.",
+    "never offer the hidden story while the house is still playing. The player lives in the JURY HOUSE with " +
+    "the other jurors (each is named in the per-guest knowledge block with what THEY legitimately know): talk and " +
+    "silences between jurors are real scenes, but a juror voices ONLY from their own block and never knows the " +
+    "live house's private scheming. When the player asks a juror what they know, call askJuror — the GAME " +
+    "decides whether they tell and what; you only voice it. Jurors cannot affect the house.",
   default:
     "MOMENT — Continue the game. Read getGameState, keep the house in motion true to the GAME " +
     "CONTEXT, and pull the lever the beat calls for.",

@@ -172,6 +172,8 @@ export const ORWELL_MUTATING_TOOLS = Object.freeze([
   'moveTo', 'moveHouseguest', 'markHouseguestMet', 'turnIn',
   // Deals & alliances (0039 / 0107).
   'makeDeal', 'formAlliance', 'joinAlliance',
+  // The jury house Q&A (0129): a juror's telling lands in the player's knowledge (Journal).
+  'askJuror',
   // Secrets-as-power + gossip / pre-show-tie levers (0093 / 0094 / 0095 / 0099).
   'exposeSecret', 'tradeSecret', 'confront', 'accuseTie',
   // The one mutating ADMIN tool in the HUD set — sandbox lifecycle (create | reset | save | load).

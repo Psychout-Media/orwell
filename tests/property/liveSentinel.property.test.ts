@@ -58,6 +58,8 @@ const args = (name: string, seed: number): Record<string, unknown> => {
     // lie) must NEVER carry a planted sealed sentinel; the engine only ever discloses the secret it
     // chose + recorded, blurred/glossed to the tier, and a lie is engine-authored, not a real secret.
     case "confide": return { npcId: npc(1) };
+    // 0129 slice 3: a juror id (the engine returns null while no jury exists; the per-beat sweep below asks every REAL juror).
+    case "askJuror": return { jurorId: npc(1) };
     // 0095: accuse a pair of a prior connection. The sweep plants no seeded tie between npc(1)/npc(2),
     // so this exercises the MISS path (no sealed tie ⇒ no Vault read) — the result must never carry a
     // planted sealed sentinel either way (a hit would only ever echo the tie's own public nature/names).
@@ -114,6 +116,7 @@ const args = (name: string, seed: number): Record<string, unknown> => {
 
 describe("B42 — the sentinel canary bites the live game (production path)", () => {
   it("no player or admin tool leaks a sentinel — across the whole game incl. the finale", async () => {
+    let totalJurorsTold = 0;
     for (const seed of [2, 5]) {
       const reg = new GameSessionRegistry();
       const user = `u${seed}`;
@@ -182,6 +185,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
       const KNOWLEDGE_LAYER_TAG = "-npcknow-";
       const sentinelsFor = (name: string): string[] =>
         name === "knowledgeScopeManifest" ? sentinels.filter((s) => !s.includes(KNOWLEDGE_LAYER_TAG)) : sentinels;
+      // askJuror may legitimately relay the JUROR's own knowledge layer (same as npcVoice) — the npcknow sentinel is exempt.
       const sweep = async (server: McpServer, name: string): Promise<void> => {
         swept.add(name);
         const result = await server.callTool(name, args(name, seed));
@@ -202,6 +206,8 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
 
       // Drive the loop to a winner, sweeping the live projections at EVERY beat — including the finale.
       let finished = false;
+      const jurorPlanted = new Set<string>();
+      let jurorsTold = 0;
       for (let i = 0; i < 6000 && !finished; i++) {
         const adv = (await player.callTool("advanceGame", {})) as AdvanceView;
         swept.add("advanceGame");
@@ -210,6 +216,21 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         // whereabouts/seasonRecap) — they were previously swept only at week 1, before the house
         // evolved any hidden history worth leaking.
         for (const name of ["gameStatus", "getGameState", "getMomentPrompt", "playerTagline", "socialInitiatives", "getVisibleStateFor", "finaleView", "npcVoice", "socialRead", "whereabouts", "seasonRecap", "competitionStagingView"]) await sweep(player, name);
+        // 0129: once the player holds a juror's seat, ask EVERY real juror (the canary must exercise askJuror's
+        // output, not skip it) and scan what they tell — it may carry only the juror's own knowledge layer. A benign
+        // marker is planted in each juror's OWN knowledge so a telling really happens (told ⇒ the marker, nothing else).
+        const jh = ((await player.callTool("getGameState", {})) as { juryHouse?: { jurors: { id: string }[] } }).juryHouse;
+        for (const j of jh?.jurors ?? []) {
+          if (!jurorPlanted.has(j.id)) {
+            jurorPlanted.add(j.id);
+            reg.sandboxFor(user).engine.knowledge.seedBelief(j.id, { content: `JUROR-OWN-MARK ${j.id}`, factId: `b42j:${seed}:${j.id}` }, "witnessed");
+          }
+          const told = await player.callTool("askJuror", { jurorId: j.id });
+          swept.add("askJuror");
+          if ((told as { told?: boolean } | null)?.told) jurorsTold++;
+          const blob = JSON.stringify(told);
+          for (const s2 of (j.id === npc(2) ? sentinelsFor("knowledgeScopeManifest") : sentinels)) expect(blob.includes(s2), `seed ${seed}: askJuror leaked ${s2}`).toBe(false);
+        }
 
         // Finale projection lock (no pre-reveal tally): while the finale stages, no winner crosses, and
         // the precomputed votes / script are never serialized — only the reveals shown so far.
@@ -233,6 +254,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         finished = adv.finished;
       }
       expect(finished, `seed ${seed}: the game reached a winner`).toBe(true);
+      totalJurorsTold += jurorsTold;
 
       // E19: one FULL post-finish sweep — every tool against the terminal house, where a season's
       // worth of hidden history exists to leak. Exclusions are principled, not convenient:
@@ -273,6 +295,8 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
       const allNames = [...toolsFor("player"), ...toolsFor("admin/God Mode")].map((t) => t.name);
       for (const name of allNames) expect(swept.has(name), `tool ${name} was never swept`).toBe(true);
     }
+    // The canary must actually EXERCISE askJuror's output (a telling happened), not merely call it.
+    expect(totalJurorsTold, "askJuror told at least once across the sweep seeds").toBeGreaterThan(0);
   });
 });
 

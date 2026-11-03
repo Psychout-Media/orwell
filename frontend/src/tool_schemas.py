@@ -1598,6 +1598,20 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "askJuror",
+            "description": "Feature 0129 — ONLY while the player sits on the JURY: when they ask a fellow juror what they know, call askJuror({jurorId}). The ENGINE decides whether that juror tells and WHICH one thing (only something they legitimately witnessed or were told). Returns {told, bearing, content}: voice the content as that juror; if told is false, play the deflection. Never invent what a juror knows; never state the bearing as a verdict or number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "jurorId": {"type": "string", "description": "The fellow juror's houseguest id (from the jury-house roster)."},
+                },
+                "required": ["jurorId"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "confide",
             "description": "Feature 0075 — when the player presses an ALLY they're already in a 1:1 scene with to open up ('what's really going on with you?', 'you can tell me'), call confide({npcId}). The ENGINE decides whether they actually open up, how much of their secret they share, and whether it's the truth or a lie — never invent a confession. Returns {disclosed, tier, content}: voice the returned content as that houseguest confiding; if disclosed is false, play the deflection (they're not ready / change the subject). Never state a tier or whether it's true — judging that is the player's alone.",
             "parameters": {
@@ -2017,6 +2031,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "socialInitiatives", "diaryRoom", "makeDeal",
     # 0075: the trust-gated confide lever (the engine decides the disclosure; the model voices it).
     "confide",
+    # 0129 slice 3: the juror-player asks a fellow juror what they know.
+    "askJuror",
     # 0107: named alliances (Phase A formAlliance + Phase B joinAlliance).
     "formAlliance", "joinAlliance",
     # 0093/0099: expose a learned secret to the house / trade it to a houseguest for a favor.
