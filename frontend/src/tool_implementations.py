@@ -5642,6 +5642,10 @@ def _deal_partner_mismatch(with_id: str, roster: list, text: str):
     return None
 
 
+def _deal_names_anyone(roster: list, text: str) -> bool:
+    return any(isinstance(h, dict) and h.get("name") and _name_in_text(h["name"], text) for h in roster)
+
+
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
@@ -5687,6 +5691,22 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         if _mm:
             return {"error": (f"makeDeal refused: the player's handshake names {_mm[1]}, not {_mm[0]}. "
                               "Re-issue makeDeal with the right partner or ask the player."), "exit_code": 1}
+        elif not _deal_names_anyone(_roster, _ptext):
+            # The player named nobody (the usual "deal? you keep me safe" to whoever is in front of them):
+            # the partner must be co-present with the player in the current scene (engine truth). Never
+            # auto-correct to someone else; unreadable presence fails open.
+            try:
+                _wa = await orwell_engine.whereabouts(user=owner)
+            except Exception:
+                _wa = None
+            _here = (_wa or {}).get("present") if isinstance(_wa, dict) else None
+            if isinstance(_here, list):
+                _ids = {p.get("id") for p in _here if isinstance(p, dict)}
+                if with_id not in _ids:
+                    _pn = next((h.get("name") for h in _roster if h.get("id") == with_id), None) or with_id
+                    _hn = ", ".join(str(p.get("name") or p.get("id")) for p in _here if isinstance(p, dict)) or "nobody"
+                    return {"error": (f"makeDeal refused: {_pn} is not in the scene with the player (present: {_hn}). "
+                                      "Re-issue makeDeal with the right partner or ask the player."), "exit_code": 1}
         if term is not None and not _deal_term_named(_ptext):
             term = None  # the player never named a duration: do not invent one
     try:

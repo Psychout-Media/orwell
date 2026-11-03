@@ -32,6 +32,9 @@ def _reset_turn_text():
         ti.PLAYER_TURN_TEXT.reset(_TOKENS.pop())
 
 
+PRESENT = {"id": "npc:13", "name": "Bravo Stone"}
+
+
 def _setup(monkeypatch, text):
     calls = []
 
@@ -41,6 +44,11 @@ def _setup(monkeypatch, text):
 
     async def _gs(user=None, timeout=None):
         return {"house": ROSTER}
+
+    async def _wa(user=None):
+        return {"room": "kitchen", "present": [PRESENT]}
+
+    monkeypatch.setattr(oe, "whereabouts", _wa)
 
     monkeypatch.setattr(oe, "make_deal", _fake)
     monkeypatch.setattr(oe, "get_game_state", _gs)
@@ -67,8 +75,28 @@ def test_matching_partner_passes(monkeypatch):
     assert calls[0][0] == "npc:13"
 
 
-def test_no_name_in_message_passes_unchanged(monkeypatch):
+def test_unnamed_partner_not_in_scene_is_refused(monkeypatch):
+    """The A-14 shape: the player names no one; one houseguest is present, the model passes an absent one."""
+    calls = _setup(monkeypatch, "deal? you keep me safe, I keep you safe")
+    res = _deal("npc:12")
+    assert res["exit_code"] == 1 and "makeDeal refused" in res["error"]
+    assert "Alpha Quill" in res["error"] and "Bravo Stone" in res["error"]
+    assert calls == []
+
+
+def test_unnamed_partner_in_scene_passes(monkeypatch):
+    calls = _setup(monkeypatch, "deal? you keep me safe, I keep you safe")
+    assert _deal("npc:13")["exit_code"] == 0
+    assert calls[0][0] == "npc:13"
+
+
+def test_unreadable_presence_fails_open(monkeypatch):
     calls = _setup(monkeypatch, "deal? handshake on it")
+
+    async def _boom(user=None):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(oe, "whereabouts", _boom)
     assert _deal("npc:12")["exit_code"] == 0
     assert calls and calls[0][0] == "npc:12"
 
