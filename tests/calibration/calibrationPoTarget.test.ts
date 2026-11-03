@@ -9,28 +9,35 @@ import { poViolations } from "./poTargetBands";
 /**
  * PO-TARGET calibration gate (the replacement for the loose "minimal-active >= passive over 6 seeds" gradient claim).
  * Plays the passive / solid / reckless arms over the SAME seeds on the DEFAULT flag profile (the game that ships) and asserts
- * the owner's bands (`poTargetBands.ts`, from the 2026-11-02 rulings). 100 seeds x 3 arms is about 27 minutes on one runner, so it
+ * the owner's bands (`poTargetBands.ts`, from the 2026-11-02 rulings). 300 seeds x 3 arms is about 80 CPU-minutes, so it
  * also shards: the seasons are independent and per-seed seeded, so a slice plays on its own runner and the recombined set is
  * identical to playing all of them in one process.
  *
  * Modes (env):
- *   (none)                         play ALL arms for seeds 1..ORWELL_PO_SEEDS (default 100) and assert the bands inline.
+ *   (none)                         play ALL arms for seeds 1..ORWELL_PO_SEEDS (default 300) and assert the bands inline.
  *   ORWELL_PO_ARM=<arm>            SHARD: play only that arm for seeds [ORWELL_PO_FROM, ORWELL_PO_TO) and write
  *     ORWELL_PO_FROM / _TO / _OUT    <OUT>/po-<arm>-<from>-<to>.json. No band assertion (a slice cannot see the distribution).
  *   ORWELL_PO_AGG_DIR=<dir>        AGGREGATE: read every shard file under <dir>, require exactly seeds 1..N once per arm, assert.
  * Run: `npm run test:calib:po` (all-in-one). Not in the default unit suite (tests/calibration/** is excluded).
  */
 
-const SEEDS = Number.parseInt(process.env.ORWELL_PO_SEEDS ?? "100", 10);
+const SEEDS = Number.parseInt(process.env.ORWELL_PO_SEEDS ?? "300", 10);
 const ARM = process.env.ORWELL_PO_ARM as Arm | undefined;
 const AGG = process.env.ORWELL_PO_AGG_DIR;
 const ARMS: Arm[] = ["passive", "solid", "reckless"];
 
+/** Seasons played per runtime. Every finished season keeps its sandbox alive in the registry, so one runtime over 75+ seasons grows until the
+ *  worker is OOM-killed (seen on the 300-seed remote runs: "Worker exited unexpectedly"). A fresh runtime every few seasons bounds memory;
+ *  each season is keyed by its seed and arm, so recycling the runtime changes no outcome. */
+const SEASONS_PER_RUNTIME = 10;
+
 async function playArm(arm: Arm, from: number, to: number): Promise<SeasonMetrics[]> {
-  const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
-  const resolver = runtime.registry.resolver();
   const rows: SeasonMetrics[] = [];
-  for (let seed = from; seed < to; seed++) rows.push(await playSeason(resolver, seed, arm));
+  for (let start = from; start < to; start += SEASONS_PER_RUNTIME) {
+    const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
+    const resolver = runtime.registry.resolver();
+    for (let seed = start; seed < Math.min(to, start + SEASONS_PER_RUNTIME); seed++) rows.push(await playSeason(resolver, seed, arm));
+  }
   return rows;
 }
 

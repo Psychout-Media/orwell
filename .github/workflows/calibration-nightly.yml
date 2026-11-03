@@ -1,0 +1,108 @@
+name: calibration-nightly
+
+# The PO-target calibration gate (tests/calibration/calibrationPoTarget.test.ts): passive / solid / reckless over 300 seeds on the DEFAULT flag
+# profile (the game that ships), asserting Ryne's ruled bands (tests/calibration/poTargetBands.ts; PO log 2026-11-02 "Difficulty").
+# ADDITIVE and NOT a required PR check: it runs nightly and on demand, shows the measured rates in the job summary, and on a failing night
+# opens or updates ONE tracking issue (label `calibration-nightly`) instead of spamming. 300 seeds x 3 arms is about 80 CPU-minutes, so each arm is
+# its own matrix leg that plays 4 slices in parallel; an aggregate job recombines them (it requires exactly seeds 1..300 once per arm).
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [passive, solid, reckless]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: play this arm (4 parallel slices of 75 seeds)
+        env:
+          ORWELL_PO_SEEDS: "300"
+          ORWELL_PO_ARM: ${{ matrix.arm }}
+          ORWELL_PO_OUT: po-shards
+        run: |
+          set -uo pipefail
+          pids=()
+          for r in "1 76" "76 151" "151 226" "226 301"; do
+            set -- $r
+            ORWELL_PO_FROM=$1 ORWELL_PO_TO=$2 npx vitest run tests/calibration/calibrationPoTarget.test.ts > "slice-$1.log" 2>&1 &
+            pids+=($!)
+          done
+          fail=0
+          for p in "${pids[@]}"; do wait "$p" || fail=1; done
+          tail -n 5 slice-*.log || true
+          exit $fail
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: po-shards-${{ matrix.arm }}
+          path: po-shards/
+          if-no-files-found: error
+
+  aggregate:
+    needs: shards
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: po-shards-*
+          path: po-shards
+          merge-multiple: true
+      - name: summary table
+        run: |
+          node -e '
+            const fs=require("fs");const d="po-shards";const out={};
+            for(const f of fs.readdirSync(d).filter(n=>/^po-.*\.json$/.test(n))){const j=JSON.parse(fs.readFileSync(d+"/"+f));const a=out[j.arm]??={n:0,f2:0,win:0,jury:0};for(const r of j.rows){a.n++;if(r.reachedF2)a.f2++;if(r.won)a.win++;if(r.reachedJury)a.jury++;}}
+            const p=(k,n)=>n?(100*k/n).toFixed(1)+"%":"n/a";
+            let md="### PO-target calibration (default profile)\n\n| arm | seasons | reach F2 | win | reach jury |\n|---|---|---|---|---|\n";
+            for(const a of ["passive","solid","reckless"]){const x=out[a]??{n:0,f2:0,win:0,jury:0};md+=`| ${a} | ${x.n} | ${p(x.f2,x.n)} | ${p(x.win,x.n)} | ${p(x.jury,x.n)} |\n`;}
+            md+="\nTargets: passive F2 <= 15%, win < 5%; solid F2 12-20%, win 6-10%; reckless no better than passive.\n";
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md);'
+      - name: assert the PO bands over all 300 seeds
+        id: gate
+        env:
+          ORWELL_PO_SEEDS: "300"
+          ORWELL_PO_AGG_DIR: po-shards
+        run: npx vitest run tests/calibration/calibrationPoTarget.test.ts 2>&1 | tee gate.log; exit "${PIPESTATUS[0]}"
+      - name: open or update the ONE tracking issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          label=calibration-nightly
+          gh label create "$label" --color D93F0B --description "Nightly PO-target calibration gate failed" 2>/dev/null || true
+          body="The nightly PO-target calibration gate failed: $RUN_URL
+
+          $(grep -E 'PO targets|outside|above|beats|clearly' gate.log | head -12 || true)"
+          n=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "Nightly calibration: PO-target bands violated" --label "$label" --body "$body"; fi

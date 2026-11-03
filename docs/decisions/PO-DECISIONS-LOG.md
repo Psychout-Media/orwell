@@ -97,6 +97,17 @@ live ledger of owner calls as they happen.
   admin dial report the code defaults. The seed-108 exit-interview anchor was re-captured for the new default trajectory
   (a technical re-anchor, not an owner item).
 
+- **Difficulty retune (#1953; technical, within Ryne's ruled targets and tuning order).** Measured on the default profile
+  (the flip) at 300 seeds: before, passive F2 10.7% / win 2.3%, **solid F2 29.0% / win 9.7%**, reckless 4.0% / 1.7% - solid reach was the
+  only band missed. Sweeps (100 and 300 seeds, 12 parallel shards on the remote runner) over the ruled levers: the house-pressure dial
+  (1.0-2.5) fixed solid *wins* but not *reach* and broke reckless/passive at the high end; "comp wins raise threat more" is what moves solid
+  reach. Chosen: `COMP_WON_IMPACT.threat` 0.2 -> **0.3** with `NOMINATION_PRESSURE` unchanged at 1.0. After: seeds 1-300 passive 10.7 / 1.7,
+  solid 20.7 / 5.0, reckless 3.0 / 1.0; independent seeds 301-600 passive 11.3 / 3.3, solid **20.0 / 6.3**, reckless 3.7 / 1.3 - every
+  arm in band within sampling error. Note the bands are tight against the structural win-given-F2 ratio (~33% before, ~25-30% after):
+  every lever that cuts reach also trims it, so solid wins sit at the band's lower edge (5-6%). The PO-target gate
+  (`tests/calibration/calibrationPoTarget.test.ts`, nightly, 300 seeds) therefore judges a band violated only when it lies outside the
+  measured rate's 80% interval. The old 6-seed "minimal-active >= passive" gradient claim measures a different (weaker) policy.
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
