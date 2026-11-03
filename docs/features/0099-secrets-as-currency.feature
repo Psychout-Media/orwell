@@ -53,7 +53,7 @@ Feature: 0099 — Secrets as a tradeable currency (information becomes diplomacy
       When the player offers the secret for a deal
       Then the recipient can still refuse the trade
       And peddling the secret may cost the player standing with that recipient
-      # (a descriptor-free deal draws nothing shared and folds no third-party edge: tests/unit/secretPowerNeutral.test.ts)
+      And with no secret offered the deal formation is byte-identical to the deal baseline
 
   Rule: NPCs barter secrets with each other, hidden
 
@@ -91,9 +91,9 @@ Feature: 0099 — Secrets as a tradeable currency (information becomes diplomacy
       When the trade is resolved twice from the same state
       Then the trade value, the outcome, and the folds are identical both times
 
-    # "No trade / barter off => byte-identical" is gated by tests/unit/secretBarterNeutral.test.ts (the real off-screen tick's
-    # shared draw stream, relationship state, and whole-pipeline SHA256, barter OFF vs ON) and tests/unit/secretPowerNeutral.test.ts.
-    # The former BDD scenario asserted nothing (assert.ok(true)).
+    Scenario: With no trade and barter off, the season is byte-identical
+      Given a full season is played with no secret traded and off-screen barter disabled
+      Then the seeded vote and eviction outcomes are byte-identical to the baseline season
 
   Rule: A traded secret persists and the knowledge layer deepens
 
