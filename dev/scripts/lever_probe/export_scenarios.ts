@@ -43,10 +43,17 @@ for (let i = 0; i < 3000 && seen.size < Object.keys(WANT).length; i++) {
 // Social scenarios against a live houseguest (the under-called levers the FE belts exist for).
 const npc = sb.session.getGameState().house.find((h) => h.id !== "player" && h.status === "active");
 if (npc) {
-  const mp = sb.session.getMomentPrompt({});
-  out.push({ id: "deal", system: mp.systemPrompt, hard: mp.hardConstraints ?? null, expect: "makeDeal",
+  // The social levers are measured under the SOCIAL moment, not whatever closed-set phase the walk above ended on.
+  const social = sb.session.getMomentPrompt({ moment: "social" });
+  out.push({ id: "deal", system: social.systemPrompt, hard: social.hardConstraints ?? null, expect: "makeDeal",
     user: `${npc.name} and I shake on it: I won't put you up this week and you keep my name out of your mouth. Done deal.` });
-  out.push({ id: "confide", system: mp.systemPrompt, hard: mp.hardConstraints ?? null, expect: "confide",
+  out.push({ id: "confide", system: social.systemPrompt, hard: social.hardConstraints ?? null, expect: "confide",
     user: `${npc.name}, we're alone and I trust you. What's really going on with you? You can tell me.` });
+}
+// Fail loudly: a probe over a silently smaller scenario set would report rates for the wrong thing.
+const missing = Object.keys(WANT).filter((p) => !seen.has(p));
+if (missing.length || !npc) {
+  console.error(`export_scenarios: missing phases [${missing.join(", ")}]${npc ? "" : " and no active houseguest for the social scenarios"}`);
+  process.exit(2);
 }
 process.stdout.write(JSON.stringify(out));

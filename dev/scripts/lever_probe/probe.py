@@ -2,13 +2,14 @@
 """A-12 lever-call probe — step 2: for each exported scenario, call the model K times with the game build's real
 tool schemas and count how often it calls the expected lever (tool_choice=auto), vs prose-only.
 
-Stateless (one request per trial, no game state), stdlib only. The key comes from the environment ONLY and is never
+Stateless (one request chain per trial, no game state); stdlib HTTP, but the tool schemas are imported from
+frontend/src, so run it with the frontend venv (frontend/.venv/bin/python) so its imports resolve. The key comes from the environment ONLY and is never
 written anywhere. A hard spend cap aborts the run.
 
   DEEPSEEK_API_KEY=... python3 dev/scripts/lever_probe/probe.py scenarios.json --trials 6 [--model deepseek-flash]
 Run from the repo root with frontend/ on the path (the real tool schemas are imported from frontend/src).
 """
-import argparse, json, os, sys, time, urllib.request, importlib
+import argparse, json, os, sys, time, urllib.error, urllib.request, importlib
 
 # deepseek-flash list price per 1M tokens (USD); a deliberately generous ceiling so the cap is conservative.
 PRICE_IN, PRICE_OUT = 0.30, 0.60
@@ -18,6 +19,9 @@ def load_tools():
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend"))
     importlib.import_module("src.agent_tools")
     ts = importlib.import_module("src.tool_schemas")
+    # NOTE: a curated SUBSET of the production menu (the levers the narrator chooses among on these beats); the
+    # send-time `with_deal_depth_kinds` transform is not applied. Rates are therefore comparable run to run, not an
+    # exact replay of production's menu.
     keep = {"advanceGame", "submitDecision", "makeDeal", "confide", "recordInteraction", "getGameState",
             "npcVoice", "whereabouts", "moveTo", "socialRead", "askProducers", "socialInitiatives", "diaryRoom"}
     return [t for t in ts.FUNCTION_TOOL_SCHEMAS if t["function"]["name"] in keep]
@@ -64,9 +68,14 @@ def main():
     ap.add_argument("--cap-usd", type=float, default=1.5)
     ap.add_argument("--rounds", type=int, default=1, help="max model rounds per trial (stubbed tool results between)")
     ap.add_argument("--only", default="", help="comma-separated scenario ids to run")
-    ap.add_argument("--variant", default="base", help="base | scoped | tail-reminder (a short last-message lever reminder)")
-    ap.add_argument("--tool-choice", default="auto", help="auto | required (floor measurement)")
+    ap.add_argument("--variant", default="base", choices=["base", "tail-reminder", "scoped"], help="base | scoped | tail-reminder (a short last-message lever reminder)")
+    ap.add_argument("--tool-choice", default="auto", choices=["auto", "required"],
+                    help="auto | required (required = an ANY-tool baseline: the model may satisfy it with any available tool)")
+    ap.add_argument("--price-in", type=float, default=PRICE_IN, help="USD per 1M prompt tokens (defaults: DeepSeek flash)")
+    ap.add_argument("--price-out", type=float, default=PRICE_OUT, help="USD per 1M completion tokens")
     a = ap.parse_args()
+    if "deepseek" not in a.model.lower() and (a.price_in, a.price_out) == (PRICE_IN, PRICE_OUT):
+        sys.exit("non-DeepSeek model: pass --price-in/--price-out explicitly so the spend cap is real")
     key = os.environ.get("DEEPSEEK_API_KEY")
     if not key:
         sys.exit("DEEPSEEK_API_KEY not set in the environment (never pass it on the command line or write it to a file)")
@@ -74,7 +83,7 @@ def main():
     scenarios = json.load(open(a.scenarios))
     if a.only:
         scenarios = [x for x in scenarios if x["id"] in a.only.split(",")]
-    spent, rows = 0.0, []
+    spent, rows, errors = 0.0, [], 0
     for sc in scenarios:
         hit = any_call = 0
         hist = {}
@@ -85,12 +94,20 @@ def main():
             for rnd in range(a.rounds):  # the real loop is multi-round: a lever landing by round N counts
                 try:
                     resp = complete(a.base, key, a.model, msgs, tools, a.tool_choice)
-                except Exception as e:  # transport hiccup: counted as a miss, not a crash
+                except urllib.error.HTTPError as e:
+                    if e.code in (401, 402, 403):  # auth / balance: every trial would "miss" — abort, don't report 0%
+                        sys.exit(f"aborted: HTTP {e.code} from the endpoint (check the key / balance); no rates reported")
+                    print("  trial error: HTTP", e.code, file=sys.stderr)
+                    errors += 1
+                    time.sleep(1)
+                    break
+                except Exception as e:  # transport hiccup: counted separately, not a crash
                     print("  trial error:", type(e).__name__, file=sys.stderr)
+                    errors += 1
                     time.sleep(1)
                     break
                 u = resp.get("usage", {})
-                spent += u.get("prompt_tokens", 0) / 1e6 * PRICE_IN + u.get("completion_tokens", 0) / 1e6 * PRICE_OUT
+                spent += u.get("prompt_tokens", 0) / 1e6 * a.price_in + u.get("completion_tokens", 0) / 1e6 * a.price_out
                 m = resp["choices"][0]["message"]
                 calls = m.get("tool_calls") or []
                 names = [c["function"]["name"] for c in calls]
@@ -115,7 +132,7 @@ def main():
                 sys.exit(3)
         rows.append({"scenario": sc["id"], "expect": sc["expect"], "trials": a.trials, "hit": hit, "anyToolCall": any_call, "calls": hist})
         print(f"{sc['id']:18} expect={sc['expect']:12} hit {hit}/{a.trials}  anyTool {any_call}/{a.trials}", file=sys.stderr)
-    print(json.dumps({"model": a.model, "toolChoice": a.tool_choice, "variant": a.variant, "spentUsd": round(spent, 3), "rows": rows}, indent=1))
+    print(json.dumps({"model": a.model, "toolChoice": a.tool_choice, "variant": a.variant, "spentUsd": round(spent, 3), "erroredRounds": errors, "rows": rows}, indent=1))
 
 
 if __name__ == "__main__":

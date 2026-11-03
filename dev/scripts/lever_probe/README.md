@@ -5,8 +5,9 @@ real engine prompts and the game build's real tool schemas. Stateless; one reque
 
 ```
 npx tsx dev/scripts/lever_probe/export_scenarios.ts > scenarios.json     # no key, no network
-DEEPSEEK_API_KEY=... python3 dev/scripts/lever_probe/probe.py scenarios.json --trials 6   # key from env ONLY
-python3 dev/scripts/lever_probe/probe.py scenarios.json --tool-choice required            # floor
+export DEEPSEEK_API_KEY=...   # from the environment ONLY; never write it to a file
+frontend/.venv/bin/python dev/scripts/lever_probe/probe.py scenarios.json --trials 6
+frontend/.venv/bin/python dev/scripts/lever_probe/probe.py scenarios.json --tool-choice required   # an any-tool baseline, not an expected-lever floor
 ```
 
 A hard spend cap (`--cap-usd`, default 1.5) aborts the run. Never write the key to a file. Add `--model` / `--base`
@@ -25,7 +26,7 @@ to probe another endpoint.
 
 Cost: ~$0.31 per 48-call pass (~$0.86 across all three runs incl. the 6-trial baseline). Caveats: first round only — a
 call to `npcVoice`/`getGameState` before the lever is a miss here but not in the real multi-round loop; n=8 is a
-signal, not a rate; the closed-set beats are already covered in production by forced `tool_choice` (`requiredLever`).
+signal, not a rate; the closed-set beats are covered in production by forced `tool_choice` (`requiredLever`) for models that honor it — `deepseek-flash` is on the forced-`tool_choice` denylist, so for it the textual fallback applies and these numbers are the relevant ones.
 `tail-reminder` appends a one-paragraph "call the lever FIRST" system message after the hard-constraints block.
 
 ### Multi-round pass (lever must land within 3 rounds; stubbed tool results; n=10; `--rounds 3 --variant scoped`)
@@ -42,4 +43,9 @@ signal, not a rate; the closed-set beats are already covered in production by fo
 Cost: $0.58 base + $0.47 scoped. **Verdict: mixed — no prompt change shipped.** The reminder lifts the closed-set
 ceremony beats (which production already forces with `tool_choice` via `requiredLever`), but does not lift the social
 `makeDeal` beat once the model gets multiple rounds, and confide is unaffected. Re-run after a model change:
-`probe.py scenarios.json --trials 10 --rounds 3 --variant scoped`.
+`frontend/.venv/bin/python dev/scripts/lever_probe/probe.py scenarios.json --trials 10 --rounds 3 --variant scoped`.
+
+**Validity caveat (found in review):** the `deal` and `confide` rows above were measured with the prompt left over from
+the last closed-set phase the walk reached (eviction), not the social moment. `export_scenarios.ts` now requests the
+`social` moment for them (and fails loudly if a scenario is missing); those two rows should be re-measured before they
+are relied on. The closed-set rows (advance beats) are unaffected. The tool menu is a curated subset of production's.
