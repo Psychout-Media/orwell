@@ -1806,6 +1806,8 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "finished": bool(state.get("finished")),
         "room": room,
         "present": present,
+        # A-9: the engine's monotonic beat counter, so "nothing progressed this turn" is checkable.
+        "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
 
 
@@ -1891,7 +1893,11 @@ _CLAIM_SELF_HOH_WIN_RE = re.compile(
     r"\byou(?:'|’)?(?:ve)?\s*(?:have\s+)?(?:just\s+|now\s+|officially\s+)?won\s+(?:the\s+)?(?:new\s+)?(?:head of household|hoh)\b"
     r"|\byou(?:'|’)?re\s+(?:the\s+)?(?:new\s+)?(?:head of household|hoh)\b"
     r"|\byou\s+are\s+(?:the\s+)?(?:new\s+)?(?:head of household|hoh)\b"
-    r"|\bi(?:'|’)?(?:ve)?\s*(?:have\s+)?(?:just\s+|now\s+)?won\s+(?:the\s+)?(?:new\s+)?(?:head of household|hoh)\b",
+    r"|\bi(?:'|’)?(?:ve)?\s*(?:have\s+)?(?:just\s+|now\s+)?won\s+(?:the\s+)?(?:new\s+)?(?:head of household|hoh)\b"
+    # A-9 (2026-11-03): the live seed-1717 leak never said "you won HOH" — it said "the HOH room is yours"
+    # and "you've taken the crown". The aftermath forms of a self-crown, same committed-tense rule.
+    r"|\b(?:the\s+)?(?:hoh|head of household)\s+(?:room|suite|bedroom)\s+(?:is|are)\s+yours\b"
+    r"|\byou(?:'|’)?(?:ve|\s+have)\s+(?:just\s+|now\s+)?(?:taken|claimed|earned|secured|clinched)\s+(?:the\s+)?(?:crown|key|hoh|head of household)\b",
     re.IGNORECASE,
 )
 _CLAIM_SELF_VETO_WIN_RE = re.compile(
@@ -2392,6 +2398,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
           and after.get("playerStatus") == "active"
           and not after.get("finished")):
         desync = "your own REMOVAL / EXPULSION from the game (the engine shows you are STILL in the game)"
+    # (8) A-9: a SPECIFIC competition event narrated while the engine's competition is unsettled and nothing
+    #     progressed this turn (structural — see `_unsettled_competition_result`).
+    if not desync:
+        desync = _unsettled_competition_result(text, after, before)
 
     if not desync:
         return None
@@ -3289,6 +3299,64 @@ async def screen_knowledge_wall(user, text: str) -> str:
 # all of the phase-gated jurisdiction) so creative/social prose never pays a cost and is never sent to
 # the verifier at all. It is the UNION of the four `_CLAIM_*` detectors `_narration_claims_outcome`
 # already owns (eviction / winner / new-HOH / finale tally) — NOT a broader matcher (ADR 0005 #1).
+# A-9 (2026-11-03) — a SPECIFIC competition event/result (a stated winner, a ceremony or keys, "X is out",
+# "the comp went to someone else", named eliminations in progress). The engine produces these only through
+# advanceGame / runCompetition / submitDecision; narrating one while the engine's competition is UNSETTLED is
+# an invented outcome (live: flash told the player they won HOH with the comp still waiting on their approach).
+# Pure atmosphere with no event/result (tension, the set, nerves, "the comp is about to begin") has no cue.
+_CLAIM_COMP_RESULT_RE = re.compile(
+    r"\b(?:wins|won|takes|took|claims|claimed|clinch(?:es|ed)|earns|earned|secures|secured)\b[^.!?\n]{0,40}?"
+    r"\b(?:head of household|hoh|the crown|the key|the power of veto|the veto|the pov|the comp|the competition)\b"
+    r"|\boutlast(?:s|ed)\b"
+    r"|\blast (?:one|person|player|houseguest|hand|man|woman|body|ball|disc) (?:left )?standing\b"
+    r"|\b(?:the )?(?:hoh|head of household) (?:room|suite|bedroom)\b"
+    r"|\bkey ceremony\b|\bslides? the (?:first|second|next) key\b|\bkeys? in your (?:pocket|hand)\b|\btwo keys\b"
+    r"|\bthe (?:comp|competition|challenge) (?:went|goes|belongs) to\b|\bthe (?:comp|competition) is (?:over|decided|won)\b"
+    r"|\byou(?:'|’)?re (?:out|eliminated)\b|\byou are (?:out|eliminated)\b"
+    r"|\byour (?:pedestal|platform|ledge|disc|ball|grip|heels?) (?:\w+ )?(?:drops?|dropped|slips?|slipped|gives?|gave|fails?|failed|sinks?|sank)\b"
+    r"|\bthe (?:yard|house|crowd) erupts\b",
+    re.IGNORECASE,
+)
+# A named houseguest (or "you") eliminated in progress — case-SENSITIVE name so ordinary lowercase prose is skipped.
+_CLAIM_COMP_ELIM_RE = re.compile(
+    r"\b(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)\s+(?:goes|went|is|are|falls|fell|drops|dropped|slides|slid|slips|slipped|steps|stepped)"
+    r"\s+(?:out|off|down|eliminated|early)\b"
+)
+# Words that make a cue hypothetical / anticipatory ("whoever wins the comp", "about to begin") — never policed.
+_COMP_HYPOTHETICAL_RE = re.compile(
+    r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|going to|about to|"
+    r"to see who|hope[sd]?|hoping|wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of)\b",
+    re.IGNORECASE,
+)
+
+
+def _unsettled_competition_result(text: str, live: dict, before: dict) -> Optional[str]:
+    """A-9 — STRUCTURAL screen: the engine's competition is UNSETTLED (a competition phase, still waiting on
+    the player's `comp-intent`/`comp-round` approach) and NOTHING progressed this turn (the engine `beatSeq`
+    equals the turn-start baseline), so any SPECIFIC competition event the narration states was never
+    produced by the engine. Returns an outcome LABEL or None.
+
+    Stands down (None) on every uncertainty — no baseline, unknown `beatSeq`, a board that moved (the comp
+    really resolved this turn), a non-competition phase, no open approach pending, a hypothetical/anticipatory
+    sentence, and sentences with no result cue (pure atmosphere). Closed-set only (ADR 0005 #1)."""
+    if not isinstance(live, dict) or not isinstance(before, dict) or not before:
+        return None
+    if "competition" not in str(live.get("phase") or "").lower():
+        return None
+    if live.get("pending") not in ("comp-intent", "comp-round"):
+        return None
+    b0, b1 = before.get("beatSeq"), live.get("beatSeq")
+    if not (isinstance(b0, int) and isinstance(b1, int)) or isinstance(b0, bool) or isinstance(b1, bool) or b0 != b1:
+        return None  # unknown, or the beat MOVED (a real advance/decision this turn) — the engine produced events
+    for sent in re.split(r"(?<=[.!?\n])", text or ""):
+        if not sent.strip() or _COMP_HYPOTHETICAL_RE.search(sent):
+            continue
+        if _CLAIM_COMP_RESULT_RE.search(sent) or _CLAIM_COMP_ELIM_RE.search(sent):
+            return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
+                    "still waiting on the player's approach)")
+    return None
+
+
 def _sentence_has_closed_set_claim(text: str) -> bool:
     """Does `text` contain ANY of the four closed-set board-outcome claim patterns? Cheap and
     synchronous — the hot-loop gate that keeps the pre-emission guard off creative prose entirely.
@@ -3309,6 +3377,8 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
         or _CLAIM_VETO_WINNER_RE.search(text)
         or _CLAIM_VETO_USE_RE.search(text)  # T0-3: the veto USE decision (distinct from who WON it)
         or _CLAIM_PLAYER_EXPULSION_RE.search(text)  # #1659 R2: "you're being removed/expelled from the game"
+        or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
+        or _CLAIM_COMP_ELIM_RE.search(text)
     )
 
 
