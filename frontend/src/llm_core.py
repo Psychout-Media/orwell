@@ -1186,6 +1186,11 @@ def _ensure_openai_chat_path(url: str) -> str:
         return u
     if u.endswith("/v1") or u.endswith("/api/v1") or u.endswith("/api"):
         return u + "/chat/completions"
+    # DeepSeek's own API is served from the bare host root (``https://api.deepseek.com``, no /v1), so a
+    # stored raw base (a recovered model-less session, the slash-command setup URL) has no path suffix
+    # to key on — recognise the root host explicitly (PO ruling 2026-11-02).
+    if _host_match(u, "deepseek.com") and not (urlparse(u).path or "").strip("/"):
+        return u + "/chat/completions"
     return url
 
 
@@ -1366,6 +1371,8 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
         if max_tokens and max_tokens > 0:
             tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
             payload[tok_key] = max_tokens
+        # DeepSeek's own API defaults thinking ON — keep the sync path off too (host-gated no-op elsewhere).
+        _apply_deepseek_thinking_off(payload, url, model)
     try:
         note_model_activity(target_url, model)
         r = httpx.post(target_url, headers=h, json=payload, timeout=timeout)

@@ -68,6 +68,7 @@ def test_picker_and_webhook_use_the_canonical_deepseek_base():
     for rel in ("static/index.html", "static/js/slashCommands.js", "routes/webhook_routes.py"):
         text = open(os.path.join(FRONTEND, rel), encoding="utf-8").read()
         assert "api.deepseek.com/v1" not in text, rel
+        assert "https://api.deepseek.com" in text, rel  # the canonical base is actually present
     from src.endpoint_resolver import build_chat_url
     assert build_chat_url("https://api.deepseek.com") == "https://api.deepseek.com/chat/completions"
 
@@ -91,10 +92,43 @@ def test_thinking_field_never_added_elsewhere():
         assert "thinking" not in payload and payload["reasoning"] == {"enabled": False}
 
 
-def test_forced_required_rung_stays_glm_only():
+def test_forced_required_rung_is_a_known_rejecter_denylist():
+    """The gate is a DENYLIST of known `tool_choice` rejecters (not a GLM allow-list): every DeepSeek
+    thinking-family id is blocked, while any non-listed model (GLM, an OpenAI model) still honors it."""
     al = importlib.import_module("src.agent_loop")
-    assert al._model_honors_forced_tool_choice("deepseek-flash") is False
-    assert al._model_honors_forced_tool_choice("z-ai/glm-4.7") is True
+    for rejecter in ("deepseek-flash", "deepseek-v4-pro", "deepseek/deepseek-v4-pro",
+                     "deepseek-reasoner", "deepseek-r1"):
+        assert al._model_honors_forced_tool_choice(rejecter) is False, rejecter
+    for honoring in ("z-ai/glm-4.7", "openai/gpt-4o"):
+        assert al._model_honors_forced_tool_choice(honoring) is True, honoring
+
+
+def test_sync_llm_call_also_sends_thinking_disabled(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        is_success = True
+        def json(self):
+            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+    def _post(url, headers=None, json=None, timeout=None):
+        captured["url"], captured["payload"] = url, json
+        return _Resp()
+
+    monkeypatch.setattr(llm_core.httpx, "post", _post)
+    llm_core.llm_call("https://api.deepseek.com", "deepseek-flash",
+                      [{"role": "user", "content": "hi unique-sync-probe"}], max_tokens=16)
+    assert captured["url"] == "https://api.deepseek.com/chat/completions"
+    assert captured["payload"]["thinking"] == {"type": "disabled"}
+
+
+def test_bare_deepseek_root_gets_the_chat_path_but_other_urls_do_not():
+    f = llm_core._ensure_openai_chat_path
+    assert f("https://api.deepseek.com") == "https://api.deepseek.com/chat/completions"
+    assert f("https://api.deepseek.com/") == "https://api.deepseek.com/chat/completions"
+    assert f("https://api.deepseek.com/chat/completions") == "https://api.deepseek.com/chat/completions"
+    assert f("https://api.deepseek.com/anthropic") == "https://api.deepseek.com/anthropic"  # untouched
+    assert f("https://example.com") == "https://example.com"
 
 
 # ── env-key first-boot seed ──────────────────────────────────────────────────────────────
@@ -179,3 +213,71 @@ def test_openrouter_endpoint_still_counts_as_image_capable():
     finally:
         db.close()
     assert has_image_capable_endpoint(None) is True
+
+
+# ── review hardening: recoverable + race-safe seed, existing installs keep their models ───
+
+def test_seed_recovers_a_partial_boot_that_never_bound_the_default():
+    from core.database import SessionLocal, ModelEndpoint
+    db = SessionLocal()
+    try:  # the prior boot committed the endpoint, then died before writing the default designation
+        db.add(ModelEndpoint(id="seeded1", name="DeepSeek", base_url="https://api.deepseek.com",
+                             api_key="sk-x", is_enabled=True, model_type="llm", owner=None))
+        db.commit()
+    finally:
+        db.close()
+    assert _saved() is None
+    assert seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-y"}) == "seeded1"
+    assert _saved() == {"default_endpoint_id": "seeded1"}
+    assert seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-y"}) is None  # now complete
+    assert len(_rows()) == 1
+
+
+def test_concurrent_first_boot_creates_exactly_one_endpoint():
+    import threading
+    results = []
+    gate = threading.Barrier(8)
+
+    def _boot():
+        gate.wait()
+        results.append(seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-race"}))
+
+    threads = [threading.Thread(target=_boot) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert len(_rows()) == 1
+    assert len([r for r in results if r]) == 1
+
+
+def _add_endpoint(ep_id, base_url):
+    from core.database import SessionLocal, ModelEndpoint
+    db = SessionLocal()
+    try:
+        db.add(ModelEndpoint(id=ep_id, name=ep_id, base_url=base_url, api_key="sk-z",
+                             is_enabled=True, model_type="llm", owner=None))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_existing_openrouter_install_without_saved_models_keeps_its_prior_pair():
+    _add_endpoint("or-1", "https://openrouter.ai/api/v1")
+    assert seed_mod.pin_legacy_model_defaults() is True
+    assert _saved() == {"default_model": "z-ai/glm-4.7", "utility_model": "qwen/qwen3.6-27b"}
+    assert seed_mod.pin_legacy_model_defaults() is False  # idempotent
+
+
+def test_pin_writes_only_the_missing_keys_and_keeps_saved_choices():
+    _add_endpoint("or-1", "https://openrouter.ai/api/v1")
+    with open(settings_mod.SETTINGS_FILE, "w") as f:
+        json.dump({"default_model": "my/own-pick"}, f)
+    settings_mod._invalidate_caches()
+    assert seed_mod.pin_legacy_model_defaults() is True
+    assert _saved() == {"default_model": "my/own-pick", "utility_model": "qwen/qwen3.6-27b"}
+
+
+def test_pin_leaves_fresh_and_deepseek_installs_alone():
+    assert seed_mod.pin_legacy_model_defaults() is False and _saved() is None  # fresh: no endpoints
+    seed_mod.seed_deepseek_endpoint_from_env({"DEEPSEEK_API_KEY": "sk-g"})
+    before = _saved()
+    assert seed_mod.pin_legacy_model_defaults() is False and _saved() == before

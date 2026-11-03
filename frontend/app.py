@@ -1033,7 +1033,8 @@ async def _startup_event():
     # PO ruling 2026-11-02: DeepSeek's own API is the new-install default. A keyed, endpoint-less
     # first boot creates the endpoint from DEEPSEEK_API_KEY (no-op otherwise; never touches existing).
     try:
-        from src.deepseek_seed import seed_deepseek_endpoint_from_env
+        from src.deepseek_seed import pin_legacy_model_defaults, seed_deepseek_endpoint_from_env
+        pin_legacy_model_defaults()  # existing installs keep their effective models (PR #1935 review)
         seed_deepseek_endpoint_from_env()
     except Exception as _e:
         logger.warning("DeepSeek endpoint seed skipped (fail-open): %s", _e)
