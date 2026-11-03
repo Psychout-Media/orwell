@@ -383,6 +383,9 @@ export function _setReconcileDeps(deps) {
     return n;
   }
 
+  // F-5: liveness probe for the empty-bubble sweep (a thin wrapper so the reconcile body's own hasActiveStream ordering stays pinned).
+  const _streamIsLive = (sid) => hasActiveStream(sid);
+
   /**
    * ADR 0008 — render-and-reconcile to the authoritative seq-ordered log.
    *
@@ -404,7 +407,7 @@ export function _setReconcileDeps(deps) {
     if (!isCurrent()) return;
 
     // Sweep header-only assistant shells, but NEVER while a stream is live: a peer/observer holder is empty until its first delta.
-    try { if (!hasActiveStream(sessionId)) pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) { /* never block the reconcile */ }
+    try { if (!_streamIsLive(sessionId)) pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) { /* never block the reconcile */ }
     let data;
     try {
       const res = await fetch(`${_apiBase()}/api/history/${sessionId}`);
