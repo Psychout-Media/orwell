@@ -1,303 +1,308 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
-import { currentReadOf, RelationshipModel } from "../../src/engine/relationships";
-import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import type { RelationshipModel } from "../../src/engine/relationships";
+import { CURRENT_READ } from "../../src/engine/relationshipConstants";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { UserSandbox } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
-import { npc } from "../../src/domain/ids";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
+import { resolvePending } from "../support/answerPending";
 
 /**
- * Feature 0088 — living current read of the player. Drives the REAL GameSessionAdapter
- * (factory cast + npcVoice projection) so the NpcVoiceView.currentRead field is verified
- * end to end. Role-only.
+ * Feature 0088 — living current read of the player. Drives the REAL session (factory cast, the live NPC->player edge,
+ * the `npcVoice` projection the narrator is handed) and asserts what that projection actually carries — never a pure
+ * helper called with hand-made numbers. Role-only.
  */
 
 interface CRState {
-  crSession?: GameSessionAdapter;
+  crSb?: UserSandbox;
   crIds?: EntityId[];
   crNpc?: EntityId;
+  crBefore?: string;          // the carriage word before the player's conduct
+  crDayOne?: string;          // the sealed day-one read of the player (deep profile), as written at move-in
+  crInitialToward?: string;   // the carriage word at move-in
 }
 const cr = (w: BbWorld): CRState => w as unknown as CRState;
 
-function started(seed: number): { session: GameSessionAdapter; ids: EntityId[] } {
-  const session = new GameSessionAdapter();
-  session.createCharacter({ playerName: "The Player", seed });
-  return { session, ids: (session.snapshot().house?.npcs ?? []).map((n) => n.id) };
+/** The carriage ladder, coolest to warmest (the engine's own words). */
+const LADDER: readonly string[] = [CURRENT_READ.words.wary, CURRENT_READ.words.guarded, CURRENT_READ.words.neutral, CURRENT_READ.words.friendly, CURRENT_READ.words.warm];
+
+let users = 0;
+function started(seed: number): { sb: UserSandbox; ids: EntityId[] } {
+  const sb = new GameSessionRegistry().sandboxFor(`cr-${users++}`);
+  sb.session.createCharacter({ playerName: "The Player", seed });
+  return { sb, ids: (sb.session.snapshot().house?.npcs ?? []).map((n) => n.id) };
 }
+
+const relOf = (sb: UserSandbox): RelationshipModel => sb.engine.relationships;
+/** What the narrator is actually handed about how this houseguest carries themselves toward the player. */
+const readOf = (w: BbWorld): { toward: string; drift: "warming" | "cooling" | "steady" } => {
+  const view = cr(w).crSb!.session.npcVoice(cr(w).crNpc!);
+  assert.ok(view?.currentRead, "the voicing projection carries a current read for an active houseguest");
+  return view!.currentRead!;
+};
+const bondOf = (sb: UserSandbox, id: EntityId): number => {
+  const e = relOf(sb).edge(id, PLAYER);
+  return (e.trust + e.affinity) / 2;
+};
+/** Fix the reference point the drift word is measured from (what the engine does at each week roll). */
+function anchorNow(sb: UserSandbox, id: EntityId): void {
+  (sb.session as unknown as { readAnchors: Map<EntityId, number> }).readAnchors.set(id, bondOf(sb, id));
+}
+const dayOneRead = (sb: UserSandbox, id: EntityId): string => sb.session.snapshot().deepProfiles?.[id]?.dayOnePerception?.read ?? "";
+
+function begin(w: BbWorld, bond?: number): void {
+  const { sb, ids } = started(2026);
+  const s = cr(w);
+  s.crSb = sb; s.crIds = ids; s.crNpc = ids[0];
+  assert.ok(s.crNpc, "must have an NPC");
+  if (bond !== undefined) { const e = relOf(sb).edge(s.crNpc!, PLAYER); e.trust = bond; e.affinity = bond; }
+  anchorNow(sb, s.crNpc!);
+  s.crBefore = readOf(w).toward;
+}
+
+/**
+ * The player's conduct, as REAL recorded scenes through the engine's own recording seam (`recordInteraction`: the same path a
+ * live turn takes, with its hidden fold, its presence grounding, its per-beat fold budget and its persistence), never a direct
+ * edit of the edge. Two engine rules shape it: a scene only counts a houseguest who is actually IN THE ROOM (so the player walks
+ * to them first, as a player would), and at most a few folds land on one edge per beat (so a long run of scenes is spread over
+ * beats, one season beat played between batches, exactly as the season loop would). Asserts the conduct really moved the edge.
+ */
+const conduct = (w: BbWorld, kind: "bonding" | "conflict", times: number): void => {
+  const sb = cr(w).crSb!;
+  const npc = cr(w).crNpc!;
+  const nextBeat = (): void => {
+    const v = sb.session.advanceGame();
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
+  };
+  const together = (): boolean => { const o = sb.session.occupancy(); return !!o && o.get(PLAYER) === o.get(npc) && o.get(npc) !== undefined; };
+  const goToThem = (): void => {
+    for (let attempt = 0; attempt < 6 && !together(); attempt++) {
+      const room = sb.session.occupancy()?.get(npc);
+      if (room) sb.session.movePlayer(room);
+      if (!together()) nextBeat();
+    }
+    assert.ok(together(), "the player could not get into the same room as the houseguest");
+  };
+  const before = { ...relOf(sb).edge(npc, PLAYER) };
+  for (let i = 0; i < times; i++) {
+    if (i % 3 === 0) { if (i > 0) nextBeat(); goToThem(); }
+    sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: `a ${kind} scene (${i + 1})`, kind });
+  }
+  const after = relOf(sb).edge(npc, PLAYER);
+  assert.notEqual(after.trust + after.affinity, before.trust + before.affinity, `${times} recorded ${kind} scenes did not move the houseguest's edge`);
+};
 
 // ── Given ──────────────────────────────────────────────────────────────────────────────────
 
 Given("a houseguest whose day-one read of the player is wary", function (this: BbWorld) {
-  // Uses the started session from the background step's sandbox adapter.
-  // Fallback: create a fresh adapter for 0088 scenarios.
-  const s = cr(this);
-  if (!s.crSession) ({ session: s.crSession, ids: s.crIds } = started(2026));
-  s.crNpc = s.crIds?.[0];
-  assert.ok(s.crNpc, "must have an NPC");
+  begin(this, 0.1);
+  assert.equal(cr(this).crBefore, CURRENT_READ.words.wary, "the fixture starts wary");
 });
 
 Given("a houseguest whose day-one read of the player is friendly", function (this: BbWorld) {
-  const s = cr(this);
-  if (!s.crSession) ({ session: s.crSession, ids: s.crIds } = started(2026));
-  s.crNpc = s.crIds?.[0];
-  assert.ok(s.crNpc, "must have an NPC");
+  begin(this, 0.55);
+  assert.ok(LADDER.indexOf(cr(this).crBefore!) >= LADDER.indexOf(CURRENT_READ.words.friendly) - 1, "the fixture starts friendly-ish");
 });
 
 Given("a houseguest with a sealed day-one read of the player", function (this: BbWorld) {
+  begin(this);
   const s = cr(this);
-  if (!s.crSession) ({ session: s.crSession, ids: s.crIds } = started(2026));
-  s.crNpc = s.crIds?.[0];
-  assert.ok(s.crNpc, "must have an NPC");
-  (this as any)._dayOneBond = 0.25; // baseline bond at move-in
+  s.crInitialToward = s.crBefore;
+  s.crDayOne = dayOneRead(s.crSb!, s.crNpc!);
+  assert.ok(s.crDayOne.length > 0, "the houseguest has a sealed day-one read in their deep profile");
 });
 
 Given("the player has built a strong reputation with a houseguest", function (this: BbWorld) {
-  const s = cr(this);
-  if (!s.crSession) ({ session: s.crSession, ids: s.crIds } = started(2026));
-  s.crNpc = s.crIds?.[0];
-  assert.ok(s.crNpc, "must have an NPC");
-  // Advance the season to get the relationship model live
-  s.crSession!.advanceGame();
-  s.crSession!.advanceGame(); // week 1, live
-  // Force a warm bond via snapshot/restore
-  const core = s.crSession!.snapshot();
-  const rng = new SeededRandom(42);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  for (let i = 0; i < 6; i++) rel.applyDirected(s.crNpc!, PLAYER, "bonding", rng);
-  s.crSession!.restore(core);
-  (this as any)._rel = rel;
+  begin(this);
+  const e = relOf(cr(this).crSb!).edge(cr(this).crNpc!, PLAYER);
+  e.trust = 0.8731; e.affinity = 0.8419; e.threat = 0.1137; // distinctive magnitudes an admin surface must never echo
 });
 
 Given("a houseguest whose current read of the player has warmed", function (this: BbWorld) {
-  const s = cr(this);
-  if (!s.crSession) ({ session: s.crSession, ids: s.crIds } = started(2026));
-  s.crNpc = s.crIds?.[0];
-  assert.ok(s.crNpc, "must have an NPC");
+  begin(this, 0.2);
+  conduct(this, "bonding", 8);
+  assert.notEqual(readOf(this).drift, "steady", "the read has genuinely moved");
 });
 
-// 0088 Vault-safety voicing step — avoids the 0084 step which expects CV state.
 When("the voicing projection for a houseguest is read through the current read path", function (this: BbWorld) {
-  const s = cr(this);
-  if (!s.crSession) ({ session: s.crSession, ids: s.crIds } = started(2026));
-  s.crNpc = s.crIds?.[0];
-  assert.ok(s.crNpc, "must have an NPC");
-});
-
-// 0088 snapshot/restore — uses the 0088 session (crSession), avoiding 0060's "the season is
-// snapshotted and restored" step (which expects stSandbox and would read undefined here).
-When("the current read is snapshotted and restored", function (this: BbWorld) {
-  const s = cr(this);
-  assert.ok(s.crSession, "must have a session to snapshot");
-  const core = s.crSession!.snapshot();
-  s.crSession!.restore(core);
-});
-
-// When the voicing projection is read — set up CV state for 0084's step definition compatibility.
-// The 0084 feature's step expects cvSession/cvIds to be populated by "a started season with a
-// generated cast". Our 0088 scenarios use "a started season with the player in the house"
-// (which creates a sandbox, not a CV adapter), so we pre-populate CV state here.
-When("the player builds a warm bond with a houseguest through several bonding scenes", function (this: BbWorld) {
-  const s = cr(this);
-  assert.ok(s.crNpc, "must have an NPC set");
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const rng = new SeededRandom(42);
-  for (let i = 0; i < 6; i++) rel.applyDirected(s.crNpc!, PLAYER, "bonding", rng);
+  begin(this);
 });
 
 // ── When ──────────────────────────────────────────────────────────────────────────────────
 
 When("the player accumulates favorable conduct toward that houseguest over several recorded scenes", function (this: BbWorld) {
-  const s = cr(this);
-  assert.ok(s.crNpc, "must have an NPC set");
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const rng = new SeededRandom(42);
-  for (let i = 0; i < 6; i++) rel.applyDirected(s.crNpc!, PLAYER, "bonding", rng);
+  conduct(this, "bonding", 6);
 });
 
 When("the player acts against that houseguest in recorded scenes", function (this: BbWorld) {
-  const s = cr(this);
-  assert.ok(s.crNpc, "must have an NPC set");
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const rng = new SeededRandom(42);
-  for (let i = 0; i < 6; i++) rel.applyDirected(s.crNpc!, PLAYER, "conflict", rng);
+  conduct(this, "conflict", 6);
 });
 
 When("the player's conduct moves that houseguest's current read across the season", function (this: BbWorld) {
+  conduct(this, "bonding", 4);
+  conduct(this, "conflict", 8);
+});
+
+When("the current read is snapshotted and restored", function (this: BbWorld) {
   const s = cr(this);
-  assert.ok(s.crNpc, "must have an NPC set");
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const rng = new SeededRandom(42);
-  // Warm then cool
-  for (let i = 0; i < 4; i++) rel.applyDirected(s.crNpc!, PLAYER, "bonding", rng);
-  for (let i = 0; i < 4; i++) rel.applyDirected(s.crNpc!, PLAYER, "conflict", rng);
+  s.crSb!.session.restore(s.crSb!.session.snapshot());
 });
 
 When("an admin inspects the available game state", function (this: BbWorld) {
-  // currentRead is a Vault-safe word — admin surface never exposes numbers
+  (this as unknown as { crAdminView?: string }).crAdminView = JSON.stringify(cr(this).crSb!.admin.inspect());
 });
 
-// ── Then ──────────────────────────────────────────────────────────────────────────────────
+When("that houseguest is voiced toward the player", function (this: BbWorld) {
+  (this as unknown as { crVoice?: string }).crVoice = JSON.stringify(cr(this).crSb!.session.npcVoice(cr(this).crNpc!));
+});
+
+// ── Then: living read ──────────────────────────────────────────────────────────────────────
 
 Then("that houseguest's current read of the player carries a warmer carriage toward the player", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  assert.ok(read.toward !== "wary", `after bonding, toward must not be wary; got ${read.toward}`);
+  const after = readOf(this).toward;
+  assert.ok(LADDER.indexOf(after) > LADDER.indexOf(cr(this).crBefore!), `warmed from '${cr(this).crBefore}' but reads '${after}'`);
 });
 
 Then("the carriage reads as warming since an earlier reference point", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral", undefined, 0.25);
-  assert.equal(read.drift, "warming");
+  assert.equal(readOf(this).drift, "warming");
 });
 
 Then("the player is never shown a number for that read", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
+  const read = readOf(this);
+  assert.ok(!/[0-9]/.test(JSON.stringify(read)), "the current read carries no digit");
   assert.equal(typeof read.toward, "string");
-  assert.equal(typeof read.drift, "string");
 });
 
 Then("that houseguest's current read of the player carries a cooler, more guarded carriage", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  assert.ok(read.toward !== "warm and open", "after conflict, toward must not be warm and open");
+  const after = readOf(this).toward;
+  assert.ok(LADDER.indexOf(after) < LADDER.indexOf(cr(this).crBefore!), `cooled from '${cr(this).crBefore}' but reads '${after}'`);
 });
 
 Then("the carriage reads as cooling since an earlier reference point", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral", undefined, 0.4);
-  assert.equal(read.drift, "cooling");
+  assert.equal(readOf(this).drift, "cooling");
 });
 
+// ── Then: frozen day-one read ──────────────────────────────────────────────────────────────
+
 Then("the sealed day-one read of the player is unchanged", function (this: BbWorld) {
-  const dayOne = (this as any)._dayOneBond;
-  assert.ok(typeof dayOne === "number", "day-one bond must be recorded");
-  // dayOnePerception is a separate frozen field — verified by existence
+  const s = cr(this);
+  assert.equal(dayOneRead(s.crSb!, s.crNpc!), s.crDayOne, "the frozen first impression was rewritten by the player's conduct");
 });
 
 Then("the current read may disagree with the day-one read", function (this: BbWorld) {
   const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  // The read exists and is derived live — it may differ from the frozen dayOnePerception
-  assert.ok(["warm and open", "friendly", "neutral", "guarded", "wary"].includes(read.toward));
+  // The live read followed the conduct (the When played it), not the first impression: the carriage word differs from the
+  // move-in carriage, and the sealed read stays put. Nothing here changes game state.
+  const now = readOf(this);
+  assert.notEqual(now.toward, s.crInitialToward, `the live read ('${now.toward}', ${now.drift}) did not move off the move-in carriage`);
+  assert.equal(dayOneRead(s.crSb!, s.crNpc!), s.crDayOne, "the sealed day-one read held while the live read moved");
 });
 
 Then("the gap between the first impression and the current read is itself voiceable", function (this: BbWorld) {
-  assert.ok(true, "currentRead and dayOnePerception are distinct, co-existing fields");
+  const s = cr(this);
+  // Both halves exist at once, as distinct things: the sealed first impression (Vault) and the live carriage word the
+  // narrator is handed — so the engine can hand over a "was wary, now warm" arc without ever naming a number.
+  const voice = JSON.stringify(s.crSb!.session.npcVoice(s.crNpc!));
+  assert.ok(readOf(this).toward.length > 0 && readOf(this).drift.length > 0, "a live carriage + drift is handed to the voicer");
+  assert.ok(s.crDayOne!.length > 0 && !voice.includes(s.crDayOne!), "the sealed first impression stays in the Vault, distinct from the live read");
 });
 
+// ── Then: Vault Wall ───────────────────────────────────────────────────────────────────────
+
 Then("any current read of the player is a carriage word, not a signal value", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  assert.equal(typeof read.toward, "string");
+  const read = readOf(this);
+  assert.ok(LADDER.includes(read.toward), `'${read.toward}' is one of the engine's carriage words`);
+  assert.ok(["warming", "cooling", "steady"].includes(read.drift));
 });
 
 Then("the projection carries no trust, affinity, or threat number toward the player", function (this: BbWorld) {
   const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  const serialized = JSON.stringify(read);
-  for (const n of ["trust", "affinity", "threat", "confidence", "alignment", "reliability"]) {
-    assert.ok(!serialized.includes(n), `currentRead must not contain ${n}`);
-  }
+  const view = s.crSb!.session.npcVoice(s.crNpc!)!;
+  const e = relOf(s.crSb!).edge(s.crNpc!, PLAYER);
+  const blob = JSON.stringify(view);
+  for (const v of [e.trust, e.affinity, e.threat]) assert.ok(!blob.includes(String(v)), `the projection echoes an edge value (${v})`);
+  assert.ok(!/"(trust|affinity|threat|confidence|alignment|reliability)"\s*:\s*[0-9.]/.test(blob), "no signal field with a number rides the projection");
+  assert.ok(!/[0-9]/.test(JSON.stringify(view.currentRead)), "the read itself carries no digit");
 });
 
 Then("the projection carries no hidden cause for the read", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  const keys = Object.keys(read).sort();
-  assert.deepStrictEqual(keys, ["drift", "toward"]);
+  const read = readOf(this);
+  assert.deepStrictEqual(Object.keys(read).sort(), ["drift", "toward"]);
+  const blob = JSON.stringify(cr(this).crSb!.session.npcVoice(cr(this).crNpc!));
+  assert.ok(!blob.includes(cr(this).crDayOne ?? dayOneRead(cr(this).crSb!, cr(this).crNpc!)), "the sealed day-one read leaked into the projection");
 });
 
 Then("no admin surface exposes the NPC-to-player relationship signals", function (this: BbWorld) {
   const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  const keys = Object.keys(read).sort();
-  assert.deepStrictEqual(keys, ["drift", "toward"]);
+  const admin = (this as unknown as { crAdminView: string }).crAdminView;
+  const e = relOf(s.crSb!).edge(s.crNpc!, PLAYER);
+  for (const v of [e.trust, e.affinity, e.threat]) assert.ok(!admin.includes(String(v)), `the admin view echoes an edge value (${v})`);
+  assert.ok(!/"(trust|affinity|threat)"/.test(admin), "the admin view carries a relationship-signal field");
 });
 
 Then("no admin surface exposes a number for any houseguest's read of the player", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  assert.equal(typeof read.toward, "string");
-  assert.equal(typeof read.drift, "string");
+  const admin = (this as unknown as { crAdminView: string }).crAdminView;
+  assert.ok(!/currentRead|"toward"|"drift"/.test(admin), "the admin view carries the read at all");
+  assert.ok(!/(warm and open|guarded|wary)/.test(admin), "the admin view carries a carriage word for the read");
+});
+
+// ── Then: the engine never asserts it ──────────────────────────────────────────────────────
+
+Then("the houseguest's warmer conduct is shown", function (this: BbWorld) {
+  const voice = (this as unknown as { crVoice: string }).crVoice;
+  const read = (JSON.parse(voice) as { currentRead: { toward: string; drift: string } }).currentRead;
+  assert.equal(read.drift, "warming");
+  assert.ok(LADDER.indexOf(read.toward) >= LADDER.indexOf(CURRENT_READ.words.neutral), `a warmed houseguest still reads '${read.toward}'`);
 });
 
 Then("the engine never asserts that the player trusts or likes that houseguest", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  const keys = Object.keys(read).sort();
-  assert.deepStrictEqual(keys, ["drift", "toward"]);
+  // The read is the HOUSEGUEST's carriage toward the player — the projection holds no claim about the player's own feelings.
+  const voice = JSON.parse((this as unknown as { crVoice: string }).crVoice) as Record<string, unknown>;
+  assert.ok(!/(you|player)\s+(trust|like|love|are close)/i.test(JSON.stringify(voice.currentRead)), "the read states the player's feelings");
+  assert.deepStrictEqual(Object.keys(voice.currentRead as object).sort(), ["drift", "toward"]);
+  assert.ok(!("playerFeels" in voice) && !("playerTrust" in voice), "no field states the player's own feelings");
 });
 
 Then("the engine never labels the relationship for the player", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  // Drift is a movement cue, toward is a carriage word — never a label
-  assert.ok(["warming", "cooling", "steady"].includes(read.drift));
-  assert.ok(["warm and open", "friendly", "neutral", "guarded", "wary"].includes(read.toward));
+  const read = readOf(this);
+  // A carriage word and a movement cue — never an "ally / friend / enemy" label.
+  assert.ok(LADDER.includes(read.toward));
+  assert.ok(!/ally|friend\b|enemy|rival|best/i.test(read.toward), `'${read.toward}' labels the relationship`);
 });
 
 // ── Determinism ────────────────────────────────────────────────────────────────────────────
 
+/** Play a fixed history; optionally read every houseguest's voice (and so the current read) after every beat. */
+function playHistory(seed: number, readVoices: boolean): { reads: string[]; trail: string } {
+  const { sb, ids } = started(seed);
+  const reads: string[] = [];
+  const trail: string[] = [];
+  for (let i = 0; i < 80; i++) {
+    const v = sb.session.advanceGame();
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
+    trail.push(`${v.status.week}:${v.status.phase}:${v.status.hoh?.id}:${v.status.nominees.map((n) => n.id).join("+")}`);
+    if (readVoices) for (const id of ids) reads.push(`${id}=${JSON.stringify(sb.session.npcVoice(id)?.currentRead)}`);
+    if (v.finished) break;
+  }
+  const core = sb.session.snapshot();
+  trail.push(JSON.stringify(core.live?.evictionOrder));
+  return { reads, trail: trail.join("|") };
+}
+
 Given("two games seeded identically and played through the same history", function (this: BbWorld) {
-  // currentReadOf is deterministic — verified by the pure-function test below
+  (this as unknown as { crRuns: ReturnType<typeof playHistory>[] }).crRuns = [playHistory(77, true), playHistory(77, true), playHistory(77, false)];
 });
 
 Then("each houseguest's current read of the player is the same carriage in both games", function (this: BbWorld) {
-  const a = currentReadOf({ trust: 0.5, affinity: 0.5, threat: 0.1 }, "neutral", 0.5, 0.3);
-  const b = currentReadOf({ trust: 0.5, affinity: 0.5, threat: 0.1 }, "neutral", 0.5, 0.3);
-  assert.deepStrictEqual(a, b);
+  const [a, b] = (this as unknown as { crRuns: ReturnType<typeof playHistory>[] }).crRuns;
+  assert.ok(a!.reads.length > 0 && a!.reads.some((r) => !r.endsWith("=undefined")), "carriage words were actually read");
+  assert.deepStrictEqual(a!.reads, b!.reads);
 });
 
 Then("the seeded competition and eviction outcomes are byte-identical to a game without the read surfaced", function (this: BbWorld) {
-  assert.ok(true, "currentRead is a pure function — no rng consumption");
-});
-
-// ── Vault Wall (voice step) ────────────────────────────────────────────────────────────────
-
-// "When the voicing projection for a houseguest is read" is from 0084's step file.
-// The 0088 scenarios that use it verify currentRead through npcVoice.
-
-Then("the houseguest's warmer conduct is shown", function (this: BbWorld) {
-  const s = cr(this);
-  const rel = s.crSession!["rel"] as RelationshipModel;
-  const edge = rel.edge(s.crNpc!, PLAYER);
-  const read = currentReadOf(edge, "neutral");
-  assert.ok(read.toward !== "wary", "warmer conduct must not read as wary");
-});
-
-When("that houseguest is voiced toward the player", function (this: BbWorld) {
-  const s = cr(this);
-  assert.ok(s.crNpc, "must have an NPC set");
-  // npcVoice for this NPC provides the currentRead carriage
-  const voice = s.crSession!.npcVoice(s.crNpc!);
-  assert.ok(voice, "npcVoice must return a value");
+  const [a, , quiet] = (this as unknown as { crRuns: ReturnType<typeof playHistory>[] }).crRuns;
+  assert.equal(a!.trail, quiet!.trail, "reading the current read changed the game's seeded outcomes");
 });

@@ -2,7 +2,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { newLiveSeason, advance, applyDecision } from "../../src/engine/liveSeason";
+import { newLiveSeason, advance, applyDecision, autoDecision } from "../../src/engine/liveSeason";
 import type { SeasonCtx, LiveSeasonState, PendingDecision } from "../../src/engine/liveSeason";
 import { vetoParticipants, vetoFieldSize, evictionVoters, type WeekState } from "../../src/domain/eligibility";
 import { RelationshipModel } from "../../src/engine/relationships";
@@ -80,15 +80,40 @@ Then("the structural veto invariants still hold", function (this: BbWorld) {
 // --- Scenario: Final 4 has a single eviction vote ------------------------------
 
 Given("a Final 4 eviction", function (this: BbWorld) {
-  this.egWeek = { houseguests: [npc(1), npc(2), npc(3), npc(4)], player: PLAYER, hoh: npc(1), nominees: [npc(2), npc(3)] };
+  // A REAL Final 4 with a veto holder: HOH, two nominees, and the fourth houseguest holding the veto. The PLAYER is the HOH
+  // (the only seat for which the engine raises a tie-break), so a tie-break pending would be possible if the vote could tie.
+  // The eviction is then run through the live loop, recording every ballot actually cast.
+  const [hoh, n1, n2, holder] = [PLAYER, npc(2), npc(3), npc(4)];
+  this.egWeek = { houseguests: [hoh, n1, n2, holder], player: PLAYER, hoh, nominees: [n1, n2], vetoWinner: holder };
+  const s = newLiveSeason([hoh, n1, n2, holder]);
+  s.beat = "eviction"; s.hoh = hoh; s.nominees = [n1, n2]; s.finalNominees = [n1, n2]; s.vetoHolder = holder;
+  const ctx = ctxOf(new RelationshipModel(0.5));
+  const rng = new SeededRandom(1);
+  let tieBreakAsked = false;
+  for (let i = 0; i < 100 && !s.voteRecord?.length; i++) {
+    if (s.pending) {
+      if (s.pending.kind === "tie-break") tieBreakAsked = true;
+      applyDecision(s, autoDecision(s, ctx, rng), ctx, rng);
+    } else advance(s, ctx, rng);
+  }
+  assert.ok(s.voteRecord?.length, "the eviction vote was actually held");
+  this.egState = s;
+  this.egBallots = Object.keys(s.voteRecord![0]!.voteOf);
+  this.egTieBreakAsked = tieBreakAsked;
 });
 
-Then("only the veto holder casts an eviction vote", function (this: BbWorld) {
-  assert.deepEqual(evictionVoters(this.egWeek!), [npc(4)]); // the sole non-HOH, non-nominee
+Then("only the one houseguest who is neither HOH nor a nominee casts an eviction vote", function (this: BbWorld) {
+  const w = this.egWeek!;
+  const leftover = w.houseguests.filter((h) => h !== w.hoh && !w.nominees.includes(h));
+  assert.equal(leftover.length, 1, "a Final 4 leaves exactly one houseguest who is neither HOH nor nominee");
+  assert.deepEqual(evictionVoters(w), leftover);
+  assert.deepEqual(this.egBallots, leftover, "the ballots actually cast in the live eviction");
 });
 
 Then("there is no tie to break", function (this: BbWorld) {
-  assert.equal(evictionVoters(this.egWeek!).length, 1, "a single voter cannot tie");
+  assert.equal(this.egBallots!.length, 1, "a single voter cannot tie");
+  assert.equal(this.egTieBreakAsked, false, "the live loop never asked for a tie-break");
+  assert.ok(this.egState!.evictionOrder.length === 1, "the single ballot evicted exactly one nominee");
 });
 
 // --- Scenario: Final 3 is a final-HOH competition and a personal eviction -------

@@ -181,12 +181,23 @@ Then("the NPC picks their strongest available bond as scored by the signals", fu
 });
 
 Then("the choice carries bounded temperature variance", function (this: BbWorld) {
-  // Bounded: a clear bond is never flipped (asserted above across seeds); the variance only
-  // wobbles near-ties. Two near-equal candidates can each be chosen under different seeds.
+  // Variance is REAL: two near-equal bonds are each chosen under some seeds (the temperature genuinely wobbles a near-tie)...
   const r = new RelationshipModel(0.6);
   const rng = new SeededRandom(1);
   for (let i = 0; i < 3; i++) { r.applyDirected(A, npc(5), "bonding", rng); r.applyDirected(A, npc(6), "bonding", rng); }
+  const TEMP = 0.4;
+  const tieGap = Math.abs(r.bondStrength(A, npc(5)) - r.bondStrength(A, npc(6)));
+  assert.ok(tieGap < TEMP / 2, `the fixture is a genuine near-tie (gap ${tieGap})`);
   const picks = new Set<string>();
-  for (let seed = 1; seed <= 30; seed++) picks.add(r.chooseStrongestBond(A, [npc(5), npc(6)], new SeededRandom(seed), 0.4));
-  assert.ok(picks.size >= 1); // near-ties may wobble; bounded variance keeps it sane
+  for (let seed = 1; seed <= 200; seed++) picks.add(r.chooseStrongestBond(A, [npc(5), npc(6)], new SeededRandom(seed), TEMP));
+  assert.equal(picks.size, 2, "a near-tie wobbles: both candidates win under some seeds");
+
+  // ...and BOUNDED: the roll can swing a score by at most the temperature, so a bond that leads by more than that
+  // is never flipped, however many seeds (here: the strongest bond vs an untouched houseguest).
+  const clearGap = this.rel!.bondStrength(A, npc(3)) - this.rel!.bondStrength(A, npc(2));
+  assert.ok(clearGap > 0.1, `the fixture has a clear lead (gap ${clearGap})`);
+  const bounded = clearGap * 0.9;
+  for (let seed = 1; seed <= 300; seed++) {
+    assert.equal(this.rel!.chooseStrongestBond(A, [npc(2), npc(3)], new SeededRandom(seed), bounded), npc(3), `seed ${seed}: a clear bond was flipped`);
+  }
 });

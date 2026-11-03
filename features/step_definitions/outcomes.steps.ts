@@ -11,6 +11,7 @@ import type { WeekState } from "../../src/domain/eligibility";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { buildSandbox } from "../../tests/support/sandbox";
+import { assertHardRulesSurviveTemperature } from "../support/eligibilityUnderTemperature";
 
 const RUNS = 600;
 const flat = (v: number): Competitor["stats"] => ({ physical: v, mental: v, social: v });
@@ -45,7 +46,6 @@ Then("resolving again with the same seed yields the identical outcome", function
 // --- Hard rules invariant under temperature -----------------------------------
 
 Given("any temperature roll", function (this: BbWorld) {
-  void rollFor(["outcome", "expression"], new SeededRandom(7)); // a roll happens — it must not matter
   this.week = week({ outgoingHoh: npc(4), vetoWinner: npc(5) });
   this.sandbox = buildSandbox(1);
 });
@@ -53,7 +53,24 @@ Given("any temperature roll", function (this: BbWorld) {
 Then("eligibility rules and the Vault Wall still hold", function (this: BbWorld) {
   assert.ok(!eligibleForHOH(this.week!).includes(npc(4)), "outgoing-HOH rule holds");
   assert.ok(!selectableReplacements(this.week!).includes(npc(5)), "veto-winner-replacement rule holds");
+  // A competition resolved over that field under a deafening temperature weight still never lets them back in.
+  assertHardRulesSurviveTemperature(this.week!);
+  // A REALLY resolved competition's result reaches the player stat-free: resolve over the eligible field, seal the engine-side
+  // scores in the Vault, then project the real winner through the player surface.
+  const field: Competitor[] = eligibleForHOH(this.week!).map((id, i) => ({ id, stats: { physical: 0.3 + 0.04 * i, mental: 0.5, social: 0.5 } }));
+  const resolved = resolveCompetition(field, "physical", new CompetitionIntents(), new SeededRandom(7));
+  const statSentinel = this.sandbox!.freshSentinel("stat");
+  const sealed = `competition scores ${JSON.stringify(resolved.scores)} ${statSentinel}`;
+  this.sandbox!.engine.vault.writeHidden({ id: "vault:resolved-comp", kind: "hidden-attribute", subject: "competition", content: sealed });
+  this.sandbox!.hiddenContents.push(sealed);
+  this.sandbox!.sentinels.push(statSentinel);
+  const pv = this.sandbox!.player.competitionResult({ type: "HOH", winnerLabel: resolved.winner });
+  const view = JSON.stringify(pv);
+  assert.ok(pv.outcome.includes(resolved.winner), "the real winner reaches the player");
+  assert.notEqual(resolved.winner, npc(4), "the resolved winner respects the outgoing-HOH rule");
   const out = this.sandbox!.allPlayerOutputs();
+  assert.ok(!view.includes(statSentinel) && !view.includes(JSON.stringify(resolved.scores)), "the competition result carries no sealed scores");
+  assert.deepEqual(Object.keys(pv).sort(), ["outcome", "type"], "the competition view has no stat fields");
   for (const s of this.sandbox!.sentinels) assert.ok(!out.includes(s), "no Vault content leaks");
 });
 

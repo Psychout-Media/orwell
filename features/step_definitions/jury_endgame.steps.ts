@@ -7,6 +7,10 @@ import type { SeasonHouseguest } from "../../src/engine/season";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { LlmNarrativePort } from "../../src/adapters/narrative/LlmNarrativePort";
+import type { NarratorTransport } from "../../src/adapters/narrative/LlmNarrativePort";
+import { liveFinale, driveFinaleSeam, JURY9 } from "../support/liveFinale";
 
 // Reused (defined in weekly_loop.steps): "the season reaches Final 2", "the earlier evictees
 // are pre-jury", "a Final 2 and a jury", "the finalist with the most votes wins".
@@ -132,24 +136,63 @@ Then("a tie is broken by the last-evicted juror", function (this: BbWorld) {
 
 // --- Engine decides; the LLM only voices -------------------------------------
 
-Given("the jurors are voiced by the narrative layer", function () {
-  // The narrative layer voices jurors; it is handed no power to change a vote.
+Given("the jurors are voiced by the narrative layer", function (this: BbWorld) {
+  // A HALLUCINATING narrator: it voices every beat of the finale and insists the OTHER finalist is winning.
+  const hallucinating: NarratorTransport = {
+    async *stream() {
+      yield "The jurors rise as one and crown the rival finalist, unanimously.";
+    },
+  };
+  this.narrator = new LlmNarrativePort(
+    { provider: "ollama", endpoint: "http://127.0.0.1:0", model: "m", apiKey: undefined, timeoutMs: 20, maxRetries: 0 },
+    hallucinating,
+  );
 });
 
-When("the jury vote is computed", function (this: BbWorld) {
-  const jurors = [npc(1), npc(2), npc(3)];
-  const order = [npc(1), npc(2), npc(3)];
-  const leanOf = (_j: string, f: string): number => (f === A ? 0.9 : 0.2);
-  this.juryWinner = tallyJuryVote(jurors, [A, B], leanOf, () => 0.5, order, new SeededRandom(7));
-  this.juryWinner2 = tallyJuryVote(jurors, [A, B], leanOf, () => 0.5, order, new SeededRandom(7));
+/** Play a LIVE Final 2 (player vs one NPC, nine jurors) to its winner, optionally narrating every beat on the way. */
+async function playLiveJury(user: string, favored: "player" | "rival", narrate?: (reg: GameSessionRegistry) => Promise<void>) {
+  const strong = { trust: 0.9, affinity: 0.9, threat: 0.1 };
+  const weak = { trust: 0.1, affinity: 0.1, threat: 0.9 };
+  const rival = npc(10);
+  const { reg, player } = await liveFinale(user, 5, {
+    finalists: [PLAYER, rival], jury: JURY9,
+    edgeTo: (_j, f) => ((f === PLAYER) === (favored === "player") ? strong : weak),
+  });
+  const views = await driveFinaleSeam(player, { onView: async () => { await narrate?.(reg); } });
+  const last = views[views.length - 1]!;
+  assert.ok(last.finished && last.winner, "the live jury crowned a winner");
+  const reveals = views.filter((v) => v.event?.beat === "finale-reveal").map((v) => v.event!.content);
+  return { winner: last.winner!.id as string, reveals };
+}
+
+When("the jury vote is computed", async function (this: BbWorld) {
+  const port = this.narrator!;
+  let narrations = 0;
+  const narrate = async (reg: GameSessionRegistry): Promise<void> => {
+    // Each narration is built from the player's visible state and handed to the hallucinating voicer mid-finale.
+    const ctx = reg.sandboxFor("narrated").player.assembleNarrationContext("scene");
+    const out = await port.narrate(ctx);
+    assert.match(out, /crown the rival/, "the narrator really did contradict the engine");
+    narrations++;
+  };
+  this.juryLive = {
+    plain: await playLiveJury("plain", "player"),
+    narrated: await playLiveJury("narrated", "player", narrate),
+    flipped: await playLiveJury("flipped", "rival"),
+    narrations,
+  };
 });
 
 Then("each vote is decided by the engine from jury relationships and finale performance", function (this: BbWorld) {
-  assert.ok([A, B].includes(this.juryWinner!), "the engine produced the winner from leans + performance");
-  assert.equal(this.juryWinner, A); // the strongly-led finalist
+  const j = this.juryLive!;
+  assert.equal(j.plain.winner, PLAYER, "jurors who trust the player crown the player");
+  assert.equal(j.flipped.winner, npc(10), "reverse the relationships and the same jury crowns the rival: the leans decide");
+  assert.notDeepEqual(j.plain.reveals, j.flipped.reveals, "the revealed votes follow the relationships");
 });
 
 Then("the narrative layer does not change any vote", function (this: BbWorld) {
-  // The tally takes no voicing input; identical inputs → identical winner, whatever the narration says.
-  assert.equal(this.juryWinner, this.juryWinner2);
+  const j = this.juryLive!;
+  assert.ok(j.narrations > 10, "the narrator voiced the finale beat by beat");
+  assert.equal(j.narrated.winner, j.plain.winner, "the winner is the engine's, whatever the narration claims");
+  assert.deepEqual(j.narrated.reveals, j.plain.reveals, "every revealed vote is identical with and without narration");
 });

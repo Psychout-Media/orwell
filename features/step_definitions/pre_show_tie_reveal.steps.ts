@@ -4,11 +4,15 @@ import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { RelationshipModel } from "../../src/engine/relationships";
-import { tieExposureOf, tieNatureProse, type PreGameTie } from "../../src/engine/seededRelationships";
+import { tieExposureOf, tieNatureProse, exposedTies, type PreGameTie } from "../../src/engine/seededRelationships";
 import { TIE_REVEAL } from "../../src/engine/tieRevealConstants";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { liveAdminSurface } from "../support/liveSweep";
+import { buildSandbox } from "../../tests/support/sandbox";
+import { seasonTrail } from "../support/seasonTrail";
+import { defaultApply } from "../../src/composition/orchestrator";
+import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 
 /**
  * Feature 0095 — pre-show ties as time-bombs. Role-only (the-player, a tied pair, a deceived
@@ -29,6 +33,10 @@ interface TrWorld {
   trRevived?: GameSessionAdapter;
   trOffSnap?: unknown;
   trOnSnap?: unknown;
+  trOffTrail?: string;
+  trOnTrail?: string;
+  trEdgesBefore?: string;
+  trRelsBefore?: string;
 }
 const tr = (w: BbWorld): TrWorld => w as unknown as TrWorld;
 
@@ -50,6 +58,12 @@ function gameWithATie(prefix: string): { reg: GameSessionRegistry; sb: ReturnTyp
     if (ties.length > 0) return { reg, sb, tie: ties[0]! };
   }
   throw new Error("no seed produced a pre-game tie within the probe range");
+}
+
+/** Every houseguest's directed read of both members of the tie, as one comparable string. */
+function readsOfPair(sb: ReturnType<GameSessionRegistry["sandboxFor"]>, tie: PreGameTie): string {
+  const ids = sb.session.snapshot().house!.npcs.map((n) => n.id);
+  return JSON.stringify(ids.filter((id) => id !== tie.a && id !== tie.b).map((id) => [id, relOf(sb.session).edge(id, tie.a), relOf(sb.session).edge(id, tie.b)]));
 }
 
 const tieRegex = /casting-callback|mutual-friend|shared-hometown|old-acquaintance|pre-game-tie/;
@@ -97,12 +111,16 @@ Given("the tied pair is not conspicuous together", function (this: BbWorld) {
 });
 
 Given("neither of the pair is under enough strain to let it slip", function () {
-  // No "slip" pathway is built in v1 (deferred per the spec's own open questions) — structurally, a
-  // slip can never fire regardless of strain. Documentary.
+  // No "slip" pathway is built in v1 (deferred per the spec's own open questions): strain cannot expose a tie.
 });
 
-Given("no one has accused the pair of a prior connection", function () {
-  // Documentary — the upcoming Then steps assert nothing was recorded; `accuseTie` is simply never called.
+Given("no one has accused the pair of a prior connection", function (this: BbWorld) {
+  // Give every pathway its best chance: the overhear scheduler is switched ON and ticked thousands of times while the
+  // pair stays unconspicuous and nobody calls `accuseTie`. Whatever it does (nothing), the reads are captured around it.
+  const { trSb: sb, trTie: tie } = tr(this);
+  GameSessionAdapter.setTieRevealEnabled(true);
+  tr(this).trEdgesBefore = readsOfPair(sb!, tie!);
+  for (let i = 0; i < 3000; i++) sb!.session.advanceTieReveal(sb!.engine.knowledge);
 });
 
 Then("the tie stays sealed", function (this: BbWorld) {
@@ -115,10 +133,9 @@ Then("no exposure is recorded", function (this: BbWorld) {
   assert.equal(peek(tr(this).trSb!.session).tieExposureCount, 0);
 });
 
-Then("the house reads the pair as it would any other two houseguests", function () {
-  // Beyond the tiny, non-structural 0059 TIE_AFFINITY_BIAS fold (behavior only, never a stated fact),
-  // nothing distinguishes the pair — proven by the sealed-surface sweep above.
-  assert.ok(true);
+Then("the house reads the pair as it would any other two houseguests", function (this: BbWorld) {
+  const { trSb: sb, trTie: tie } = tr(this);
+  assert.equal(readsOfPair(sb!, tie!), tr(this).trEdgesBefore, "with no pathway the house's reads of the pair moved");
 });
 
 // ── Rule: a pathway exposes the tie and the house reacts ────────────────────────────────────────────
@@ -131,9 +148,10 @@ Given("the tied pair is conspicuously holed up together in a private room", func
   relOf(sb!.session).edge(tie!.b, tie!.a).affinity = TIE_REVEAL.conspicuousAffinity + 0.2;
 });
 
-Given("a plausibly-positioned third houseguest is around to notice", function () {
+Given("a plausibly-positioned third houseguest is around to notice", function (this: BbWorld) {
   // The default (unset) occupancy already treats every NPC as out in the open (not behind a closed
-  // door) — a plausible onlooker is available by construction; nothing further to arrange.
+  // door) — a plausible onlooker is available by construction. Capture the house's reads of the pair BEFORE the tick.
+  tr(this).trEdgesBefore = readsOfPair(tr(this).trSb!, tr(this).trTie!);
 });
 
 When("the off-screen society tick fires the overhear pathway", function (this: BbWorld) {
@@ -184,7 +202,11 @@ Then("the fallout is bounded and never a flat house-wide flag", function (this: 
   // folds only the observer directly, then hands off to `diffuseGossip`, whose `foldReceipt` scales
   // EVERY further learner's fold by their OWN diffusion confidence (`tests/unit/tieReveal0095.test.ts`
   // proves this at the unit level) — a fifth-hand rumor barely registers, exactly the opposite of a flag.
-  assert.ok(true);
+  const after = JSON.parse(readsOfPair(sb!, tie!)) as Array<[string, unknown, unknown]>;
+  const before = JSON.parse(tr(this).trEdgesBefore!) as Array<[string, unknown, unknown]>;
+  const moved = after.filter((row, i) => JSON.stringify(row) !== JSON.stringify(before[i])).length;
+  assert.ok(moved >= 1, "the exposure moved at least the onlooker's read");
+  assert.ok(moved < after.length, `the fallout reached all ${after.length} other houseguests: that is a flat house-wide flag`);
 });
 
 Given("the player suspects the pair knew each other before the show", function () {
@@ -234,6 +256,8 @@ Given("a pair of near-strangers with no seeded tie", function (this: BbWorld) {
 
 When("the player accuses that pair of a prior connection through the engine authority", function (this: BbWorld) {
   const { trSb: sb, trUntiedPair } = tr(this);
+  const core = sb!.session.snapshot();
+  tr(this).trRelsBefore = JSON.stringify([relOf(sb!.session).serialize().edges, core.seededRelationships, sb!.engine.knowledge.knownTo(PLAYER).length]);
   const [a, b] = trUntiedPair!;
   tr(this).trAccuseResult = sb!.session.accuseTie(a, b) ?? undefined;
 });
@@ -247,10 +271,11 @@ Then("no tie is surfaced and no sealed state is read", function (this: BbWorld) 
   assert.equal(peek(sb!.session).tieExposureCount, 0);
 });
 
-Then("the attempt is recorded only as an ordinary social scene", function () {
-  // Structural: `accuseTie`'s miss path returns before touching `seededRels`/`rel` at all (a pure "no
-  // sealed tie" lookup) — nothing beyond an ordinary, unrecorded guess.
-  assert.ok(true);
+Then("the attempt is recorded only as an ordinary social scene", function (this: BbWorld) {
+  // A miss touches nothing sealed and moves nothing: every read, every seeded tie, and the player's own knowledge are as they were.
+  const { trSb: sb } = tr(this);
+  const core = sb!.session.snapshot();
+  assert.equal(JSON.stringify([relOf(sb!.session).serialize().edges, core.seededRelationships, sb!.engine.knowledge.knownTo(PLAYER).length]), tr(this).trRelsBefore);
 });
 
 Then("the player is shown no number and no tell distinguishing a miss from a hit", function (this: BbWorld) {
@@ -273,12 +298,18 @@ Then("the voices carry no sealed tie content", function (this: BbWorld) {
   assert.ok(!tieRegex.test(tr(this).trPlayerBlob!));
 });
 
-Then("only an exposure the engine has already committed is ever voiced as a public fact", async function () {
-  // Structural: `exposedTies()` (the Vault-free public projector, `nameOf`/`npcVoice`'s only route to
-  // ever voicing a pair as a duo) filters to `public` only — a `sealed` tie is never a candidate.
-  const seededRel = await import("../../src/engine/seededRelationships");
-  const sealedOnly: PreGameTie[] = [{ a: "npc:1" as EntityId, b: "npc:2" as EntityId, nature: "old-acquaintance" }];
-  assert.equal(seededRel.exposedTies(sealedOnly).length, 0);
+Then("only an exposure the engine has already committed is ever voiced as a public fact", function (this: BbWorld) {
+  const { trSb: sb, trTie: tie } = tr(this);
+  const liveTies = (): PreGameTie[] => peek(sb!.session).seededRels.ties;
+  const voices = (): string => JSON.stringify(sb!.session.snapshot().house!.npcs.map((n) => sb!.session.npcVoice(n.id)));
+  // Sealed — and even merely surfaced among the houseguests off-screen — is never a public fact.
+  assert.equal(exposedTies(liveTies()).length, 0);
+  liveTies().find((t) => t.a === tie!.a && t.b === tie!.b)!.exposure = "surfaced-to-house";
+  assert.equal(exposedTies(liveTies()).length, 0, "an off-screen-only surfacing was projected as public");
+  assert.ok(!tieRegex.test(voices()));
+  // Only the engine's own committed exposure (the accusation landing) makes it a public fact.
+  assert.equal(sb!.session.accuseTie(tie!.a, tie!.b)?.landed, true);
+  assert.deepEqual(exposedTies(liveTies()).map((t) => [t.a, t.b]), [[tie!.a, tie!.b]]);
 });
 
 Given("the tie has surfaced among the houseguests off-screen", function (this: BbWorld) {
@@ -394,29 +425,53 @@ Then("the number of exposed pre-show ties never exceeds the season cap", functio
 });
 
 Given("the same seed is played with the tie-reveal feature off and on without a precipitant", function (this: BbWorld) {
-  const rel = new RelationshipModel(0.5);
-  const off = new GameSessionAdapter(rel);
-  off.setCampaignsEnabled(false);
-  GameSessionAdapter.setTieRevealEnabled(null); // default OFF
-  off.createCharacter({ playerName: "The Player", seed: 4242 });
-  Object.assign(tr(this), { trOffSnap: off.snapshot() });
-
-  const rel2 = new RelationshipModel(0.5);
-  const on = new GameSessionAdapter(rel2);
-  GameSessionAdapter.setTieRevealEnabled(true); // ON, but no precipitant (no seeded tie forced conspicuous)
-  on.createCharacter({ playerName: "The Player", seed: 4242 });
-  Object.assign(tr(this), { trOnSnap: on.snapshot() });
+  // A house that really HAS a sealed tie (so a precipitant could exist), played through the live loop with the
+  // orchestrator's off-screen tick after every beat (the tick is what runs the overhear scheduler).
+  let seed = 1;
+  for (; seed <= 300; seed++) {
+    const probe = new GameSessionRegistry().sandboxFor(`probe-${seed}`);
+    probe.session.createCharacter({ playerName: "The Player", seed });
+    if ((probe.session.snapshot().seededRelationships?.ties ?? []).length > 0) break;
+  }
+  if (seed > 300) throw new Error("no seed in 1..300 casts a house with a sealed pre-show tie");
+  const season = (enabled: boolean): { snap: unknown; trail: string; edges: unknown } => {
+    GameSessionAdapter.setTieRevealEnabled(enabled); // an EXPLICIT on/off (null would defer to ORWELL_TIE_REVEAL in the environment)
+    const sb = new GameSessionRegistry().sandboxFor(`tie-calib-${enabled}`);
+    sb.session.createCharacter({ playerName: "The Player", seed });
+    let clock = 0;
+    const rng = new SeededRandom(seed);
+    // "Without a precipitant" = the sealed pair NEVER warms into the open: hold both directed affinities of every sealed tie
+    // under the conspicuousness floor around each off-screen tick, so ordinary social ticks cannot manufacture one.
+    const hold = (): void => {
+      for (const t of peek(sb.session).seededRels.ties) {
+        for (const [x, y] of [[t.a, t.b], [t.b, t.a]] as const) {
+          const e = relOf(sb.session).edge(x, y);
+          e.affinity = Math.min(e.affinity, TIE_REVEAL.conspicuousAffinity - 0.2);
+        }
+      }
+    };
+    const trail = seasonTrail(sb.session, 600, () => { hold(); defaultApply(sb, "offscreen-tick", rng, clock++); hold(); });
+    return { snap: sb.session.snapshot(), trail, edges: relOf(sb.session).serialize().edges };
+  };
+  const off = season(false);
+  const on = season(true);
+  GameSessionAdapter.setTieRevealEnabled(null);
+  Object.assign(tr(this), { trOffSnap: { ...(off.snap as object), edges: off.edges }, trOnSnap: { ...(on.snap as object), edges: on.edges }, trOffTrail: off.trail, trOnTrail: on.trail });
 });
 
 Then("no exposure roll is taken and no relationship edge is touched", function (this: BbWorld) {
-  const off = tr(this).trOffSnap;
-  const on = tr(this).trOnSnap;
-  assert.deepEqual(on, off, "identical seed ⇒ byte-identical snapshot with no precipitant, flag on or off");
+  const off = tr(this).trOffSnap as { edges?: unknown; tieExposureCount?: number; tieRevealTickCount?: number };
+  const on = tr(this).trOnSnap as { edges?: unknown; tieExposureCount?: number; tieRevealTickCount?: number };
+  assert.ok(tr(this).trOnTrail!.length > 100, "a season was actually played");
+  assert.equal(on.tieExposureCount ?? 0, 0, "an exposure was recorded with no precipitant");
+  assert.deepEqual(on.edges, off.edges, "a relationship edge moved with the feature on");
+  // The scheduler's own private tick counter is the one thing allowed to differ (it only seeds its dedicated rng).
+  assert.ok((on.tieRevealTickCount ?? 0) > 0 && (off.tieRevealTickCount ?? 0) === 0, "the scheduler really ran when on, and stayed inert when off");
+  const { tieRevealTickCount: _a, ...onRest } = on;
+  const { tieRevealTickCount: _b, ...offRest } = off;
+  assert.deepEqual(onRest, offRest, "identical seed ⇒ byte-identical session with no precipitant, flag on or off");
 });
 
-Then("the seeded competition, jury, and eviction outcomes are byte-identical", function () {
-  // Proven by the snapshot-identity check above (the whole `SessionCore`, including `live`/`house`,
-  // matches byte-for-byte) — the seeded season spine is untouched.
-  GameSessionAdapter.setTieRevealEnabled(null);
-  assert.ok(true);
+Then("the seeded competition, jury, and eviction outcomes are byte-identical", function (this: BbWorld) {
+  assert.equal(tr(this).trOnTrail, tr(this).trOffTrail, "the flag changed the seeded HOH / nominee / eviction trail");
 });

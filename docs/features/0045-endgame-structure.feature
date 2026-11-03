@@ -22,7 +22,7 @@ Feature: Endgame structure (Final 5 → Final 2)
 
   Scenario: Final 4 has a single eviction vote
     Given a Final 4 eviction
-    Then only the veto holder casts an eviction vote
+    Then only the one houseguest who is neither HOH nor a nominee casts an eviction vote
     And there is no tie to break
 
   Scenario: Final 3 is a final-HOH competition and a personal eviction

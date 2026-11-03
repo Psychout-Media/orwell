@@ -10,6 +10,7 @@ import { InMemoryEventStore } from "../../src/adapters/inmemory/InMemoryEventSto
 import { InMemoryKnowledgeService } from "../../src/adapters/inmemory/InMemoryKnowledgeService";
 import { deriveNpcKnowledge } from "../../src/engine/diaryRoom";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { GameSessionRegistry } from "../../src/composition/registry";
 
 // --- Single authored profile --------------------------------------------------
 
@@ -123,8 +124,32 @@ Then("the player can lose", function (this: BbWorld) {
 });
 
 Then("the authored profile grants the player no outcome guarantee", function (this: BbWorld) {
-  // The aptitudes are bounded like any NPC's (no protection); proven by the loss above + the bound.
+  // The aptitudes are bounded like any NPC's...
   assert.ok(playerAptitudesWithinNpcBounds(this.house!.player));
+  // ...and the engine treats the authored player exactly like a generated houseguest of identical aptitudes: against a
+  // stat-for-stat clone NPC, the two win about equally often. Any thumb on the scale (a bonus, a floor) shows as a gap.
+  const p = this.house!.player;
+  const RUNS = 6000;
+  // The win-rate gap between the authored player and a clone NPC whose stats are the player's plus `bump` (0 = identical).
+  const gapWith = (bump: number): number => {
+    const bumped = { physical: p.character.stats.physical + bump, mental: p.character.stats.mental + bump, social: p.character.stats.social + bump };
+    const clone = { id: npc(99), stats: bump === 0 ? p.character.stats : bumped, emotionalState: 0.5 };
+    const field = [
+      { id: p.id, stats: p.character.stats, emotionalState: 0.5 }, clone,
+      ...this.house!.npcs.slice(0, 6).map((n) => ({ id: n.id, stats: n.character.stats, emotionalState: n.soul.emotionalState })),
+    ];
+    const wins: Record<string, number> = { [p.id]: 0, [clone.id]: 0 };
+    for (let seed = 1; seed <= RUNS; seed++) {
+      const { winner } = resolveCompetition(field, "endurance", new CompetitionIntents(), new SeededRandom(seed));
+      if (winner in wins) wins[winner]!++;
+    }
+    return Math.abs(wins[p.id]! - wins[clone.id]!) / RUNS;
+  };
+  // Sampling noise on a 6000-run gap in an 8-player field is ~0.007, so 0.025 is a tight bound (was 0.05, ~40% of the base rate).
+  const BOUND = 0.025;
+  assert.ok(gapWith(0) <= BOUND, `the authored player is protected or handicapped (win-rate gap ${gapWith(0)} over ${RUNS} runs)`);
+  // Power check: the same test DOES see a modest thumb on the scale (a +0.1 aptitude edge on the clone), so a pass means something.
+  assert.ok(gapWith(0.1) > BOUND, "the gap test is too weak to detect a modest aptitude edge");
 });
 
 // --- Private strategy → no NPC at start (DR wall, 0013) ------------------------
@@ -149,16 +174,21 @@ Then("no houseguest's knowledge state holds it at the start of the game", functi
 
 // --- OOC / no witnesses -------------------------------------------------------
 
-Then("character creation produces no witnessed event", function () {
-  // OOBE is pure producer-intake: it takes no EventStore, so it cannot record an event.
-  const events = new InMemoryEventStore();
-  startNewGame({ seed: 5, playerName: "The Author" });
-  assert.equal(events.queryAll().length, 0);
+Then("character creation produces no witnessed event", function (this: BbWorld) {
+  // Create a character through the REAL session path and look at the engine's own event store afterwards.
+  const sb = new GameSessionRegistry().sandboxFor("oobe-events");
+  sb.session.createCharacter({ playerName: "The Author", seed: 5, backstory: "OOBE-BACKSTORY-SENTINEL", motivation: "OOBE-MOTIVE-SENTINEL" });
+  assert.equal(sb.engine.events.queryAll().length, 0, "creating the character recorded an in-game event");
+  this.oobeSandbox = sb;
 });
 
 Then("nothing from it is narrated to any houseguest", function (this: BbWorld) {
-  // The authored player carries no witnessSet/event — it is OOC by construction.
-  assert.ok(!("witnessSet" in (this.player ?? {})));
+  const sb = this.oobeSandbox!;
+  for (let i = 1; i <= 15; i++) {
+    const blob = JSON.stringify(sb.engine.knowledge.knownTo(npc(i))) + JSON.stringify(sb.engine.knowledge.suspicionsOf(npc(i)));
+    assert.ok(!blob.includes("OOBE-BACKSTORY-SENTINEL") && !blob.includes("OOBE-MOTIVE-SENTINEL"), `npc ${i} was told the authored material`);
+  }
+  assert.equal(sb.engine.events.queryAll().filter((e) => e.witnessSet.some((w) => w !== PLAYER)).length, 0, "no houseguest witnessed creation");
 });
 
 // --- Balanced ensemble around the player --------------------------------------

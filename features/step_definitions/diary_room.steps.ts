@@ -64,15 +64,22 @@ Given("the player says one thing to houseguests and a different thing in the Dia
 
 When("houseguests act", function (this: BbWorld) {
   // A houseguest acts on what it witnessed/knows — never on the DR.
+  const k = this.sandbox!.engine.knowledge;
   this.npcActedOn = this.sandbox!.engine.events.query({ witnessedBy: npc(1) }).map((e) => e.content);
+  // What the houseguest would actually SAY/act on, through the real expression rule over its own knowledge.
+  this.npcExpressed = { dr: npcExpress({ content: this.drStmt! }, k.knownTo(npc(1)), k.suspicionsOf(npc(1))) };
 });
 
 Then("they act on what the player said publicly", function (this: BbWorld) {
   assert.ok(this.npcActedOn!.some((c) => c.includes(this.publicStmt!)), "NPC acts on public speech");
+  // The witness set is what routes it: a houseguest outside it never saw the public statement either.
+  const bystander = this.sandbox!.engine.events.query({ witnessedBy: npc(2) }).map((e) => e.content);
+  assert.ok(!bystander.some((c) => c.includes(this.publicStmt!)), "a non-witness did not receive the public statement");
 });
 
 Then("never on what the player said in the Diary Room", function (this: BbWorld) {
   assert.ok(!this.npcActedOn!.some((c) => c.includes(this.drStmt!)), "NPC must not see the DR statement");
+  assert.equal(this.npcExpressed!.dr.mode, "silent", "the DR statement is outside the houseguest's reasoning");
   const k = this.sandbox!.engine.knowledge;
   assert.ok(!k.knownTo(npc(1)).some((f) => f.content === this.drStmt), "DR not in NPC knowledge");
   assert.ok(!deriveNpcKnowledge(k.knownTo(PLAYER)).some((f) => f.content === this.drStmt), "DR stripped from NPC derivation");

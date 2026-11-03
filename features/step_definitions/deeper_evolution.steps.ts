@@ -8,7 +8,7 @@ import type { Competitor } from "../../src/domain/competitionOutcome";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { VOL_OF, dispositionOf } from "../../src/engine/characterFactory";
+import { VOL_OF, dispositionOf, startNewGame } from "../../src/engine/characterFactory";
 import type { Soul } from "../../src/engine/characterFactory";
 import type { UserSandbox } from "../../src/composition/registry";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
@@ -91,8 +91,16 @@ Then("their effective temperament drifts toward paranoia", function (this: BbWor
 });
 
 Then("their static character disposition is unchanged", function (this: BbWorld) {
-  // effectiveDisposition is a pure READ over a passed-in baseline — it never mutates it.
-  assert.ok(["bond", "neutral"].includes(effectiveDisposition("bond", this.dceSoul!)));
+  // A REAL generated houseguest (a bond-disposed one, so hardening has somewhere to go): betray them repeatedly. Only the
+  // EFFECTIVE temperament (a function of the soul) moves; the static disposition is read from the archetype, and
+  // `evolveEmotion` never receives the character at all, so there is nothing else here that could fail. The live path that
+  // could touch the character (the adapter's beat/fold path) is covered by the whole-season scenarios, not re-asserted here.
+  const house = startNewGame({ seed: 12, playerName: "The Author" });
+  const hg = house.npcs.find((n) => dispositionOf(n.character.archetype) === "bond");
+  assert.ok(hg, "the cast has a bond-disposed houseguest to harden");
+  const baseline = dispositionOf(hg!.character.archetype);
+  for (let i = 0; i < 6; i++) evolveEmotion(hg!.soul, "betrayed", undefined, undefined, DEPTH);
+  assert.notEqual(effectiveDisposition(baseline, hg!.soul), baseline, "the betrayals genuinely moved the effective temperament");
 });
 
 Then("a calm stretch reverts the temperament toward their true baseline", function (this: BbWorld) {

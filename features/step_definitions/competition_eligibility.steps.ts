@@ -8,7 +8,16 @@ import type { WeekState } from "../../src/domain/eligibility";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { RelationshipModel } from "../../src/engine/relationships";
+import { newLiveSeason, advance, applyDecision, autoDecision } from "../../src/engine/liveSeason";
+import type { SeasonCtx } from "../../src/engine/liveSeason";
 import { buildSandbox } from "../../tests/support/sandbox";
+import { assertHardRulesSurviveTemperature } from "../support/eligibilityUnderTemperature";
+
+interface DeployTrace {
+  crowns: { hoh: string; outgoing: string | undefined; active: number }[];
+  replacements: { replacement: string; vetoHolder: string }[];
+  fired: string[];
+}
 
 const PULLERS = [npc(1), npc(2), npc(3)];
 
@@ -173,13 +182,15 @@ Then("the outgoing HOH is in the eligible set", function (this: BbWorld) {
 });
 
 Given("any temperature roll for the moment", function (this: BbWorld) {
+  // The temperature roll itself happens inside the Then, over the REAL eligible field (see eligibilityUnderTemperature.ts).
   this.week = makeWeek({ outgoingHoh: npc(4), vetoWinner: npc(5) });
-  void new SeededRandom(123).next(); // a temperature roll happens — it must not matter
 });
 
 Then("the outgoing-HOH rule and the veto-winner-replacement rule still hold", function (this: BbWorld) {
   assert.ok(!this.eligible!.includes(npc(4)));
   assert.ok(!this.selectable!.includes(npc(5)));
+  // ...and no matter how loud temperature is, resolving over those sets never lets the excluded houseguests back in.
+  assertHardRulesSurviveTemperature(this.week!);
 });
 
 // --- Reserve twist never overrides a hard rule or the Vault Wall ---------------
@@ -187,17 +198,55 @@ Then("the outgoing-HOH rule and the veto-winner-replacement rule still hold", fu
 Given("a production twist held in reserve in the Vault", function (this: BbWorld) {
   this.sandbox = buildSandbox(1);
   this.specific = this.sandbox.addReservedTwist();
+  // Seal the reserve in the exact shape production seals it (registry `setOnSeal`), so the deploy step reads WHAT to arm
+  // from the Vault record itself rather than from a plan hard-coded beside it.
+  for (const kind of ["double-eviction", "secret-veto", "battle-back"]) {
+    this.sandbox.engine.vault.writeHidden({ id: `twist:scenario:${kind}`, kind: "reserved-twist", content: `sealed reserve twist: ${kind}, fires in the season` });
+  }
   this.week = makeWeek({ outgoingHoh: npc(4), vetoWinner: npc(5) });
 });
 
 When("it is deployed", function (this: BbWorld) {
-  // Deploying a twist has no code path that can alter eligibility — by construction.
-  assert.ok(this.specific, "the twist exists in the Vault");
+  // Deploy the REAL thing: a full live season whose whole reactive-twist pool is armed, played through the one live
+  // loop. Every HOH crown and every replacement nominee is observed as it happens, with the twists firing around them.
+  const ids = [PLAYER, ...Array.from({ length: 15 }, (_, i) => npc(i + 1))];
+  const rng = new SeededRandom(4);
+  const ctx: SeasonCtx = { player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel: new RelationshipModel(0.5) };
+  const s = newLiveSeason(ids);
+  // Arm exactly the twists the Vault holds in reserve (parsed from the sealed records), nothing else.
+  const reserved = new Set(
+    this.sandbox!.engine.vault.readHidden({ kind: "reserved-twist" }).map((r) => /sealed reserve twist: ([a-z-]+),/.exec(r.content)?.[1]).filter((k): k is string => !!k),
+  );
+  for (const k of ["double-eviction", "secret-veto", "battle-back"]) assert.ok(reserved.has(k), `the Vault holds a sealed ${k} reserve twist to deploy`);
+  s.twistPlan = {
+    doubleEvictionAtActive: 8, doubleEvictionArmed: reserved.has("double-eviction"),
+    secretVetoStreak: 2, secretVetoArmed: reserved.has("secret-veto"),
+    battleBackAtJury: 1, battleBackArmed: reserved.has("battle-back"),
+  };
+  const trace: DeployTrace = { crowns: [], replacements: [], fired: [] };
+  let lastHoh: string | undefined;
+  for (let i = 0; i < 4000 && !s.finished && s.beat !== "complete"; i++) {
+    if (s.pending) applyDecision(s, autoDecision(s, ctx, rng), ctx, rng); else advance(s, ctx, rng);
+    if (s.hoh && s.hoh !== lastHoh) trace.crowns.push({ hoh: s.hoh, outgoing: s.outgoingHoh, active: s.active.length });
+    lastHoh = s.hoh;
+    if (s.replacement && s.vetoHolder) trace.replacements.push({ replacement: s.replacement, vetoHolder: s.vetoHolder });
+  }
+  trace.fired = (s.firedTwists ?? []).map((t) => t.kind);
+  assert.ok(s.finished || s.beat === "complete", "the deployed-twist season played to its end");
+  assert.ok(trace.fired.includes("double-eviction"), "the reserved twist actually fired in the season (otherwise nothing was deployed)");
+  assert.ok(trace.fired.every((k) => reserved.has(k)), `a twist fired that the Vault never held in reserve (${trace.fired.join(", ")})`);
+  assert.ok(trace.crowns.length >= 5, "the season crowned several HOHs around the twist");
+  this.deployTrace = trace;
 });
 
 Then("it does not override any eligibility hard rule", function (this: BbWorld) {
-  assert.ok(!eligibleForHOH(this.week!).includes(npc(4)), "outgoing-HOH rule holds");
-  assert.ok(!selectableReplacements(this.week!).includes(npc(5)), "veto-winner-replacement rule holds");
+  const t = this.deployTrace!;
+  for (const c of t.crowns) {
+    // Final 3 lifts the outgoing-HOH restriction by design (0045); at every other size the rule is absolute.
+    if (c.active > 3) assert.notEqual(c.hoh, c.outgoing, `outgoing-HOH rule broken at ${c.active} houseguests`);
+  }
+  for (const r of t.replacements) assert.notEqual(r.replacement, r.vetoHolder, "veto-winner-replacement rule broken");
+  assert.ok(t.replacements.length > 0, "the season produced replacement nominees to check");
 });
 
 Then("it does not surface Vault content to the player", function (this: BbWorld) {

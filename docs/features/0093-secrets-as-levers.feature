@@ -34,7 +34,7 @@ Feature: Secrets as strategic levers (information becomes power)
     Scenario: Valid leverage raises the chance a houseguest takes a deal
       Given a houseguest whose secret the player has learned
       When the player offers that secret as leverage while making a deal with them
-      Then the deal becomes more likely to form than the same deal offered without leverage
+      Then the deal lands better than the same deal offered without leverage
       And the deal remains a first-class tracked commitment
       And the engine owns the bounded magnitude of the leverage, not the narrator
 
