@@ -116,7 +116,13 @@ function assertBeatInvariants(
   // ── (b) PENDING WELL-FORMEDNESS — a malformed pending desyncs the decision card / barrier ──
   const pending = status.pending;
   if (pending !== null) {
-    expect(view.finished, `${label}: a pending is open but the game claims finished`).toBe(false);
+    // 0133: the ONE sanctioned exception — a pre-jury-evicted player's finale-night interview is raised AFTER the season is
+    // crowned (`finished`), so it can never move the vote or block the crowning. Every other pending still implies not-finished.
+    if (pending.kind !== "finale-interview") {
+      expect(view.finished, `${label}: a pending is open but the game claims finished`).toBe(false);
+    } else {
+      expect(view.finished, `${label}: the finale interview is only offered once the season is crowned`).toBe(true);
+    }
     expect(KNOWN_PENDING_KINDS.has(pending.kind), `${label}: unknown pending kind '${pending.kind}'`).toBe(true);
     expect(pending.by, `${label}: pending.by missing`).toBeTruthy();
     expect(typeof pending.by.id, `${label}: pending.by.id not an id`).toBe("string");
@@ -126,7 +132,8 @@ function assertBeatInvariants(
     expect(Array.isArray(pending.options), `${label}: pending.options not an array`).toBe(true);
   }
   if (view.finished) {
-    expect(status.pending, `${label}: game is finished but a pending is still open`).toBeNull();
+    // (the same 0133 exception: only a finale-night interview may still be open on a crowned season)
+    expect(status.pending?.kind ?? null, `${label}: game is finished but a pending is still open`).toBe(status.pending ? "finale-interview" : null);
   }
 
   // ── (c) BEAT-SIGNATURE MONOTONICITY — the season only moves forward (never rewinds) ──
