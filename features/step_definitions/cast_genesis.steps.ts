@@ -951,26 +951,6 @@ Then("the operator-facing hold surface shows why", function (this: BbWorld) {
 
 // ── Rule: the test floor is unchanged; the committed genesis is the recorded world-gen artifact ──────
 
-Given("a sandbox with no genesis-capable model wired", function (this: BbWorld) {
-  cg(this).cgModelWired = false;
-  cg(this).cgSeed = 3131;
-});
-
-When("the cast is generated", function (this: BbWorld) {
-  const a = new GameSessionAdapter();
-  a.createCharacter({ playerName: "The Player", seed: cg(this).cgSeed! });
-  const gs = a.getGameState();
-  cg(this).cgRosterA = JSON.stringify({ house: gs.house, player: gs.player });
-});
-
-Then("the cast is byte-identical to the deterministic factory's output for that seed", function (this: BbWorld) {
-  const b = new GameSessionAdapter();
-  b.createCharacter({ playerName: "The Player", seed: cg(this).cgSeed! });
-  const gs = b.getGameState();
-  assert.equal(JSON.stringify({ house: gs.house, player: gs.player }), cg(this).cgRosterA, "no model ⇒ the deterministic floor stands byte-identically");
-  assert.ok(gs.house.every((h) => (h as { identityConcept?: string }).identityConcept === undefined), "a floor cast carries no genesis provenance");
-});
-
 Given("a committed model-authored cast persisted to the save", function (this: BbWorld) {
   // A registry sandbox so the durable SessionSnapshot (events/relationships/vault — the 0031 checkpoint's
   // projection) is available for the superset gate; the bare-adapter restore below demonstrates the reload.

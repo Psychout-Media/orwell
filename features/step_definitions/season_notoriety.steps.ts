@@ -7,6 +7,12 @@ import { deriveNotoriety, type NotorietySummary, type OpenSetSeasonOutcome } fro
 import { assertNoSentinels } from "../../tests/support/assertions";
 import { InMemoryUserNotorietyStore } from "../../src/adapters/engine/FileUserNotorietyStore";
 import { PLAYER } from "../../src/domain/ids";
+import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
+import { playSeasonOutcome } from "../support/seasonOutcome";
+import { answerPending } from "../support/answerPending";
+import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Feature 0104 — season-over-season notoriety. Roles only (the-player, the new cast, a known schemer,
@@ -147,10 +153,23 @@ Then("the best placement and reputation are merged, never overwritten to a thinn
 });
 
 Then("the prior season's full durable record still remains on disk", function () {
-  // Non-degradation: the dead season's full save is rotated (kept) off the live path by `resetUser`,
-  // never destroyed. The summary is the bounded recall; the archive is lossless. (Asserted structurally
-  // by the restart-spine + FileSaveStore retention gates; here the contract is recorded.)
-  assert.ok(true);
+  // Non-degradation, proven against a REAL FileSaveStore: finish a season, persist it, then restart through the one
+  // sanctioned door. The dead season's save must be rotated OFF the live path but still be on disk, intact.
+  const dir = mkdtempSync(join(tmpdir(), "orwell-0104-"));
+  const store = new FileSaveStore(dir);
+  const reg = new GameSessionRegistry(store);
+  const sb = reg.sandboxFor("the-player-durable");
+  sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+  assert.ok(sb.session.advanceToFinale().finished);
+  store.saveFor("the-player-durable", reg.snapshot("the-player-durable"));
+  const liveBefore = store.loadLatest("the-player-durable")!;
+  sb.session.createCharacter({ playerName: "The Player", seed: 7, confirmRestart: true });
+  const retired = readdirSync(dir).filter((n) => n.includes(".retired-"));
+  assert.equal(retired.length, 1, "the dead season's dir is rotated, not deleted");
+  const files = readdirSync(join(dir, retired[0]!)).filter((n) => /^v\d+\.json$/.test(n));
+  assert.ok(files.length > 0 && statSync(join(dir, retired[0]!, files[0]!)).size > 0, "the dead season's save is still on disk");
+  const kept = JSON.parse(readFileSync(join(dir, retired[0]!, files[files.length - 1]!), "utf8")) as unknown;
+  assert.deepStrictEqual(kept, liveBefore, "the retired save is the finished season, byte-for-byte");
 });
 
 // ── Rule: notoriety biases the new cast's day-one reads — direction only ────────────────────────────
@@ -213,57 +232,56 @@ Given("a new season created for a user with a strong notoriety", function (this:
   w.nSeed = 7;
 });
 
+/** SHA256 of the NPC↔NPC move-in layer (the calibration-shared layer notoriety must never touch). */
+function npcLayerHash(sb: ReturnType<GameSessionRegistry["sandboxFor"]>): string {
+  const core = sb.session.snapshot();
+  const me = core.house!.player.id;
+  const ids = [me, ...core.house!.npcs.map((n) => n.id)];
+  const rows: string[] = [];
+  for (const a of ids) for (const b of ids) {
+    if (a === b || a === me || b === me) continue;
+    const e = sb.engine.relationships.edge(a, b);
+    rows.push(`${a}->${b}:${e.trust.toFixed(6)},${e.affinity.toFixed(6)},${e.threat.toFixed(6)}`);
+  }
+  return createHash("sha256").update(rows.join("\n")).digest("hex");
+}
+
+/** Drive to the FIRST crowned HOH (a pure stat + seeded-roll competition) and return that winner. Bounded. */
+function firstHoh(sb: ReturnType<GameSessionRegistry["sandboxFor"]>): string {
+  for (let i = 0; i < 400; i++) {
+    const hoh = sb.session.gameStatus().hoh?.id;
+    if (hoh) return hoh;
+    const v = sb.session.advanceGame();
+    if (v.pending) { const req = answerPending(v.pending); if (req) sb.session.submitDecision(req); }
+  }
+  throw new Error("no HOH was crowned");
+}
+
 When("competitions and votes are resolved at a fixed seed", function (this: BbWorld) {
   const w = nw(this);
   const seed = w.nSeed ?? 7;
-  // Play a full season to the finale with notoriety vs. without, hashing only the seeded OUTCOME stream
-  // (comp wins / eviction order / winner / jury votes) — NOT the relationship reads (which legitimately
-  // tilt). The engine owns outcome magnitude: notoriety touches ONLY day-one edges, never an outcome roll.
-  const outcomeHash = (notoriety: NotorietySummary | null, user: string): string => {
-    const { sb } = liveGame(user, seed, notoriety);
-    assert.ok(sb.session.advanceToFinale().finished);
-    const live = sb.session.snapshot().live!;
-    return createHash("sha256").update([
-      `winner:${live.winner ?? ""}`,
-      `evictionOrder:${(live.evictionOrder ?? []).join(",")}`,
-      `resume:${JSON.stringify(live.resume ?? {})}`,
-      `juryVotes:${JSON.stringify(live.finale?.votes ?? {})}`,
-    ].join("|")).digest("hex");
-  };
-  // We assert on the NPC↔NPC move-in layer for byte-identity (the shared calibration stream) AND the
-  // outcome stream determinism — both stored for the Then.
-  (w as { nOutcomeWith?: string; nOutcomeWithout?: string }).nOutcomeWith = outcomeHash(w.nNotoriety!, `${w.nUser}-owith`);
-  (w as { nOutcomeWith?: string; nOutcomeWithout?: string }).nOutcomeWithout = outcomeHash(null, `${w.nUser}-owithout`);
+  // PAT-3: the SAME seed with the strong notoriety folded vs. with none — a real ON-vs-OFF compare. Notoriety tilts
+  // ONLY the day-one NPC->player edges (so a later vote MAY legitimately read differently — that is the feature); what
+  // it must never touch is any competition roll or the NPC<->NPC layer the seeded spine is built on.
+  const withN = liveGame(`${w.nUser}-owith`, seed, w.nNotoriety!).sb;
+  const without = liveGame(`${w.nUser}-owithout`, seed, null).sb;
+  const nw2 = nw(this) as NWorld & { nHoh?: { with: string; without: string }; nLayer?: { with: string; without: string }; nToPlayer?: { with: Edge[]; without: Edge[] } };
+  nw2.nLayer = { with: npcLayerHash(withN), without: npcLayerHash(without) };
+  nw2.nToPlayer = { with: npcToPlayerEdges(withN), without: npcToPlayerEdges(without) };
+  nw2.nHoh = { with: firstHoh(withN), without: firstHoh(without) };
 });
 
 Then("every competition and vote outcome is byte-identical to the same seed with no notoriety", function (this: BbWorld) {
-  // The engine owns magnitude. The seeded outcome stream is resolved on rng UNTOUCHED by notoriety: the
-  // bias runs on a DEDICATED `:notoriety` sub-rng, never the competition/vote streams. NB the relationship
-  // reads tilt (by design, like dayOnePerception) so this asserts the byte-identity of the OUTCOME STREAM
-  // determinism guarantee via the dedicated-rng proof in `notorietyOutcomeNeutral.test.ts`. Here we assert
-  // the NPC↔NPC move-in layer (the calibration-shared layer) is byte-identical with vs. without notoriety.
-  const w = nw(this);
-  const seed = w.nSeed ?? 7;
-  const npcLayerHash = (notoriety: NotorietySummary | null, user: string): string => {
-    const { sb } = liveGame(user, seed, notoriety);
-    const core = sb.session.snapshot();
-    const me = core.house!.player.id;
-    const ids = [me, ...core.house!.npcs.map((n) => n.id)];
-    const rows: string[] = [];
-    for (const a of ids) for (const b of ids) {
-      if (a === b || a === me || b === me) continue;
-      const e = sb.engine.relationships.edge(a, b);
-      rows.push(`${a}->${b}:${e.trust.toFixed(6)},${e.affinity.toFixed(6)},${e.threat.toFixed(6)}`);
-    }
-    return createHash("sha256").update(rows.join("\n")).digest("hex");
-  };
-  assert.equal(npcLayerHash(w.nNotoriety!, `${w.nUser}-nlw`), npcLayerHash(null, `${w.nUser}-nlwo`), "NPC↔NPC move-in layer byte-identical");
+  const w = nw(this) as NWorld & { nHoh?: { with: string; without: string }; nLayer?: { with: string; without: string } };
+  assert.ok(w.nHoh!.with.length > 0, "a real first competition was resolved");
+  assert.equal(w.nHoh!.with, w.nHoh!.without, "the first HOH competition result is identical with and without notoriety");
+  assert.equal(w.nLayer!.with, w.nLayer!.without, "NPC<->NPC move-in layer byte-identical");
 });
 
 Then("notoriety has touched only the day-one relationship edges", function (this: BbWorld) {
-  // Proven by the dedicated `:notoriety` rng (never the shared streams) — the NPC↔NPC layer + the seeded
-  // outcome stream's rng are untouched. The standing gate is `notorietyOutcomeNeutral.test.ts`.
-  assert.ok(true);
+  const w = nw(this) as NWorld & { nLayer?: { with: string; without: string }; nToPlayer?: { with: Edge[]; without: Edge[] } };
+  assert.notDeepEqual(w.nToPlayer!.with, w.nToPlayer!.without, "the feature is live: the day-one NPC->player edges DID tilt");
+  assert.equal(w.nLayer!.with, w.nLayer!.without, "and nothing else moved: the NPC<->NPC layer is untouched");
 });
 
 // ── Rule: the Vault Wall holds — for the player and for admin ────────────────────────────────────────
@@ -430,34 +448,47 @@ Then("no call for one user ever folds the other user's notoriety", function (thi
 When("the next season's day-one reads are seeded at a fixed seed", function (this: BbWorld) {
   const w = nw(this);
   const seed = w.nSeed ?? 7;
-  // Disabled ⇒ no notoriety set ⇒ the clean slate. Capture the move-in layer for byte-identity.
-  w.nFresh = npcToPlayerEdges(liveGame(`${w.nUser}-off-a`, seed, null).sb);
-  w.nKnown = npcToPlayerEdges(liveGame(`${w.nUser}-off-b`, seed, null).sb);
+  // PAT-3: "disabled" = a notoriety was carried and then explicitly cleared (the new-character clean slate), compared
+  // against a build that never had one. Both the move-in layer AND the whole seeded season must be indistinguishable.
+  const cleared = (user: string): ReturnType<GameSessionRegistry["sandboxFor"]> => {
+    const sb = new GameSessionRegistry().sandboxFor(user);
+    sb.session.setNotoriety(deriveNotoriety(TREACHEROUS));
+    sb.session.setNotoriety(null);
+    sb.session.createCharacter({ playerName: "The Player", seed });
+    return sb;
+  };
+  const never = liveGame(`${w.nUser}-off-b`, seed, null).sb;
+  const off = cleared(`${w.nUser}-off-a`);
+  w.nFresh = npcToPlayerEdges(never);
+  w.nKnown = npcToPlayerEdges(off);
+  (w as NWorld & { nCal?: { off: unknown; never: unknown } }).nCal = { off: playSeasonOutcome(off.session), never: playSeasonOutcome(never.session) };
 });
 
 Then("the seeded move-in edges are byte-identical to the build with no notoriety", function (this: BbWorld) {
   const w = nw(this);
-  assert.deepEqual(w.nKnown, w.nFresh, "two no-notoriety games at the same seed are byte-identical");
+  assert.ok(w.nFresh!.length > 0, "a real move-in layer was seeded");
+  assert.deepStrictEqual(w.nKnown, w.nFresh, "a cleared notoriety leaves the move-in edges exactly as if none was ever carried");
 });
 
 Then("the jury-reach and full-game calibration results are unchanged", function (this: BbWorld) {
-  // The full-game outcome stream is byte-identical with the flag off (the dedicated `:notoriety` rng is
-  // never created/drawn). The permanent guard is `notorietyOutcomeNeutral.test.ts` +
-  // `tests/property/juryReach.property.test.ts` (run with the flag off).
-  const w = nw(this);
-  const seed = w.nSeed ?? 7;
-  const outcome = (user: string): string => {
-    const { sb } = liveGame(user, seed, null);
-    assert.ok(sb.session.advanceToFinale().finished);
-    const live = sb.session.snapshot().live!;
-    return createHash("sha256").update(`${live.winner}|${(live.evictionOrder ?? []).join(",")}`).digest("hex");
-  };
-  assert.equal(outcome(`${w.nUser}-cal-a`), outcome(`${w.nUser}-cal-b`), "the off outcome stream is a deterministic fixed point");
+  const cal = (nw(this) as NWorld & { nCal?: { off: { evictionOrder: unknown[] }; never: unknown } }).nCal!;
+  assert.ok(cal.off.evictionOrder.length > 5, "a real multi-eviction season was played");
+  assert.deepStrictEqual(cal.off, cal.never, "the winner, eviction order, comp tally and jury are unchanged");
 });
 
 Then("no second season-restart path was added", function () {
-  // Notoriety derives + persists on the EXISTING season-end terminal (inside `registry.resetUser`) and
-  // folds at the EXISTING `createCharacter` (via the existing `onRestart` hook). No new restart door —
-  // the single-restart-door invariant (audit E1/D1/R1) holds (the restart-spine gate proves it).
-  assert.ok(true);
+  // Structural, not a placeholder: notoriety derives + persists on the EXISTING season-end terminal and folds at the
+  // EXISTING `createCharacter`. Scan the engine source: `resetUser` is only ever INVOKED inside the registry (the one door),
+  // and the orchestrator's `forgetUser` is reachable only through the single `setOnReset` hook the runtime wires.
+  const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
+    const p = join(dir, n);
+    return statSync(p).isDirectory() ? walk(p) : p.endsWith(".ts") ? [p] : [];
+  });
+  const files = walk(join(process.cwd(), "src"));
+  const callers = (re: RegExp): string[] => files.filter((f) => re.test(readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")));
+  const base = (fs: string[]): string[] => fs.map((f) => f.split("/").pop()!).sort();
+  assert.deepStrictEqual(base(callers(/(?:this|registry|reg|sandboxes?)\.resetUser\(/)), ["registry.ts"], "resetUser is invoked only inside the registry");
+  assert.deepStrictEqual(base(callers(/\.forgetUser\(/)), ["runtime.ts"], "forgetUser is invoked only via the runtime's single reset hook");
+  assert.deepStrictEqual(base(callers(/\bsetOnReset\(/)), ["registry.ts", "runtime.ts"].sort(), "exactly one wiring of the reset hook");
 });
+

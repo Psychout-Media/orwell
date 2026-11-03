@@ -6,6 +6,7 @@ import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { npc } from "../../src/domain/ids";
+import { playSeasonOutcome, type SeasonOutcome } from "../support/seasonOutcome";
 import type { EntityId } from "../../src/domain/ids";
 
 /**
@@ -30,8 +31,8 @@ interface VdWorld extends BbWorld {
   vdHoh?: EntityId;
   vdPlayerDeducible?: boolean;
   vdSession?: GameSessionAdapter;
-  vdOffWinnerA?: string | null;
-  vdOffWinnerB?: string | null;
+  vdOff?: SeasonOutcome;
+  vdOn?: SeasonOutcome;
 }
 
 function setEdge(rel: RelationshipModel, id: EntityId, threat: number, trust: number): void {
@@ -274,20 +275,20 @@ Then("no surface shows a confidence or a grudge magnitude", function (this: VdWo
 // --- Rule: calibration-neutral when off --------------------------------------
 
 Given("a full season is played with vote deduction disabled", function (this: VdWorld) {
-  const play = (): string | null => {
+  // PAT-3: a REAL ON-vs-OFF compare on one seed. "Disabled" is the perfect-knowledge (pre-feature) model; the
+  // deduction layer, when ON, may only change the hidden grudges folded — never who is evicted, who wins, or the jury.
+  const play = (on: boolean): SeasonOutcome => {
     const s = new GameSessionAdapter();
     s.createCharacter({ playerName: "P", seed: 7 });
-    s.setVoteDeductionEnabled(false);
-    return s.advanceToFinale().winnerName;
+    s.setVoteDeductionEnabled(on);
+    return playSeasonOutcome(s);
   };
-  this.vdOffWinnerA = play();
-  this.vdOffWinnerB = play();
+  this.vdOff = play(false);
+  this.vdOn = play(true);
 });
 
-Then("the recorded eviction grudges and the seeded jury outcome are byte-identical to the baseline season", function (this: VdWorld) {
-  // OFF is the pre-feature path (folds the true `votesToEvict`) — fully deterministic, so two OFF runs of
-  // the same seed produce the identical winner. (The engine juryReach/UAT sims run with the flag off and
-  // gate the full byte-identity; this pins determinism of the OFF path here.)
-  assert.equal(this.vdOffWinnerA, this.vdOffWinnerB);
-  assert.ok(this.vdOffWinnerA, "the OFF season completes deterministically");
+Then("the eviction order, the winner, and the jury outcome are identical to the same seed with deduction enabled", function (this: VdWorld) {
+  assert.ok(this.vdOff!.winner, "the disabled season completes with a crowned winner");
+  assert.ok((this.vdOff!.evictionOrder as unknown[]).length > 5, "a real multi-eviction season was played");
+  assert.deepStrictEqual(this.vdOn, this.vdOff, "vote deduction ON must not move the eviction order, the winner, or the jury");
 });

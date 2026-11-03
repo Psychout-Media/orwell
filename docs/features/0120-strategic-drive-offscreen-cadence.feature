@@ -17,10 +17,8 @@ Feature: Strategic-drive off-screen cadence
     Then a sharper, more-strategic houseguest weighs more than a passive one
     And the difference is slight, never a wild skew
 
-  Scenario: With the cadence off, the off-screen society is byte-identical
-    Given two games from the same seed with the strategic cadence off
-    When the same off-screen ticks run on each
-    Then their hidden societies are identical
+  # (The OFF path is the uniform draw by construction; the real ON-vs-OFF contrast is the scenario below and
+  #  tests/unit/strategicCadence.test.ts. The former OFF-vs-OFF "byte-identical" scenario compared two identical OFF runs.)
 
   Scenario: Turning the cadence on shifts who schemes, still deterministically
     Given the same seed with the strategic cadence on versus off

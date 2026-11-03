@@ -66,11 +66,8 @@ Feature: 0087 — Relationship trajectories (a bond that warms or curdles, with 
 
   Rule: Deterministic and calibration-neutral
 
-    Scenario: With trajectories off the seeded outcomes are byte-identical
-      Given a fixed seed and the trajectory layer disabled
-      When the off-screen society and the seeded competitions and votes are run
-      Then the off-screen scene sequence is byte-identical to the pre-feature build
-      And every seeded competition and vote outcome is byte-identical to the pre-feature build
+    # "Trajectories off => byte-identical" is gated by tests/unit/trajectoryOutcomeNeutral.test.ts (flag OFF vs a STEADY
+    # provider, same seeds, draws + natures compared) — the former BDD scenario compared an OFF run to another OFF run.
 
     Scenario: With trajectories on the off-screen draw stream stays in phase
       Given a fixed seed and the trajectory layer enabled
