@@ -1679,6 +1679,18 @@ export function renderSurfacedFacts(facts: ReadonlyArray<{ content: string; hops
 }
 
 /**
+ * The flag-gated narrator levers (`playerDossier` / `playerReceipts` ride ORWELL_PLAYER_DOSSIER / ORWELL_BOOTH_RECEIPTS):
+ * a flag OFF means the engine returns an empty result — a DEAD tool — so the glossary must not advertise it. An omitted
+ * or `true` entry keeps today's bullet (default ON ⇒ the base prompt is byte-identical).
+ */
+export interface GatedLeverFlags { playerDossier?: boolean; boothReceipts?: boolean }
+
+/** Remove one `  • <lever> — …` glossary bullet (through the line before the next bullet) from the base prompt. */
+function withoutLeverBullet(base: string, lever: string): string {
+  return base.replace(new RegExp(`^  • ${lever} — [\\s\\S]*?(?=^  • |$(?![\\s\\S]))`, "m"), "");
+}
+
+/**
  * Compose the full system prompt to inject for a moment: base persona + beat fragment + Vault-free
  * context. `worldContext` (feature 0062) is the OPTIONAL "the world you all moved in with" block — the
  * frozen, shared real-world flavor (built Vault-free by the engine adapter from the persisted snapshot,
@@ -1692,9 +1704,13 @@ export function buildSystemPrompt(
   worldContext?: string,
   producerVoice?: string,
   surfacedFacts?: string,
+  levers?: GatedLeverFlags,
 ): string {
+  let base = BASE_GAME_MASTER_PROMPT;
+  if (levers?.boothReceipts === false) base = withoutLeverBullet(base, "playerReceipts");
+  if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
   return [
-    BASE_GAME_MASTER_PROMPT,
+    base,
     momentFragment(moment),
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.

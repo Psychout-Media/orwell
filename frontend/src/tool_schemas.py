@@ -2015,6 +2015,22 @@ def with_deal_depth_kinds(schemas: list) -> list:
     return out
 
 
+# The Diary-Room reads are flag-gated engine tools (ORWELL_PLAYER_DOSSIER → `playerDossier`, ORWELL_BOOTH_RECEIPTS →
+# `boothReceipts`): with the flag OFF the engine returns an empty result — a DEAD tool — so the model is not sent a
+# schema for it. Only an EXPLICIT False (a probed flag) drops the tool: unprobed / unknown / ON keep today's list.
+_FLAG_GATED_DIARY_TOOLS = {"playerDossier": "playerDossier", "playerReceipts": "boothReceipts"}
+
+
+def without_flagged_off_diary_tools(schemas: list) -> list:
+    """Send-time flag-gate: drop `playerDossier` / `playerReceipts` when the engine reports their flag OFF. Returns the
+    SAME list object when nothing is dropped (flag-on / unprobed ⇒ byte-identical); never mutates the shared base."""
+    from src.orwell_engine import _ENGINE_FLAGS
+    off = {tool for tool, flag in _FLAG_GATED_DIARY_TOOLS.items() if _ENGINE_FLAGS.get(flag) is False}
+    if not off:
+        return schemas
+    return [s for s in schemas if not (isinstance(s, dict) and s.get("function", {}).get("name") in off)]
+
+
 # The Big Brother game tools (Vault-free). These are PINNED whenever the engine is
 # reachable so RAG/keyword selection can never drop them — the model must always be
 # able to call createCharacter (OOBE), getGameState (state check), and the full
