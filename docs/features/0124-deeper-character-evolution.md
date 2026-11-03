@@ -5,9 +5,10 @@
 > confidence↔distress slider + volatility), personality-flat (an NPC's reactivity is a **random draw**, not
 > their character), and mood-only (their *strategy* never hardens). This deepens all three, so the house
 > evolves like real people: independent feelings, a temperament that bends under pressure, and reactivity
-> that actually reflects who each houseguest is. Hidden layer only; **calibration-safe** (one default-off
-> flag ⇒ byte-identical) so the seeded spine + golden fixture are untouched.
+> that actually reflects who each houseguest is. Hidden layer only; **calibration-safe** (one flag, code default off, ON in the deploy profile
+> ⇒ byte-identical when off) so the seeded spine is untouched (it once also protected the golden fixture; golden replay decommissioned 2026-07-21).
 > **Executable spec:** [`0124-deeper-character-evolution.feature`](./0124-deeper-character-evolution.feature)
+> **Also proven by:** `tests/unit/deeperEvolution.test.ts`
 
 ## 1. Summary
 
@@ -96,7 +97,7 @@ persisted (0030), deterministic, and **calibration-neutral when off**.
   constant ⇒ byte-identical.
 - **The wall + calibration.** All three are hidden soul state — sentinel-clean, no number crosses. One flag
   `ORWELL_SOUL_DEPTH` (default off) gates every branch; where rng is touched it is **dedicated/draw-preserving**,
-  so the seeded competition/vote spine (`juryReach`/gradient/UAT) and the golden fixture are **byte-identical**
+  so the seeded competition/vote spine (`juryReach`/gradient/UAT) is **byte-identical**
   until the deploy opts in (the 0117/0120/0121/0122 shipped-flag pattern).
 
 ## 5. Contracts (stack-agnostic)
@@ -108,7 +109,7 @@ evolveEmotion(soul, event, c, rng?, { soulDepth })   // on ⇒ moves distress/co
 effectiveDisposition(soul, character): Disposition   // baseline ± temperamentDrift, banded w/ hysteresis (on only)
 factory: volatility = soulDepth ? VOL_OF[disposition] : rng.next()   // draw-preserving; settleScale from disposition
 behavior: competition modifier + decision leanings read {confidence, distress} when present; effective disposition
-flag: ORWELL_SOUL_DEPTH (default off)   // off ⇒ no new axis/drift/reactivity ⇒ byte-identical; golden untouched
+flag: ORWELL_SOUL_DEPTH (default off)   // off ⇒ no new axis/drift/reactivity ⇒ byte-identical
 invariants: CHARACTER byte-stable (0007); bounded; never overrides a hard rule (0005); player sees no number (0001)
 ```
 
@@ -125,7 +126,7 @@ invariants: CHARACTER byte-stable (0007); bounded; never overrides a hard rule (
       is **disposition-derived, draw-preserving** (no extra rng); off ⇒ the legacy random draw stands.
 - [x] **Vault-free + deterministic:** no new axis/drift/reactivity number on any player surface (extend the
       0001 canary); same seed ⇒ same axes/drift/reactivity; persisted across restart (0030).
-- [x] **Calibration-neutral:** flag **off** ⇒ the seeded spine (`juryReach`) + golden fixture are
+- [x] **Calibration-neutral:** flag **off** ⇒ the seeded spine (`juryReach`) is
       **byte-identical**; name-agnostic (roles only); added to `cucumber.cjs`; `npm test` + `test:arch` green.
 
 ## 7. Dependencies & traceability

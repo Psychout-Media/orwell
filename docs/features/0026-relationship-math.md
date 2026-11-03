@@ -8,6 +8,7 @@
 > cast anywhere on **sticky ↔ volatile ↔ forgiving**, so every season feels different. **Every
 > number is tunable config** — retune the feel later without touching logic.
 > **Executable spec:** [`0026-relationship-math.feature`](./0026-relationship-math.feature)
+> **Also proven by:** `tests/unit/relationshipMath.test.ts`
 
 ## 1. Summary
 

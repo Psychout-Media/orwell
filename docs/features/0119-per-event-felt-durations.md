@@ -5,9 +5,10 @@
 > interrupts; Phase 3 makes each event cost its **own felt duration** — a quick nomination ceremony barely
 > dents the day, a competition eats a real chunk, an eviction sits in between — instead of every beat
 > advancing a flat +3h. So the day's shape is *lived*, not uniform.
-> **In-game time ONLY** — no wall clock. Gated so the seeded calibration spine and golden replay are
-> byte-identical (no re-record).
+> **In-game time ONLY** — no wall clock. Gated so the seeded calibration spine is
+> byte-identical (the 0108 golden replay it also protected was decommissioned 2026-07-21).
 > **Executable spec:** [`0119-per-event-felt-durations.feature`](./0119-per-event-felt-durations.feature)
+> **Multi-step events (owner ruling 2026-11-01, #1912):** eviction night and the finale cost about **two in-game hours in total**, not about 2h per step. `eventBeatHours` (`src/engine/liveSeason.ts`) charges the event's budget (`eventSpanHours("eviction")`) on its first presentation step (vote reveal batches, goodbye, the 0130 exit-interview stage, result) and 0 on every later step, tracked on `live.eventClock` (survives save and restart). The per-beat felt durations below apply to single-step beats (competition about 3h, ceremony about 1h).
 
 ## 1. Summary — the gap this closes
 
@@ -19,7 +20,7 @@ into the actual clock advance. Phase 3 threads it in: a resolved beat advances t
 felt duration, so ceremonies are quick and comps are long — the day fills up at a *lived* rate, leaving
 more play around the cheap ceremonies and a real dent for the big competitions.
 
-## 2. The mechanic — one call site, gated for golden-safety
+## 2. The mechanic — one call site, gated on the per-conversation clock
 
 - `advanceClock(s, hours = CLOCK.perBeatHours)` gains an optional felt-duration (defaulting to the flat
   value — byte-identical when not passed).
@@ -30,14 +31,20 @@ more play around the cheap ceremonies and a real dent for the big competitions.
   `perConversationClockLive()`** (master + per-conversation clock on, day started); otherwise the flat
   default holds.
 
-### Why byte-identical where it must be (the guardrail — note the golden nuance)
+### Why byte-identical where it must be (the guardrail)
 
-Unlike Phases 1–2, the per-beat clock is **active in golden replay** (master clock on there). So the gate
-is deliberately the **per-conversation clock**, which golden replay pins **off**:
+Unlike Phases 1–2, the per-beat clock is active whenever the master clock is on. So the gate
+is deliberately the **per-conversation clock**:
 
-- **Golden replay (0108):** per-conversation clock **off** ⇒ `perConversationClockLive()` false ⇒
-  `feltHours` is never applied ⇒ every beat still advances the flat `perBeatHours` ⇒ the recorded
-  time-of-day/beat stream is **unchanged, no re-record**.
+- **Per-conversation clock off** ⇒ `perConversationClockLive()` false ⇒
+  `feltHours` is never applied ⇒ every ordinary beat still advances the flat `perBeatHours` ⇒ the
+  time-of-day/beat stream is **unchanged** for them (guarded by `perEventFeltDurations.test.ts`).
+  **Exception — the multi-step event path:** eviction-night and finale beats go through
+  `eventBeatHours` (the 2026-11-01 owner ruling, #1912), which is gated on the master time-of-day clock
+  only, NOT on the per-conversation clock. With time-of-day on and the per-conversation clock off, an
+  eviction/finale event therefore still charges its ~2h budget once on its first step and 0 on every later
+  step, instead of the flat `perBeatHours` per step. *(Historically this also kept the
+  0108 golden replay stable; decommissioned 2026-07-21.)*
 - **Seeded calibration spine:** time-of-day **off** ⇒ the whole per-beat clock block is skipped ⇒
   **byte-identical** (proven by `perConversationClockNeutral`).
 - The felt duration is **pure presentation** (a deterministic constant, no rng) — it changes *when in the
@@ -68,8 +75,8 @@ beatFeltHours(beat): number | null                  // a beat's felt in-game hou
 - [x] **Differentiated cost:** a resolved ceremony beat advances the clock **less** than a competition beat
       (quick vs. long); `beatFeltHours` returns the library values (comp 3 / ceremony 1 / eviction 2), null
       for inert/twist/terminal beats. *(`perEventFeltDurations.test.ts`; BDD 1.)*
-- [x] **Golden-safe gating:** with the per-conversation clock off (golden replay) every beat advances the
-      flat `perBeatHours` (the felt duration is never applied) — **no re-record**; with time-of-day off (the
+- [x] **Clock-gated:** with the per-conversation clock off every beat advances the
+      flat `perBeatHours` (the felt duration is never applied); with time-of-day off (the
       seeded spine) the block is skipped — **byte-identical** (`perConversationClockNeutral` green).
 - [x] **Outcome-preserving:** the felt duration never perturbs the seeded stream — heavy calibration sims
       **byte-identical** (`juryReach` band unchanged); it is pure presentation.
@@ -79,5 +86,5 @@ beatFeltHours(beat): number | null                  // a beat's felt in-game hou
 
 Threads the existing `EVENT_DURATION` / `eventSpanHours` (0066/#1125) library into the per-beat clock,
 builds on **0117** (the per-conversation clock it gates on) and **0118** (`daySchedule.ts`, where
-`beatFeltHours` lives), and preserves **0108** (golden replay) + the seeded calibration spine by gating on
-the per-conversation clock. Final phase of the in-game-time pivot (owner directive 2026-07-11).
+`beatFeltHours` lives), and preserves the seeded calibration spine by gating on
+the per-conversation clock (it also once preserved the 0108 golden replay, decommissioned 2026-07-21). Final phase of the in-game-time pivot (owner directive 2026-07-11).

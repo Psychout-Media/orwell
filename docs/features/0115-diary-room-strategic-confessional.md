@@ -9,6 +9,7 @@
 > story. **The wall is the hard constraint and stays structural:** no houseguest ever learns DR content, and
 > no NPC behavior is ever driven by it.
 > **Executable spec:** [`0115-diary-room-strategic-confessional.feature`](./0115-diary-room-strategic-confessional.feature)
+> **Also proven by:** `tests/unit/diaryRoomStrategic.test.ts`
 
 ## 1. Summary
 

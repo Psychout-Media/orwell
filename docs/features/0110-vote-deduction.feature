@@ -1,4 +1,4 @@
-# Executable spec — BUILT & green; BDD-gated in cucumber.cjs (2026-06-28). Opt-in ORWELL_VOTE_DEDUCTION.
+# Executable spec — BUILT & green; BDD-gated in cucumber.cjs (2026-06-28). Flag ORWELL_VOTE_DEDUCTION (code default off; ON in the deploy profile).
 # Feature 0110 — Vote deduction (process of elimination): the jury grudge folds on a DEDUCED belief,
 # never on the true secret ballot. Realizes option B of the 0023 secret-vote-grudge ruling.
 # HARD rule: roles only (evictee, voter, loyalist, HOH, nominee, the-player). No names.

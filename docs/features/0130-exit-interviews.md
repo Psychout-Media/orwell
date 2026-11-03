@@ -16,6 +16,8 @@
 > **Tests:** `tests/unit/exitInterview.test.ts` + BDD `0130-exit-interviews.feature` (`exit_interview.steps.ts`)
 > + FE `frontend/tests/test_m3_4_decision_faces.py` (buildPayload byte-parity for the new kind).
 > **Executable spec:** [`0130-exit-interviews.feature`](./0130-exit-interviews.feature)
+> **Also proven by:** `tests/unit/exitInterview.test.ts`
+> **Post-goodbye chain (#1945):** after the player's goodbye the engine owes `exit-interview → eviction result`. The front-end now advances through that whole chain in one bounded loop (at most 6 steps, each compare-and-swapped on the prior `beatSeq`, and — when the goodbye carried an idempotency key (the HTTP path always has one, client-supplied or minted; a keyless WebSocket decision has none) — with its own key derived from it; it stops when the result beat lands, the eviction view is gone, a pending decision appears, or the season finishes), shared by the HTTP and WebSocket decision paths. Before this it fired a single advance and eviction night stalled at the exit interview. Pinned by `tests/unit/postGoodbyeBeatChain.test.ts` + `frontend/tests/test_0130_post_goodbye_advance.py`.
 
 ## 1. Summary
 
@@ -83,7 +85,7 @@ retrospective mechanic itself (0048 — this adds content to it, doesn't rebuild
   retrospective replays alongside the unsealed ballots — the season's exits told in the evictees' own words.
 - **Calibration-neutral.** The exit interview is **expressive/retrospective**, mutating **no seeded state**
   (manner is already fixed by 0047; the interview reacts, it does not re-weight the game) — so the seeded spine
-  (juryReach/gradient/UAT/golden) is **byte-identical**. No flag needed for the core.
+  (juryReach/gradient/UAT) is **byte-identical**. No flag needed for the core.
 - **Vault Wall.** The evictee speaks only to what they know (0002) + their own goodbye messages (witnessed);
   no hidden scheme/number crosses (extend the 0001 canary to the exit-interview beat/projection).
 

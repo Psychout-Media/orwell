@@ -154,6 +154,10 @@ Neither side initiates everything.
 3. Domain core under **fast unit tests** with the seedable `RandomnessSource`.
 4. **Property-based tests** for randomness/temperature distributions and for "behavioral
    richness" thresholds.
+5. **`.feature` files are executable specs, and CI treats them as engine changes.** They live
+   under `docs/features/`, but the CI path filter counts `docs/features/**/*.feature` as engine
+   (so a scenario-only edit runs the BDD gate rather than skipping as a docs-only PR). Keep
+   scenario edits paired with their step code in `features/step_definitions/`.
 
 ---
 

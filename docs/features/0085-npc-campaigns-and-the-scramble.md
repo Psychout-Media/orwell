@@ -3,10 +3,12 @@
 > **Status:** ✅ **BUILT 2026-06-25** — phased: A (model/traits/pure logic, #808) · B1 (seeded vote
 > tilt, #809) · B2 (live off-screen execution + the tilt provider, behind `ORWELL_CAMPAIGNS`,
 > default-off ⇒ calibration byte-identical, #810) · C (BDD closeout: the `.feature` wired into
-> `cucumber.cjs` with all 13 scenarios green, veto-escape re-aim, player-campaign isolation). Engine:
+> `cucumber.cjs` with all 15 scenarios green, veto-escape re-aim, player-campaign isolation). Engine:
 > `src/engine/campaigns.ts` (pure, Vault-sealed); `Character.influence`; `GameSessionAdapter.campaignTick`
 > + `ctx().campaignTiltFor`. The calibration spine is untouched (`juryReach` green; campaigns run only
-> when the deploy sets `ORWELL_CAMPAIGNS=1`). **Gate:** engine (Vitest +
+> when the deploy sets `ORWELL_CAMPAIGNS=1`).
+> **Since #1937 / PR #1966:** campaigns now push the **NPC HOH's nominations, the replacement nominee and the NPC veto holder's save**, not just the eviction vote: a bounded, signed push (`campaignPushFor`; an `evict` campaign adds, a `protect` campaign subtracts, net clamped to `CAMPAIGN.base`), and `protect` counters `evict` at the vote (the scramble). Per the owner ruling 2026-11-03, **player-owned campaigns count too** (`CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED`), still bounded, and NPCs still decide; the NPC re-planner no longer rewrites a player's declared campaign. Gated by the campaigns flag, so flags-off stays byte-identical.
+> **Gate:** engine (Vitest +
 > property/calibration + dependency-cruiser + BDD `0085-npc-campaigns-and-the-scramble.feature`) and
 > front-end (the player experiences campaigns only through existing surfaces — approaches, gossip, the
 > decision card). **Depends on:** 0038 (the off-screen society tick that runs each campaign move), 0039

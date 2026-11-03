@@ -1,11 +1,11 @@
 # 0080 — Active overseer: the reasoning tier as the primary actor (guardrails as the fail-soft floor)
 
-> **Status:** 📝 **SPEC — scoping; owner rulings open (§10).** A follow-on to **0079**. Today the
+> **Status:** ✅ **Built, shipped DEFAULT ACTIVE** (owner ruling 2026-07-13; 3-state `overseer_mode` in `frontend/src/settings.py`, resolver default `active`; an explicit `off` still disables). The text below is the original scoping spec, which proposed opt-in / OFF by default. *(Original status:)* 📝 **SPEC — scoping; owner rulings open (§10).** A follow-on to **0079**. Today the
 > runtime overseer **diagnoses + logs** while the inline heuristic guardrails (the stall-nudge, the
 > L39b forced-advance ladder, `_auto_record_scene`, the casting/premiere belts) do the **acting**.
 > This feature lets the overseer **act on its own verdict** — its reasoning *decides* the correction —
 > with the existing guardrails **demoted to the deterministic fail-soft floor** rather than removed.
-> It is **opt-in, reversible, and OFF by default**. This is the original "promote the brittle
+> It is **reversible** (as first scoped it was also opt-in and OFF by default; it now ships ACTIVE, see the status above). This is the original "promote the brittle
 > heuristics into one reasoning overseer" idea (the first design conversation behind 0079), scoped
 > honestly: it is **a live-game behavior change**, not a post-turn bolt-on, and it trades instant
 > heuristic decisions for slower LLM-judged ones. **Read §9 (cost & risk) and §10 (open decisions)

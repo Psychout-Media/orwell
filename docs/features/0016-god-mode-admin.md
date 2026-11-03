@@ -5,6 +5,7 @@
 > mechanics, and inspects **non-Vault** state — and is **walled from the Vault even for the
 > admin**. Extends the existing `AdminPort` (`src/surfaces/admin/AdminPort.ts`) and `ADMIN_TOOLS`.
 > **Executable spec:** [`0016-god-mode-admin.feature`](./0016-god-mode-admin.feature)
+> **Also proven by:** `tests/unit/godMode.test.ts`
 
 ## 1. Summary
 

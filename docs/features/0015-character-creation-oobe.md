@@ -4,6 +4,7 @@
 > produces the *player* — the only authored houseguest — and seeds the rest of the house around
 > them. Feeds `CharacterFactory` (0004) and the Character/Soul split (decision 0001).
 > **Executable spec:** [`0015-character-creation-oobe.feature`](./0015-character-creation-oobe.feature)
+> **Also proven by:** `tests/unit/characterCreation.test.ts`
 
 ## 1. Summary
 

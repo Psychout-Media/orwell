@@ -10,6 +10,7 @@
 > watcher (deleted, real-time purge 2026-07-10). In-game time still advances *only* from the player's own
 > committed turns and the ceremony beats; the house still does **not** live while the player is away.
 > **Executable spec:** [`0117-house-lives-in-in-game-time.feature`](./0117-house-lives-in-in-game-time.feature)
+> **Also proven by:** `tests/unit/houseLivesInInGameTime.test.ts`
 
 ## 1. Summary — the gap this closes
 
@@ -54,9 +55,12 @@ started), a social (aux) turn is **no longer silenced**:
   `perConversationClockLive()` is `false`, the new branch is never taken, aux turns still return early, and
   every seeded competition/jury roll is **byte-identical**. The off-screen society already uses side-rng
   (never the seeded spine), so even the extra live-game ticks can't perturb a seeded outcome.
-- **Golden record/replay (0108):** the golden driver pins `ORWELL_TIME_PER_CONVERSATION=0`, so the
-  per-conversation clock is off, `perConversationClockLive()` is `false`, and **no new tick fires** — the
-  replay digest is unchanged. Beat ticks (the only ones the fixture contains) replay identically.
+- **Golden record/replay (0108, historical — decommissioned 2026-07-21):** the golden driver pinned
+  `ORWELL_TIME_PER_CONVERSATION=0`. The same property is now guarded in two parts:
+  `perConversationClockNeutral` proves the seeded competition/vote/jury **outcome** stream is byte-identical,
+  and `tests/unit/houseLivesInInGameTime.test.ts` proves that with the **master in-game clock off**
+  `perConversationClockLive()` is `false` and no extra off-screen society tick fires on social turns. The
+  master-on / per-conversation-off combination is not separately asserted as a no-tick case.
 - **No token cost:** the off-screen society is **pure engine simulation** (templates + seeded rng), not an
   LLM call, so a livelier cadence costs no tokens — only richer hidden state.
 
@@ -96,8 +100,7 @@ SOCIETY_TICK_HOURS: number                                 // in-game hours of e
       not once per tool call — some social turns scheme, others stay quiet. *(BDD scenario 2; the pacing test.)*
 - [x] **Byte-identical guardrails:** with time-of-day OFF (the seeded spine) social turns still return
       early — no clock advance, no extra tick; the heavy calibration sims stay **byte-identical**
-      (`juryReach` band unchanged; `perConversationClockNeutral` / `nightGateNeutral` green); golden replay
-      (per-conversation clock off) is unchanged (no new tick can fire). *(BDD scenario 3; the clock-off test.)*
+      (`juryReach` band unchanged; `perConversationClockNeutral` / `nightGateNeutral` green); with the per-conversation clock off no new tick can fire (guarded by `perConversationClockNeutral`). *(BDD scenario 3; the clock-off test.)*
 - [x] **Vault-free:** the two new getters read no Vault state; `npm run test:arch` green. *(BDD scenario 4.)*
 - [x] Name-agnostic tests (roles only); BDD-gated in `cucumber.cjs`; `npm test` green.
 
@@ -106,7 +109,7 @@ SOCIETY_TICK_HOURS: number                                 // in-game hours of e
 Extends **0066 / ADR 0006** (in-game time & the per-conversation clock — the clock this rides), un-silences
 **0038** (off-screen society + gossip), **0078** (motivated movement), **0085/0086** (campaigns/drives),
 **0087** (trajectories), **0089** (reactive confessionals) into the between-ceremony window, and preserves
-**0108** (golden replay) and the seeded calibration spine by gating strictly on the live clock. Governed by
+the seeded calibration spine (and, historically, **0108** golden replay, decommissioned 2026-07-21) by gating strictly on the live clock. Governed by
 **ADR 0005** (open-set texture is never normalized into the closed set — the livelier society is open-set
 richness only) and the **real-time purge** ruling (2026-07-10 — in-game time only, never the wall clock).
 First phase of the in-game-time pivot (owner directive, 2026-07-11).

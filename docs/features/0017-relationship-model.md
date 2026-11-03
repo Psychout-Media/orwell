@@ -6,6 +6,7 @@
 > flags. The engine already has a relationship seam (`src/engine/relationships.ts`, used by 0003's
 > alliance churn); this feature makes its **properties assertable**.
 > **Executable spec:** [`0017-relationship-model.feature`](./0017-relationship-model.feature)
+> **Also proven by:** `tests/unit/relationshipModel.test.ts`
 
 ## 1. Summary
 

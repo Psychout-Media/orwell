@@ -1,6 +1,6 @@
 # 0097 — The suspicion ledger (a player-private "called it / wrong" scorecard)
 
-> **Status:** 🟩 **REOPENED + ENGINE CORE BUILT (2026-07-12).** The pure ledger core is built & unit-green
+> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; [`docs/features/README.md`](./README.md) is the authoritative status index). It is **not reopened**. A pure engine core built 2026-07-12 is preserved in the tree but is unwired and not live: the pure ledger core is built & unit-green
 > (`src/engine/suspicionLedger.ts` + `suspicionConstants.ts`, `tests/unit/suspicionLedger.test.ts`) — logging
 > (verbatim/lossless), the sanctioned-reveal matcher (`resolveAgainstReveal`: a model-proposed verdict COMMITTED,
 > or the deterministic keyword/about/topic floor; frozen-on-resolve; NEVER a live Vault read), and the 0048
@@ -8,7 +8,7 @@
 > (`logSuspicion`/`getSuspicionLedger` — the 4-place port/adapter/registry-`INFRA_LEVERS`/McpServer + a `callTool`
 > boundary test), snapshot persistence (field `suspicionLedger`, distinct from `knowledge.suspicions`), the
 > resolution-at-reveal hooks, and the BDD wiring. *(Previously: ❄️ FROZEN — parked 2026-06-27; #878 closed not
-> planned; reopened by owner ruling "Everything".)*
+> planned; a 2026-07-12 "Everything" sweep built the core, but the freeze stands.)*
 > Owner ruling: not load-bearing, and it risks the game over-telling the player / paranoia-as-spreadsheet
 > (ADR 0003; "the feeling is theirs", 0017/0020). **If revived,** the chosen shape is on record: a DR-style
 > OOC surface (R1), reveal-time-only scoring (R2), and player-authored player-knowledge with `NO_NPC_PATHWAY`

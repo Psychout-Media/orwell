@@ -7,6 +7,7 @@
 > mechanic at all** — genuinely distinct *gameplay*, not just distinct skins. Layered with 0125, every
 > comp is a distinct mechanic in a distinct theme.
 > **Executable spec:** [`0126-expanded-competition-mechanics.feature`](./0126-expanded-competition-mechanics.feature)
+> **Also proven by:** `tests/unit/competitionMechanicsPlus.test.ts`
 
 ## 1. Summary
 

@@ -8,6 +8,7 @@
 > **real upsets**; the player is **never protected**). **The shape is fixed; every number is config** —
 > the sibling to the relationship constants (0026).
 > **Executable spec:** [`0028-temperature-and-emotional-constants.feature`](./0028-temperature-and-emotional-constants.feature)
+> **Also proven by:** `tests/unit/temperatureConstants.test.ts`
 >
 > **Calibration note (PO ruling 2026-07-06):** the headline was **~72%** at first draft; the **0006 PO
 > retune** (competition temperature weight **0.36 → 0.40**, to make upsets a touch more common) lowered a

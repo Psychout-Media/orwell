@@ -7,6 +7,7 @@
 > hybrid comp rewards a **well-rounded** houseguest over a one-dimensional one — while the primary stat
 > still dominates and the engine still decides on stats.
 > **Executable spec:** [`0127-mixed-type-competitions.feature`](./0127-mixed-type-competitions.feature)
+> **Also proven by:** `tests/unit/mixedCompetition.test.ts`
 
 ## 1. Summary
 
@@ -31,7 +32,7 @@ single stat and every seeded gate is **byte-identical**; the deploy turns it on 
 from the tunable 0028 module); `secondary` aptitudes authored onto ~13 naturally-hybrid comps (skill /
 crapshoot / social / maze comps — pure endurance / pure-strength / pure-puzzle stay single-stat);
 `SeasonCtx.mixedComps` threaded from the adapter flag; the live `resolveComp` passing the secondary only
-when the flag is on. Default-**OFF** (`ORWELL_COMP_MIXED`); deploy opt-in; pinned off in the golden driver.
+when the flag is on. Default-**OFF** (`ORWELL_COMP_MIXED`); deploy opt-in (it was also pinned off in the since-decommissioned golden driver).
 
 **Out:** the temperature / emotion / intent / rest terms (unchanged — the blend touches only the stat
 base); a per-comp custom weight (one tunable global weight for now); the theme/pool layers (0125/0126 —
@@ -72,7 +73,7 @@ SeasonCtx += { mixedComps?: boolean }                              // threaded f
       trajectory is identical — `juryReach` re-run green (flag off).
 - [x] **Balance holds on:** `juryReach` band still holds with the flag on (empirical balance proof).
 - [x] **Vault-free:** the result carries no stat/score/ranking under hybrid resolution.
-- [x] Seed-deterministic; name-agnostic; added to `cucumber.cjs`; deploy opt-in; golden driver pinned off.
+- [x] Seed-deterministic; name-agnostic; added to `cucumber.cjs`; deploy opt-in.
 
 ## 7. Dependencies & traceability
 
@@ -89,7 +90,7 @@ both ways). The blend weight (0.35) and the hybrid set are tunable.
 - `src/engine/liveSeason.ts` — `SeasonCtx.mixedComps?`; `resolveComp` passes `def.secondary` when on.
 - `src/adapters/engine/GameSessionAdapter.ts` — `COMP_MIXED_ENABLED_DEFAULT` (default-off), the
   `compMixedEnabled` field + `setCompMixedEnabled`/`compMixedEnabledNow`, wired into `ctx().mixedComps`.
-- `frontend/scripts/_golden_driver.py` — pin `ORWELL_COMP_MIXED="0"`.
+- `frontend/scripts/_golden_driver.py` — pinned `ORWELL_COMP_MIXED="0"` (historical; the golden driver was decommissioned 2026-07-21).
 - Deploy: `ORWELL_COMP_MIXED=1` opt-in in `deploy/smoke.sh` + `deploy/orwell-install.sh`.
 - **Tests:** `tests/unit/mixedCompetition.test.ts` (pure) + `tests/unit/mixedCompetitionLive.test.ts`
   (live + byte-identity guard), `docs/features/0127-*.feature` → `cucumber.cjs`.

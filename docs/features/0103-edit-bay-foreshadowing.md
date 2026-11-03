@@ -1,6 +1,6 @@
 # 0103 — Edit-bay foreshadowing (the show is telling you something)
 
-> **Status:** 🟩 **REOPENED + ENGINE CORE BUILT (2026-07-12).** The pure fit/eligibility/budget/hint core is
+> **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; [`docs/features/README.md`](./README.md) is the authoritative status index). It is **not reopened**. A pure engine core built 2026-07-12 is preserved but unwired (only a test imports it): the pure fit/eligibility/budget/hint core is
 > built & unit-green — `src/engine/foreshadow.ts` (`foreshadowFit`, `rankForeshadowCandidates` dropping
 > `dormant` + no-public-surface + below-floor, `hintBudget` weekly+season caps, the Vault-safe `buildHint`,
 > `leadTimeFromWeeksOut`) + `src/engine/foreshadowConstants.ts`, `tests/unit/foreshadow.test.ts` (12 cases:
@@ -9,9 +9,9 @@
 > adapter wiring). **Follow-up lane (LARGE — not yet built):** the `GameSessionAdapter` off-screen-tick wiring
 > on a dedicated side-rng behind `ORWELL_FORESHADOW` (byte-identical when off), the read-only `editBayHint`
 > `momentPrompts` field, persistence of the cadence counters + hint→pathway link, the 0092/0102 coordination
-> (R3), and BDD wiring. *(Previously: ❄️ FROZEN — parked 2026-06-27; #885 closed not planned; reopened by owner
-> ruling "Everything". Spoiler-adjacent in feel though structurally Vault-safe; see `docs/decisions/PO-DECISIONS-LOG.md`.)* The original proposal follows unchanged.
-> Tracks **#885**. This is a *design proposal awaiting decisions*; nothing here is implemented. It is
+> (R3), and BDD wiring. *(Previously: ❄️ FROZEN — parked 2026-06-27; #885 closed not planned; a 2026-07-12
+> "Everything" sweep built the core, but the freeze stands. Spoiler-adjacent in feel though structurally Vault-safe; see `docs/decisions/PO-DECISIONS-LOG.md`.)* The original proposal follows unchanged.
+> Tracks **#885**. This is a *design proposal awaiting decisions*; nothing in the proposal below is wired into the game (only the unwired pure core above exists). It is
 > the **anticipation companion** to **0092** (secret-pacing drip — the *payoff* arrives; 0103 plants
 > the *foreshadow* that makes the payoff land as "I knew it") and to the **weekly recap 0102** (its
 > sibling — the recap looks *back*, 0103 nods *forward*; § "PO review" R3 owns the coordination).

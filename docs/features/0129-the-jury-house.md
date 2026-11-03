@@ -4,16 +4,18 @@
 > the spec for this and build later again"). **Expands 0046** (player eviction & the juror's seat) and pairs
 > with its **ceremonies-as-broadcast** knowledge model. Today an evicted player on the jury watches a paced,
 > Vault-safe **broadcast** of the remaining weeks — *alone*. This spec adds the **jury house**: the other
-> evicted houseguests are there too, and the player can hear the season **from their perspective**, **ask them
+> **jurors** (never the earlier, pre-jury evictees) are there too, and the player can hear the season **from their perspective**, **ask them
 > questions**, get their read on who's left, and walk into the finale vote **informed** — the _Big Brother_
 > "jury roundtable" that is where the vote is really decided.
 > **Executable spec:** [`0129-the-jury-house.feature`](./0129-the-jury-house.feature)
+> **Disambiguation:** "jury house" names two things. **This spec (0129) is the player-facing sequestered jury house** a juror-player would visit. The built hidden NPC↔NPC layer is [0100](./0100-jury-grudge-book.md) (`src/engine/juryHouse.ts`).
+> **Sequestration (owner ruling 2026-11-03, PR #1957):** the jury house holds **only jurors**. The player can talk to jurors only if the player is a juror, and jurors mix only with other jurors. Pre-jury evictees go home and appear in no later jury-house or social event. **One exception:** the departing evictee's own eviction-night departure beat (their goodbye message, exit interview, or "leaves the house" line, where exactly one participant is already out and the rest are the still-playing house) is not excluded; `tests/support/jurySequesterScenario.ts` pins exactly that one-out-participant case. The engine's membership is "evicted from the jury-start point onward" (the last nine, capped), pinned by `tests/unit/jurySequester.test.ts`. The player-as-juror surface below is still unbuilt.
 
 ## 1. Summary
 
 0046 made losing faithful: you take the juror's seat and watch the public ceremonies broadcast to the finale.
-But it's a solo, passive fast-forward. In the show, the jury is a **place full of people** — every houseguest
-you and the house evicted, living together, comparing notes, nursing grudges, and arguing about who deserves
+But it's a solo, passive fast-forward. In the show, the jury is a **place full of people** — every juror
+(only the houseguests seated on the jury, never the early evictees), living together, comparing notes, nursing grudges, and arguing about who deserves
 to win. 0129 turns the spectate phase into that: the player, as a juror, can **talk to the other jurors**,
 **hear the game from each of their (biased, partial) points of view**, **ask them what they know and think**,
 and get a rolling **update on the house** as each new evictee arrives — all of it feeding the read the player

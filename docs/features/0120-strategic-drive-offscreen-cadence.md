@@ -8,6 +8,7 @@
 > **Calibration-safe by construction:** opt-in behind a dedicated flag (default OFF); off ⇒ the uniform draw
 > exactly (byte-identical seeded spine). Enabled in the live deploy alongside the other living-house layers.
 > **Executable spec:** [`0120-strategic-drive-offscreen-cadence.feature`](./0120-strategic-drive-offscreen-cadence.feature)
+> **Also proven by:** `tests/unit/strategicCadence.test.ts`
 
 ## 1. Summary — the gap this closes
 

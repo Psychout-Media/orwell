@@ -1,6 +1,8 @@
 # 0109 — Negotiated deal duration (when does a promise expire — and when do you turn?)
 
-> **Status:** 🟢 **SPEC — drafted 2026-06-27 from an owner edit during the PO-review sweep; BUILD-READY**
+**Also proven by:** `tests/unit/dealDuration.test.ts`
+
+> **Status:** ✅ **BUILT (2026-06-27) and BDD-gated in `cucumber.cjs`** (`tests/unit/dealDuration.test.ts` + the feature). Originally drafted 2026-06-27 from an owner edit during the PO-review sweep as BUILD-READY
 > (amends **0039**, the deal ledger). Owner direction in `docs/decisions/PO-DECISIONS-LOG.md` (2026-06-27).
 > **Builds on (does NOT duplicate):** **0039** (the first-class `Deal` / `DealLedger` —
 > `src/engine/deals.ts` + `src/domain/deal.ts`, `horizonOf(kind)`), **0026** (the betrayal-shock

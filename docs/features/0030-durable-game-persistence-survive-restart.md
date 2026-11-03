@@ -8,6 +8,7 @@
 > [0007](./0007-persistence-non-degradation.md) serialization (`GameState`/`SaveStore`) behind a
 > **disk-backed** adapter, and keeps the per-user isolation of [0021](./0021-game-session-and-save-lifecycle.md).
 > **Executable spec:** [`0030-durable-game-persistence-survive-restart.feature`](./0030-durable-game-persistence-survive-restart.feature)
+> **Also proven by:** `tests/unit/durablePersistence.test.ts`
 
 ## 1. Summary
 
