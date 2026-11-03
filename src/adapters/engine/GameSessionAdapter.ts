@@ -9265,6 +9265,12 @@ export class GameSessionAdapter implements GameSession {
     const resolved = this.resolveWieldedSecret(d);
     if (!resolved) return { accepted: false, refused: "not-learned" };
     if (resolved.subject === recipient) return { accepted: false, refused: "not-learned" }; // can't trade a secret TO its own subject
+    // PO ruling 2026-11-03 (0099): "once the info is spread, there's no putting the genie back" — a secret cannot be
+    // traded to someone who ALREADY KNOWS it (they witnessed it, or were told — including by an earlier trade). The
+    // season cap is unchanged. A bluff carries no real fact, so it has nothing to be "already known".
+    if (!resolved.bluff && resolved.factId && this.recipientKnowsSecret(recipient, resolved.factId)) {
+      return { accepted: false, refused: "already-spent" };
+    }
     const rng = this.secretRng("trade", `${resolved.factId ?? `bluff:${resolved.subject}`}:${recipient}`);
     if (resolved.bluff) {
       this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason + 1);
@@ -9296,6 +9302,20 @@ export class GameSessionAdapter implements GameSession {
     // Refused — peddling a secret they don't want reads as untrustworthy (a bounded sour on their read).
     if (folds.traderBacklash) this.rel.applyImpactDirected(recipient, PLAYER, folds.traderBacklash, rng);
     return { accepted: false, refused: "declined", narratable: "they didn't bite" };
+  }
+
+  /**
+   * Does `npcId` already hold the secret the player holds as `factId`? Matched by lineage (`factId`) or by the same
+   * wording (a `told-by` surfacing re-mints the fact under the recipient, so the content is the stable key). Reads
+   * only the recipient's OWN knowledge (witnessed or told) — never a suspicion, never the Vault.
+   */
+  private recipientKnowsSecret(npcId: EntityId, factId: string): boolean {
+    const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const content = this.factContentFor(factId);
+    const want = content ? norm(content) : undefined;
+    return (this.npcKnowledge?.known(npcId) ?? []).some(
+      (k) => k.factId === factId || (want !== undefined && norm(k.content ?? "") === want),
+    );
   }
 
   /** 0099 — assemble the Vault-hidden tradeValue signals (the RECIPIENT's reads of the secret's subject + the player). */

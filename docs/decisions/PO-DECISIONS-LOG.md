@@ -81,6 +81,12 @@ live ledger of owner calls as they happen.
   by that trust, as `mannerToward` grades it). **ASSUMED, pending Ryne:** a replacement who did NOT trust the HOH takes
   the plain `nominated` conflict instead of nothing (being put up is still a slight, just not a betrayal).
 
+- **0099 — a secret cannot be traded to someone who already knows it (Ryne).** "Once the info is spread, there's no
+  putting the genie back." `resolveAndTrade` now refuses (`refused: "already-spent"`, Vault-free, no new code) a trade of
+  a real secret to a recipient who already holds it — witnessed it, or was told it, including by an earlier trade of the
+  same secret to them. The 5/season trade cap is unchanged; a bluff has no real fact to be "already known". Test:
+  `tests/unit/secretTradeAlreadyKnown.test.ts` (fails without the fix).
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile
