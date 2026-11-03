@@ -94,4 +94,4 @@ Feature: Vote deduction — a secret ballot becomes a deduced belief, by process
 
     Scenario: With deduction disabled, the seeded outcomes match the deduction-enabled season
       Given a full season is played with vote deduction disabled
-      Then the eviction order, the winner, and the jury outcome are identical to the same seed with deduction enabled
+      Then the eviction order and the competition tally are identical to the same seed with deduction enabled

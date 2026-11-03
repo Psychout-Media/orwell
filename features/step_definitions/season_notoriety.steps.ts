@@ -166,7 +166,7 @@ Then("the prior season's full durable record still remains on disk", function ()
   sb.session.createCharacter({ playerName: "The Player", seed: 7, confirmRestart: true });
   const retired = readdirSync(dir).filter((n) => n.includes(".retired-"));
   assert.equal(retired.length, 1, "the dead season's dir is rotated, not deleted");
-  const files = readdirSync(join(dir, retired[0]!)).filter((n) => /^v\d+\.json$/.test(n));
+  const files = readdirSync(join(dir, retired[0]!)).filter((n) => /^v\d+\.json$/.test(n)).sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
   assert.ok(files.length > 0 && statSync(join(dir, retired[0]!, files[0]!)).size > 0, "the dead season's save is still on disk");
   const kept = JSON.parse(readFileSync(join(dir, retired[0]!, files[files.length - 1]!), "utf8")) as unknown;
   assert.deepStrictEqual(kept, liveBefore, "the retired save is the finished season, byte-for-byte");
@@ -271,7 +271,7 @@ When("competitions and votes are resolved at a fixed seed", function (this: BbWo
   nw2.nHoh = { with: firstHoh(withN), without: firstHoh(without) };
 });
 
-Then("every competition and vote outcome is byte-identical to the same seed with no notoriety", function (this: BbWorld) {
+Then("the first competition result and the NPC-to-NPC move-in layer are byte-identical to the same seed with no notoriety", function (this: BbWorld) {
   const w = nw(this) as NWorld & { nHoh?: { with: string; without: string }; nLayer?: { with: string; without: string } };
   assert.ok(w.nHoh!.with.length > 0, "a real first competition was resolved");
   assert.equal(w.nHoh!.with, w.nHoh!.without, "the first HOH competition result is identical with and without notoriety");

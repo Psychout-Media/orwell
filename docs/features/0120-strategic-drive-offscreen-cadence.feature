@@ -17,8 +17,9 @@ Feature: Strategic-drive off-screen cadence
     Then a sharper, more-strategic houseguest weighs more than a passive one
     And the difference is slight, never a wild skew
 
-  # (The OFF path is the uniform draw by construction; the real ON-vs-OFF contrast is the scenario below and
-  #  tests/unit/strategicCadence.test.ts. The former OFF-vs-OFF "byte-identical" scenario compared two identical OFF runs.)
+  # (The OFF path passes no drive provider, i.e. it IS the uniform draw, by construction — no independent pre-feature baseline
+  #  exists to compare against, so no OFF-neutral claim is asserted. The former OFF-vs-OFF "byte-identical" scenario was removed.
+  #  The real ON-vs-OFF contrast is the scenario below.)
 
   Scenario: Turning the cadence on shifts who schemes, still deterministically
     Given the same seed with the strategic cadence on versus off

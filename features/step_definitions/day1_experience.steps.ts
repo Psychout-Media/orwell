@@ -261,7 +261,7 @@ Then("the change is recalled later only as observable behavior, never as a numbe
 Given("a Day-1 with no consequential social beat taken", function (this: BbWorld) {
   const w = bag(this);
   // PAT-3: two REAL sandboxes at the same seed. The baseline first day is left untouched; the other has the player's Day-1
-  // surfaces fully read (the premiere moment prompt, the room/needle state, the status) but records NO beat. If any Day-1
+  // surfaces read (the premiere moment prompt, the game state, the status — not the Diary Room or needle) but records NO beat. If any Day-1
   // reframe folded something on read, the hidden relationship layer would differ from the untouched baseline.
   const seed = w.seed ?? 111;
   const rels = (sb: ReturnType<GameSessionRegistry["sandboxFor"]>): string => JSON.stringify(sb.engine.relationships.serialize());
@@ -377,7 +377,7 @@ Then("the Diary Room exposes no pathway from the player's confession to any NPC"
 
 Given("a full season is played with the Day-1 reframes inactive", function (this: BbWorld) {
   const w = bag(this);
-  // PAT-3: "inactive" = the Day-1 surfaces (premiere prompt, room/needle state) are never read; the baseline season. The
+  // PAT-3: "inactive" = the Day-1 surfaces (premiere prompt, game state, status) are never read; the baseline season. The
   // other season reads every Day-1 surface up front, THEN plays. Same seed, a real compare of the protected outcome.
   const play = (readDay1: boolean, user: string): SeasonOutcome => {
     const sb = new GameSessionRegistry().sandboxFor(user);

@@ -53,7 +53,7 @@ Feature: 0099 — Secrets as a tradeable currency (information becomes diplomacy
       When the player offers the secret for a deal
       Then the recipient can still refuse the trade
       And peddling the secret may cost the player standing with that recipient
-      # (no-secret deal formation is byte-stable: tests/unit/secretPowerNeutral.test.ts)
+      # (a descriptor-free deal draws nothing shared and folds no third-party edge: tests/unit/secretPowerNeutral.test.ts)
 
   Rule: NPCs barter secrets with each other, hidden
 
