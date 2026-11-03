@@ -51,7 +51,10 @@ describe("0133 — the evicted-mode narrator prompt is public-only", () => {
     expect(blob).not.toContain(sentinelVault);
     expect(blob).not.toContain(sentinelHidden);
     expect(blob).not.toMatch(/npc:\d+/);                                   // no raw role ids to voice or leak
-    expect(blob).not.toMatch(/"(trust|threat|affinity|soul|hiddenElements?)"/i); // no hidden-layer fields/numbers
+    // Hidden-layer fields as they would read INSIDE the prompt text (name then a number), checked on the raw text —
+    // not on the JSON blob, where quotes are escaped and a quoted-name regex could never match.
+    const raw = s.getMomentPrompt({}).systemPrompt;
+    expect(raw).not.toMatch(/\b(trust|threat|affinity|soul|hiddenElements?)\b\s*[:=]\s*-?\d/i);
   });
 
   it("the narrator is told to voice ONLY the public weekDigests (and not invent private scheming)", () => {
