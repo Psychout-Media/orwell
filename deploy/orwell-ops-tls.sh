@@ -49,8 +49,17 @@ done
 type ops_progress_init >/dev/null 2>&1 || { ops_progress_init() { :; }; ops_progress_step() { :; }; ops_progress_done() { :; }; ops_progress_fail() { :; }; }
 export ORWELL_OPS_DIR="${OPS_DIR}"
 
+# SYMLINKS / RACES: this script runs as ROOT but reads, shreds and removes files under data/ops/, which
+# the unprivileged service user owns — so nothing there may be followed (shred would destroy a symlink's
+# TARGET; a read would publish the target's contents). A "check, then use" on a path the service user can
+# still swap is racy, so the side files are CLAIMED first: renamed (a rename moves a symlink ITSELF, never
+# its target) into a private root-owned temp dir, and only then checked, read and shredded there.
+CLAIM_DIR=""
+ORIG_CONFIG_FILE="$CONFIG_FILE"; ORIG_TOKEN_FILE="$TOKEN_FILE"
+
 shred_token() {
-  [[ -e "$TOKEN_FILE" ]] || return 0
+  # Only ever the CLAIMED copy (root-private); never a path in the service-writable ops dir.
+  [[ -n "$CLAIM_DIR" && -e "$TOKEN_FILE" && ! -L "$TOKEN_FILE" ]] || return 0
   if command -v shred >/dev/null 2>&1; then
     shred -u "$TOKEN_FILE" 2>/dev/null || { dd if=/dev/zero of="$TOKEN_FILE" bs=1024 count=1 conv=notrunc 2>/dev/null || true; rm -f "$TOKEN_FILE"; }
   else
@@ -58,18 +67,39 @@ shred_token() {
     rm -f "$TOKEN_FILE"
   fi
 }
-cleanup_side_files() { shred_token; rm -f "$CONFIG_FILE" "$FLAG_FILE" 2>/dev/null || true; }
+cleanup_side_files() {
+  shred_token
+  [[ -z "$CLAIM_DIR" ]] || rm -rf -- "$CLAIM_DIR"
+  # The originals (re-created mid-run, or never claimed): never through a symlinked ops dir; `rm -f` of a
+  # symlinked FILE unlinks the link only.
+  if [[ ! -L "$OPS_DIR" ]]; then rm -f -- "$ORIG_CONFIG_FILE" "$ORIG_TOKEN_FILE" "$FLAG_FILE" 2>/dev/null || true; fi
+}
 trap 'rc=$?; if [[ "$rc" -ne 0 ]]; then ops_progress_fail "local-HTTPS apply exited with code $rc — see ops-tls.log"; fi; cleanup_side_files' EXIT
 
-[[ -r "$CONFIG_FILE" ]] || { ops_progress_init "tls" 3; ops_progress_fail "no tls.json side config found"; echo "ERROR: ${CONFIG_FILE} missing" >&2; exit 1; }
+refuse() {   # stamp the failure + exit
+  ops_progress_init "tls" 3; ops_progress_fail "refusing to run: $1 is a symlink"
+  echo "ERROR: $1 is a symlink — refusing to read, shred or write through it" >&2; exit 1
+}
+if [[ -L "$OPS_DIR" ]]; then refuse "$OPS_DIR"; fi
+[[ ! -L "$FLAG_FILE" ]] || refuse "$FLAG_FILE"
+CLAIM_DIR="$(mktemp -d)"
+for _f in "$ORIG_CONFIG_FILE" "$ORIG_TOKEN_FILE"; do
+  if [[ -e "$_f" || -L "$_f" ]]; then mv -fT -- "$_f" "${CLAIM_DIR}/${_f##*/}"; fi
+done
+CONFIG_FILE="${CLAIM_DIR}/${ORIG_CONFIG_FILE##*/}"; TOKEN_FILE="${CLAIM_DIR}/${ORIG_TOKEN_FILE##*/}"
+for _p in "$CONFIG_FILE" "$TOKEN_FILE"; do
+  if [[ -L "$_p" ]]; then refuse "${ORIG_CONFIG_FILE%/*}/${_p##*/}"; fi
+done
+
+[[ -r "$CONFIG_FILE" ]] || { ops_progress_init "tls" 3; ops_progress_fail "no tls.json side config found"; echo "ERROR: ${ORIG_CONFIG_FILE} missing" >&2; exit 1; }
 [[ -x "$HTTPS_SH" || -r "$HTTPS_SH" ]] || { ops_progress_init "tls" 3; ops_progress_fail "deploy/orwell-https.sh not found"; echo "ERROR: ${HTTPS_SH} missing" >&2; exit 1; }
 
 # Parse the non-secret config (tolerant). NEVER reads the token (that lives only in its 0600 file).
 read_cfg() {
   python3 - "$CONFIG_FILE" "$1" <<'PY' 2>/dev/null || true
-import json, sys
+import json, os, sys
 try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
+    with os.fdopen(os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as fh:
         cfg = json.load(fh)
 except Exception:
     sys.exit(0)
@@ -109,11 +139,27 @@ ARGS=(--mode local --yes)
 ops_progress_step 1 "applying local HTTPS profile"
 echo "==> local HTTPS: applying (names: ${LOCAL_NAMES:-none}${DOMAINS:+, domain: ${DOMAINS}})"
 
+# read_token: print the token file's contents; fails on a symlink, anything but a regular file, or a token
+# carrying a control character (O_NOFOLLOW, so it cannot be raced). Output goes only into a variable — never to the run log.
+read_token() {
+  python3 - "$TOKEN_FILE" <<'PY'
+import os, re, stat, sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+if not stat.S_ISREG(os.fstat(fd).st_mode):
+    sys.exit(1)
+token = os.read(fd, 65536).decode("utf-8", "replace").rstrip("\r\n")
+if re.search(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", token):   # a token never contains control characters
+    sys.exit(2)
+sys.stdout.write(token)
+PY
+}
+
 # The DNS token (if the wizard pasted one) is passed via the ENV (never argv → never in `ps`), then
 # shredded. orwell-https.sh reads ORWELL_TLS_DNS_API_TOKEN from the environment.
 if [[ -f "$TOKEN_FILE" ]]; then
   ops_progress_step 2 "configuring the publicly-trusted (DNS-01) upgrade"
-  ORWELL_TLS_DNS_API_TOKEN="$(cat "$TOKEN_FILE")" bash "$HTTPS_SH" "${ARGS[@]}"
+  DNS_TOKEN_VALUE="$(read_token)" || { echo "ERROR: could not read the DNS token file safely" >&2; exit 1; }
+  ORWELL_TLS_DNS_API_TOKEN="$DNS_TOKEN_VALUE" bash "$HTTPS_SH" "${ARGS[@]}"
   shred_token
   echo "==> DNS API token consumed and shredded"
 else

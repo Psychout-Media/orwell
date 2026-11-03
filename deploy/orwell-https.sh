@@ -141,6 +141,14 @@ TLS_DIR="${DATA_DIR%/}/tls"
 CADDYFILE="/etc/caddy/Caddyfile"
 ROOT_CA_OUT="${TLS_DIR}/local-ca.crt"
 
+# SYMLINKS: this runs as ROOT (via the ops runner or the control panel) but reads, rewrites, chowns and
+# chmods files under data/, which the unprivileged service user owns. A symlink planted at one of those
+# paths must never be followed — `cat >`, chown and chmod all dereference it — so refuse, up front. A
+# check alone is racy (the path can be swapped after it), so every WRITE / chown / chmod below goes through
+# an O_NOFOLLOW file descriptor (python3) rather than by path; the refuse_symlink calls give the clear error.
+refuse_symlink() { [[ ! -L "$1" ]] || die "$1 is a symlink — refusing to read, write, chown or chmod through it."; }
+refuse_symlink "$ENV_FILE"; refuse_symlink "$TLS_DIR"; refuse_symlink "$ROOT_CA_OUT"
+
 # Service name follows the install: prefer orwell-*, fall back to the legacy bbai-* unit.
 unit_exists() { systemctl list-unit-files "$1" 2>/dev/null | grep -q "$1"; }
 if   unit_exists orwell-frontend.service; then FRONTEND_SVC="orwell-frontend"
@@ -188,6 +196,10 @@ fi
 LOCAL_NAMES="$(sanitize_names "$LOCAL_NAMES")"
 DOMAINS="$(sanitize_names "$DOMAINS")"
 DNS_PROVIDER="${DNS_PROVIDER//[^A-Za-z0-9._-]/}"
+# The token and the ACME email are written into data/.env / the Caddyfile verbatim: refuse a control
+# character (a newline would start a new line there) and anything that is not a plain email address.
+[[ "$DNS_TOKEN" != *[[:cntrl:]]* ]] || die "the DNS API token contains a control character — refusing."
+[[ -z "$ACME_EMAIL" || "$ACME_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] || die "ACME email '${ACME_EMAIL}' is not a plain email address — refusing."
 if [[ "$MODE" == "local" && -z "$LOCAL_NAMES" && -z "$DOMAINS" ]]; then
   die "no valid hostnames to cover — set --local-names and/or --domains."
 fi
@@ -281,28 +293,55 @@ command -v systemctl >/dev/null 2>&1 || die "systemctl not found — this script
 [[ "$(id -u)" -eq 0 ]] || die "must run as root (edits ${ENV_FILE}, ${CADDYFILE}, and restarts services). Try: sudo bash $0 ..."
 
 # ── .env upsert (preserve file + ownership; mirrors orwell-change-port.sh) ───────────────────────
+# Replace the CONTENTS of $ENV_FILE with the file $1 — in place (same inode, owner and mode), creating it
+# 0600 when absent — through an O_NOFOLLOW fd, so a symlink swapped in after the check is an error, not a write.
+write_env_file() {
+  python3 - "$ENV_FILE" "$1" <<'PY'
+import os, sys
+with open(sys.argv[2], "rb") as src:
+    data = src.read()
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+try:
+    os.write(fd, data)
+finally:
+    os.close(fd)
+PY
+}
 set_env_key() {
   local key="$1" val="$2" tmp
-  mkdir -p "$(dirname "$ENV_FILE")"; touch "$ENV_FILE"
-  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-    tmp="$(mktemp)"; sed "s|^${key}=.*|${key}=${val}|" "$ENV_FILE" > "$tmp"; cat "$tmp" > "$ENV_FILE"; rm -f "$tmp"
+  refuse_symlink "$ENV_FILE"
+  mkdir -p "$(dirname "$ENV_FILE")"
+  tmp="$(mktemp)"
+  if [[ -f "$ENV_FILE" ]] && grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    sed "s|^${key}=.*|${key}=${val}|" "$ENV_FILE" > "$tmp"
   else
-    printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
+    { if [[ -f "$ENV_FILE" ]]; then cat "$ENV_FILE"; fi; printf '%s=%s\n' "$key" "$val"; } > "$tmp"
   fi
+  write_env_file "$tmp"; rm -f "$tmp"
 }
 del_env_key() {
   local key="$1" tmp
+  refuse_symlink "$ENV_FILE"
   [[ -f "$ENV_FILE" ]] || return 0
-  tmp="$(mktemp)"; grep -v "^${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true; cat "$tmp" > "$ENV_FILE"; rm -f "$tmp"
+  tmp="$(mktemp)"; grep -v "^${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true; write_env_file "$tmp"; rm -f "$tmp"
 }
 restore_env_owner() {
-  local u="${ORWELL_SERVICE_USER:-}"
+  refuse_symlink "$ENV_FILE"
+  local u="${ORWELL_SERVICE_USER:-}" g=""
   [[ -n "$u" ]] || u="$(systemctl show -p User --value "$FRONTEND_SVC" 2>/dev/null || true)"
   [[ -n "$u" ]] || u="orwell"
-  if id "$u" >/dev/null 2>&1; then
-    chown "$u":"$(id -gn "$u" 2>/dev/null || printf '%s' "$u")" "$ENV_FILE" 2>/dev/null || true
-  fi
-  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  if id "$u" >/dev/null 2>&1; then g="$(id -gn "$u" 2>/dev/null || printf '%s' "$u")"; else u=""; fi
+  # fchown/fchmod on an O_NOFOLLOW fd: chown/chmod by path would follow a symlink swapped in after the check.
+  python3 - "$ENV_FILE" "$u" "$g" <<'PY' 2>/dev/null || true
+import grp, os, pwd, sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+try:
+    if sys.argv[2]:
+        os.fchown(fd, pwd.getpwnam(sys.argv[2]).pw_uid, grp.getgrnam(sys.argv[3]).gr_gid)
+    os.fchmod(fd, 0o600)
+finally:
+    os.close(fd)
+PY
 }
 
 install_caddy() {
@@ -334,6 +373,7 @@ install_caddy() {
 # The root is created on first cert issuance; poll briefly for it.
 export_root_ca() {
   local src="" cand
+  refuse_symlink "$TLS_DIR"; refuse_symlink "$ROOT_CA_OUT"
   mkdir -p "$TLS_DIR"
   for _ in $(seq 1 15); do
     for cand in \
@@ -346,9 +386,10 @@ export_root_ca() {
     sleep 1
   done
   if [[ -n "$src" ]]; then
+    refuse_symlink "$TLS_DIR"; refuse_symlink "$ROOT_CA_OUT"   # re-check: the poll above can take a while
     install -m 644 "$src" "$ROOT_CA_OUT"
     # The FE (user orwell) reads it; keep the tls dir traversable + the file world-readable.
-    chmod 755 "$TLS_DIR" 2>/dev/null || true
+    python3 -c 'import os,sys; os.fchmod(os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY), 0o755)' "$TLS_DIR" 2>/dev/null || true
     msg "exported the local CA root → ${ROOT_CA_OUT} (download at /orwell-local-ca.crt)"
     # Best-effort: trust the root in the box's OWN store too (harmless on a client-less LXC).
     caddy trust >/dev/null 2>&1 || true

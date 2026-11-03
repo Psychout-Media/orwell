@@ -148,6 +148,45 @@ sanity_path() {
 sanity_path "$CONFIG_DIR"      "engine CONFIG_DIR"
 sanity_path "$ENGINE_SAVE_DIR" "engine SAVE dir"
 
+# The FE store + cast-portrait dir are resolved up here so they are validated BEFORE anything is stopped
+# or removed (step 2c below only scrubs the portraits).
+FE_DATA_DIR="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}"
+PORTRAITS_DIR="${ORWELL_PORTRAITS_DIR:-${FE_DATA_DIR}/portraits}"
+
+# ── Safety: root only deletes/chowns inside the app's own data directories ──────────────────────
+# ENGINE_SAVE_DIR can come from data/.env — a file the unprivileged service user can write — so no
+# path here is trusted as typed. Resolve each one (symlinks, `..`, relative) with realpath and refuse
+# anything that is not equal to, or inside, one of the app's data directories: never `/`, the app dir
+# itself, or anything above it. KEEP THIS BLOCK IDENTICAL in orwell-oobe-reset.sh and
+# orwell-game-reset.sh (a test pins it).
+resolve_path() { realpath -m -- "$1" 2>/dev/null || die "cannot resolve '$1' (is realpath installed?)"; }
+path_within()  { [[ "$1" == "$2" || "$1" == "${2%/}"/* ]]; }
+APP_REAL="$(resolve_path "$APP_DIR")"
+DATA_ROOTS=()
+add_data_roots() { local r; for r in "$@"; do DATA_ROOTS+=("$(resolve_path "$r")"); done; }
+confine_to_data_dirs() {   # $1 path · $2 label → prints the RESOLVED path, or dies
+  local real root
+  real="$(resolve_path "$1")"
+  for root in "${DATA_ROOTS[@]}"; do
+    path_within "$APP_REAL" "$root" && continue   # a "root" that is the app dir (or above it) never counts
+    path_within "$real" "$root" && { printf '%s' "$real"; return 0; }
+  done
+  die "$2 '$1' resolves to '$real', outside the app's data directories — refusing."
+}
+# Re-check once the services are down: nothing running as the service user can swap a path component
+# for a symlink after that, so a destination that moved since it was validated is refused.
+recheck_data_dir() { [[ "$(confine_to_data_dirs "$1" "$2")" == "$1" ]] || die "$2 '$1' changed since it was validated — refusing."; }
+add_data_roots "${APP_DIR%/}/data" "${APP_DIR%/}/frontend/data" "${APP_DIR%/}/.orwell-data" "$CONFIG_DIR" "$FE_DATA_DIR"
+# ORWELL_DATA_DIR / ORWELL_PORTRAITS_DIR in root's OWN environment are deliberate operator/dev
+# overrides and are honored; the ORWELL_DATA_DIR read from data/.env must land inside the app's data dirs.
+[[ -z "${ORWELL_DATA_DIR:-}" ]]      || add_data_roots "$ENGINE_SAVE_DIR"
+[[ -z "${ORWELL_PORTRAITS_DIR:-}" ]] || add_data_roots "$PORTRAITS_DIR"
+CONFIG_DIR="$(confine_to_data_dirs "$CONFIG_DIR" "engine CONFIG_DIR")"
+ENGINE_SAVE_DIR="$(confine_to_data_dirs "$ENGINE_SAVE_DIR" "engine SAVE dir")"
+if [[ -e "$PORTRAITS_DIR" || -L "$PORTRAITS_DIR" ]]; then
+  PORTRAITS_DIR="$(confine_to_data_dirs "$PORTRAITS_DIR" "cast PORTRAITS_DIR")"
+fi
+
 # ── Environment detection ─────────────────────────────────────────────────────────────────────
 have_systemd=0
 if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then have_systemd=1; fi
@@ -214,6 +253,17 @@ if [[ "$have_systemd" -eq 1 ]]; then
 else
   warn "systemctl not present — skipping service stop (dev mode). Stop the app yourself first."
 fi
+# A service that is still running means nothing has stopped writing — refuse to scrub under it.
+if [[ "$DRY_RUN" -eq 0 && "$have_systemd" -eq 1 ]]; then
+  for svc in "$FRONTEND_SVC" "$ENGINE_SVC"; do
+    if svc_exists "$svc" && systemctl is-active --quiet "$svc"; then
+      die "${svc} is still running after 'systemctl stop' — refusing to scrub under a live service."
+    fi
+  done
+fi
+recheck_data_dir "$CONFIG_DIR"      "engine CONFIG_DIR"
+recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
+[[ ! -e "$PORTRAITS_DIR" ]] || recheck_data_dir "$PORTRAITS_DIR" "cast PORTRAITS_DIR"
 
 # ── 2a. Scrub the engine SAVE dir — the per-user games (saves + hidden Vault layer), ──────────
 #       always KEEPING .env AND data/ops/ (the public-deployment apply record + ops trigger dir)
@@ -240,8 +290,7 @@ fi
 # ── 2c. Scrub the cast-portrait dir (feature 0051) — a new season means a new cast, so the ────
 #       generated faces from the old game must go too. The rest of the FE store (accounts,
 #       sessions, settings) is PRESERVED; only this game-scoped subtree is removed.
-FE_DATA_DIR="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}"
-PORTRAITS_DIR="${ORWELL_PORTRAITS_DIR:-${FE_DATA_DIR}/portraits}"
+# (FE_DATA_DIR / PORTRAITS_DIR were resolved + validated above, before anything was stopped.)
 if [[ -d "$PORTRAITS_DIR" ]]; then
   # Same safety as CONFIG_DIR / ENGINE_SAVE_DIR: an ORWELL_PORTRAITS_DIR=/ (or other empty/root/
   # too-shallow) override passes the [[ -d ]] test above but must NEVER be rm -rf'd. Validate the

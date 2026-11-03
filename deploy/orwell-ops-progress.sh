@@ -52,10 +52,14 @@ _ops_progress_ts() { date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf '%s' "$(d
 _ops_progress_write() {
   local action="$1" step="$2" total="$3" message="$4" running="$5" ok="$6" error="$7"
   local dir; dir="$(_ops_progress_dir)"
+  # This runs as ROOT but writes into data/ops/, which the unprivileged service user owns: never
+  # write through a symlinked dir (it could point anywhere), and never use a predictable temp name
+  # (a pre-planted symlink at that name would be followed). mktemp creates the temp file O_EXCL.
+  if [[ -L "$dir" ]]; then echo "WARN: ops status dir ${dir} is a symlink — refusing to write status" >&2; return 0; fi
   # Best-effort: create the dir; if we cannot, give up quietly (never fail the run).
   mkdir -p "$dir" 2>/dev/null || return 0
   local out="${dir}/${action}-status.json"
-  local tmp="${out}.tmp.$$"
+  local tmp; tmp="$(mktemp "${dir}/.${action}-status.XXXXXX" 2>/dev/null)" || return 0
   local ts; ts="$(_ops_progress_ts)"
   message="$(_ops_json_escape "$message")"
   error="$(_ops_json_escape "$error")"
@@ -72,7 +76,9 @@ _ops_progress_write() {
     printf '}\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   chmod 644 "$tmp" 2>/dev/null || true
-  mv -f "$tmp" "$out" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  # -T: $out is the destination FILE, never "a directory to move into" (a symlink planted there is
+  # replaced by the rename, not followed).
+  mv -fT "$tmp" "$out" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   return 0
 }
 
