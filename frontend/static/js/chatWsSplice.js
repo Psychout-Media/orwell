@@ -238,8 +238,21 @@ export function _onWsRunBoundary() {
 }
 
 // The persistent inbound consumer — registered ONCE, drives every `chat` event frame.
+// F-2/F-4/T0-3 — the production CHYRON on the WebSocket leg. The SSE loop (chat.js) dispatches
+// `orwell:announcements` from (a) the OWED `{"announcements":[…]}` event the agent loop emits for a beat the
+// FE pre-resolved and (b) an advanceGame/submitDecision tool result. This consumer is the default transport
+// (ORWELL_WS_TRANSPORT default-ON, #1357) and had NO branch for either, so on WS the engine's authoritative
+// chyron never rendered — while the T0-3 hard-drop rail had already removed the model's restatement of the
+// same fact (A-15 rehearsal 2026-11-03: 0 announcement events over ~40 turns). `_renderChyronBatch` dedups
+// by announcement id, so a frame seen on both legs can never double-render.
+function _dispatchAnnouncements(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  try { window.dispatchEvent(new CustomEvent('orwell:announcements', { detail: { announcements: list } })); } catch (_) {}
+}
+
 export function _onWsChatFrame(frame) {
   const d = (frame && frame.d) || {};
+  if (Array.isArray(d.announcements)) { _dispatchAnnouncements(d.announcements); return; }
   // F1 (concurrent-session consistency): the run buffer leads with the prompting USER turn (seq 0),
   // so it arrives BEFORE any assistant delta. Render the observer's user bubble AHEAD of the reply
   // holder (`_wsRound.holder` if a run-boundary already pre-mounted it, else it lands in seq order and
@@ -254,6 +267,10 @@ export function _onWsChatFrame(frame) {
   // discards the merged holder and lets softReloadHistory rebuild the N-bubble reconstruction.
   if (d.type === 'agent_step' || d.type === 'tool_start' || d.type === 'tool_output' || d.type === 'tool_progress') {
     _wsRichRun = true;
+    // The model's own advanceGame/submitDecision result carries the same Vault-free `announcements` (chat.js seam).
+    if (d.type === 'tool_output' && (d.tool === 'advanceGame' || d.tool === 'submitDecision')) {
+      try { const _adv = JSON.parse(d.output || '{}'); _dispatchAnnouncements(_adv && _adv.announcements); } catch (_) {}
+    }
     return;
   }
   if (typeof d.delta === 'string') {
