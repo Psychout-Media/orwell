@@ -78,7 +78,7 @@ const hiddenScenes = (w: BbWorld) => w.liveFidelity!.events.filter((e) => e.hidd
 // --- Background ---------------------------------------------------------------
 
 Given("an active game simulated over many in-game days with a fixed seed", function (this: BbWorld) {
-  playLive(this, 1); // re-selected 2026-11-03, comp-win threat retune (#1953): an alliance forms AND fractures under the deployed profile
+  playLive(this, 4); // #2005: seed 4 FAILED the no-dumping cap before the per-stretch reveal cap (kept as the regression pin); an alliance forms AND fractures
 });
 
 When("the simulated stretch completes", function (this: BbWorld) {

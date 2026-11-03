@@ -1,3 +1,4 @@
+import { RICHNESS } from "./richnessConfig";
 import type { EventStore } from "../ports/EventStore";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { EntityId, GameEvent } from "../domain/event";
@@ -320,6 +321,7 @@ export function richOffscreenStretch(deps: {
   // #840 — houseguests who pick up a NEW showmance partner during this stretch, so a later scene in
   // the same stretch cannot give one person a second partner (the one-partner cap, within-tick half).
   const newlyPartnered = new Set<EntityId>();
+  let revealsThisStretch = 0; // the no-dumping cap, per stretch (one committed moment's off-screen tick)
 
   for (let i = 0; i < interactions; i++) {
     let a: EntityId;
@@ -401,13 +403,17 @@ export function richOffscreenStretch(deps: {
     event.baseContent = event.content; // capture the Vault-free base before enrichment
     // B50: a hidden element of the initiator occasionally slips into the (still-hidden) scene — the
     // rare-reveal "treat" loop. The side rng keeps the main stream byte-stable; the content stays hidden.
+    // NO DUMPING (0003, #2005): each scene's reveal is rare on its own, but a stretch plays several scenes and nothing capped their SUM, so a
+    // single moment could surface two hidden elements. The stretch now reveals at most `RICHNESS.MAX_REVEALS_PER_MOMENT` (the side-rng draws
+    // below are unchanged, so the only effect is that a later scene's would-be reveal is dropped and its content stays plain).
     if (hiddenElementsOf) {
       const side = new SeededRandom(hashSeed(event.id));
-      if (hiddenSurfaces(side)) {
+      if (hiddenSurfaces(side) && revealsThisStretch < RICHNESS.MAX_REVEALS_PER_MOMENT) {
         const els = hiddenElementsOf(a);
         if (els.length > 0) {
           event.content += ` — ${a} ${els[side.int(els.length)]!.detail}`;
           event.reveal = true; // structural (B54): the richness gate counts reveals from the store
+          revealsThisStretch++;
         }
       }
     }
