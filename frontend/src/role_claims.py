@@ -40,7 +40,11 @@ _VETO_HOLD_RE = re.compile(
     r"|(?:\b(?:veto|medal)\b[^.!?\n]{0,30}\b(?:goes|went|belongs?|is|was)\s+(?:to|with))"
     r"|(?:\b(?:medal|veto)\b[^.!?\n]{0,25}\bin\s+(?:his|her|their)\s+hand)"
     r"|(?:\bthe\s+(?:medal|veto)\s+goes\s+to)"
-    r"|(?:\bveto\s+(?:holder|winner)\b)",
+    r"|(?:\bveto\s+(?:holder|winner)\b)"
+    # object + verb within one unit, either order — the narrator varies the object ("medal", "medallion", "the veto") and the
+    # verb ("holds up", "lifts", "clutches", "wears", "claims"); a template per phrasing just moves the gap
+    r"|(?:\b(?:medal(?:lion)?|veto|PoV)\b[^.!?\n]{0,40}\b(?:wins?|won|holds?|clutch\w*|grips?|gripp\w*|lifts?|lifted|raises?|raised|wears?|wearing|claims?|claimed|earned?|takes?(?!\s+place)|took|taken|belongs?)\b)"
+    r"|(?:\b(?:wins?|won|holds?(?:\s+up)?|holding|clutch\w*|grips?|gripp\w*|lifts?|lifted|raises?|raised|wears?|wearing|claims?|claimed|earned?|takes?(?!\s+place)|took|taken)\b[^.!?\n]{0,40}\b(?:medal(?:lion)?|veto|PoV)\b)",
     re.IGNORECASE)
 _VETO_USE_RE = re.compile(
     r"\b(?:does(?:\s+not|n['’]t)|did(?:\s+not|n['’]t)|do(?:es)?\s+not|will\s+not|won['’]t|not)\s+(?:be\s+)?us(?:e|ing)\s+the\s+" + _VETO_WORD
@@ -53,9 +57,11 @@ _HOH_RE = re.compile(
     r"|(?:\b" + _HOH_WORD + r"\s+(?:is|goes\s+to|winner|champion))", re.IGNORECASE)
 _NOM_RE = re.compile(
     r"\b(?:nominat(?:e|es|ed|ing|ion|ions)|on\s+the\s+block|up\s+for\s+eviction|put\s+up|the\s+block)\b", re.IGNORECASE)
-# eviction — STRONG cues are unambiguous house-level exits; WEAK cues only count on eviction night
+# eviction — STRONG cues are unambiguous house-level exit RESULTS ("evicted", "voted out", "leaving the house"); the bare noun/verb
+# ("the eviction is tonight", "the eviction vote is yours", "a vote to evict X") names the EVENT, not a result, and is NOT a cue.
+# WEAK cues only count on eviction night
 _EVICT_STRONG_RE = re.compile(
-    r"\b(?:evict(?:s|ed|ion)?|voted\s+out|sent\s+home|going\s+home|leaving\s+the\s+(?:big\s+brother\s+)?house|leaves\s+the\s+(?:big\s+brother\s+)?house|"
+    r"\b(?:evicted|voted\s+out|sent\s+home|going\s+home|leaving\s+the\s+(?:big\s+brother\s+)?house|leaves\s+the\s+(?:big\s+brother\s+)?house|"
     r"left\s+the\s+(?:big\s+brother\s+)?house|out\s+of\s+the\s+(?:big\s+brother\s+)?house|(?:the\s+)?houseguest\s+(?:who\s+is\s+)?leaving|"
     r"is\s+(?:the\s+)?(?:next\s+)?(?:one\s+)?(?:leaving|going))\b", re.IGNORECASE)
 _EVICT_WEAK_RE = re.compile(

@@ -68,6 +68,10 @@ NOVEL_STRIP = [
     ("Nom Beta has been voted out of the house.", sig(phase="eviction", evictedNames=["Nom Alpha"])),
     ("Nom Beta is not using the veto.", sig(vetoHolderName="Vetoer Gamma")),
     ("Other Delta is on the block.", sig()),
+    # found by the live re-run: the narrator's object/verb vary ("medallion", "holds up", "lifts", "around her neck")
+    ("Hoh Person holds up the medallion with one hand and doesn't even stand up.", sig()),
+    ("Other Delta lifts the veto above her head.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Nom Beta wears the Power of Veto around his neck like a dare.", sig(vetoHolderName="Vetoer Gamma")),
 ]
 
 
@@ -90,6 +94,12 @@ NOVEL_PASS = [
     ("Hoh Person pours coffee and glares at Nom Alpha across the kitchen.", sig()),            # creative prose, no role cue
     ("@[Vetoer Gamma] — Hoh Person is going to remember that, trust me.", sig()),              # speaker tag + no cue
     ("Last week Hoh Person won the Power of Veto and used it.", sig(vetoHolderName="Vetoer Gamma")),  # past reference
+    ("The veto meeting takes place tonight and Hoh Person is already pacing.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Vetoer Gamma holds up the medallion with one hand.", sig(vetoHolderName="Vetoer Gamma")),
+    # found by the live re-run: the eviction EVENT is not an evictee assertion
+    ("**Nom Alpha and Nom Beta**, the eviction is tonight.", sig(phase="eviction")),
+    ("*The eviction vote is yours to cast — Nom Alpha or Nom Beta.*", sig(phase="eviction")),
+    ("A vote to evict Nom Beta, read aloud by Hoh Person.", sig(phase="eviction")),
 ]
 
 
