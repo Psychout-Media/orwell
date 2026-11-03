@@ -34,6 +34,7 @@ from src.agent_tools import (
     get_mcp_manager,
     FUNCTION_TOOL_SCHEMAS,
     with_deal_depth_kinds,
+    without_flagged_off_diary_tools,
     current_deal_kinds,
     TOOL_TAGS,
     ToolBlock,
@@ -6712,6 +6713,7 @@ async def _stream_agent_loop_impl(
         # ⇒ the same schemas ⇒ byte-identical (the 0108 golden fixture was decommissioned 2026-07-21).
         if all_tool_schemas:
             all_tool_schemas = with_deal_depth_kinds(all_tool_schemas)
+            all_tool_schemas = without_flagged_off_diary_tools(all_tool_schemas)  # a flag-off diary tool is dead: never send it
 
         _tool_names_sent = [t.get("function", {}).get("name") for t in (all_tool_schemas or []) if t.get("function")]
         logger.info(f"[agent-debug] round={round_num} model={model} _is_api_model={_is_api_model} tools_sent={len(_tool_names_sent)} tool_names={_tool_names_sent[:15]} relevant_tools={sorted(_relevant_tools)[:15] if _relevant_tools else 'ALL'}")

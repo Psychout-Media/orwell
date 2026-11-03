@@ -1125,6 +1125,8 @@ export class GameSessionAdapter implements GameSession {
   private dealsWitnessesEnabled = DEALS_WITNESSES_ENABLED_DEFAULT;
   /** #1800 — whether the Booth Has Receipts runs (deterministic player-contradiction extraction). OFF by default. */
   private boothReceiptsEnabled = BOOTH_RECEIPTS_ENABLED_DEFAULT;
+  /** #1793 — the Player Dossier read (ORWELL_PLAYER_DOSSIER); per-instance so the prompt + tool follow it. */
+  private playerDossierEnabled = PLAYER_DOSSIER_ENABLED_DEFAULT;
   private compMechanicsPlusEnabled = COMP_MECHANICS_PLUS_ENABLED_DEFAULT;
 
   private compMixedEnabled = COMP_MIXED_ENABLED_DEFAULT;
@@ -8092,6 +8094,8 @@ export class GameSessionAdapter implements GameSession {
 
   /** Turn Booth Has Receipts on/off (#1800). ON by default (2026-11 flip). */
   setBoothReceiptsEnabled(on: boolean): void { this.boothReceiptsEnabled = on; }
+  setPlayerDossierEnabled(on: boolean): void { this.playerDossierEnabled = on; }
+  playerDossierEnabledNow(): boolean { return this.playerDossierEnabled; }
 
   /** Whether Booth Has Receipts is live (#1800) — exposed for tests. */
   boothReceiptsEnabledNow(): boolean { return this.boothReceiptsEnabled; }
@@ -11249,6 +11253,8 @@ export class GameSessionAdapter implements GameSession {
       systemPrompt: buildSystemPrompt(
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
+        // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
@@ -11770,7 +11776,7 @@ export class GameSessionAdapter implements GameSession {
     // fences it as GM-only / do-not-voice so the GM narrates the irony of the player's mask, never leaks it.
     const drStrategy = playerDiaryStrategy(this.playerKnowledgeReader?.() ?? []);
     // #1793 — the Player Dossier: group the player's OWN diary-room/subject-tagged knowledge facts per houseguest.
-    const playerDossier = PLAYER_DOSSIER_ENABLED_DEFAULT
+    const playerDossier = this.playerDossierEnabled
       ? groupPlayerDossier(this.playerKnowledgeReader?.() ?? [])
       : undefined;
     // 0118 — the day's shape, telegraphed. Present ONLY when the per-conversation clock is live, so the
@@ -11938,7 +11944,7 @@ export class GameSessionAdapter implements GameSession {
    * after it unchecked. Vault-free by construction.
    */
   playerDossier(subjectId?: EntityId): Record<EntityId, { content: string; ts: number }[]> {
-    if (!PLAYER_DOSSIER_ENABLED_DEFAULT) return {};
+    if (!this.playerDossierEnabled) return {};
     const all = groupPlayerDossier(this.playerKnowledgeReader?.() ?? []);
     if (subjectId === undefined) return all;
     const entry = all[subjectId as string];
