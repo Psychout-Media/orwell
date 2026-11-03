@@ -343,9 +343,12 @@ Then("the seeded competition and eviction outcomes are byte-identical to the no-
   const { session: baseline, rel, ids } = nmHouse(2026, false);
   const [rival, ...rest] = ids;
   aimAtPlayer(rel, rival!, rest);
-  const ticked = seasonTrail(nm(this).nmSession!, 200);
+  // The ticked run ticks the disabled layer after EVERY beat, as the orchestrator does between beats in production.
+  const live = nm(this).nmSession!;
+  const ticked = seasonTrail(live, 600, () => peek(live).campaignTick());
+  assert.equal(peek(live).nemesisTrack.current, undefined, "a nemesis was computed while the layer was off");
   assert.ok(ticked.length > 100, "a season was actually played");
-  assert.equal(ticked, seasonTrail(baseline, 200), "campaignTick moved the seeded outcomes with the layer off");
+  assert.equal(ticked, seasonTrail(baseline), "campaignTick moved the seeded outcomes with the layer off");
 });
 
 When("the game is saved and restored into a fresh context", function (this: BbWorld) {

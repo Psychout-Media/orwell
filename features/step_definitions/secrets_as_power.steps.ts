@@ -179,13 +179,16 @@ When("the player offers that secret as leverage while making a deal with them", 
   st.spSession!.makeDeal({ with: st.spSubject!, kind: "safety", terms: "keep me safe", leverage: { factId: st.spFactId! } });
 });
 
-Then("the deal becomes more likely to form than the same deal offered without leverage", function (this: BbWorld) {
+Then("the deal lands better than the same deal offered without leverage", function (this: BbWorld) {
   const st = sp(this);
-  // The engine's own acceptance read: refused plain, accepted once the learned secret's capped boost is added...
+  // The premise: this lukewarm partner would REFUSE the plain deal on the engine's own acceptance read...
   const warmth = (LUKEWARM.trust + LUKEWARM.affinity) / 2 - LUKEWARM.threat;
   assert.equal(dealAcceptance(warmth, 0, LEVERAGE.refusalFloor).accepts, false, "the plain deal would be refused");
-  assert.equal(dealAcceptance(warmth, leverageDealBoost(0.6), LEVERAGE.refusalFloor).accepts, true, "leverage lifts the same partner over the floor");
-  // ...and in the live session the partner who took the leveraged deal is bound tighter than the control who got it plain.
+  // ...and in the LIVE seeded sessions the deal exists in both, but the partner who took the leveraged deal is bound tighter
+  // to the player than the control who got it plain (the learned secret's live effect, not a hand-picked boost).
+  const dealOf = (s: GameSessionAdapter, partner: EntityId): boolean => (s.getGameState().deals ?? []).some((d) => d.parties.some((p) => p.id === partner));
+  assert.ok(dealOf(st.spSession!, st.spSubject!), "the leveraged deal formed");
+  assert.ok(dealOf(st.spControl!.session, st.spControl!.subject), "the plain control deal formed");
   const withLeverage = bondOf(st.spSession!, st.spSubject!, PLAYER);
   const without = bondOf(st.spControl!.session, st.spControl!.subject, PLAYER);
   assert.ok(withLeverage > without, `leverage did not make the deal land better (${withLeverage} vs ${without})`);

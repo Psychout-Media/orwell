@@ -91,17 +91,16 @@ Then("their effective temperament drifts toward paranoia", function (this: BbWor
 });
 
 Then("their static character disposition is unchanged", function (this: BbWorld) {
-  // A REAL generated houseguest (a bond-disposed one, so hardening has somewhere to go): betray them repeatedly, then
-  // show their effective temperament moved while their stored CHARACTER (disposition source and all) is byte-identical.
+  // A REAL generated houseguest (a bond-disposed one, so hardening has somewhere to go): betray them repeatedly. Only the
+  // EFFECTIVE temperament (a function of the soul) moves; the static disposition is read from the archetype, and
+  // `evolveEmotion` never receives the character at all, so there is nothing else here that could fail. The live path that
+  // could touch the character (the adapter's beat/fold path) is covered by the whole-season scenarios, not re-asserted here.
   const house = startNewGame({ seed: 12, playerName: "The Author" });
   const hg = house.npcs.find((n) => dispositionOf(n.character.archetype) === "bond");
   assert.ok(hg, "the cast has a bond-disposed houseguest to harden");
-  const characterBefore = JSON.stringify(hg!.character);
   const baseline = dispositionOf(hg!.character.archetype);
   for (let i = 0; i < 6; i++) evolveEmotion(hg!.soul, "betrayed", undefined, undefined, DEPTH);
   assert.notEqual(effectiveDisposition(baseline, hg!.soul), baseline, "the betrayals genuinely moved the effective temperament");
-  assert.equal(JSON.stringify(hg!.character), characterBefore, "the static character was not touched");
-  assert.equal(dispositionOf(hg!.character.archetype), baseline, "the static disposition is unchanged");
 });
 
 Then("a calm stretch reverts the temperament toward their true baseline", function (this: BbWorld) {

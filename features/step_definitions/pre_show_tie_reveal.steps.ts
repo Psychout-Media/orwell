@@ -433,16 +433,27 @@ Given("the same seed is played with the tie-reveal feature off and on without a 
     probe.session.createCharacter({ playerName: "The Player", seed });
     if ((probe.session.snapshot().seededRelationships?.ties ?? []).length > 0) break;
   }
-  const season = (enabled: boolean | null): { snap: unknown; trail: string; edges: unknown } => {
-    GameSessionAdapter.setTieRevealEnabled(enabled); // null ⇒ default OFF; true ⇒ ON, but no seeded tie is forced conspicuous
+  if (seed > 300) throw new Error("no seed in 1..300 casts a house with a sealed pre-show tie");
+  const season = (enabled: boolean): { snap: unknown; trail: string; edges: unknown } => {
+    GameSessionAdapter.setTieRevealEnabled(enabled); // an EXPLICIT on/off (null would defer to ORWELL_TIE_REVEAL in the environment)
     const sb = new GameSessionRegistry().sandboxFor(`tie-calib-${enabled}`);
     sb.session.createCharacter({ playerName: "The Player", seed });
     let clock = 0;
     const rng = new SeededRandom(seed);
-    const trail = seasonTrail(sb.session, 200, () => defaultApply(sb, "offscreen-tick", rng, clock++));
+    // "Without a precipitant" = the sealed pair NEVER warms into the open: hold both directed affinities of every sealed tie
+    // under the conspicuousness floor around each off-screen tick, so ordinary social ticks cannot manufacture one.
+    const hold = (): void => {
+      for (const t of peek(sb.session).seededRels.ties) {
+        for (const [x, y] of [[t.a, t.b], [t.b, t.a]] as const) {
+          const e = relOf(sb.session).edge(x, y);
+          e.affinity = Math.min(e.affinity, TIE_REVEAL.conspicuousAffinity - 0.2);
+        }
+      }
+    };
+    const trail = seasonTrail(sb.session, 600, () => { hold(); defaultApply(sb, "offscreen-tick", rng, clock++); hold(); });
     return { snap: sb.session.snapshot(), trail, edges: relOf(sb.session).serialize().edges };
   };
-  const off = season(null);
+  const off = season(false);
   const on = season(true);
   GameSessionAdapter.setTieRevealEnabled(null);
   Object.assign(tr(this), { trOffSnap: { ...(off.snap as object), edges: off.edges }, trOnSnap: { ...(on.snap as object), edges: on.edges }, trOffTrail: off.trail, trOnTrail: on.trail });

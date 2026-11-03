@@ -162,7 +162,10 @@ Then("they honor or break the deal with its consequence — decided by the engin
   assert.equal(deal2.status, "broken");
 });
 
-/** Play a live game's first weeks and return each week's HOH + nominee pair (the engine's nomination decisions). */
+/**
+ * Play a live game's first weeks and return each week's HOH + nominee pair (the engine's nomination decisions), then the
+ * evictions the house voted through (the eviction votes' result), so two games that vote differently cannot compare equal.
+ */
 function nominationTrail(s: ReturnType<GameSessionRegistry["sandboxFor"]>["session"]): string[] {
   const trail: string[] = [];
   for (let i = 0; i < 160; i++) {
@@ -176,6 +179,7 @@ function nominationTrail(s: ReturnType<GameSessionRegistry["sandboxFor"]>["sessi
     }
     if (v.status.week >= 4 || v.finished) break;
   }
+  trail.push(`evicted:${JSON.stringify(s.snapshot().live?.evictionOrder ?? [])}`);
   return trail;
 }
 
@@ -208,16 +212,15 @@ Then("it is computed from the hidden signals and seeded temperature", function (
   const voteAfter = voteChoice(voter, [npc(1), npc(2)], sdVoteCtx(v.rel));
   assert.equal(voteBefore, npc(1));
   assert.equal(voteAfter, npc(2), "a vote ignores the voter's hidden threat reads");
-  // The seeded part: a season's signals (and the temperature rolls that shaped them) come from its seed — the same
-  // seed makes the same nominations, a different seed makes different ones.
+  // The seeded part: a season's signals (and the temperature rolls that shaped them) come from its seed — a different
+  // seed makes different nominations and votes (the same-seed repeat is the determinism scenario below).
   const trail = (seed: number): string[] => {
     const sb = new GameSessionRegistry().sandboxFor(`sd-seed-${seed}`);
     sb.session.createCharacter({ playerName: "The Player", seed });
     return nominationTrail(sb.session);
   };
   const t9 = trail(9);
-  assert.ok(t9.length > 0, "nominations were made");
-  assert.deepEqual(trail(9), t9, "the same seed reproduces the same nominations");
+  assert.ok(t9.length > 1, "nominations were made");
   assert.notDeepEqual(trail(10), t9, "a different seed produces different nominations");
 });
 
@@ -257,7 +260,8 @@ When("the same weeks are played in each", function (this: BbWorld) {
 });
 
 Then("the same nominations and votes result", function (this: BbWorld) {
-  assert.ok(this.sdTrailA!.length > 0, "the games actually played nominations");
+  assert.ok(this.sdTrailA!.length > 1, "the games actually played nominations");
+  assert.ok(!/evicted:\[\]$/.test(this.sdTrailA!.at(-1)!), "the games actually voted someone out");
   assert.deepEqual(this.sdTrailA, this.sdTrailB);
 });
 

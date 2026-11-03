@@ -6,6 +6,7 @@ import { buildSandbox } from "../../tests/support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SECRET_TRADE } from "../../src/engine/leverageConstants";
+import { RELATIONSHIP_CONSTANTS } from "../../src/engine/relationshipConstants";
 import { seasonTrail } from "../support/seasonTrail";
 import type { EntityId } from "../../src/domain/ids";
 import type { TradeResult } from "../../src/ports/GameSession";
@@ -238,23 +239,47 @@ When("the player offers the secret for a concession", function (this: BbWorld) {
 });
 
 Then("the magnitude of its effect is bounded and seeded by the engine", function (this: BbWorld) {
-  const st = tc(this);
   // Try to PUMP it: after the first trade, hand the recipient a fresh learned secret about every other houseguest.
-  // The season cap stops the stream, so the recipient can only be moved so far.
-  const first = tc(this).tcTrade!;
-  let accepted = first.accepted ? 1 : 0;
-  let capped = 0;
-  const subjects = st.tcSession!.livingIds().filter((id) => id !== PLAYER && id !== st.tcRecipient && id !== st.tcSubject);
-  for (const subj of subjects) {
-    setEdge(st.tcSession!, st.tcRecipient!, subj, { trust: 0.1, affinity: 0.05, threat: 0.9 });
-    const r = st.tcSession!.tradeSecret({ factId: learn(st.tcSb!, subj), toNpcId: st.tcRecipient!, askKind: "vote" });
-    if (r?.accepted) accepted++;
-    if (r?.refused === "capped") capped++;
-  }
-  assert.ok(subjects.length > SECRET_TRADE.maxTradesPerSeason, "the fixture offers more trades than the cap");
-  assert.ok(accepted <= SECRET_TRADE.maxTradesPerSeason, `${accepted} trades landed, past the season cap`);
-  assert.ok(capped > 0, "trades past the cap are refused as capped");
-  assert.ok((st.tcSession!.snapshot().secretTradeCount ?? 0) <= SECRET_TRADE.maxTradesPerSeason);
+  // Run on two identical seeded houses: the season cap stops the stream, the recipient's warming toward the player is
+  // under the configured ceiling, and the SAME seed gives the SAME outcomes (nothing the model sends sets the amount).
+  const pump = (): { results: string[]; accepted: number; capped: number; trustGain: number; count: number; subjects: number } => {
+    const { session, sb } = freshSession(110);
+    const subject = session.livingIds().find((id) => id !== PLAYER)!;
+    const rec = session.livingIds().find((id) => id !== PLAYER && id !== subject)!;
+    setEdge(session, rec, subject, { trust: 0.1, affinity: 0.05, threat: 0.9 });
+    const trustBefore = relOf(session).edge(rec, PLAYER).trust;
+    const results: string[] = [];
+    const fire = (subj: EntityId): void => {
+      const r = session.tradeSecret({ factId: learn(sb, subj), toNpcId: rec, askKind: "vote" });
+      results.push(`${r?.accepted}:${r?.refused ?? ""}`);
+    };
+    fire(subject);
+    const others = session.livingIds().filter((id) => id !== PLAYER && id !== rec && id !== subject);
+    for (const subj of others) {
+      setEdge(session, rec, subj, { trust: 0.1, affinity: 0.05, threat: 0.9 });
+      fire(subj);
+    }
+    return {
+      results,
+      accepted: results.filter((r) => r.startsWith("true")).length,
+      capped: results.filter((r) => r.endsWith(":capped")).length,
+      trustGain: relOf(session).edge(rec, PLAYER).trust - trustBefore,
+      count: session.snapshot().secretTradeCount ?? 0,
+      subjects: others.length + 1,
+    };
+  };
+  const a = pump();
+  const b = pump();
+  assert.deepEqual(a, b, "the same seed gave a different trade stream (the amount is not seeded)");
+  assert.ok(a.subjects > SECRET_TRADE.maxTradesPerSeason, "the fixture offers more trades than the cap");
+  assert.ok(a.accepted <= SECRET_TRADE.maxTradesPerSeason, `${a.accepted} trades landed, past the season cap`);
+  assert.ok(a.capped > 0, "trades past the cap are refused as capped");
+  assert.ok(a.count <= SECRET_TRADE.maxTradesPerSeason, "the recorded trade count passed the season cap");
+  // The configured magnitude ceiling: each landed trade warms the recipient by at most the configured fold, scaled by the
+  // most generous disposition and jitter band, so the whole stream cannot move them further than cap × that.
+  const C = RELATIONSHIP_CONSTANTS;
+  const perTradeMax = SECRET_TRADE.recipientFold.trust! * Math.max(...Object.values(C.dispositionFactors).map((d) => d.bondScale)) * (1 + C.TEMPERATURE_JITTER / 2);
+  assert.ok(a.trustGain <= SECRET_TRADE.maxTradesPerSeason * perTradeMax + 1e-9, `the recipient warmed ${a.trustGain}, past the configured ceiling`);
 });
 
 Then("the model may propose only which secret, to whom, and the ask", function (this: BbWorld) {

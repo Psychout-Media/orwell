@@ -56,8 +56,11 @@ Then("eligibility rules and the Vault Wall still hold", function (this: BbWorld)
   // A competition resolved over that field under a deafening temperature weight still never lets them back in.
   assertHardRulesSurviveTemperature(this.week!);
   // A resolved competition's result reaches the player stat-free: the Vault stays sealed after the roll too.
-  this.sandbox!.competitionViewForPlayer();
+  const view = JSON.stringify(this.sandbox!.competitionViewForPlayer());
+  assert.ok(view.length > 2, "the competition result reaches the player");
   const out = this.sandbox!.allPlayerOutputs();
+  for (const s of this.sandbox!.sentinels) assert.ok(!view.includes(s), "the competition result carries no sealed Vault content");
+  assert.ok(!/physical|mental|social|stat/i.test(view), "the competition result carries no stats");
   for (const s of this.sandbox!.sentinels) assert.ok(!out.includes(s), "no Vault content leaks");
 });
 

@@ -80,9 +80,10 @@ Then("the structural veto invariants still hold", function (this: BbWorld) {
 // --- Scenario: Final 4 has a single eviction vote ------------------------------
 
 Given("a Final 4 eviction", function (this: BbWorld) {
-  // A REAL Final 4 with a veto holder: HOH, two nominees, and the fourth houseguest holding the veto. The eviction is
-  // then run through the live loop, recording every ballot actually cast.
-  const [hoh, n1, n2, holder] = [npc(1), npc(2), npc(3), npc(4)];
+  // A REAL Final 4 with a veto holder: HOH, two nominees, and the fourth houseguest holding the veto. The PLAYER is the HOH
+  // (the only seat for which the engine raises a tie-break), so a tie-break pending would be possible if the vote could tie.
+  // The eviction is then run through the live loop, recording every ballot actually cast.
+  const [hoh, n1, n2, holder] = [PLAYER, npc(2), npc(3), npc(4)];
   this.egWeek = { houseguests: [hoh, n1, n2, holder], player: PLAYER, hoh, nominees: [n1, n2], vetoWinner: holder };
   const s = newLiveSeason([hoh, n1, n2, holder]);
   s.beat = "eviction"; s.hoh = hoh; s.nominees = [n1, n2]; s.finalNominees = [n1, n2]; s.vetoHolder = holder;
@@ -101,9 +102,12 @@ Given("a Final 4 eviction", function (this: BbWorld) {
   this.egTieBreakAsked = tieBreakAsked;
 });
 
-Then("only the veto holder casts an eviction vote", function (this: BbWorld) {
-  assert.deepEqual(evictionVoters(this.egWeek!), [this.egWeek!.vetoWinner]);
-  assert.deepEqual(this.egBallots, [this.egWeek!.vetoWinner], "the ballots actually cast in the live eviction");
+Then("only the one houseguest who is neither HOH nor a nominee casts an eviction vote", function (this: BbWorld) {
+  const w = this.egWeek!;
+  const leftover = w.houseguests.filter((h) => h !== w.hoh && !w.nominees.includes(h));
+  assert.equal(leftover.length, 1, "a Final 4 leaves exactly one houseguest who is neither HOH nor nominee");
+  assert.deepEqual(evictionVoters(w), leftover);
+  assert.deepEqual(this.egBallots, leftover, "the ballots actually cast in the live eviction");
 });
 
 Then("there is no tie to break", function (this: BbWorld) {

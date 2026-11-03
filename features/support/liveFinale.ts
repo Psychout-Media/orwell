@@ -60,25 +60,26 @@ export async function driveFinaleSeam(
   p: Player, policy: { appeal?: string; jurorVote?: (d: NonNullable<AdvanceView["pending"]>) => string; onView?: (v: AdvanceView) => Promise<void> } = {},
 ): Promise<AdvanceView[]> {
   const views: AdvanceView[] = [];
+  let finished = false;
   for (let i = 0; i < 2000; i++) {
     const v = await adv(p);
     views.push(v);
     if (policy.onView) await policy.onView(v);
-    if (v.finished) break;
+    if (v.finished) { finished = true; break; }
     if (v.pending) {
       const d = v.pending;
+      // Finale-specific overrides only (a fixed appeal / juror policy); every other kind goes through the shared driver.
       if (d.kind === "finale-statement") await p.callTool("submitDecision", { kind: "finale-statement", statement: "My case." });
       else if (d.kind === "finale-answer") await p.callTool("submitDecision", { kind: "finale-answer", appeal: policy.appeal ?? d.appeals![0]! });
       else if (d.kind === "juror-vote") await p.callTool("submitDecision", { kind: "juror-vote", vote: policy.jurorVote ? policy.jurorVote(d) : d.options[0]!.id });
-      else if (d.kind === "nominations") await p.callTool("submitDecision", { kind: "nominations", choice: [d.options[0]!.id, d.options[1]!.id] });
-      else if (d.kind === "veto-decision") await p.callTool("submitDecision", { kind: "veto-decision", use: false });
-      else if (d.kind === "replacement") await p.callTool("submitDecision", { kind: "replacement", replacement: d.options[0]!.id });
       else {
         const req = answerPending(d); // any other kind: the shared driver (unknown kinds throw)
         if (req) await p.callTool("submitDecision", req as unknown as Record<string, unknown>);
       }
     }
   }
+  // A stalled finale must fail loudly: empty reveals / an undefined winner would otherwise compare equal.
+  if (!finished) throw new Error("driveFinaleSeam: the finale did not finish within 2000 beats");
   return views;
 }
 

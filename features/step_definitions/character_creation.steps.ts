@@ -129,19 +129,27 @@ Then("the authored profile grants the player no outcome guarantee", function (th
   // ...and the engine treats the authored player exactly like a generated houseguest of identical aptitudes: against a
   // stat-for-stat clone NPC, the two win about equally often. Any thumb on the scale (a bonus, a floor) shows as a gap.
   const p = this.house!.player;
-  const clone = { id: npc(99), stats: p.character.stats, emotionalState: 0.5 };
-  const field = [
-    { id: p.id, stats: p.character.stats, emotionalState: 0.5 }, clone,
-    ...this.house!.npcs.slice(0, 6).map((n) => ({ id: n.id, stats: n.character.stats, emotionalState: n.soul.emotionalState })),
-  ];
-  const wins: Record<string, number> = { [p.id]: 0, [clone.id]: 0 };
-  const RUNS = 1200;
-  for (let seed = 1; seed <= RUNS; seed++) {
-    const { winner } = resolveCompetition(field, "endurance", new CompetitionIntents(), new SeededRandom(seed));
-    if (winner in wins) wins[winner]!++;
-  }
-  const gap = Math.abs(wins[p.id]! - wins[clone.id]!) / RUNS;
-  assert.ok(gap <= 0.05, `the authored player is protected or handicapped: ${wins[p.id]} vs clone ${wins[clone.id]} of ${RUNS}`);
+  const RUNS = 6000;
+  // The win-rate gap between the authored player and a clone NPC whose stats are the player's plus `bump` (0 = identical).
+  const gapWith = (bump: number): number => {
+    const bumped = { physical: p.character.stats.physical + bump, mental: p.character.stats.mental + bump, social: p.character.stats.social + bump };
+    const clone = { id: npc(99), stats: bump === 0 ? p.character.stats : bumped, emotionalState: 0.5 };
+    const field = [
+      { id: p.id, stats: p.character.stats, emotionalState: 0.5 }, clone,
+      ...this.house!.npcs.slice(0, 6).map((n) => ({ id: n.id, stats: n.character.stats, emotionalState: n.soul.emotionalState })),
+    ];
+    const wins: Record<string, number> = { [p.id]: 0, [clone.id]: 0 };
+    for (let seed = 1; seed <= RUNS; seed++) {
+      const { winner } = resolveCompetition(field, "endurance", new CompetitionIntents(), new SeededRandom(seed));
+      if (winner in wins) wins[winner]!++;
+    }
+    return Math.abs(wins[p.id]! - wins[clone.id]!) / RUNS;
+  };
+  // Sampling noise on a 6000-run gap in an 8-player field is ~0.007, so 0.025 is a tight bound (was 0.05, ~40% of the base rate).
+  const BOUND = 0.025;
+  assert.ok(gapWith(0) <= BOUND, `the authored player is protected or handicapped (win-rate gap ${gapWith(0)} over ${RUNS} runs)`);
+  // Power check: the same test DOES see a modest thumb on the scale (a +0.1 aptitude edge on the clone), so a pass means something.
+  assert.ok(gapWith(0.1) > BOUND, "the gap test is too weak to detect a modest aptitude edge");
 });
 
 // --- Private strategy → no NPC at start (DR wall, 0013) ------------------------

@@ -198,6 +198,9 @@ Then("the outgoing-HOH rule and the veto-winner-replacement rule still hold", fu
 Given("a production twist held in reserve in the Vault", function (this: BbWorld) {
   this.sandbox = buildSandbox(1);
   this.specific = this.sandbox.addReservedTwist();
+  // Seal the reserve in the exact shape production seals it (registry `setOnSeal`), so the deploy step reads WHAT to arm
+  // from the Vault record itself rather than from a plan hard-coded beside it.
+  this.sandbox.engine.vault.writeHidden({ id: "twist:scenario", kind: "reserved-twist", content: "sealed reserve twist: double-eviction, fires week 5" });
   this.week = makeWeek({ outgoingHoh: npc(4), vetoWinner: npc(5) });
 });
 
@@ -208,7 +211,16 @@ When("it is deployed", function (this: BbWorld) {
   const rng = new SeededRandom(4);
   const ctx: SeasonCtx = { player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel: new RelationshipModel(0.5) };
   const s = newLiveSeason(ids);
-  s.twistPlan = { doubleEvictionAtActive: 8, doubleEvictionArmed: true, secretVetoStreak: 2, secretVetoArmed: true, battleBackAtJury: 1, battleBackArmed: true };
+  // Arm exactly the twists the Vault holds in reserve (parsed from the sealed records), nothing else.
+  const reserved = new Set(
+    this.sandbox!.engine.vault.readHidden({ kind: "reserved-twist" }).map((r) => /sealed reserve twist: ([a-z-]+),/.exec(r.content)?.[1]).filter((k): k is string => !!k),
+  );
+  assert.ok(reserved.has("double-eviction"), "the Vault holds a sealed reserve twist to deploy");
+  s.twistPlan = {
+    doubleEvictionAtActive: 8, doubleEvictionArmed: reserved.has("double-eviction"),
+    secretVetoStreak: 2, secretVetoArmed: reserved.has("secret-veto"),
+    battleBackAtJury: 1, battleBackArmed: reserved.has("battle-back"),
+  };
   const trace: DeployTrace = { crowns: [], replacements: [], fired: [] };
   let lastHoh: string | undefined;
   for (let i = 0; i < 4000 && !s.finished && s.beat !== "complete"; i++) {
@@ -219,7 +231,8 @@ When("it is deployed", function (this: BbWorld) {
   }
   trace.fired = (s.firedTwists ?? []).map((t) => t.kind);
   assert.ok(s.finished || s.beat === "complete", "the deployed-twist season played to its end");
-  assert.ok(trace.fired.length > 0, "a reserve twist actually fired in the season (otherwise nothing was deployed)");
+  assert.ok(trace.fired.includes("double-eviction"), "the reserved twist actually fired in the season (otherwise nothing was deployed)");
+  assert.ok(trace.fired.every((k) => reserved.has(k)), `a twist fired that the Vault never held in reserve (${trace.fired.join(", ")})`);
   assert.ok(trace.crowns.length >= 5, "the season crowned several HOHs around the twist");
   this.deployTrace = trace;
 });

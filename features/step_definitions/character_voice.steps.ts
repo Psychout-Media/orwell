@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { BASE_GAME_MASTER_PROMPT } from "../../src/engine/momentPrompts";
-import { VOICE_ARCHETYPE_BIAS, VOICE_ARCHETYPE_SIGNATURES } from "../../src/engine/voice";
+import { VOICE_ARCHETYPE_BIAS, VOICE_ARCHETYPE_SIGNATURES, generateVoice } from "../../src/engine/voice";
+import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import type { EntityId } from "../../src/domain/ids";
 
 /**
@@ -96,6 +97,15 @@ Then("their voice fingerprints are correlated with that archetype", function (th
     // The archetype's core dials win ~80% of the time each; a voice matching NONE of them is not archetype-correlated.
     const matches = Object.entries(lean).filter(([dial, value]) => (voice as unknown as Record<string, string>)[dial] === value).length;
     assert.ok(matches >= 1, `${id} (${arch}) matches none of its archetype's voice leanings`);
+    // One voice proves little (a generic voice can match a dial by luck), so sample the generator itself: EVERY biased dial
+    // must land on the archetype's lean far more often than a free pick would (~80% by design vs ~1/4 free).
+    const N = 400;
+    const hits = new Map<string, number>(Object.keys(lean).map((d) => [d, 0]));
+    for (let i = 0; i < N; i++) {
+      const v = generateVoice(new SeededRandom(7000 + i), arch) as unknown as Record<string, string>;
+      for (const [dial, value] of Object.entries(lean)) if (v[dial] === value) hits.set(dial, hits.get(dial)! + 1);
+    }
+    for (const [dial, n] of hits) assert.ok(n / N >= 0.7, `the '${arch}' lean on '${dial}' won only ${Math.round((100 * n) / N)}% of ${N} generated voices (designed ~80%)`);
     // ...and the prose signature is dealt from the archetype's own pool, not a generic one.
     const pool = VOICE_ARCHETYPE_SIGNATURES[arch];
     if (pool) assert.ok(pool.includes(voice.signature), `${id} (${arch}) signature '${voice.signature}' is not from the archetype's pool`);

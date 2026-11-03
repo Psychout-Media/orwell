@@ -189,13 +189,21 @@ Then("the wall test helpers import no Vault type", function () {
 Then(
   "the wall test helpers alter no game projection, narration, or engine tool",
   function () {
-    // The helpers live in settings.py: it may import only stdlib + the constants module, so it has no handle on a
-    // game projection, the narrator, or any engine tool. (Fails the moment someone wires one in.)
+    // The helpers live in settings.py. Scan EVERY import, nested (function-local, indented) ones included: it may reach only
+    // stdlib, the constants module, the atomic-write helper, and the per-user PREFS loader (a lazy import inside
+    // `get_user_setting`, unrelated to any game projection). So it has no handle on a game projection, the narrator, or
+    // any engine tool; a new import of anything else fails here.
     const src = fs.readFileSync(path.join(FRONTEND_DIR, "src", "settings.py"), "utf8");
-    const imports = src.split("\n").filter((l) => /^(import|from)\s/.test(l));
-    assert.ok(imports.length > 0, "settings.py has imports to inspect");
-    for (const line of imports) {
-      assert.doesNotMatch(line, /orwell|engine|narrat|projection|tools|mcp|vault|routes|services|gateway/i, `settings.py reaches beyond constants: ${line}`);
+    const modules = src.split("\n")
+      .map((l) => /^\s*(?:from\s+(\S+)\s+import\b|import\s+(\S+))/.exec(l))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => (m[1] ?? m[2])!.replace(/,$/, ""));
+    assert.ok(modules.length > 0, "settings.py has imports to inspect");
+    assert.ok(modules.includes("routes.prefs_routes"), "the scan reaches the function-local prefs import");
+    const allowed = new Set(["os", "json", "time", "logging", "typing", "re", "src.constants", "core.atomic_io", "routes.prefs_routes"]);
+    for (const mod of modules) {
+      assert.ok(allowed.has(mod), `settings.py reaches beyond stdlib/constants/prefs: ${mod}`);
+      assert.doesNotMatch(mod, /engine|narrat|projection|mcp|vault|gateway/i, `settings.py reaches a game surface: ${mod}`);
     }
     runPyTest("imports_no_vault");
   }

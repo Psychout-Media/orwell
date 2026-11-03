@@ -55,6 +55,7 @@ Feature: 0094 — Distorted gossip has consequences (acting on a wrong belief bu
     Scenario: No player-facing surface reveals a belief's truth-value or its raw uncertainty
       Given the player holds a distorted belief the engine privately knows is false
       When the player inspects any player-facing surface
+      And the player acts on that belief and a later pathway brings the honest correction
       Then no surface marks the belief as false or distorted
       And no raw confidence or distortion number is shown to the player
       And the wrongness is expressed only through a divergent outcome and a later honest correction

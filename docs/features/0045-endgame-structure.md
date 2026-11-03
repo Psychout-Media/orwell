@@ -92,7 +92,7 @@ is the sibling B44.
 
 **Touch points (exact):**
 - `src/domain/eligibility.ts` — `vetoParticipants` (degrade to `min(6, eligible)`) + `evictionVoters` (F4 →
-  sole veto holder); keep the existing invariant helpers.
+  the one non-HOH, non-nominee houseguest); keep the existing invariant helpers.
 - `src/engine/liveSeason.ts` — the eviction/electorate path (the empty-`evictionVoters` 0–0 site ~L224–228)
   and the F3 branch at `active.length === 3` (final-HOH comp + `final-eviction`); the HOH-draw site (~L354).
 - `src/ports/GameSession.ts` — add `"final-eviction"` to `PendingDecisionView.kind` + `SubmitDecisionReq.kind`;

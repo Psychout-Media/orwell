@@ -63,9 +63,36 @@ function begin(w: BbWorld, bond?: number): void {
   s.crBefore = readOf(w).toward;
 }
 
+/**
+ * The player's conduct, as REAL recorded scenes through the engine's own recording seam (`recordInteraction`: the same path a
+ * live turn takes, with its hidden fold, its presence grounding, its per-beat fold budget and its persistence), never a direct
+ * edit of the edge. Two engine rules shape it: a scene only counts a houseguest who is actually IN THE ROOM (so the player walks
+ * to them first, as a player would), and at most a few folds land on one edge per beat (so a long run of scenes is spread over
+ * beats, one season beat played between batches, exactly as the season loop would). Asserts the conduct really moved the edge.
+ */
 const conduct = (w: BbWorld, kind: "bonding" | "conflict", times: number): void => {
-  const rng = new SeededRandom(42);
-  for (let i = 0; i < times; i++) relOf(cr(w).crSb!).applyDirected(cr(w).crNpc!, PLAYER, kind, rng);
+  const sb = cr(w).crSb!;
+  const npc = cr(w).crNpc!;
+  const nextBeat = (): void => {
+    const v = sb.session.advanceGame();
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
+  };
+  const together = (): boolean => { const o = sb.session.occupancy(); return !!o && o.get(PLAYER) === o.get(npc) && o.get(npc) !== undefined; };
+  const goToThem = (): void => {
+    for (let attempt = 0; attempt < 6 && !together(); attempt++) {
+      const room = sb.session.occupancy()?.get(npc);
+      if (room) sb.session.movePlayer(room);
+      if (!together()) nextBeat();
+    }
+    assert.ok(together(), "the player could not get into the same room as the houseguest");
+  };
+  const before = { ...relOf(sb).edge(npc, PLAYER) };
+  for (let i = 0; i < times; i++) {
+    if (i % 3 === 0) { if (i > 0) nextBeat(); goToThem(); }
+    sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: `a ${kind} scene (${i + 1})`, kind });
+  }
+  const after = relOf(sb).edge(npc, PLAYER);
+  assert.notEqual(after.trust + after.affinity, before.trust + before.affinity, `${times} recorded ${kind} scenes did not move the houseguest's edge`);
 };
 
 // ── Given ──────────────────────────────────────────────────────────────────────────────────
@@ -167,11 +194,10 @@ Then("the sealed day-one read of the player is unchanged", function (this: BbWor
 
 Then("the current read may disagree with the day-one read", function (this: BbWorld) {
   const s = cr(this);
-  // Push the live read hard the other way: it follows the conduct (not the first impression) and the sealed read stays put.
-  conduct(this, "conflict", 12);
+  // The live read followed the conduct (the When played it), not the first impression: the carriage word differs from the
+  // move-in carriage, and the sealed read stays put. Nothing here changes game state.
   const now = readOf(this);
-  assert.ok(LADDER.indexOf(now.toward) < LADDER.indexOf(s.crInitialToward!) || now.drift === "cooling",
-    `the live read ('${now.toward}', ${now.drift}) did not move off the move-in carriage ('${s.crInitialToward}')`);
+  assert.notEqual(now.toward, s.crInitialToward, `the live read ('${now.toward}', ${now.drift}) did not move off the move-in carriage`);
   assert.equal(dayOneRead(s.crSb!, s.crNpc!), s.crDayOne, "the sealed day-one read held while the live read moved");
 });
 
