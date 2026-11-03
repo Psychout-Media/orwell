@@ -173,15 +173,81 @@ def _is_transient(exc: Exception) -> bool:
 # client was closed.
 _client = None
 _client_factory = None
+_client_loop = None  # weakref to the loop `_client` was built on (N-5)
+_other_loop_clients = None  # WeakKeyDictionary: loop -> (factory, client), for loops other than `_client_loop`
+import threading as _threading
+_other_loop_clients_lock = _threading.RLock()  # re-entrant: guards the primary-claim AND the other-loop cache in one critical section
 
 
 def _shared_client():
-    global _client, _client_factory
+    with _other_loop_clients_lock:
+        return _shared_client_locked()
+
+
+def _shared_client_locked():
+    """The engine client for the CURRENT event loop (N-5): an httpx pool is bound to the loop that
+    opened its sockets, and the FE runs many ``asyncio.run`` background tasks in worker threads —
+    sharing one client across those loops strands keep-alive sockets (CLOSE-WAIT) and stalls the
+    main loop's calls. The first loop keeps the module-global ``_client`` (tests rely on it); any
+    other loop gets its own client."""
+    global _client, _client_factory, _client_loop, _other_loop_clients
+    import asyncio
+    import weakref
     factory = httpx.AsyncClient
-    if _client is None or _client_factory is not factory or getattr(_client, "is_closed", False):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    # A loop that already holds a LIVE client in the per-loop cache keeps it, whatever happens to the module-global primary
+    # (its loop closing, another loop claiming it): the primary is only ever the FIRST loop's client, never a reason to
+    # hand a loop a DIFFERENT client than the one it already has (that would split its keep-alive sockets across two pools).
+    if loop is not None and _other_loop_clients is not None:
+        _hit = _other_loop_clients.get(loop)  # (factory, client): an entry built by a DIFFERENT constructor is stale
+        if _hit is not None and _hit[0] is factory and not getattr(_hit[1], "is_closed", False):
+            return _hit[1]
+    bound = _client_loop() if _client_loop is not None else None
+    stale_loop = bound is None or (hasattr(bound, "is_closed") and bound.is_closed())
+    if _client is None or _client_factory is not factory or getattr(_client, "is_closed", False) \
+            or (_client_loop is not None and stale_loop):
         _client = factory(timeout=_TIMEOUT)
         _client_factory = factory
-    return _client
+        _client_loop = weakref.ref(loop) if loop is not None else None
+        return _client
+    if loop is None or _client_loop is None or bound is loop:
+        return _client
+    with _other_loop_clients_lock:
+        if _other_loop_clients is None:
+            _other_loop_clients = weakref.WeakKeyDictionary()
+        _e = _other_loop_clients.get(loop)
+        c = _e[1] if (_e is not None and _e[0] is factory) else None
+        if c is None or getattr(c, "is_closed", False):
+            for _l in [l for l in list(_other_loop_clients.keys()) if l.is_closed()]:
+                _other_loop_clients.pop(_l, None)  # a dead loop's client is never reusable
+            c = factory(timeout=_TIMEOUT)
+            _other_loop_clients[loop] = (factory, c)
+        return c
+
+
+async def aclose_loop_client() -> None:
+    """Close + drop the engine client bound to the CURRENT running loop (end of a short-lived ``asyncio.run``)."""
+    import asyncio
+    global _client, _client_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    c = None
+    with _other_loop_clients_lock:
+        if _other_loop_clients is not None:
+            _pe = _other_loop_clients.pop(loop, None)
+            c = _pe[1] if _pe is not None else None
+    if c is None and _client_loop is not None and _client_loop() is loop and _client is not None:
+        c, _client, _client_loop = _client, None, None
+    if c is not None and not getattr(c, "is_closed", False):
+        try:
+            await c.aclose()
+        except Exception:  # failsoft-ok: best-effort cleanup
+            pass
 
 
 async def _post_tool_once(path: str, name: str, args: dict | None, user: str | None, timeout: float | None) -> dict:

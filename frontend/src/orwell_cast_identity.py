@@ -311,7 +311,7 @@ def kickoff_identity(cast: list[dict], owner: Optional[str],
     except RuntimeError:
         # No running loop (e.g. a sync caller / test) — run to completion synchronously, then chain.
         try:
-            asyncio.run(_runner())
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(_runner())
         except Exception:
             if then is not None:
                 then()

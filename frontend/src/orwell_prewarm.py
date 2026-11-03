@@ -454,7 +454,7 @@ async def warm_portraits(user: Optional[str] = None, *, portraits=None,
         loop = asyncio.get_running_loop()
         loop.create_task(_run())
     except RuntimeError:  # pragma: no cover - non-async callers (tests await _run via the loop)
-        asyncio.run(_run())
+        __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(_run())
     return {"started": True}
 
 
