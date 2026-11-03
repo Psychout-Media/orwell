@@ -755,7 +755,7 @@ export interface MakeDealReq {
   /**
    * 0109 — OPTIONAL negotiated term, PROPOSED by the narrator from what was said in the scene. `weeks` =
    * how many weeks the promise runs counting the current one ("this week only" = 1, "for two weeks" = 2);
-   * `vague` = the term was left unspoken. The ENGINE validates and bounds it (`DEAL_TERM_MAX_WEEKS`; a
+   * `vague` = the term was left unspoken. The ENGINE validates and bounds it (`DEAL_DURATION.maxTermWeeks`; a
    * non-integer / non-positive / non-finite `weeks` is ignored; an explicit `weeks` wins over `vague`) and
    * owns the break-severity magnitude it modulates. Absent / invalid ⇒ the kind-implied horizon,
    * byte-identical to 0039.

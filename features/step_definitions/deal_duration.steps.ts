@@ -159,7 +159,7 @@ Given("a deal with a negotiated term and the vague label", function (this: BbWor
   const a = liveGame();
   a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "two weeks", term: { weeks: 3 } });
   a.s.makeDeal({ with: a.npc, kind: "safety", terms: "unspoken", term: { vague: true } });
-  live.set(this, { a, b: liveGame(), t0a: 0, t0b: 0, trust0a: 0 });
+  live.set(this, { a, b: a, t0a: 0, t0b: 0, trust0a: 0 });
 });
 
 When("the deals are serialized and reloaded", function (this: BbWorld) {

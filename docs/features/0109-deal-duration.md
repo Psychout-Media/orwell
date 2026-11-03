@@ -29,7 +29,7 @@ Today a deal's lifespan is **implicit by kind**: `safety`/`vote` quietly expire 
 A `Deal` (0039) gains an optional negotiated **duration**, in exactly one of two forms:
 
 - **Explicit** — a term the parties named out loud → an `expiresWeek` on the deal (made week 3, "two weeks"
-  → `expiresWeek: 5`). This generalizes today's kind-implied horizon.
+  → `expiresWeek: 4`; the current week counts). This generalizes today's kind-implied horizon.
 - **Vague** — the parties left it open / unspoken → the deal is simply **labeled `vague`** (a flag on the
   deal). **No numeric expiry, and NO per-party belief object** (owner ruling: *"just labeled as vague is
   enough"*).

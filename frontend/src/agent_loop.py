@@ -4077,7 +4077,8 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 "no prose, no code fence:\n"
                 '{"struck":<true|false>,"withId":"<the houseguest id from the roster>",'
                 '"kind":"<one of: ' + _kinds_csv + '>",'
-                '"terms":"<one short clause of what was promised>"}\n'
+                '"terms":"<one short clause of what was promised>",'
+                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}\n'
                 "struck=true ONLY when BOTH sides explicitly AGREED to a concrete commitment. If it was "
                 "loose talk, a one-sided pitch, a 'maybe', or a refusal, struck=false. kind: " + _kind_desc + "."},
             {"role": "user", "content":
@@ -4112,9 +4113,12 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         # attempt (it rides in kwargs, so the single retry AND the CON-11 deferred queue reuse it) —
         # the engine dedups by it (#1305), so a concurrently re-driven deal can never fold twice.
         from routes import chat_helpers as _ch_idem
+        # 0109 — a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
+        _tw = obj.get("termWeeks")
+        _term_kw = {"term": {"weeks": _tw}} if isinstance(_tw, int) and not isinstance(_tw, bool) and _tw >= 1 else {}
         if await _backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,
                                     user=owner, defer_fold=True,
-                                    idempotency_key=_ch_idem._mint_idempotency_key()) is None:
+                                    idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw) is None:
             return False
         logger.info(f"[orwell] auto-recorded deal (kind={kind}, with={with_id}) user={owner}")
         return True

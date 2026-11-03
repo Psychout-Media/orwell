@@ -236,7 +236,8 @@ export class DealLedger {
 
   /**
    * Resolve deals whose binding term has passed un-broken — mark them `kept`. Two ways a term runs out:
-   *   • E43 kind-horizon: a week-scoped (`safety`/`vote`) deal whose `madeWeek` is behind `currentWeek`.
+   *   • E43 kind-horizon: a week-scoped (`safety`/`vote`) deal whose `madeWeek` is behind `currentWeek` —
+   *     unless it carries an explicit negotiated term, which then governs instead (#1993).
    *   • 0109 NEGOTIATED term: ANY deal with an explicit `expiresWeek` once `currentWeek > expiresWeek`
    *     — a named term generalizes the kind-implied horizon, so an un-broken `final-two` with a term
    *     that has lapsed also resolves kept (turning after a mutually-known expiry is fair game, never
@@ -248,8 +249,10 @@ export class DealLedger {
     const resolved: Deal[] = [];
     for (const deal of this.deals) {
       if (deal.status !== "open") continue;
-      const kindHorizonPassed =
-        horizonOf(deal.kind) === "week" && deal.madeWeek !== undefined && deal.madeWeek < currentWeek;
+      // 0109 / #1993: an explicit negotiated term OVERRIDES the kind-implied horizon (a `safety` deal promised
+      // "for three weeks" must not lapse at the first eviction while its own view still shows the longer term).
+      const kindHorizonPassed = deal.expiresWeek === undefined
+        && horizonOf(deal.kind) === "week" && deal.madeWeek !== undefined && deal.madeWeek < currentWeek;
       const negotiatedTermPassed = deal.expiresWeek !== undefined && currentWeek > deal.expiresWeek;
       if (kindHorizonPassed || negotiatedTermPassed) {
         deal.status = "kept";

@@ -129,11 +129,28 @@ describe("0109 — the makeDeal MCP boundary accepts / refuses `term`", () => {
   it("dispatches a well-formed term through callTool and the deal carries it", async () => {
     const { srv, session, npc } = server();
     await srv.callTool("makeDeal", { with: npc, kind: "final-two", terms: "t", term: { weeks: 2 } });
-    expect(session.getGameState().deals![0]!.term?.expiresWeek).toBeDefined();
+    expect(session.getGameState().deals![0]!.term).toEqual({ expiresWeek: session.snapshot().live!.week + 1 });
   });
   it("refuses a non-object term at the boundary (no deal is made)", async () => {
     const { srv, session, npc } = server();
     await expect(srv.callTool("makeDeal", { with: npc, kind: "safety", terms: "t", term: "two weeks" })).rejects.toThrow();
     expect(session.getGameState().deals ?? []).toHaveLength(0);
+  });
+});
+
+describe("0109 — an explicit term governs a week-scoped kind (#1993 review)", () => {
+  it("a `safety` deal promised for 3 weeks does not lapse at the first eviction", () => {
+    const { s, npc } = game();
+    const w = week(s);
+    const d = s.makeDeal({ with: npc, kind: "safety", terms: "three weeks", term: { weeks: 3 } })!;
+    const plain = s.makeDeal({ with: npc, kind: "safety", terms: "this week" })!;
+    for (let i = 0; i < 400 && week(s) <= w; i++) {
+      const v = s.advanceGame();
+      if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
+      if (v.finished) break;
+    }
+    const by = (id: string) => s.getGameState().deals!.find((x) => x.id === id)!;
+    expect(by(plain.id).status).toBe("kept"); // kind horizon unchanged
+    expect(by(d.id).status).toBe("open");     // its own longer term governs
   });
 });
