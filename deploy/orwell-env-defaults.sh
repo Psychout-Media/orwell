@@ -9,7 +9,7 @@
 #                                 (add-if-absent, never-clobber), so a box provisioned before a flag
 #                                 was added still gains it on its next update.
 #
-# Why this file exists: every flag below DEFAULTS OFF in engine code (so the seeded calibration + the
+# Why this file exists: most flags below DEFAULT OFF in engine code (a few — e.g. ORWELL_NPC_MEMORY, flipped ON in code 2026-11-03 — now default ON there too, and are listed here only so install/update write them explicitly and a box's .env states its posture; the engine code default, not this list, is the source of truth for those) (so the seeded calibration + the
 # gates stay byte-identical; the 0108 golden fixture that once also rode this was decommissioned 2026-07-21) and is turned ON only by the deploy. The installer used to
 # hand-write them and the updater reconciled NONE of them — so an old box permanently missed whatever
 # flag post-dated it (the one that got noticed: ORWELL_EMBEDDINGS unset ⇒ the engine silently runs
