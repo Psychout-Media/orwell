@@ -2309,37 +2309,56 @@ def _aside_sentence_makes_board_claim(sentence: str) -> bool:
     return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES)
 
 
+def _aside_matches(sentence: str, res):
+    """Yield (name_group_text, match) for EVERY non-hypothetical match of `res` in `sentence` (all claims, not just the first)."""
+    for rx in res:
+        for m in rx.finditer(sentence or ""):
+            g = (m.group(1) or "").strip().rstrip(".,;:!?'’-")   # the name token may swallow trailing sentence punctuation
+            if not g:
+                continue
+            lead = _N3_CLAUSE_SPLIT_RE.split(sentence[:m.end(1)])[-1] + sentence[m.end(1):m.end()]
+            if _ASIDE_HYP_RE.search(lead):
+                continue
+            yield g, m
+
+
 def _aside_claim_contradicts_board(sentence: str, live: dict) -> bool:
     """N-6: STATE-based truth check of ONE sentence inside a `((...))` production aside against the live board signature. True => the
-    sentence names a houseguest in a closed-set role (veto winner/holder, HOH, nominee, evictee) that the board says they do not hold -> the
-    caller drops it. False => the claim is backed, names nobody checkable, or is not a board claim. A name that matches no ACTIVE houseguest
-    is never a contradiction (the roster guard's job, not this check's). Pure."""
+    sentence ASSERTS (plain present/past tense) a houseguest in a closed-set role (veto winner/holder, HOH, nominee, evictee) that the board
+    says they do not hold -> the caller drops it. EVERY extracted claim is checked, not just the first. Phase-gated: a role is only contradicted
+    when it is actually COMMITTED in the live state (an uncommitted veto/HOH/nominee set has nothing to contradict). Hypothetical / conditional /
+    past-week sentences ("if X wins the veto", "would", "when") are exempt. A name that matches no ACTIVE houseguest is never a contradiction
+    (the roster guard's job, not this check's). Pure."""
     if not sentence or not isinstance(live, dict) or not live:
         return False
-    nv = _named_title_winner(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES)
-    if nv and _name_matches_active(nv, live):
-        holder = live.get("vetoHolderName")
-        if not (holder and _name_matches(nv, holder)):
-            return True
-    nh = _named_title_winner(sentence, _HOH_NAME_RES + _ASIDE_HOH_STATE_RES)
-    if nh and _name_matches_active(nh, live):
-        hoh = live.get("hohName")
-        if not (hoh and _name_matches(nh, hoh)):
-            return True
-    named: List[str] = []
-    for rx in _NOMINEE_NAME_RES + _ASIDE_NOM_STATE_RES:
-        m = rx.search(sentence)
-        if m and (m.group(1) or "").strip():
-            named = _split_named_people(m.group(1))
-            break
-    if named:
-        noms = [str(n).strip() for n in (live.get("nomNames") or []) if str(n).strip()]
-        for n in named:
-            if _name_matches_active(n, live) and not any(_name_matches(n, nm) for nm in noms):
+    holder = live.get("vetoHolderName")
+    if holder:
+        for nv, _m in _aside_matches(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES):
+            if _name_matches_active(nv, live) and not _name_matches(nv, holder):
                 return True
-    ev = _named_evictee_in_claim(sentence)
-    if ev and _name_matches_active(ev, live):
-        return True  # the board lists them ACTIVE, yet the aside says they were evicted
+    hoh = live.get("hohName")
+    if hoh:
+        for nh, _m in _aside_matches(sentence, _HOH_NAME_RES + _ASIDE_HOH_STATE_RES):
+            if _name_matches_active(nh, live) and not _name_matches(nh, hoh):
+                return True
+    noms = [str(n).strip() for n in (live.get("nomNames") or []) if str(n).strip()]
+    if noms:
+        for raw, _m in _aside_matches(sentence, _NOMINEE_NAME_RES + _ASIDE_NOM_STATE_RES):
+            for n in _split_named_people(raw):
+                if _name_matches_active(n, live) and not any(_name_matches(n, nm) for nm in noms):
+                    return True
+    # N-7: "a vote to evict <current nominee>" is the sanctioned anonymized-ballot reveal during the eviction phase - not an eviction claim.
+    stripped = _strip_anonymized_ballots(sentence, live)
+    for rx in _EVICTEE_NAME_RES:
+        for m in rx.finditer(stripped):
+            ev = (m.group(1) or "").strip().rstrip(".,;:!?'’-")
+            if not ev:
+                continue
+            lead = _N3_CLAUSE_SPLIT_RE.split(stripped[:m.end(1)])[-1] + stripped[m.end(1):m.end()]
+            if _ASIDE_HYP_RE.search(lead):
+                continue
+            if _name_matches_active(ev, live):
+                return True  # the board lists them ACTIVE, yet the aside says they were evicted
     return False
 
 
@@ -3656,6 +3675,11 @@ _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
     r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+
+# N-6: a hypothetical / conditional / past-week sentence ("If Ian wins the veto...", "whoever wins", "when she wins", "last week's HOH") is not an assertion
+# about the CURRENT board, so it is never a contradiction. The narration path's hypothetical detector plus the aside-specific temporal cues.
+_ASIDE_HYP_RE = re.compile(
+    _VETO_N1_HYP_RE.pattern + r"|\b(?:when|once|after|before|until|last\s+week|previous(?:ly)?|former(?:ly)?|used\s+to|maybe|perhaps|possibly)\b", re.IGNORECASE)
 
 
 # N-3 (A-14 playtest) — a STALE "not yet": the engine had already crowned the HOH / committed the nominees / set the

@@ -36,7 +36,7 @@ def test_a_per_sentence_outcome_drop_is_mirrored_out_of_the_raw_buffer():
 def test_the_stream_loop_uses_both_halves_at_every_guard_site():
     # both emit sites (mid-loop + trailing flush) accumulate the emitted text and mirror an outcome-guard drop
     assert _SRC.count("_round_emitted_text += _guarded_text") == 2
-    assert len(re.findall(r"round_response = _mirror_wall_drop\(round_response, _clean, _guarded\.text\)", _SRC)) == 2
+    assert len(re.findall(r"round_response = _mirror_wall_drop\(round_response, _guarded\.consumed, _guarded\.text\)", _SRC)) == 2  # N-6: the consumed baseline (a held aside is not yet consumed)
     wiring = _SRC.split("round_texts.append(cleaned_round)")[0][-700:]
     assert "_persisted_round_text(" in wiring and "round_emitted=_round_emitted_text" in wiring
     # a blank-turn cutaway (guard emptied the round, scene not "broken") is persisted too (review on #1997)

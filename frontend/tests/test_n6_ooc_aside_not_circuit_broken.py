@@ -24,24 +24,6 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-# -- the pure aside-state tracker -------------------------------------------------------------------
-
-def test_outside_text_and_state_across_chunks():
-    f = agent_loop._ooc_outside_text
-    assert f("Dawn laughs.", False) == ("Dawn laughs.", False)
-    assert f("((The nominees are Cole and Alejandro.))", False) == ("", False)
-    # an aside split across sentence-sized chunks
-    out1, st1 = f("((The nominees are Cole and Alejandro.", False)
-    assert out1 == "" and st1 is True
-    out2, st2 = f(" Arjun holds the veto.))", st1)
-    assert out2 == "" and st2 is False
-    # narration before/after an aside in one chunk keeps only the outside text
-    out3, st3 = f("She nods. ((Production note.)) The room goes quiet.", False)
-    assert "She nods." in out3 and "The room goes quiet." in out3 and "Production note" not in out3 and st3 is False
-    # a stray close with no open never flips the state
-    assert f("leftover.))", False) == ("leftover.", False)
-
-
 # -- the segmenter ----------------------------------------------------------------------------------
 
 def test_segments_reproduce_the_chunk_and_flag_the_asides():
@@ -58,9 +40,9 @@ def test_segments_reproduce_the_chunk_and_flag_the_asides():
 # -- the guarded chunk wrapper ----------------------------------------------------------------------
 
 LIVE = {
-    "week": 2, "phase": "veto", "hoh": "npc:1", "hohName": "Dawn Whitaker", "nomNames": ["Cole Marchetti", "Alejandro Cho"],
-    "vetoHolder": "npc:5", "vetoHolderName": "Arjun Kessler", "evictedNames": [],
-    "activeNames": ["Dawn Whitaker", "Cole Marchetti", "Alejandro Cho", "Arjun Kessler", "Ian Shea", "Luna Ortiz"],
+    "week": 2, "phase": "veto", "hoh": "npc:1", "hohName": "Hoh", "nomNames": ["Nominee1", "Nominee2"],
+    "vetoHolder": "npc:5", "vetoHolderName": "Vetoholder", "evictedNames": [],
+    "activeNames": ["Hoh", "Nominee1", "Nominee2", "Vetoholder", "Houseguest1", "Houseguest2"],
 }
 
 
@@ -92,7 +74,7 @@ def _g(text, state="", **kw):
 
 def test_a_TRUE_restatement_in_an_aside_streams_and_never_reaches_the_breaker(monkeypatch):
     log = _stub(monkeypatch, cut_narration=True)  # a breaker that WOULD cut anything it sees
-    text = "((The nominees are Cole Marchetti and Alejandro Cho. Arjun Kessler holds the veto and Dawn Whitaker is the HOH.))"
+    text = "((The nominees are Nominee1 and Nominee2. Vetoholder holds the veto and Hoh is the HOH.))"
     g, st = _g(text)
     assert g.text == text and g.scene_broken is False and g.cutaway_emitted is False and st == ""
     assert log["breaker"] == [], "an aside is exempt from the scene circuit-breaker"
@@ -100,7 +82,7 @@ def test_a_TRUE_restatement_in_an_aside_streams_and_never_reaches_the_breaker(mo
 
 def test_a_FALSE_winner_aside_is_stripped_not_replaced_by_the_cutaway(monkeypatch):
     log = _stub(monkeypatch, cut_narration=True)
-    g, st = _g("((Ian Shea won the veto and will use it.))")
+    g, st = _g("((Houseguest1 won the veto and will use it.))")
     assert g.text == "", "the fabricated outcome is stripped"
     assert g.scene_broken is False and g.cutaway_emitted is False and g.text != agent_loop._SCENE_CUTAWAY_LINE
     assert st == "" and log["breaker"] == []
@@ -108,26 +90,52 @@ def test_a_FALSE_winner_aside_is_stripped_not_replaced_by_the_cutaway(monkeypatc
 
 def test_wrong_nominee_and_wrong_veto_holder_and_wrong_hoh_asides_are_stripped(monkeypatch):
     _stub(monkeypatch)
-    for lie in ("((The nominees are Ian Shea and Cole Marchetti.))", "((Ian Shea holds the veto.))", "((Luna Ortiz is the HOH.))",
-                "((Ian Shea was evicted last night.))"):
+    for lie in ("((The nominees are Houseguest1 and Nominee1.))", "((Houseguest1 holds the veto.))", "((Houseguest2 is the HOH.))",
+                "((Houseguest1 was evicted last night.))"):
         g, _ = _g(lie)
         assert g.text == "", lie
 
 
-def test_a_stripped_aside_split_across_chunks_drops_its_tail_too(monkeypatch):
+def test_a_false_aside_split_across_chunks_is_held_then_dropped_entirely(monkeypatch):
     _stub(monkeypatch)
-    g1, s1 = _g("((Ian Shea won the veto.")
-    assert g1.text == "" and s1 == "drop"
+    g1, s1 = _g("((Houseguest1 won the veto.")
+    assert g1.text == "" and s1.startswith("(("), "an unterminated aside is HELD, never emitted half-open"
     g2, s2 = _g(" He will use it tonight.))", s1)
-    assert g2.text == "" and s2 == "", "the rest of the stripped aside never streams, and no stray `))` survives"
+    assert g2.text == "" and s2 == "", "the whole aside is dropped: no opener already emitted, no stray `))`"
 
 
-def test_a_true_aside_split_across_chunks_streams_whole(monkeypatch):
+def test_a_true_aside_split_across_chunks_streams_whole_and_balanced(monkeypatch):
     _stub(monkeypatch)
-    g1, s1 = _g("((The nominees are Cole Marchetti and Alejandro Cho.")
-    assert g1.text == "((The nominees are Cole Marchetti and Alejandro Cho." and s1 == "aside"
-    g2, s2 = _g(" Arjun Kessler holds the veto.))", s1)
-    assert g2.text == " Arjun Kessler holds the veto.))" and s2 == ""
+    g1, s1 = _g("((The nominees are Nominee1 and Nominee2.")
+    assert g1.text == "" and s1 == "((The nominees are Nominee1 and Nominee2."
+    g2, s2 = _g(" Vetoholder holds the veto.))", s1)
+    assert g2.text == "((The nominees are Nominee1 and Nominee2. Vetoholder holds the veto.))" and s2 == ""
+    assert g2.consumed == g2.text
+
+
+def test_a_false_sentence_late_in_a_true_aside_drops_the_whole_aside(monkeypatch):
+    _stub(monkeypatch)
+    g, st = _g("((The nominees are Nominee1 and Nominee2. Houseguest1 holds the veto.))")
+    assert g.text == "" and st == ""
+
+
+def test_flush_closes_and_screens_an_unterminated_aside(monkeypatch):
+    _stub(monkeypatch)
+    g1, s1 = _g("((Take a breath")
+    assert g1.text == ""
+    g2, s2 = _run(agent_loop._guard_stream_chunk("", "u", ooc_open=s1, scene_broken=False, emitted_visible=False, cutaway_emitted=False, flush=True))
+    assert g2.text == "((Take a breath))" and s2 == ""
+    g3, _ = _run(agent_loop._guard_stream_chunk("", "u", ooc_open="((Houseguest1 won the veto.", scene_broken=False, emitted_visible=False,
+                                                 cutaway_emitted=False, flush=True))
+    assert g3.text == ""
+
+
+def test_stray_closers_are_scrubbed_on_the_no_aside_fast_path(monkeypatch):
+    _stub(monkeypatch)
+    g, st = _g("leftover.))")
+    assert g.text == "leftover." and st == ""
+    g2, _ = _g("She nods.)) ((Production note.)) Quiet.))")
+    assert "She nods." in g2.text and "Quiet." in g2.text and "))" in g2.text and g2.text.count("))") == 1  # only the balanced aside keeps its marker
 
 
 def test_a_claim_free_aside_never_reads_the_board(monkeypatch):
@@ -138,7 +146,7 @@ def test_a_claim_free_aside_never_reads_the_board(monkeypatch):
 
 def test_an_unreadable_engine_drops_an_aside_that_makes_a_board_claim(monkeypatch):
     _stub(monkeypatch, live=None)
-    g, _ = _g("((Arjun Kessler holds the veto.))")
+    g, _ = _g("((Vetoholder holds the veto.))")
     assert g.text == "", "an unverifiable outcome must not stream, even inside an aside"
     g2, _ = _g("((Take a breath - you are fine.))")
     assert g2.text.startswith("((Take a breath")
@@ -146,30 +154,62 @@ def test_an_unreadable_engine_drops_an_aside_that_makes_a_board_claim(monkeypatc
 
 def test_narration_with_an_unbacked_board_claim_is_still_cut(monkeypatch):
     _stub(monkeypatch, cut_narration=True)
-    g, st = _g("Dawn wins Head of Household and the room erupts.")
+    g, st = _g("Houseguest1 wins Head of Household and the room erupts.")
     assert g.scene_broken is True and g.text == agent_loop._SCENE_CUTAWAY_LINE and st == ""
 
 
 def test_mixed_chunk_keeps_the_narration_and_strips_only_the_false_aside(monkeypatch):
     log = _stub(monkeypatch)
-    g, st = _g("She nods slowly. ((Ian Shea won the veto.)) The room goes quiet.")
+    g, st = _g("She nods slowly. ((Houseguest1 won the veto.)) The room goes quiet.")
     assert "She nods slowly." in g.text and "The room goes quiet." in g.text
-    assert "Ian Shea" not in g.text and "((" not in g.text and "))" not in g.text
-    assert log["breaker"] and all("Ian Shea" not in b for b in log["breaker"]), "the breaker only ever sees narration"
+    assert "Houseguest1" not in g.text and "((" not in g.text and "))" not in g.text
+    assert log["breaker"] and all("Houseguest1" not in b for b in log["breaker"]), "the breaker only ever sees narration"
 
 
 def test_a_chunk_with_no_aside_is_screened_exactly_as_before(monkeypatch):
     log = _stub(monkeypatch)
-    g, st = _g("Dawn laughs and the room relaxes.")
-    assert g.text == "Dawn laughs and the room relaxes." and st == "" and log["breaker"] == ["Dawn laughs and the room relaxes."]
+    g, st = _g("Houseguest1 laughs and the room relaxes.")
+    assert g.text == "Houseguest1 laughs and the room relaxes." and st == "" and log["breaker"] == ["Houseguest1 laughs and the room relaxes."]
 
 
 def test_the_state_check_is_pure_and_conservative():
     f = chat_helpers._aside_claim_contradicts_board
-    assert f("Arjun Kessler holds the veto.", LIVE) is False
-    assert f("Ian Shea holds the veto.", LIVE) is True
+    assert f("Vetoholder holds the veto.", LIVE) is False
+    assert f("Houseguest1 holds the veto.", LIVE) is True
     assert f("A name nobody has, Zed Quimby, won the veto.", LIVE) is False, "an invented name is the roster guard's job"
     assert f("Nothing to see here.", LIVE) is False and f("anything", {}) is False
+
+
+def test_every_claim_in_a_sentence_is_checked_not_just_the_first():
+    f = chat_helpers._aside_claim_contradicts_board
+    assert f("Vetoholder holds the veto and Houseguest1 holds the veto.", LIVE) is True
+    assert f("Hoh is the HOH and Houseguest2 is the HOH.", LIVE) is True
+    assert f("Vetoholder holds the veto and Hoh is the HOH.", LIVE) is False
+
+
+def test_hypothetical_and_conditional_sentences_are_exempt_but_plain_assertions_are_not():
+    f = chat_helpers._aside_claim_contradicts_board
+    for ok in ("If Houseguest1 wins the veto they could save a nominee.", "Whoever wins the veto decides; maybe Houseguest1 wins the veto.",
+               "When Houseguest1 wins the veto the plan changes.", "Houseguest1 would win the veto in that case."):
+        assert f(ok, LIVE) is False, ok
+    for bad in ("Houseguest1 won the veto.", "Houseguest1 holds the veto.", "Houseguest2 is the HOH.", "The nominees are Houseguest1 and Nominee1."):
+        assert f(bad, LIVE) is True, bad
+
+
+def test_roles_are_phase_gated_on_what_is_committed():
+    f = chat_helpers._aside_claim_contradicts_board
+    early = dict(LIVE, phase="hoh", vetoHolderName=None, vetoHolder=None, nomNames=[])
+    assert f("Houseguest1 holds the veto.", early) is False, "no veto holder is committed yet - nothing to contradict"
+    assert f("The nominees are Houseguest1 and Nominee1.", early) is False
+    assert f("Houseguest2 is the HOH.", early) is True, "the HOH IS committed in that state"
+
+
+def test_the_anonymized_ballot_reveal_is_not_an_eviction_claim():
+    f = chat_helpers._aside_claim_contradicts_board
+    ev = dict(LIVE, phase="eviction")
+    assert f("The first ballot is a vote to evict Nominee1.", ev) is False
+    assert f("Nominee1 was evicted.", ev) is True
+    assert f("A vote to evict Houseguest1.", ev) is True, "a non-nominee is not the sanctioned reveal"
 
 
 def test_wired_at_both_stream_call_sites():

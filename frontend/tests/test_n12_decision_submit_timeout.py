@@ -33,6 +33,15 @@ def test_submit_is_bounded_in_source():
     assert "taking too long" in js, "a distinct, honest timeout message"
 
 
+def test_body_read_and_ws_pending_are_covered_in_source():
+    js = _read("static/js/orwellDecision.js")
+    i = js.index('fetch("/api/orwell/decision"')
+    j = js.index("_abort.abort()", i)
+    assert "r.json()" in js[i:j], "the body read must be inside the timeout/abort race"
+    assert "cancelRequest" in js, "a WS timeout must cancel the retained pending request"
+    assert "function cancelRequest" in _read("static/js/orwellWs.js")
+
+
 def _free_port():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -80,13 +89,13 @@ async () => {
   window.__orwellDecisionTimeoutMs = 600;
   window.OrwellWs = undefined;                               // force the HTTP path
   const _origFetch = window.fetch;
-  let posts = 0;
+  let posts = 0, aborts = 0;
   window.fetch = (url, opts) => {
     if (typeof url === 'string' && url.indexOf('/api/orwell/decision') !== -1) {
       posts++;
       return new Promise((_res, rej) => {                    // a POST that never answers (until aborted)
         const sig = opts && opts.signal;
-        if (sig) sig.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        if (sig) sig.addEventListener('abort', () => { aborts++; rej(Object.assign(new Error('aborted'), { name: 'AbortError' })); });
       });
     }
     return _origFetch(url, opts);
@@ -104,10 +113,11 @@ async () => {
   const during = { label: confirm.textContent, disabled: confirm.disabled };
   await new Promise(r => setTimeout(r, 1800));              // well past the 600 ms bound
   const after = { label: confirm.textContent, disabled: confirm.disabled, err: (card.querySelector('.odec-err') || {}).textContent || '' };
+  const abortsAfterFirst = aborts;                           // the timed-out request must have been ABORTED (no leaked in-flight fetch)
   confirm.click();                                           // and it is RETRYABLE
   await new Promise(r => setTimeout(r, 150));
   window.fetch = _origFetch;
-  return { during, after, posts, retried: posts >= 2 };
+  return { during, after, posts, abortsAfterFirst, retried: posts >= 2 };
 }
 """
 
@@ -132,4 +142,5 @@ def test_a_hung_submit_times_out_visibly_and_is_retryable(_app):
     # Ryne's ruling: big choices bind ONLY via the card, so the copy must not point the player at "deciding in conversation".
     assert "conversation" not in r["after"]["err"].lower(), r
     assert "try again" in r["after"]["err"].lower(), r
+    assert r["abortsAfterFirst"] >= 1, f"the timed-out fetch must be aborted, not left pending: {r}"
     assert r["retried"], f"the player can retry (a second POST goes out): {r}"

@@ -277,15 +277,17 @@ function _extractInlineOocAsides(reply) {
     if (a) asides.push(a);
     return '';
   });
-  prose = prose.replace(/\(\(|\)\)/g, '');                 // stray markers (an unbalanced open/close) never render
+  // stray markers (an unbalanced open/close) never render - but only strip `))` when an opener `((` is actually present in the text, so
+  // ordinary prose like "(quietly (very))" keeps its parens.
+  if (reply.indexOf('((') >= 0) prose = prose.replace(/\(\(|\)\)/g, '');
   if (prose === reply) return { prose: reply, asides };
   prose = prose.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return { prose, asides };
 }
 
 // F-6 (the DOUBLED reply): the anti-stale release valve / other mid-turn re-prompts can make the model answer the SAME question twice in one
-// turn; the rounds stack into one bubble. A later `@[Name] ...` block that restates an earlier block by the SAME speaker - sharing a verbatim
-// run of 8+ words - is the second rendition: drop it (the player already read the first). Paragraphs that are genuinely new are kept; blocks by
+// turn; the rounds stack into one bubble. A later `@[Name] ...` block that restates an earlier block by the SAME speaker - mostly covered (>= ~35% of its 8-word runs) by
+// the earlier block - is the second rendition: drop it AND its untagged continuation paragraphs (the player already read the first). Paragraphs that are genuinely new are kept; blocks by
 // other speakers, and text with no speaker blocks, are never touched. Pure; no restatement => the text is returned unchanged.
 function _collapseRestatedReply(text) {
   if (!text || text.indexOf('@[') < 0) return text;
@@ -295,15 +297,18 @@ function _collapseRestatedReply(text) {
   const speakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
   const seen = new Map();            // speaker -> Set of 8-word shingles already shown
   const kept = [];
-  let dropped = false;
+  let dropped = false, skipping = false;
   for (const p of paras) {
     const sp = speakerOf(p);
-    if (!sp) { kept.push(p); continue; }
+    if (!sp) { if (skipping) continue; kept.push(p); continue; }   // untagged continuation of a dropped block goes with it
     const sh = shingles(words(p), 8);
     const prior = seen.get(sp);
+    // A restatement is a SUBSTANTIAL duplication: at least ~a third of this block's 8-word runs were already shown by the same speaker. One
+    // shared phrase in an otherwise new paragraph is NOT a restatement (the new content is kept).
     let restated = false;
-    if (prior) for (const s of sh) { if (prior.has(s)) { restated = true; break; } }
-    if (restated) { dropped = true; continue; }
+    if (prior && sh.size) { let hit = 0; for (const s of sh) { if (prior.has(s)) hit++; } restated = hit / sh.size >= 0.35; }
+    if (restated) { dropped = true; skipping = true; continue; }
+    skipping = false;
     const acc = prior || new Set();
     sh.forEach((s) => acc.add(s));
     seen.set(sp, acc);

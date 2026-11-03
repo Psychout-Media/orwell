@@ -109,7 +109,7 @@ V2 = ('@[Dawn Whitaker] - She goes very still, and then her eyebrows climb. "The
 
 
 def test_a_restated_block_by_the_same_speaker_is_dropped_new_paragraphs_survive():
-    new_beat = "She sets her glass down on the side table, unhurried."
+    new_beat = "@[Dawn Whitaker] - She sets her glass down on the side table, unhurried."
     out = _run("_collapseRestatedReply", [V1 + "\n\n" + V2 + "\n\n" + new_beat])[0]
     assert V1 in out
     assert "eyebrows climb" not in out, "the second rendition of the same answer is dropped"
@@ -127,3 +127,25 @@ def test_distinct_blocks_and_other_speakers_are_never_collapsed():
 def test_text_without_speaker_blocks_is_untouched():
     text = "The water hits the wall in sheets.\n\nThe water hits the wall in sheets and the wall tilts."
     assert _run("_collapseRestatedReply", [text])[0] == text
+
+
+def test_a_restated_block_takes_its_untagged_continuation_paragraphs_with_it():
+    cont = "She leans back against the counter and folds her arms across her chest."
+    new_beat = "@[Dawn Whitaker] - She sets her glass down on the side table, unhurried."
+    out = _run("_collapseRestatedReply", [V1 + "\n\n" + V2 + "\n\n" + cont + "\n\n" + new_beat])[0]
+    assert "eyebrows climb" not in out and cont not in out, "the doubled block's continuation goes with it"
+    assert new_beat in out
+
+
+def test_one_shared_phrase_does_not_drop_a_paragraph_with_new_content():
+    a = '@[Dawn Whitaker] - "I trust nobody in this house, and I am not about to start tonight, Marcus, not one single person."'
+    b = ('@[Dawn Whitaker] - "Listen to me. I trust nobody in this house, and I am not about to start tonight, Marcus. Besides, the nominations '
+         'are tomorrow and I have an entirely different plan for the veto that I have told no one about yet at all."')
+    text = a + "\n\n" + b
+    assert _run("_collapseRestatedReply", [text])[0] == text
+
+
+def test_closing_parens_in_ordinary_prose_survive_without_an_opener():
+    out = _run("_extractInlineOocAsides", consts=("const _OOC_INLINE_RE =",), cases=["He nods (quietly (very)) and leaves.", "He laughs. )) Then ((leaves"])
+    assert out[0] == {"prose": "He nods (quietly (very)) and leaves.", "asides": []}
+    assert "((" not in out[1]["prose"] and "))" not in out[1]["prose"]

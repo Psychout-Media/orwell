@@ -1021,7 +1021,9 @@
         if (_wsLive) {
           try {
             const _pinned = (_ws.lastBeatSeq && _ws.lastBeatSeq()) || undefined;
-            const _ack = await _withTimeout(_ws.sendDecision(Object.assign({}, payload, { expectedBeatSeq: _pinned })), _submitTimeoutMs());
+            const _sendP = _ws.sendDecision(Object.assign({}, payload, { expectedBeatSeq: _pinned }));
+            // N-12: on timeout also drop the socket's retained pending entry so retries never accumulate.
+            const _ack = await _withTimeout(_sendP, _submitTimeoutMs(), () => { try { if (_ws.cancelRequest) _ws.cancelRequest(_sendP); } catch (_) {} });
             // The `decision` ack carries no board body (§3.5 — the result fans out as a `state`
             // edge, which platform.js turns into the ONE orwellGameChanged('ws:state') too); read
             // the freshest beatSeq the socket has seen for the M1-3 nudge below.
@@ -1036,22 +1038,23 @@
           }
         } else {
           const _abort = new AbortController();
-          let r;
+          // N-12: ONE bound covers headers AND the body read - a server that sends headers then stalls the body must not wedge Confirm.
           try {
-            r = await _withTimeout(fetch("/api/orwell/decision", {
-              method: "POST", credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-              signal: _abort.signal,
-            }), _submitTimeoutMs(), () => _abort.abort());
+            await _withTimeout((async () => {
+              const r = await fetch("/api/orwell/decision", {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+                signal: _abort.signal,
+              });
+              if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
+              // M1-3: best-effort read of the commit's beatSeq off the decision response so the
+              // panels can verify their refetch reached it (the goodbye-card-beside-stale-board race).
+              try { _beat = ((await r.json()) || {}).beatSeq; } catch (_) {}
+            })(), _submitTimeoutMs(), () => _abort.abort());
           } catch (e) {
-            if (e && e.timedOut) throw e;
             throw e;
           }
-          if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
-          // M1-3: best-effort read of the commit's beatSeq off the decision response so the
-          // panels can verify their refetch reached it (the goodbye-card-beside-stale-board race).
-          try { _beat = ((await r.json()) || {}).beatSeq; } catch (_) {}
         }
         _userDismissed = true;   // this pending is handled — stop any boot re-assert loop
         _dismissedSig = _sig(pending);
