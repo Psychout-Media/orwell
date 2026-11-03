@@ -9738,6 +9738,14 @@ export class GameSessionAdapter implements GameSession {
         );
       },
       juryDemerit: (wronged, breaker) => recordDealBetrayal(this.live!, wronged, breaker),
+      // #1963: a break tied to a SECRET eviction ballot (an NPC's vote-evict; the player's own vote is never sealed from
+      // themselves) is not attributable by any hidden fold an NPC acts on, so it is skipped when the PLAYER is the wronged
+      // party (nothing acts on the player's hidden read). The suspects are every voter who voted to evict the wronged.
+      sealed: (wronged, breaker, kind) => kind === "vote-evict" && breaker !== PLAYER && wronged !== PLAYER,
+      suspects: (wronged) => {
+        const voteOf = this.live?.eviction?.voteOf ?? this.live?.voteRecord?.at(-1)?.voteOf ?? {};
+        return Object.entries(voteOf).filter(([, target]) => target === wronged).map(([voter]) => voter as EntityId);
+      },
       // 0002: the wronged party learns the break as a witnessed event (a public ceremony break) —
       // UNLESS the triggering action is the SEALED eviction ballot (E12/A7). Naming the breaker there
       // would deanonymize their vote before the same terminal gate the primary eviction reveal and the
