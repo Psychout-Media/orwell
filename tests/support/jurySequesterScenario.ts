@@ -93,7 +93,10 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
     const bad = all.filter((e, idx) => {
       const parts = [...new Set([e.initiator, ...e.witnessSet])];
       if (!parts.some((x) => out(x, idx))) return false;
-      if (DEPARTURE.test(String(e.content))) return false;
+      // The departure beats are the ONE exception, and only for the DEPARTING evictee's own beat: the content matches a
+      // departure line AND exactly one participant is out (the evictee walking out among the still-playing house) — a
+      // beat that mixes two out-of-the-game houseguests, or any other content, never escapes the check.
+      if (DEPARTURE.test(String(e.content)) && parts.filter((x) => out(x, idx)).length === 1) return false;
       if (parts.some((x) => out(x, idx) && statusOf.get(x) === "evicted")) return true; // a pre-jury evictee went home
       return parts.some((x) => !isOutJuror(x, idx)); // a juror with anyone who is not an out-of-the-game juror
     });

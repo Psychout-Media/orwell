@@ -25,9 +25,10 @@ import type { EntityId } from "../../src/domain/ids";
 const FINALIST = npc(14);
 const OTHER_FINALIST = npc(15);
 const JURORS: EntityId[] = Array.from({ length: 9 }, (_, i) => npc(i + 1));
-// PO ruling 2026-11-03: only jurors belong in the jury house — the first `cast − 2 − 9 = 5` evictees are pre-jury.
-// Crafted eviction orders seat five such evictees first so the jurors sit at the jury-start index.
-const PRE_JURY: EntityId[] = Array.from({ length: 5 }, (_, i) => npc(101 + i));
+// PO ruling 2026-11-03: only jurors belong in the jury house. Of the 14 evictions in a 16-person cast (the player + npc:1..15),
+// the first `cast − 2 − 9 = 5` are pre-jury and the last nine are the jury (npc:1..9; finalists npc:14/15), so the real pre-jury
+// slots are npc:10..13 and the player. Crafted eviction orders seat them first so the jurors sit at the jury-start index.
+const PRE_JURY: EntityId[] = [npc(10), npc(11), npc(12), npc(13), PLAYER];
 const BETRAYED = npc(1);
 const CLOSE = npc(2);
 const ISOLATED = npc(9);
@@ -155,7 +156,7 @@ Given("a pre-jury-evictee who was cut before the jury formed", function (this: B
   const live: LiveSeasonState = {
     week: 11, beat: "hoh-competition", active: [FINALIST, OTHER_FINALIST], vetoUsed: false,
     // 14 evictees: five pre-jury (npc:10 first) then the last-nine npc:1..npc:9 — only the nine are the jury.
-    evictionOrder: [preJuror, ...PRE_JURY.slice(0, 4), ...JURORS], finished: false,
+    evictionOrder: [preJuror, ...PRE_JURY.slice(1), ...JURORS], finished: false,
     mannerByEvictee: { [preJuror]: { [FINALIST]: { betrayed: true } } }, // even a grievance: it never spreads
   };
   const snap = reg.snapshot(user) as SessionSnapshot;

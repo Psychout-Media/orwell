@@ -26,9 +26,13 @@ import type { EntityId } from "../../src/domain/ids";
 const FINALIST = npc(14);
 const OTHER_FINALIST = npc(15);
 const JURORS: EntityId[] = Array.from({ length: 9 }, (_, i) => npc(i + 1));
-// PO ruling 2026-11-03: only jurors belong in the jury house — the first `cast − 2 − 9 = 5` evictees are pre-jury
-// and go home. The crafted eviction orders put five such evictees first so the jurors sit at the jury-start index.
-const PRE_JURY: EntityId[] = Array.from({ length: 5 }, (_, i) => npc(101 + i));
+// PO ruling 2026-11-03: only jurors belong in the jury house. Of the 14 evictions in a 16-person cast, the first
+// `cast − 2 − 9 = 5` are pre-jury (they go home) and the last nine are the jury. The cast is the player + npc:1..15, so the
+// real pre-jury slots are npc:10..13 and the player (jurors npc:1..9, finalists npc:14/15). The crafted eviction orders put
+// them first so the jurors sit at the jury-start index.
+const PRE_JURY: EntityId[] = [npc(10), npc(11), npc(12), npc(13), PLAYER];
+// A real jury never exceeds nine, so the "arrivals past the ninth" tests use ids outside the cast on purpose.
+const EXTRA_JURORS: EntityId[] = [npc(101), npc(102), npc(103)];
 
 /** Craft a jury-PHASE live state (sequester, not yet the finale) with a jury + recorded grievance. */
 function juryPhaseLive(grievanceJuror: EntityId): LiveSeasonState {
@@ -350,7 +354,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     expect(sb.session.snapshot().juryHouseTickCount, "eight stretches for jurors two through nine").toBe(8);
     // Three more evictions (a rolling last-nine roster): each still owes a stretch.
     const snap = reg.snapshot("limbo-late") as SessionSnapshot;
-    (snap.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, npc(10), npc(11), npc(12)];
+    (snap.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, ...EXTRA_JURORS];
     reg.restore("limbo-late", snap);
     sb = sbOf();
     sb.session.setJuryHouseEnabled(true);
@@ -371,7 +375,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.engine.events.count(), "caught up: no replay of past arrivals").toBe(before);
     const next = reg.snapshot("limbo-legacy") as SessionSnapshot;
-    (next.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, npc(10)];
+    (next.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, EXTRA_JURORS[0]!];
     reg.restore("limbo-legacy", next);
     sb = reg.sandboxFor("limbo-legacy");
     sb.session.setJuryHouseEnabled(true);
