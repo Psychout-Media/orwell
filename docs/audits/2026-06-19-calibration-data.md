@@ -217,7 +217,7 @@ monotonic — those are the guardrails that prove any tuning didn't just start p
 
 ## Re-measure protocol for the follow-up lane
 
-After each constant change, re-run the SAME instrument (`ORWELL_CALIB_SEEDS=30 npx vitest run
+After each constant change, re-run the SAME instrument (`ORWELL_CALIB_WRITE=1 ORWELL_CALIB_SEEDS=30 npx vitest run
 tests/calibration/calibrationInstrument.test.ts`) and compare the table above. The success target
 the data suggests:
 

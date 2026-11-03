@@ -44,6 +44,9 @@ import { hashSeed } from "../../src/engine/characterFactory";
 import { playSeason, summarize, type Arm, type SeasonMetrics, type ArmSummary, type Resolver } from "./calibrationArms";
 const SEEDS = Number.parseInt(process.env.ORWELL_CALIB_SEEDS ?? "30", 10); // modest; a single run finishes in a few minutes
 const SEED_START = Number.parseInt(process.env.ORWELL_CALIB_SEED_START ?? "1", 10); // shard offset for parallel runs
+// `npm test` must NOT rewrite tracked files under docs/audits/data/. The artifact is only written on an
+// explicit opt-in: ORWELL_CALIB_WRITE=1 (to the default tracked location) or an explicit ORWELL_CALIB_OUT dir.
+const WRITE_ARTIFACTS = process.env.ORWELL_CALIB_WRITE === "1" || process.env.ORWELL_CALIB_OUT !== undefined;
 const pct = (k: number, n: number): string => (n ? `${((100 * k) / n).toFixed(0)}%` : "—");
 
 describe("calibration instrument — passive vs active reach/win data (no tuning changes)", () => {
@@ -90,9 +93,7 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
       const outDir = process.env.ORWELL_CALIB_OUT ?? (SEED_START === 1
         ? resolve(__dirname, "../../docs/audits/data")
         : resolve(__dirname, "../../docs/audits/data", `seeds-${SEED_START}-${SEED_START + SEEDS - 1}`));
-      mkdirSync(outDir, { recursive: true });
       const outPath = resolve(outDir, "2026-06-19-calibration-data.json");
-      writeFileSync(outPath, JSON.stringify(artifact, null, 2) + "\n", "utf8");
 
       // A machine-GENERATED markdown summary companion (regenerated each run; distinct from the
       // hand-written analysis at docs/audits/2026-06-19-calibration-data.md). Calibration record
@@ -113,7 +114,11 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
         `|---|---|---|---|---|---|---|---|---|---|\n` +
         `${mdRow(passiveSummary)}\n${mdRow(solidSummary)}\n${mdRow(recklessSummary)}\n`;
       const mdPath = resolve(outDir, "2026-06-19-calibration-data-summary.md");
-      writeFileSync(mdPath, md, "utf8");
+      if (WRITE_ARTIFACTS) {
+        mkdirSync(outDir, { recursive: true });
+        writeFileSync(outPath, JSON.stringify(artifact, null, 2) + "\n", "utf8");
+        writeFileSync(mdPath, md, "utf8");
+      }
 
       // Console-summary so the run is legible in CI/log output (and for the markdown write-up).
       const line = (s: ArmSummary): string =>
@@ -123,7 +128,7 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
         `| F2 W/L ${s.f2Wins}/${s.f2Losses} | meanComp ${s.meanCompWins.toFixed(2)} (atF2 ${s.meanCompWinsAtF2.toFixed(2)}) ` +
         `| meanLossMargin ${s.meanLossMargin === null ? "—" : s.meanLossMargin.toFixed(1)}`;
       // eslint-disable-next-line no-console
-      console.log(`\n=== CALIBRATION DATA (${SEEDS} seeds/arm) ===\n${line(passiveSummary)}\n${line(solidSummary)}\n${line(recklessSummary)}\njson: ${outPath}\nmd:   ${mdPath}\n`);
+      console.log(`\n=== CALIBRATION DATA (${SEEDS} seeds/arm) ===\n${line(passiveSummary)}\n${line(solidSummary)}\n${line(recklessSummary)}\n${WRITE_ARTIFACTS ? `json: ${outPath}\nmd:   ${mdPath}` : "(artifacts not written — set ORWELL_CALIB_WRITE=1 or ORWELL_CALIB_OUT to persist)"}\n`);
     },
     { timeout: Number(process.env.ORWELL_CALIB_TIMEOUT_MS ?? 1_200_000) }, // 3 × SEEDS full live seasons; generous for loaded hosts
   );
