@@ -155,10 +155,10 @@ def test_con2_do_submit_decision_attaches_tokens_and_refreshes(monkeypatch):
     monkeypatch.setattr(orwell_engine, "remember_pending", lambda *a, **k: None)
     chat_helpers._LAST_BEAT_SEQ["owner"] = 7
 
-    out = _run(ti.do_submit_decision('{"kind":"eviction-vote","vote":"npc:1"}', owner="owner"))
+    out = _run(ti.do_submit_decision('{"kind":"deal-offer","vote":"accept"}', owner="owner"))
     assert out["exit_code"] == 0
     assert captured["expected_beat_seq"] == 7
-    assert isinstance(captured["idempotency_key"], str) and "eviction-vote" in captured["idempotency_key"]
+    assert isinstance(captured["idempotency_key"], str) and "deal-offer" in captured["idempotency_key"]
     assert chat_helpers.last_beat_seq("owner") == 8
 
 
@@ -176,7 +176,7 @@ def test_con2_submit_key_differs_per_kind_at_the_same_beat(monkeypatch):
     monkeypatch.setattr(orwell_engine, "remember_pending", lambda *a, **k: None)
     chat_helpers._LAST_BEAT_SEQ["owner"] = 7
     _run(ti.do_submit_decision('{"kind":"comp-intent","intent":"compete"}', owner="owner"))
-    _run(ti.do_submit_decision('{"kind":"eviction-vote","vote":"npc:1"}', owner="owner"))
+    _run(ti.do_submit_decision('{"kind":"deal-offer","vote":"accept"}', owner="owner"))
     assert keys[0] != keys[1]
 
 

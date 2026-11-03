@@ -86,7 +86,10 @@ ENGINE_KINDS = _engine_decision_kinds()
 
 
 @pytest.mark.parametrize("kind", ENGINE_KINDS)
-def test_relay_accepts_every_engine_kind(monkeypatch, kind):
+def test_relay_accepts_every_engine_kind(monkeypatch, client, kind):
+    """A-6 (PO 2026-11-03): the CARD route (POST /api/orwell/decision) forwards EVERY engine kind — it must
+    never reject a pending kind the engine can produce. The MODEL's submitDecision tool relays only the
+    low-stakes allow-list; every other kind is refused there (the player's card confirm binds it)."""
     seen = {}
 
     async def fake_submit(decision, user=None, **_kw):
@@ -94,15 +97,21 @@ def test_relay_accepts_every_engine_kind(monkeypatch, kind):
         return {"ok": True}
 
     monkeypatch.setattr(orwell_engine, "submit_decision", fake_submit)
+    r = client.post("/api/orwell/decision", json={"kind": kind})
+    assert r.status_code == 200, f"{kind} rejected by the card route: {r.text}"
+    assert seen.get("kind") == kind
+    seen.clear()
     import asyncio
     res = asyncio.get_event_loop().run_until_complete(
         tool_impl.do_submit_decision(json.dumps({"kind": kind}), owner="p")
     )
-    assert res.get("exit_code") == 0, f"{kind} rejected by the relay: {res}"
-    assert seen.get("kind") == kind
+    if kind in orwell_engine.MODEL_SUBMITTABLE_KINDS:
+        assert res.get("exit_code") == 0 and seen.get("kind") == kind
+    else:
+        assert res.get("exit_code") == 1 and not seen, f"{kind} must be card-only for the model tool"
 
 
-def test_relay_forwards_finale_fields(monkeypatch):
+def test_relay_forwards_finale_fields(monkeypatch, client):
     seen = {}
 
     async def fake_submit(decision, user=None, **_kw):
@@ -110,11 +119,10 @@ def test_relay_forwards_finale_fields(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(orwell_engine, "submit_decision", fake_submit)
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(tool_impl.do_submit_decision(json.dumps({
+    client.post("/api/orwell/decision", json={
         "kind": "finale-answer", "appeal": "mend", "statement": "ignored-here",
         "intent": "compete", "vote": "x",
-    }), owner="p"))
+    })
     # every payload field the engine contract defines is forwarded, none silently dropped
     assert seen.get("appeal") == "mend"
     assert seen.get("statement") == "ignored-here"

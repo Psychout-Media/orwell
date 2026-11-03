@@ -5245,6 +5245,13 @@ async def do_submit_decision(content: str, owner: Optional[str] = None) -> Dict:
     _DECISION_KINDS = orwell_engine.DECISION_KINDS  # ONE source (orwell_engine.DECISION_KINDS)
     if kind not in _DECISION_KINDS:
         return {"error": f"kind must be one of: {', '.join(sorted(_DECISION_KINDS))}", "exit_code": 1}
+    # PO ruling 2026-11-03: a big irreversible choice binds ONLY on the player's own confirm on its card — the
+    # model may not commit it from prose. Refused BEFORE any engine call; nothing is submitted or changed.
+    if kind in orwell_engine.CARD_ONLY_KINDS:
+        return {"error": (f"Not submitted: '{kind}' is a binding choice that only the player's own confirm on its "
+                          "decision card can commit. Present the choice (the pending decision's prompt and legal "
+                          "options) in the scene and WAIT for the card — do not narrate past it."),
+                "exit_code": 1}
     decision: dict = {"kind": kind}
     for k in ("choice", "use", "save", "replacement", "vote", "statement", "appeal", "intent", "confirmed"):
         if args.get(k) is not None:

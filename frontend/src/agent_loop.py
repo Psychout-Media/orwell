@@ -5184,6 +5184,17 @@ def _overseer_debug_casting_verdicts(*, model_tools: set, record_belt: int, forc
     return out
 
 
+
+def _landed_tool_events(tool_events):
+    """The turn's tool events minus a REFUSED `submitDecision` (a card-only kind the tool layer rejected,
+    `exit_code != 0`). A refusal resolved nothing, so it must not look like "the model resolved a decision"
+    — otherwise the loop injects the "call advanceGame NOW" deliver nudge and can advance past a card
+    the player has not confirmed (PR #1951 review)."""
+    return [ev for ev in tool_events
+            if not (isinstance(ev, dict) and ev.get("tool") == "submitDecision"
+                    and ev.get("exit_code") not in (None, 0))]
+
+
 def _scene_touched_houseguest(narration: str, messages, house_names) -> bool:
     """True when this turn was a scene with a houseguest — the player's line or the narration
     names someone on the roster (full name or first name). Cheap, name-based; good enough to
@@ -7439,7 +7450,8 @@ async def _stream_agent_loop_impl(
             #   • ENGAGEMENT + a houseguest scene + no recording tool → bank the consequence
             #     (recordInteraction/makeDeal) so the social play moves the hidden weights (0055).
             if _is_live_game:
-                _tool_names = {(ev.get("tool") if isinstance(ev, dict) else None) for ev in tool_events}
+                _tool_names = {(ev.get("tool") if isinstance(ev, dict) else None)
+                               for ev in _landed_tool_events(tool_events)}
                 _progressed = bool(_tool_names & _PROGRESSION_TOOLS)
                 _recorded = bool(_tool_names & _RECORD_TOOLS)
                 _moved = bool(_tool_names & _MOVE_TOOLS)  # L21/L24: did the model call moveTo itself?
@@ -7503,7 +7515,8 @@ async def _stream_agent_loop_impl(
                 # (Order-based, NOT `not _progressed`: a turn that advances the roll AND then previews
                 # the next comp without committing it still left an uncommitted outcome — the live-play
                 # bug the first cut missed.) Both bypass the lull/staleness gate.
-                _beat_seq = [t for t in (ev.get("tool") if isinstance(ev, dict) else None for ev in tool_events)
+                _beat_seq = [t for t in (ev.get("tool") if isinstance(ev, dict) else None
+                                         for ev in _landed_tool_events(tool_events))
                              if t in _BEAT_TOOLS]
                 _previewed_uncommitted = bool(_beat_seq) and _beat_seq[-1] == "runCompetition"
                 _decision_undelivered = bool(_beat_seq) and _beat_seq[-1] == "submitDecision"
