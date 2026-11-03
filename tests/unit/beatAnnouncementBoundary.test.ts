@@ -33,7 +33,11 @@ function resolveLegally(s: GameSessionAdapter, p: PendingDecisionView): AdvanceV
 
 function startedGame(seed: number) {
   const runtime = composeRuntime({ clock: new FakeClock() }); // no saveStore ⇒ in-memory only
-  const user = `t0-3-${seed}-${Math.random().toString(36).slice(2)}`;
+  // DETERMINISTIC user id. The engine derives part of the season's randomness from the sandbox's user id,
+  // so a random suffix here made "which seeds hand the player HOH" differ run to run (the same seed reached a
+  // `nominations` pending in one run and not the next) — the intermittent "game finished before reaching a
+  // 'nominations' pending". Each seed gets its own fresh runtime, so the id needs no uniqueness.
+  const user = `t0-3-${seed}`;
   const session = runtime.registry.sandboxFor(user).session;
   session.createCharacter({ playerName: "P", seed });
   return { runtime, user, session };
