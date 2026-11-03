@@ -70,10 +70,26 @@ def test_fail_open_when_the_board_read_hiccups(board, monkeypatch):
     assert run(ch.screen_role_claims(None, t)) == t
 
 
-def test_the_pre_emission_guard_calls_the_role_screen_before_the_sentence_screens():
+def test_the_scene_guard_runs_the_role_screen_before_the_sentence_guard_and_mirrors_its_drops_whole():
     with open(os.path.join(FRONTEND, "src", "agent_loop.py"), encoding="utf-8") as f:
         src = f.read()
-    i = src.index("async def _pre_emission_outcome_guard(")
+    i = src.index("async def _emit_guarded_scene(")
     body = src[i: i + 9000]
-    assert "chat_helpers.screen_role_claims(owner, text)" in body
-    assert body.index("screen_role_claims") < body.index("chat_helpers._sentence_has_closed_set_claim(")
+    assert "chat_helpers.screen_role_claims_ex(owner, clean)" in body
+    assert body.index("screen_role_claims_ex") < body.index("_pre_emission_outcome_guard(screened, owner)")
+    assert "def _scene_ops(" in src and '(d, "")' in src, "role drops are erased WHOLE from the raw round buffer"
+    # …and the sentence-level guard no longer carries a second copy of the screen
+    j = src.index("async def _pre_emission_outcome_guard(")
+    assert "screen_role_claims" not in src[j: j + 6000]
+
+
+def test_without_a_turn_signature_there_is_no_stable_turn_key_so_nothing_is_carried(board):
+    ch._LAST_BEAT_SIG.clear()  # no cached signature this turn
+    run(ch.screen_role_claims(None, '**"The winner of the Power of Veto..."**\n'))
+    assert "gs:t" not in ch._ROLE_CARRY, "no turn key ⇒ never carry a half across calls (id() of None is constant)"
+
+
+def test_screen_role_claims_ex_reports_the_exact_stripped_units_for_the_whole_unit_mirror(board):
+    kept, drops = run(ch.screen_role_claims_ex(None, 'Calm line.\n**"Player Epsilon takes the Power of Veto."**\nAnother calm line.\n'))
+    assert any("Player Epsilon" in d for d in drops) and "Player Epsilon" not in kept
+    assert "Calm line." in kept and "Another calm line." in kept

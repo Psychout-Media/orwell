@@ -7,75 +7,82 @@ WHY: in the 2026-11-03 live rehearsal the narrator voiced ceremonies as host-PA 
 veto winner and a wrong evictee aired. Adding templates just moves the gap (the narrator will find the next
 phrasing), so this screens on NAME + ROLE CO-OCCURRENCE instead:
 
-  1. Normalise ellipsis / quote-splits so ONE announcement is ONE unit (a trailing-ellipsis half carries its role cue to the
-     next fragment, even across chunk boundaries, via a small per-turn carry).
-  2. A unit that has a ROLE CUE (veto won/held/used, Head of Household, on the block, evicted/leaving/farewell) AND names a
-     houseguest is an assertion about that person's role. Compare it with the engine's COMMITTED role:
+  1. One announcement = one unit: an ellipsis is not a sentence end, and a trailing-ellipsis half carries its role cue to the
+     continuation (across stream chunks, via a small per-turn carry).
+  2. A ROLE CUE (veto won/held/used, Head of Household, nominated / on the block, evicted / leaving / farewell, a ballot readout)
+     BINDS only the houseguest(s) grammatically attached to it (subject before, object after — within a short gap, no clause break
+     between). Those bound names are compared with the engine's COMMITTED role:
         role uncommitted and the unit asserts it  -> strip
-        role committed and the name differs       -> strip
-        hypothetical / conditional / future       -> pass
-  3. Closed-set only (who holds which title is engine truth). Creative prose with no role cue is never touched
-     (ADR 0005 principle #1). Fail-open: any doubt passes.
+        role committed and the bound name differs -> strip
+        hypothetical / conditional / future / past reference IN THE CUE'S OWN CLAUSE -> pass
+  3. Closed-set only (who holds which title is engine truth). Creative prose with no role cue is never touched (ADR 0005
+     principle #1). Fail-open: any doubt passes.
 
-PURE: no I/O. `screen_role_units(text, sig, carry)` returns (kept_text, stripped_units, new_carry).
-Roles only; no names are hard-coded (the roster comes from the live board signature)."""
+UNITS are made of the SAME parts `_mirror_wall_drop` splits on (`(?<=[.!?\\n])`), so a stripped unit is always a union of whole
+mirror parts and the persisted round text stays in lockstep with what streamed.
+
+PURE: no I/O. `screen_role_units(text, sig, carry)` returns (kept_text, stripped_units, new_carry). Roles only; the roster comes
+from the live board signature."""
 from __future__ import annotations
 
 import re
 from typing import Iterable, Optional
 
 _ELL = "‥"  # internal marker for an ellipsis, so "..." never reads as three sentence ends
-
 _ELLIPSIS_RE = re.compile(r"\.{3,}|…")
 _SPEAKER_TAG_RE = re.compile(r"@\[[^\]]+\]\s*[—\-:]*\s*")
-
-# ── role cues ──────────────────────────────────────────────────────────────────────────────────────
-# veto — who WON/HOLDS it, and who USES it (only the holder can use it)
-_VETO_WORD = r"(?:power\s+of\s+veto|veto(?:\s+(?:medal|competition|comp|holder|winner|meeting|ceremony))?|\bPoV\b)"
-_VETO_HOLD_RE = re.compile(
-    r"(?:\b(?:winner|champion|holder)\s+of\s+the\s+" + _VETO_WORD + r")"
-    r"|(?:\bwins?\s+the\s+" + _VETO_WORD + r")|(?:\bwon\s+the\s+" + _VETO_WORD + r")"
-    r"|(?:\bwinning\s+the\s+" + _VETO_WORD + r")"
-    r"|(?:\b(?:holds?|holding|held|clutch(?:es|ing)?|wears?|grips?|has|takes?|took|claims?|earned|earns?)\s+(?:the\s+|her\s+|his\s+|their\s+)?" + _VETO_WORD + r")"
-    r"|(?:\b(?:veto|medal)\b[^.!?\n]{0,30}\b(?:goes|went|belongs?|is|was)\s+(?:to|with))"
-    r"|(?:\b(?:medal|veto)\b[^.!?\n]{0,25}\bin\s+(?:his|her|their)\s+hand)"
-    r"|(?:\bthe\s+(?:medal|veto)\s+goes\s+to)"
-    r"|(?:\bveto\s+(?:holder|winner)\b)"
-    # object + verb within one unit, either order — the narrator varies the object ("medal", "medallion", "the veto") and the
-    # verb ("holds up", "lifts", "clutches", "wears", "claims"); a template per phrasing just moves the gap
-    r"|(?:\b(?:medal(?:lion)?|veto|PoV)\b[^.!?\n]{0,40}\b(?:wins?|won|holds?|clutch\w*|grips?|gripp\w*|lifts?|lifted|raises?|raised|wears?|wearing|claims?|claimed|earned?|takes?(?!\s+place)|took|taken|belongs?)\b)"
-    r"|(?:\b(?:wins?|won|holds?(?:\s+up)?|holding|clutch\w*|grips?|gripp\w*|lifts?|lifted|raises?|raised|wears?|wearing|claims?|claimed|earned?|takes?(?!\s+place)|took|taken)\b[^.!?\n]{0,40}\b(?:medal(?:lion)?|veto|PoV)\b)",
-    re.IGNORECASE)
-_VETO_USE_RE = re.compile(
-    r"\b(?:does(?:\s+not|n['’]t)|did(?:\s+not|n['’]t)|do(?:es)?\s+not|will\s+not|won['’]t|not)\s+(?:be\s+)?us(?:e|ing)\s+the\s+" + _VETO_WORD
-    + r"|\b(?:uses?|used|using)\s+the\s+" + _VETO_WORD
-    + r"|\bnot\s+using\s+the\s+" + _VETO_WORD, re.IGNORECASE)
-_HOH_WORD = r"(?:head\s+of\s+(?:the\s+)?household|\bHOH\b)"
-_HOH_RE = re.compile(
-    r"(?:\b(?:new|next|latest|first|reigning|current|outgoing)\s+" + _HOH_WORD + r")"
-    r"|(?:\b(?:crowned|wins?|won|winning|named|becomes?|became|is|are|as)\s+(?:the\s+)?(?:new\s+)?" + _HOH_WORD + r")"
-    r"|(?:\b" + _HOH_WORD + r"\s+(?:is|goes\s+to|winner|champion))", re.IGNORECASE)
-_NOM_RE = re.compile(
-    r"\b(?:nominat(?:e|es|ed|ing|ion|ions)|on\s+the\s+block|up\s+for\s+eviction|put\s+up|the\s+block)\b", re.IGNORECASE)
-# eviction — STRONG cues are unambiguous house-level exit RESULTS ("evicted", "voted out", "leaving the house"); the bare noun/verb
-# ("the eviction is tonight", "the eviction vote is yours", "a vote to evict X") names the EVENT, not a result, and is NOT a cue.
-# WEAK cues only count on eviction night
-_EVICT_STRONG_RE = re.compile(
-    r"\b(?:evicted|voted\s+out|sent\s+home|going\s+home|leaving\s+the\s+(?:big\s+brother\s+)?house|leaves\s+the\s+(?:big\s+brother\s+)?house|"
-    r"left\s+the\s+(?:big\s+brother\s+)?house|out\s+of\s+the\s+(?:big\s+brother\s+)?house|(?:the\s+)?houseguest\s+(?:who\s+is\s+)?leaving|"
-    r"is\s+(?:the\s+)?(?:next\s+)?(?:one\s+)?(?:leaving|going))\b", re.IGNORECASE)
-_EVICT_WEAK_RE = re.compile(
-    r"\b(?:good-?byes?|farewell|packing\s+(?:her|his|their)\s+bags|pack(?:s|ed)?\s+(?:her|his|their)\s+bags|walks?\s+out\s+(?:the|of\s+the)\s+(?:front\s+)?door|"
-    r"out\s+the\s+(?:front\s+)?door|bag\s+is\s+(?:already\s+)?at\s+the\s+door|the\s+door\s+(?:closes|clicks|shuts)\s+behind)\b", re.IGNORECASE)
-
-# assertion-vs-hypothetical: these make a unit non-assertive (pass)
-_HYPO_RE = re.compile(
-    r"\b(?:if|whether|unless|whoever|who(?:ever)?\s+wins|will|would|might|may|could|should|shall|going\s+to|gonna|"
-    r"hope[sd]?|wish(?:es)?|want(?:s|ed)?\s+to|trying\s+to|try(?:ing)?\s+to|plans?\s+to|need(?:s)?\s+to|can|can['’]t|cannot|"
-    r"someone|somebody|anyone|no\s+one|nobody)\b|\?", re.IGNORECASE)
-_PAST_REF_RE = re.compile(r"\b(?:last\s+week|last\s+night|earlier|previous(?:ly)?|before|ago|remember)\b", re.IGNORECASE)
-
 _EVICTION_PHASES = ("eviction", "final-eviction")
+
+_OBJ_DET = r"(?:(?:the|her|his|their|a|an|that|this)\s+)?"
+_VETO_OBJ = r"(?:medal(?:lion)?|power\s+of\s+veto|veto|PoV)"
+_HOHW = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:competition|comp|room|ceremony|reign|week|key))"
+
+# (role, regex, bind direction, max gap in chars between the cue and the bound name)
+_CUES: "list[tuple[str, re.Pattern, str, int]]" = [
+    # ── veto: who WON / HOLDS it ───────────────────────────────────────────────────────────────────────────────────
+    ("veto-hold", re.compile(r"\b(?:wins?|won|winning|holds?(?:\s+up)?|holding|clutch\w*|grips?|gripp\w*|lifts?|lifted|lifting|raises?|raised|"
+                            r"wears?|wearing|claims?|claimed|earns?|earned|takes?(?!\s+place)|took|taken)\s+" + _OBJ_DET + r"(?:[A-Za-z'’-]+\s+){0,2}?" + _VETO_OBJ + r"\b",
+                            re.IGNORECASE), "before", 30),
+    ("veto-hold", re.compile(r"\b" + _VETO_OBJ + r"\s+(?:goes\s+to|belongs?\s+to|is\s+(?:now\s+)?(?:with|held\s+by|worn\s+by|won\s+by)|was\s+won\s+by)\s*",
+                            re.IGNORECASE), "after", 6),
+    ("veto-hold", re.compile(r"\b(?:winner|holder|champion)\s+of\s+the\s+" + _VETO_OBJ + r"(?:\s+competition|\s+comp)?(?:\s+(?:is|was)|\s*:)?\s*",
+                            re.IGNORECASE), "after", 8),
+    ("veto-hold", re.compile(r"\bveto\s+(?:holder|winner)\s*(?:is|:)?\s*", re.IGNORECASE), "after", 8),
+    ("veto-hold", re.compile(r"\b" + _VETO_OBJ + r"\b[^.!?\n]{0,25}\bin\s+(?:his|her|their)\s+hand", re.IGNORECASE), "before", 60),
+    ("veto-hold", re.compile(r"\b" + _VETO_OBJ + r"\s+(?:hangs?|rests?)\s+(?:around|on|from|with)\s*", re.IGNORECASE), "after", 8),
+    ("veto-use", re.compile(r"\b(?:(?:does(?:\s+not|n['’]t)|did(?:\s+not|n['’]t)|will\s+not|won['’]t|not)\s+(?:be\s+)?us(?:e|ing)|us(?:es|ed|ing))\s+" + _OBJ_DET + _VETO_OBJ + r"\b",
+                            re.IGNORECASE), "before", 25),
+    # ── Head of Household ──────────────────────────────────────────────────────────────────────────────────────────
+    ("hoh", re.compile(r"\b(?:is|are|as|becomes?|became|crowned|named)\s+" + _OBJ_DET + r"(?:new\s+|next\s+|latest\s+|current\s+|reigning\s+)?" + _HOHW, re.IGNORECASE), "before", 25),
+    ("hoh", re.compile(r"\b(?:wins?|won|winning|claims?|earns?)\s+" + _OBJ_DET + r"(?:first\s+|new\s+|next\s+)?" + _HOHW, re.IGNORECASE), "before", 25),
+    ("hoh", re.compile(r"\b(?:new|next|latest)\s+" + _HOHW + r"\s*(?:is|was|:)\s*", re.IGNORECASE), "after", 6),
+    ("hoh", re.compile(r"\b" + _HOHW + r"\s+(?:is|goes\s+to|winner|champion)\s*", re.IGNORECASE), "after", 6),
+    # ── nominees ───────────────────────────────────────────────────────────────────────────────────────────────────
+    ("nominee", re.compile(r"\b(?:nominates?|nominated|nominating|puts?\s+up|put\s+up)\b\s*", re.IGNORECASE), "after", 70),
+    ("nominee", re.compile(r"\b(?:on\s+the\s+block|up\s+for\s+eviction)\b", re.IGNORECASE), "before", 40),
+    ("nominee", re.compile(r"\bthe\s+nominees?\s+(?:are|is)\s*", re.IGNORECASE), "after", 6),
+    # ── eviction RESULTS (the bare event noun — "the eviction is tonight", "a vote to evict X" — is NOT a cue) ───────────
+    ("evict", re.compile(r"\b(?:evicted|voted\s+out|sent\s+home|going\s+home|leaving\s+the\s+(?:big\s+brother\s+)?house|leaves\s+the\s+(?:big\s+brother\s+)?house|"
+                         r"left\s+the\s+(?:big\s+brother\s+)?house|out\s+of\s+the\s+(?:big\s+brother\s+)?house)\b", re.IGNORECASE), "both", 30),
+    ("evict", re.compile(r"\b(?:the\s+)?houseguest\s+(?:who\s+is\s+)?leaving\b[^.!?\n]{0,40}?\b(?:is|:)\s*", re.IGNORECASE), "after", 6),
+    ("evict", re.compile(r"\b(?:eviction|evictee)\s*(?:goes\s+to|result\s*[:—\-]|is|:)\s*", re.IGNORECASE), "after", 4),
+    ("evict-weak", re.compile(r"\b(?:good-?byes?|farewell|packing\s+(?:her|his|their)\s+bags|packs?\s+(?:her|his|their)\s+bags|packed\s+(?:her|his|their)\s+bags|"
+                              r"walks?\s+out\s+(?:the|of\s+the)\s+(?:front\s+)?door|out\s+the\s+(?:front\s+)?door|bag\s+is\s+(?:already\s+)?at\s+the\s+door|"
+                              r"the\s+door\s+(?:closes|clicks|shuts)\s+behind)\b", re.IGNORECASE), "both", 40),
+]
+
+# ballots — a READOUT of the secret ballot, judged only against the ENGINE's revealed-ballot count (unit-level, no binding)
+_BALLOT_RE = re.compile(
+    r"\b(?:votes?|ballots?)\s+(?:for|to\s+evict)\b|\bvote\s+to\s+evict\b|\b(?:last|final|next|first|second|third)\s+(?:vote|ballot)\b|"
+    r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)\s+votes?\b|"
+    r"\breads?\s+(?:the\s+)?(?:next\s+)?(?:votes?|ballots?)\b|\bthe\s+envelope\s+opens\b", re.IGNORECASE)
+
+# hypothetical / conditional / future / past-reference wording — scoped to the cue's OWN clause
+_HYPO_RE = re.compile(
+    r"\b(?:if|whether|unless|whoever|will|would|might|may|could|should|shall|going\s+to|gonna|hope[sd]?|wish(?:es)?|want(?:s|ed)?\s+to|"
+    r"trying\s+to|try(?:ing)?\s+to|plans?\s+to|need(?:s)?\s+to|can|can['’]t|cannot|someone|somebody|anyone|no\s+one|nobody)\b|\?", re.IGNORECASE)
+_PAST_REF_RE = re.compile(r"\b(?:last\s+week|last\s+night|earlier|previous(?:ly)?|before|ago|remember)\b", re.IGNORECASE)
+_CLAUSE_BREAK = ",;:—–"
 
 
 def _norm(text: str) -> str:
@@ -86,42 +93,42 @@ def _strip_wrappers(s: str) -> str:
     return re.sub(r"[*_\"“”‘’`]+", "", s)
 
 
+def _clean(unit: str) -> str:
+    """The string cues AND names are both measured on (speaker tag removed — it is who TALKS, not who the sentence is about)."""
+    return _strip_wrappers(_SPEAKER_TAG_RE.sub(" ", unit))
+
+
+# ── units: the SAME parts `_mirror_wall_drop` splits on, grouped into logical sentences ──────────────────────────────
 def split_units(text: str) -> "list[tuple[str, str]]":
-    """Split `text` into (original_span, normalised_unit) fragments. A fragment ends at a real sentence terminator or a
-    paragraph break; an ellipsis is NOT a terminator. The original span keeps its exact bytes (delimiters included) so
-    stripping a unit leaves every other character untouched."""
-    t = _norm(text)
-    out: "list[tuple[str, str]]" = []
-    for m in re.finditer(r"[^.!?\n]*[.!?]+[\"'”’*)\]_]*\s*|[^\n]*\n+|[^.!?\n]+$", t):
-        if not m.group(0):
-            continue
-        out.append((m.group(0), m.group(0)))
-    # map back to the original text by length (the normalisation is length-changing, so re-split the original in lockstep)
-    res: "list[tuple[str, str]]" = []
+    """(original_span, normalised) units. Physical parts are `re.split(r"(?<=[.!?\\n])")` — identical to the mirror — and a unit is a
+    run of whole parts ending at a REAL terminator (an ellipsis dot is not one) or a newline. A stripped unit is therefore always
+    a union of whole mirror parts, so `_mirror_wall_drop` stays in lockstep with what streamed."""
+    parts = [p for p in re.split(r"(?<=[.!?\n])", text) if p]
+    ell_idx: "set[int]" = set()
+    for m in _ELLIPSIS_RE.finditer(text):
+        ell_idx.update(range(m.start(), m.end()))
+    units: "list[tuple[str, str]]" = []
+    cur: "list[str]" = []
     pos = 0
-    orig = text
-    for span, unit in out:
-        # translate the normalised span length back to original: count markers inside the span
-        n_markers = span.count(_ELL)
-        # each marker came from an ellipsis of unknown length; walk the original until we've consumed the same structure
-        j = pos
-        consumed_norm = 0
-        while consumed_norm < len(span) and j < len(orig):
-            m = _ELLIPSIS_RE.match(orig, j)
-            if m:
-                j = m.end(); consumed_norm += 1
-            else:
-                j += 1; consumed_norm += 1
-        res.append((orig[pos:j], unit))
-        pos = j
-    if pos < len(orig):
-        res.append((orig[pos:], _norm(orig[pos:])))
-    return res
+    for p in parts:
+        cur.append(p)
+        last = pos + len(p) - 1
+        real_end = p.endswith("\n") or (p[-1] in ".!?" and last not in ell_idx)
+        pos += len(p)
+        if real_end:
+            u = "".join(cur)
+            units.append((u, _norm(u)))
+            cur = []
+    if cur:
+        u = "".join(cur)
+        units.append((u, _norm(u)))
+    return units
 
 
+# ── names ────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _name_patterns(names: Iterable[str]) -> "list[tuple[str, re.Pattern]]":
-    """(canonical full name, pattern) — full names always; a first OR last token alone only when it is unique in the roster
-    and long enough to be a name (so 'Noah' and 'Noah Reeve' both resolve, but two Noahs resolve only by full name)."""
+    """(canonical full name, pattern) — full names always; a first OR last token alone only when it is unique in the roster and long
+    enough to be a name (so 'Noah' and 'Noah Reeve' both resolve, but two Noahs resolve only by full name)."""
     full = sorted({str(n).strip() for n in names if str(n).strip()}, key=len, reverse=True)
     firsts: "dict[str, list[str]]" = {}
     for n in full:
@@ -137,36 +144,109 @@ def _name_patterns(names: Iterable[str]) -> "list[tuple[str, re.Pattern]]":
     return pats
 
 
-def names_in(unit: str, names: Iterable[str]) -> "list[str]":
-    s = _strip_wrappers(_SPEAKER_TAG_RE.sub(" ", unit))  # a speaker tag is who TALKS, not who the sentence is about
-    found: "list[str]" = []
+def name_spans(s: str, names: Iterable[str]) -> "list[tuple[str, int, int]]":
+    """(canonical name, start, end) for every occurrence in `s`; longer matches mask shorter ones."""
+    taken: "list[tuple[int, int]]" = []
+    out: "list[tuple[str, int, int]]" = []
     for canon, pat in _name_patterns(names):
-        if pat.search(s) and canon not in found:
-            found.append(canon)
-    return found
+        for m in pat.finditer(s):
+            if any(m.start() < b and m.end() > a for a, b in taken):
+                continue
+            taken.append((m.start(), m.end()))
+            out.append((canon, m.start(), m.end()))
+    return sorted(out, key=lambda t: t[1])
+
+
+def names_in(unit: str, names: Iterable[str]) -> "list[str]":
+    seen: "list[str]" = []
+    for canon, _a, _b in name_spans(_clean(unit), names):
+        if canon not in seen:
+            seen.append(canon)
+    return seen
+
+
+# ── cues ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+def _clause_bounds(s: str, a: int, b: int) -> "tuple[int, int]":
+    lo = max([s.rfind(ch, 0, a) for ch in _CLAUSE_BREAK] + [-1]) + 1
+    hi_c = [s.find(ch, b) for ch in _CLAUSE_BREAK]
+    hi = min([x for x in hi_c if x != -1] + [len(s)])
+    return lo, hi
+
+
+def _non_assertive(s: str, a: int, b: int) -> bool:
+    lo, hi = _clause_bounds(s, a, b)
+    clause = s[lo:hi]
+    return bool(_HYPO_RE.search(clause) or _PAST_REF_RE.search(clause)) or "?" in s
+
+
+def cue_instances(unit: str, phase: str) -> "list[dict]":
+    """Every role cue in the unit with its span, bind direction and gap (hypothetical cues are dropped)."""
+    s = _clean(unit)
+    ph = str(phase or "").lower()
+    out: "list[dict]" = []
+    for role, rx, bind, gap in _CUES:
+        if role == "evict-weak" and not ph.startswith(_EVICTION_PHASES):
+            continue
+        for m in rx.finditer(s):
+            if _non_assertive(s, m.start(), m.end()):
+                continue
+            out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap})
+    if ph.startswith("eviction") and _BALLOT_RE.search(s) and "?" not in s:
+        out.append({"role": "ballot", "a": 0, "b": len(s), "bind": "all", "gap": len(s)})
+    return out
 
 
 def cues_in(unit: str, phase: str) -> "set[str]":
-    s = _strip_wrappers(unit)
-    cues: "set[str]" = set()
-    if _VETO_HOLD_RE.search(s):
-        cues.add("veto-hold")
-    if _VETO_USE_RE.search(s):
-        cues.add("veto-use")
-    if _HOH_RE.search(s):
-        cues.add("hoh")
-    if _NOM_RE.search(s):
-        cues.add("nominee")
-    if _EVICT_STRONG_RE.search(s):
-        cues.add("evict")
-    elif _EVICT_WEAK_RE.search(s) and str(phase or "").lower().startswith(_EVICTION_PHASES):
-        cues.add("evict-weak")
-    return cues
+    return {c["role"] for c in cue_instances(unit, phase)}
 
 
-def _is_assertive(unit: str) -> bool:
-    s = _strip_wrappers(unit)
-    return not (_HYPO_RE.search(s) or _PAST_REF_RE.search(s))
+_LIST_JOIN_RE = re.compile(r"^\s*(?:,|&|and|or)?\s*$", re.IGNORECASE)
+
+
+def _bound(s: str, cue: dict, spans: "list[tuple[str, int, int]]") -> "list[str]":
+    """The names attached to this cue: the NEAREST subject before it and/or object after it (extended over a plain list —
+    "A and B" / "A, B, and C"), within the cue's gap and with no clause break between. A farther, unrelated name is not bound."""
+    if cue["bind"] == "all":
+        return [n for n, _a, _b in spans]
+    got: "list[str]" = []
+
+    def _clear(between: str) -> bool:
+        return not any(ch in between for ch in ";:\u2014\u2013.!?")
+
+    if cue["bind"] in ("before", "both"):
+        before = [t for t in spans if t[2] <= cue["a"]]
+        if before:
+            near = before[-1]
+            if cue["a"] - near[2] <= cue["gap"] and _clear(s[near[2]:cue["a"]]):
+                got.append(near[0])
+                prev = near
+                for t in reversed(before[:-1]):
+                    if _LIST_JOIN_RE.match(s[t[2]:prev[1]]):
+                        got.append(t[0]); prev = t
+                    else:
+                        break
+    if cue["bind"] in ("after", "both"):
+        after = [t for t in spans if t[1] >= cue["b"]]
+        if after:
+            near = after[0]
+            if near[1] - cue["b"] <= cue["gap"] and _clear(s[cue["b"]:near[1]]):
+                got.append(near[0])
+                prev = near
+                for t in after[1:]:
+                    if _LIST_JOIN_RE.match(s[prev[2]:t[1]]):
+                        got.append(t[0]); prev = t
+                    else:
+                        break
+    return got
+
+
+def _is_bare_names(unit: str, roster: Iterable[str]) -> bool:
+    """True when the unit is nothing but the given names (plus quotes/ellipsis/punctuation/speaker tag) — a ballot readout line."""
+    s = _clean(unit).replace(_ELL, " ")
+    for _canon, pat in _name_patterns(roster):
+        s = pat.sub(" ", s)
+    s = re.sub(r"(?i)\b(?:the\s+(?:last|final|next|first)\s+vote|and|or|a\s+vote\s+to\s+evict)\b", " ", s)
+    return not re.sub(r"[\s.,;:!?\-—–()\[\]]+", "", s)
 
 
 def _matches_any(name: str, candidates: Iterable[Optional[str]]) -> bool:
@@ -174,39 +254,46 @@ def _matches_any(name: str, candidates: Iterable[Optional[str]]) -> bool:
     return any(c and str(c).strip().lower() == n for c in candidates)
 
 
-def judge(unit: str, roles: "set[str]", names: "list[str]", sig: dict) -> Optional[str]:
-    """Return a short reason string when this unit asserts a role the engine did not commit to the named person, else None."""
-    if not names or not roles or not _is_assertive(unit):
-        return None
+def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, carried: "set[str] | None" = None) -> Optional[str]:
+    """A short reason when this unit asserts a role the engine did not commit to the person it is bound to, else None."""
     phase = str(sig.get("phase") or "").lower()
+    if not instances and not carried and not phase.startswith("eviction"):
+        return None
+    s = _clean(unit)
+    spans = name_spans(s, roster)
+    if not spans:
+        return None
     player = sig.get("playerName")
-    # who each role is COMMITTED to
-    veto_holder = sig.get("vetoHolderName")
-    hoh = sig.get("hohName")
+    veto_holder, hoh = sig.get("vetoHolderName"), sig.get("hohName")
     noms = list(sig.get("nomNames") or [])
     evicted = list(sig.get("evictedNames") or [])
     if sig.get("playerStatus") not in (None, "active") and player:
         evicted = evicted + [player]
-    if "veto-hold" in roles or "veto-use" in roles:
-        # only the HOLDER holds/uses it; during the veto COMPETITION nobody holds it yet
-        if any(not _matches_any(n, [veto_holder]) for n in names):
-            if not veto_holder:
-                return "veto uncommitted"
-            return "veto holder is not " + ", ".join(n for n in names if not _matches_any(n, [veto_holder]))
-    if "hoh" in roles:
-        if any(not _matches_any(n, [hoh]) for n in names):
-            if not hoh:
-                return "HOH uncommitted"
-            return "HOH is not " + ", ".join(n for n in names if not _matches_any(n, [hoh]))
-    if "nominee" in roles and "evict" not in roles:
-        # nominees: every named person asserted on the block must be a committed nominee; only judge once a set exists
-        # or when the unit is plainly a nomination announcement and none is committed
-        if noms and any(not _matches_any(n, noms + [hoh]) for n in names):
-            return "named a non-nominee on the block"
-    if "evict" in roles or "evict-weak" in roles:
-        committed = [n for n in names if _matches_any(n, evicted)]
-        if not committed:
-            if "evict" in roles or phase.startswith(_EVICTION_PHASES):
+    by_role: "dict[str, list[str]]" = {}
+    for c in instances:
+        by_role.setdefault(c["role"], []).extend(_bound(s, c, spans))
+    for role in (carried or set()):
+        if _non_assertive(s, 0, 0):
+            continue
+        by_role.setdefault(role, []).extend(n for n, _a, _b in spans)  # the continuation half: the whole unit is the answer
+    if "ballot" not in by_role and phase.startswith("eviction") and _is_bare_names(unit, sig.get("nomNames") or []):
+        by_role["ballot"] = [n for n, _a, _b in spans]
+    if by_role.get("ballot") and phase.startswith("eviction") and sig.get("evictionBallots") == 0:
+        return "ballot readout before the engine revealed any ballot (the player's vote is not yet cast)"
+    for role in ("veto-hold", "veto-use"):
+        bad = [n for n in by_role.get(role, []) if not _matches_any(n, [veto_holder])]
+        if bad:
+            return "veto uncommitted" if not veto_holder else "veto holder is not " + ", ".join(sorted(set(bad)))
+    bad = [n for n in by_role.get("hoh", []) if not _matches_any(n, [hoh])]
+    if bad:
+        return "HOH uncommitted" if not hoh else "HOH is not " + ", ".join(sorted(set(bad)))
+    bad = [n for n in by_role.get("nominee", []) if not _matches_any(n, noms)]
+    if bad:
+        return "nominees uncommitted" if not noms else "named a non-nominee: " + ", ".join(sorted(set(bad)))
+    for role in ("evict", "evict-weak"):
+        bound = by_role.get(role, [])
+        if bound and not any(_matches_any(n, evicted) for n in bound):
+            if role == "evict" or phase.startswith(_EVICTION_PHASES):
                 return "evictee uncommitted or different"
     return None
 
@@ -224,25 +311,31 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
         carry = dict(carry) if isinstance(carry, dict) else {"roles": set(), "ttl": 0}
         kept: "list[str]" = []
         stripped: "list[dict]" = []
+        drop_closers = False
         for orig, unit in split_units(text):
-            body = unit.strip()
-            if not body:
+            if drop_closers and unit.strip() and not _strip_wrappers(unit).strip():
+                # the stripped unit's own closing quotes/asterisks (`"**`) — a whole mirror part, never left dangling. Reported so the
+                # raw round buffer drops it too (the caller mirrors every reported unit).
+                stripped.append({"unit": orig, "roles": [], "reason": "closing wrapper of a stripped unit"})
+                continue
+            if not unit.strip():
                 kept.append(orig)
                 continue
-            roles = cues_in(unit, phase)
+            drop_closers = False
+            inst = cue_instances(unit, phase)
             names = names_in(unit, roster)
             starts_cont = bool(re.match(r"^[\s*_\"“”‘’`]*" + _ELL, unit))
-            eff = set(roles)
-            if carry["ttl"] > 0 and (starts_cont or names):
-                eff |= set(carry["roles"])
-            reason = judge(unit, eff, names, sig) if names else None
+            carried = set(carry["roles"]) if (carry["ttl"] > 0 and (starts_cont or names)) else set()
+            reason = judge(unit, inst, roster, sig, carried) if names else None
             if reason:
-                stripped.append({"unit": orig, "roles": sorted(eff), "reason": reason})
-                # a stripped continuation consumes the carry
-                if starts_cont:
-                    carry = {"roles": set(), "ttl": 0}
+                stripped.append({"unit": orig, "roles": sorted({c["role"] for c in inst} | carried), "reason": reason})
+                if starts_cont or names:
+                    carry = {"roles": set(), "ttl": 0}  # a named continuation (stripped or not) consumes the carry
+                drop_closers = True
                 continue
             kept.append(orig)
+            drop_closers = False
+            roles = {c["role"] for c in inst}
             ends_open = bool(re.search(_ELL + r"[\s*_\"“”‘’`]*$", unit.rstrip()))
             if roles and ends_open and not names:
                 carry = {"roles": set(roles), "ttl": 3}

@@ -11828,6 +11828,7 @@ export class GameSessionAdapter implements GameSession {
       // eviction-vote ballot surfaced only on gameStatus and state-keyed consumers
       // silently missed it).
       pending: this.pendingView(),
+      eviction: this.evictionView(),
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public

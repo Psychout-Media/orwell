@@ -1895,6 +1895,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        # A-15: the ENGINE's count of anonymized ballots revealed so far (None = the engine doesn't project it ⇒ never judge).
+        "evictionBallots": ((len((state.get("eviction") or {}).get("votesRevealed") or []) if isinstance(state.get("eviction"), dict) else 0)
+                            if "eviction" in state else None),
         "playerName": (str(player.get("name")).strip() if isinstance(player, dict) and isinstance(player.get("name"), str) and str(player.get("name")).strip() else None),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
@@ -4599,25 +4602,38 @@ _ROLE_CARRY: dict = {}
 
 
 async def screen_role_claims(user, text: str) -> str:
+    """The kept text only (see `screen_role_claims_ex`)."""
+    return (await screen_role_claims_ex(user, text))[0]
+
+
+async def screen_role_claims_ex(user, text: str) -> "tuple[str, tuple]":
+    """(kept text, the stripped units' exact original text). Fail-open: any hiccup returns (text, ())."""
     try:
         if not text or not text.strip():
-            return text
+            return text, ()
         from src import role_claims as _rc
         _dkey = _desync_key(user)
-        turn_tag = id(_LAST_BEAT_SIG.get(_dkey))  # a new turn re-captures the signature ⇒ the carry never leaks across turns
+        # A new turn re-captures the signature (a NEW dict), so the carry is bound to the signature OBJECT by identity
+        # (holding the reference also rules out `id()` reuse). No signature ⇒ no stable turn key ⇒ never carry across calls.
+        turn_obj = _LAST_BEAT_SIG.get(_dkey)
         carry = _ROLE_CARRY.get(_dkey)
-        if not isinstance(carry, dict) or carry.get("turn") != turn_tag:
-            carry = {"roles": set(), "ttl": 0, "turn": turn_tag}
+        if turn_obj is None or not isinstance(carry, dict) or carry.get("turn") is not turn_obj:
+            carry = {"roles": set(), "ttl": 0, "turn": turn_obj}
         phase_hint = str((_LAST_BEAT_SIG.get(_dkey) or {}).get("phase") or "")
-        if not _rc.cues_in(_rc._norm(text), phase_hint) and carry["ttl"] <= 0:
-            return text  # cheap pre-filter: no role cue and nothing carried ⇒ creative prose, untouched (ADR 0005 #1)
+        _cached = _LAST_BEAT_SIG.get(_dkey) or {}
+        _ballots_unrevealed = phase_hint.lower().startswith("eviction") and _cached.get("evictionBallots") == 0
+        if not _rc.cues_in(_rc._norm(text), phase_hint) and carry["ttl"] <= 0 and not _ballots_unrevealed:
+            return text, ()  # cheap pre-filter: no role cue and nothing carried ⇒ creative prose, untouched (ADR 0005 #1)
         live = await _capture_beat_signature(user)
         if not live:
-            return text
+            return text, ()
         kept, stripped, new_carry = _rc.screen_role_units(text, live, carry)
         new_carry = dict(new_carry or {})
-        new_carry["turn"] = turn_tag
-        _ROLE_CARRY[_dkey] = new_carry
+        new_carry["turn"] = turn_obj
+        if turn_obj is not None:
+            _ROLE_CARRY[_dkey] = new_carry
+        else:
+            _ROLE_CARRY.pop(_dkey, None)
         if stripped:
             logger.warning(
                 "[orwell] role-claim guard STRIPPED %d unit(s) for user=%s: %s", len(stripped), user,
@@ -4627,10 +4643,10 @@ async def screen_role_claims(user, text: str) -> str:
                 "Head of Household, nominee or evictee that the game has NOT committed to them. Those are engine truth, not "
                 "yours to improvise: voice only what the House Status panel and the production chyron show, and never name "
                 "a winner, holder or evictee the game has not announced."))
-        return kept
+        return kept, tuple(u["unit"] for u in stripped)
     except Exception as e:
         logger.debug("[orwell] role-claim guard skipped for user=%s: %s", user, e)
-        return text
+        return text, ()
 
 
 async def screen_streamed_nominee(user, sentence: str) -> bool:
