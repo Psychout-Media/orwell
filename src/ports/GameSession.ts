@@ -605,10 +605,11 @@ export interface GameStateView {
    */
   pending: PendingDecisionView | null;
   /**
-   * A-15 (rehearsal 2026-11-03) — the eviction staging state, the SAME Vault-free `EvictionView` advance returns: `null`
-   * until an eviction is actively staging (i.e. before the player's own eviction-vote is cast, when they are a voter),
-   * then the anonymized ballots revealed SO FAR (never a voter, never a tally). The FE's role-claim guard reads it as the
-   * engine's TRUTH about ballots, so a narrator cannot air a ballot or tally the engine has not revealed.
+   * A-15 (rehearsal 2026-11-03) — the eviction staging state, the SAME Vault-free `EvictionView` advance returns: `null` when no
+   * eviction is staging (or the game is finished); otherwise the anonymized ballots revealed SO FAR (never a voter, never a
+   * tally). While the player's own eviction-vote card is open the view is non-null with an EMPTY `votesRevealed`; do not read
+   * `null` as "the player has not voted yet". The FE's role-claim guard treats a count of 0 as "no ballot may air yet", so a
+   * narrator cannot air a ballot or tally the engine has not revealed.
    */
   eviction?: EvictionView | null;
   /**

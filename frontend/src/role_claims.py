@@ -36,12 +36,15 @@ _EVICTION_PHASES = ("eviction", "final-eviction")
 _OBJ_DET = r"(?:(?:the|her|his|their|a|an|that|this)\s+)?"
 _VETO_OBJ = r"(?:medal(?:lion)?|power\s+of\s+veto|veto|PoV)"
 _HOHW = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:competition|comp|room|ceremony|reign|week|key))"
+_HOHW_WIN = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:room|ceremony|reign|week|key))"  # "wins the HOH competition" IS a claim
 
 # (role, regex, bind direction, max gap in chars between the cue and the bound name)
 _CUES: "list[tuple[str, re.Pattern, str, int]]" = [
     # ── veto: who WON / HOLDS it ───────────────────────────────────────────────────────────────────────────────────
     ("veto-hold", re.compile(r"\b(?:wins?|won|winning|holds?(?:\s+up)?|holding|clutch\w*|grips?|gripp\w*|lifts?|lifted|lifting|raises?|raised|"
                             r"wears?|wearing|claims?|claimed|earns?|earned|takes?(?!\s+place)|took|taken)\s+" + _OBJ_DET + r"(?:[A-Za-z'’-]+\s+){0,2}?" + _VETO_OBJ + r"\b",
+                            re.IGNORECASE), "before", 30),
+    ("veto-hold", re.compile(r"\b(?:has|had|held|keeps?|kept|owns?)\s+" + _OBJ_DET + r"(?:[A-Za-z'’-]+\s+){0,2}?" + _VETO_OBJ + r"\b(?!\s+(?:ceremony|meeting|competition|comp|room|players?|field|draw|bag))",
                             re.IGNORECASE), "before", 30),
     ("veto-hold", re.compile(r"\b" + _VETO_OBJ + r"\s+(?:goes\s+to|belongs?\s+to|is\s+(?:now\s+)?(?:with|held\s+by|worn\s+by|won\s+by)|was\s+won\s+by)\s*",
                             re.IGNORECASE), "after", 6),
@@ -54,7 +57,7 @@ _CUES: "list[tuple[str, re.Pattern, str, int]]" = [
                             re.IGNORECASE), "before", 25),
     # ── Head of Household ──────────────────────────────────────────────────────────────────────────────────────────
     ("hoh", re.compile(r"\b(?:is|are|as|becomes?|became|crowned|named)\s+" + _OBJ_DET + r"(?:new\s+|next\s+|latest\s+|current\s+|reigning\s+)?" + _HOHW, re.IGNORECASE), "before", 25),
-    ("hoh", re.compile(r"\b(?:wins?|won|winning|claims?|earns?)\s+" + _OBJ_DET + r"(?:first\s+|new\s+|next\s+)?" + _HOHW, re.IGNORECASE), "before", 25),
+    ("hoh", re.compile(r"\b(?:wins?|won|winning|claims?|earns?)\s+" + _OBJ_DET + r"(?:first\s+|new\s+|next\s+)?" + _HOHW_WIN, re.IGNORECASE), "before", 25),
     ("hoh", re.compile(r"\b(?:new|next|latest)\s+" + _HOHW + r"\s*(?:is|was|:)\s*", re.IGNORECASE), "after", 6),
     ("hoh", re.compile(r"\b" + _HOHW + r"\s+(?:is|goes\s+to|winner|champion)\s*", re.IGNORECASE), "after", 6),
     # ── nominees ───────────────────────────────────────────────────────────────────────────────────────────────────

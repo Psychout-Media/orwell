@@ -93,3 +93,13 @@ def test_screen_role_claims_ex_reports_the_exact_stripped_units_for_the_whole_un
     kept, drops = run(ch.screen_role_claims_ex(None, 'Calm line.\n**"Player Epsilon takes the Power of Veto."**\nAnother calm line.\n'))
     assert any("Player Epsilon" in d for d in drops) and "Player Epsilon" not in kept
     assert "Calm line." in kept and "Another calm line." in kept
+
+
+def test_the_pre_reveal_bypass_only_reads_the_board_when_text_can_hold_a_nominee_name(board, monkeypatch):
+    ch._LAST_BEAT_SIG["gs:t"] = dict(BOARD, phase="eviction", evictionBallots=0, nomNames=["Nom Alpha", "Nom Beta"])
+    calls0 = board["calls"]
+    assert run(ch.screen_role_claims(None, "The lamps hum and the house holds its breath.\n")) == "The lamps hum and the house holds its breath.\n"
+    assert board["calls"] == calls0, "no nominee name in the text ⇒ no engine round-trips"
+    board["sig"] = dict(BOARD, phase="eviction", evictionBallots=0, nomNames=["Nom Alpha", "Nom Beta"])
+    out = run(ch.screen_role_claims(None, '@[Hoh Person] "Nom Alpha."\n'))
+    assert "Nom Alpha" not in out and board["calls"] > calls0

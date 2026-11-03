@@ -306,3 +306,23 @@ def test_split_units_are_unions_of_the_mirrors_own_parts():
         for orig, _u in rc.split_units(t):
             end += len(orig)
             assert end in bounds, "a unit must end on a mirror part boundary"
+
+
+# ── review round 2 ──────────────────────────────────────────────────────────────────────────────────────────────────
+def test_winning_the_hoh_competition_is_a_hoh_claim_but_the_hoh_room_is_not():
+    assert stripped("Other Delta wins the HOH competition.\n", sig(hohName="Hoh Person"))[1]
+    assert stripped("Other Delta won the Head of Household competition!\n", sig(hohName="Hoh Person"))[1]
+    assert not stripped("Other Delta wins the HOH competition.\n", sig(hohName="Other Delta"))[1]
+    assert not stripped("Other Delta heads up to the HOH room.\n", sig(hohName="Hoh Person"))[1]
+    assert not stripped("The first Head of Household competition begins; Other Delta stretches.\n", sig(hohName=None))[1]
+
+
+@pytest.mark.parametrize("verb", ["has", "held", "keeps", "had"])
+def test_possession_forms_of_the_veto_are_matched(verb):
+    assert stripped(f"Other Delta {verb} the veto.\n", sig(vetoHolderName="Vetoer Gamma"))[1]
+    assert not stripped(f"Vetoer Gamma {verb} the veto.\n", sig(vetoHolderName="Vetoer Gamma"))[1]
+
+
+def test_possession_verbs_do_not_catch_the_veto_event_nouns():
+    for t in ["Other Delta has the veto ceremony tonight.\n", "Other Delta has the veto competition to look forward to.\n"]:
+        assert not stripped(t, sig(vetoHolderName="Vetoer Gamma"))[1], t
