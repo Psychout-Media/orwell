@@ -70,6 +70,20 @@
   ]);
   const isHighStakes = (kind) => HIGH_STAKES_KINDS.has(kind);
 
+  // N-12: a decision submit must NEVER hang forever on "Locking in...". Bound it (the idempotency key makes a retry a verbatim replay).
+  const _DECISION_SUBMIT_TIMEOUT_MS = 30000;
+  const _submitTimeoutMs = () => (typeof window.__orwellDecisionTimeoutMs === "number" && window.__orwellDecisionTimeoutMs > 0)
+    ? window.__orwellDecisionTimeoutMs : _DECISION_SUBMIT_TIMEOUT_MS;
+  /** Race a promise against a timer; rejects with {timedOut:true}. The timer is always cleared. */
+  function _withTimeout(promise, ms, onTimeout) {
+    let timer;
+    const t = new Promise((_res, rej) => {
+      // Reject FIRST, then abort: the abort's own AbortError must not win the race and hide that this was a timeout.
+      timer = setTimeout(() => { rej(Object.assign(new Error("decision-submit-timeout"), { timedOut: true })); try { if (onTimeout) onTimeout(); } catch (_) {} }, ms);
+    });
+    return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+  }
+
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1007,24 +1021,33 @@
         if (_wsLive) {
           try {
             const _pinned = (_ws.lastBeatSeq && _ws.lastBeatSeq()) || undefined;
-            const _ack = await _ws.sendDecision(Object.assign({}, payload, { expectedBeatSeq: _pinned }));
+            const _ack = await _withTimeout(_ws.sendDecision(Object.assign({}, payload, { expectedBeatSeq: _pinned })), _submitTimeoutMs());
             // The `decision` ack carries no board body (§3.5 — the result fans out as a `state`
             // edge, which platform.js turns into the ONE orwellGameChanged('ws:state') too); read
             // the freshest beatSeq the socket has seen for the M1-3 nudge below.
             _beat = (_ws.lastBeatSeq && _ws.lastBeatSeq()) || (_ack && _ack.d && _ack.d.beatSeq) || undefined;
           } catch (e) {
             const _code = e && e.code;
+            if (e && e.timedOut) throw e;   // N-12: surface the timeout (distinct copy below), not a generic connection error
             throw Object.assign(new Error(_code || "ws-decision-failed"), {
               httpStatus: _code === "stale-beat" ? 409
                 : (_code === "unknown-kind" || _code === "no-game") ? 400 : undefined,
             });
           }
         } else {
-          const r = await fetch("/api/orwell/decision", {
-            method: "POST", credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+          const _abort = new AbortController();
+          let r;
+          try {
+            r = await _withTimeout(fetch("/api/orwell/decision", {
+              method: "POST", credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+              signal: _abort.signal,
+            }), _submitTimeoutMs(), () => _abort.abort());
+          } catch (e) {
+            if (e && e.timedOut) throw e;
+            throw e;
+          }
           if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
           // M1-3: best-effort read of the commit's beatSeq off the decision response so the
           // panels can verify their refetch reached it (the goodbye-card-beside-stale-board race).
@@ -1074,6 +1097,9 @@
         if (status === 409) {
           err.textContent = "The board moved since this card appeared — refreshing the latest state. Try again in a moment, or decide in conversation.";
           _recoverFrom409(); // API-2: actually DO the refresh the copy above promises
+        } else if (_ && _.timedOut) {
+          // N-12: no answer within the bound. The submit key is stable per card, so a retry is a verbatim replay (never a double-apply).
+          err.textContent = "That is taking too long — it may not have reached the house. Tap Confirm to try again (it is safe), or decide in conversation.";
         } else if (status === 400) {
           err.textContent = "That move isn't legal right now — pick another, or decide in conversation.";
         } else {

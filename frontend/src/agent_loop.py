@@ -4987,6 +4987,52 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
     return _GuardedScene(guarded, False, cutaway_emitted)
 
 
+def _ooc_outside_text(chunk: str, in_aside: bool) -> "tuple[str, bool]":
+    """N-6: the part of one streamed chunk that lies OUTSIDE any out-of-character `((...))` aside, plus the aside state to carry to the next
+    chunk. The stream is sentence-buffered, so an aside is routinely split across chunks (`((The nominees are X.` then `Y holds the veto.))`);
+    `in_aside` carries that. A stray `))` with no open never flips the state. Pure."""
+    if not chunk:
+        return "", in_aside
+    out = []
+    i = 0
+    n = len(chunk)
+    while i < n:
+        if in_aside:
+            j = chunk.find("))", i)
+            if j < 0:
+                return "".join(out), True
+            i = j + 2
+            in_aside = False
+        else:
+            j = chunk.find("((", i)
+            if j < 0:
+                out.append(chunk[i:].replace("))", ""))  # stray closers are not narration
+                break
+            out.append(chunk[i:j].replace("))", ""))
+            i = j + 2
+            in_aside = True
+    return "".join(out), in_aside
+
+
+async def _guard_stream_chunk(clean: str, owner, *, ooc_open: bool, scene_broken: bool, emitted_visible: bool,
+                              cutaway_emitted: bool) -> "tuple[_GuardedScene, bool]":
+    """N-6 (playtest, Med): run `_emit_guarded_scene` only on the text OUTSIDE an out-of-character `((...))` aside, carrying the aside state
+    across chunks. A production answer RESTATES the board ("The nominees are X and Y; Z holds the veto") - it narrates no event - yet its
+    sentences match the closed-set claim detectors, so the A2 circuit-breaker used to cut it with the "live feeds cut away" line and leave a
+    stray `))`. Narration outside an aside is still screened exactly as before (an unbacked board change is still cut); an entirely-aside chunk
+    streams as-is. The Vault walls (knowledge / presence) run AFTER this at the call sites and are untouched. Returns (guarded, new_ooc_open)."""
+    outside, new_open = _ooc_outside_text(clean, ooc_open)
+    if not outside.strip():
+        return _GuardedScene(clean, scene_broken, cutaway_emitted), new_open
+    if outside == clean and not ooc_open and not new_open:
+        g = await _emit_guarded_scene(clean, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
+        return g, new_open
+    g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
+    if g.scene_broken or g.text != outside:
+        return g, new_open  # the narration part was cut/trimmed: the fabricated scene (and any aside glued to it) goes with it
+    return _GuardedScene(clean, g.scene_broken, g.cutaway_emitted), new_open
+
+
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
                              nudges_fired, auto_backfills) -> None:
     """0065 Part D — emit ONE Vault-free sync-ledger entry for a finished live-game turn.
@@ -6651,6 +6697,7 @@ async def _stream_agent_loop_impl(
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
+        _ooc_open = False  # N-6: carried across this round's streamed chunks - are we inside a `((...))` production aside?
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
@@ -7100,8 +7147,9 @@ async def _stream_agent_loop_impl(
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
                                     # ordering/jurisdiction).
-                                    _guarded = await _emit_guarded_scene(
+                                    _guarded, _ooc_open = await _guard_stream_chunk(
                                         _clean, owner,
+                                        ooc_open=_ooc_open,
                                         scene_broken=_scene_broken,
                                         emitted_visible=_emitted_visible,
                                         cutaway_emitted=_cutaway_emitted,
@@ -7266,8 +7314,9 @@ async def _stream_agent_loop_impl(
                 # 0065 Part C + A2 — the SAME scene circuit-breaker + per-sentence guard as the mid-loop
                 # emit (closed-set board claims only; creative prose streams untouched; blank-turn raw
                 # fallback). A phantom that appears ONLY in the trailing unterminated sentence is cut here.
-                _guarded = await _emit_guarded_scene(
+                _guarded, _ooc_open = await _guard_stream_chunk(
                     _clean, owner,
+                    ooc_open=_ooc_open,
                     scene_broken=_scene_broken,
                     emitted_visible=_emitted_visible,
                     cutaway_emitted=_cutaway_emitted,
