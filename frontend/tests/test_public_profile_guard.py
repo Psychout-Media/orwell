@@ -100,3 +100,32 @@ def test_allowed_hosts_default_is_wildcard():
 
 def test_allowed_hosts_parses_csv():
     assert allowed_hosts_from_env({"ALLOWED_HOSTS": "a.com, b.com"}) == ["a.com", "b.com"]
+
+
+@pytest.mark.parametrize("key", ["ALLOWED_HOSTS", "ALLOWED_ORIGINS", "ORWELL_BIND_HOST"])
+def test_refuses_a_control_character_in_a_value_written_to_dotenv(key):
+    # A newline inside any of these would start a new KEY=VALUE line when the root ops script upserts
+    # data/.env — the guard fails closed and NAMES the key.
+    env = dict(SAFE)
+    env[key] = {"ALLOWED_HOSTS": "hiorwell.com\nAUTH_ENABLED=false",
+                "ALLOWED_ORIGINS": "https://hiorwell.com\nX=1",
+                "ORWELL_BIND_HOST": "127.0.0.1\nX=1"}[key]
+    with pytest.raises(RuntimeError) as exc:
+        assert_public_profile_safe(env)
+    assert f"{key} contains a control character" in str(exc.value)
+
+
+def test_a_trailing_newline_alone_is_still_just_whitespace():
+    # The boot path already .strip()s each value; a stray trailing newline (a CRLF-edited .env) is not
+    # an embedded control character and must keep booting.
+    env = dict(SAFE)
+    env["ALLOWED_HOSTS"] = "hiorwell.com,www.hiorwell.com\n"
+    assert_public_profile_safe(env)
+
+
+def test_control_char_helpers():
+    from core.middleware import control_char_fields, has_control_chars
+    assert has_control_chars("a\nb") and has_control_chars("a\x00") and has_control_chars("a\x7f")
+    assert has_control_chars(["ok", "bad\t"]) and has_control_chars("a\u2028b")
+    assert not has_control_chars("hiorwell.com") and not has_control_chars(None)
+    assert control_char_fields(a="x\n", b=["ok"], c=None) == ["a"]

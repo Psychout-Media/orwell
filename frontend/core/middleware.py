@@ -241,6 +241,27 @@ def _env_truthy(value) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+# Control characters: C0 (incl. \n \r \t and NUL), DEL, C1, and the Unicode line/paragraph
+# separators. None of them belongs in a value the admin routes persist into a side-file that a ROOT
+# ops script later reads and writes into data/.env — a newline would start a new KEY=VALUE line.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def has_control_chars(value) -> bool:
+    """True iff ``value`` (a string, or a list/tuple of them) contains a control character."""
+    if isinstance(value, (list, tuple)):
+        return any(has_control_chars(v) for v in value)
+    if value is None:
+        return False
+    return bool(_CONTROL_CHARS_RE.search(str(value)))
+
+
+def control_char_fields(**fields) -> list:
+    """The names of the given fields whose value contains a control character (newline included).
+    Admin routes call this BEFORE writing anything and answer 400 naming the fields."""
+    return [name for name, value in fields.items() if has_control_chars(value)]
+
+
 def allowed_hosts_from_env(env=None) -> list:
     """The Host-header allow-list for Starlette's TrustedHostMiddleware.
 
@@ -283,6 +304,11 @@ def assert_public_profile_safe(env=None) -> None:
     if not _env_truthy(env.get("ORWELL_PUBLIC")):
         return
     problems = []
+    # A control character (a newline above all) in any value that gets written into data/.env would
+    # start a new KEY=VALUE line there — fail closed, naming the key, before anything is persisted.
+    for _key in ("ALLOWED_HOSTS", "ALLOWED_ORIGINS", "ORWELL_BIND_HOST"):
+        if has_control_chars((env.get(_key) or "").strip()):
+            problems.append(f"{_key} contains a control character (e.g. a newline)")
     if (env.get("AUTH_ENABLED", "true") or "").strip().lower() == "false":
         problems.append("AUTH_ENABLED=false (authentication disabled)")
     if _env_truthy(env.get("LOCALHOST_BYPASS")):
@@ -370,8 +396,9 @@ def assert_auth_off_requires_loopback(env=None) -> None:
 
 # A single hostname (optional leading "*." wildcard) or a dotted IPv4 — letters/digits/dot/hyphen,
 # bounded by an alphanumeric on each end. Deliberately rejects whitespace, slashes, braces, and
-# semicolons (the Caddyfile-injection-relevant characters).
-_TLS_NAME_RE = re.compile(r"^(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$")
+# semicolons (the Caddyfile-injection-relevant characters). Anchored with \Z, not $: `$` also matches
+# just BEFORE a trailing newline, which would let "name\n" through.
+_TLS_NAME_RE = re.compile(r"^(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\Z")
 
 # The local hostnames covered when ORWELL_TLS_LOCAL_NAMES is unset.
 DEFAULT_LOCAL_TLS_NAMES = ["orwell.lan", "orwell.local"]
