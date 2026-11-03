@@ -1839,6 +1839,11 @@ def setup_chat_routes(
                                         except Exception:
                                             pass
                                     yield chunk
+                                elif "announcements" in data and "delta" not in data:
+                                    # F-2/F-4 owed chyron: the agent loop emits `{"announcements":[…]}` for a beat the FE
+                                    # pre-resolved. This chain had NO branch for it, so the event was silently dropped
+                                    # here — before BOTH the SSE and WS legs (A-15 rehearsal 2026-11-03: 0 chyron events).
+                                    yield chunk
                                 elif data.get("type") == "fallback":
                                     # Selected model failed; a fallback answered.
                                     # Forward the notice and remember the real
