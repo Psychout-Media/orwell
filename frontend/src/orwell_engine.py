@@ -173,15 +173,41 @@ def _is_transient(exc: Exception) -> bool:
 # client was closed.
 _client = None
 _client_factory = None
+_client_loop = None  # weakref to the loop `_client` was built on (N-5)
+_other_loop_clients = None  # WeakKeyDictionary: loop -> client, for loops other than `_client_loop`
 
 
 def _shared_client():
-    global _client, _client_factory
+    """The engine client for the CURRENT event loop (N-5): an httpx pool is bound to the loop that
+    opened its sockets, and the FE runs many ``asyncio.run`` background tasks in worker threads —
+    sharing one client across those loops strands keep-alive sockets (CLOSE-WAIT) and stalls the
+    main loop's calls. The first loop keeps the module-global ``_client`` (tests rely on it); any
+    other loop gets its own client."""
+    global _client, _client_factory, _client_loop, _other_loop_clients
+    import asyncio
+    import weakref
     factory = httpx.AsyncClient
-    if _client is None or _client_factory is not factory or getattr(_client, "is_closed", False):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    bound = _client_loop() if _client_loop is not None else None
+    stale_loop = bound is None or (hasattr(bound, "is_closed") and bound.is_closed())
+    if _client is None or _client_factory is not factory or getattr(_client, "is_closed", False) \
+            or (_client_loop is not None and stale_loop):
         _client = factory(timeout=_TIMEOUT)
         _client_factory = factory
-    return _client
+        _client_loop = weakref.ref(loop) if loop is not None else None
+        return _client
+    if loop is None or _client_loop is None or bound is loop:
+        return _client
+    if _other_loop_clients is None:
+        _other_loop_clients = weakref.WeakKeyDictionary()
+    c = _other_loop_clients.get(loop)
+    if c is None or getattr(c, "is_closed", False):
+        c = factory(timeout=_TIMEOUT)
+        _other_loop_clients[loop] = c
+    return c
 
 
 async def _post_tool_once(path: str, name: str, args: dict | None, user: str | None, timeout: float | None) -> dict:
