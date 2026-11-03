@@ -392,3 +392,12 @@ def test_you_inside_unrelated_prose_is_untouched():
     for t in ["Hoh Person thanks you for coming and hands you a drink.\n", "You walk across the yard and sit by the pool.\n",
               "You wonder who will win the veto.\n"]:
         assert not stripped(t, sig(vetoHolderName="Vetoer Gamma"))[1], t
+
+
+def test_a_tally_during_the_veto_ceremony_is_a_phantom_ballot_readout():
+    """live week 4: "That's eight votes for X, four for Y" aired DURING the veto ceremony — no ballot exists before eviction night."""
+    s = sig(phase="veto-ceremony", nomNames=["Nom Alpha", "Nom Beta"], evictionBallots=0)
+    assert stripped("That's eight votes for Other Delta, four for Vetoer Gamma.\n", s)[1]
+    assert stripped("That's eight votes for Nom Alpha, four for Nom Beta.\n", s)[1], "even naming the real nominees: no ballot exists yet"
+    assert not stripped("The veto ceremony begins; Hoh Person sets the box on the table.\n", s)[1]
+    assert not stripped("That's eight votes for Other Delta, four for Vetoer Gamma.\n", sig(phase="hoh-competition", evictionBallots=0))[1]

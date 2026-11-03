@@ -32,6 +32,8 @@ _ELL = "‥"  # internal marker for an ellipsis, so "..." never reads as three s
 _ELLIPSIS_RE = re.compile(r"\.{3,}|…")
 _SPEAKER_TAG_RE = re.compile(r"@\[[^\]]+\]\s*[—\-:]*\s*")
 _EVICTION_PHASES = ("eviction", "final-eviction")
+# ballots/tallies cannot exist before the veto ceremony day: the live run aired "eight votes for X, four for Y" DURING the veto ceremony
+_BALLOT_PHASES = ("eviction", "veto-ceremony")
 
 _OBJ_DET = r"(?:(?:the|her|his|their|a|an|that|this)\s+)?"
 _VETO_OBJ = r"(?:medal(?:lion)?|power\s+of\s+veto|veto|PoV)"
@@ -210,13 +212,13 @@ def cue_instances(unit: str, phase: str) -> "list[dict]":
     for role, rx, bind, gap, *_flags in _CUES:
         if role == "evict-weak" and not ph.startswith(_EVICTION_PHASES):
             continue
-        if role in ("nominee-addr", "vote-for") and not ph.startswith("eviction"):
+        if role in ("nominee-addr", "vote-for") and not ph.startswith(_BALLOT_PHASES):
             continue
         for m in rx.finditer(s):
             if _non_assertive(s, m.start(), m.end()):
                 continue
             out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap, "dash": bool(_flags and _flags[0])})
-    if ph.startswith("eviction") and _BALLOT_RE.search(s) and "?" not in s:
+    if ph.startswith(_BALLOT_PHASES) and _BALLOT_RE.search(s) and "?" not in s:
         out.append({"role": "ballot", "a": 0, "b": len(s), "bind": "all", "gap": len(s)})
     return out
 
@@ -284,7 +286,7 @@ def _matches_any(name: str, candidates: Iterable[Optional[str]]) -> bool:
 def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, carried: "set[str] | None" = None) -> Optional[str]:
     """A short reason when this unit asserts a role the engine did not commit to the person it is bound to, else None."""
     phase = str(sig.get("phase") or "").lower()
-    if not instances and not carried and not phase.startswith("eviction"):
+    if not instances and not carried and not phase.startswith(_BALLOT_PHASES):
         return None
     s = _clean(unit)
     player = sig.get("playerName")
@@ -305,9 +307,9 @@ def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, ca
         if _non_assertive(s, 0, 0):
             continue
         by_role.setdefault(role, []).extend(n for n, _a, _b in spans)  # the continuation half: the whole unit is the answer
-    if "ballot" not in by_role and phase.startswith("eviction") and _is_bare_names(unit, sig.get("nomNames") or []):
+    if "ballot" not in by_role and phase.startswith(_BALLOT_PHASES) and _is_bare_names(unit, sig.get("nomNames") or []):
         by_role["ballot"] = [n for n, _a, _b in spans]
-    if by_role.get("ballot") and phase.startswith("eviction") and sig.get("evictionBallots") == 0:
+    if by_role.get("ballot") and phase.startswith(_BALLOT_PHASES) and sig.get("evictionBallots") == 0:
         return "ballot readout before the engine revealed any ballot (the player's vote is not yet cast)"
     for role in ("veto-hold", "veto-use"):
         bad = [n for n in by_role.get(role, []) if not _matches_any(n, [veto_holder])]
