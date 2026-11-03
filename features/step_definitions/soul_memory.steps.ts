@@ -8,6 +8,7 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { vaultBoundaryViolations } from "../../tests/support/architecture";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { startLiveSweep, setLive, liveOf, livePlayerSurfaces } from "../support/liveSweep";
 
 // Reuses: Background (mcp_boundary), "any player-facing surface is produced" (vault_wall),
 // "no Vault sentinel value appears" (god_mode, checks this.lastView).
@@ -86,15 +87,19 @@ Then("the houseguest can reference that specific past beat", function (this: BbW
 // --- A recalled HIDDEN memory shapes behavior but does not leak ---------------
 
 Given("a houseguest recalls a memory the player did not witness and was never told", function (this: BbWorld) {
-  this.soul = new SoulStore(embed);
+  // PAT-2: record the hidden memory into the LIVE game's own soul store (the one the session + player surfaces
+  // are wired to), so the "does not leak" sweep reads the surfaces of the game that actually holds it.
+  const live = startLiveSweep({ seed: 1, user: "pat2-soul" });
+  setLive(this, live);
   this.npc = HG;
   this.hiddenMemory = "a secret off-screen deal SOULSENTINEL with another houseguest";
-  this.soul.recordToSoul(HG, this.hiddenMemory);
-  this.recalled = this.soul.recall(HG, "secret deal", 1); // engine-side: informs behavior
+  live.sb.engine.soul.recordToSoul(HG, this.hiddenMemory);
+  live.hiddenContents.push(this.hiddenMemory);
+  this.recalled = live.sb.engine.soul.recall(HG, "secret deal", 50); // engine-side: informs behavior
 });
 
 Then("the hidden memory does not appear", function (this: BbWorld) {
-  this.lastOutput = this.sandbox!.allPlayerOutputs();
+  this.lastOutput = livePlayerSurfaces(liveOf(this)!.sb!);
   this.lastView = this.lastOutput; // also satisfies the reused "no Vault sentinel value appears" step
   assert.ok(!this.lastOutput.includes(this.hiddenMemory!), "the engine-only soul memory never surfaces");
   assert.ok(!this.lastOutput.includes("SOULSENTINEL"));

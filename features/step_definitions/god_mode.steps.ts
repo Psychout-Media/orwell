@@ -7,6 +7,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { ADMIN_TOOLS, toolsFor } from "../../src/surfaces/tools/registry";
 import { assertNoSentinels, assertNoneAppear } from "../../tests/support/assertions";
+import { sentinelsFor, hiddenFor } from "../support/liveSweep";
 
 // Background "a running game sandbox with a fully populated Producer's Vault" → mcp_boundary.steps.
 
@@ -42,7 +43,7 @@ Then("the admin sees the sandbox configuration", function (this: BbWorld) {
 // T16: ONE shared sweep — these two Thens had byte-identical bodies (and a third copy
 // lived in moment_orchestration.steps.ts, deduplicated there the same way).
 function sweepLastViewForHiddenContent(this: BbWorld): void {
-  assertNoneAppear(JSON.stringify(this.lastView), this.sandbox!.hiddenContents);
+  assertNoneAppear(JSON.stringify(this.lastView), hiddenFor(this));
 }
 
 Then("no hidden attribute appears", sweepLastViewForHiddenContent);
@@ -50,7 +51,7 @@ Then("no hidden attribute appears", sweepLastViewForHiddenContent);
 Then("no off-screen event appears", sweepLastViewForHiddenContent);
 
 Then("no Vault sentinel value appears", function (this: BbWorld) {
-  assertNoSentinels(JSON.stringify(this.lastView), this.sandbox!.sentinels);
+  assertNoSentinels(JSON.stringify(this.lastView), sentinelsFor(this));
 });
 
 // --- The admin tool allowlist -------------------------------------------------

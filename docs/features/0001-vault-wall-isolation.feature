@@ -84,6 +84,13 @@ Feature: Vault Wall — secret state never reaches the player or the admin
     Then that context contains no Vault sentinel value
     # Nothing can be "uniquely derived" from Vault content the narrator never receives.
 
+  # PAT-2 positive control: the live-game sweep used by the Vault-leak scenarios can actually FAIL.
+  # (Whole-season proof: tests/property/liveSentinel.property.test.ts.)
+  Scenario: The live-game sweep detects a planted leak
+    Given a live game with Vault sentinels planted in its hidden state
+    When a sentinel is deliberately leaked onto the live game's player surface
+    Then the live-game sweep detects the leak
+
   Scenario Outline: Outward-facing channels have no capability to read the Vault
     Given the tools available in the "<channel>" channel
     Then none of them can read from the VaultStore

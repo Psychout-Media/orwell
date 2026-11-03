@@ -8,7 +8,7 @@ import { tieExposureOf, tieNatureProse, type PreGameTie } from "../../src/engine
 import { TIE_REVEAL } from "../../src/engine/tieRevealConstants";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
-import { buildSandbox } from "../../tests/support/sandbox";
+import { liveAdminSurface } from "../support/liveSweep";
 
 /**
  * Feature 0095 — pre-show ties as time-bombs. Role-only (the-player, a tied pair, a deceived
@@ -79,7 +79,9 @@ Then("the tie never appears on any player-facing surface", function (this: BbWor
 });
 
 Then("the tie never appears on any admin or God-Mode surface", function (this: BbWorld) {
-  tr(this).trAdminBlob = buildSandbox(1).adminOutput();
+  // PAT-2: the admin surface of THE SAME live game that holds the sealed tie (was: a fresh, unrelated canary
+  // sandbox that never saw this game, so the sweep could not fail).
+  tr(this).trAdminBlob = liveAdminSurface(tr(this).trSb!);
   assert.ok(!tieRegex.test(tr(this).trAdminBlob!));
 });
 

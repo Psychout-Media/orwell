@@ -6,7 +6,7 @@ import type { PlayerSurfaceType } from "../../src/surfaces/player/PlayerSurface"
 import type { PlayerCompetitionView } from "../../src/domain/competition";
 import { assertNoSentinels, assertNoneAppear } from "../../tests/support/assertions";
 import { vaultBoundaryViolations } from "../../tests/support/architecture";
-import { PLAYER } from "../../src/domain/ids";
+import { PLAYER, npc } from "../../src/domain/ids";
 import { InterrogationHandler } from "../../src/surfaces/player/InterrogationHandler";
 import { SummaryService } from "../../src/services/SummaryService";
 import { toolsFor } from "../../src/surfaces/tools/registry";
@@ -14,6 +14,10 @@ import type { OutwardChannel } from "../../src/surfaces/tools/registry";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import {
+  startLiveSweep, setLive, liveOf, livePlayerSurfaces, sentinelsFor, hiddenFor, assertLiveSweepClean,
+} from "../support/liveSweep";
+import type { LiveSweep } from "../support/liveSweep";
 
 // --- Background ---------------------------------------------------------------
 
@@ -88,7 +92,9 @@ Given(
 );
 
 When("any player-facing surface is produced", function (this: BbWorld) {
-  this.lastOutput = this.sandbox.allPlayerOutputs();
+  // PAT-2: when the scenario drove a LIVE game (liveSweep), sweep THAT game's surfaces, not the canary's.
+  const live = liveOf(this);
+  this.lastOutput = live?.sb ? livePlayerSurfaces(live.sb) : this.sandbox.allPlayerOutputs();
 });
 
 Then("the confessional text does not appear", function (this: BbWorld) {
@@ -220,13 +226,48 @@ Then(
 Given(
   "the engine assembles the context handed to the narrative layer for a player-facing moment",
   function (this: BbWorld) {
-    this.lastOutput = JSON.stringify(this.sandbox.player.assembleNarrationContext("scene"));
+    // The canary fixture's own narration context, AND (PAT-2) the live game's narrator-bound context
+    // (narration contexts + the assembled moment prompt) with sentinels planted in ITS hidden state.
+    const live = startLiveSweep({ seed: 1, user: "pat2-narrator" });
+    setLive(this, live);
+    this.lastOutput = JSON.stringify(this.sandbox.player.assembleNarrationContext("scene")) + "\n---\n" + [
+      JSON.stringify(live.sb.player.assembleNarrationContext("scene")),
+      JSON.stringify(live.sb.player.assembleNarrationContext("dialogue")),
+      JSON.stringify(live.sb.session.getMomentPrompt({})),
+      JSON.stringify(live.sb.session.getGameState()),
+    ].join("\n---\n");
   },
 );
 
 Then("that context contains no Vault sentinel value", function (this: BbWorld) {
-  assertNoSentinels(this.lastOutput, this.sandbox.sentinels);
-  assertNoneAppear(this.lastOutput, this.sandbox.hiddenContents);
+  assertNoSentinels(this.lastOutput, sentinelsFor(this));
+  assertNoneAppear(this.lastOutput, hiddenFor(this));
+});
+
+// --- PAT-2 positive control: the live-game sweep has teeth ---------------------------------------------
+
+Given("a live game with Vault sentinels planted in its hidden state", function (this: BbWorld) {
+  setLive(this, startLiveSweep({ seed: 1, user: "pat2-control" }));
+});
+
+When("a sentinel is deliberately leaked onto the live game's player surface", function (this: BbWorld) {
+  const live = liveOf(this) as LiveSweep;
+  // A PUBLIC, player-witnessed event is exactly what the player surface projects: smuggle a planted
+  // sentinel into one, i.e. simulate the very leak the sweeps exist to catch.
+  live.sb.engine.events.record({
+    id: "pat2:leak", ts: 9_100_000, type: "house-event", initiator: npc(1),
+    witnessSet: [PLAYER, npc(1)], hidden: false, content: `A deliberate leak: ${live.sentinels[0]!}`,
+  });
+  this.lastOutput = livePlayerSurfaces(live.sb);
+});
+
+Then("the live-game sweep detects the leak", function (this: BbWorld) {
+  const live = liveOf(this)!;
+  assert.throws(
+    () => assertLiveSweepClean(this.lastOutput, live),
+    (e: Error) => e.message.includes(live.sentinels[0]!),
+    "the sweep must FAIL on a planted leak, naming the sentinel",
+  );
 });
 
 // --- Capability + dependency boundary -----------------------------------------

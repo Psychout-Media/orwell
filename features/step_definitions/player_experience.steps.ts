@@ -1,12 +1,13 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
-import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { liveGameAtPending, liveReplacementLegalSet, liveStateOf } from "../support/liveDecision";
 import { generateHouse, portraitDescriptorFor } from "../../src/engine/characterFactory";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { assertNoSentinels, assertNoneAppear } from "../../tests/support/assertions";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { startLiveSweep, setLive, hiddenFor, plantInHouseguest } from "../support/liveSweep";
+import type { SweepTargets } from "../support/liveSweep";
 
 // Reuses (0019): "a pending replacement-nominee decision", "a pending decision with a known legal
 // option set", "no decision is pending", "no binding decision is made".
@@ -15,8 +16,10 @@ import { PLAYER, npc } from "../../src/domain/ids";
 // --- Status panel -------------------------------------------------------------
 
 When("the status panel is rendered", function (this: BbWorld) {
-  const game = new GameSessionAdapter();
-  game.createCharacter({ playerName: "Player One", seed: 1 });
+  // PAT-2: render the panel from the LIVE game that carries the planted sentinels (not a fresh adapter).
+  const live = startLiveSweep({ seed: 1, user: "pat2-status-panel" });
+  setLive(this, live);
+  const game = live.sb.session;
   game.updateCeremony({ hoh: npc(1), nominees: [npc(2), npc(3)], vetoHolder: npc(4), vetoUsed: true });
   this.lastView = game.gameStatus();
   this.lastOutput = JSON.stringify(this.lastView); // so the reused 0018 sentinel step applies
@@ -41,7 +44,7 @@ Then("it shows the veto holder and whether the veto has been used", function (th
 });
 
 Then("it shows no hidden vote or off-screen targeting", function (this: BbWorld) {
-  assertNoneAppear(this.lastOutput, this.sandbox!.hiddenContents);
+  assertNoneAppear(this.lastOutput, hiddenFor(this));
   assert.ok(!/vote|secret|offscreen|hidden/i.test(this.lastOutput));
 });
 
@@ -108,6 +111,10 @@ Then("an attempt to choose outside the set is rejected", function (this: BbWorld
 Given("a generated houseguest with a static Character", function (this: BbWorld) {
   this.portraitSeed = 11;
   this.portraitHg = generateHouse(new SeededRandom(this.portraitSeed)).npcs[0]!;
+  // PAT-2: plant sentinels in THIS houseguest's hidden facets + soul, so the portrait sweep can actually fail.
+  const planted: SweepTargets = { sentinels: [], hiddenContents: [] };
+  plantInHouseguest(this.portraitHg, "portrait", planted);
+  setLive(this, planted);
 });
 
 When("that houseguest's portrait descriptor is produced", function (this: BbWorld) {

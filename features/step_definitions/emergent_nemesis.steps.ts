@@ -6,7 +6,7 @@ import { RelationshipModel } from "../../src/engine/relationships";
 import { NEMESIS, type Campaign, type NemesisTrack } from "../../src/engine/campaigns";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
-import { buildSandbox } from "../../tests/support/sandbox";
+import { adminSurfaceOfSession } from "../support/liveSweep";
 
 /**
  * Feature 0096 — emergent nemesis (a personal villain to outlast). Role-only (a houseguest, the
@@ -191,7 +191,8 @@ When("the admin views any God-Mode surface", function (this: BbWorld) {
   // The real admin/God-Mode composition never even holds a handle to `campaigns.ts` (dependency-cruiser
   // walls it — the same wall as the Vault, `test:arch`); this generic admin surface proves the runtime
   // output carries no nemesis language either, belt-and-braces.
-  nm(this).nmAdminBlob = buildSandbox(1).adminOutput();
+  // PAT-2: the admin view of THE SAME game the nemesis was built in (was: a fresh, unrelated canary sandbox).
+  nm(this).nmAdminBlob = adminSurfaceOfSession(nm(this).nmSession!);
 });
 
 Then("neither surface returns the nemesis identity", function (this: BbWorld) {

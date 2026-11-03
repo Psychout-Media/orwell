@@ -18,6 +18,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { answerPending } from "../support/answerPending";
+import { startLiveSweep, setLive, sentinelsFor, hiddenFor } from "../support/liveSweep";
 
 // Background "a running game sandbox with a fully populated Producer's Vault" → mcp_boundary.steps.
 
@@ -168,16 +169,19 @@ Then("it forbids inventing the winner or revealing scores", function (this: BbWo
 // --- Sentinel-free under any Vault contents -----------------------------------
 
 When("the system prompt is built for every moment", function (this: BbWorld) {
-  const game = new GameSessionAdapter();
-  game.createCharacter({ playerName: "Player One", seed: 1 });
-  const view = game.getGameState(); // Vault-free projection
-  this.lastOutput = ALL_MOMENTS.map((m) => buildSystemPrompt(m, view)).join("\n----\n");
+  // PAT-2: build the prompts from the LIVE game's projection, with sentinels planted in THAT game's hidden
+  // state (not a fresh adapter the canary sandbox never touched) — so the sweeps below can actually fail.
+  const live = startLiveSweep({ seed: 1, user: "pat2-moment-prompts" });
+  setLive(this, live);
+  const view = live.sb.session.getGameState(); // Vault-free projection
+  this.lastOutput = ALL_MOMENTS.map((m) => buildSystemPrompt(m, view)).join("\n----\n")
+    + "\n----\n" + ALL_MOMENTS.map((m) => JSON.stringify(live.sb.session.getMomentPrompt({ moment: m }))).join("\n----\n");
 });
 
 // T16: ONE shared sweep — these two Thens had byte-identical bodies (god_mode.steps.ts
 // carried the same duplicate pair over `lastView`; both files are deduplicated locally).
 function sweepLastOutputForHiddenContent(this: BbWorld): void {
-  assertNoneAppear(this.lastOutput, this.sandbox!.hiddenContents);
+  assertNoneAppear(this.lastOutput, hiddenFor(this));
 }
 
 Then("no hidden attribute appears in it", sweepLastOutputForHiddenContent);
@@ -185,7 +189,7 @@ Then("no hidden attribute appears in it", sweepLastOutputForHiddenContent);
 Then("no off-screen event appears in it", sweepLastOutputForHiddenContent);
 
 Then("no Vault sentinel value appears in it", function (this: BbWorld) {
-  assertNoSentinels(this.lastOutput, this.sandbox!.sentinels);
+  assertNoSentinels(this.lastOutput, sentinelsFor(this));
 });
 
 // --- Woven context is Vault-free ----------------------------------------------

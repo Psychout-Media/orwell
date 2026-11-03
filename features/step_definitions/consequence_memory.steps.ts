@@ -8,6 +8,7 @@ import { chooseNominations } from "../../src/engine/season";
 import { InMemoryEventStore } from "../../src/adapters/inmemory/InMemoryEventStore";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { startLiveSweep, setLive, livePlayerSurfaces } from "../support/liveSweep";
 
 // Reuses: "a running game sandbox with a fully populated Producer's Vault" (Background),
 // "any player-facing surface is produced" (vault_wall), "no Vault sentinel value appears" (god_mode).
@@ -58,18 +59,28 @@ Then("the same actions under the same seed produce the same shifts", function ()
 // --- The change is invisible --------------------------------------------------
 
 When("the player's action shifts a houseguest's hidden opinion", function (this: BbWorld) {
-  freshEngine(1).record({ initiator: PLAYER, witnessSet: [PLAYER, npc(1)], content: "a chat", kind: "bonding" });
-  // The opinion layer is engine-only; the player surfaces never carry it. Capture a surface so the
-  // reused "no Vault sentinel value appears" (checks lastView) is meaningful here too.
-  this.lastView = this.sandbox!.allPlayerOutputs();
+  // PAT-2: drive the action through the LIVE game's own command seam (which folds the hidden opinion in the
+  // engine's relationship model), with sentinels planted in that game's hidden state. The reused
+  // "no Vault sentinel value appears" sweep then reads THAT game's surfaces (not a fresh engine's/the canary's).
+  const live = startLiveSweep({ seed: 1, user: "pat2-opinion" });
+  setLive(this, live);
+  const mate = live.sb.session.snapshot().house!.npcs[0]!.id;
+  live.sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, mate], content: "a chat", kind: "bonding", toward: [mate] });
+  this.lastView = livePlayerSurfaces(live.sb);
 });
 
 Then("no opinion number or relationship value appears", function (this: BbWorld) {
-  assert.ok(!/trust|affinity|threat/i.test(this.lastOutput), "no relationship signal names surface");
+  // PAT-2: the sweep now reads the LIVE game's surfaces, whose prose legitimately contains the plain words
+  // ("can I trust you?", a speech tell "makes a threat sound like small talk"). The leak is a relationship
+  // VALUE — a `trust|affinity|threat` key/label bound to a number — so that is what is asserted.
+  assert.ok(!/["']?\b(trust|affinity|threat)\b["']?\s*[:=]\s*-?\d/i.test(this.lastOutput), "no relationship value surfaces");
 });
 
 Then("no message states that the houseguest's opinion changed", function (this: BbWorld) {
-  assert.ok(!/opinion|feels? .* about you|changed .* toward/i.test(this.lastOutput));
+  // PAT-2: the live moment prompt's instruction prose is long and says things like spectators "form opinions as it
+  // unfolds" and "power has changed hands … the reactions", so the old unbounded `.*` / bare-word regex matched
+  // unrelated sentences. Assert the same three phrasings, but BOUNDED to one clause (no `.*` across the prompt).
+  assert.ok(!/\bopinions?\b[^.\n]{0,40}\b(chang|shift|improv|drop|rose|fell)|\bfeels?\b[^.\n]{0,30}\babout you|\bchanged\b[^.\n]{0,30}\btoward\b/i.test(this.lastOutput));
 });
 
 // --- Wins and votes are consequential -----------------------------------------

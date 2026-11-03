@@ -5,9 +5,9 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { liveGameAtPending, liveReplacementLegalSet, liveStateOf } from "../support/liveDecision";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { assertNoSentinels } from "../../tests/support/assertions";
+import { startLiveSweep, setLive, sentinelsFor } from "../support/liveSweep";
 import { PLAYER, npc } from "../../src/domain/ids";
 
 // --- Binding decision only via the validated path -----------------------------
@@ -216,11 +216,11 @@ Then("no binding decision is made", function (this: BbWorld) {
 // --- Every tool result the loop consumes is Vault-free ------------------------
 
 When("the agent runs a full turn over the engine tools", async function (this: BbWorld) {
-  const sb = this.sandbox!;
-  const commands = new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge);
-  const session = new GameSessionAdapter();
-  session.createCharacter({ playerName: "Player One", seed: 1 });
-  const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session });
+  // PAT-2: the turn is driven over the LIVE game's own MCP server (its engine, session and surfaces), with
+  // sentinels planted in THAT game's hidden state — not a fresh session next to the canary's.
+  const live = startLiveSweep({ seed: 1, user: "pat2-agent-turn" });
+  setLive(this, live);
+  const server = live.sb.mcp.player;
   const sample: Record<string, Record<string, unknown>> = {
     getVisibleStateFor: { entity: PLAYER },
     renderScene: { mode: "scene" },
@@ -238,5 +238,5 @@ When("the agent runs a full turn over the engine tools", async function (this: B
 });
 
 Then("no tool result contains a Vault sentinel value", function (this: BbWorld) {
-  assertNoSentinels(this.lastOutput, this.sandbox!.sentinels);
+  assertNoSentinels(this.lastOutput, sentinelsFor(this));
 });
