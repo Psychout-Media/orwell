@@ -313,6 +313,15 @@ def _mark_host_dead(url: str) -> bool:
             return True
         return False
 
+def _is_host_cooled_now(url: str) -> bool:
+    """Non-consuming peek: is the host currently in an unexpired cooldown? (Unlike `_is_host_dead`, never
+    reserves the probe slot.)"""
+    key = _host_key(url)
+    with _host_health_lock:
+        exp = _dead_hosts.get(key)
+        return exp is not None and time.time() < exp
+
+
 def _clear_host_dead(url: str) -> None:
     key = _host_key(url)
     with _host_health_lock:
@@ -361,9 +370,42 @@ def _get_http_client() -> httpx.AsyncClient:
     with _loop_clients_lock:
         c = _loop_clients.get(loop)
         if c is None or c.is_closed:
+            # Drop any entry whose loop is already closed (a dead loop's client can never be reused).
+            for _l in [l for l in list(_loop_clients.keys()) if getattr(l, "is_closed", lambda: False)()]:
+                _loop_clients.pop(_l, None)
             c = _build()
             _loop_clients[loop] = c
         return c
+
+
+async def aclose_loop_clients() -> None:
+    """Close + drop the HTTP client(s) bound to the CURRENT running loop (llm_core's and the engine's).
+    Call at the end of a short-lived ``asyncio.run`` so its keep-alive sockets are released with the loop."""
+    loop = _running_loop_or_none()
+    if loop is not None:
+        with _loop_clients_lock:
+            c = _loop_clients.pop(loop, None)
+        if c is not None and not c.is_closed:
+            try:
+                await c.aclose()
+            except Exception:  # failsoft-ok: best-effort cleanup
+                pass
+    try:
+        from src import orwell_engine as _oe
+        await _oe.aclose_loop_client()
+    except Exception:  # failsoft-ok: best-effort cleanup
+        pass
+
+
+def run_isolated(coro):
+    """``asyncio.run`` for the fail-soft background jobs: runs ``coro`` on a fresh loop and closes that
+    loop's HTTP clients before the loop goes away (N-5), so short-lived loops never strand sockets."""
+    async def _wrapped():
+        try:
+            return await coro
+        finally:
+            await aclose_loop_clients()
+    return asyncio.run(_wrapped())
 
 def _get_cached_response(cache_key: str) -> Optional[str]:
     """Get cached response if it exists."""
@@ -1957,8 +1999,13 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                      provider_opts: Optional[Dict] = None,
                      response_format: Optional[Dict] = None,
                      tool_choice: Optional[object] = None,
-                     metadata: Optional[Dict] = None):
+                     metadata: Optional[Dict] = None,
+                     _retry_in_flight: bool = False):
     """Stream LLM responses with improved error handling.
+
+    ``_retry_in_flight`` (private, N-5): set by ``_stream_with_connect_retry`` on attempts 2+ of ONE request, so
+    a cooldown that attempt 1 itself tripped does not swallow that request's own remaining retries. Separate
+    callers never set it and still fast-fail on a cooled host.
 
     ``response_format`` (optional): an OpenAI/OpenRouter-style structured-output request
     (e.g. ``{"type": "json_object"}``) threaded onto the OpenAI-style chat payload so a
@@ -2078,7 +2125,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
     # Tailscale. 3s is plenty; 30s let one dead upstream wedge the UI.
     stream_timeout = httpx.Timeout(connect=3.0, read=float(timeout), write=30.0, pool=5.0)
 
-    if _is_host_dead(target_url):
+    if not _retry_in_flight and _is_host_dead(target_url):
         yield f'event: error\ndata: {json.dumps({"error": f"Upstream {_host_key(target_url)} unreachable (cooldown active)", "status": 503})}\n\n'
         return
     note_model_activity(target_url, model)
@@ -2748,13 +2795,19 @@ async def _stream_with_connect_retry(url, model, messages, headers, kwargs):
     double-narrate); the fallback chain above still applies if every attempt fails."""
     started = time.monotonic()
     attempt = 0
+    # A call made while the host was ALREADY cooled is the periodic probe: a SINGLE attempt, no retries (a probe to a
+    # genuinely dead host must not stall ~10s). A request that trips the cooldown itself mid-way keeps its retries.
+    max_retries = 0 if _is_host_cooled_now(url) else STREAM_CONNECT_RETRIES
     while True:
         attempt += 1
         yielded = False
         retry = False
-        async for chunk in stream_llm(url, model, messages, headers=headers, **kwargs):
+        _kw = dict(kwargs)
+        if attempt > 1:
+            _kw["_retry_in_flight"] = True  # this request's own retry: the cooldown it tripped must not cut it short
+        async for chunk in stream_llm(url, model, messages, headers=headers, **_kw):
             if (not yielded and _is_connect_error_chunk(chunk)
-                    and attempt <= STREAM_CONNECT_RETRIES
+                    and attempt <= max_retries
                     and (time.monotonic() - started) + _connect_backoff(attempt) < STREAM_CONNECT_RETRY_BUDGET):
                 retry = True
                 break
@@ -2762,7 +2815,7 @@ async def _stream_with_connect_retry(url, model, messages, headers, kwargs):
             yield chunk
         if not retry:
             return
-        logger.warning(f"[stream] connect-class failure to {_host_key(url)}; retry {attempt}/{STREAM_CONNECT_RETRIES}")
+        logger.warning(f"[stream] connect-class failure to {_host_key(url)}; retry {attempt}/{max_retries}")
         await asyncio.sleep(_connect_backoff(attempt))
 
 

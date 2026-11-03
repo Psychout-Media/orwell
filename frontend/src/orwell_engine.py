@@ -175,6 +175,8 @@ _client = None
 _client_factory = None
 _client_loop = None  # weakref to the loop `_client` was built on (N-5)
 _other_loop_clients = None  # WeakKeyDictionary: loop -> client, for loops other than `_client_loop`
+import threading as _threading
+_other_loop_clients_lock = _threading.Lock()
 
 
 def _shared_client():
@@ -201,13 +203,37 @@ def _shared_client():
         return _client
     if loop is None or _client_loop is None or bound is loop:
         return _client
-    if _other_loop_clients is None:
-        _other_loop_clients = weakref.WeakKeyDictionary()
-    c = _other_loop_clients.get(loop)
-    if c is None or getattr(c, "is_closed", False):
-        c = factory(timeout=_TIMEOUT)
-        _other_loop_clients[loop] = c
-    return c
+    with _other_loop_clients_lock:
+        if _other_loop_clients is None:
+            _other_loop_clients = weakref.WeakKeyDictionary()
+        c = _other_loop_clients.get(loop)
+        if c is None or getattr(c, "is_closed", False):
+            for _l in [l for l in list(_other_loop_clients.keys()) if l.is_closed()]:
+                _other_loop_clients.pop(_l, None)  # a dead loop's client is never reusable
+            c = factory(timeout=_TIMEOUT)
+            _other_loop_clients[loop] = c
+        return c
+
+
+async def aclose_loop_client() -> None:
+    """Close + drop the engine client bound to the CURRENT running loop (end of a short-lived ``asyncio.run``)."""
+    import asyncio
+    global _client, _client_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    c = None
+    with _other_loop_clients_lock:
+        if _other_loop_clients is not None:
+            c = _other_loop_clients.pop(loop, None)
+    if c is None and _client_loop is not None and _client_loop() is loop and _client is not None:
+        c, _client, _client_loop = _client, None, None
+    if c is not None and not getattr(c, "is_closed", False):
+        try:
+            await c.aclose()
+        except Exception:  # failsoft-ok: best-effort cleanup
+            pass
 
 
 async def _post_tool_once(path: str, name: str, args: dict | None, user: str | None, timeout: float | None) -> dict:

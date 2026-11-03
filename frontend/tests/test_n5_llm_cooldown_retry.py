@@ -143,16 +143,138 @@ def test_utility_call_survives_isolated_connect_failures(monkeypatch):
 
 
 def test_http_client_is_per_event_loop():
+    """Loop A stays ALIVE (blocked on an event) while loop B runs in another thread: distinct clients."""
     seen = {}
+    b_done = threading.Event()
+    a_got = threading.Event()
 
-    async def grab(tag):
-        seen[tag] = (lc._get_http_client(), lc._get_http_client())
+    def run_a():
+        async def a():
+            seen["a"] = (lc._get_http_client(), lc._get_http_client())
+            a_got.set()
+            while not b_done.is_set():
+                await asyncio.sleep(0.01)
+        asyncio.run(a())
 
-    asyncio.run(grab("a"))
-    t = threading.Thread(target=lambda: asyncio.run(grab("b")))
-    t.start(); t.join()
+    ta = threading.Thread(target=run_a)
+    ta.start()
+    assert a_got.wait(5)
+
+    async def grab_b():
+        seen["b"] = (lc._get_http_client(), lc._get_http_client())
+
+    try:
+        asyncio.run(grab_b())
+    finally:
+        b_done.set()
+        ta.join()
     assert seen["a"][0] is seen["a"][1] and seen["b"][0] is seen["b"][1]
     assert seen["a"][0] is not seen["b"][0]
+
+
+def test_run_isolated_closes_the_loops_clients():
+    seen = {}
+
+    async def job():
+        seen["c"] = lc._get_http_client()
+        return 7
+
+    assert lc.run_isolated(job()) == 7
+    assert seen["c"].is_closed, "a short-lived loop's client is closed when the run ends"
+
+
+def test_closed_loop_entry_is_dropped_on_next_build():
+    async def grab():
+        return lc._get_http_client()
+
+    asyncio.run(grab())  # leaves a (closed-loop) entry behind
+    asyncio.run(grab())
+    with lc._loop_clients_lock:
+        assert all(not l.is_closed() for l in list(lc._loop_clients.keys()))
+
+
+def test_engine_run_isolated_closes_its_client():
+    from src import orwell_engine as oe
+    oe._client = None
+    oe._client_factory = None
+    seen = {}
+
+    async def job():
+        seen["c"] = oe._shared_client()
+
+    lc.run_isolated(job())
+    oe._client = None
+    oe._client_factory = None
+    assert seen["c"].is_closed
+
+
+def test_engine_other_loop_clients_are_lock_guarded():
+    from src import orwell_engine as oe
+    assert hasattr(oe._other_loop_clients_lock, "acquire")
+
+
+def _drive(monkeypatch, fake):
+    async def nosleep(_):
+        return None
+
+    monkeypatch.setattr(lc, "stream_llm", fake)
+    monkeypatch.setattr(lc.asyncio, "sleep", nosleep)
+    out = []
+
+    async def go():
+        async for c in lc._stream_llm_with_fallback_impl([(URL, "m", {})], [{"role": "user", "content": "hi"}]):
+            out.append(c)
+
+    asyncio.run(go())
+    return out
+
+
+def test_retries_of_the_in_flight_request_survive_the_cooldown_it_tripped(monkeypatch):
+    for _ in range(lc.HOST_FAIL_THRESHOLD - 1):
+        lc._mark_host_dead(URL)
+    calls = {"n": 0}
+
+    async def fake(url, model, messages, **kw):
+        calls["n"] += 1
+        if not kw.get("_retry_in_flight") and lc._is_host_dead(url):
+            yield 'event: error\ndata: ' + json.dumps({"error": "cooldown active", "status": 503}) + '\n\n'
+            return
+        if calls["n"] == 1:
+            lc._mark_host_dead(url)  # this very attempt trips the cooldown
+            yield CONNECT_ERR
+            return
+        for c in OK:
+            yield c
+
+    out = _drive(monkeypatch, fake)
+    assert calls["n"] == 2 and any('"hello"' in c for c in out)
+    assert not any(c.startswith("event: error") for c in out)
+
+
+def test_separate_caller_still_fast_fails_on_a_cooled_host():
+    for _ in range(lc.HOST_FAIL_THRESHOLD):
+        lc._mark_host_dead(URL)
+
+    async def go():
+        return [c async for c in lc.stream_llm(URL, "m", [{"role": "user", "content": "hi"}])]
+
+    out = asyncio.run(go())
+    assert out and out[0].startswith("event: error") and "cooldown" in out[0]
+
+
+def test_probe_call_on_an_already_cooled_host_is_a_single_attempt(monkeypatch):
+    for _ in range(lc.HOST_FAIL_THRESHOLD):
+        lc._mark_host_dead(URL)
+    assert lc._is_host_cooled_now(URL)
+    calls = {"n": 0}
+
+    async def fake(url, model, messages, **kw):
+        calls["n"] += 1
+        yield CONNECT_ERR
+
+    out = _drive(monkeypatch, fake)
+    assert calls["n"] == 1, "a probe to a down host gets exactly one attempt"
+    assert any(c.startswith("event: error") for c in out)
 
 
 def test_engine_client_is_per_event_loop():

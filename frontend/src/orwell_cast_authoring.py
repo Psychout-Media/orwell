@@ -2089,7 +2089,7 @@ def kickoff_authoring(cast: list[dict], owner: Optional[str],
     except RuntimeError:
         # No running loop (e.g. a sync caller / test) — run to completion synchronously, then chain.
         try:
-            asyncio.run(_runner())
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(_runner())
         except Exception:
             if then is not None:
                 then()
@@ -2268,7 +2268,7 @@ def kickoff_authoring_backfill(missing_ids: list, user: Optional[str], force: bo
         task.add_done_callback(_done)
     else:  # non-async callers (tests drive backfill_unauthored directly)
         try:
-            asyncio.run(backfill_unauthored(list(missing_ids), user))
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(backfill_unauthored(list(missing_ids), user))
         except Exception as e:
             logger.warning("[cast-authoring] sync backfill error: %s", e)
     return True

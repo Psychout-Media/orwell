@@ -304,6 +304,6 @@ def kickoff_producer_authoring(owner: Optional[str]) -> None:
     except RuntimeError:
         # No running loop (a sync caller / test) — run to completion synchronously.
         try:
-            asyncio.run(_runner())
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(_runner())
         except Exception:
             _IN_FLIGHT.discard(k)

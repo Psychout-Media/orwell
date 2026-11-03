@@ -2144,7 +2144,7 @@ def kickoff_generation(prompts: list, user: Optional[str]) -> None:
         task.add_done_callback(_done)
     else:  # pragma: no cover - non-async callers (tests call generate_and_store directly)
         try:
-            asyncio.run(generate_and_store(prompts, user))
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(generate_and_store(prompts, user))
         except Exception as e:
             # #1599: generate_and_store records each per-houseguest failure itself; a raise OUT of it is
             # a whole-run crash that would otherwise leave the cast on placeholders silently — RED.
@@ -2365,7 +2365,7 @@ def kickoff_authored_reshoot(hid, user: Optional[str]) -> bool:
         task.add_done_callback(_done)
     else:  # non-async callers (tests drive the heal via the loop)
         try:
-            asyncio.run(_heal())
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(_heal())
         except Exception as e:
             logger.info("[portraits] sync authored re-shoot error: %s", e)
     return True
@@ -2474,7 +2474,7 @@ def kickoff_backfill(missing_ids: list, user: Optional[str], force: bool = False
         task.add_done_callback(_done)
     else:  # non-async callers (tests drive backfill_missing directly)
         try:
-            asyncio.run(backfill_missing(list(missing_ids), user))
+            __import__("src.llm_core", fromlist=["run_isolated"]).run_isolated(backfill_missing(list(missing_ids), user))
         except Exception as e:
             # #1599: backfill_missing records per-houseguest failures itself; a raise OUT of it is a
             # whole-run crash that would silently leave portraits missing — surface it RED.
