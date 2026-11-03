@@ -40,6 +40,9 @@ describe("PO calibration targets — the band checker (Ryne's 2026-11-02 rulings
   it("reckless-vs-passive is judged beyond sampling noise: a one-win gap in a small count is tolerated, a real gap is not", () => {
     // the PO-gate run on #2023: passive 4 wins vs reckless 5 wins over 300 seasons each (a one-win gap) must NOT fail
     expect(poViolations({ ...ON_TARGET, passive: arm("passive", 26, 4), solid: arm("solid", 64, 19), reckless: arm("reckless", 9, 5) })).toEqual([]);
+    // the SAME tolerance on reach-F2: a one-count gap (reckless 10 vs passive 9 of 300) passes, a real gap does not
+    expect(poViolations({ ...ON_TARGET, passive: arm("passive", 9, 4), solid: arm("solid", 64, 19), reckless: arm("reckless", 10, 3) })).toEqual([]);
+    expect(poViolations({ ...ON_TARGET, passive: arm("passive", 9, 4), solid: arm("solid", 64, 19), reckless: arm("reckless", 45, 3) }).join()).toMatch(/reckless reach-F2 15\.0% beats passive/);
     // ... while a real gap still does (the existing cases above: 15.0% vs 11.0% reach, 8.0% vs 3.0% wins)
     expect(poViolations({ ...ON_TARGET, reckless: arm("reckless", 9, 24) }).join()).toMatch(/reckless win 8\.0% beats passive/);
   });
