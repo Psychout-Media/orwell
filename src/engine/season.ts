@@ -122,7 +122,17 @@ export interface NominationRead {
   disposition?: RelationshipDisposition;
   /** The HOH's own nomination style (PO 2026-11-02) — weights the floater / duo reads. Absent ⇒ threat hunter. */
   style?: NominationStyle;
+  /**
+   * The HOH's stored TARGET from nominations (#1948) — `replacementPick` only. Present ⇒ the replacement
+   * branches on that identity (target still up ⇒ new pawn; target saved, or a backdoor that kept them off
+   * the block ⇒ new target) instead of inferring it from scores. Absent (a human HOH's nominations, a
+   * pre-#1948 save) ⇒ the score inference, byte-identical to before.
+   */
+  target?: EntityId;
 }
+
+/** A nomination pair plus the HOH's actual TARGET (a backdoor leaves the target OFF the block). */
+export interface NominationPlan { nominees: [EntityId, EntityId]; target: EntityId }
 
 /**
  * Strategic nominations (feature 0044): the blended, archetype-gated read layered on the built
@@ -137,6 +147,13 @@ export interface NominationRead {
 export function nominationStrategy(
   hoh: EntityId, active: EntityId[], rel: RelationshipModel, read: NominationRead = {},
 ): [EntityId, EntityId] {
+  return nominationPlan(hoh, active, rel, read).nominees;
+}
+
+/** `nominationStrategy` plus the HOH's TARGET identity (the top read — on the block unless a backdoor). */
+export function nominationPlan(
+  hoh: EntityId, active: EntityId[], rel: RelationshipModel, read: NominationRead = {},
+): NominationPlan {
   const { blocs = [], mood = 0.5, disposition = "neutral", style = "threat-hunter" } = read;
   const S = NOMINATION_STYLES[style];
   const P = NOMINATION_PRESSURE;
@@ -154,12 +171,12 @@ export function nominationStrategy(
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
     : DECISION.nomination.tacticFor[disposition];
-  if (tactic === "backdoor" && ranked.length >= 3) return [ranked[1]!, ranked[2]!];
+  if (tactic === "backdoor" && ranked.length >= 3) return { nominees: [ranked[1]!, ranked[2]!], target: ranked[0]! };
   if (tactic === "pawn" && ranked.length >= 3) {
     // The pawn is the biggest FLOATER (nobody fights for them); ties keep the lowest-ranked read.
     const pool = ranked.slice(1).reverse();
     const pawn = pool.reduce((best, c) => (floaterRead(c, active, rel) > floaterRead(best, active, rel) ? c : best), pool[0]!);
-    return [ranked[0]!, pawn];
+    return { nominees: [ranked[0]!, pawn], target: ranked[0]! };
   }
   // The SECOND seat is where pawns come from (PO ruling 2026-11-02, "pawns go home"): the HOH pairs
   // the target with whoever is cheapest to put up — the next read, pulled further toward a floater.
@@ -170,7 +187,7 @@ export function nominationStrategy(
   const seat2 = (c: EntityId): number =>
     score(c) + W.pawnSeatFloaterBonus * floaterRead(c, active, rel) + (c === partner ? W.duoPartnerBonus : 0);
   const pawn = rest.reduce((best, c) => (seat2(c) > seat2(best) ? c : best), rest[0]!);
-  return [ranked[0]!, pawn];
+  return { nominees: [ranked[0]!, pawn], target: ranked[0]! };
 }
 
 /**
@@ -184,14 +201,15 @@ export function replacementPick(
   hoh: EntityId, remaining: EntityId, options: readonly EntityId[], active: EntityId[], rel: RelationshipModel,
   read: NominationRead = {},
 ): EntityId {
-  const { blocs = [], mood = 0.5, style = "threat-hunter" } = read;
+  const { blocs = [], mood = 0.5, style = "threat-hunter", target } = read;
   const S = NOMINATION_STYLES[style];
   const P = NOMINATION_PRESSURE;
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) +
     S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel);
   const ranked = [...options].sort((a, b) => score(b) - score(a));
-  const targetStillUp = score(remaining) >= score(ranked[0]!);
+  // #1948: branch on the HOH's stored target when we have it; otherwise infer it from the scores (legacy).
+  const targetStillUp = target !== undefined ? remaining === target : score(remaining) >= score(ranked[0]!);
   if (!targetStillUp) return ranked[0]!; // the target came down / a backdoor — name the real target
   const partner = duoPartner(remaining, hoh, active, rel);
   const pawnScore = (c: EntityId): number =>

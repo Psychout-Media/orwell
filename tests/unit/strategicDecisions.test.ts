@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nominationStrategy, politicalTemperature, chooseNominations } from "../../src/engine/season";
+import { nominationStrategy, nominationPlan, replacementPick, politicalTemperature, chooseNominations } from "../../src/engine/season";
 import { voteChoice } from "../../src/engine/liveSeason";
 import type { SeasonCtx } from "../../src/engine/liveSeason";
 import { DECISION } from "../../src/engine/decisionConstants";
@@ -97,6 +97,55 @@ describe("strategic nominations (0044 §4 — beyond raw threat)", () => {
       expect(active).toContain(a);
       expect(active).toContain(b);
     }
+  });
+});
+
+describe("the replacement branches on the stored HOH target (#1948, 0044 §9)", () => {
+  it("nominationPlan reports the target: on the block for a direct/pawn plan, OFF it for a backdoor", () => {
+    const { rel, active } = quietHouse();
+    const direct = nominationPlan(hoh, active, rel);
+    expect(direct.target).toBe(direct.nominees[0]);
+    const backdoor = nominationPlan(hoh, active, rel, { disposition: "clash" });
+    expect(backdoor.nominees).not.toContain(backdoor.target);
+    // nominationStrategy stays the same pair (no behavior change for existing callers).
+    expect(nominationStrategy(hoh, active, rel, { disposition: "clash" })).toEqual(backdoor.nominees);
+  });
+
+  it("target saved but the remaining pawn outscores every option ⇒ a new TARGET (the score inference named a pawn)", () => {
+    const { rel, active } = quietHouse();
+    // The pawn still on the block is the HOH's HIGHEST read now; the (saved) target is not a legal option.
+    rel.edge(hoh, npc(4)).threat = 0.9;
+    const options = [npc(2), npc(3)];
+    // Legacy inference: the remaining nominee outscores every option ⇒ "target still up" ⇒ a new pawn.
+    const inferred = replacementPick(hoh, npc(4), options, active, rel);
+    const byIdentity = replacementPick(hoh, npc(4), options, active, rel, { target: npc(1) });
+    // By identity the target (npc 1) is NOT the one left up ⇒ name the top strategic read among the options.
+    expect(byIdentity).toBe(npc(2));
+    expect([npc(2), npc(3)]).toContain(inferred); // both legal; the point is the branch is now by identity
+  });
+
+  it("target still up ⇒ the pawn-seat read, identical to the legacy inference when the scores agree", () => {
+    const { rel, active } = quietHouse();
+    const options = [npc(2), npc(3), npc(4)];
+    // The target is also the highest-scored remaining nominee here, so identity and inference coincide.
+    const pick = replacementPick(hoh, npc(1), options, active, rel, { target: npc(1) });
+    expect(options).toContain(pick);
+    expect(pick).toBe(replacementPick(hoh, npc(1), options, active, rel));
+  });
+
+  it("a backdoor (target off the block) ⇒ the replacement is the real target", () => {
+    const { rel, active } = quietHouse();
+    // Backdoor: nominees were npc 2 and npc 3, target npc 1; the veto saved npc 3. npc 2 remains.
+    const options = [npc(1), npc(4)];
+    expect(replacementPick(hoh, npc(2), options, active, rel, { target: npc(1) })).toBe(npc(1));
+  });
+
+  it("without a stored target it is the legacy score inference, unchanged", () => {
+    const { rel, active } = quietHouse();
+    const options = [npc(2), npc(3), npc(4)];
+    expect(replacementPick(hoh, npc(1), options, active, rel)).toBe(
+      replacementPick(hoh, npc(1), options, active, rel, {}),
+    );
   });
 });
 
