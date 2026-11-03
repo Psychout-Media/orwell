@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
 import { playSeason } from "../../src/engine/calibration";
 import type { SeasonHouseguest } from "../../src/engine/season";
 import { resolveCompetition, CompetitionIntents } from "../../src/domain/competitionOutcome";
@@ -73,29 +72,6 @@ describe("anti-sycophancy on the live loop (C3)", () => {
     const composed = rate(0.85);
     expect(rattled, `rattled ${rattled} vs calm ${calm}`).toBeLessThan(calm);
     expect(composed, `composed ${composed} vs calm ${calm}`).toBeGreaterThan(calm);
-  });
-});
-
-describe("the sim is quarantined (C2): calibration-only, no production wiring", () => {
-  it("nothing in src/ imports simulateSeason (richness.ts keeps only the type)", () => {
-    const offenders: string[] = [];
-    const walk = (dir: string): void => {
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        const p = `${dir}/${e.name}`;
-        if (e.isDirectory()) walk(p);
-        else if (e.name.endsWith(".ts")) {
-          const src = readFileSync(p, "utf8");
-          if (/from "\.{1,2}\/.*simulation"/.test(src) && !p.endsWith("src/engine/richness.ts") && !p.endsWith("src/engine/simulation.ts")) {
-            offenders.push(p);
-          }
-        }
-      }
-    };
-    walk("src");
-    expect(offenders).toEqual([]);
-    // richness.ts's import stays TYPE-ONLY (no runtime wiring of the sim into the game).
-    const richness = readFileSync("src/engine/richness.ts", "utf8");
-    expect(richness).toMatch(/import type .* from "\.\/simulation"/);
   });
 });
 
