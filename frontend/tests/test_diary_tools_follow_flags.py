@@ -46,4 +46,6 @@ def test_the_shared_base_list_is_never_mutated(monkeypatch):
 def test_the_send_site_applies_it_next_to_the_deal_depth_gate():
     import os
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_loop.py"), encoding="utf-8").read()
-    assert "without_flagged_off_diary_tools(all_tool_schemas)" in src
+    import re
+    assert re.search(r"all_tool_schemas = with_deal_depth_kinds\(all_tool_schemas\)\s*\n\s*all_tool_schemas = without_flagged_off_diary_tools\(all_tool_schemas\)", src), \
+        "the diary gate must sit directly after the deal-depth gate at the send site"

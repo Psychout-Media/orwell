@@ -14,6 +14,8 @@ const DOSSIER = "playerDossier — the player's own Diary-Room reads";
 function game() {
   const s = new GameSessionAdapter();
   s.createCharacter({ playerName: "P", seed: 3 });
+  s.setBoothReceiptsEnabled(true);   // deterministic: never inherit ORWELL_FLAGS_OFF / an explicit =0 from the environment
+  s.setPlayerDossierEnabled(true);
   return s;
 }
 const prompt = (s: GameSessionAdapter) => s.getMomentPrompt({}).systemPrompt;
@@ -59,6 +61,7 @@ describe("diary tools follow their feature flags", () => {
   it("buildSystemPrompt takes the flags directly (the pure seam), and omitting them is the default-on prompt", () => {
     const view = game().getGameState();
     const on = buildSystemPrompt("default", view);
+    expect(on).toBe(buildSystemPrompt("default", view, undefined, undefined, undefined, undefined, { playerDossier: true, boothReceipts: true }));
     expect(on).toContain(RECEIPTS);
     const off = buildSystemPrompt("default", view, undefined, undefined, undefined, undefined, { playerDossier: false, boothReceipts: false });
     expect(off).not.toMatch(/playerReceipts|playerDossier/);
