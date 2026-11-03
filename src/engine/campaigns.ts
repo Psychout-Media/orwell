@@ -144,12 +144,13 @@ export function campaignTilt(
 
 /**
  * #1937 — SINGLE SWITCH POINT: do PLAYER-owned campaigns count in the campaign push on NPC nominations, the
- * veto-save read, and the `protect` netting at the vote? DEFAULT false (excluded) until the owner rules: whether
- * 0098 ("no player input modulates seeded odds") reaches social influence through the NPCs' own decisions is a
- * game-design call. The existing eviction-vote `evict` tilt keeps counting the player's campaigns (spec 0085);
- * only the NEW pushes honor this. Flip it here and nowhere else.
+ * replacement, the veto-save read, and the `protect` netting at the vote? OWNER RULING 2026-11-03: YES at every
+ * stage — the player's own lobbying sways the NPCs' nominations, replacement and veto save as well as the vote
+ * (still bounded by `CAMPAIGN.base`, and the NPCs still decide; 0098 is about mechanics that shift seeded odds
+ * directly, not social influence earned through the player's real moves). The eviction-vote `evict` tilt has always
+ * counted the player's campaigns (spec 0085). Flip it here and nowhere else.
  */
-export const CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED = false;
+export const CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED = true;
 
 export interface CampaignPushDeps {
   /** The houseguest id of the player (their campaigns are gated by `includePlayerOwned`). */

@@ -51,11 +51,13 @@ describe("campaignPushFor — the signed, bounded, aware-only push", () => {
     expect(campaignPushFor(many.map((c) => ({ ...c, knownTo: [...c.owners, decider] })), target, decider, deps())).toBeCloseTo(CAMPAIGN.base);
   });
 
-  it("the player's own campaigns are EXCLUDED by default and counted only through the single switch", () => {
-    expect(CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED).toBe(false);
+  it("the player's own campaigns COUNT (owner ruling 2026-11-03), through the single switch", () => {
+    expect(CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED).toBe(true);
     const mine = camp({ owners: [PLAYER], knownTo: [PLAYER, decider] });
-    expect(campaignPushFor([mine], target, decider, deps())).toBe(0);
-    expect(campaignPushFor([mine], target, decider, deps({ includePlayerOwned: true }))).toBeCloseTo(CAMPAIGN.base);
+    expect(campaignPushFor([mine], target, decider, deps())).toBeCloseTo(CAMPAIGN.base);
+    expect(campaignPushFor([mine], target, decider, deps({ includePlayerOwned: false }))).toBe(0); // the switch off
+    // …still bounded: the player's push can never exceed the same ±base cap, however many campaigns they stack.
+    expect(Math.abs(campaignPushFor([mine, camp({ id: "m2", owners: [PLAYER], knownTo: [PLAYER, decider] })], target, decider, deps()))).toBeLessThanOrEqual(CAMPAIGN.base);
   });
 
   it("is a lower trust / lower susceptibility ⇒ a smaller push (character-mediated)", () => {

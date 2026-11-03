@@ -7716,7 +7716,10 @@ export class GameSessionAdapter implements GameSession {
     // Prune campaigns whose owner is gone; re-plan the rest against the live board.
     this.campaigns = this.campaigns
       .filter((c) => living.has(c.owners[0]!))
-      .map((c) => c.status === "active"
+      // The player's OWN campaign keeps the goal they declared: `replan` re-aims NPC campaigns against the board, but it
+      // must not silently turn a player's evict campaign into `protect` them when they are nominated (that would hand
+      // the player a free, unearned shield now that `protect` has mechanical effect, #1937).
+      .map((c) => c.status === "active" && c.owners[0] !== PLAYER
         ? replan(c, {
             active: living,
             ownerEndangered: nominees.has(c.owners[0]!),
