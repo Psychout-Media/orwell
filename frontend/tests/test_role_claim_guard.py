@@ -1,0 +1,328 @@
+"""A-15 rehearsal 2026-11-03 — the ROLE-CLAIM guard (src/role_claims.py): name + role co-occurrence against the
+engine's committed roles, with ellipsis/quote-split announcements joined into one unit. Roles only — no fixed cast;
+the roster below is synthetic. Includes the REAL host-PA strings that slipped through and phrasings the narrator has
+not used yet (the point of not template-matching)."""
+import importlib
+
+import pytest
+
+rc = importlib.import_module("src.role_claims")
+
+ROSTER = ["Hoh Person", "Nom Alpha", "Nom Beta", "Vetoer Gamma", "Other Delta"]
+
+
+def sig(**kw):
+    base = {
+        "phase": "veto-competition", "activeNames": list(ROSTER), "evictedNames": [], "playerName": "Player Epsilon",
+        "hohName": "Hoh Person", "vetoHolderName": None, "nomNames": ["Nom Alpha", "Nom Beta"], "playerStatus": "active",
+    }
+    base.update(kw)
+    return base
+
+
+def stripped(text, s, carry=None):
+    kept, out, new = rc.screen_role_units(text, s, carry)
+    return kept, out, new
+
+
+# ── the REAL strings from the rehearsal transcript (shape-preserved, names swapped for roles) ──────────────────
+REAL_VETO = '**"The winner of the Power of Veto..."**\n\nShe looks up.\n\n**"...is Player Epsilon."**\n\nThe yard makes a sound.\n'
+REAL_EVICT = ('**"By the votes read, the houseguest leaving the Big Brother house tonight is..."**\n\n'
+              'The pause is the worst part.\n\n**"...Nom Beta."**\n\nThe yard erupts.\n')
+
+
+def test_real_veto_announcement_naming_the_player_before_any_commit_is_stripped_but_the_first_half_stays():
+    kept, out, _ = stripped(REAL_VETO, sig())
+    assert "Player Epsilon" not in kept and "The winner of the Power of Veto" in kept
+    real = [u for u in out if u["roles"]]
+    assert len(real) == 1 and "uncommitted" in real[0]["reason"]  # (+ the unit's own closing `"**`, reported so it is mirrored too)
+    assert "The yard makes a sound." in kept and "She looks up." in kept  # neighbours untouched
+    assert kept.count("**") == 2 and '"**' not in kept.replace('Veto..."**', ""), "no dangling closing wrapper left behind"
+
+
+def test_real_veto_announcement_naming_the_wrong_holder_after_commit_is_stripped():
+    t = REAL_VETO.replace("Player Epsilon", "Hoh Person")
+    kept, out, _ = stripped(t, sig(vetoHolderName="Vetoer Gamma"))
+    assert "Hoh Person." not in kept and out and "veto holder is not Hoh Person" in out[0]["reason"]
+
+
+def test_real_evictee_announcement_naming_the_wrong_person_is_stripped():
+    kept, out, _ = stripped(REAL_EVICT, sig(phase="eviction", evictedNames=["Nom Alpha"]))
+    assert "Nom Beta" not in kept and out
+
+
+def test_the_correct_commitment_passes_untouched():
+    t = REAL_VETO.replace("Player Epsilon", "Vetoer Gamma")
+    kept, out, _ = stripped(t, sig(vetoHolderName="Vetoer Gamma"))
+    assert kept == t and not out
+    t2 = REAL_EVICT.replace("Nom Beta", "Nom Alpha")
+    kept2, out2, _ = stripped(t2, sig(phase="eviction", evictedNames=["Nom Alpha"]))
+    assert kept2 == t2 and not out2
+
+
+# ── phrasings the narrator has NOT used yet (no template names them) ──────────────────────────────────────────
+NOVEL_STRIP = [
+    ("The medal goes to Hoh Person.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Hoh Person clutches the Power of Veto, knuckles white.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Player Epsilon takes the veto.", sig()),
+    ("Other Delta is the new Head of Household.", sig()),
+    ("Nom Beta is packing his bags tonight.", sig(phase="eviction", evictedNames=["Nom Alpha"])),
+    ("Nom Beta has been voted out of the house.", sig(phase="eviction", evictedNames=["Nom Alpha"])),
+    ("Nom Beta is not using the veto.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Other Delta is on the block.", sig()),
+    # found by the live re-run: the narrator's object/verb vary ("medallion", "holds up", "lifts", "around her neck")
+    ("Hoh Person holds up the medallion with one hand and doesn't even stand up.", sig()),
+    ("Other Delta lifts the veto above her head.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Nom Beta wears the Power of Veto around his neck like a dare.", sig(vetoHolderName="Vetoer Gamma")),
+]
+
+
+@pytest.mark.parametrize("text,s", NOVEL_STRIP)
+def test_novel_phrasings_that_assert_an_uncommitted_or_wrong_role_are_stripped(text, s):
+    kept, out, _ = stripped(text + "\n", s)
+    assert out, f"should strip: {text!r}"
+    assert text not in kept, "the offending unit must be removed from the emitted text"
+
+
+NOVEL_PASS = [
+    ("Vetoer Gamma wins the Power of Veto.", sig(vetoHolderName="Vetoer Gamma")),
+    ("The medal goes to Vetoer Gamma.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Nom Alpha is evicted from the Big Brother house.", sig(phase="eviction", evictedNames=["Nom Alpha"])),
+    ("Hoh Person is the new Head of Household.", sig()),
+    ("Nom Alpha and Nom Beta are on the block.", sig()),
+    ("If Vetoer Gamma wins the veto, Nom Alpha could be saved.", sig()),                       # conditional
+    ("Whoever wins the Power of Veto will decide Nom Beta's fate.", sig()),                    # future
+    ("Other Delta wonders who will win the veto.", sig()),                                     # question-ish / hypothetical
+    ("Hoh Person pours coffee and glares at Nom Alpha across the kitchen.", sig()),            # creative prose, no role cue
+    ("@[Vetoer Gamma] — Hoh Person is going to remember that, trust me.", sig()),              # speaker tag + no cue
+    ("Last week Hoh Person won the Power of Veto and used it.", sig(vetoHolderName="Vetoer Gamma")),  # past reference
+    ("The veto meeting takes place tonight and Hoh Person is already pacing.", sig(vetoHolderName="Vetoer Gamma")),
+    ("Vetoer Gamma holds up the medallion with one hand.", sig(vetoHolderName="Vetoer Gamma")),
+    # found by the live re-run: the eviction EVENT is not an evictee assertion
+    ("**Nom Alpha and Nom Beta**, the eviction is tonight.", sig(phase="eviction")),
+    ("*The eviction vote is yours to cast — Nom Alpha or Nom Beta.*", sig(phase="eviction")),
+    ("A vote to evict Nom Beta, read aloud by Hoh Person.", sig(phase="eviction")),
+]
+
+
+@pytest.mark.parametrize("text,s", NOVEL_PASS)
+def test_true_hypothetical_and_creative_text_passes(text, s):
+    kept, out, _ = stripped(text + "\n", s)
+    assert not out and kept == text + "\n", f"must pass: {text!r} -> {out}"
+
+
+def test_a_farewell_scene_containing_the_real_evictee_passes_even_with_other_names():
+    t = "Nom Beta hugs Nom Alpha goodbye at the door.\n"
+    kept, out, _ = stripped(t, sig(phase="eviction", evictedNames=["Nom Alpha"]))
+    assert not out and kept == t
+
+
+def test_weak_farewell_cues_are_inert_outside_eviction_night():
+    t = "Nom Beta says goodbye to the yard lights and heads inside.\n"
+    kept, out, _ = stripped(t, sig(phase="veto-competition"))
+    assert not out and kept == t
+
+
+# ── the ellipsis halves arrive in DIFFERENT stream chunks ───────────────────────────────────────────────────
+def test_split_across_chunks_needs_and_uses_the_carry():
+    s = sig()
+    k1, o1, carry = stripped('**"The winner of the Power of Veto..."**\n', s)
+    assert not o1 and carry["ttl"] > 0 and "veto-hold" in carry["roles"]
+    k2, o2, _ = stripped('**"...is Player Epsilon."**\n', s, carry)
+    assert o2 and "Player Epsilon" not in k2
+    # without the carry the continuation alone carries no role cue — it passes (proves the carry is load-bearing)
+    k3, o3, _ = stripped('**"...is Player Epsilon."**\n', s, None)
+    assert not o3
+
+
+def test_carry_expires_and_does_not_leak_onto_unrelated_names():
+    s = sig()
+    _, _, carry = stripped('**"The winner of the Power of Veto..."**\n', s)
+    _, o, carry = stripped("Time passes in the kitchen.\n", s, carry)
+    _, o, carry = stripped("Birds sing outside the window.\n", s, carry)
+    _, o, carry = stripped("The lamps hum all night long.\n", s, carry)
+    k, o, _ = stripped("Other Delta laughs at something.\n", s, carry)
+    assert not o
+
+
+# ── hygiene ──────────────────────────────────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("t", [REAL_VETO, REAL_EVICT, "plain prose.\nTwo lines... and an ellipsis…\nend", "", "no terminator"])
+def test_splitting_preserves_every_byte(t):
+    assert "".join(o for o, _ in rc.split_units(t)) == t
+
+
+def test_fail_open_on_garbage():
+    assert rc.screen_role_units("x", None)[0] == "x"
+    assert rc.screen_role_units(None, {})[0] is None
+    assert rc.screen_role_units("Hoh Person wins the veto.", {"activeNames": None})[0]
+
+
+def test_a_speaker_tag_is_who_talks_not_who_the_sentence_is_about():
+    t = "@[Hoh Person] — I'm not using the Power of Veto, don't look at me.\n"
+    kept, out, _ = stripped(t, sig(vetoHolderName="Vetoer Gamma"))
+    assert not out and kept == t
+
+
+def test_a_unique_first_or_last_name_alone_resolves_to_the_houseguest():
+    kept, out, _ = stripped("Other clutches the Power of Veto, grinning.\n", sig(vetoHolderName="Vetoer Gamma"))
+    assert out and "Other" not in kept
+    # …but an ambiguous token (two houseguests share it) is NOT resolved on its own
+    s = sig(activeNames=["Pat Shared", "Lee Shared", "Hoh Person"], vetoHolderName="Hoh Person")
+    kept2, out2, _ = stripped("Shared clutches the Power of Veto.\n", s)
+    assert not out2
+
+
+def test_phantom_role_claims_is_the_stable_entry_point_for_other_checks():
+    s = sig(vetoHolderName="Vetoer Gamma")
+    assert rc.phantom_role_claims("Hoh Person clutches the Power of Veto.", s)
+    assert rc.phantom_role_claims("Vetoer Gamma holds the Power of Veto.", s) == []
+    assert rc.phantom_role_claims("If Hoh Person wins the veto he could use it.", s) == []
+    assert rc.phantom_role_claims("", s) == [] and rc.phantom_role_claims("x", None) == []
+
+
+# ── BALLOTS BEFORE THE PLAYER'S CARD (A-15 rehearsal, top priority — the N-14/N-15 ordering class) ─────────────────
+def ev_sig(**kw):
+    return sig(phase="eviction", nomNames=["Nom Alpha", "Nom Beta"], evictionBallots=0, pending="eviction-vote", **kw)
+
+
+BALLOT_LINES = [
+    '@[Hoh Person] "Nom Alpha."',                                   # bare-name ballot readout (the real rehearsal shape)
+    '**"Nom Beta."**',
+    '@[Hoh Person] "The last vote… Nom Alpha."',
+    "That's eight votes for Nom Alpha, six for Nom Beta.",           # tally
+    "Hoh Person reads the next ballot: a vote to evict Nom Beta.",
+    "The envelope opens. Nom Alpha. Nom Alpha. Nom Beta.",
+]
+
+
+@pytest.mark.parametrize("line", BALLOT_LINES)
+def test_ballots_and_tallies_are_stripped_until_the_engine_has_revealed_a_ballot(line):
+    kept, out, _ = stripped(line + "\n", ev_sig())
+    assert out and "ballot" in out[0]["reason"], f"must strip: {line!r}"
+
+
+@pytest.mark.parametrize("line", BALLOT_LINES)
+def test_the_same_ballots_pass_once_the_engine_has_revealed_ballots(line):
+    s = sig(phase="eviction", nomNames=["Nom Alpha", "Nom Beta"], evictionBallots=3, pending=None)
+    kept, out, _ = stripped(line + "\n", s)
+    assert not [o for o in out if "ballot" in o["reason"]], f"engine already revealed ballots: {line!r}"
+
+
+def test_the_card_prompt_and_scene_setting_are_not_ballots():
+    for t in ['*The eviction vote is yours to cast — Nom Alpha or Nom Beta.*',
+              "Hoh Person sets the lidded bowl on the table; the room is very still.",
+              "@[Hoh Person] \"Player Epsilon. You're up.\""]:
+        kept, out, _ = stripped(t + "\n", ev_sig())
+        assert not out, f"must pass: {t!r} -> {out}"
+
+
+def test_a_bare_name_line_is_not_a_ballot_outside_the_eviction_phase():
+    kept, out, _ = stripped('@[Hoh Person] "Nom Alpha."\n', sig(phase="veto-competition", evictionBallots=0))
+    assert not out
+
+
+# ── review (cubic) on #2033 ─────────────────────────────────────────────────────────────────────────────────────────
+def test_a_cue_binds_only_the_name_attached_to_it():
+    s = sig(vetoHolderName="Hoh Person")
+    t = "Nom Beta is furious that Hoh Person won the veto.\n"
+    kept, out, _ = stripped(t, s)
+    assert not out and kept == t, "Nom Beta is not the subject of the veto cue"
+    kept, out, _ = stripped(t, sig(vetoHolderName="Vetoer Gamma"))
+    assert out and "Hoh Person" in out[0]["reason"] and "Nom Beta" not in out[0]["reason"]
+
+
+def test_a_hypothetical_marker_is_scoped_to_its_own_clause():
+    kept, out, _ = stripped("If it helps, Other Delta is the new Head of Household.\n", sig())
+    assert out, "the 'if' belongs to the first clause; the HOH assertion is in the second"
+    kept, out, _ = stripped("If Vetoer Gamma wins the veto, Nom Alpha could be saved.\n", sig(vetoHolderName=None))
+    assert not out
+
+
+def test_nominee_claims_need_a_committed_set_and_the_hoh_is_not_a_nominee():
+    assert stripped("Other Delta is on the block.\n", sig(nomNames=[]))[1], "no committed nominees ⇒ uncommitted ⇒ strip"
+    assert stripped("Hoh Person is on the block.\n", sig())[1], "the HOH is not a nominee"
+    assert not stripped("Nom Alpha and Nom Beta are on the block.\n", sig())[1]
+    assert not stripped("Hoh Person nominates Nom Alpha and Nom Beta.\n", sig())[1], "the subject of 'nominates' is not judged"
+    assert stripped("Hoh Person nominates Nom Alpha and Other Delta.\n", sig())[1]
+
+
+def test_a_named_non_continuation_consumes_the_carry():
+    s = sig()
+    _, _, carry = stripped('**"The winner of the Power of Veto..."**\n', s)
+    assert carry["ttl"] > 0
+    _, _, carry = stripped("Other Delta laughs at something.\n", s, carry)
+    assert carry["ttl"] == 0 and not carry["roles"]
+    _, o, _ = stripped('**"...is Player Epsilon."**\n', s, carry)
+    assert not o, "a stale cue must not strip a later unrelated named unit"
+
+
+def test_noun_forms_of_the_eviction_result_are_cues_when_a_name_follows():
+    s = sig(phase="eviction", evictedNames=["Nom Alpha"])
+    assert stripped("The eviction goes to Nom Beta.\n", s)[1]
+    assert stripped("Tonight's eviction: Nom Beta.\n", s)[1]
+    assert not stripped("The eviction goes to Nom Alpha.\n", s)[1]
+    assert not stripped("Nom Alpha and Nom Beta, the eviction is tonight.\n", s)[1]
+
+
+def test_unrelated_verbs_near_the_word_veto_are_not_veto_claims():
+    t = "During the veto ceremony, Other Delta holds the door open for the host.\n"
+    kept, out, _ = stripped(t, sig(vetoHolderName="Vetoer Gamma"))
+    assert not out and kept == t
+
+
+@pytest.mark.parametrize("verb", ["earns", "earned", "claims", "claimed", "lifts", "wears"])
+def test_the_veto_verbs_are_matched(verb):
+    assert stripped(f"Other Delta {verb} the Power of Veto.\n", sig(vetoHolderName="Vetoer Gamma"))[1]
+
+
+# ── the mirror stays in lockstep (`_mirror_wall_drop` over the SAME parts) ───────────────────────────────────────────
+MIRROR_CASES = [
+    'Before. **"The winner of the Power of Veto..."** "...is Player Epsilon." After one. After two.\n',
+    "A calm sentence. Player Epsilon takes the veto. Another calm one.\n",
+    'He said hi." "Player Epsilon takes the veto." Then left.\n',
+    '**"The winner of the Power of Veto..."**\n\nShe looks up.\n\n**"...is Player Epsilon."**\n\nThe yard makes a sound.\n',
+]
+
+
+@pytest.mark.parametrize("text", MIRROR_CASES)
+def test_the_stripped_text_mirrors_back_into_the_persisted_round_text_without_over_deleting(text):
+    agent_loop = importlib.import_module("src.agent_loop")
+    kept, out, _ = stripped(text, sig())
+    assert out, "fixture must strip something"
+    g = agent_loop._GuardedScene(kept, False, False, tuple(u["unit"] for u in out), kept)
+    mirrored = agent_loop._apply_mirror_ops(text, agent_loop._scene_ops(text, g))
+    assert mirrored == kept, f"persisted round text must equal what streamed:\n{mirrored!r}\n!=\n{kept!r}"
+
+
+def test_split_units_are_unions_of_the_mirrors_own_parts():
+    import re
+    for t in MIRROR_CASES:
+        parts = [p for p in re.split(r"(?<=[.!?\n])", t) if p]
+        pos = 0
+        bounds = set()
+        for p in parts:
+            pos += len(p); bounds.add(pos)
+        end = 0
+        for orig, _u in rc.split_units(t):
+            end += len(orig)
+            assert end in bounds, "a unit must end on a mirror part boundary"
+
+
+# ── review round 2 ──────────────────────────────────────────────────────────────────────────────────────────────────
+def test_winning_the_hoh_competition_is_a_hoh_claim_but_the_hoh_room_is_not():
+    assert stripped("Other Delta wins the HOH competition.\n", sig(hohName="Hoh Person"))[1]
+    assert stripped("Other Delta won the Head of Household competition!\n", sig(hohName="Hoh Person"))[1]
+    assert not stripped("Other Delta wins the HOH competition.\n", sig(hohName="Other Delta"))[1]
+    assert not stripped("Other Delta heads up to the HOH room.\n", sig(hohName="Hoh Person"))[1]
+    assert not stripped("The first Head of Household competition begins; Other Delta stretches.\n", sig(hohName=None))[1]
+
+
+@pytest.mark.parametrize("verb", ["has", "held", "keeps", "had"])
+def test_possession_forms_of_the_veto_are_matched(verb):
+    assert stripped(f"Other Delta {verb} the veto.\n", sig(vetoHolderName="Vetoer Gamma"))[1]
+    assert not stripped(f"Vetoer Gamma {verb} the veto.\n", sig(vetoHolderName="Vetoer Gamma"))[1]
+
+
+def test_possession_verbs_do_not_catch_the_veto_event_nouns():
+    for t in ["Other Delta has the veto ceremony tonight.\n", "Other Delta has the veto competition to look forward to.\n"]:
+        assert not stripped(t, sig(vetoHolderName="Vetoer Gamma"))[1], t

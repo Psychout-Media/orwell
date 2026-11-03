@@ -1895,6 +1895,10 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        # A-15: the ENGINE's count of anonymized ballots revealed so far (None = the engine doesn't project it ⇒ never judge).
+        "evictionBallots": ((len((state.get("eviction") or {}).get("votesRevealed") or []) if isinstance(state.get("eviction"), dict) else 0)
+                            if "eviction" in state else None),
+        "playerName": (str(player.get("name")).strip() if isinstance(player, dict) and isinstance(player.get("name"), str) and str(player.get("name")).strip() else None),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
 
@@ -4587,6 +4591,65 @@ def _sentence_names_wrong_nominee(sentence: str, nom_names, active_names) -> Opt
                 if _NOMINEE_STATUS_RE.search(window):
                     return name
     return None
+
+
+# A-15 (rehearsal 2026-11-03) — ROLE-CLAIM screening: the narrator voices ceremonies as host-PA quotes split across an
+# ellipsis ("The winner of the Power of Veto..." / "...is Rowan."), which the subject-verb claim detectors never matched.
+# `src/role_claims.py` (pure) screens on name + role co-occurrence against the engine's committed roles; this is its
+# stateful wrapper: the live board read, the per-turn ellipsis carry (the halves arrive in different stream chunks), and
+# the next-turn re-ground. Fail-open: any hiccup returns the text untouched.
+_ROLE_CARRY: dict = {}
+
+
+async def screen_role_claims(user, text: str) -> str:
+    """The kept text only (see `screen_role_claims_ex`)."""
+    return (await screen_role_claims_ex(user, text))[0]
+
+
+async def screen_role_claims_ex(user, text: str) -> "tuple[str, tuple]":
+    """(kept text, the stripped units' exact original text). Fail-open: any hiccup returns (text, ())."""
+    try:
+        if not text or not text.strip():
+            return text, ()
+        from src import role_claims as _rc
+        _dkey = _desync_key(user)
+        # A new turn re-captures the signature (a NEW dict), so the carry is bound to the signature OBJECT by identity
+        # (holding the reference also rules out `id()` reuse). No signature ⇒ no stable turn key ⇒ never carry across calls.
+        turn_obj = _LAST_BEAT_SIG.get(_dkey)
+        carry = _ROLE_CARRY.get(_dkey)
+        if turn_obj is None or not isinstance(carry, dict) or carry.get("turn") is not turn_obj:
+            carry = {"roles": set(), "ttl": 0, "turn": turn_obj}
+        phase_hint = str((_LAST_BEAT_SIG.get(_dkey) or {}).get("phase") or "")
+        _cached = _LAST_BEAT_SIG.get(_dkey) or {}
+        # Pre-reveal eviction: a bare nominee-name line is a ballot readout, but only text that can HOLD a nominee name needs the
+        # board read — creative prose with no nominee name skips the engine round-trips (the cost is per streamed chunk).
+        _ballots_unrevealed = (phase_hint.lower().startswith("eviction") and _cached.get("evictionBallots") == 0
+                               and any(tok and tok in text for nm in (_cached.get("nomNames") or []) for tok in str(nm).split()))
+        if not _rc.cues_in(_rc._norm(text), phase_hint) and carry["ttl"] <= 0 and not _ballots_unrevealed:
+            return text, ()  # cheap pre-filter: no role cue and nothing carried ⇒ creative prose, untouched (ADR 0005 #1)
+        live = await _capture_beat_signature(user)
+        if not live:
+            return text, ()
+        kept, stripped, new_carry = _rc.screen_role_units(text, live, carry)
+        new_carry = dict(new_carry or {})
+        new_carry["turn"] = turn_obj
+        if turn_obj is not None:
+            _ROLE_CARRY[_dkey] = new_carry
+        else:
+            _ROLE_CARRY.pop(_dkey, None)
+        if stripped:
+            logger.warning(
+                "[orwell] role-claim guard STRIPPED %d unit(s) for user=%s: %s", len(stripped), user,
+                "; ".join(f"{u['reason']} ← {u['unit'].strip()[:70]!r}" for u in stripped))
+            _reground_enqueue(_dkey, (
+                "RE-GROUND ON TITLES AND WHO LEAVES — last turn an announcement named someone as a veto winner/holder, "
+                "Head of Household, nominee or evictee that the game has NOT committed to them. Those are engine truth, not "
+                "yours to improvise: voice only what the House Status panel and the production chyron show, and never name "
+                "a winner, holder or evictee the game has not announced."))
+        return kept, tuple(u["unit"] for u in stripped)
+    except Exception as e:
+        logger.debug("[orwell] role-claim guard skipped for user=%s: %s", user, e)
+        return text, ()
 
 
 async def screen_streamed_nominee(user, sentence: str) -> bool:

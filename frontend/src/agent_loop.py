@@ -4934,7 +4934,10 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
     return round_response
 
 
-_GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted"])
+# `role_drops` = the role-claim units stripped from this chunk (exact text, mirrored whole into the raw round buffer — never part-wise,
+# since an ellipsis announcement splits into single-dot parts the sentence mirror cannot erase safely); `screened` = the chunk after that
+# strip (the `before` of the sentence-level mirror pair).
+_GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted", "role_drops", "screened"], defaults=((), None))
 
 
 def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_active: bool, round_emitted: str) -> str:
@@ -5046,7 +5049,17 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         if not emitted_visible and not cutaway_emitted:
             return _GuardedScene(_SCENE_CUTAWAY_LINE, True, True)
         return _GuardedScene("", True, cutaway_emitted)  # drop the fabricated prose
-    guarded = await _pre_emission_outcome_guard(clean, owner)
+    # A-15 (rehearsal 2026-11-03): ROLE-CLAIM screen on name + role co-occurrence, ellipsis/quote-split announcements joined into
+    # one unit — the host-PA phrasing ("The winner of the Power of Veto..." / "...is X.") the sentence-level claim detectors never
+    # matched. Strips only a unit asserting a veto/HOH/nominee/evictee/ballot the engine has not committed; creative prose with no
+    # role cue is untouched. Fail-open. The stripped units are mirrored into the raw round buffer whole (`role_drops`).
+    screened, role_drops = clean, ()
+    try:
+        if chat_helpers is not None:
+            screened, role_drops = await chat_helpers.screen_role_claims_ex(owner, clean)
+    except Exception:
+        screened, role_drops = clean, ()
+    guarded = await _pre_emission_outcome_guard(screened, owner) if screened.strip() else screened
     if not guarded.strip() and clean.strip() and not emitted_visible and not cutaway_emitted:
         # T0-3: the pre-emission guard dropped EVERY sentence this chunk offered (each one asserted a
         # closed-set claim the board couldn't confirm) and the player has seen nothing yet this turn.
@@ -5056,8 +5069,8 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         # the rail on the one turn it mattered most. The same diegetic cutaway line the scene
         # circuit-breaker (above) already uses for an identical "nothing safe to show yet" situation
         # covers it instead — in-fiction, never the lie, never a raw error.
-        return _GuardedScene(_SCENE_CUTAWAY_LINE, False, True)
-    return _GuardedScene(guarded, False, cutaway_emitted)
+        return _GuardedScene(_SCENE_CUTAWAY_LINE, False, True, tuple(role_drops), screened)
+    return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
 
 
 def _ooc_segments(chunk: str, in_aside: bool) -> "tuple[list[tuple[str, bool]], bool]":
@@ -5115,6 +5128,13 @@ async def _screen_aside_text(text: str, owner) -> str:
         return text
 
 
+def _scene_ops(raw: str, g) -> tuple:
+    """The mirror ops for one guarded scene chunk: each stripped role unit is erased WHOLE from the raw round buffer first, then the
+    sentence-level pair (post-strip text -> survivor) is mirrored as before."""
+    drops = tuple((d, "") for d in (getattr(g, "role_drops", ()) or ()))
+    return drops + (((getattr(g, "screened", None) or raw) if getattr(g, "screened", None) is not None else raw, g.text),)
+
+
 _GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed", "mirror_ops"])
 
 
@@ -5159,7 +5179,7 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
         if not outside.strip():
             return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), ""
         g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, ((outside, g.text),)), ""
+        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), ""
     out: "list[str]" = []
     consumed: "list[str]" = []
     ops: "list[tuple[str, str]]" = []
@@ -5193,7 +5213,7 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
             if g.scene_broken:
                 return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, ()), ""  # a fabricated scene cuts the whole chunk, as before
             ce = g.cutaway_emitted
-            ops.append((seg, g.text))
+            ops.extend(_scene_ops(seg, g))
             out.append(g.text)
             shown = shown or bool(g.text.strip())
     return _GuardedChunk("".join(out), scene_broken, ce, "".join(consumed), tuple(ops)), held

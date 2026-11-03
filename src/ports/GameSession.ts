@@ -603,7 +603,16 @@ export interface GameStateView {
    * golden driver absorbed 25 escalated turns on exactly this). Vault-free — the same
    * legal-options view the decision card renders.
    */
-  pending: PendingDecisionView | null;  /**
+  pending: PendingDecisionView | null;
+  /**
+   * A-15 (rehearsal 2026-11-03) — the eviction staging state, the SAME Vault-free `EvictionView` advance returns: `null` when no
+   * eviction is staging (or the game is finished); otherwise the anonymized ballots revealed SO FAR (never a voter, never a
+   * tally). While the player's own eviction-vote card is open the view is non-null with an EMPTY `votesRevealed`; do not read
+   * `null` as "the player has not voted yet". The FE's role-claim guard treats a count of 0 as "no ballot may air yet", so a
+   * narrator cannot air a ballot or tally the engine has not revealed.
+   */
+  eviction?: EvictionView | null;
+  /**
    * 0123 (PO ruling 2026-11-01) — a deal a houseguest has floated to the player and the player has not
    * answered yet, or null. NOT a pending decision and never a pop-up: it never blocks the week. The
    * narrator voices the houseguest raising it in-scene; when the player answers in chat it records the
