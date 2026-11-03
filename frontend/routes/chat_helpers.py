@@ -3627,9 +3627,13 @@ _DENY_VETO_RE = re.compile(
 _PLAYER_CHOICE_BY_PENDING = {
     "eviction-vote": r"you(?:'ve|\s+have)?\s+(?:just\s+)?(?:cast|casted|locked\s+in|submitted)\s+(?:your\s+)?(?:vote|ballot)\b"
                      r"|your\s+(?:vote|ballot)\s+(?:is|has\s+been|was)\s+(?:cast|in|locked|submitted|recorded)\b"
-                     r"|you\s+vote[d]?\s+(?:to\s+evict|for)\b|you(?:'ve|\s+have)\s+voted\b",
-    "nominations": r"you\s+(?:nominate[d]?|name[d]?\s+(?:\w+\s+and\s+\w+|your\s+nominees))\b|your\s+nominees\s+(?:are|will\s+be)\b",
-    "veto-decision": r"you\s+(?:use[d]?|(?:choose|decide[d]?)\s+(?:not\s+)?to\s+use)\s+(?:the|your)\s+(?:power\s+of\s+)?veto\b",
+                     r"|you\s+vote[d]?\s+(?:to\s+evict|for)\b|you(?:'ve|\s+have)\s+voted\b"
+                     r"|you(?:'ve|\s+have)?\s+(?:chose|chosen|decided)\s+to\s+evict\b",
+    "tie-break": r"you(?:'ve|\s+have)?\s+(?:broke|broken|break|cast)\s+the\s+tie\b|your\s+tie-?break(?:ing)?\s+(?:vote\s+)?(?:is|has\s+been|was)\s+(?:cast|in|locked|recorded)\b"
+                 r"|you\s+vote[d]?\s+(?:to\s+evict|for)\b|you(?:'ve|\s+have)?\s+(?:chose|chosen|decided)\s+to\s+evict\b",
+    "nominations": r"you(?:'ve|\s+have)?\s+(?:nominate[d]?|name[d]?\s+(?:\w+\s+and\s+\w+|your\s+nominees))\b|your\s+nominees\s+(?:are|will\s+be)\b",
+    "veto-decision": r"you(?:'ve|\s+have)?\s+(?:use[d]?|(?:choose|chose|chosen|decide[d]?)\s+(?:not\s+)?to\s+use)\s+(?:the|your)\s+(?:power\s+of\s+)?veto\b"
+                     r"|you\s+(?:did\s+not|didn(?:'|’)?t)\s+use\s+(?:the|your)\s+(?:power\s+of\s+)?veto\b",
     "replacement": r"you\s+name[d]?\s+\w+(?:\s+\w+)?\s+as\s+(?:the\s+)?replacement\b",
     "secret-veto": r"you(?:'ve|\s+have)?\s+(?:used|played|activated|revealed)\s+your\s+(?:secret\s+)?(?:power|veto|safety|secret\s+veto)\b"
                    r"|you\s+(?:use|play|activate|reveal)\s+(?:your\s+)?(?:secret\s+)?(?:power|veto|safety|secret\s+veto)\b"
@@ -3657,7 +3661,8 @@ def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
         return None
     for sent in re.split(r"(?<=[.!?\n])", text):
         m = rx.search(sent) if sent.strip() else None
-        if m and not _N15_NOT_A_CLAIM_RE.search(sent[:m.end()]):
+        # the exemption markers must sit in the claim's OWN clause: "If you hesitate, but you have cast your vote" still trips
+        if m and not _N15_NOT_A_CLAIM_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.end()]):
             return ("the player's choice as already MADE while its decision card (" + str(live.get("pending"))
                     + ") is still open and nothing is recorded — the player decides ONLY through the card")
     return None

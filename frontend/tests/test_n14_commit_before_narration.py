@@ -15,14 +15,19 @@ oe = importlib.import_module("src.orwell_engine")
 
 
 def _run(c):
-    return asyncio.new_event_loop().run_until_complete(c)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(c)
+    finally:
+        loop.close()
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 @pytest.fixture(autouse=True)
 def _clean():
-    ch.clear_social_runway("u"); ch.clear_preresolve_debt("u")
+    ch.clear_social_runway("u"); ch.clear_preresolve_debt("u"); ch._PRE_RESOLVED_ADVANCE.pop("u", None)
     yield
-    ch.clear_social_runway("u"); ch.clear_preresolve_debt("u")
+    ch.clear_social_runway("u"); ch.clear_preresolve_debt("u"); ch._PRE_RESOLVED_ADVANCE.pop("u", None)
 
 
 def _wire(monkeypatch):
