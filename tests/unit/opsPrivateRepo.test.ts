@@ -257,7 +257,17 @@ describe("install-script quality — the post-incident hardening (a real install
   });
 
   it("ownership covers DATA_DIR explicitly (it is overridable to outside APP_DIR)", () => {
-    expect(inst).toMatch(/chown -R orwell:orwell "\$\{APP_DIR\}" "\$\{DATA_DIR\}"/);
+    expect(inst).toMatch(/orwell_apply_ownership "\$APP_DIR" orwell orwell "\$DATA_DIR"/);
+  });
+
+  it("the code tree stays root-owned: no recursive chown of the whole app dir to the service user", () => {
+    // Root-run ops units execute deploy/ scripts, so the service user must not own (or write) code.
+    // Only data/, frontend/data, backups/ (+ a custom DATA_DIR) are handed to it.
+    expect(inst).not.toMatch(/chown -R orwell:orwell "\$\{APP_DIR\}"/);
+    expect(inst).toMatch(/chown -h root:root/);
+    const upd = readFileSync(join(DEPLOY, "orwell-update.sh"), "utf8");
+    expect(upd).not.toMatch(/chown -R "\$SVC_USER":"\$SVC_GROUP" "\$APP_DIR"/);
+    expect(upd).toMatch(/orwell_apply_ownership "\$APP_DIR" "\$SVC_USER" "\$SVC_GROUP"/);
   });
 
   it("the drop-in/verification key on the EFFECTIVE port from data/.env, not the env arg", () => {
@@ -367,7 +377,7 @@ describe("G19b ops trigger — web-requested update via the root path unit", () 
 
     it(`${name} creates the orwell-owned flag dir (the FE writes the flag) + the readable live log`, () => {
       expect(text).toMatch(/install -d -m 750 "[^"]*\/ops"/);
-      expect(text).toMatch(/chown orwell:orwell "[^"]*\/ops"/); // the data/ops ownership line
+      expect(text).toMatch(/chown (-h )?orwell:orwell "[^"]*\/ops"/); // the data/ops ownership line
       expect(text).toMatch(/touch "[^"]*ops-update\.log"/);
       expect(text).toMatch(/chmod 644 "[^"]*ops-update\.log"/);
       // `install` TRUNCATES an existing file — the live run log must never be created that way.
