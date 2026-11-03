@@ -241,3 +241,24 @@ def _join_stray_capability_probe_threads(monkeypatch):
                 # fixture exists to prevent — make the miss loud enough to debug.
                 warnings.warn(f"capability-probe thread {t.name!r} did not finish within 15s "
                               "and outlived its test", RuntimeWarning)
+
+
+@pytest.fixture(autouse=True)
+def _root_ops_route_defaults(monkeypatch) -> None:
+    """Defaults for the admin routes that trigger ROOT operations (reset / update / TLS / public
+    exposure), so a test about the route's OWN behavior is not also a test of the host:
+
+    * the ops watcher reads as ACTIVE (``core.ops_watcher._systemctl_is_active`` shells out to a
+      ``systemctl`` the test box does not have; a unit FILE in a tmp dir is what a test provides);
+    * the strict auth-off gate (``core.admin_guard.require_root_ops``) is opened with its documented
+      operator opt-in, because a ``TestClient`` is not a direct-loopback peer.
+
+    Negative tests (inactive watcher, auth-off gate, cross-origin, missing confirmation) re-set either
+    one explicitly — see ``test_admin_root_op_guards.py`` — and a monkeypatch made in the test body wins
+    over this fixture."""
+    try:
+        from core import ops_watcher
+    except Exception:
+        return
+    monkeypatch.setattr(ops_watcher, "_systemctl_is_active", lambda unit: True)
+    monkeypatch.setenv("ORWELL_ROOT_OPS_WITHOUT_AUTH", "1")

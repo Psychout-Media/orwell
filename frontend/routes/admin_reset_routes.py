@@ -9,8 +9,9 @@ config (the keys an operator should never have to re-enter) and never touching `
 This mirrors ``admin_update_routes.py`` exactly (same privilege model, same flag trigger):
 
 Boundaries / security:
-  * Admin-gated by the shared ``require_admin`` contract (a non-admin gets 403), exactly like
-    ``admin_update_routes`` / ``admin_health_routes``.
+  * Gated by ``core.admin_guard.guard_root_op``: an authenticated admin (the strict root-op gate, NOT
+    the blanket auth-off bypass of ``require_admin``), a same-origin request, and a server-checked
+    ``{"confirm": "RESET"}`` body field.
   * The command is FIXED — there is NO user input in the argv. The script PATH is overridable
     by ``ORWELL_OOBE_RESET_SCRIPT`` (default ``/opt/orwell/deploy/orwell-oobe-reset.sh``)
     purely so tests/dev never shell out to a real host path; the web tier never chooses WHAT
@@ -41,7 +42,8 @@ from datetime import timezone
 
 from fastapi import APIRouter, Request
 
-from core.middleware import require_admin
+from core.admin_guard import RESET_PHRASE, guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
 from src.auth_helpers import effective_user
 
 logger = logging.getLogger(__name__)
@@ -89,9 +91,11 @@ def _watcher_unit_path() -> str:
 
 
 def _watcher_installed() -> bool:
-    """True when the root-side path unit is installed — the only privileged door that actually
-    runs the reset with root (the unit watches ``data/ops/<flag>`` and runs the script as root)."""
-    return os.path.isfile(_watcher_unit_path())
+    """True when the root-side path unit is installed AND ACTIVE — the only privileged door that
+    actually runs the reset with root (the unit watches ``data/ops/<flag>`` and runs the script as
+    root). A unit file alone is not enough: a stopped/disabled ``.path`` unit leaves the flag unread
+    until it next starts, so "started" would be a lie (and the reset would fire at a time nobody chose)."""
+    return watcher_active(_watcher_unit_path())
 
 
 def _flag_trigger_installed() -> bool:
@@ -193,9 +197,10 @@ def setup_admin_reset_routes() -> APIRouter:
         reset restarts this process). Prefers the privilege-safe root flag trigger when
         installed; otherwise launches the fixed script detached (optionally sudo-wrapped).
 
-        Destructive: the status-page button requires a type-"RESET" confirmation before it
-        posts here. This endpoint re-checks admin server-side regardless of the UI."""
-        require_admin(request)
+        Destructive: the status-page button asks for a typed "RESET" and sends it as
+        ``{"confirm": "RESET"}``; this endpoint REQUIRES that field server-side (400 without it), and
+        re-checks admin (``require_root_ops``) and same-origin regardless of the UI."""
+        await guard_root_op(request, confirm=RESET_PHRASE)
         who = None
         try:
             who = effective_user(request)
@@ -226,9 +231,8 @@ def setup_admin_reset_routes() -> APIRouter:
 
         # FAIL LOUDLY — no privileged path is available. Surface the error through the same
         # ops-progress channel the status page polls, so it is visible instead of a silent no-op.
-        reason = ("no privileged path to run the reset — the root-side flag watcher "
-                  "(orwell-ops-factory-reset.path) is not installed and sudo is not enabled. "
-                  "Deploy the update (it installs the watcher) or set ORWELL_OOBE_RESET_SUDO=1.")
+        reason = (inactive_reason(_watcher_unit_path(), "run the reset") +
+                  " Sudo is not enabled either (ORWELL_OOBE_RESET_SUDO=1).")
         logger.error("[factory-reset] admin '%s' could NOT start the OOBE reset: %s", who, reason)
         _write_failed_status("factory-reset", reason)
         return {"started": False, "via": "none", "error": reason}

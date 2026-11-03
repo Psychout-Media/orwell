@@ -42,7 +42,8 @@ from datetime import timezone
 
 from fastapi import APIRouter, Request
 
-from core.middleware import require_admin
+from core.admin_guard import guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
 from src.auth_helpers import effective_user
 
 logger = logging.getLogger(__name__)
@@ -87,9 +88,10 @@ def _watcher_unit_path() -> str:
 
 
 def _watcher_installed() -> bool:
-    """True when the root-side G19b path unit is installed — the privileged door that actually
-    runs the updater with root (the unit watches ``data/ops/update-requested`` and runs as root)."""
-    return os.path.isfile(_watcher_unit_path())
+    """True when the root-side G19b path unit is installed AND ACTIVE — the privileged door that
+    actually runs the updater with root (the unit watches ``data/ops/update-requested`` and runs as
+    root). A stopped/disabled unit would leave the flag unread, so it must not count."""
+    return watcher_active(_watcher_unit_path())
 
 
 def _flag_trigger_installed() -> bool:
@@ -195,7 +197,7 @@ def setup_admin_update_routes() -> APIRouter:
         Admin-only. Returns ``{started: true}`` IMMEDIATELY — never blocks on completion (the
         update restarts this process). Prefers the privilege-safe root flag trigger when
         installed; otherwise launches the fixed script detached (optionally sudo-wrapped)."""
-        require_admin(request)
+        await guard_root_op(request)
         who = None
         try:
             who = effective_user(request)
@@ -226,9 +228,8 @@ def setup_admin_update_routes() -> APIRouter:
 
         # FAIL LOUDLY — no privileged path. Surface it through the ops-progress channel the status
         # page polls so the operator sees the error instead of a silent "started" that never runs.
-        reason = ("no privileged path to run the update — the root-side flag watcher "
-                  "(orwell-ops-update.path) is not installed and sudo is not enabled. "
-                  "Re-run the deploy installer/updater on the host or set ORWELL_UPDATE_SUDO=1.")
+        reason = (inactive_reason(_watcher_unit_path(), "run the update") +
+                  " Sudo is not enabled either (ORWELL_UPDATE_SUDO=1).")
         logger.error("[update] admin '%s' could NOT start the update: %s", who, reason)
         _write_failed_status("update", reason)
         return {"started": False, "via": "none", "error": reason}

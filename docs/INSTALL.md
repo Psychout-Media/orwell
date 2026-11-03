@@ -194,6 +194,21 @@ Updates never touch either data dir (non-degradation, feature 0007).
   token in constant time. Behind TLS, also set `SECURE_COOKIES=true`.
 - Each container is its own **sandbox** (one game namespace). The **Vault Wall** keeps secret game
   state off every player-facing surface — enforced structurally, not by prompt.
+- **Admin buttons that run as root** (Update, Update + Reset, Factory Reset, Local HTTPS, Public
+  deployment) are guarded server-side, not just in the page: the caller must be an authenticated admin;
+  the request must come from Orwell's own pages (its `Origin` / `Referer` must match the address you
+  browse to — plain `http://<LAN-IP>:<port>` works); the two destructive resets also require the typed
+  `RESET` to be sent with the request; and a button only reports "started" when its root watcher unit
+  (`orwell-ops-*.path`) is **active** (otherwise it says so and queues nothing — fix with
+  `systemctl enable --now orwell-ops-<name>.path` or re-run the updater).
+  - **Auth disabled (`AUTH_ENABLED=false`, loopback-only installs):** these buttons work from a browser
+    on the same machine (a direct loopback connection, e.g. `http://127.0.0.1:<port>` or an SSH
+    tunnel). They are refused through a reverse proxy; either enable authentication (recommended) or
+    set `ORWELL_ROOT_OPS_WITHOUT_AUTH=1` in `data/.env` if you accept that risk, or use the `orwell`
+    control panel on the host.
+  - **Behind a reverse proxy / tunnel:** pass the original `Host` header (`X-Forwarded-Host` is also
+    honored) or list your public address in `ALLOWED_ORIGINS`; otherwise the buttons answer
+    "Cross-origin request refused".
 
 ---
 

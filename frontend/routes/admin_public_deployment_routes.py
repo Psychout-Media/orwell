@@ -52,9 +52,25 @@ from routes.admin_update_routes import (
     _data_dir,
     _ensure_ops_dir,
     _ops_dir,
-    _watcher_installed,
     _write_failed_status,
 )
+from core.admin_guard import guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
+
+# The root path unit that consumes THIS lane's flag — its own unit, not the Update lane's (the routes
+# used to probe orwell-ops-update.path, so a missing/stopped public-deployment watcher still read as
+# "installed"). Overridable for tests/dev.
+_WATCHER_UNIT = "/etc/systemd/system/orwell-ops-public-deployment.path"
+
+
+def _watcher_unit_path() -> str:
+    return os.environ.get("ORWELL_PUBLIC_DEPLOYMENT_WATCHER_UNIT") or _WATCHER_UNIT
+
+
+def _watcher_ready() -> bool:
+    """True iff the public-deployment path unit is installed AND active (a flag dropped for a stopped
+    watcher would sit unprocessed and fire whenever it next started)."""
+    return watcher_active(_watcher_unit_path())
 
 # The connector-token sidecar (mode 0600, owned orwell, shredded by the root script) and the
 # non-secret desired-env config the root script reads.
@@ -163,7 +179,7 @@ def setup_admin_public_deployment_routes() -> APIRouter:
     async def public_deployment_apply(request: Request):
         """Validate the proposed public profile (fail closed → 400, writing NOTHING), then drop the
         non-secret config + the transient mode-0600 connector token + the existence-only flag."""
-        require_admin(request)
+        await guard_root_op(request)
         body = await request.json() if await _has_body(request) else {}
         if not isinstance(body, dict):
             body = {}
@@ -204,6 +220,14 @@ def setup_admin_public_deployment_routes() -> APIRouter:
         except RuntimeError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        # Nothing is written unless the root watcher is really running: an early return used to leave
+        # the connector token (and config) on disk with nobody to consume or shred them.
+        if not _watcher_ready():
+            reason = inactive_reason(_watcher_unit_path(), "apply the public deployment")
+            _write_failed_status(_ACTION, reason)
+            return {"started": False, "via": "none", "error": reason,
+                    "log": "ops-public-deployment.log"}
+
         # Safe → write the non-secret desired env + the (optional) connector token + the flag.
         _ensure_ops_dir()
         config = {
@@ -233,31 +257,23 @@ def setup_admin_public_deployment_routes() -> APIRouter:
             finally:
                 os.close(fd)
 
-        # Trigger the root ops lane via the existence-only flag — fail loud (no watcher installed).
-        if not _watcher_installed():
-            reason = ("no privileged path to apply the public deployment — the root-side flag watcher "
-                      "(orwell-ops-public-deployment.path) is not installed. Re-run the deploy "
-                      "installer/updater on the host so the ops units exist.")
-            _write_failed_status(_ACTION, reason)
-            return {"started": False, "via": "none", "error": reason,
-                    "log": "ops-public-deployment.log"}
+        # Trigger the root ops lane via the existence-only flag (the watcher was verified above).
         return _trigger_public_flag()
 
     @router.post("/public-deployment/disconnect")
     async def public_deployment_disconnect(request: Request):
         """Back to LAN-only: drop the disconnect config + the existence-only flag (the root script
         flips ORWELL_PUBLIC off, disables cloudflared, restarts the FE)."""
-        require_admin(request)
+        await guard_root_op(request)
+        if not _watcher_ready():
+            reason = inactive_reason(_watcher_unit_path(), "disconnect")
+            _write_failed_status(_ACTION, reason)
+            return {"started": False, "via": "none", "error": reason,
+                    "log": "ops-public-deployment.log"}
         _ensure_ops_dir()
         config_path = os.path.join(_ops_dir(), _CONFIG_FILE)
         with open(config_path, "w", encoding="utf-8") as fh:
             json.dump({"action": "disconnect", "ts": _now_iso()}, fh)
-        if not _watcher_installed():
-            reason = ("no privileged path to disconnect — the root-side flag watcher "
-                      "(orwell-ops-public-deployment.path) is not installed.")
-            _write_failed_status(_ACTION, reason)
-            return {"started": False, "via": "none", "error": reason,
-                    "log": "ops-public-deployment.log"}
         return _trigger_public_flag()
 
     return router

@@ -69,7 +69,7 @@ def test_update_reset_runs_detached_and_returns_started(monkeypatch, tmp_path):
     monkeypatch.setattr(aurr.subprocess, "Popen", _fake_popen)
 
     client = TestClient(_app(), raise_server_exceptions=False)
-    r = client.post("/api/admin/update-reset")
+    r = client.post("/api/admin/update-reset", json={"confirm": "RESET"})
     assert r.status_code == 200
     body = r.json()
     assert body["started"] is True
@@ -97,7 +97,7 @@ def test_update_reset_sudo_wraps_argv(monkeypatch, tmp_path):
     monkeypatch.setattr(aurr.subprocess, "Popen",
                         lambda argv, **kw: captured.update(argv=argv) or object())
     client = TestClient(_app(), raise_server_exceptions=False)
-    r = client.post("/api/admin/update-reset")
+    r = client.post("/api/admin/update-reset", json={"confirm": "RESET"})
     assert r.status_code == 200 and r.json()["started"] is True
     assert captured["argv"] == ["sudo", "-n", "bash", str(stub), "--yes"]
 
@@ -119,7 +119,7 @@ def test_update_reset_prefers_flag_trigger_when_installed(monkeypatch, tmp_path)
 
     monkeypatch.setattr(aurr.subprocess, "Popen", _boom)
     client = TestClient(_app(), raise_server_exceptions=False)
-    r = client.post("/api/admin/update-reset")
+    r = client.post("/api/admin/update-reset", json={"confirm": "RESET"})
     assert r.status_code == 200
     body = r.json()
     assert body["started"] is True and body["via"] == "flag-trigger"
@@ -142,7 +142,7 @@ def test_update_reset_force_direct_overrides_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(aurr.subprocess, "Popen",
                         lambda argv, **kw: captured.update(argv=argv, kw=kw) or object())
     client = TestClient(_app(), raise_server_exceptions=False)
-    r = client.post("/api/admin/update-reset")
+    r = client.post("/api/admin/update-reset", json={"confirm": "RESET"})
     assert r.json()["via"] == "detached"
     assert captured["argv"] == ["bash", str(stub), "--yes"]
     assert not (tmp_path / "ops" / "update-reset-requested").exists()
@@ -164,7 +164,7 @@ def test_update_reset_fails_loudly_when_no_privileged_path(monkeypatch, tmp_path
 
     monkeypatch.setattr(aurr.subprocess, "Popen", _boom)
     client = TestClient(_app(), raise_server_exceptions=False)
-    r = client.post("/api/admin/update-reset")
+    r = client.post("/api/admin/update-reset", json={"confirm": "RESET"})
     assert r.status_code == 200
     body = r.json()
     assert body["started"] is False and body["via"] == "none"
@@ -188,7 +188,7 @@ def test_update_reset_uses_flag_when_watcher_unit_present(monkeypatch, tmp_path)
 
     monkeypatch.setattr(aurr.subprocess, "Popen", _boom)
     client = TestClient(_app(), raise_server_exceptions=False)
-    r = client.post("/api/admin/update-reset")
+    r = client.post("/api/admin/update-reset", json={"confirm": "RESET"})
     assert r.json()["via"] == "flag-trigger"
     assert (tmp_path / "ops").is_dir()
     assert (tmp_path / "ops" / "update-reset-requested").exists()

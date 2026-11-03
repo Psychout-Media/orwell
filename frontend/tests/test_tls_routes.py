@@ -14,7 +14,7 @@ boot), mirroring test_public_deployment_routes:
   * disconnect writes its config + flag.
 
 The deploy data dir is resolved through the SAME DATA_DIR env the module's helpers read, pointed at a
-tmp dir; the watcher-installed probe reads ORWELL_UPDATE_WATCHER_UNIT (shared with the Update lane).
+tmp dir; the watcher probe reads this lane's OWN unit override (ORWELL_TLS_WATCHER_UNIT).
 Name-agnostic: "admin"/"user" are ACCOUNT ROLES, never houseguests.
 """
 import importlib
@@ -45,7 +45,7 @@ def _wire_ops(monkeypatch, tmp_path, *, watcher_installed: bool):
         unit.write_text("[Path]\n")
     elif unit.exists():
         unit.unlink()
-    monkeypatch.setenv("ORWELL_UPDATE_WATCHER_UNIT", str(unit))
+    monkeypatch.setenv("ORWELL_TLS_WATCHER_UNIT", str(unit))   # the lane's OWN unit, not the Update lane's
     return tmp_path / "ops"
 
 

@@ -64,6 +64,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request, Response
 
 from core.middleware import require_admin, require_vault_reveal
+from core.admin_guard import guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
 from src import orwell_engine
 from src.auth_helpers import effective_user
 
@@ -359,6 +361,14 @@ def _recent_logs(limit: int = 200) -> dict:
     return out
 
 
+def _update_trigger_ready() -> bool:
+    """The update trigger works only if the root ``orwell-ops-update.path`` watcher is installed AND
+    active. A bare ``data/ops/`` dir (created on every box) or a stopped unit used to read as
+    "installed", so a flag was dropped that nothing would consume."""
+    from routes.admin_update_routes import _watcher_unit_path
+    return watcher_active(_watcher_unit_path())
+
+
 def _ops_status_files() -> dict:
     """The ops-status files under the data dir: which log basenames exist, their sizes,
     and a short TAIL of each (the most recent maintenance/diagnostic output). These are the
@@ -367,7 +377,7 @@ def _ops_status_files() -> dict:
     try:
         # The trigger seam lives in the DEPLOY data dir (where the root path units watch), not the
         # FE app-data dir — check there.
-        out["updateTriggerInstalled"] = os.path.isdir(os.path.join(_ops_data_dir(), "ops"))
+        out["updateTriggerInstalled"] = _update_trigger_ready()
     except Exception:
         pass
     for name in _log_files():
@@ -2062,7 +2072,7 @@ def setup_admin_health_routes() -> APIRouter:
         require_admin(request)
         return {
             "scripts": [{"id": k, "label": v[0], "log": v[3]} for k, v in _OPS_SCRIPTS.items()],
-            "updateTrigger": {"installed": os.path.isdir(os.path.join(_ops_data_dir(), "ops")),
+            "updateTrigger": {"installed": _update_trigger_ready(),
                               "log": "ops-update.log"},
         }
 
@@ -2076,13 +2086,14 @@ def setup_admin_health_routes() -> APIRouter:
     @router.post("/ops/trigger-update")
     async def admin_ops_update(request: Request):
         """G19a: write the flag the root-side path unit (G19b) watches. Content ignored."""
-        require_admin(request)
+        await guard_root_op(request)
         # The trigger flag must land in the DEPLOY data dir where the root-side path unit watches
         # (frontend/data is a different tree the watcher never sees — that was the silent-no-op bug).
         ops_dir = os.path.join(_ops_data_dir(), "ops")
-        if not os.path.isdir(ops_dir):
+        if not os.path.isdir(ops_dir) or not _update_trigger_ready():
+            from routes.admin_update_routes import _watcher_unit_path
             return {"triggered": False, "installed": False,
-                    "note": "update trigger not installed — run the deploy updater once to enable"}
+                    "note": inactive_reason(_watcher_unit_path(), "run the update")}
         import datetime as _dt
         flag = os.path.join(ops_dir, "update-requested")
         with open(flag, "w", encoding="utf-8") as fh:
@@ -2837,13 +2848,16 @@ async function updateReset() {
   if (typed.trim() !== "RESET") { updMsg.innerHTML = '<span class="warn">Update + Reset cancelled — you must type RESET exactly.</span>'; return; }
   updMsg.textContent = "Starting update + reset…";
   try {
-    const r = await fetch("/api/admin/update-reset", { method: "POST", credentials: "same-origin" });
+    // The server REQUIRES the typed phrase too (400 without it) — the prompt alone is not the check.
+    const r = await fetch("/api/admin/update-reset", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: typed.trim() }) });
     const d = await r.json();
     if (d && d.started) {
       updMsg.innerHTML = '<span class="warn">Updating + resetting… returning to OOBE. The app is restarting, reconnecting…</span>';
       waitForBack();
     } else {
-      updMsg.innerHTML = '<span class="bad">Could not start the update + reset.</span>';
+      updMsg.textContent = "Could not start the update + reset" + ((d && (d.detail || d.error)) ? ": " + (d.detail || d.error) : ".");
+      updMsg.className = "bad";
     }
   } catch (e) {
     // A dropped connection here can simply mean the restart already began — start reconnecting.
@@ -2868,13 +2882,16 @@ async function factoryReset() {
   if (typed.trim() !== "RESET") { updMsg.innerHTML = '<span class="warn">Reset cancelled — you must type RESET exactly.</span>'; return; }
   updMsg.textContent = "Starting factory reset…";
   try {
-    const r = await fetch("/api/admin/factory-reset", { method: "POST", credentials: "same-origin" });
+    // The server REQUIRES the typed phrase too (400 without it) — the prompt alone is not the check.
+    const r = await fetch("/api/admin/factory-reset", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: typed.trim() }) });
     const d = await r.json();
     if (d && d.started) {
       updMsg.innerHTML = '<span class="warn">Resetting… returning to OOBE. The app is restarting, reconnecting…</span>';
       waitForBack();
     } else {
-      updMsg.innerHTML = '<span class="bad">Could not start the reset.</span>';
+      updMsg.textContent = "Could not start the reset" + ((d && (d.detail || d.error)) ? ": " + (d.detail || d.error) : ".");
+      updMsg.className = "bad";
     }
   } catch (e) {
     // A dropped connection here can simply mean the restart already began — start reconnecting.

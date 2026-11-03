@@ -722,6 +722,15 @@ if [[ "$APP_DIR" == "/opt/orwell" && -f "${APP_DIR}/deploy/systemd/orwell-ops-tl
   OPS_TLS_READY=1
 fi
 systemctl daemon-reload
+# STALE-FLAG GUARD: a path unit (PathExists=) fires the moment it starts if its flag is already on disk.
+# A flag dropped while a watcher was stopped would therefore run — for a reset, WIPE — at the first
+# `enable --now` / `restart` below, at a time nobody chose. An active watcher consumes a flag within
+# seconds (its ExecStartPre removes it), so a destructive flag still present after 2 minutes is stale:
+# clear it BEFORE the watchers are (re)started. `rm -rf` so a directory planted at the flag path goes too.
+if [[ "$APP_DIR" == "/opt/orwell" && -d "${APP_DIR}/data/ops" ]]; then
+  find "${APP_DIR}/data/ops" -maxdepth 1 \( -name factory-reset-requested -o -name update-reset-requested \) \
+    -mmin +2 -exec rm -rf --one-file-system -- {} + 2>/dev/null || true
+fi
 if [[ "$OPS_UNITS_READY" -eq 1 ]]; then
   # The ops TRIGGER is the path unit (its service is started by the watcher, never enabled).
   # `enable --now` no-ops when already running; the restart re-arms it with any fresh unit
