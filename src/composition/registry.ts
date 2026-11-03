@@ -110,11 +110,11 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // (which only the FE regex belt marks, meet-list-only). The session no-ops this outside the premiere.
   commands.setPlayerReadSink((npcIds) => session.notePremiereReads(npcIds));
   // #1792 — Producer Read: a substantive recorded interaction computes an ExchangeAccounting fact,
-  // stashed for the ONE-SHOT moment-prompt delivery. Gate: only wired when the flag is ON, so OFF
-  // ⇒ sink never called ⇒ nothing computed ⇒ byte-identical.
-  if (session.producerReadEnabledNow()) {
-    commands.setProducerReadSink((acc) => session.stashExchangeAccounting(acc));
-  }
+  // stashed for the ONE-SHOT moment-prompt delivery. Gate: checked at call time (below), so OFF
+  // ⇒ nothing is stashed ⇒ byte-identical.
+  // The sink is ALWAYS wired and gated at CALL time (not at sandbox build), so the runtime dial / a per-session setter
+  // can turn the layer off after the sandbox exists; OFF ⇒ `computeExchangeAccounting` is pure and nothing is stashed.
+  commands.setProducerReadSink((acc) => { if (session.producerReadEnabledNow()) session.stashExchangeAccounting(acc); });
   // L27/L27b/0024: every recorded social scene is indexed into each houseguest's SEMANTIC recall
   // memory, so later story/narrative is built from the store recalled (ADR 0003), never the chat
   // window. Routed through the session's `recordSceneMemory` — NOT engine.soul.recordToSoul directly —

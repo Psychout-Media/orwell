@@ -1,4 +1,3 @@
-import { flagDefaultOn } from "../../domain/flagDefaults";
 import type {
   GameStateRepository, AdminVisibleState, OverrideChange, SandboxOp,
 } from "../../ports/GameStateRepository";
@@ -120,8 +119,8 @@ export class AdminPort {
 
   /**
    * The read-side companion (DEPLOY-12): the CURRENT resolved on/off state of every B2 flag, so an
-   * operator/FE dial can render truthfully instead of only being able to write blind. Returns all-false
-   * when no sandbox/session is composed (never throws; never a Vault handle).
+   * operator/FE dial can render truthfully instead of only being able to write blind. Returns the code
+   * defaults (all ON — the 2026-11 default flip) when no sandbox/session is composed (never throws; never a Vault handle).
    */
   private behavioralFlagsProvider?: () => Required<BehavioralFlags>;
 
@@ -130,13 +129,11 @@ export class AdminPort {
   }
 
   behavioralFlags(): Required<BehavioralFlags> {
-    // No sandbox composed yet: report the resolved CODE DEFAULTS (the default flip — these layers are ON unless an
-    // env `0`/`ORWELL_FLAGS_OFF=1` says otherwise), so the dial never renders "off" for a layer the engine will run.
+    // No sandbox composed yet: the CODE DEFAULTS (the 2026-11 default flip — these layers run ON unless an env override says
+    // otherwise; a composed sandbox's provider reports the env-resolved truth). This outward surface reads no process state.
     return this.behavioralFlagsProvider?.() ?? {
-      campaigns: flagDefaultOn("ORWELL_CAMPAIGNS"), trajectories: flagDefaultOn("ORWELL_TRAJECTORIES"),
-      triggers: flagDefaultOn("ORWELL_TRIGGERS"), secretPacing: flagDefaultOn("ORWELL_SECRET_PACING"),
-      juryHouse: flagDefaultOn("ORWELL_JURY_HOUSE"), seededTieSurfacing: flagDefaultOn("ORWELL_SEEDED_TIE_SURFACING"),
-      mythMaking: flagDefaultOn("ORWELL_MYTH_MAKING"), showrunner: flagDefaultOn("ORWELL_SHOWRUNNER"),
+      campaigns: true, trajectories: true, triggers: true, secretPacing: true,
+      juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     };
   }
 

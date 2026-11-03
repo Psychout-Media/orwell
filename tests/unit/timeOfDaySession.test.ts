@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
@@ -116,7 +117,12 @@ describe("ADR 0006 — the Vault Wall holds: NPC sleep never leaks", () => {
   });
 });
 
-describe("ADR 0006 — dormant by default (the calibration-safe guarantee)", () => {
+describe("ADR 0006 — dormant when EXPLICITLY OFF (the legacy-profile guarantee)", () => {
+  it("unset, the clock follows the code default", () => {
+    delete process.env.ORWELL_TIME_OF_DAY;
+    expect(GameSessionAdapter.timeOfDayEffective()).toBe(flagDefaultOn("ORWELL_TIME_OF_DAY", process.env));
+  });
+
   it("carries no time-of-day or rest cue when the feature is off", () => {
     process.env.ORWELL_TIME_OF_DAY = "0"; // explicit OFF (default flip 2026-11-03)
     const s = started();

@@ -17,7 +17,7 @@ import type { Stats } from "../../src/engine/season";
  * Feature 0092 — the CALIBRATION-NEUTRALITY GATE (the `trajectoryOutcomeNeutral` / `stagedTrajectoryNeutral`
  * sibling). THE load-bearing determinism guarantee:
  *
- *   • With `ORWELL_SECRET_PACING` OFF (the DEFAULT), the secret-pacing drip takes ZERO draws — `pacingDrip`
+ *   • With `ORWELL_SECRET_PACING` OFF (explicitly `=0`, or `ORWELL_FLAGS_OFF=1`; the code default is now ON), the secret-pacing drip takes ZERO draws — `pacingDrip`
  *     returns immediately — so the orchestrator's bounded off-screen tick draws the SAME seeded stream the
  *     competition/vote/jury spine shares, BYTE-IDENTICALLY to the pre-feature build, and 0060 behaves
  *     exactly as today. The `juryReach` / UAT / gradient gates are unperturbed.
@@ -55,7 +55,7 @@ function runTicks(seed: number, user: string, ticks: number): { draws: number[];
 }
 
 // Belt-and-suspenders: the process-global pacing override must never leak past this file even if an
-// assertion throws mid-test (it would flip the default-off calibration state for any later suite).
+// assertion throws mid-test (it would leave a non-default pacing override in place for any later suite).
 afterEach(() => { GameSessionAdapter.setSecretPacingEnabled(null); });
 
 describe("0092 — the off-screen tick's SHARED draw stream is calibration-neutral to secret pacing", () => {

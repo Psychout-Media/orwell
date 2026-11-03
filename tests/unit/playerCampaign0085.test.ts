@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { advancePlayerCampaign, CAMPAIGN, type Campaign } from "../../src/engine/campaigns";
 import { RelationshipModel } from "../../src/engine/relationships";
@@ -122,7 +123,7 @@ describe("Phase 2 — advancePlayerCampaign (pure function)", () => {
 });
 
 describe("Phase 2 — GameSessionAdapter.foldPlayerCampaignMove (the live adapter)", () => {
-  it("is a no-op (zero campaigns) when the campaign layer is OFF — the default", () => {
+  it("is a no-op (zero campaigns) when the campaign layer is EXPLICITLY OFF", () => {
     const rel = new RelationshipModel(0.5);
     const session = new GameSessionAdapter(rel);
     session.setCampaignsEnabled(false); // explicit OFF (default flip 2026-11-03)

@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { RelationshipModel } from "../../src/engine/relationships";
@@ -19,7 +20,7 @@ function liveHouse(seed: number): { session: GameSessionAdapter; rel: Relationsh
 }
 const camps = (s: GameSessionAdapter): Campaign[] => (s as unknown as { campaigns: Campaign[] }).campaigns;
 
-describe("0085 B2 — the campaign layer is OFF by default (byte-identical)", () => {
+describe("0085 B2 — the campaign layer when EXPLICITLY OFF (byte-identical)", () => {
   it("campaignTick is a no-op when disabled — no campaign forms, no draws", () => {
     const { session, rel, ids } = liveHouse(11);
     rel.edge(ids[0]!, ids[1]!).threat = 0.9; // a strong threat that WOULD seed a campaign if enabled

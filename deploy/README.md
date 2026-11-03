@@ -495,7 +495,7 @@ compete/throw/play-safe), `ORWELL_TRAJECTORIES` (0087 warming/cooling arcs), `OR
 secret→house-event eruptions), `ORWELL_SECRET_PACING` (0092 paced secret drip), `ORWELL_JURY_HOUSE`
 (0100 jury grudge book), `ORWELL_SEEDED_TIE_SURFACING` (0059 §5 pre-show ties surfacing). Each defaults
 **ON in code** (the 2026-11 default flip: the seeded calibration gates, the UAT and the deploy all play the same game; `ORWELL_<FLAG>=0` turns one
-off, and `ORWELL_FLAGS_OFF=1` is the single diagnostic switch that forces the whole flipped set OFF — the legacy profile) and the installer still writes them to `data/.env` explicitly. The
+off, and `ORWELL_FLAGS_OFF=1` is the single diagnostic switch that forces the whole flipped set OFF — the legacy profile) and the installer still writes them to `data/.env` explicitly. `ORWELL_FLAGS_OFF=1` also wins over the front-end's persisted time-of-day setting (the engine ignores the FE's clock push under it), so it reliably restores the legacy all-off profile. The
 engine's `GET /health` reports the live set in a `flags` block, and `orwell doctor` prints an
 `info — behavioral flags ON: …` line. Admins can flip any layer at runtime — no restart — from the
 God-Mode **setBehavioralFlags** dial (overrides the env default per-sandbox). ADR 0006's

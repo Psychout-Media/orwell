@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { notablePlayerActs } from "../../src/engine/legends";
@@ -96,7 +97,14 @@ function gameWithNotableAct(user: string, seed: number): ReturnType<GameSessionR
 
 const NPC_IDS: EntityId[] = Array.from({ length: 15 }, (_, i) => npc(i + 1));
 
-describe("0101 — legendTick is OFF by default (byte-identical: zero draws, no legend)", () => {
+describe("0101 — legendTick when EXPLICITLY OFF (byte-identical: zero draws, no legend)", () => {
+  it("a fresh session starts at the code default", () => {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("legends-dflt");
+    sb.session.createCharacter({ playerName: "The Player", seed: 11 });
+    expect(sb.session.mythMakingEnabledNow()).toBe(flagDefaultOn("ORWELL_MYTH_MAKING", process.env));
+  });
+
   it("a disabled myth-making layer is a no-op even with a ripe notable act on the ledger", () => {
     const sb = gameWithNotableAct("myth-off", 21);
     sb.session.setMythMakingEnabled(false); // explicit OFF (default flip 2026-11-03)

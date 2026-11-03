@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -22,9 +23,11 @@ afterEach(() => {
 describe("B2 — GameSessionAdapter.setBehavioralFlags / behavioralFlagsSnapshot", () => {
   it("defaults every flag to ON with no env set (default flip 2026-11-03)", () => {
     const s = new GameSessionAdapter();
+    const on = (k: string): boolean => flagDefaultOn(`ORWELL_${k}`, process.env);
     expect(s.behavioralFlagsSnapshot()).toEqual({
-      campaigns: true, trajectories: true, triggers: true,
-      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
+      campaigns: on("CAMPAIGNS"), trajectories: on("TRAJECTORIES"), triggers: on("TRIGGERS"),
+      secretPacing: on("SECRET_PACING"), juryHouse: on("JURY_HOUSE"), seededTieSurfacing: on("SEEDED_TIE_SURFACING"),
+      mythMaking: on("MYTH_MAKING"), showrunner: on("SHOWRUNNER"),
     });
   });
 

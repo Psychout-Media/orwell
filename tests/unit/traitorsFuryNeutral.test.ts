@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -49,7 +50,7 @@ describe("#1790 — Traitors' Fury calibration neutrality (flag OFF is a fixed p
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("flag");
     sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
-    expect(sb.session.traitorsFuryEnabledNow()).toBe(true); // default ON (default flip 2026-11-03)
+    expect(sb.session.traitorsFuryEnabledNow()).toBe(flagDefaultOn("ORWELL_TRAITORS_FURY", process.env)); // the code default (ON unless the env says otherwise)
     sb.session.setTraitorsFuryEnabled(false);
     expect(sb.session.traitorsFuryEnabledNow()).toBe(false);
     sb.session.setTraitorsFuryEnabled(true);

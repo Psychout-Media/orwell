@@ -241,7 +241,9 @@ import {
   type SeasonPosition,
 } from "../../engine/deepProfile";
 import { THREAD } from "../../engine/threadConstants";
-import { flagDefaultOn } from "../../domain/flagDefaults";
+import { flagDefaultOn as flagDefaultOnIn } from "../../domain/flagDefaults";
+/** The engine's default-on flag read: the pure domain parser over the process env (the one ambient read lives here, in the adapter). */
+const flagDefaultOn = (name: string): boolean => flagDefaultOnIn(name, process.env);
 import {
   loadSeededRelationships, migrateSeededRelationships, normalizeTieNature, TIE_AFFINITY_BIAS, SHOWMANCE_SPARK_BIAS,
   DEFAULT_TIE_BUDGET, DEFAULT_SHOWMANCE_BUDGET, nextShowmanceStage,
@@ -450,8 +452,7 @@ function sanitizeFlavor(s: string, max = 160): string {
 }
 
 /**
- * 0085 B2 — whether the live campaign layer runs by DEFAULT. OFF unless `ORWELL_CAMPAIGNS=1` (the deploy
- * sets it; the calibration/UAT harness never does ⇒ every seeded gate is byte-identical). Read once at
+ * 0085 B2 — whether the live campaign layer runs by DEFAULT. ON unless `ORWELL_CAMPAIGNS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) (since the 2026-11 default flip it is ON in code, so the seeded gates, the UAT and the deploy all play the same game; `ORWELL_FLAGS_OFF=1` restores the legacy all-off profile). Read once at
  * module load, like the watcher cadence; a test overrides per-session via `setCampaignsEnabled`.
  */
 const CAMPAIGNS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CAMPAIGNS");
@@ -459,7 +460,7 @@ const CAMPAIGNS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CAMPAIGNS");
 const ALLIANCE_ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
 
 /**
- * 0087 — whether the RELATIONSHIP-TRAJECTORY layer runs by DEFAULT. OFF unless `ORWELL_TRAJECTORIES=1`.
+ * 0087 — whether the RELATIONSHIP-TRAJECTORY layer runs by DEFAULT. ON unless `ORWELL_TRAJECTORIES=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`).
  * A DEDICATED flag (not a reuse of `ORWELL_CAMPAIGNS`) so calibration neutrality is provable in isolation:
  * with it unset, NO trajectory is computed, `natureWeights` is the identity, and every seeded gate
  * (juryReach/gradient/UAT) is byte-identical. The calibration/UAT harness never sets it; the live deploy
@@ -469,8 +470,8 @@ const ALLIANCE_ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
 const TRAJECTORIES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRAJECTORIES");
 
 /**
- * 0120 — whether the STRATEGIC-DRIVE INITIATOR CADENCE runs by DEFAULT. OFF unless
- * `ORWELL_STRATEGIC_CADENCE=1`. A DEDICATED flag (sibling to `ORWELL_TRAJECTORIES`/`ORWELL_CAMPAIGNS`) so
+ * 0120 — whether the STRATEGIC-DRIVE INITIATOR CADENCE runs by DEFAULT. ON unless
+ * `ORWELL_STRATEGIC_CADENCE=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to `ORWELL_TRAJECTORIES`/`ORWELL_CAMPAIGNS`) so
  * calibration neutrality is provable in isolation: unset ⇒ the off-screen initiator is drawn with the
  * uniform `rng.pick` exactly (no `initiatorDriveOf` is passed), and every seeded gate is byte-identical.
  * The calibration/UAT harness never sets it; the live deploy does. A test overrides per-session via
@@ -480,7 +481,7 @@ const STRATEGIC_CADENCE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_STRATEGIC_CADENC
 
 /**
  * Wave-2 off-screen-society fidelity — whether OFF-SCREEN SCHEMING NAMES A REAL TARGET runs by DEFAULT.
- * OFF unless `ORWELL_SCHEME_TARGETS=1`. A DEDICATED flag (sibling to `ORWELL_STRATEGIC_CADENCE`/
+ * ON unless `ORWELL_SCHEME_TARGETS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to `ORWELL_STRATEGIC_CADENCE`/
  * `ORWELL_TRAJECTORIES`) so calibration neutrality is provable in isolation: unset ⇒ the off-screen tick
  * passes no `nameSchemeTargets` ⇒ no target clause is appended and every seeded gate is byte-identical (the
  * clause rides a per-scene SIDE rng, so even ON the main stream is byte-identical — the flag keeps the
@@ -491,7 +492,7 @@ const SCHEME_TARGETS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SCHEME_TARGETS");
 
 /**
  * 0121 — whether the DEAL-DEPTH layer runs by DEFAULT (the active-obligation kinds `comp-throw`/`veto-save`
- * + the reliability rewards). OFF unless `ORWELL_DEAL_DEPTH=1`. A DEDICATED flag (sibling to
+ * + the reliability rewards). ON unless `ORWELL_DEAL_DEPTH=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to
  * `ORWELL_STRATEGIC_CADENCE`/`ORWELL_CAMPAIGNS`) so calibration neutrality is provable in isolation: unset ⇒
  * the new kinds can't be made and every deal fold is exactly 0039/0109 ⇒ byte-identical. NOT yet in the
  * deploy — the live-loop reconciliation of the new kinds + the reward folds land before it opts in.
@@ -507,8 +508,8 @@ const NPC_MEMORY_ENABLED_DEFAULT = process.env.ORWELL_NPC_MEMORY === "1";
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
- * the once-per-in-game-day sweep where most living NPCs confess unless their game is bare). OFF unless
- * `ORWELL_CONFESSIONAL_DEPTH=1`. A DEDICATED flag (sibling to `ORWELL_DEAL_DEPTH`/`ORWELL_STRATEGIC_CADENCE`)
+ * the once-per-in-game-day sweep where most living NPCs confess unless their game is bare). ON unless
+ * `ORWELL_CONFESSIONAL_DEPTH=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to `ORWELL_DEAL_DEPTH`/`ORWELL_STRATEGIC_CADENCE`)
  * so calibration neutrality is provable in isolation: unset ⇒ no daily sweep runs, no depth context is
  * passed, and every confessional is exactly 0040/0089/0090 ⇒ byte-identical. The sweep additionally gates
  * on `perConversationClockLive()` (pinned off in the golden driver), so the golden fixture never stales.
@@ -517,7 +518,7 @@ const CONFESSIONAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CONFESSIONAL_DE
 
 /**
  * 0123 — whether the NPC-initiated deal-OFFER layer runs by DEFAULT (a motivated houseguest floats the
- * player a deal at a lull; accept → a real deal, decline → a cooling). OFF unless `ORWELL_NPC_DEAL_OFFERS=1`.
+ * player a deal at a lull; accept → a real deal, decline → a cooling). ON unless `ORWELL_NPC_DEAL_OFFERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`).
  * A DEDICATED flag (sibling to `ORWELL_DEAL_DEPTH`/`ORWELL_CONFESSIONAL_DEPTH`) so calibration neutrality is
  * provable in isolation: unset ⇒ no offer is generated, no pending is raised, nothing folds ⇒ byte-identical.
  */
@@ -525,7 +526,7 @@ const NPC_DEAL_OFFERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_DEAL_OFFERS");
 
 /**
  * 0124 — whether the DEEPER character-evolution layer runs by DEFAULT (independent distress/confidence
- * axes + strategic-temperament drift + disposition-tuned reactivity). OFF unless `ORWELL_SOUL_DEPTH=1`.
+ * axes + strategic-temperament drift + disposition-tuned reactivity). ON unless `ORWELL_SOUL_DEPTH=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`).
  * A DEDICATED flag (sibling to `ORWELL_CONFESSIONAL_DEPTH`/`ORWELL_DEAL_DEPTH`) so calibration neutrality
  * is provable in isolation: unset ⇒ `evolveEmotion` moves only the single 0041 scalar, the behavior reads
  * use the plain `emotionalState`/static disposition, and NPC volatility is the legacy random draw ⇒
@@ -546,7 +547,7 @@ const COMP_THEMES_ENABLED_DEFAULT = process.env.ORWELL_COMP_THEMES !== "0";
 
 /**
  * 0126 — whether the EXPANDED competition-mechanic pool (9 HOH + 9 veto extra, 30 total) runs by DEFAULT.
- * OFF unless `ORWELL_COMP_MECHANICS_PLUS=1`. Unlike the 0125 THEME layer (a pure projection, default-on),
+ * ON unless `ORWELL_COMP_MECHANICS_PLUS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). Unlike the 0125 THEME layer (a pure projection, default-on),
  * this changes WHICH mechanic a fixed seed draws — and the def's `type` selects the resolution stat — so it
  * changes seeded winners (the COMP-4 cost). A DEDICATED default-off flag so calibration neutrality is
  * provable in isolation: unset ⇒ `ctx().expandedComps` is false, the draw pool is the bare base 12, and
@@ -557,7 +558,7 @@ const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS
 
 /**
  * 0127 — whether HYBRID competitions blend their SECONDARY aptitude into the outcome by DEFAULT (a
- * physical-with-a-puzzle-element veto rewards a well-rounded houseguest). OFF unless `ORWELL_COMP_MIXED=1`.
+ * physical-with-a-puzzle-element veto rewards a well-rounded houseguest). ON unless `ORWELL_COMP_MIXED=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`).
  * Like 0126, this changes seeded winners (the score base becomes a stat blend), so it is DEFAULT-OFF: unset
  * ⇒ `ctx().mixedComps` is false, every comp resolves on its pure single stat, and every seeded gate
  * (juryReach / gradient / UAT / golden) is byte-identical. The primary stat still dominates (weight
@@ -580,7 +581,7 @@ const COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MIXED");
 const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 
 /**
- * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. OFF unless `ORWELL_TRIGGERS=1`. A DEDICATED
+ * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
  * flag (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_TRAJECTORIES`) so calibration neutrality is provable in
  * isolation: with it unset, the orchestrator never runs the trigger check ⇒ ZERO draws on any rng ⇒ every
  * seeded gate (juryReach/gradient/UAT) is byte-identical (the load-bearing determinism guarantee). The
@@ -589,7 +590,7 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
  */
 const TRIGGERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRIGGERS");
 /**
- * 0092 — whether the SECRET-PACING DRIP runs by DEFAULT. OFF unless `ORWELL_SECRET_PACING=1`. A DEDICATED
+ * 0092 — whether the SECRET-PACING DRIP runs by DEFAULT. ON unless `ORWELL_SECRET_PACING=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
  * flag (sibling to `ORWELL_CAMPAIGNS` / `ORWELL_TRAJECTORIES` / `ORWELL_SEEDED_TIE_SURFACING`) so
  * calibration neutrality is provable in isolation: with it unset, the pacing pass takes ZERO draws, 0060's
  * own flat surface-to-player path is the only one that runs, and every seeded gate (juryReach/gradient/UAT)
@@ -599,8 +600,8 @@ const TRIGGERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRIGGERS");
  */
 const SECRET_PACING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SECRET_PACING");
 /**
- * 0006b (PO review 2026-06-28) — whether NPCs carry a derived COMPETITION INTENT by DEFAULT. OFF unless
- * `ORWELL_COMP_INTENT=1`. A DEDICATED flag (sibling to `ORWELL_CAMPAIGNS` etc.) so calibration neutrality
+ * 0006b (PO review 2026-06-28) — whether NPCs carry a derived COMPETITION INTENT by DEFAULT. ON unless
+ * `ORWELL_COMP_INTENT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to `ORWELL_CAMPAIGNS` etc.) so calibration neutrality
  * is provable in isolation: with it unset, `ctx().compIntentOf` is absent, every NPC "compete"s (the
  * pre-feature path), and every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL. The calibration/UAT
  * harness never sets it; the live deploy may. A test overrides per-session via `setCompIntentEnabled`.
@@ -608,7 +609,7 @@ const SECRET_PACING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SECRET_PACING");
 const COMP_INTENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_INTENT");
 /**
  * 0110 (PO review 2026-06-28) — whether the eviction jury grudge folds on the evictee's DEDUCED belief
- * (process of elimination) instead of the true secret ballot. OFF unless `ORWELL_VOTE_DEDUCTION=1`. A
+ * (process of elimination) instead of the true secret ballot. ON unless `ORWELL_VOTE_DEDUCTION=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A
  * DEDICATED flag (sibling of the others) so calibration neutrality is provable in isolation: with it
  * unset, `ctx().voteDeduction` is false, the grudge folds the true `votesToEvict` exactly as before, no
  * deduction sub-rng is drawn, and every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL. The
@@ -616,7 +617,7 @@ const COMP_INTENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_INTENT");
  */
 const VOTE_DEDUCTION_ENABLED_DEFAULT = flagDefaultOn("ORWELL_VOTE_DEDUCTION");
 /**
- * 0100 — whether the JURY-HOUSE grudge layer runs by DEFAULT. OFF unless `ORWELL_JURY_HOUSE=1`. A
+ * 0100 — whether the JURY-HOUSE grudge layer runs by DEFAULT. ON unless `ORWELL_JURY_HOUSE=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A
  * DEDICATED flag (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_TRAJECTORIES`) so calibration neutrality is
  * provable in isolation: with it unset NO jury-house stretch runs, NO draw is taken (the dedicated
  * stream never advances), and NO grudge is applied ⇒ the seeded `juryReach`/UAT spine is byte-identical
@@ -626,8 +627,8 @@ const VOTE_DEDUCTION_ENABLED_DEFAULT = flagDefaultOn("ORWELL_VOTE_DEDUCTION");
 const JURY_HOUSE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JURY_HOUSE");
 
 /**
- * #1790 — whether the TRAITORS'-FURY juror-bearing word layer runs by DEFAULT. OFF unless
- * `ORWELL_TRAITORS_FURY=1`. A DEDICATED flag (sibling to `ORWELL_JURY_HOUSE`) so calibration
+ * #1790 — whether the TRAITORS'-FURY juror-bearing word layer runs by DEFAULT. ON unless
+ * `ORWELL_TRAITORS_FURY=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to `ORWELL_JURY_HOUSE`) so calibration
  * neutrality is provable in isolation: with it unset, bearingWord returns a constant default
  * ("settled") and the seeded jury-read spine is byte-identical. A test overrides per-session
  * via `setTraitorsFuryEnabled`.
@@ -635,21 +636,21 @@ const JURY_HOUSE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JURY_HOUSE");
 const TRAITORS_FURY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRAITORS_FURY");
 /**
  * #1792 — whether the Producer Read (post-scene exchange-accounting beat) runs
- * by DEFAULT. OFF unless `ORWELL_PRODUCER_READ=1`. Flag-gated so a disabled
+ * by DEFAULT. ON unless `ORWELL_PRODUCER_READ=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). Flag-gated so a disabled
  * flag means the `recordInteraction` sink is never wired ⇒ nothing computed ⇒
  * byte-identical. A test overrides per-session via `setProducerReadEnabled`.
  */
 const PRODUCER_READ_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PRODUCER_READ");
 /**
  * #1802 — whether the DEAL WITNESSES (formation-witness collateral on deals) layer runs
- * by DEFAULT. OFF unless `ORWELL_DEAL_WITNESSES=1`. Flag-gated so a disabled flag means
+ * by DEFAULT. ON unless `ORWELL_DEAL_WITNESSES=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). Flag-gated so a disabled flag means
  * `formationWitnesses` is either unpopulated or ignored, trust-fold magnitude and breach
  * diffusion behave exactly as today ⇒ byte-identical. A test overrides per-session
  * via `setDealsWitnessesEnabled`.
  */
 const DEALS_WITNESSES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_WITNESSES");
 /**
- * 0101 — whether NPC MYTH-MAKING runs by DEFAULT. OFF unless `ORWELL_MYTH_MAKING=1`. A DEDICATED flag
+ * 0101 — whether NPC MYTH-MAKING runs by DEFAULT. ON unless `ORWELL_MYTH_MAKING=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag
  * (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_JURY_HOUSE`) so calibration neutrality is provable in isolation:
  * with it unset, `legendTick` no-ops before drawing anything (the dedicated legend-rng stream never
  * advances) and no legend is ever seeded ⇒ the seeded `juryReach`/gradient/UAT spine is byte-identical to
@@ -659,7 +660,7 @@ const DEALS_WITNESSES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_WITNESSES");
 const MYTH_MAKING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MYTH_MAKING");
 
 /**
- * 0101 (#1401) — whether the AI SHOWRUNNER runs by DEFAULT. OFF unless `ORWELL_SHOWRUNNER=1`. A DEDICATED
+ * 0101 (#1401) — whether the AI SHOWRUNNER runs by DEFAULT. ON unless `ORWELL_SHOWRUNNER=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
  * flag (sibling to `ORWELL_MYTH_MAKING`/`ORWELL_SECRET_PACING`) so calibration neutrality is provable in
  * isolation: with it unset, `showrunnerTick` no-ops before composing anything (no note is stored) and
  * `scheduleStoryThreads` sees no note ⇒ it iterates in the unchanged derive order at the unchanged
@@ -692,8 +693,8 @@ const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
 const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = process.env.ORWELL_SHOWRUNNER_REWEIGHT === "1";
 
 /**
- * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs by DEFAULT. OFF unless
- * `ORWELL_SECRET_BARTER=1`. A DEDICATED flag (sibling to `ORWELL_JURY_HOUSE`/`ORWELL_MYTH_MAKING`) so
+ * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs by DEFAULT. ON unless
+ * `ORWELL_SECRET_BARTER=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED flag (sibling to `ORWELL_JURY_HOUSE`/`ORWELL_MYTH_MAKING`) so
  * calibration neutrality is provable in isolation: with it unset, `secretBarterTick` returns before
  * drawing anything (the dedicated barter-rng stream never advances) and no secret changes hands ⇒ the
  * seeded `juryReach`/gradient/UAT spine is byte-identical to today. The calibration/UAT harness never
@@ -703,7 +704,7 @@ const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = process.env.ORWELL_SHOWRUNNER_REWEIG
 const SECRET_BARTER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SECRET_BARTER");
 
 /**
- * Issue #1397 — whether CHARACTER-MEDIATED gossip drift runs by DEFAULT. OFF unless `ORWELL_GOSSIP_DRIFT=1`.
+ * Issue #1397 — whether CHARACTER-MEDIATED gossip drift runs by DEFAULT. ON unless `ORWELL_GOSSIP_DRIFT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`).
  * A DEDICATED flag (sibling of `ORWELL_MYTH_MAKING`) so calibration neutrality is provable in isolation:
  * with it unset the orchestrator passes NO `voiceOf` to `diffuseGossip`, so the gossip distortion stays
  * personality-AGNOSTIC — byte-identical to the pre-feature drift, and the seeded juryReach/gradient/UAT
@@ -753,13 +754,13 @@ const SOCIAL_FATIGUE_ENABLED_DEFAULT = process.env.ORWELL_SOCIAL_FATIGUE !== "0"
 const MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT = process.env.ORWELL_MULTI_NIGHT_FATIGUE === "1";
 /**
  * #1793 — the Player Dossier grouping player diary-room reads per subject (houseguest).
- * OFF unless `ORWELL_PLAYER_DOSSIER=1`. OFF ⇒ byte-identical: no `playerDossier` field on the view.
+ * ON unless `ORWELL_PLAYER_DOSSIER=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). OFF ⇒ byte-identical: no `playerDossier` field on the view.
  */
 const PLAYER_DOSSIER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PLAYER_DOSSIER");
 
 /**
  * #1800 — whether the Booth Has Receipts (deterministic player-record contradiction extraction) runs
- * by DEFAULT. OFF unless `ORWELL_BOOTH_RECEIPTS=1`. Flag-gated so a disabled flag means
+ * by DEFAULT. ON unless `ORWELL_BOOTH_RECEIPTS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). Flag-gated so a disabled flag means
  * `playerReceipts()` returns [] immediately — byte-identical to not having the method at all.
  * A test overrides per-session via `setBoothReceiptsEnabled`.
  */
@@ -1026,7 +1027,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private mythMakingEnabled = MYTH_MAKING_ENABLED_DEFAULT;
   /** Issue #1397 — whether the RETELLER's public voice colors gossip drift (character-mediated distortion).
-   *  OFF by default; the orchestrator reads this to decide whether to hand `diffuseGossip` a `voiceOf`. */
+   *  ON by default (2026-11 flip); the orchestrator reads this to decide whether to hand `diffuseGossip` a `voiceOf`. */
   private gossipDriftEnabled = GOSSIP_DRIFT_ENABLED_DEFAULT;
   /** The DEDICATED legend-rng tick counter — legend draws fork off the game seed + this, NEVER the
    *  orchestrator's shared society/competition/vote stream (the same isolation `juryHouseTickCount`
@@ -1118,7 +1119,7 @@ export class GameSessionAdapter implements GameSession {
    * and the seeded jury-read spine is byte-identical. A test flips it via `setTraitorsFuryEnabled`.
    */
   private traitorsFuryEnabled = TRAITORS_FURY_ENABLED_DEFAULT;
-  /** #1792 — whether the Producer Read (post-scene exchange-accounting beat) runs. OFF by default. */
+  /** #1792 — whether the Producer Read (post-scene exchange-accounting beat) runs. ON by default (2026-11 flip). */
   private producerReadEnabled = PRODUCER_READ_ENABLED_DEFAULT;
   /** #1802 — whether formation-witness deal collateral is active (ORWELL_DEAL_WITNESSES). */
   private dealsWitnessesEnabled = DEALS_WITNESSES_ENABLED_DEFAULT;
@@ -6134,7 +6135,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * 0059 §5 — whether the organic pre-game-TIE surfacing scheduler runs. OPT-IN, default OFF — like
+   * 0059 §5 — whether the organic pre-game-TIE surfacing scheduler runs. Default ON since the 2026-11 flip (`=0`/`ORWELL_FLAGS_OFF=1` turn it off) — like
    * the ADR-0006 in-game clock. When off (the default, and the state the seeded
    * juryReach / gradient / UAT sims run in) `advanceSeededTies` returns IMMEDIATELY: it draws nothing,
    * records nothing, and folds nothing, so the off-screen tick's draw count/order and every seeded
@@ -6173,7 +6174,7 @@ export class GameSessionAdapter implements GameSession {
    * observable read "they seem unusually close" — never the sealed `nature`, never a banner.
    */
   advanceSeededTies(knowledge: KnowledgeService): SurfacedTie[] {
-    if (!this.seededTieSurfacingEnabled) return []; // default OFF ⇒ fully inert (calibration spine untouched)
+    if (!this.seededTieSurfacingEnabled) return []; // off ⇒ fully inert (the legacy profile)
     if (!this.house || this.seededRels.ties.length === 0) return [];
     this.tieScheduleTickCount += 1;
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -6243,7 +6244,7 @@ export class GameSessionAdapter implements GameSession {
    * own private tick counter — never the shared society/vote stream, never §5's own stream).
    */
   advanceTieReveal(knowledge: KnowledgeService): TieRevealEvent[] {
-    if (!this.tieRevealEnabled) return []; // default OFF ⇒ fully inert (calibration spine untouched)
+    if (!this.tieRevealEnabled) return []; // off ⇒ fully inert (the legacy profile)
     if (!this.house || this.seededRels.ties.length === 0) return [];
     if (this.tieExposureCount >= TIE_REVEAL.maxExposuresPerSeason) return [];
     this.tieRevealTickCount += 1;
@@ -6425,7 +6426,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * 0092 — whether the SECRET-PACING DRIP runs. OPT-IN, default OFF — exactly like the ADR-0006 clock,
+   * 0092 — whether the SECRET-PACING DRIP runs. Default ON since the 2026-11 flip (`=0`/`ORWELL_FLAGS_OFF=1` turn it off) — exactly like the ADR-0006 clock,
    * the campaign layer, the trajectory layer, and the 0059 §5 tie-surfacing scheduler. When off (the
    * default, and the state the seeded juryReach / gradient / UAT sims run in) `pacingDrip` returns
    * IMMEDIATELY: it draws nothing and routes nothing, so 0060's own flat surface path is the only one
@@ -6514,7 +6515,7 @@ export class GameSessionAdapter implements GameSession {
    * paced, relationship-weighted cadence (about one a week, about people the player is circling).
    */
   pacingDrip(): RankedThread[] {
-    if (!this.secretPacingEnabled) return []; // default OFF ⇒ fully inert (the calibration spine untouched)
+    if (!this.secretPacingEnabled) return []; // off ⇒ fully inert (the legacy profile)
     if (!this.house || this.storyThreads.length === 0) return [];
 
     // Roll the per-WEEK counter over FIRST (a new live week resets the spent count to 0 — the cadence is
@@ -6906,7 +6907,7 @@ export class GameSessionAdapter implements GameSession {
   // --- Live weekly loop (0011) ---------------------------------------------------
 
   /**
-   * Whether the in-game time-of-day clock + sleep economy (ADR 0006) is engaged. OPT-IN, default OFF:
+   * Whether the in-game time-of-day clock + sleep economy (ADR 0006) is engaged. Default ON since the 2026-11 flip (`=0`/`ORWELL_FLAGS_OFF=1` turn it off; the FE re-pushes it):
    * when off, the clock never advances, `timeOfDay` stays undefined, `restOf` returns 0, and every
    * seeded outcome (the juryReach calibration spine, the UAT) is byte-identical to the pre-feature
    * model. The deploy turns it on. (This is the in-game clock; the runtime play-clock is separate.)
@@ -6927,6 +6928,8 @@ export class GameSessionAdapter implements GameSession {
 
   /** The clock's LIVE state (runtime override, else the env default) — reported on `/health`. */
   static timeOfDayEffective(): boolean {
+    // The diagnostic ORWELL_FLAGS_OFF=1 profile WINS over the front-end's persisted clock push (it re-sends ON on every boot).
+    if (process.env.ORWELL_FLAGS_OFF === "1") return false;
     if (GameSessionAdapter.timeOfDayOverride !== null) return GameSessionAdapter.timeOfDayOverride;
     return flagDefaultOn("ORWELL_TIME_OF_DAY");
   }
@@ -7515,7 +7518,7 @@ export class GameSessionAdapter implements GameSession {
 
   // ─── 0091 — TRIGGER SECRETS & HOUSE-EVENT ERUPTIONS ─────────────────────────────────────────────
 
-  /** Turn the trigger-eruption layer on/off (0091). OFF by default — the calibration harness leaves it off
+  /** Turn the trigger-eruption layer on/off (0091). ON by default (2026-11 flip) — `ORWELL_FLAGS_OFF=1` leaves it off
    *  (off ⇒ the orchestrator never runs the check ⇒ ZERO draws ⇒ the seeded spine is byte-identical). */
   setTriggersEnabled(on: boolean): void { this.triggersEnabled = on; }
 
@@ -8067,13 +8070,13 @@ export class GameSessionAdapter implements GameSession {
    *  symmetry/tests. */
   producerReadEnabledNow(): boolean { return this.producerReadEnabled; }
 
-  /** Turn formation-witness deal collateral on/off (#1802). OFF by default. */
+  /** Turn formation-witness deal collateral on/off (#1802). ON by default (2026-11 flip). */
   setDealsWitnessesEnabled(on: boolean): void { this.dealsWitnessesEnabled = on; }
 
   /** Whether formation-witness deal collateral is live (#1802) — exposed for tests. */
   dealsWitnessesEnabledNow(): boolean { return this.dealsWitnessesEnabled; }
 
-  /** Turn Booth Has Receipts on/off (#1800). OFF by default. */
+  /** Turn Booth Has Receipts on/off (#1800). ON by default (2026-11 flip). */
   setBoothReceiptsEnabled(on: boolean): void { this.boothReceiptsEnabled = on; }
 
   /** Whether Booth Has Receipts is live (#1800) — exposed for tests. */

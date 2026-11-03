@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { bootFlagsFromEnv } from "../../src/featureFlags";
+import { bootFlagsFromEnv, FEATURE_FLAGS } from "../../src/featureFlags";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 
 /**
@@ -31,26 +31,34 @@ describe("/health flag parsing matches what the engine actually runs", () => {
     delete process.env.ORWELL_TIME_OF_DAY;
     delete process.env.ORWELL_FLAGS_OFF;
     expect(GameSessionAdapter.timeOfDayEffective(), "the clock is a code default now (default flip)").toBe(true);
+    process.env.ORWELL_FLAGS_OFF = "1";
+    GameSessionAdapter.setTimeOfDayEnabled(true); // the FE re-pushes ON on every boot...
+    expect(GameSessionAdapter.timeOfDayEffective(), "...but the diagnostic ORWELL_FLAGS_OFF=1 profile wins").toBe(false);
+    delete process.env.ORWELL_FLAGS_OFF;
+    GameSessionAdapter.setTimeOfDayEnabled(null);
     GameSessionAdapter.setTimeOfDayEnabled(false); // the FE's setTimeOfDay push
     expect(GameSessionAdapter.timeOfDayEffective()).toBe(false);
   });
 
-  it("the default flip: every flipped flag reports ON unset, OFF for 0/false/off, and ORWELL_FLAGS_OFF=1 forces them all OFF", () => {
-    const FLIPPED = ["campaigns", "trajectories", "triggers", "secretPacing", "juryHouse", "seededTieSurfacing", "mythMaking",
-      "showrunner", "compIntent", "voteDeduction", "timeOfDay", "dealDepth", "strategicCadence", "schemeTargets", "confessionalDepth",
-      "npcDealOffers", "soulDepth", "compMechanicsPlus", "compMixed", "gossipDrift", "secretBarter", "playerDossier", "traitorsFury",
-      "producerRead", "dealsWitnesses", "boothReceipts"];
+  it("the default flip: every default-on flag (derived from the registry) reports ON unset, OFF for each of 0/false/off, and ORWELL_FLAGS_OFF=1 forces all OFF", () => {
+    const FLIPPED = FEATURE_FLAGS.filter((d) => d.parser === "defaultOn");
+    expect(FLIPPED.length, "the registry carries the 26 flipped flags").toBe(26);
     const NOT_FLIPPED = ["npcMemory", "multiNightFatigue"];
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
     let f = bootFlagsFromEnv();
-    for (const k of FLIPPED) expect(f[k], `${k} defaults ON`).toBe(true);
+    for (const d of FLIPPED) expect(f[d.key], `${d.key} defaults ON`).toBe(true);
     for (const k of NOT_FLIPPED) expect(f[k], `${k} stays opt-in`).toBe(false);
-    process.env.ORWELL_CAMPAIGNS = "0"; process.env.ORWELL_TIME_OF_DAY = "off"; process.env.ORWELL_JURY_HOUSE = "false";
+    for (const d of FLIPPED) {
+      for (const off of ["0", "false", "off", "OFF", " 0 "]) {
+        process.env[d.envKey] = off;
+        const g = bootFlagsFromEnv();
+        expect(g[d.key], `${d.envKey}=${JSON.stringify(off)} turns ${d.key} off`).toBe(false);
+        expect(Object.entries(g).filter(([k, v]) => !v && k !== d.key).map(([k]) => k).sort(), "no other flag moves").toEqual(NOT_FLIPPED.slice().sort());
+        delete process.env[d.envKey];
+      }
+    }
+    process.env.ORWELL_FLAGS_OFF = "1";
     f = bootFlagsFromEnv();
-    expect([f.campaigns, f.timeOfDay, f.juryHouse]).toEqual([false, false, false]);
-    expect(f.triggers, "an explicit off on one flag does not touch the others").toBe(true);
-    process.env = { ...saved }; process.env.ORWELL_FLAGS_OFF = "1";
-    f = bootFlagsFromEnv();
-    for (const k of FLIPPED) expect(f[k], `${k} off under ORWELL_FLAGS_OFF`).toBe(false);
+    for (const d of FLIPPED) expect(f[d.key], `${d.key} off under ORWELL_FLAGS_OFF`).toBe(false);
   });
 });

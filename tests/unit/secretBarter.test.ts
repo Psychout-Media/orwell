@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -81,7 +82,12 @@ const holds = (
   sb: ReturnType<GameSessionRegistry["sandboxFor"]>, who: EntityId, factId: string,
 ): boolean => sb.engine.knowledge.knownTo(who).some((k) => (k.factId ?? k.id) === factId);
 
-describe("0099 — secretBarterTick is OFF by default (no transfer, the dedicated stream never advances)", () => {
+describe("0099 — secretBarterTick when EXPLICITLY OFF (no transfer, the dedicated stream never advances)", () => {
+  it("a fresh session starts at the code default", () => {
+    const { sb } = barterGame("dflt", 11);
+    expect(sb.session.secretBarterEnabledNow()).toBe(flagDefaultOn("ORWELL_SECRET_BARTER", process.env));
+  });
+
   it("a disabled barter is a no-op — the valuing recipient never receives the secret", () => {
     const { sb } = barterGame("off", 11);
     sb.session.setSecretBarterEnabled(false); // explicit OFF (default flip 2026-11-03)

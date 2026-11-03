@@ -96,8 +96,9 @@ jobs:
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
           DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
-          # change can never move a calibration result, so the heavy lane skips for those.
-          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$)'
+          # change can never move a calibration result, so the heavy lane skips for those. `deploy/orwell-env-defaults.sh` is in the set
+          # because it still writes the gameplay flags to a box's .env (an `=0` there overrides the code default), so a change to it re-plays the game.
+          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$)'
           for name in engine frontend deploy heavy; do
             case "$name" in
               engine)   re="$ENGINE_RE" ;;
@@ -158,14 +159,12 @@ jobs:
   # completion — the same files `test:ci` excludes — via `npm run test:heavy`, which runs all five
   # heavy files in ONE vitest process. Vitest fans them out across the runner's cores internally.
   #
-  # This used to be 15 sharded jobs (uat ×3, jury ×5 + aggregate, gradient ×3 + aggregate) so the play
-  # fanned out across many PARALLEL GitHub-hosted runners. On a SINGLE self-hosted runner those jobs
-  # serialize anyway, and each one repeats checkout + `npm ci` + build (plus artifact upload/download
-  # for the jury/gradient aggregates) — pure overhead with zero parallelism benefit. Collapsing to one
-  # job pays the setup cost ONCE. Nothing is dropped: run UNSHARDED, juryReach.property.test.ts and
-  # calibrationGradient.property.test.ts each play their full seed set and assert the full band INLINE
-  # (the same gate the shard+aggregate pair reconstructs) — see each file's header. Re-shard only if a
-  # second runner is added or the hosted lanes come back.
+  # Topology (2026-11 default flip): a per-file MATRIX — ten legs, one `npm run test:heavy:<leg>` each (UAT 12-seed in three
+  # shards, 5-seed, decisions, reweight; jury, jury-reweight, gradient, gradient-reweight). Every leg repeats checkout +
+  # `npm ci` (about a minute of setup each) in exchange for wall-clock: the legs run concurrently on separate hosted runners
+  # and the long pole is the single slowest file, comfortably inside the 45-minute leg cap. juryReach and calibrationGradient run
+  # UNSHARDED inside their own leg and assert the full band inline (see each file's header). The code defaults are the
+  # deployed profile, so this lane replaces the old flags-off `heavy-sims` AND the retired advisory `heavy-sims-deployed`.
   #
   # PATH-GATED (`changes.heavy`): runs only when calibration-relevant files change. On a skip it
   # doesn't run — `ci-gate` reports the required green status so a docs/frontend-only PR never deadlocks.

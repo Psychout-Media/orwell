@@ -1,3 +1,5 @@
+import { defaultOnFrom } from './domain/flagDefaults';
+
 /**
  * #1843 — Single source of truth for all opt-in behavioral-fidelity and sleep-economy
  * feature flags reported by `/health`'s `bootFlags()` block.
@@ -84,10 +86,8 @@ function loose(v: string | undefined): boolean   { return v === '1' || v === 'tr
 // ON unless explicitly '0' — exactly the engine's own read (`!== "0"`), so unset reports ON like the engine runs.
 function inverted(v: string | undefined): boolean { return v !== '0'; }
 
-function defaultOn(v: string | undefined): boolean {
-  const s = (v ?? '').trim().toLowerCase();
-  return !(s === '0' || s === 'false' || s === 'off');
-}
+// The ONE parser (shared with the engine's own flag reads, src/domain/flagDefaults.ts) — /health can never diverge from it.
+function defaultOn(v: string | undefined): boolean { return defaultOnFrom(v, process.env.ORWELL_FLAGS_OFF); }
 
 const PARSERS: Record<ParserKind, (v: string | undefined) => boolean> = {
   strict,
@@ -110,8 +110,7 @@ const PARSERS: Record<ParserKind, (v: string | undefined) => boolean> = {
 export function bootFlagsFromEnv(): Record<string, boolean> {
   const result: Record<string, boolean> = {};
   for (const { envKey, key, parser } of FEATURE_FLAGS) {
-    // ORWELL_FLAGS_OFF=1 is the diagnostic switch that forces the whole default-on set OFF (the legacy profile).
-    result[key] = parser === 'defaultOn' && process.env.ORWELL_FLAGS_OFF === '1' ? false : PARSERS[parser](process.env[envKey]);
+    result[key] = PARSERS[parser](process.env[envKey]);
   }
   return result;
 }

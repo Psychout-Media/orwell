@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -79,12 +80,17 @@ function juryPhaseGame(user: string, seed: number): { reg: GameSessionRegistry; 
   return { reg, sb: reg.sandboxFor(user) };
 }
 
-describe("0100 — juryHouseTick is OFF by default (byte-identical: zero draws, no grudge)", () => {
+describe("0100 — juryHouseTick when EXPLICITLY OFF (byte-identical: zero draws, no grudge)", () => {
+  it("a fresh session starts at the code default", () => {
+    const { sb } = juryPhaseGame("dflt", 11);
+    expect(sb.session.juryHouseEnabledNow()).toBe(flagDefaultOn("ORWELL_JURY_HOUSE", process.env));
+  });
+
   it("a disabled jury house is a no-op — no jury-house scene, no grudge, the dedicated stream never advances", () => {
     const { sb } = juryPhaseGame("off", 11);
     sb.session.setJuryHouseEnabled(false); // explicit OFF (default flip 2026-11-03)
     const before = sb.engine.events.count();
-    // Default OFF (the calibration harness never enables it).
+    // Explicitly OFF above.
     sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.engine.events.count(), "no jury-house events recorded when off").toBe(before);
     const live = sb.session.snapshot().live as LiveSeasonState;
