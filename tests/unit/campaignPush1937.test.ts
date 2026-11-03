@@ -81,17 +81,20 @@ function house(): { rel: RelationshipModel; active: EntityId[] } {
 }
 
 describe("the push on nominations and the replacement", () => {
-  it("absent ⇒ byte-identical; an evict push on a low read pulls them onto the block", () => {
+  it("absent ⇒ byte-identical; an evict push on the LOWEST read pulls them onto the block", () => {
     const { rel, active } = house();
     const base = nominationStrategy(decider, active, rel);
     expect(nominationStrategy(decider, active, rel, { campaignPush: () => 0 })).toEqual(base);
-    // npc 4 is the lowest read; a full evict push is bounded (±0.25) so on a close field it can flip the pawn seat.
-    const pushed = nominationStrategy(decider, active, rel, { campaignPush: (t) => (t === npc(2) ? CAMPAIGN.base * 4 : 0) });
-    expect(pushed).toContain(npc(2));
+    // npc 4 is the lowest read and is NOT on the block without a push (the fixture discriminates the branch).
+    expect(base).not.toContain(npc(4));
+    // The plumbing is exercised with an exaggerated push; the real push is clamped to ±CAMPAIGN.base upstream.
+    const pushed = nominationStrategy(decider, active, rel, { campaignPush: (t) => (t === npc(4) ? CAMPAIGN.base * 8 : 0) });
+    expect(pushed).toContain(npc(4));
   });
 
   it("a protect push (negative) takes the top read off the block's target seat", () => {
     const { rel, active } = house();
+    expect(nominationStrategy(decider, active, rel)[0]).toBe(npc(1)); // without a push npc 1 is the target
     const protectedTop = nominationStrategy(decider, active, rel, { campaignPush: (t) => (t === npc(1) ? -CAMPAIGN.base * 8 : 0) });
     expect(protectedTop[0]).not.toBe(npc(1));
   });
@@ -101,7 +104,7 @@ describe("the push on nominations and the replacement", () => {
     const options = [npc(2), npc(3), npc(4)];
     const without = replacementPick(decider, npc(1), options, active, rel);
     const withPush = replacementPick(decider, npc(1), options, active, rel, { campaignPush: (t) => (t === npc(4) ? CAMPAIGN.base * 8 : 0) });
-    expect(options).toContain(without);
+    expect(without).toBe(npc(2)); // without a push the top read is named (the fixture discriminates)
     expect(withPush).toBe(npc(4));
   });
 });
