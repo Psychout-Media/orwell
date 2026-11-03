@@ -68,7 +68,7 @@ function answer(p: PendingView): Record<string, unknown> {
   }
 }
 
-async function toPlayerGoodbye(seed: number) {
+async function toPlayerGoodbyeOnSeed(seed: number) {
   const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
   const user = `post-goodbye-${seed}`;
   // Prove the env profile reached the sandbox (not silently flags-off): the two co-presence layers are on.
@@ -90,9 +90,20 @@ async function toPlayerGoodbye(seed: number) {
   throw new Error(`seed ${seed}: no player goodbye reached`);
 }
 
+/** The player only gets a `goodbye-message` when they SURVIVE an eviction, and which seeds do depends on the
+ *  balance (#1941 moved them) — so SEARCH for a qualifying seed rather than pinning one. */
+async function toPlayerGoodbye(maxSeeds = 40) {
+  for (let seed = 1; seed <= maxSeeds; seed++) {
+    try {
+      return await toPlayerGoodbyeOnSeed(seed);
+    } catch { /* this seed never hands the player a goodbye — try the next */ }
+  }
+  throw new Error(`no seed in 1..${maxSeeds} reached a player goodbye`);
+}
+
 describe("0130 — the beat chain after the player's goodbye ends in eviction-result", () => {
   it("needs more than one advance, ends in eviction-result, and drops the eviction projection there", async () => {
-    const { mcp } = await toPlayerGoodbye(3);
+    const { mcp } = await toPlayerGoodbye();
     const sub = (await mcp.callTool("submitDecision", { kind: "goodbye-message", vote: "respectful" })) as View;
     // The decision returns only the goodbye beat — the engine still owes the rest of the night.
     expect(sub.pending, "no player gate remains after the goodbye").toBeNull();
