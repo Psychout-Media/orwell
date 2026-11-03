@@ -382,7 +382,7 @@ Then("no player surface reduces a houseguest to a single identity label", functi
 When("the identical seeded competition is resolved for both", function (this: BbWorld) {
   // Capture the full public outcome stream with the diversity layer ON vs. OFF (the test seam) at the
   // same seed — the byte-identical comparison proves identity never bends a seeded outcome.
-  const capture = (disable: boolean): string => {
+  const captureInner = (disable: boolean): string => {
     if (disable) process.env.ORWELL_DISABLE_DIVERSITY = "1"; else delete process.env.ORWELL_DISABLE_DIVERSITY;
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor(`dv-golden-${disable}-${dvUsers++}`);
@@ -433,7 +433,7 @@ When("the identical seeded competition is resolved for both", function (this: Bb
           : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" }
           : p.kind === "juror-question" ? { kind: p.kind, statement: "x" }
           : p.kind === "exit-interview" ? { kind: p.kind, vote: "gracious" } // 0130: an evicted player's exit stance
-          : { kind: p.kind };
+          : (() => { throw new Error(`casting_diversity: unhandled pending decision kind '${p.kind}' — answer it explicitly (BDD PAT-1)`); })();
         const sub = sb.session.submitDecision(ans as never) as { finished: boolean; event?: { beat?: string; content?: string } | null };
         if (sub.event?.content) beats.push(norm(sub.event.beat, sub.event.content));
         if (sub.finished) break;
@@ -443,6 +443,11 @@ When("the identical seeded competition is resolved for both", function (this: Bb
     delete process.env.ORWELL_DISABLE_DIVERSITY;
     const live = sb.session.snapshot().live;
     return JSON.stringify({ evictionOrder: live?.evictionOrder, finished: live?.finished, beats });
+  };
+  // The flag is process-wide: clear it even when the run throws (an unknown pending kind fails loudly, BDD PAT-1), so a deliberately
+  // failing scenario can never leak ORWELL_DISABLE_DIVERSITY into later scenarios.
+  const capture = (disable: boolean): string => {
+    try { return captureInner(disable); } finally { delete process.env.ORWELL_DISABLE_DIVERSITY; }
   };
   (this as unknown as { dvWith?: string; dvWithout?: string }).dvWith = capture(false);
   (this as unknown as { dvWith?: string; dvWithout?: string }).dvWithout = capture(true);

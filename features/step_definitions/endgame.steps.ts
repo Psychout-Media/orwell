@@ -11,20 +11,14 @@ import type { AdvanceView } from "../../src/ports/GameSession";
 import { cloneSession } from "../../src/engine/sessionSnapshot";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0045 — Endgame structure (Final 5 → Final 2). HARD rule: roles only.
 
 const ctxOf = (rel: RelationshipModel): SeasonCtx => ({ player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel });
 
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.kind === "final-eviction") s.submitDecision({ kind: "final-eviction", vote: p.options[0]!.id });
-  else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
-  else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id });
+  resolvePending(p, (req) => s.submitDecision(req));
 }
 
 // --- Scenario: a seeded season reaches Final 2 with every late ceremony legal ---

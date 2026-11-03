@@ -5,6 +5,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0048 — season retrospective & the Vault unsealing. The Wall is ABSOLUTE during play;
 // this is its one sanctioned, structurally-gated exception. HARD rule: roles only — no names.
@@ -13,13 +14,7 @@ let rtUsers = 0;
 const RT_SENTINEL = "SENTINEL-0048-bdd";
 
 function rtResolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
-      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-  else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+  resolvePending(p, (req) => s.submitDecision(req));
 }
 
 function rtPlayToEnd(s: GameSessionAdapter): void {

@@ -7,6 +7,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 import type { AdvanceView, SubmitDecisionReq } from "../../src/ports/GameSession";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0061 — player self-eviction (the voluntary walk-out / quit path). Driven through the live
 // MCP seam (createCharacter → requestSelfEviction / submitDecision). Owner decisions baked in:
@@ -17,16 +18,7 @@ let svUsers = 0;
 
 /** A deterministic player policy for the auto-driven beats (compete, first legal options, no veto). */
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
-  const submit = (req: SubmitDecisionReq): void => void s.submitDecision(req);
-  if (p.kind === "nominations") submit({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") submit({ kind: "veto-decision", use: false });
-  else if (p.kind === "replacement") submit({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.kind === "comp-intent") submit({ kind: "comp-intent", intent: "compete" });
-  else if (p.kind === "comp-round") submit({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-  else if (p.kind === "finale-statement") submit({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") submit({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.kind === "juror-vote") submit({ kind: "juror-vote", vote: p.options[0]!.id });
-  else if (p.kind !== "self-evict") submit({ kind: p.kind, vote: p.options[0]!.id });
+  resolvePending(p, (req) => s.submitDecision(req)); // `self-evict` is intentionally never auto-answered (it returns null)
 }
 
 const playerLeft = (s: GameSessionAdapter): boolean => (s.snapshot().live?.evictionOrder ?? []).includes(PLAYER);

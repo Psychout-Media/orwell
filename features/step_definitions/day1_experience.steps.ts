@@ -17,6 +17,7 @@ import { npcExpress } from "../../src/engine/conversation";
 import { chooseNominations } from "../../src/engine/season";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 /**
  * FEATURE 0111 — the Day-1 experience (roles only; the cast is procedurally generated).
@@ -53,11 +54,7 @@ function crownFirstHoh(session: GameSessionAdapter): string {
     if (st.hoh) return st.hoh.id;
     const v = session.advanceGame();
     if (v.pending) {
-      const p = v.pending;
-      if (p.kind === "comp-intent") session.submitDecision({ kind: "comp-intent", intent: "compete" });
-      else if (p.kind === "comp-round") session.submitDecision({ kind: "comp-round", intent: "compete" });
-      else if (p.kind === "nominations") session.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.options[0]) session.submitDecision({ kind: p.kind, vote: p.options[0].id });
+      resolvePending(v.pending, (req) => session.submitDecision(req));
     }
     if (v.finished) break;
   }

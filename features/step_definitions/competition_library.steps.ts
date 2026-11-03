@@ -7,6 +7,7 @@ import type { Competitor } from "../../src/domain/competitionOutcome";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 // Feature 0042 — the competition library. HARD rule: roles only — no names.
 
@@ -25,12 +26,7 @@ function clPlay(user: string, seed: number, weeks = 4): {
     compViews.push(s.runCompetition({}));
     const v = s.advanceGame();
     if (v.pending) {
-      const p = v.pending;
-      if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-      else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
-      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-      else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
+      resolvePending(v.pending, (req) => s.submitDecision(req));
     }
     const live = s.snapshot().live;
     if (live?.vetoField) vetoFieldSizes.push(live.vetoField.length);

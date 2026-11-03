@@ -5,17 +5,12 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 import type { UserSandbox } from "../../src/composition/registry";
+import { resolvePending } from "../support/answerPending";
 
 // HARD rule: roles only — NPC, houseguest, player. No names.
 
 function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
-  else if (p.kind === "houseguests-choice") s.submitDecision({ kind: "houseguests-choice", vote: p.options[0]!.id });
-  else if (p.kind === "goodbye-message") s.submitDecision({ kind: "goodbye-message", vote: p.options[0]!.id });
-  else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
+  resolvePending(p, (req) => s.submitDecision(req));
 }
 
 type Offer = NonNullable<ReturnType<GameSession["getGameState"]>["openDealOffer"]>;

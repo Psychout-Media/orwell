@@ -17,6 +17,7 @@ import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { answerPending } from "../support/answerPending";
 
 // Background "a running game sandbox with a fully populated Producer's Vault" → mcp_boundary.steps.
 
@@ -74,11 +75,9 @@ Given("the game is at the nomination phase", function (this: BbWorld) {
       if (view.pending) {
         const p = view.pending;
         // Answer every non-nominations decision automatically until the loop pauses on nominations.
-        if (p.kind === "comp-intent") game.submitDecision({ kind: "comp-intent", intent: "compete" });
-        else if (p.kind === "comp-round") game.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-        else if (p.kind === "veto-decision") game.submitDecision({ kind: "veto-decision", use: false });
-        else if (p.options[0]) game.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
-        else break;
+        const req = answerPending(p);
+        if (req === null) break; // self-evict is never auto-answered
+        game.submitDecision(req);
       }
       view = game.advanceGame();
       if (view.finished) break;

@@ -10,6 +10,7 @@ import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import type { GameEvent } from "../../src/domain/event";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // HARD rule: roles only — NPC, HOH, nominee, the player. No names from any corpus.
 const [A, B, C] = [npc(1), npc(2), npc(3)];
@@ -18,15 +19,7 @@ const [A, B, C] = [npc(1), npc(2), npc(3)];
 const GIST_PHRASES = Object.values(CONFESSIONAL.gists).flatMap((g) => [g.initiator, g.witness]);
 
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-  else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-  else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
-  else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
-  else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-  else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
-  else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id });
+  resolvePending(p, (req) => s.submitDecision(req));
 }
 
 /** Play a started season for one full week (to the eviction result), recording the ceremony confessionals. */

@@ -4,6 +4,7 @@ import type { BbWorld, LiveDay } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
+import { resolvePending } from "../support/answerPending";
 
 /**
  * 0008 — the daily-event invariant, measured on the LIVE game (audit 2026-10-25: this BDD used to run
@@ -17,13 +18,7 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 const CEREMONY_BEAT = /^(hoh-competition|comp-elimination|nominations|veto-|eviction|final-|finale|twist-)/;
 
 function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>): AdvanceView | undefined {
-  if (p.kind === "nominations") return s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  if (p.kind === "veto-decision") return s.submitDecision({ kind: "veto-decision", use: false });
-  if (p.kind === "comp-intent" || p.kind === "comp-round") return s.submitDecision({ kind: p.kind, intent: "compete" } as never);
-  if (p.kind === "finale-statement") return s.submitDecision({ kind: "finale-statement", statement: "x" });
-  if (p.kind === "finale-answer") return s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-  if (p.options[0]) return s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
-  return undefined;
+  return resolvePending(p, (req) => s.submitDecision(req));
 }
 
 /** A day's own ambient "Week N, day D:" house event (houseEvents.ts) — present, but not a ceremony. */

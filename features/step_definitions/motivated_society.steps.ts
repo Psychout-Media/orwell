@@ -18,6 +18,7 @@ import type { Room, Occupancy } from "../../src/domain/house";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { playSeed, EARNED_WINS, SEEDS } from "../../tests/property/juryReachShared";
 import { linger } from "../../tests/support/linger";
+import { resolvePending } from "../support/answerPending";
 
 /**
  * Feature 0078 — motivated off-screen society & intentional movement. Co-presence is the gate for any
@@ -109,16 +110,7 @@ function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolea
     const a = s.advanceGame();
     const p = a.pending;
     if (p) {
-      if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-      else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
-      else if (p.kind === "houseguests-choice") s.submitDecision({ kind: "houseguests-choice", vote: p.options[0]!.id });
-      else if (p.kind === "goodbye-message") s.submitDecision({ kind: "goodbye-message", vote: p.options[0]!.id });
-      else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-      else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-      else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
-      else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id });
+      resolvePending(p, (req) => s.submitDecision(req));
     }
     if (a.finished) break;
   }
@@ -141,16 +133,7 @@ function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
     const a = s.advanceGame();
     const p = a.pending;
     if (p) {
-      if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-      else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
-      else if (p.kind === "houseguests-choice") s.submitDecision({ kind: "houseguests-choice", vote: p.options[0]!.id });
-      else if (p.kind === "goodbye-message") s.submitDecision({ kind: "goodbye-message", vote: p.options[0]!.id });
-      else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
-      else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
-      else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
-      else s.submitDecision({ kind: p.kind, vote: p.options[0]!.id });
+      resolvePending(p, (req) => s.submitDecision(req));
     }
     if (a.finished) break;
   }

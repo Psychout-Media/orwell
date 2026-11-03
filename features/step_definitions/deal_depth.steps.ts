@@ -7,6 +7,7 @@ import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0121 (PO expansion of the 0039 review), Part 1 — the ACTIVE-obligation deal kinds. Roles only.
 const PROMISOR = npc(1);
@@ -121,10 +122,7 @@ Given("a live game with the deal-depth layer off", function (this: BbWorld) {
   for (let i = 0; i < 80 && sb.session.snapshot().live?.hoh === undefined; i++) {
     const v = sb.session.advanceGame();
     if (v.pending) {
-      const p = v.pending;
-      if (p.kind === "nominations") sb.session.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.kind === "comp-round") sb.session.submitDecision({ kind: "comp-round", intent: "compete" });
-      else sb.session.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
+      resolvePending(v.pending, (req) => sb.session.submitDecision(req));
     }
     if (v.finished) break;
   }

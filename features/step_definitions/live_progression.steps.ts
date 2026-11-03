@@ -5,6 +5,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import { assertNoSentinels } from "../../tests/support/assertions";
 import { npc } from "../../src/domain/ids";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 // Feature 0034 — codifies the live weekly loop + decision seam, driven only through the MCP player
 // channel (createCharacter → advanceGame/submitDecision). Seed 5: the player survives deep and faces
@@ -15,11 +16,8 @@ type Player = import("../../src/adapters/mcp/McpServer").McpServer;
 const adv = async (p: Player): Promise<AdvanceView> => (await p.callTool("advanceGame", {})) as AdvanceView;
 
 async function resolveLegally(p: Player, d: NonNullable<AdvanceView["pending"]>): Promise<void> {
-  if (d.kind === "nominations") await p.callTool("submitDecision", { kind: "nominations", choice: [d.options[0]!.id, d.options[1]!.id] });
-  else if (d.kind === "veto-decision") await p.callTool("submitDecision", { kind: "veto-decision", use: false });
-  else if (d.kind === "replacement") await p.callTool("submitDecision", { kind: "replacement", replacement: d.options[0]!.id });
-  else if (d.kind === "comp-intent" || d.kind === "comp-round") await p.callTool("submitDecision", { kind: d.kind, intent: "compete" }); // 0006 staged-rounds
-  else await p.callTool("submitDecision", { kind: d.kind, vote: d.options[0]!.id });
+  const req = answerPending(d);
+  if (req) await p.callTool("submitDecision", req as unknown as Record<string, unknown>);
 }
 
 /** Advance until the first BINDING pending decision, counting beats that resolved automatically. */

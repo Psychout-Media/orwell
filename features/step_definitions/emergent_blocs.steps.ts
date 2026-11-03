@@ -8,6 +8,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { answerPending, resolvePending } from "../support/answerPending";
 
 // Feature 0043 — emergent blocs: derived at decision time, never stored (decision 0002).
 // HARD rule: roles only — no names.
@@ -116,14 +117,7 @@ function blPlayOne(seedBonds: boolean, user: string, members: EntityId[], seed: 
   for (let i = 0; i < 1500; i++) {
     const v = s.advanceGame();
     if (v.pending) {
-      const p = v.pending;
-      if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-      else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
-      else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
-      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
-      else if (p.kind === "goodbye-message") s.submitDecision({ kind: "goodbye-message", vote: "respectful" });
-      else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-      else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id });
+      resolvePending(v.pending, (req) => s.submitDecision(req));
     }
     const st = s.gameStatus();
     if (st.hoh && st.nominees.length === 2 && !nomsByWeek.has(st.week)) {
