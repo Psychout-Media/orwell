@@ -1,3 +1,4 @@
+# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628) — wired by the 0133 engine PR (#1986), which removes this marker.
 Feature: Early eviction — skip to the finale or watch the skeleton season, and still be in the finale
   The player is voted out before the jury forms. They choose to skip to the finale reveal or keep watching a
   condensed version of the rest of the season, and either way they take part in the finale.
