@@ -146,15 +146,27 @@ describe("T0-3 — buildBeatAnnouncements (weekly-loop scope)", () => {
     expect(facts).toEqual([{ kind: "eviction-result", week: 3, subjects: [NOM_A], detail: { by: HOH } }]);
   });
 
-  it("out-of-scope beats (veto-draw, day-break, twist-reveal, finale, self-eviction, comp-elimination) ⇒ no announcement", () => {
+  it("out-of-scope beats (veto-draw, day-break, twist-reveal, finale, self-eviction) ⇒ no announcement", () => {
     const outOfScope: BeatEvent["beat"][] = [
       "veto-draw", "day-break", "twist-reveal", "battle-back", "finale", "self-eviction",
-      "comp-elimination", "eviction-goodbye", "exit-interview", "complete",
+      "eviction-goodbye", "exit-interview", "complete",
     ];
     for (const beat of outOfScope) {
       const ev: BeatEvent = { beat, content: "x", participants: [HOH] };
       expect(buildBeatAnnouncements(ev, stateFixture())).toEqual([]);
     }
+  });
+});
+
+describe("A-14 N-3 — comp-elimination announces the round's drops", () => {
+  it("drops = participants no longer in the field; remaining = the field size; nothing dropped ⇒ nothing", () => {
+    const f = stateFixture();
+    const s = { ...f, competition: { stillIn: [NOM_B, VETO_HOLDER] } } as unknown as ReturnType<typeof stateFixture>;
+    const ev: BeatEvent = { beat: "comp-elimination", content: "x", participants: [HOH, NOM_A, NOM_B, VETO_HOLDER] };
+    const out = buildBeatAnnouncements(ev, s);
+    expect(out).toEqual([{ kind: "comp-round-result", week: s.week, subjects: [HOH, NOM_A], detail: { remaining: 2 } }]);
+    const none: BeatEvent = { beat: "comp-elimination", content: "x", participants: [NOM_B, VETO_HOLDER] };
+    expect(buildBeatAnnouncements(none, s)).toEqual([]);
   });
 });
 

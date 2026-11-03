@@ -29,7 +29,8 @@ export type BeatAnnouncementKind =
   | "veto-decision"
   | "replacement-nominee"
   | "eviction-ballot"
-  | "eviction-result";
+  | "eviction-result"
+  | "comp-round-result";
 
 /**
  * The engine-internal (id-keyed) shape of one broadcast fact. The adapter resolves `subjects`/
@@ -50,6 +51,8 @@ export interface BeatAnnouncement {
     saved?: EntityId;
     /** `eviction-result` only: the HOH broke a tied vote (E12 — never implies an extra "HOH ballot"). */
     tieBroken?: boolean;
+    /** `comp-round-result` only: how many houseguests are still in the competition after this round's drops. */
+    remaining?: number;
   };
 }
 
@@ -72,6 +75,15 @@ function fullBallotTally(e: EvictionProgress): Record<EntityId, number> {
 export function buildBeatAnnouncements(ev: BeatEvent, s: LiveSeasonState): BeatAnnouncement[] {
   const week = s.week;
   switch (ev.beat) {
+    case "comp-elimination": {
+      // A staged competition round's drops (A-14 N-3): `participants` = [...dropped, ...stillIn] (liveSeason), so the
+      // dropped are everyone no longer in `s.competition.stillIn`. Public ids only; the remaining count is a public fact.
+      const stillIn = new Set(s.competition?.stillIn ?? []);
+      const dropped = ev.participants.filter((id) => !stillIn.has(id));
+      return dropped.length > 0
+        ? [{ kind: "comp-round-result", week, subjects: dropped, detail: { remaining: stillIn.size } }]
+        : [];
+    }
     case "hoh-competition": {
       const winner = ev.participants[0];
       return winner ? [{ kind: "hoh-winner", week, subjects: [winner] }] : [];
@@ -181,6 +193,12 @@ export function announcementHeadline(a: BeatAnnouncement, nameOf: NameResolver):
       const by = a.detail?.by;
       const namer = by ? nameOf(by) : "The Head of Household";
       return `${namer} names ${nameOf(a.subjects[0]!)} as the replacement nominee.`;
+    }
+    case "comp-round-result": {
+      const names = a.subjects.map((id) => nameOf(id));
+      const list = names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+      const rem = a.detail?.remaining;
+      return `${list} ${names.length === 1 ? "is" : "are"} out of the competition${rem !== undefined ? `; ${rem} remain` : ""}.`;
     }
     case "eviction-ballot":
       return a.subjects.map((id) => `a vote to evict ${nameOf(id)}.`).join(" ");
