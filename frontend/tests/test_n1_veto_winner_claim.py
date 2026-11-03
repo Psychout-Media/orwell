@@ -75,3 +75,11 @@ def test_stands_down_without_a_committed_holder_or_in_other_phases():
     assert ch._narration_claims_outcome(a9, dict(s), s)
     assert ch._veto_holder_contradiction(LIVE_LEAK, _sig(phase="nominations")) is None
     assert ch._veto_holder_contradiction(LIVE_LEAK, {}) is None
+
+
+def test_full_display_names_are_matched_and_unrelated_sentences_do_not_inherit_veto_context():
+    sig2 = _sig(activeNames=ACTIVE + ["Rival Smith"])
+    assert ch._veto_holder_contradiction("Rival Smith wins the veto.", sig2)
+    # a room-movement sentence far from any veto talk must not be read as a veto claim by a later veto sentence
+    far = "Rival wins the argument and leaves the kitchen.\n\nThe afternoon drifts on.\n\nThe house chatters.\n\nLater, the veto ceremony is announced."
+    assert not ch._veto_holder_contradiction(far, _sig())

@@ -44,3 +44,10 @@ def test_the_ballot_exemption_only_applies_in_the_eviction_phase():
 def test_ballot_phrasing_with_a_voter_attributed_is_not_exempted():
     # E12: ballots are anonymous — a named voter is a different (leak) claim, never the sanctioned reveal
     assert verdict("Delta votes to evict Bravo.")
+
+
+def test_a_ballot_naming_a_different_person_who_shares_a_first_name_is_not_exempted():
+    s = sig(nomNames=["Alex Smith", "Charlie"])
+    assert verdict("The voice comes through: a vote to evict Alex Jones.", s)   # not the nominee Alex Smith
+    assert not verdict("The voice comes through: a vote to evict Alex Smith.", s)
+    assert not verdict("The voice comes through: a vote to evict Alex.", s)      # single-token shorthand of the nominee

@@ -12,14 +12,19 @@ function play(seed: number): AdvanceView[] {
   const s = new GameSessionAdapter();
   s.createCharacter({ playerName: "P", seed });
   const out: AdvanceView[] = [];
-  for (let i = 0; i < 400; i++) {
+  const count = () => out.filter((x) => x.announcements?.some((a) => a.kind === "hoh-winner")).length;
+  for (let i = 0; i < 400 && count() < 2; i++) {
     const v = s.advanceGame();
     out.push(v);
     if (v.pending) {
       const p = v.pending;
-      s.submitDecision(p.kind === "comp-round" ? { kind: "comp-round", intent: "compete" } : p.kind === "comp-intent" ? { kind: "comp-intent", intent: "compete" } : { kind: p.kind, vote: p.options[0]?.id } as never);
+      const req = p.kind === "comp-round" ? { kind: "comp-round", intent: "compete" }
+        : p.kind === "comp-intent" ? { kind: "comp-intent", intent: "compete" }
+        : p.kind === "nominations" ? { kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] }
+        : { kind: p.kind, vote: p.options[0]?.id };
+      out.push(s.submitDecision(req as never)); // the decision commit path carries announcements too (e.g. the first staged round)
     }
-    if (v.finished || out.filter((x) => x.announcements?.some((a) => a.kind === "hoh-winner")).length >= 2) break;
+    if (v.finished) break;
   }
   return out;
 }

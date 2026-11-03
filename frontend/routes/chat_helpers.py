@@ -2335,7 +2335,8 @@ def _strip_anonymized_ballots(text: str, live: dict) -> str:
 
     def _repl(m):
         name = m.group(1).strip().lower()
-        return "" if any(name == n or name.split()[0] == n.split()[0] for n in noms) else m.group(0)
+        # exact full name, or a SINGLE-token shorthand of a nominee ("a vote to evict Alex Jones" is NOT "Alex Smith")
+        return "" if any(name == n or (len(name.split()) == 1 and name in n.split()) for n in noms) else m.group(0)
 
     return _BALLOT_PHRASE_RE.sub(_repl, text)
 
@@ -3579,14 +3580,14 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
 # veto FIELD and A-9 only arms while the comp is unsettled; this verifies the WINNER / USE-INTENT identity against
 # the signature's committed `vetoHolderName`. Closed-set only; the named houseguest must be on the active roster.
 _CLAIM_VETO_BELL_RE = re.compile(
-    r"\b([A-Z][a-z]+)(?i:\s+(?:gets\s+there\s+first|(?:hits|slams|rings)\s+the\s+(?:bell|buzzer)|"
+    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?i:\s+(?:gets\s+there\s+first|(?:hits|slams|rings)\s+the\s+(?:bell|buzzer)|"
     r"(?:wins|won|takes|took|claims|claimed|snags|grabs)\s+(?:the\s+)?(?:power of veto|veto|pov)))\b")
 _CLAIM_VETO_INTENT_RE = re.compile(
     # a speaker-labelled line: Name: "...I'm gonna use it"
-    r"\b([A-Z][a-z]+)\s*:\s*[\"“]?[^\"”\n]{0,60}?(?i:\bI(?:'|’)?m\s+(?:gonna|going\s+to)|\bI(?:'|’)?ll|\bI\s+will)"
+    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*:\s*[\"“]?[^\"”\n]{0,60}?(?i:\bI(?:'|’)?m\s+(?:gonna|going\s+to)|\bI(?:'|’)?ll|\bI\s+will)"
     r"(?i:\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)"
     # third person: Name is going to / will use the veto
-    r"|\b([A-Z][a-z]+)(?i:\s+(?:is\s+(?:gonna|going\s+to)|will|'ll|’ll)\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)")
+    r"|\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?i:\s+(?:is\s+(?:gonna|going\s+to)|will|'ll|’ll)\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)")
 _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
@@ -3613,8 +3614,13 @@ _DENY_NOMS_RE = re.compile(
     r"|\bnominees?\s+(?:haven(?:'|’)?t|have\s+not|aren(?:'|’)?t)\s+(?:been\s+)?(?:named|chosen|set|announced)", re.IGNORECASE)
 _DENY_VETO_RE = re.compile(
     r"\b(?:veto|pov|power\s+of\s+veto)\b[^.!?\n]{0,40}?\b" + _N3_NEG
-    + r"\b[^.!?\n]{0,20}\b(?:played|decided|held|won|happened|started|settled)\b"
+    + r"\b[^.!?\n]{0,20}\b(?:held|won|happened|started|settled|finished)\b"
     r"|\b(?:nobody|no\s+one)\s+(?:holds|has|owns)\s+(?:the\s+)?(?:power\s+of\s+)?(?:veto|pov)\b", re.IGNORECASE)
+
+
+# the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
+# first clause cannot hide an explicit later contradiction
+_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
 
 
 def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
@@ -3639,7 +3645,7 @@ def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
             continue
         for rx, label in checks:
             m = rx.search(sent)
-            if m and not _VETO_N1_HYP_RE.search(sent[:m.start()] + sent[m.start():m.start() + 12]):
+            if m and not _VETO_N1_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.start() + 12]):
                 return "the narration says " + label
     return None
 
@@ -3654,11 +3660,16 @@ def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
     holder = live.get("vetoHolderName")
     if not holder or not live.get("vetoHolder") or not text:
         return None
-    comp_ctx = re.search(r"\b(?:veto|pov|bell|buzzer|comp|competition|challenge)\b", text, re.IGNORECASE)
-    veto_ctx = re.search(r"\b(?:veto|pov)\b", text, re.IGNORECASE)
-    for sent in re.split(r"(?<=[.!?\n])", text):
+    sents = re.split(r"(?<=[.!?\n])", text)
+    for _i, sent in enumerate(sents):
         if not sent.strip() or _COMP_PAST_RE.search(sent):
             continue
+        # context is a bounded same-event WINDOW (this sentence ± two neighbours), never the whole narration: an
+        # unrelated sentence must not inherit veto context from elsewhere, yet "X gets there first." (no keyword of
+        # its own) still reads against the "bell"/"veto" in the sentences around it.
+        _win = " ".join(sents[max(0, _i - 2):_i + 3])
+        comp_ctx = re.search(r"\b(?:veto|pov|bell|buzzer|comp|competition|challenge)\b", _win, re.IGNORECASE)
+        veto_ctx = re.search(r"\b(?:veto|pov)\b", _win, re.IGNORECASE)
         for rx, ctx in ((_CLAIM_VETO_BELL_RE, comp_ctx), (_CLAIM_VETO_INTENT_RE, veto_ctx)):
             if not ctx:
                 continue

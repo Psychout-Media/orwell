@@ -18,8 +18,10 @@ def _run(c):
 @pytest.fixture(autouse=True)
 def _clean():
     ch.clear_preresolve_debt("u")
+    ch._LAST_BEAT_SEQ.pop(ch._beat_seq_key("u"), None)
     yield
     ch.clear_preresolve_debt("u")
+    ch._LAST_BEAT_SEQ.pop(ch._beat_seq_key("u"), None)
 
 
 A1 = {"id": "ann:1", "kind": "hoh-winner", "week": 1, "beatSeq": 7, "headline": "A is the new Head of Household.", "subjects": []}

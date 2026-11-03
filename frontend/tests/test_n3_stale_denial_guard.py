@@ -28,7 +28,7 @@ def test_hoh_denied_after_the_crown_is_flagged():
 
 
 def test_nominations_denied_after_they_are_committed_is_flagged():
-    for t in ("Evelyn hasn't named her nominees yet — you still have time to talk her out of it.",
+    for t in ("The HOH hasn't named her nominees yet — you still have time to talk her out of it.",
               "You catch her before she names nominees and plead your case.",
               "The nominations haven't been made."):
         assert claims(t, sig()), t
@@ -36,7 +36,7 @@ def test_nominations_denied_after_they_are_committed_is_flagged():
 
 def test_veto_denied_after_the_holder_is_committed_is_flagged():
     after = sig(phase="veto-ceremony", vetoHolder="npc:7", vetoHolderName="Delta")
-    for t in ("The veto hasn't been played yet, so nobody holds it.", "Nobody holds the veto."):
+    for t in ("The veto competition hasn't happened yet.", "Nobody holds the veto."):
         assert claims(t, after), t
 
 
@@ -57,9 +57,28 @@ def test_past_week_and_hypothetical_and_unrelated_denials_do_not_trigger():
 
 def test_veto_denied_during_the_veto_competition_phase_once_the_holder_is_committed():
     after = sig(phase="veto-competition", vetoHolder="npc:7", vetoHolderName="Delta")
-    assert claims("The veto hasn't been played yet — everyone is still waiting in the yard.", after)
+    assert claims("The veto competition hasn't started yet — everyone is still waiting in the yard.", after)
 
 
 def test_nominations_denial_only_polices_phases_after_the_nominations_ceremony():
     # documents the scope: while the engine is still IN the nominations phase the board may be mid-flip, so stand down
     assert not claims("She hasn't named her nominees yet.", sig(phase="nominations"))
+
+
+def test_a_veto_that_has_not_been_PLAYED_is_a_true_statement_before_the_ceremony_decision():
+    # the holder is committed but the use/no-use decision is not: "hasn't been played/used yet" is accurate
+    after = sig(phase="veto-ceremony", vetoHolder="npc:7", vetoHolderName="Delta")
+    assert not claims("The veto hasn't been played yet — the ceremony is still to come.", after)
+
+
+def test_the_committed_fact_denials_also_trip_in_the_eviction_and_final_phases():
+    for ph in ("eviction", "final-eviction"):
+        after = sig(phase=ph, vetoHolder="npc:7", vetoHolderName="Delta")
+        assert claims("She hasn't named her nominees yet.", after), ph
+        assert claims("Nobody holds the veto.", after), ph
+        assert claims("Nobody has won Head of Household yet.", after), ph
+
+
+def test_a_hypothetical_first_clause_does_not_hide_a_later_stale_denial():
+    after = sig(phase="veto-ceremony", vetoHolder="npc:7", vetoHolderName="Delta")
+    assert claims("If you stay quiet, nothing changes, and nobody holds the veto.", after)
