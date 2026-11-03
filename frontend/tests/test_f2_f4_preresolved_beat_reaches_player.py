@@ -22,8 +22,10 @@ def _run(c):
 @pytest.fixture(autouse=True)
 def _clean():
     chat_helpers.clear_social_runway("u")
+    chat_helpers.clear_preresolve_debt("u")
     yield
     chat_helpers.clear_social_runway("u")
+    chat_helpers.clear_preresolve_debt("u")
 
 
 ANN = {"id": "a1", "kind": "hoh-winner", "week": 1, "beatSeq": 5, "headline": "The HOH wins Head of Household.", "subjects": []}
