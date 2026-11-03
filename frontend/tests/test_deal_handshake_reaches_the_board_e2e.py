@@ -55,6 +55,7 @@ def _turn(monkeypatch, *, round1_tools, narration, extraction, user_msg):
 
     monkeypatch.setattr(oe, "get_game_state", fake_state)
     deals = []
+    seen = {"tools": [], "extractions": 0}
 
     async def fake_make_deal(with_id, kind, terms, *a, **k):
         deals.append({"with": with_id, "kind": kind, "terms": terms})
@@ -63,6 +64,7 @@ def _turn(monkeypatch, *, round1_tools, narration, extraction, user_msg):
     monkeypatch.setattr(oe, "make_deal", fake_make_deal)
 
     async def fake_llm(*a, **k):  # the belt's constrained extraction
+        seen["extractions"] += 1
         return extraction
 
     monkeypatch.setattr(llm_core, "llm_call_async", fake_llm)
@@ -73,6 +75,7 @@ def _turn(monkeypatch, *, round1_tools, narration, extraction, user_msg):
     monkeypatch.setattr(al, "_auto_record_scene", fake_record)
 
     async def fake_exec(block, **k):  # the narrator's own tool calls (gathering / scene log), never a deal
+        seen["tools"].append(block.tool_type)
         if block.tool_type == "makeDeal":
             await oe.make_deal("npc:1", "safety", "model-made")
         return block.tool_type, {"output": "{}", "exit_code": 0}
@@ -102,8 +105,12 @@ def _turn(monkeypatch, *, round1_tools, narration, extraction, user_msg):
         async for _ in gen:
             pass
 
-    asyncio.new_event_loop().run_until_complete(drive())
-    return deals
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(drive())
+    finally:
+        loop.close()
+    return deals, seen
 
 
 STRUCK = '{"struck":true,"withId":"npc:1","kind":"safety","terms":"neither nominates the other"}'
@@ -111,26 +118,33 @@ SHAKE_MSG = "Contestant Alpha, I won't put you up and you won't put me up. Shake
 
 
 def test_handshake_with_only_gathering_tools_still_puts_the_deal_on_the_board(monkeypatch):
-    deals = _turn(monkeypatch, round1_tools=("npcVoice", "recordInteraction"), narration=HANDSHAKE,
-                  extraction=STRUCK, user_msg=SHAKE_MSG)
+    deals, seen = _turn(monkeypatch, round1_tools=("npcVoice", "recordInteraction"), narration=HANDSHAKE,
+                        extraction=STRUCK, user_msg=SHAKE_MSG)
+    assert seen["tools"] == ["npcVoice", "recordInteraction"], "precondition: the narrator called ONLY gathering tools"
+    assert seen["extractions"] == 1, "the belt's extractor ran once"
     assert len(deals) == 1, f"the back-fill must make exactly one deal, got {deals}"
     assert deals[0]["with"] == "npc:1" and deals[0]["kind"] == "safety"
 
 
 def test_no_deal_language_in_the_scene_creates_no_deal(monkeypatch):
-    deals = _turn(monkeypatch, round1_tools=("npcVoice",), narration=LOOSE,
-                  extraction=STRUCK, user_msg="Contestant Alpha, want to work together sometime?")
+    deals, seen = _turn(monkeypatch, round1_tools=("npcVoice",), narration=LOOSE,
+                        extraction=STRUCK, user_msg="Contestant Alpha, want to work together sometime?")
+    assert seen["tools"] == ["npcVoice"]
+    assert seen["extractions"] == 0, "no deal language ⇒ the extractor must not even be consulted"
     assert deals == [], "a scene with no handshake language must never reach the extractor, let alone bind a deal"
 
 
 def test_loose_talk_with_deal_words_is_refused_by_the_extractor(monkeypatch):
-    deals = _turn(monkeypatch, round1_tools=("npcVoice",), narration=HANDSHAKE,
-                  extraction='{"struck":false,"withId":"npc:1","kind":"safety","terms":"maybe someday"}',
+    deals, seen = _turn(monkeypatch, round1_tools=("npcVoice",), narration=HANDSHAKE,
+                        extraction='{"struck":false,"withId":"npc:1","kind":"safety","terms":"maybe someday"}',
                   user_msg="Contestant Alpha, maybe we could have a deal someday?")
+    assert seen["extractions"] == 1, "precondition: the extractor WAS consulted and refused"
     assert deals == [], "struck=false (a one-sided pitch / maybe) must never create a deal"
 
 
 def test_a_model_made_deal_is_not_doubled_by_the_belt(monkeypatch):
-    deals = _turn(monkeypatch, round1_tools=("makeDeal",), narration=HANDSHAKE,
-                  extraction=STRUCK, user_msg=SHAKE_MSG)
+    deals, seen = _turn(monkeypatch, round1_tools=("makeDeal",), narration=HANDSHAKE,
+                        extraction=STRUCK, user_msg=SHAKE_MSG)
+    assert seen["tools"] == ["makeDeal"], "precondition: the model made the deal itself"
+    assert seen["extractions"] == 0, "a model-made deal suppresses the belt: the extractor is never consulted"
     assert len(deals) == 1, f"model-driven makeDeal wins; the belt must not add a second one, got {deals}"
