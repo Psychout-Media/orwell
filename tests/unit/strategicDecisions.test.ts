@@ -139,6 +139,15 @@ describe("the replacement branches on the stored HOH target (#1948, 0044 §9)", 
     expect(replacementPick(hoh, npc(4), options, active, rel)).toBe(npc(5));
   });
 
+  it("#1971: a new TARGET is ranked by the target-oriented read — a heavy floater pull cannot let a pawn outrank the HOH's top read", () => {
+    const { rel, active } = splitHouse({ 4: 0.95 });
+    // floater-cleaner weights the isolated floater (npc 5) at 0.9: under the old pawn-style scoring that pull could flip the pick.
+    const read = { target: npc(1), style: "floater-cleaner" as const };
+    expect(replacementPick(hoh, npc(4), options, active, rel, read)).toBe(npc(2)); // new target: the top threat read, not the floater
+    // the SAME house, target still up (the pawn seat): the floater pull applies as before.
+    expect(replacementPick(hoh, npc(1), options, active, rel, read)).toBe(npc(5));
+  });
+
   it("target STILL UP but outscored by an option ⇒ a new PAWN — where the score inference wrongly names a new target", () => {
     const { rel, active } = splitHouse({ 1: 0.2, 5: 0.4 }); // the stored target (npc 1) has cooled below the options
     // By identity: the target is still on the block ⇒ the pawn seat (the isolated floater, npc 5).

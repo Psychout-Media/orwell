@@ -223,7 +223,13 @@ export function replacementPick(
   const ranked = [...options].sort((a, b) => score(b) - score(a));
   // #1948: branch on the HOH's stored target when we have it; otherwise infer it from the scores (legacy).
   const targetStillUp = target !== undefined ? remaining === target : score(remaining) >= score(ranked[0]!);
-  if (!targetStillUp) return ranked[0]!; // the target came down / a backdoor — name the real target
+  if (!targetStillUp) {
+    // #1971: the HOH is naming the REAL target again, so rank by the target-oriented read (threat + bloc + mood + the
+    // campaign/memory pushes) WITHOUT the pawn-seat floater/duo pull — a pawn or duo partner must not outrank the HOH's top read.
+    const targetScore = (t: EntityId): number =>
+      nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0);
+    return [...options].reduce((best, c) => (targetScore(c) > targetScore(best) ? c : best), options[0]!);
+  }
   const partner = duoPartner(remaining, hoh, active, rel);
   const pawnScore = (c: EntityId): number =>
     score(c) + S.pawnSeatFloaterBonus * P * floaterRead(c, active, rel) + (c === partner ? S.duoPartnerBonus * P : 0);
