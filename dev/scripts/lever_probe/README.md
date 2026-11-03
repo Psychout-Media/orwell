@@ -11,3 +11,19 @@ python3 dev/scripts/lever_probe/probe.py scenarios.json --tool-choice required  
 
 A hard spend cap (`--cap-usd`, default 1.5) aborts the run. Never write the key to a file. Add `--model` / `--base`
 to probe another endpoint.
+
+## Results (2026-11-03, deepseek-flash via api.deepseek.com, tool_choice=auto, FIRST round only, 8 trials/scenario)
+
+| scenario (expected lever) | base | + tail-reminder |
+|---|---|---|
+| hoh-competition (advanceGame) | 7/8 | 8/8 |
+| nominations (advanceGame) | 8/8 | 8/8 |
+| veto-ceremony (advanceGame) | 0/8 (7 prose) | 8/8 |
+| eviction (advanceGame) | 1/8 (7 npcVoice) | 4/8 (4 prose) |
+| deal (makeDeal) | 0/8 (npcVoice first) | 6/8 |
+| confide (confide) | 3/8 (npcVoice first) | 1/8 |
+
+Cost: ~$0.31 per 48-call pass (~$0.86 across all three runs incl. the 6-trial baseline). Caveats: first round only — a
+call to `npcVoice`/`getGameState` before the lever is a miss here but not in the real multi-round loop; n=8 is a
+signal, not a rate; the closed-set beats are already covered in production by forced `tool_choice` (`requiredLever`).
+`tail-reminder` appends a one-paragraph "call the lever FIRST" system message after the hard-constraints block.

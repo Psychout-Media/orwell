@@ -23,10 +23,17 @@ def load_tools():
     return [t for t in ts.FUNCTION_TOOL_SCHEMAS if t["function"]["name"] in keep]
 
 
-def call(base, key, model, system, user, tools, tool_choice, hard):
+REMINDER = ("LEVER CHECK before you write a word: if the player's move strikes a deal, call makeDeal; if it presses "
+            "someone to open up, call confide; if it asks to proceed or the beat is a competition/ceremony, call "
+            "advanceGame. Call the tool FIRST, then narrate its result.")
+
+
+def call(base, key, model, system, user, tools, tool_choice, hard, variant="base"):
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if hard:
         msgs.append({"role": "system", "content": hard})
+    if variant == "tail-reminder":
+        msgs.append({"role": "system", "content": REMINDER})
     body = {"model": model, "messages": msgs, "tools": tools, "tool_choice": tool_choice,
             "max_tokens": 800, "temperature": 0.7}
     req = urllib.request.Request(base.rstrip("/") + "/chat/completions", data=json.dumps(body).encode(),
@@ -42,6 +49,7 @@ def main():
     ap.add_argument("--model", default="deepseek-flash")
     ap.add_argument("--base", default="https://api.deepseek.com")
     ap.add_argument("--cap-usd", type=float, default=1.5)
+    ap.add_argument("--variant", default="base", help="base | tail-reminder (a short last-message lever reminder)")
     ap.add_argument("--tool-choice", default="auto", help="auto | required (floor measurement)")
     a = ap.parse_args()
     key = os.environ.get("DEEPSEEK_API_KEY")
@@ -52,9 +60,10 @@ def main():
     spent, rows = 0.0, []
     for sc in scenarios:
         hit = any_call = 0
+        hist = {}
         for _ in range(a.trials):
             try:
-                resp = call(a.base, key, a.model, sc["system"], sc["user"], tools, a.tool_choice, sc.get("hard"))
+                resp = call(a.base, key, a.model, sc["system"], sc["user"], tools, a.tool_choice, sc.get("hard"), a.variant)
             except Exception as e:  # transport hiccup: counted as a miss, not a crash
                 print("  trial error:", type(e).__name__, file=sys.stderr)
                 time.sleep(1)
@@ -64,13 +73,15 @@ def main():
             calls = (resp["choices"][0]["message"].get("tool_calls") or [])
             names = [c["function"]["name"] for c in calls]
             any_call += bool(names)
+            for n in (names or ["(prose)"]):
+                hist[n] = hist.get(n, 0) + 1
             hit += sc["expect"] in names
             if spent > a.cap_usd:
                 print(json.dumps({"aborted": "spend cap", "spentUsd": round(spent, 3), "rows": rows}))
                 sys.exit(3)
-        rows.append({"scenario": sc["id"], "expect": sc["expect"], "trials": a.trials, "hit": hit, "anyToolCall": any_call})
+        rows.append({"scenario": sc["id"], "expect": sc["expect"], "trials": a.trials, "hit": hit, "anyToolCall": any_call, "calls": hist})
         print(f"{sc['id']:18} expect={sc['expect']:12} hit {hit}/{a.trials}  anyTool {any_call}/{a.trials}", file=sys.stderr)
-    print(json.dumps({"model": a.model, "toolChoice": a.tool_choice, "spentUsd": round(spent, 3), "rows": rows}, indent=1))
+    print(json.dumps({"model": a.model, "toolChoice": a.tool_choice, "variant": a.variant, "spentUsd": round(spent, 3), "rows": rows}, indent=1))
 
 
 if __name__ == "__main__":
