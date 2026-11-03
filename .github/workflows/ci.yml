@@ -21,7 +21,12 @@ concurrency:
 # The gh-hosted runners intermittently can't reach the npm registry (ETIMEDOUT / ENETUNREACH on `npm ci`
 # before any test runs — seen on #1911 smoke and #1912 mirror-parity). Retry the fetches with backoff
 # instead of failing the whole job on one dropped connection.
+#
+# onnxruntime-node's postinstall on linux/x64 also pulls the CUDA 12 execution-provider binaries from
+# api.nuget.org on every `npm ci`. Nothing here uses CUDA (the CPU runtime ships inside the package),
+# and that nuget fetch is the intermittent install timeout seen on #1929. Skip it.
 env:
+  ONNXRUNTIME_NODE_INSTALL: "skip"
   NPM_CONFIG_FETCH_RETRIES: "5"
   NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "10000"
   NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "60000"

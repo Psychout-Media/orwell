@@ -35,6 +35,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Skip onnxruntime-node's CUDA-provider download from nuget (unused here; see ci.yml).
+  ONNXRUNTIME_NODE_INSTALL: "skip"
   ORWELL_DISABLE_IMAGE_GEN: "1"
 
 jobs:
