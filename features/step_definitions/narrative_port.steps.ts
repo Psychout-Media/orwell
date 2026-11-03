@@ -23,8 +23,19 @@ import { PLAYER, npc } from "../../src/domain/ids";
 // outcome" scenarios drive THAT live seam, while the adapter-only scenarios (failure fallback, config) are tagged
 // @standalone-module in the feature.
 const narrationCtx = new WeakMap<object, { visible: ReturnType<UserSandbox["player"]["getVisibleState"]>; sb?: UserSandbox; reg?: GameSessionRegistry; user?: string }>();
-/** The ENTIRE durable game (session core + event log + hidden relationships + knowledge + Vault) as JSON: any state a narration step could move. */
-const durableState = (reg: GameSessionRegistry, user: string): string => JSON.stringify(reg.snapshot(user));
+/**
+ * The ENTIRE durable game (session core + event log + hidden relationships + knowledge + Vault) as JSON: any state a
+ * narration step could move. Read from the LIVE parts directly — `reg.snapshot(user)` returns a cached export while the
+ * rev / event count are unchanged, so a mutation that skipped the rev bump would be invisible to it.
+ */
+const durableState = (sb: UserSandbox): string => JSON.stringify({
+  events: sb.engine.events.queryAll(),
+  relationships: sb.engine.relationships.serialize(),
+  knowledge: sb.engine.knowledge.serialize(),
+  vault: sb.engine.vault.readHidden(),
+  session: sb.session.snapshot(),
+});
+const hallucinated = new WeakMap<object, string>();
 const durableBeforeAfter = new WeakMap<object, { before: string; after: string }>();
 const MOMENT_PROMPT = "You are the voice of the house. Narrate the moment in character; the engine decides outcomes.";
 
@@ -136,18 +147,23 @@ Given("the engine has decided a competition result", function (this: BbWorld) {
   assert.ok(this.liveCompResult.winner, "the engine produced the winner the narrator must voice");
   // The full Vault-free engine state right after the engine decided — narration must not move it.
   this.liveStateBefore = JSON.stringify(sb.session.getGameState());
-  durableBeforeAfter.set(this, { before: durableState(reg, "pat5-narration-comp"), after: "" });
+  durableBeforeAfter.set(this, { before: durableState(sb), after: "" });
 });
 
 When("the narrator produces narration for it", function (this: BbWorld) {
   const c = narrationCtx.get(this)!;
-  const sb = c.sb!, reg = c.reg!, user = c.user!;
+  const sb = c.sb!;
+  // An adversarial claim: the prose asserts a result the engine did NOT produce (a houseguest other than the real winner).
+  const winner = String(this.liveCompResult!.winner);
+  const impostor = sb.session.snapshot().house!.npcs.map((x) => x.id as string).find((id) => id !== winner)!;
+  hallucinated.set(this, `BREAKING: ${impostor} actually won the endurance competition, not ${winner}; the result is overturned.`);
   this.narrationOut = [
     ...ALL_PLAYER_SURFACES.map((surface) => sb.player.produce(surface)),
     JSON.stringify(sb.player.assembleNarrationContext("scene")),
     sb.player.renderScene("full"),
+    hallucinated.get(this)!,
   ].join("\n---\n");
-  durableBeforeAfter.get(this)!.after = durableState(reg, user); // read straight after narrating, before anything else runs
+  durableBeforeAfter.get(this)!.after = durableState(sb); // read straight after narrating, before anything else runs
 });
 
 Then("the engine's result is unchanged", function (this: BbWorld) {
@@ -157,7 +173,8 @@ Then("the engine's result is unchanged", function (this: BbWorld) {
 });
 
 Then("even a hallucinated result in the prose changes no game state", function (this: BbWorld) {
-  assert.ok(this.narrationOut && this.narrationOut.length > 0); // the prose said something...
+  // The prose carries an explicit false claim about the result (the case this scenario is about)...
+  assert.ok(this.narrationOut!.includes(hallucinated.get(this)!), "the narration contains the hallucinated winner claim");
   // ...and the live engine's whole game state is byte-identical: narrating moved nothing (the engine never reads prose back).
   assert.equal(JSON.stringify(this.liveCompGame!.getGameState()), this.liveStateBefore, "no game state changed");
   // ...and not one byte of the durable game (event log, hidden relationships, knowledge, Vault) moved either.

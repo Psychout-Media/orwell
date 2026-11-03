@@ -30,6 +30,9 @@ Feature: Live off-screen society
     Then the player's knowledge gains the belief with its source and confidence
     But the player is shown no opinion number or hidden state
 
+  # Recall gap (accepted, PAT-5 #1982): off-screen moments are held in the soul and survive save/resume (asserted below), but
+  # SoulProvider.recall/soulOf have no production caller, so the live game never READS a past off-screen moment back. This scenario
+  # therefore asserts retention, not recall; the soul-recall mechanism itself is proven by tests/unit/soul.test.ts.
   Scenario: Off-screen scenes deepen the souls
     Given a started game the player has left idle
     When the off-screen society runs several ticks

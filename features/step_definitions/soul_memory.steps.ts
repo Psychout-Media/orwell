@@ -31,7 +31,7 @@ const HG = npc(1);
 /**
  * A live registry-built game, plus the live narrator-recall seam (`session.recallSceneMemories`). Who actually
  * WITNESSES a recorded scene is the engine's call (presence, 0049), so try successive seeds until the first (key)
- * scene is witnessed by a houseguest; the scene's houseguests are then the whole house (the recall narrows the
+ * scene is witnessed by a houseguest; the scene's houseguest is then that witness (the recall narrows the
  * player's visible record to scenes involving them, and ranks by relevance).
  */
 function liveSceneGame(seed: number, keyScene: string): { sb: UserSandbox; mate: string; house: string[] } {
@@ -42,15 +42,16 @@ function liveSceneGame(seed: number, keyScene: string): { sb: UserSandbox; mate:
     witnessed(sb, house[0]!, keyScene);
     // The recall reads the PLAYER-VISIBLE projection, where a scene names the houseguests the player saw witness it.
     const last = sb.player.getVisibleState().visibleEvents.at(-1);
-    if (last?.witnessSet.some((w) => w !== PLAYER)) return { sb, mate: house[0]!, house };
+    if (last?.witnessSet.includes(house[0]!)) return { sb, mate: house[0]!, house };
   }
   throw new Error("no seed had a houseguest witness the key scene");
 }
 function witnessed(sb: UserSandbox, mate: string, content: string): void {
   sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, mate], content, kind: "bonding", toward: [mate] });
 }
-const sceneRecall = (g: { sb: UserSandbox; house: string[] }, cue: string): string[] =>
-  g.sb.session.recallSceneMemories({ withIds: g.house, cue }).moments;
+/** Recall for the scene's houseguest — the one who actually witnessed it (`withIds` is the houseguest(s) in the current scene). */
+const sceneRecall = (g: { sb: UserSandbox; mate: string }, cue: string): string[] =>
+  g.sb.session.recallSceneMemories({ withIds: [g.mate], cue }).moments;
 const liveScene = new WeakMap<object, { sb: UserSandbox; mate: string; house: string[] }>();
 
 Given("a houseguest whose soul holds one old salient memory and many recent trivial ones", function (this: BbWorld) {

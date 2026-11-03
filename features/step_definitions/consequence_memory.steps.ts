@@ -228,8 +228,11 @@ Then("that houseguest is more likely to seek the player out warily or target the
 });
 
 Then("this happens without any opinion value ever being shown to the player", function (this: BbWorld) {
-  const surfaces = livePlayerSurfaces(liveOf(this).sb);
-  assert.ok(!/["']?\b(trust|affinity|threat)\b["']?\s*[:=]\s*-?\d/i.test(surfaces), "no relationship value surfaces");
+  // The same two layers as the PAT-2 sweep: the structured walk over the live projections, and the full prose backstop
+  // (trust/affinity/threat/opinion/relationship bound to a number, in any rendered form — not just `key: number`).
+  const sb = liveOf(this).sb;
+  assertNoNumericRelationshipFields(livePlayerProjections(sb));
+  assertNoRelationshipValueProse(livePlayerProse(sb));
 });
 
 // --- The whole loop, end to end -----------------------------------------------
@@ -242,7 +245,9 @@ Given("a multi-step game of conversations, a competition, and a vote", function 
   l.ally = ally!;
   this.npc = wronged!;
   for (let i = 0; i < 4; i++) interact(l, ally!, "bonding", "bond");
-  interact(l, wronged!, "betrayal", "betrayal");
+  // Enough betrayals that the player outranks every other houseguest on the wronged one's hidden threat read (the live week
+  // that follows adds its own folds, which must not undo that).
+  for (let i = 0; i < 6; i++) interact(l, wronged!, "betrayal", "betrayal");
   const startWeek = l.sb.session.snapshot().week;
   for (let i = 0; i < 3000 && l.sb.session.snapshot().week === startWeek; i++) {
     const v = l.sb.session.advanceGame();
@@ -265,6 +270,11 @@ Then("the house's later behavior is consistent with everything that happened", f
   assert.deepEqual(edgesOf(l), l.edgesBefore);
   const r = l.sb.engine.relationships;
   assert.ok(r.bondStrength(l.ally!, PLAYER) > r.bondStrength(this.npc!, PLAYER), "the bonded ally reads warmer than the betrayed houseguest");
+  // ...and the betrayed houseguest, as HOH, targets the player: the LIVE nomination function over the reloaded game's
+  // hidden relationship model (player listed LAST, so roster order cannot "find" them).
+  const plan = planFor(l, this.npc!);
+  assert.equal(plan.target, PLAYER, "the betrayed houseguest's nomination TARGET is the player");
+  assert.ok(plan.nominees.includes(PLAYER), "and the player is on the block");
 });
 
 Then("nothing the player legitimately changed was lost", function (this: BbWorld) {

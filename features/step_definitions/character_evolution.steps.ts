@@ -127,6 +127,7 @@ Given("a houseguest who has been through several season-shaping events", async f
   const arcs = arcOf(reg, this.liveUser).filter((a) => a.notes.length > 0);
   assert.ok(arcs.length > 0, "the played season inflected at least one houseguest (an arc note was recorded)");
   const focal = arcs.sort((x, y) => y.notes.length - x.notes.length)[0]!;
+  assert.ok(focal.notes.length >= 2, `accumulation needs MULTIPLE inflections on one houseguest, got ${focal.notes.length}`);
   arcCtx.set(this, { player, arc: focal });
 });
 
@@ -134,6 +135,7 @@ Then("their soul accumulates those moments without losing earlier ones", async f
   const { player, arc: before } = arcCtx.get(this)!;
   await driveLive(player, 120); // the season goes on...
   const after = arcOf(this.registry!, this.liveUser!).find((a) => a.id === before.id)!;
+  assert.ok(before.notes.length >= 2, "the houseguest already held several inflections before the season went on");
   assert.ok(after.notes.length >= before.notes.length, "the arc only grows");
   assert.deepEqual(after.notes.slice(0, before.notes.length), before.notes, "every earlier inflection is retained, in order");
   assert.ok(after.history >= before.history, "the persisted emotional arc grew monotonically");

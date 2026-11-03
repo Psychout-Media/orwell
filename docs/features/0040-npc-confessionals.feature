@@ -35,10 +35,11 @@ Feature: NPC Diary Room confessionals
     And no Vault sentinel value appears
 
   # @standalone-module (the recall half): live confessionals are written to the soul index (recordConfessionalToSoul, GameSessionAdapter),
-  # but SoulProvider.recall/soulOf have no production caller, so nothing reads them back. The live game grounds a later confessional via
-  # confessionalFor over the current relationship edges + recent events, proven by "A confessional reflects the NPC's real engine-grounded
-  # read" and the seed-determinism scenario, both of which run the live game. The soul-recall half is proven by tests/unit/confessionalsLive.test.ts
-  # ("confessionals deepen the soul"); the live grounding by tests/unit/npcConfessionals.test.ts.
+  # but SoulProvider.recall/soulOf have no production caller, so nothing reads them back. Of the neighbouring scenarios only
+  # "Confessionals are seed-deterministic" runs the live game (and it proves determinism, not grounding); "A confessional reflects the
+  # NPC's real engine-grounded read" calls confessionalFor directly on a hand-built RelationshipModel. The soul-recall half is proven by
+  # tests/unit/confessionalsLive.test.ts ("confessionals deepen the soul"); the grounding of a later confessional in the real
+  # relationship edges + recent events by tests/unit/npcConfessionals.test.ts.
   @standalone-module
   Scenario: Confessionals deepen the soul and ground later voice
     Given a houseguest who has confessed across several beats

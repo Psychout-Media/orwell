@@ -3,7 +3,7 @@
 # scales with how much life was left, and turning after a mutually-known expiry is fair game.
 # HARD rule: roles only (promisor, partner, the wronged party). Amends 0039. The ENGINE owns the magnitude.
 
-# PAT-5 (#1982) VERDICT: producer MISSING (a gap, not deferred: no spec/commit defers it, 15b65172 added DealLedger.make's optional `duration` but nothing in play passes one), so the scaling and the dailyRecap hook are unreachable live; only scenario 1 is live today, 2-5 are @standalone-module.
+# PAT-5 (#1982) VERDICT: producer MISSING (a gap, not deferred: no spec/commit defers it, 15b65172 added DealLedger.make's optional `duration` but nothing in play passes one), so the scaling and the dailyRecap hook are unreachable live; scenarios 1-5 all run the standalone DealLedger/RelationshipModel and are @standalone-module.
 
 Feature: Negotiated deal duration
 
@@ -13,6 +13,8 @@ Feature: Negotiated deal duration
   break before the term hurts more the more life was left; a break at/after it is fair game (no shock);
   a vague break is softened. No duration and no label reconciles BYTE-IDENTICALLY to 0039.
 
+  # @standalone-module: the deal-duration producer is missing (see the header), so this runs the standalone DealLedger/RelationshipModel; proven by tests/unit/dealDuration.test.ts.
+  @standalone-module
   Scenario: A no-duration break is byte-identical to 0039 (the feature is off by default)
     Given a deal with no negotiated duration and no label
     When the promisor breaks it with no week context
