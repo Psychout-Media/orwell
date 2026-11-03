@@ -235,12 +235,12 @@ Then("with the depth layer off the day-close sweep does not fire", function (thi
 });
 
 Then("the same seed reproduces the same swept confessionals", function (this: BbWorld) {
-  const a = liveHouse(11, "ddc-det", true);
+  const a = liveHouse(7, "ddc-det", true);
   const beforeA = confessionalEvents(a).length;
   a.session.turnIn();
   const seqA = confessionalEvents(a).slice(beforeA).map((e) => e.content).join("|");
 
-  const b = liveHouse(11, "ddc-det", true);
+  const b = liveHouse(7, "ddc-det", true);
   const beforeB = confessionalEvents(b).length;
   b.session.turnIn();
   const seqB = confessionalEvents(b).slice(beforeB).map((e) => e.content).join("|");

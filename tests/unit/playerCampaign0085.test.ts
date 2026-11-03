@@ -125,6 +125,7 @@ describe("Phase 2 — GameSessionAdapter.foldPlayerCampaignMove (the live adapte
   it("is a no-op (zero campaigns) when the campaign layer is OFF — the default", () => {
     const rel = new RelationshipModel(0.5);
     const session = new GameSessionAdapter(rel);
+    session.setCampaignsEnabled(false); // explicit OFF (default flip 2026-11-03)
     session.foldPlayerCampaignMove(target, holder);
     expect((session as unknown as { campaigns: Campaign[] }).campaigns).toHaveLength(0);
   });
@@ -321,7 +322,8 @@ describe("Phase 2 — EngineCommandsAdapter.recordInteraction wiring (the full p
     const knowledge = new InMemoryKnowledgeService(events);
     const rng = new SeededRandom(77);
     const commands = new EngineCommandsAdapter(events, knowledge, rel, rng);
-    const session = new GameSessionAdapter(rel); // campaigns NOT enabled
+    const session = new GameSessionAdapter(rel);
+    session.setCampaignsEnabled(false); // explicit OFF (default flip 2026-11-03)
     commands.setPlayerCampaignFold((t, h) => session.foldPlayerCampaignMove(t, h));
     rel.edge(holder, PLAYER).trust = 0.9;
 

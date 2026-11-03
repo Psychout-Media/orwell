@@ -50,7 +50,7 @@ function driveUntil(sb: Sandbox, stop: (adv: AdvanceView) => boolean, max = 600)
  * at the player (0044's political temperature) and the player lands on the block.
  */
 function gameWithPlayerOnTheBlock(): { sb: Sandbox; reg: GameSessionRegistry } {
-  for (let seed = 1; seed <= 60; seed++) {
+  for (let seed = 2; seed <= 60; seed++) { // start re-selected 2026-11-03, default flip (was 1)
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("deal-user");
     sb.session.createCharacter({ playerName: "P", seed });
@@ -153,10 +153,16 @@ describe("T1/E42 — NPC binding votes reconcile deals on the live spine", () =>
     const deal = session.makeDeal({ with: voter, kind: "safety", terms: "vote to keep me" });
 
     // The honoring read: THIS voter sees the player as harmless and the other nominee as the threat.
-    const ev = sb.engine.relationships.edge(voter, PLAYER);
-    ev.threat = 0.01; ev.trust = 0.7; ev.affinity = 0.6;
-    const eo = sb.engine.relationships.edge(voter, otherNominee);
-    eo.threat = 0.97; eo.trust = 0.02;
+    // EVERY voter reads it that way, so the PLAYER survives the block: an evicted player would (0110, vote deduction — now default ON)
+    // deduce who moved against them and may wrongly blame the honest voter, a designed hidden-layer belief that rightly swamps the
+    // kept-deal payout. This scenario is about the payout of a kept word, so the player must not be the evictee.
+    for (const id of session.livingIds()) {
+      if (id === PLAYER || id === status.hoh!.id || onBlock.has(id)) continue;
+      const ev = sb.engine.relationships.edge(id, PLAYER);
+      ev.threat = 0.01; ev.trust = 0.7; ev.affinity = 0.6;
+      const eo = sb.engine.relationships.edge(id, otherNominee);
+      eo.threat = 0.97; eo.trust = 0.02;
+    }
 
     const trustBefore = sb.engine.relationships.edge(PLAYER, voter).trust;
     const reliabilityBefore = sb.engine.relationships.edge(PLAYER, voter).reliability;

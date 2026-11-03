@@ -99,6 +99,7 @@ const NPC_IDS: EntityId[] = Array.from({ length: 15 }, (_, i) => npc(i + 1));
 describe("0101 — legendTick is OFF by default (byte-identical: zero draws, no legend)", () => {
   it("a disabled myth-making layer is a no-op even with a ripe notable act on the ledger", () => {
     const sb = gameWithNotableAct("myth-off", 21);
+    sb.session.setMythMakingEnabled(false); // explicit OFF (default flip 2026-11-03)
     const beforeCount = sb.engine.events.count();
     const beforeKnowledge = NPC_IDS.map((id) => sb.engine.knowledge.knownTo(id).length);
     sb.session.legendTick(sb.engine.events, sb.engine.knowledge);

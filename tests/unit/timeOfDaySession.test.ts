@@ -118,7 +118,8 @@ describe("ADR 0006 — the Vault Wall holds: NPC sleep never leaks", () => {
 
 describe("ADR 0006 — dormant by default (the calibration-safe guarantee)", () => {
   it("carries no time-of-day or rest cue when the feature is off", () => {
-    const s = started(); // ORWELL_TIME_OF_DAY unset
+    process.env.ORWELL_TIME_OF_DAY = "0"; // explicit OFF (default flip 2026-11-03)
+    const s = started();
     for (let i = 0; i < 6; i++) { const a = s.advanceGame(); if (a.pending) resolveLegally(s, a.pending); }
     expect(s.gameStatus().timeOfDay).toBeUndefined();
     expect(s.getGameState().timeOfDay).toBeUndefined();

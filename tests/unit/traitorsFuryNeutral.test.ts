@@ -49,6 +49,8 @@ describe("#1790 — Traitors' Fury calibration neutrality (flag OFF is a fixed p
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("flag");
     sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
+    expect(sb.session.traitorsFuryEnabledNow()).toBe(true); // default ON (default flip 2026-11-03)
+    sb.session.setTraitorsFuryEnabled(false);
     expect(sb.session.traitorsFuryEnabledNow()).toBe(false);
     sb.session.setTraitorsFuryEnabled(true);
     expect(sb.session.traitorsFuryEnabledNow()).toBe(true);

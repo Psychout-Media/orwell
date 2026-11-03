@@ -87,6 +87,16 @@ live ledger of owner calls as they happen.
   same secret to them. The 5/season trade cap is unchanged; a bluff has no real fact to be "already known". Test:
   `tests/unit/secretTradeAlreadyKnown.test.ts` (fails without the fix).
 
+- **Default flip (#1934 item 2; coordinator-assigned, Ryne-approved).** The 26 deploy gameplay flags (all of
+  `orwell_optin_env_defaults` plus the in-game clock) are now CODE DEFAULTS (`src/domain/flagDefaults.ts`
+  `flagDefaultOn`): ON unless the flag is `0`/`false`/`off`, and the one diagnostic switch `ORWELL_FLAGS_OFF=1` forces the whole
+  flipped set OFF (the legacy profile). NOT flipped: `SHOWRUNNER_REWEIGHT`, `FORESHADOW`, `REACTIVE_TWISTS`, `TIE_REVEAL`,
+  `GOSSIP_CONSEQUENCE`, `MULTI_NIGHT_FATIGUE`, `WIPEOUT_REEL`, and `NPC_MEMORY` (pending its measurement). Consequences: the
+  seeded gates now measure the deployed game (juryReach and calibrationGradient both hold, unsharded, with no retune); the
+  `heavy-sims-deployed` lane was retired and `heavy-sims` re-sharded into a per-file matrix (45-minute legs); `/health` and the
+  admin dial report the code defaults. **ASSUMED, pending Ryne:** the seed-108 exit-interview anchor was re-captured for the
+  new default trajectory (an owner-approved balance change by definition).
+
 ## 2026-11-02
 
 - **Difficulty: reaching the Final 2 must be hard (balance targets).** Measured on the deploy profile

@@ -45,7 +45,8 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 // Prior history (2026-07-13, 0130): the exit-interview beat added one step per eviction, shifting the
 // 1-beat:1-tick interleave then in effect — seed 7 stopped erupting within the bounded run and seed 42
 // was picked as its replacement.
-const SEED = 8;
+// re-selected 2026-11-03, default flip (seed 8 no longer erupts within the bounded run)
+const SEED = 7;
 
 /** Drive a bounded, fully-deterministic sequence of orchestrator off-screen ticks + live-loop steps; capture
  *  the SHARED-rng-driven content (every recorded event) and the layer's own additive eruptions, separately. */

@@ -142,8 +142,11 @@ describe("0046 — player eviction & the juror's seat", () => {
     // They are not cut off: the broadcasts keep coming (their witnessed set grew while spectating).
     expect(witnessed.length).toBeGreaterThan(witnessedAtEviction);
     // Every event the juror witnesses is a PUBLIC broadcast — no confessional / off-screen type leaks in.
-    expect(witnessed.every((e) => e.type === "house-event")).toBe(true);
-    expect(witnessed.every((e) => e.hidden === false)).toBe(true);
+    // (Only what arrived AFTER the eviction: before it the player was in the house, and a witnessed NPC deal offer — default
+    // ON since the 2026-11 flip — is the player's own legitimate knowledge. After it, no one pulls an evicted juror aside.)
+    const fromTheBox = witnessed.slice(witnessedAtEviction);
+    expect(fromTheBox.every((e) => e.type === "house-event"), JSON.stringify(fromTheBox.filter((e) => e.type !== "house-event").map((e) => e.content))).toBe(true);
+    expect(fromTheBox.every((e) => e.hidden === false)).toBe(true);
     // The house keeps a hidden life the juror cannot see — and none of it lists the player as a witness.
     expect(hidden.length).toBeGreaterThan(0);
     expect(hidden.every((e) => !e.witnessSet.includes(PLAYER))).toBe(true);

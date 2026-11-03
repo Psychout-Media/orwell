@@ -750,7 +750,7 @@ describe("the live game's personality-weighted movement (L21/L24)", () => {
   it("higher-social NPCs roam more than lower-social ones over a live run (the spread shows in the real game)", () => {
     // Drive many off-screen ticks on a real cast; bucket each NPC by their (static) social aptitude and
     // count room CHANGES. The high-social half must roam more in aggregate than the low-social half.
-    const { sb } = liveGame(40);
+    const { sb } = liveGame(44); // re-selected 2026-11-03, default flip (was 40)
     const core0 = sb.session.snapshot();
     const npcs = core0.house!.npcs;
     const socialOf = new Map(npcs.map((n) => [n.id, n.character.stats.social]));

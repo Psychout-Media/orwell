@@ -4,7 +4,7 @@ import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
 
 // The FULL deployed flag profile, read from its single source (`deploy/orwell-env-defaults.sh`, the same
-// function install + update write the box's .env from, and the `heavy-sims-deployed` CI lane loads) — "the
+// function install + update write the box's .env from, and the `heavy-sims` CI lane plays — the code defaults ARE the deployed profile since the 2026-11 default flip) — "the
 // gate tests what prod runs" (ADR 0016). Jury house / time of day etc. can change the eviction-night chain.
 // The adapters read these env flags at MODULE LOAD, so they are applied BEFORE the dynamic import below.
 // Embedding settings are dropped (they would fetch the ONNX model; tests use the deterministic fake).
@@ -18,7 +18,7 @@ const deployedProfile = execFileSync(
   .filter((l) => l !== "")
   .map((l) => {
     // A malformed line means the profile source changed shape — fail loudly, never silently play a
-    // different profile than the deploy (the same stance as the `heavy-sims-deployed` CI lane).
+    // different profile than the deploy (the same stance as the `heavy-sims` CI lane).
     if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`);
     return l;
   })

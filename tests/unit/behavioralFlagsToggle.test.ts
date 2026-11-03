@@ -17,27 +17,29 @@ afterEach(() => {
   GameSessionAdapter.setSeededTieSurfacingEnabled(null);
 });
 
+// Default flip 2026-11-03: these eight layers now default ON (ORWELL_FLAGS_OFF=1 forces them off); the tests
+// below assert the new default and flip layers OFF explicitly.
 describe("B2 — GameSessionAdapter.setBehavioralFlags / behavioralFlagsSnapshot", () => {
-  it("defaults every flag to off with no env set", () => {
+  it("defaults every flag to ON with no env set (default flip 2026-11-03)", () => {
     const s = new GameSessionAdapter();
     expect(s.behavioralFlagsSnapshot()).toEqual({
-      campaigns: false, trajectories: false, triggers: false,
-      secretPacing: false, juryHouse: false, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+      campaigns: true, trajectories: true, triggers: true,
+      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     });
   });
 
   it("flips only the named flags, leaving the rest untouched", () => {
     const s = new GameSessionAdapter();
-    s.setBehavioralFlags({ campaigns: true, juryHouse: true });
+    s.setBehavioralFlags({ campaigns: false, juryHouse: false });
     expect(s.behavioralFlagsSnapshot()).toEqual({
-      campaigns: true, trajectories: false, triggers: false,
-      secretPacing: false, juryHouse: true, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+      campaigns: false, trajectories: true, triggers: true,
+      secretPacing: true, juryHouse: false, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     });
     // A second, disjoint patch doesn't clobber the first patch's flags.
-    s.setBehavioralFlags({ trajectories: true });
+    s.setBehavioralFlags({ trajectories: false });
     expect(s.behavioralFlagsSnapshot()).toEqual({
-      campaigns: true, trajectories: true, triggers: false,
-      secretPacing: false, juryHouse: true, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+      campaigns: false, trajectories: false, triggers: true,
+      secretPacing: true, juryHouse: false, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     });
   });
 
@@ -60,17 +62,17 @@ describe("B2 — the admin setBehavioralFlags/getBehavioralFlags tools (composit
     const sb = reg.sandboxFor("behavioral-flags-user");
     sb.session.createCharacter({ playerName: "The Player", seed: 11 });
 
-    expect(sb.admin.behavioralFlags().campaigns).toBe(false);
-    sb.admin.setBehavioralFlags({ campaigns: true, trajectories: true });
+    expect(sb.admin.behavioralFlags().campaigns).toBe(true);
+    sb.admin.setBehavioralFlags({ campaigns: false, trajectories: false });
     expect(sb.admin.behavioralFlags()).toEqual({
-      campaigns: true, trajectories: true, triggers: false,
-      secretPacing: false, juryHouse: false, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+      campaigns: false, trajectories: false, triggers: true,
+      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     });
     // An absent field on a later call leaves the earlier flip in place.
-    sb.admin.setBehavioralFlags({ juryHouse: true });
+    sb.admin.setBehavioralFlags({ juryHouse: false });
     expect(sb.admin.behavioralFlags()).toEqual({
-      campaigns: true, trajectories: true, triggers: false,
-      secretPacing: false, juryHouse: true, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+      campaigns: false, trajectories: false, triggers: true,
+      secretPacing: true, juryHouse: false, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     });
   });
 
@@ -98,15 +100,13 @@ describe("B2 — the admin setBehavioralFlags/getBehavioralFlags tools (composit
     b.session.createCharacter({ playerName: "The Player", seed: 15 });
     const before = b.admin.behavioralFlags();
 
-    await a.mcp.admin.callTool("setBehavioralFlags", {
-      campaigns: true, trajectories: true, triggers: true,
-      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
-    });
+    const allOff = {
+      campaigns: false, trajectories: false, triggers: false,
+      secretPacing: false, juryHouse: false, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+    };
+    await a.mcp.admin.callTool("setBehavioralFlags", allOff);
 
-    expect(a.admin.behavioralFlags()).toEqual({
-      campaigns: true, trajectories: true, triggers: true,
-      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
-    });
+    expect(a.admin.behavioralFlags()).toEqual(allOff);
     expect(b.admin.behavioralFlags(), "user B's game must be untouched by an admin flip on user A's").toEqual(before);
     // A sandbox composed AFTER the flip starts from the env default too — the flip never leaks into it.
     const c = reg.sandboxFor("behavioral-flags-iso-c");
@@ -122,13 +122,13 @@ describe("B2 — the admin setBehavioralFlags/getBehavioralFlags tools (composit
     await expect(sb.mcp.admin.callTool("setBehavioralFlags", { campaigns: "yes" })).rejects.toThrow(/campaigns/);
   });
 
-  it("no game/sandbox composed ⇒ getBehavioralFlags returns the all-off default, never throws", () => {
+  it("no game/sandbox composed ⇒ getBehavioralFlags returns the all-on default, never throws", () => {
     const reg = new GameSessionRegistry();
     // A brand-new sandbox with no createCharacter call yet still wires the provider at sandboxFor time.
     const sb = reg.sandboxFor("behavioral-flags-fresh-user");
     expect(sb.admin.behavioralFlags()).toEqual({
-      campaigns: false, trajectories: false, triggers: false,
-      secretPacing: false, juryHouse: false, seededTieSurfacing: false, mythMaking: false, showrunner: false,
+      campaigns: true, trajectories: true, triggers: true,
+      secretPacing: true, juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     });
   });
 });

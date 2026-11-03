@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
@@ -42,6 +42,10 @@ function playerOnBlockHoldingSecretVeto(seed: number): { server: McpServer; sess
 const call = (server: McpServer, name: string, args: Record<string, unknown>) => server.callTool(name, args) as Promise<AdvanceView>;
 
 describe("0025 — the secret-veto pending is answerable over the MCP boundary", () => {
+  // The hand-placed "eviction" beat has no clock state, so with the in-game clock ON (default flip 2026-11-03)
+  // the first advance emits a day-break beat before the pending. Pin the clock OFF for this boundary pin.
+  beforeEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
+  afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
   it("advanceGame raises a secret-veto pending for the player holder on the block", async () => {
     const { server } = playerOnBlockHoldingSecretVeto(21);
     const v = await call(server, "advanceGame", {});

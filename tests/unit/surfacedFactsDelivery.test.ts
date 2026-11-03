@@ -161,7 +161,7 @@ describe("#1789 — telephone-game provenance word on surfaced gossip (hops>=2)"
   it("drift OFF — no provenance word, no guidance line, byte-identical to baseline", () => {
     const sb = liveGame(11, "drift-off");
     seedPlayerKnowledgeFact(sb, "Bo is targeting the alliance", 3);
-    // Drift is OFF by default — do NOT enable it.
+    sb.session.setGossipDriftEnabled(false); // explicit OFF (default flip 2026-11-03)
 
     const { systemPrompt } = sb.session.getMomentPrompt({ moment: "social" });
     const learned = playerLearnedBlock(systemPrompt);

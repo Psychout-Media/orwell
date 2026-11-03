@@ -4,7 +4,7 @@ import { runJurySequesterScenario } from "../support/jurySequesterScenario";
 
 // The FULL deployed flag profile (26 flags + TIME_OF_DAY), read from its single source —
 // `deploy/orwell-env-defaults.sh`, the same function install + update write the box's .env from and the
-// `heavy-sims-deployed` CI lane loads ("the gate tests what prod runs", ADR 0016). The adapters read these env
+// `heavy-sims` CI lane plays (the code defaults ARE the deployed profile since the 2026-11 default flip) ("the gate tests what prod runs", ADR 0016). The adapters read these env
 // flags at MODULE LOAD, so they are applied BEFORE the dynamic import below. Embedding settings are dropped (they
 // would fetch the ONNX model; tests use the deterministic fake). A malformed line fails loudly.
 const deployedProfile = execFileSync(

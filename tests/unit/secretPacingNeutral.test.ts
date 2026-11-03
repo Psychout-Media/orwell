@@ -62,15 +62,18 @@ describe("0092 — the off-screen tick's SHARED draw stream is calibration-neutr
   const SEEDS = [1, 2, 7, 13, 42];
   const TICKS = 24;
 
-  it("flag OFF (the default) is byte-identical to flag EXPLICITLY off", () => {
+  it("the flag default (now ON, default flip 2026-11-03) is byte-identical to flag EXPLICITLY on; the shared draw stream also equals explicit-off", () => {
     for (const seed of SEEDS) {
-      GameSessionAdapter.setSecretPacingEnabled(null); // env default = off
+      GameSessionAdapter.setSecretPacingEnabled(null); // env default = ON
       const def = runTicks(seed, "neu-default", TICKS);
+      GameSessionAdapter.setSecretPacingEnabled(true); // explicitly on
+      const on = runTicks(seed, "neu-on-explicit", TICKS);
       GameSessionAdapter.setSecretPacingEnabled(false); // explicitly off
       const off = runTicks(seed, "neu-off", TICKS);
       GameSessionAdapter.setSecretPacingEnabled(null);
-      expect(off.draws, `seed ${seed}: default vs explicit-off share the same draw stream`).toEqual(def.draws);
-      expect(off.hash, `seed ${seed}: default vs explicit-off reach the same state`).toBe(def.hash);
+      expect(on.draws, `seed ${seed}: default vs explicit-on share the same draw stream`).toEqual(def.draws);
+      expect(on.hash, `seed ${seed}: default vs explicit-on reach the same state`).toBe(def.hash);
+      expect(off.draws, `seed ${seed}: explicit-off shares the same shared draw stream`).toEqual(def.draws);
     }
   });
 

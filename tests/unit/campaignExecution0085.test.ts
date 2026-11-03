@@ -23,6 +23,7 @@ describe("0085 B2 — the campaign layer is OFF by default (byte-identical)", ()
   it("campaignTick is a no-op when disabled — no campaign forms, no draws", () => {
     const { session, rel, ids } = liveHouse(11);
     rel.edge(ids[0]!, ids[1]!).threat = 0.9; // a strong threat that WOULD seed a campaign if enabled
+    session.setCampaignsEnabled(false); // explicit OFF (default flip 2026-11-03)
     session.campaignTick();
     expect(camps(session)).toHaveLength(0);
   });

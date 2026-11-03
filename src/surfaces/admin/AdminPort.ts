@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../domain/flagDefaults";
 import type {
   GameStateRepository, AdminVisibleState, OverrideChange, SandboxOp,
 } from "../../ports/GameStateRepository";
@@ -129,10 +130,13 @@ export class AdminPort {
   }
 
   behavioralFlags(): Required<BehavioralFlags> {
+    // No sandbox composed yet: report the resolved CODE DEFAULTS (the default flip — these layers are ON unless an
+    // env `0`/`ORWELL_FLAGS_OFF=1` says otherwise), so the dial never renders "off" for a layer the engine will run.
     return this.behavioralFlagsProvider?.() ?? {
-      campaigns: false, trajectories: false, triggers: false,
-      secretPacing: false, juryHouse: false, seededTieSurfacing: false, mythMaking: false,
-      showrunner: false,
+      campaigns: flagDefaultOn("ORWELL_CAMPAIGNS"), trajectories: flagDefaultOn("ORWELL_TRAJECTORIES"),
+      triggers: flagDefaultOn("ORWELL_TRIGGERS"), secretPacing: flagDefaultOn("ORWELL_SECRET_PACING"),
+      juryHouse: flagDefaultOn("ORWELL_JURY_HOUSE"), seededTieSurfacing: flagDefaultOn("ORWELL_SEEDED_TIE_SURFACING"),
+      mythMaking: flagDefaultOn("ORWELL_MYTH_MAKING"), showrunner: flagDefaultOn("ORWELL_SHOWRUNNER"),
     };
   }
 

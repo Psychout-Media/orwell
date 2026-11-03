@@ -95,6 +95,7 @@ describe("0099 — the barter takes ZERO shared-stream draws (dedicated side-rng
 
   it("flag OFF ⇒ the dedicated stream never advances (the counter stays absent)", () => {
     const { sb } = barterGame("nodraw", 3);
+    sb.session.setSecretBarterEnabled(false); // explicit OFF (default flip 2026-11-03)
     for (let t = 0; t < 30; t++) sb.session.secretBarterTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.session.snapshot().secretBarterTickCount, "no draw when off").toBeUndefined();
     expect(sb.session.snapshot().secretBarterCount, "no secret spent when off").toBeUndefined();
@@ -107,7 +108,7 @@ describe("0099 — the real off-screen tick's SHARED draw stream + relationship 
   function runDefaultApply(seed: number, enable: boolean): { draws: number[]; relSha: string; wanterHolds: boolean } {
     const user = "barter-apply"; // same user across OFF/ON (fresh registries) — the ONLY difference is the flag
     const { reg, sb } = barterGame(user, seed);
-    if (enable) sb.session.setSecretBarterEnabled(true);
+    sb.session.setSecretBarterEnabled(enable);
     const shared = new RecordingRandom(new SeededRandom(seed));
     for (let t = 0; t < 20; t++) defaultApply(sb, "offscreen-tick", shared as unknown as SeededRandom, seed, 3);
     const rels = ((reg.snapshot(user) as SessionSnapshot).relationships ?? [])
@@ -142,7 +143,7 @@ describe("0099 — the WHOLE seeded pipeline is byte-identical (SHA256) OFF vs O
     const user = "barter-whole"; // OFF/ON share the SAME user name in fresh registries — only the flag differs
     const sb = reg.sandboxFor(user);
     sb.session.createCharacter({ playerName: "The Player", seed });
-    if (enable) sb.session.setSecretBarterEnabled(true);
+    sb.session.setSecretBarterEnabled(enable);
     for (let t = 0; t < 30; t++) orch.advance(user, "offscreen-tick");
     return createHash("sha256").update(JSON.stringify(sb.session.snapshot())).digest("hex");
   }

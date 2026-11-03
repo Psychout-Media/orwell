@@ -241,6 +241,7 @@ import {
   type SeasonPosition,
 } from "../../engine/deepProfile";
 import { THREAD } from "../../engine/threadConstants";
+import { flagDefaultOn } from "../../domain/flagDefaults";
 import {
   loadSeededRelationships, migrateSeededRelationships, normalizeTieNature, TIE_AFFINITY_BIAS, SHOWMANCE_SPARK_BIAS,
   DEFAULT_TIE_BUDGET, DEFAULT_SHOWMANCE_BUDGET, nextShowmanceStage,
@@ -453,7 +454,7 @@ function sanitizeFlavor(s: string, max = 160): string {
  * sets it; the calibration/UAT harness never does ⇒ every seeded gate is byte-identical). Read once at
  * module load, like the watcher cadence; a test overrides per-session via `setCampaignsEnabled`.
  */
-const CAMPAIGNS_ENABLED_DEFAULT = process.env.ORWELL_CAMPAIGNS === "1";
+const CAMPAIGNS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CAMPAIGNS");
 /** 0107 Phase B — the binding-action kinds that count as a betrayal of a named co-ally. */
 const ALLIANCE_ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
 
@@ -465,7 +466,7 @@ const ALLIANCE_ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
  * does. Read once at module load (like the watcher cadence + the campaign flag); a test overrides
  * per-session via `setTrajectoriesEnabled`.
  */
-const TRAJECTORIES_ENABLED_DEFAULT = process.env.ORWELL_TRAJECTORIES === "1";
+const TRAJECTORIES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRAJECTORIES");
 
 /**
  * 0120 — whether the STRATEGIC-DRIVE INITIATOR CADENCE runs by DEFAULT. OFF unless
@@ -475,7 +476,7 @@ const TRAJECTORIES_ENABLED_DEFAULT = process.env.ORWELL_TRAJECTORIES === "1";
  * The calibration/UAT harness never sets it; the live deploy does. A test overrides per-session via
  * `setStrategicCadenceEnabled`. When on, sharper/more-strategic houseguests scheme a touch more often.
  */
-const STRATEGIC_CADENCE_ENABLED_DEFAULT = process.env.ORWELL_STRATEGIC_CADENCE === "1";
+const STRATEGIC_CADENCE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_STRATEGIC_CADENCE");
 
 /**
  * Wave-2 off-screen-society fidelity — whether OFF-SCREEN SCHEMING NAMES A REAL TARGET runs by DEFAULT.
@@ -486,7 +487,7 @@ const STRATEGIC_CADENCE_ENABLED_DEFAULT = process.env.ORWELL_STRATEGIC_CADENCE =
  * hidden CONTENT byte-identical when off too). The calibration/UAT harness never sets it; the live deploy
  * does. A test overrides per-session via `setSchemeTargetsEnabled`.
  */
-const SCHEME_TARGETS_ENABLED_DEFAULT = process.env.ORWELL_SCHEME_TARGETS === "1";
+const SCHEME_TARGETS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SCHEME_TARGETS");
 
 /**
  * 0121 — whether the DEAL-DEPTH layer runs by DEFAULT (the active-obligation kinds `comp-throw`/`veto-save`
@@ -495,7 +496,7 @@ const SCHEME_TARGETS_ENABLED_DEFAULT = process.env.ORWELL_SCHEME_TARGETS === "1"
  * the new kinds can't be made and every deal fold is exactly 0039/0109 ⇒ byte-identical. NOT yet in the
  * deploy — the live-loop reconciliation of the new kinds + the reward folds land before it opts in.
  */
-const DEAL_DEPTH_ENABLED_DEFAULT = process.env.ORWELL_DEAL_DEPTH === "1";
+const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
 /**
  * 0024 — whether the NPC MEMORY layer runs by DEFAULT. OFF unless `ORWELL_NPC_MEMORY=1`. A DEDICATED flag (sibling
  * to `ORWELL_DEAL_DEPTH`) so calibration neutrality is provable in isolation: with it unset NO memory is written,
@@ -512,7 +513,7 @@ const NPC_MEMORY_ENABLED_DEFAULT = process.env.ORWELL_NPC_MEMORY === "1";
  * passed, and every confessional is exactly 0040/0089/0090 ⇒ byte-identical. The sweep additionally gates
  * on `perConversationClockLive()` (pinned off in the golden driver), so the golden fixture never stales.
  */
-const CONFESSIONAL_DEPTH_ENABLED_DEFAULT = process.env.ORWELL_CONFESSIONAL_DEPTH === "1";
+const CONFESSIONAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CONFESSIONAL_DEPTH");
 
 /**
  * 0123 — whether the NPC-initiated deal-OFFER layer runs by DEFAULT (a motivated houseguest floats the
@@ -520,7 +521,7 @@ const CONFESSIONAL_DEPTH_ENABLED_DEFAULT = process.env.ORWELL_CONFESSIONAL_DEPTH
  * A DEDICATED flag (sibling to `ORWELL_DEAL_DEPTH`/`ORWELL_CONFESSIONAL_DEPTH`) so calibration neutrality is
  * provable in isolation: unset ⇒ no offer is generated, no pending is raised, nothing folds ⇒ byte-identical.
  */
-const NPC_DEAL_OFFERS_ENABLED_DEFAULT = process.env.ORWELL_NPC_DEAL_OFFERS === "1";
+const NPC_DEAL_OFFERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_DEAL_OFFERS");
 
 /**
  * 0124 — whether the DEEPER character-evolution layer runs by DEFAULT (independent distress/confidence
@@ -530,7 +531,7 @@ const NPC_DEAL_OFFERS_ENABLED_DEFAULT = process.env.ORWELL_NPC_DEAL_OFFERS === "
  * use the plain `emotionalState`/static disposition, and NPC volatility is the legacy random draw ⇒
  * byte-identical (the seeded `juryReach`/golden spine untouched).
  */
-const SOUL_DEPTH_ENABLED_DEFAULT = process.env.ORWELL_SOUL_DEPTH === "1";
+const SOUL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SOUL_DEPTH");
 
 /**
  * 0125 — whether the competition THEME/skin layer runs by DEFAULT. ON for real play unless
@@ -552,7 +553,7 @@ const COMP_THEMES_ENABLED_DEFAULT = process.env.ORWELL_COMP_THEMES !== "0";
  * every seeded gate (juryReach / gradient / UAT / golden / the fixed-seed 0043 BDD) is byte-identical. The
  * deploy turns it on for real play; the new mechanics preserve the base stat mix so the band still holds.
  */
-const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = process.env.ORWELL_COMP_MECHANICS_PLUS === "1";
+const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_PLUS");
 
 /**
  * 0127 — whether HYBRID competitions blend their SECONDARY aptitude into the outcome by DEFAULT (a
@@ -562,7 +563,7 @@ const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = process.env.ORWELL_COMP_MECHANICS_PL
  * (juryReach / gradient / UAT / golden) is byte-identical. The primary stat still dominates (weight
  * `1 − mixedSecondaryWeight`); the deploy turns it on and the band is re-confirmed on.
  */
-const COMP_MIXED_ENABLED_DEFAULT = process.env.ORWELL_COMP_MIXED === "1";
+const COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MIXED");
 
 /**
  * C1 (#1788, Q8 hybrid-greenlit small+reversible build) — whether the WIPEOUT REEL runs by DEFAULT: a
@@ -586,7 +587,7 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
  * calibration/UAT harness never sets it; the live deploy does. Read once at module load; a test overrides
  * per-session via `setTriggersEnabled`.
  */
-const TRIGGERS_ENABLED_DEFAULT = process.env.ORWELL_TRIGGERS === "1";
+const TRIGGERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRIGGERS");
 /**
  * 0092 — whether the SECRET-PACING DRIP runs by DEFAULT. OFF unless `ORWELL_SECRET_PACING=1`. A DEDICATED
  * flag (sibling to `ORWELL_CAMPAIGNS` / `ORWELL_TRAJECTORIES` / `ORWELL_SEEDED_TIE_SURFACING`) so
@@ -596,7 +597,7 @@ const TRIGGERS_ENABLED_DEFAULT = process.env.ORWELL_TRIGGERS === "1";
  * may. Read once at module load (like the watcher cadence + the sibling flags); a test overrides
  * per-session via `setSecretPacingEnabled`. Default-off until the cadence is tuned against the UAT.
  */
-const SECRET_PACING_ENABLED_DEFAULT = process.env.ORWELL_SECRET_PACING === "1";
+const SECRET_PACING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SECRET_PACING");
 /**
  * 0006b (PO review 2026-06-28) — whether NPCs carry a derived COMPETITION INTENT by DEFAULT. OFF unless
  * `ORWELL_COMP_INTENT=1`. A DEDICATED flag (sibling to `ORWELL_CAMPAIGNS` etc.) so calibration neutrality
@@ -604,7 +605,7 @@ const SECRET_PACING_ENABLED_DEFAULT = process.env.ORWELL_SECRET_PACING === "1";
  * pre-feature path), and every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL. The calibration/UAT
  * harness never sets it; the live deploy may. A test overrides per-session via `setCompIntentEnabled`.
  */
-const COMP_INTENT_ENABLED_DEFAULT = process.env.ORWELL_COMP_INTENT === "1";
+const COMP_INTENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_INTENT");
 /**
  * 0110 (PO review 2026-06-28) — whether the eviction jury grudge folds on the evictee's DEDUCED belief
  * (process of elimination) instead of the true secret ballot. OFF unless `ORWELL_VOTE_DEDUCTION=1`. A
@@ -613,7 +614,7 @@ const COMP_INTENT_ENABLED_DEFAULT = process.env.ORWELL_COMP_INTENT === "1";
  * deduction sub-rng is drawn, and every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL. The
  * calibration/UAT harness never sets it; the live deploy may. A test overrides via `setVoteDeductionEnabled`.
  */
-const VOTE_DEDUCTION_ENABLED_DEFAULT = process.env.ORWELL_VOTE_DEDUCTION === "1";
+const VOTE_DEDUCTION_ENABLED_DEFAULT = flagDefaultOn("ORWELL_VOTE_DEDUCTION");
 /**
  * 0100 — whether the JURY-HOUSE grudge layer runs by DEFAULT. OFF unless `ORWELL_JURY_HOUSE=1`. A
  * DEDICATED flag (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_TRAJECTORIES`) so calibration neutrality is
@@ -622,7 +623,7 @@ const VOTE_DEDUCTION_ENABLED_DEFAULT = process.env.ORWELL_VOTE_DEDUCTION === "1"
  * to today. The calibration/UAT harness never sets it; the live deploy does. Read once at module load
  * (like the campaign/trajectory flags); a test overrides per-session via `setJuryHouseEnabled`.
  */
-const JURY_HOUSE_ENABLED_DEFAULT = process.env.ORWELL_JURY_HOUSE === "1";
+const JURY_HOUSE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JURY_HOUSE");
 
 /**
  * #1790 — whether the TRAITORS'-FURY juror-bearing word layer runs by DEFAULT. OFF unless
@@ -631,14 +632,14 @@ const JURY_HOUSE_ENABLED_DEFAULT = process.env.ORWELL_JURY_HOUSE === "1";
  * ("settled") and the seeded jury-read spine is byte-identical. A test overrides per-session
  * via `setTraitorsFuryEnabled`.
  */
-const TRAITORS_FURY_ENABLED_DEFAULT = process.env.ORWELL_TRAITORS_FURY === "1";
+const TRAITORS_FURY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_TRAITORS_FURY");
 /**
  * #1792 — whether the Producer Read (post-scene exchange-accounting beat) runs
  * by DEFAULT. OFF unless `ORWELL_PRODUCER_READ=1`. Flag-gated so a disabled
  * flag means the `recordInteraction` sink is never wired ⇒ nothing computed ⇒
  * byte-identical. A test overrides per-session via `setProducerReadEnabled`.
  */
-const PRODUCER_READ_ENABLED_DEFAULT = process.env.ORWELL_PRODUCER_READ === "1";
+const PRODUCER_READ_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PRODUCER_READ");
 /**
  * #1802 — whether the DEAL WITNESSES (formation-witness collateral on deals) layer runs
  * by DEFAULT. OFF unless `ORWELL_DEAL_WITNESSES=1`. Flag-gated so a disabled flag means
@@ -646,7 +647,7 @@ const PRODUCER_READ_ENABLED_DEFAULT = process.env.ORWELL_PRODUCER_READ === "1";
  * diffusion behave exactly as today ⇒ byte-identical. A test overrides per-session
  * via `setDealsWitnessesEnabled`.
  */
-const DEALS_WITNESSES_ENABLED_DEFAULT = process.env.ORWELL_DEAL_WITNESSES === "1";
+const DEALS_WITNESSES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_WITNESSES");
 /**
  * 0101 — whether NPC MYTH-MAKING runs by DEFAULT. OFF unless `ORWELL_MYTH_MAKING=1`. A DEDICATED flag
  * (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_JURY_HOUSE`) so calibration neutrality is provable in isolation:
@@ -655,7 +656,7 @@ const DEALS_WITNESSES_ENABLED_DEFAULT = process.env.ORWELL_DEAL_WITNESSES === "1
  * today. The calibration/UAT harness never sets it; the live deploy may. Read once at module load (like
  * the sibling flags); a test overrides per-session via `setMythMakingEnabled`.
  */
-const MYTH_MAKING_ENABLED_DEFAULT = process.env.ORWELL_MYTH_MAKING === "1";
+const MYTH_MAKING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MYTH_MAKING");
 
 /**
  * 0101 (#1401) — whether the AI SHOWRUNNER runs by DEFAULT. OFF unless `ORWELL_SHOWRUNNER=1`. A DEDICATED
@@ -668,7 +669,7 @@ const MYTH_MAKING_ENABLED_DEFAULT = process.env.ORWELL_MYTH_MAKING === "1";
  * so even the layer ON cannot perturb any competition/vote/eligibility roll. The calibration/UAT harness
  * never sets it; the live deploy may. A test overrides per-session via `setShowrunnerEnabled`.
  */
-const SHOWRUNNER_ENABLED_DEFAULT = process.env.ORWELL_SHOWRUNNER === "1";
+const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
 
 /**
  * 0101/#1401 Phase-2 (#1455) — whether the OUTCOME-AFFECTING showrunner REWEIGHT runs by DEFAULT. OFF
@@ -699,7 +700,7 @@ const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = process.env.ORWELL_SHOWRUNNER_REWEIG
  * sets it; the live deploy may. Read once at module load (like the sibling flags); a test overrides
  * per-session via `setSecretBarterEnabled`.
  */
-const SECRET_BARTER_ENABLED_DEFAULT = process.env.ORWELL_SECRET_BARTER === "1";
+const SECRET_BARTER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SECRET_BARTER");
 
 /**
  * Issue #1397 — whether CHARACTER-MEDIATED gossip drift runs by DEFAULT. OFF unless `ORWELL_GOSSIP_DRIFT=1`.
@@ -710,7 +711,7 @@ const SECRET_BARTER_ENABLED_DEFAULT = process.env.ORWELL_SECRET_BARTER === "1";
  * `setGossipDriftEnabled`. (Drift is re-weighted on a per-hop FORK regardless, so even ON the parent
  * competition/vote/jury draw stream is byte-identical — the flag gates only whether VOICE colors the drift.)
  */
-const GOSSIP_DRIFT_ENABLED_DEFAULT = process.env.ORWELL_GOSSIP_DRIFT === "1";
+const GOSSIP_DRIFT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_GOSSIP_DRIFT");
 
 /**
  * 0066 Phase-2 (#1125) — the three sleep-economy EXTENSIONS, each behind its OWN dedicated flag
@@ -754,7 +755,7 @@ const MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT = process.env.ORWELL_MULTI_NIGHT_FATIG
  * #1793 — the Player Dossier grouping player diary-room reads per subject (houseguest).
  * OFF unless `ORWELL_PLAYER_DOSSIER=1`. OFF ⇒ byte-identical: no `playerDossier` field on the view.
  */
-const PLAYER_DOSSIER_ENABLED_DEFAULT = process.env.ORWELL_PLAYER_DOSSIER === "1";
+const PLAYER_DOSSIER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PLAYER_DOSSIER");
 
 /**
  * #1800 — whether the Booth Has Receipts (deterministic player-record contradiction extraction) runs
@@ -762,7 +763,7 @@ const PLAYER_DOSSIER_ENABLED_DEFAULT = process.env.ORWELL_PLAYER_DOSSIER === "1"
  * `playerReceipts()` returns [] immediately — byte-identical to not having the method at all.
  * A test overrides per-session via `setBoothReceiptsEnabled`.
  */
-const BOOTH_RECEIPTS_ENABLED_DEFAULT = process.env.ORWELL_BOOTH_RECEIPTS === "1";
+const BOOTH_RECEIPTS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BOOTH_RECEIPTS");
 
 /**
  * T0-2 ("beats terminate themselves", moonshot P1 stage 1 / #27a) — the CLOSED-SET ceremony/comp
@@ -6155,8 +6156,7 @@ export class GameSessionAdapter implements GameSession {
   private get seededTieSurfacingEnabled(): boolean {
     if (this.seededTieSurfacingSandboxOverride !== null) return this.seededTieSurfacingSandboxOverride;
     if (GameSessionAdapter.seededTieSurfacingOverride !== null) return GameSessionAdapter.seededTieSurfacingOverride;
-    const v = process.env.ORWELL_SEEDED_TIE_SURFACING;
-    return v === "1" || v === "true" || v === "on";
+    return flagDefaultOn("ORWELL_SEEDED_TIE_SURFACING");
   }
 
   /**
@@ -6928,8 +6928,7 @@ export class GameSessionAdapter implements GameSession {
   /** The clock's LIVE state (runtime override, else the env default) — reported on `/health`. */
   static timeOfDayEffective(): boolean {
     if (GameSessionAdapter.timeOfDayOverride !== null) return GameSessionAdapter.timeOfDayOverride;
-    const v = process.env.ORWELL_TIME_OF_DAY;
-    return v === "1" || v === "true" || v === "on";
+    return flagDefaultOn("ORWELL_TIME_OF_DAY");
   }
 
   private get timeOfDayEnabled(): boolean {

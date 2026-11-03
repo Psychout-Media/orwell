@@ -69,7 +69,8 @@ function surfaceGossipToPlayer(session: GameSessionAdapter, sb: ReturnType<typeo
 
 describe("0102 — the daily recap is dormant unless the clock is running", () => {
   it("turnIn carries no dailyRecap, and dailyRecap() reads null, when ORWELL_TIME_OF_DAY is off", () => {
-    const { session } = started(101); // ORWELL_TIME_OF_DAY unset
+    process.env.ORWELL_TIME_OF_DAY = "0"; // explicit OFF (default flip 2026-11-03)
+    const { session } = started(101);
     const v = session.turnIn();
     expect(v.dailyRecap).toBeUndefined();
     expect(session.dailyRecap()).toBeNull();

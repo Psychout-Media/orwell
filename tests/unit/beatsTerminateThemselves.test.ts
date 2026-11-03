@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { GameSessionAdapter as GameSessionAdapterImpl } from "../../src/adapters/engine/GameSessionAdapter";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { AdvanceView, PendingDecisionView } from "../../src/ports/GameSession";
 import { composeRuntime } from "../../src/composition/runtime";
@@ -53,6 +54,12 @@ function resolveLegally(s: GameSessionAdapter, p: PendingDecisionView): AdvanceV
   return s.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
 }
 
+// Default flip 2026-11-03: with the in-game clock ON the single auto-advanced step after `nominations` is the
+// day-break beat, not the chip draw this suite pins. Pin the clock OFF for this file (the clock-on path is
+// covered by the timeOfDay suites).
+const clockOff = (): void => GameSessionAdapterImpl.setTimeOfDayEnabled(false);
+afterEach(() => GameSessionAdapterImpl.setTimeOfDayEnabled(null));
+
 /** The T0-2 auto-advance-eligible pending kinds (mirrors `AUTO_ADVANCE_PENDING_KINDS` in
  *  `GameSessionAdapter.ts` — kept as a literal set here so this suite fails loudly, not silently,
  *  if the two ever drift). */
@@ -94,7 +101,8 @@ function startedGame(seed: number) {
 
 describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE commit", () => {
   it("nominations: the veto field is already drawn immediately after submitDecision — no follow-up advanceGame needed", () => {
-    // Seed 81005 (re-selected 2026-11-03, #1965: the replaced fold is now trust-gated, reshaping seeded trajectories): the player reaches HOH within the drive.
+    // Seed 81005 (re-selected 2026-11-03: #1965 made the replaced fold trust-gated, then the default flip moved the clock ON; was 81003): the player reaches HOH within the drive.
+    clockOff();
     const { session } = startedGame(81005);
     const pending = driveToPendingKind(session, "nominations");
 
@@ -265,10 +273,11 @@ describe("T0-2 — a failed persist rolls back BOTH the pending's resolution and
     JSON.parse(JSON.stringify(snap)) as SessionSnapshot;
 
   it("a disk failure during submitDecision(nominations) leaves NEITHER the nominations NOR the auto-advanced veto draw committed", () => {
+    clockOff();
     const store = new FlakyStore();
     const runtime = composeRuntime({ saveStore: store, clock: new FakeClock() });
     const user = "t0-2-fault";
-    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81003 }); // re-selected 2026-11-02 (0044 §9)
+    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81005 }); // re-selected 2026-11-03, default flip (was 81003)
 
     const pending = driveToPendingKind(runtime.registry.sandboxFor(user).session, "nominations");
     expect(runtime.registry.sandboxFor(user).session.gameStatus().veto.players.length).toBe(0);

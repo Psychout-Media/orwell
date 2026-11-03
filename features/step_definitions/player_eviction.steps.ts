@@ -136,8 +136,13 @@ Then("it contains only the public ceremony outcomes broadcast after their evicti
   const sb = this.peSandbox!;
   const witnessed = sb.engine.events.query({ witnessedBy: PLAYER });
   assert.ok(witnessed.length > (this.peWitnessedAtEviction ?? 0), "the broadcasts kept coming from the jury box");
-  // Every event the juror sees is a PUBLIC ceremony broadcast (a non-hidden house-event).
-  assert.ok(witnessed.every((e) => e.type === "house-event" && e.hidden === false), "only public broadcasts");
+  // Everything that arrived AFTER the eviction is a PUBLIC ceremony broadcast (a non-hidden house-event). Earlier events are the
+  // player's own in-house knowledge (e.g. an NPC deal offer made while they still played) and are not this claim's subject.
+  const fromTheBox = witnessed.slice(this.peWitnessedAtEviction ?? 0);
+  assert.ok(
+    fromTheBox.every((e) => e.type === "house-event" && e.hidden === false),
+    "only public broadcasts after the eviction: " + JSON.stringify(fromTheBox.filter((e) => !(e.type === "house-event" && e.hidden === false)).map((e) => e.content)),
+  );
 });
 
 Then("it contains no off-screen scheme and no confessional", function (this: BbWorld) {

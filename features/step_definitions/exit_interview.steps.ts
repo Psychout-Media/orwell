@@ -146,7 +146,7 @@ Then("no hidden stat, score, or sealed state appears anywhere in them", function
 });
 
 // --- moves no seeded outcome ----------------------------------------------------------
-const BASELINE_108 = ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","npc:6","npc:13","npc:4","player","npc:14","npc:11","npc:2"]; // re-anchored 2026-11-03 (0044 §9; again for #1948, the replacement branches on the stored HOH target)
+const BASELINE_108 = ["npc:6","npc:13","npc:1","npc:5","npc:8","npc:3","npc:7","npc:12","player","npc:4","npc:11","npc:14","npc:9","npc:2"]; // re-anchored 2026-11-03 for the DEFAULT FLIP (26 flags now code defaults — the deployed game; the owner-approved balance change). Earlier: 0044 §9; #1948 (replacement branches on the stored HOH target)
 Given("the same seed played to completion twice", function (this: BbWorld) {
   const a = newGame(108); playToEnd(a);
   const b = newGame(108); playToEnd(b);

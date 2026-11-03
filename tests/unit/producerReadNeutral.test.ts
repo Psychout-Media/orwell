@@ -50,7 +50,9 @@ describe("#1792 — Producer Read neutrality (flag OFF is a fixed point)", () =>
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("flag-pr");
     sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
-    expect(sb.session.producerReadEnabledNow()).toBe(false); // default OFF
+    expect(sb.session.producerReadEnabledNow()).toBe(true); // default ON (default flip 2026-11-03)
+    sb.session.setProducerReadEnabled(false);
+    expect(sb.session.producerReadEnabledNow()).toBe(false);
     sb.session.setProducerReadEnabled(true);
     expect(sb.session.producerReadEnabledNow()).toBe(true);
     sb.session.setProducerReadEnabled(false);

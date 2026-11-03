@@ -43,6 +43,7 @@ function resolveLegally(s: GameSessionAdapter, p: PendingDecisionView): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
   else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
   else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
+  else if (p.kind === "comp-intent" || p.kind === "comp-round") s.submitDecision({ kind: p.kind, intent: "compete" }); // default flip 2026-11-03
   else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
   else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
   else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
@@ -70,7 +71,7 @@ describe("#1106 — the contested-eviction integrity fault sequence (correctly c
     const reg = runtime.registry;
     const orch = runtime.orchestrator;
     const sb = reg.sandboxFor(user);
-    sb.session.createCharacter({ playerName: "The Player", seed: 11 });
+    sb.session.createCharacter({ playerName: "The Player", seed: 12 }); // re-selected 2026-11-03, default flip (was 11)
 
     // Drive to a real contested beat: the first week's eviction-vote, left unresolved. Every step here
     // committed cleanly through the checkpoint, so the durable save now holds a real, healthy game.

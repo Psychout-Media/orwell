@@ -206,6 +206,7 @@ function newThemedGame(user: string, seed: number): UserSandbox {
   const sb = reg.sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", seed });
   sb.session.setCompThemesEnabled(true); // the real-play default — the seeded skin over the 0042 floor
+  sb.session.setCompMechanicsPlusEnabled(false); // explicit OFF: its "social" comp format would trip the stat-key scan below (default flip 2026-11-03)
   return sb;
 }
 

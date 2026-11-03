@@ -75,7 +75,7 @@ function startJuryPhase(world: BbWorld, user: string, seed: number, enable: bool
   snap.relationships = edges;
   reg.restore(user, snap);
   const sb = reg.sandboxFor(user);
-  if (enable) sb.session.setJuryHouseEnabled(true);
+  sb.session.setJuryHouseEnabled(enable); // explicit both ways: the jury house defaults ON (2026-11 default flip)
   world.jh = {
     ...world.jh, reg, user, sandbox: sb, jurors: JURORS, finalist: FINALIST, otherFinalist: OTHER_FINALIST,
     grievanceJuror: BETRAYED, closeJuror: CLOSE, isolatedJuror: ISOLATED, enabled: enable,

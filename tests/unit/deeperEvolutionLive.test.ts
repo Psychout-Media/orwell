@@ -25,7 +25,7 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
 function newGame(user: string, seed: number, soulDepth: boolean): UserSandbox {
   const reg = new GameSessionRegistry();
   const sb = reg.sandboxFor(user);
-  if (soulDepth) sb.session.setSoulDepthEnabled(true); // BEFORE createCharacter ⇒ the part-C post-pass fires
+  sb.session.setSoulDepthEnabled(soulDepth); // (explicit both ways, default flip 2026-11-03) BEFORE createCharacter ⇒ the part-C post-pass fires
   sb.session.createCharacter({ playerName: "P", seed });
   return sb;
 }

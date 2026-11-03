@@ -84,6 +84,7 @@ const holds = (
 describe("0099 — secretBarterTick is OFF by default (no transfer, the dedicated stream never advances)", () => {
   it("a disabled barter is a no-op — the valuing recipient never receives the secret", () => {
     const { sb } = barterGame("off", 11);
+    sb.session.setSecretBarterEnabled(false); // explicit OFF (default flip 2026-11-03)
     for (let t = 0; t < 30; t++) sb.session.secretBarterTick(sb.engine.events, sb.engine.knowledge);
     expect(holds(sb, WANTER, SECRET_FACT), "no transfer when off").toBe(false);
     expect(sb.session.snapshot().secretBarterTickCount, "the dedicated stream never advanced").toBeUndefined();

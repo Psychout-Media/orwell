@@ -18,7 +18,7 @@
  * - `inverted` — ANY value except `'0'` is true; used for flags that default ON (timePerConversation,
  *   socialFatigue).
  */
-export type ParserKind = 'strict' | 'loose' | 'inverted';
+export type ParserKind = 'strict' | 'loose' | 'inverted' | 'defaultOn';
 
 /** One entry in the canonical flag registry. */
 export interface FeatureFlagDef {
@@ -46,36 +46,36 @@ export interface FeatureFlagDef {
  *    See `GameSessionAdapter` module consts for the definitive list of env var names.
  */
 export const FEATURE_FLAGS: FeatureFlagDef[] = [
-  { envKey: 'ORWELL_CAMPAIGNS',              key: 'campaigns',              parser: 'strict' },
-  { envKey: 'ORWELL_TRAJECTORIES',           key: 'trajectories',           parser: 'strict' },
-  { envKey: 'ORWELL_TRIGGERS',               key: 'triggers',               parser: 'strict' },
-  { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'strict' },
-  { envKey: 'ORWELL_JURY_HOUSE',             key: 'juryHouse',              parser: 'strict' },
-  { envKey: 'ORWELL_SEEDED_TIE_SURFACING',   key: 'seededTieSurfacing',    parser: 'loose' },
-  { envKey: 'ORWELL_MYTH_MAKING',            key: 'mythMaking',             parser: 'strict' },
-  { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'strict' },
-  { envKey: 'ORWELL_COMP_INTENT',            key: 'compIntent',             parser: 'strict' },
-  { envKey: 'ORWELL_VOTE_DEDUCTION',         key: 'voteDeduction',          parser: 'strict' },
-  { envKey: 'ORWELL_TIME_OF_DAY',            key: 'timeOfDay',              parser: 'loose' },
-  { envKey: 'ORWELL_DEAL_DEPTH',             key: 'dealDepth',              parser: 'strict' },
+  { envKey: 'ORWELL_CAMPAIGNS',              key: 'campaigns',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_TRAJECTORIES',           key: 'trajectories',           parser: 'defaultOn' },
+  { envKey: 'ORWELL_TRIGGERS',               key: 'triggers',               parser: 'defaultOn' },
+  { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
+  { envKey: 'ORWELL_JURY_HOUSE',             key: 'juryHouse',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_SEEDED_TIE_SURFACING',   key: 'seededTieSurfacing',    parser: 'defaultOn' },
+  { envKey: 'ORWELL_MYTH_MAKING',            key: 'mythMaking',             parser: 'defaultOn' },
+  { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
+  { envKey: 'ORWELL_COMP_INTENT',            key: 'compIntent',             parser: 'defaultOn' },
+  { envKey: 'ORWELL_VOTE_DEDUCTION',         key: 'voteDeduction',          parser: 'defaultOn' },
+  { envKey: 'ORWELL_TIME_OF_DAY',            key: 'timeOfDay',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_DEAL_DEPTH',             key: 'dealDepth',              parser: 'defaultOn' },
   { envKey: 'ORWELL_NPC_MEMORY',             key: 'npcMemory',              parser: 'strict' },
-  { envKey: 'ORWELL_STRATEGIC_CADENCE',      key: 'strategicCadence',       parser: 'strict' },
-  { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'strict' },
-  { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'strict' },
-  { envKey: 'ORWELL_NPC_DEAL_OFFERS',        key: 'npcDealOffers',          parser: 'strict' },
-  { envKey: 'ORWELL_SOUL_DEPTH',             key: 'soulDepth',              parser: 'strict' },
-  { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'strict' },
-  { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'strict' },
-  { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'strict' },
-  { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'strict' },
+  { envKey: 'ORWELL_STRATEGIC_CADENCE',      key: 'strategicCadence',       parser: 'defaultOn' },
+  { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
+  { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
+  { envKey: 'ORWELL_NPC_DEAL_OFFERS',        key: 'npcDealOffers',          parser: 'defaultOn' },
+  { envKey: 'ORWELL_SOUL_DEPTH',             key: 'soulDepth',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'defaultOn' },
+  { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'defaultOn' },
+  { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_TIME_PER_CONVERSATION',  key: 'timePerConversation',    parser: 'inverted' },
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },
   { envKey: 'ORWELL_MULTI_NIGHT_FATIGUE',    key: 'multiNightFatigue',      parser: 'strict' },
-  { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'strict' },
-  { envKey: 'ORWELL_TRAITORS_FURY', key: 'traitorsFury', parser: 'strict' },
-  { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'strict' },
-  { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'strict' },
-  { envKey: 'ORWELL_BOOTH_RECEIPTS', key: 'boothReceipts', parser: 'strict' },
+  { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'defaultOn' },
+  { envKey: 'ORWELL_TRAITORS_FURY', key: 'traitorsFury', parser: 'defaultOn' },
+  { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },
+  { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
+  { envKey: 'ORWELL_BOOTH_RECEIPTS', key: 'boothReceipts', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
@@ -84,10 +84,16 @@ function loose(v: string | undefined): boolean   { return v === '1' || v === 'tr
 // ON unless explicitly '0' — exactly the engine's own read (`!== "0"`), so unset reports ON like the engine runs.
 function inverted(v: string | undefined): boolean { return v !== '0'; }
 
+function defaultOn(v: string | undefined): boolean {
+  const s = (v ?? '').trim().toLowerCase();
+  return !(s === '0' || s === 'false' || s === 'off');
+}
+
 const PARSERS: Record<ParserKind, (v: string | undefined) => boolean> = {
   strict,
   loose,
   inverted,
+  defaultOn,
 };
 
 /**
@@ -104,7 +110,8 @@ const PARSERS: Record<ParserKind, (v: string | undefined) => boolean> = {
 export function bootFlagsFromEnv(): Record<string, boolean> {
   const result: Record<string, boolean> = {};
   for (const { envKey, key, parser } of FEATURE_FLAGS) {
-    result[key] = PARSERS[parser](process.env[envKey]);
+    // ORWELL_FLAGS_OFF=1 is the diagnostic switch that forces the whole default-on set OFF (the legacy profile).
+    result[key] = parser === 'defaultOn' && process.env.ORWELL_FLAGS_OFF === '1' ? false : PARSERS[parser](process.env[envKey]);
   }
   return result;
 }
