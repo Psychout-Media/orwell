@@ -649,6 +649,9 @@ def _token_economy(user: str | None) -> dict:
     summary = {
         "inputTokens": 0, "cachedTokens": 0, "reasoningTokens": 0, "outputTokens": 0,
         "totalCost": 0.0, "latestContextPercent": None, "turns": len(entries),
+        # A-3: how much of totalCost is the FE's own estimate (DeepSeek reports no dollar cost) rather than a
+        # provider-reported figure, so the operator never reads an estimate as authoritative.
+        "estimatedCost": 0.0, "costIsEstimated": False,
     }
     for e in entries:
         for k in ("inputTokens", "cachedTokens", "reasoningTokens", "outputTokens"):
@@ -658,6 +661,9 @@ def _token_economy(user: str | None) -> dict:
                 pass
         try:
             summary["totalCost"] += float(e.get("cost") or 0.0)
+            if e.get("costEstimated"):
+                summary["estimatedCost"] += float(e.get("cost") or 0.0)
+                summary["costIsEstimated"] = True
         except (TypeError, ValueError):
             pass
     if entries:

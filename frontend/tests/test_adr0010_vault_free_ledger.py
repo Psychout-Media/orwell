@@ -17,7 +17,7 @@ _ALLOWED_KEYS = {
     "ts", "turnId", "session", "callClass",
     "inputTokens", "cachedTokens", "reasoningTokens", "outputTokens",
     "appliedMaxTokens", "finishReason",
-    "cost", "contextPercent", "provider",
+    "cost", "costEstimated", "contextPercent", "provider",
 }
 
 

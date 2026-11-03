@@ -153,3 +153,27 @@ def test_unpriced_models_have_no_estimate_and_cached_never_exceeds_prompt():
     assert llm_core._deepseek_cost_estimate("mystery-model", 10, 0, 10) is None
     c = llm_core._deepseek_cost_estimate("deepseek-flash", 100, 999, 0, now=OFFPEAK)  # clamps hit to prompt
     assert c == pytest.approx(100 * 0.003 / 1_000_000)
+
+
+# ── the estimate flag survives to the ledger and the admin totals (#1973 review) ─────────────────────
+
+def test_ledger_persists_the_estimated_flag_and_admin_totals_surface_it():
+    tl = importlib.import_module("src.orwell_token_ledger")
+    tl.clear("est-user")
+    tl.record_turn("est-user", session="s1", turn_id="t1", call_class="narration", input_tokens=10,
+                   output_tokens=3, cost=0.001, cost_estimated=True, provider="openai")
+    tl.record_turn("est-user", session="s1", turn_id="t2", call_class="narration", input_tokens=10,
+                   output_tokens=3, cost=0.002, cost_estimated=False, provider="openrouter")
+    rows = tl.get_recent("est-user", 10)
+    assert [r["costEstimated"] for r in rows] == [True, False]
+    ah = importlib.import_module("routes.admin_health_routes")
+    summary = ah._token_economy("est-user")["summary"]
+    assert summary["totalCost"] == pytest.approx(0.003)
+    assert summary["estimatedCost"] == pytest.approx(0.001) and summary["costIsEstimated"] is True
+    tl.clear("est-user")
+
+
+def test_agent_loop_carries_the_estimated_flag_from_usage_to_the_ledger():
+    src = open(importlib.import_module("src.agent_loop").__file__, encoding="utf-8").read()
+    assert 'if u.get("cost_estimated"):' in src and "real_cost_estimated = True" in src
+    assert "cost_estimated=real_cost_estimated," in src
