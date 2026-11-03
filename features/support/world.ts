@@ -450,8 +450,6 @@ export class BbWorld extends World {
   enRevealOrderA?: string;
   enRevealOrderB?: string;
   enSentinel?: string;
-  enWarmLean?: number;
-  enColdLean?: number;
   /** T2: the staged eviction's electorate size, read from the engine's own state. */
   enElectorate?: number;
   // --- exit interviews (0130) scratch state (exit_interview.steps.ts) ---
@@ -472,6 +470,8 @@ export class BbWorld extends World {
   agQuestioned?: Eid[];
   enResumedEvictee?: string;
   enOriginalEvictee?: string;
+  /** Live eviction-night scratch (0047 goodbye / warm-vs-cold / secret-ballot deal break, 0130 restart): see liveEvictionNight.ts. */
+  night?: import("./liveEvictionNight").NightScratch;
 
   // Player eviction & the juror's seat (0046) scratch state.
   peRegistry?: import("../../src/composition/registry").GameSessionRegistry;

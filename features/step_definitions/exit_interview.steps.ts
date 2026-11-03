@@ -8,6 +8,7 @@ import { npcExitStance, EXIT_STANCES } from "../../src/engine/liveSeason";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { resolvePending } from "../support/answerPending";
+import { liveGameAtPlayerPending, cloneSnapshot, resumeFrom, advanceUntil, freshScratch } from "../support/liveEvictionNight";
 
 // Feature 0130 — exit interviews. Driven through the live seam (createCharacter → advanceGame /
 // submitDecision) + the pure `npcExitStance` derivation. HARD rule: roles only — no names.
@@ -145,7 +146,11 @@ Then("no hidden stat, score, or sealed state appears anywhere in them", function
   assert.ok(!/"(scores|lean|grudge|voteOf|secret|hidden)"/i.test(this.xiBlob!));
 });
 
-// --- moves no seeded outcome ----------------------------------------------------------
+// --- deterministic and pinned (AMEND 0130, 2026-11-03: was "moves no seeded outcome") -------
+// This block proves the seeded spine is DETERMINISTIC (same seed twice => same order) and PINNED (the order matches the approved
+// anchor below). It does NOT carry the inertness claim: that the exit-interview beat draws no rng, is clock-free (an INERT beat)
+// and replays the pre-0130 eviction order byte-for-byte under ORWELL_FLAGS_OFF=1 rests on tests/unit/exitInterview.test.ts
+// ("is an INERT beat", "byte-identical spine"). The seed-108 anchor is RE-ANCHORED on every owner-approved balance change.
 const BASELINE_108 = ["npc:6","npc:1","npc:10","npc:8","npc:12","npc:7","npc:13","npc:15","npc:3","npc:11","npc:5","npc:9","npc:2","npc:4"]; // re-anchored again 2026-11-03 under the SAME default-flag profile for the comp-win threat retune (#1953); earlier: the DEFAULT FLIP (26 flags now code defaults — the deployed game; the owner-approved balance change). Earlier: 0044 §9; #1948 (replacement branches on the stored HOH target)
 Given("the same seed played to completion twice", function (this: BbWorld) {
   const a = newGame(108); playToEnd(a);
@@ -157,8 +162,8 @@ Then("the eviction order is identical both times", function (this: BbWorld) {
   assert.deepEqual(this.xiOrderA, this.xiOrderB);
 });
 // The anchor is the APPROVED seeded trajectory: it is re-captured, with the change recorded next to it, whenever an owner-approved
-// balance change legitimately reshapes the seeded spine (0044 §9, #1948). The exit-interview beat itself must stay inert against it:
-// the two same-seed runs above agree, and the beat draws no rng and mutates no seeded state (its own unit tests).
+// balance change legitimately reshapes the seeded spine (0044 §9, #1948). The exit-interview beat's inertness is proven in
+// tests/unit/exitInterview.test.ts (see above); here the two same-seed runs agree and the order matches the current anchor.
 Then("it matches the approved seeded trajectory anchor", function (this: BbWorld) {
   // The anchor is captured under the DEFAULT profile; a diagnostic ORWELL_FLAGS_OFF=1 (or a per-flag =0) run plays a different game on purpose.
   assert.ok(
@@ -166,4 +171,50 @@ Then("it matches the approved seeded trajectory anchor", function (this: BbWorld
     "the seed-108 anchor is captured under the default flag profile — unset ORWELL_FLAGS_OFF / any ORWELL_*=0 to run it",
   );
   assert.deepEqual(this.xiOrderA, BASELINE_108);
+});
+
+// --- restart mid-interview (AMEND 0130, 2026-11-03) -----------------------------------
+// A real seeded game parked at the player's own exit-interview pending; the registry snapshot is restored into a FRESH registry
+// (an in-memory snapshot rebuild; the disk save/load round-trip is covered by the durable-persistence scenarios, 0030) and the same pending must stand, then answering it must complete the night.
+Given("the player evicted and facing their exit interview", function (this: BbWorld) {
+  const found = liveGameAtPlayerPending("exit-interview");
+  this.night = { ...freshScratch(), game: found.game, pending: found.pending, seen: found.seen, snap: cloneSnapshot(found.game) };
+});
+
+When("the engine restarts at the exit interview", function (this: BbWorld) {
+  const n = this.night!;
+  n.facts.beforeLive = JSON.stringify(n.game!.session.snapshot().live?.pending ?? null);
+  const resumed = resumeFrom(n.snap!, n.game!.seed, "restart-interview");
+  n.facts.resumed = resumed;
+  n.facts.afterLive = JSON.stringify(resumed.session.snapshot().live?.pending ?? null);
+  n.facts.resumedView = resumed.session.advanceGame(); // the restored game surfaces its waiting decision
+});
+
+Then("the same exit interview is waiting with the same options", function (this: BbWorld) {
+  const n = this.night!;
+  const view = n.facts.resumedView as AdvanceView;
+  assert.equal(view.pending?.kind, "exit-interview", "the restored game stands at the exit interview");
+  assert.equal(view.pending?.kind, n.pending!.kind);
+  assert.equal(view.pending?.evictee?.id, PLAYER, "the player is still the evictee being interviewed");
+  assert.deepEqual(view.pending?.options.map((o) => o.id), n.pending!.options.map((o) => o.id), "the same postures are offered");
+  assert.deepEqual(view.pending?.stances, n.pending!.stances);
+  assert.ok((view.pending?.options.length ?? 0) > 0, "there are postures to choose from");
+  assert.equal(n.facts.afterLive, n.facts.beforeLive, "the engine state holds the identical pending after the restart");
+  assert.equal(view.eviction?.stage, "exit-interview", "the night is still staged at the interview");
+  assert.ok(!(view.event), "no beat fired for the player on the way back in");
+});
+
+Then("answering it completes the night", function (this: BbWorld) {
+  const n = this.night!;
+  const resumed = n.facts.resumed as ReturnType<typeof resumeFrom>;
+  const s = resumed.session;
+  s.submitDecision({ kind: "exit-interview", vote: "defiant", statement: "not done" } as SubmitDecisionReq);
+  const mine = (s.snapshot().live?.exitInterviews ?? []).find((x) => x.evictee === PLAYER);
+  assert.equal(mine?.stance, "defiant", "the player's posture was recorded after the restart");
+  assert.equal(mine?.message, "not done");
+  const seen: string[] = [];
+  const done = advanceUntil(resumed, (v) => { if (v.event) seen.push(v.event.beat); return v.event?.beat === "eviction-result"; }, 20);
+  assert.ok(done, `the night reached its result after the restart (saw ${seen.join(" -> ")})`);
+  assert.equal(done.eviction ?? null, null, "the eviction projection is gone once the result lands");
+  assert.equal(s.snapshot().live?.eviction, undefined, "the eviction sub-loop is cleared");
 });
