@@ -1514,6 +1514,7 @@ def setup_chat_routes(
             # this, clean-channel reasoning is shown live but lost on reload (cross-session desync).
             full_reasoning = ""
             last_metrics = None
+            _owed_anns: list = []  # chyron persistence: owed announcements seen on the stream, stored with the turn even if it is cut short
 
             # Configured fallback chain for the default chat model. Tried in
             # order if the session's primary model fails before producing
@@ -1796,6 +1797,8 @@ def setup_chat_routes(
                         if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
                             try:
                                 data = json.loads(chunk[6:])
+                                if isinstance(data, dict) and "type" not in data and isinstance(data.get("announcements"), list):
+                                    _owed_anns.extend(a for a in data["announcements"] if isinstance(a, dict))
                                 if "delta" in data:
                                     # Reasoning tokens arrive flagged thinking:true.
                                     # Forward them for the live indicator, accumulate them
@@ -1932,6 +1935,8 @@ def setup_chat_routes(
                                 # M2-6: the beat's IN-WORLD moment (from this turn's framing state)
                                 # stamps the transcript timestamp; None pre-game (casting) ⇒ neutral.
                                 _game_moment = current_game_moment(ctx.user) if ctx.game_active else None
+                                if _owed_anns:
+                                    last_metrics = {**(last_metrics or {}), "announcements": _owed_anns}
                                 _saved_id = save_assistant_response(
                                     sess, session_manager, session, full_response, last_metrics,
                                     character_name=ctx.preset.character_name,
@@ -2002,6 +2007,8 @@ def setup_chat_routes(
                             _stopped_moment2 = current_game_moment(ctx.user) if ctx.game_active else None
                             if _stopped_moment2:
                                 _stopped_md2["game_moment"] = _stopped_moment2
+                            if _owed_anns:
+                                _stopped_md2["announcements"] = _owed_anns  # the cards the player was shown survive a cut-short turn
                             sess.add_message(ChatMessage("assistant", _stopped_content2, metadata=_stopped_md2))
                             if not incognito:
                                 session_manager.save_sessions()

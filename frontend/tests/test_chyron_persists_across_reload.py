@@ -131,3 +131,37 @@ def test_owed_announcements_are_stored_with_the_turn_source_pin():
     src = open(os.path.join(FRONTEND, "src", "agent_loop.py"), encoding="utf-8").read()
     assert "_turn_owed_announcements = [a for a in _owed if isinstance(a, dict)]" in src
     assert 'metrics["announcements"] = _turn_owed_announcements' in src
+
+
+# ── the storage half, through the REAL save + history-serialisation path (no fabricated DOM metadata) ──
+import pytest  # noqa: E402
+
+
+@pytest.fixture
+def _sm():
+    from core.session_manager import SessionManager
+    from core.models import set_session_manager
+    import core.models as core_models
+    manager = SessionManager()
+    prior = getattr(core_models, "_session_manager", None)
+    set_session_manager(manager)
+    yield manager
+    set_session_manager(prior)
+
+
+def test_saved_turn_returns_its_announcements_from_the_history_serialisation(_sm):
+    from routes.chat_helpers import save_assistant_response
+    sid = "chyron-store-1"
+    _sm.create_session(sid, "n", "http://x", "m", owner="u")
+    sess = _sm.get_session(sid)
+    ann = {"id": "ann:s-1", "kind": "hoh-winner", "week": 1, "beatSeq": 3, "headline": "The Head of Household is crowned.", "subjects": []}
+    save_assistant_response(sess, _sm, sid, "The house reacts.", {"announcements": [ann], "model": "m"})
+    served = sess.history[-1].to_dict()  # exactly what GET /history/{sid} returns per message
+    assert served["metadata"]["announcements"] == [ann]
+
+
+def test_owed_announcements_are_captured_for_the_stopped_save_too():
+    src = open(os.path.join(FRONTEND, "routes", "chat_routes.py"), encoding="utf-8").read()
+    assert "_owed_anns.extend(" in src, "the route captures owed announcements off the stream"
+    assert '_stopped_md2["announcements"] = _owed_anns' in src, "a cut-short turn keeps the cards the player was shown"
+    assert '"announcements": _owed_anns' in src, "the normal save merges them into the stored metadata"

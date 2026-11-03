@@ -1404,7 +1404,11 @@
     list.forEach(function(a) {
       if (!a || !a.id) return;
       _chyronSeen.add(a.id);
-      if (_chyronInDom(a.id)) return;
+      let existing = null;
+      try { existing = document.querySelector('[data-chyron-id="' + CSS.escape(a.id) + '"]'); } catch (_) { existing = null; }
+      // Already painted (a live card, or an earlier repaint): keep ITS position in the ordered run — advance the anchor to it so the
+      // cards after it land after it, never reversing a partially rendered batch.
+      if (existing) { if (existing.parentNode === at.parentNode) at = existing; return; }
       const card = _buildChyronCard(a);
       at.parentNode.insertBefore(card, at.nextSibling);
       at = card;
