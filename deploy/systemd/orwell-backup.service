@@ -17,7 +17,13 @@ ProtectHome=yes
 PrivateTmp=yes
 # Only the backups/ dir needs write access — data/ and frontend/data/ are read (tar'd), not
 # written, so they stay covered by ProtectSystem=strict's default read-only.
-ReadWritePaths=/opt/orwell/backups
+# The leading `-` makes a MISSING backups/ dir non-fatal at namespace setup. Without it, systemd fails
+# every command in the unit with 226/NAMESPACE before ExecStart ever runs, which silently killed every
+# scheduled backup on a box whose backups/ dir was never created (an updater-reconciled box) or was
+# removed. The ExecStartPre below then creates it (as root, `+` = outside the sandbox) BEFORE ExecStart's
+# own namespace is built, so by then the path exists and is mounted writable.
+ReadWritePaths=-/opt/orwell/backups
+ExecStartPre=+/usr/bin/install -d -o orwell -g orwell -m 0700 /opt/orwell/backups
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX
 SystemCallFilter=@system-service
