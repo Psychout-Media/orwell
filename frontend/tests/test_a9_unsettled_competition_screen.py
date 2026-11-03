@@ -34,10 +34,10 @@ ATMOSPHERE = (
 )
 
 
-def _sig(*, phase="hoh-competition", pending="comp-round", beat=7, hoh=None):
+def _sig(*, phase="hoh-competition", pending="comp-round", beat=7, hoh=None, comp="npc:1,npc:2,npc:3"):
     return {"week": 1, "phase": phase, "pending": pending, "hoh": hoh, "hohName": None, "noms": [],
             "vetoHolder": None, "playerIsHoh": (False if hoh else None), "playerHasVeto": None,
-            "playerStatus": "active", "evicted": 0, "finished": False, "beatSeq": beat}
+            "playerStatus": "active", "evicted": 0, "finished": False, "beatSeq": beat, "compSig": comp}
 
 
 def test_the_captured_seed_1717_leak_is_a_phantom_while_the_competition_is_unsettled():
@@ -50,7 +50,7 @@ def test_the_captured_seed_1717_leak_is_a_phantom_while_the_competition_is_unset
 
 
 @pytest.mark.parametrize("sentence", [
-    "Contestant Alpha goes out first, laughing it off.",
+    "Contestant Alpha goes out first in the opening round, laughing it off.",
     "The competition went to somebody else entirely.",
     "You outlasted every last one of them.",
     "Your pedestal dropped and the field thinned.",
@@ -72,18 +72,47 @@ def test_pure_atmosphere_and_hypotheticals_are_left_alone(text):
     assert ch._unsettled_competition_result(text, _sig(), _sig()) is None, text
 
 
-def test_a_competition_the_engine_really_resolved_this_turn_stands_down():
-    # the beat MOVED (the model called advanceGame / the approach was committed): the engine produced events.
-    assert ch._unsettled_competition_result(LEAK, _sig(beat=8), _sig(beat=7)) is None
-    assert ch._narration_claims_outcome(LEAK, _sig(beat=7), _sig(beat=8, pending=None)) is None
+def test_a_competition_the_engine_really_progressed_this_turn_stands_down():
+    # resolved (the pending cleared / an HOH exists) or a STAGED round advanced (same kind, smaller still-in set).
+    assert ch._unsettled_competition_result(LEAK, _sig(pending=None, hoh="npc:3"), _sig()) is None
+    assert ch._unsettled_competition_result(LEAK, _sig(comp="npc:1,npc:2"), _sig()) is None
+    won = _sig(pending=None, hoh="npc:3"); won["playerIsHoh"] = True       # the engine really crowned the player
+    assert ch._narration_claims_outcome(LEAK, _sig(), won) is None
+
+
+def test_an_unrelated_committed_mutation_does_not_disarm_the_guard():
+    """recordInteraction / moveTo bump the raw beat counter but leave the competition untouched — the guard must
+    stay armed (#1960 review (a): arming on raw beatSeq failed open)."""
+    live = _sig(beat=11)            # beatSeq moved 7 -> 11 from unrelated mutations; competition state identical
+    assert ch._unsettled_competition_result(LEAK, live, _sig(beat=7))
 
 
 def test_it_stands_down_outside_an_unsettled_competition_and_on_unknowns():
     assert ch._unsettled_competition_result(LEAK, _sig(phase="nominations", pending=None), _sig()) is None
     assert ch._unsettled_competition_result(LEAK, _sig(pending=None), _sig()) is None         # no open approach
     assert ch._unsettled_competition_result(LEAK, _sig(), {}) is None                          # no baseline
-    nobeat = _sig(); nobeat["beatSeq"] = None
-    assert ch._unsettled_competition_result(LEAK, nobeat, _sig()) is None                     # unknown beatSeq
+
+
+@pytest.mark.parametrize("text", [
+    "Last week's HOH won the key and still talks about it.",                       # past-week reference
+    "The outgoing HOH's room is still full of her things; the HOH room smells of lavender.",
+    "Contestant Alpha is out in the yard, sunbathing.",                           # 'out' with no competition context
+    "She takes the competition seriously and stretches for ten minutes.",         # 'takes the competition' idiom
+    "You're out of your mind if you think that works, she says.",                 # idiom, not an elimination
+    "Contestant Beta had won the veto the week before and never lets anyone forget it.",
+])
+def test_legitimate_competition_phase_prose_is_not_cut(text):
+    assert ch._unsettled_competition_result(text, _sig(), _sig()) is None, text
+
+
+def test_a_hypothetical_marker_only_exempts_its_own_clause():
+    sneaky = "You might think this is a dream, but the HOH room is yours."
+    assert ch._CLAIM_SELF_HOH_WIN_RE.search(sneaky)
+    # the result clause carries no hypothetical marker of its own, so it is still a phantom when it is a COMP cue:
+    leak = "Whoever you thought would win, Contestant Beta wins Head of Household!"
+    assert ch._unsettled_competition_result(leak, _sig(), _sig()) is None          # 'whoever…' clause only: exempt
+    leak2 = "You might expect a long wait, but Contestant Beta wins Head of Household!"
+    assert ch._unsettled_competition_result(leak2, _sig(), _sig())
 
 
 def test_the_widened_self_crown_forms_are_claims_too():
@@ -93,9 +122,11 @@ def test_the_widened_self_crown_forms_are_claims_too():
         assert not ch._CLAIM_SELF_HOH_WIN_RE.search(s), s
 
 
-def test_beat_signature_carries_the_beat_counter():
-    sig = ch._beat_signature({"phase": "hoh-competition", "beatSeq": 12, "pending": {"kind": "comp-round"}}, {})
-    assert sig["beatSeq"] == 12
+def test_beat_signature_carries_the_round_aware_competition_identity():
+    pend = {"kind": "comp-round", "stillIn": [{"id": "npc:2"}, {"id": "npc:1"}]}
+    sig = ch._beat_signature({"phase": "hoh-competition", "beatSeq": 12, "pending": pend}, {})
+    assert sig["compSig"] == "npc:1,npc:2" and sig["beatSeq"] == 12
+    assert ch._beat_signature({}, {})["compSig"] is None
 
 
 # ── the live guards, end to end ─────────────────────────────────────────────────────────────────────
@@ -175,5 +206,6 @@ def test_the_real_agent_loop_never_emits_the_phantom_win(monkeypatch, board):
 
     asyncio.get_event_loop().run_until_complete(drive())
     text = "".join(emitted).lower()
+    assert text.strip(), "the loop must emit SOMETHING (the diegetic cutaway) — an empty turn would pass the negatives"
     for phantom in ("hoh room", "key ceremony", "two keys", "first key", "yard erupts", "disc sits past"):
         assert phantom not in text, f"the phantom competition result reached the player: {phantom!r}"

@@ -1806,7 +1806,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "finished": bool(state.get("finished")),
         "room": room,
         "present": present,
-        # A-9: the engine's monotonic beat counter, so "nothing progressed this turn" is checkable.
+        # A-9: the competition's own round-aware identity (the pending's still-in set), so "the competition did
+        # not progress this turn" is checkable without the raw beat counter (which unrelated mutations bump).
+        "compSig": _comp_pending_signature(status, state),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
 
@@ -3305,55 +3307,88 @@ async def screen_knowledge_wall(user, text: str) -> str:
 # an invented outcome (live: flash told the player they won HOH with the comp still waiting on their approach).
 # Pure atmosphere with no event/result (tension, the set, nerves, "the comp is about to begin") has no cue.
 _CLAIM_COMP_RESULT_RE = re.compile(
+    # a title/winner constructed as a RESULT (wins/won/takes/claims… + the title)
     r"\b(?:wins|won|takes|took|claims|claimed|clinch(?:es|ed)|earns|earned|secures|secured)\b[^.!?\n]{0,40}?"
-    r"\b(?:head of household|hoh|the crown|the key|the power of veto|the veto|the pov|the comp|the competition)\b"
+    r"\b(?:head of household|hoh|the crown|the key|the power of veto|the veto|the pov)\b"
+    # …or the competition itself, but ONLY wins/won (never "takes the competition seriously")
+    r"|\b(?:wins|won|clinch(?:es|ed))\b[^.!?\n]{0,30}?\bthe (?:comp|competition)\b(?!\s+(?:seriously|lightly|too|very|so|as|personally))"
+    r"|\b(?:hoh|head of household) (?:room|suite|bedroom) (?:is|are) yours\b"
     r"|\boutlast(?:s|ed)\b"
     r"|\blast (?:one|person|player|houseguest|hand|man|woman|body|ball|disc) (?:left )?standing\b"
-    r"|\b(?:the )?(?:hoh|head of household) (?:room|suite|bedroom)\b"
     r"|\bkey ceremony\b|\bslides? the (?:first|second|next) key\b|\bkeys? in your (?:pocket|hand)\b|\btwo keys\b"
     r"|\bthe (?:comp|competition|challenge) (?:went|goes|belongs) to\b|\bthe (?:comp|competition) is (?:over|decided|won)\b"
-    r"|\byou(?:'|’)?re (?:out|eliminated)\b|\byou are (?:out|eliminated)\b"
+    # the player eliminated: needs an elimination OBJECT, never the idiom "you're out of your mind"
+    r"|\byou(?:'|’)?re (?:out of the (?:game|house|comp|competition|running)|eliminated)\b"
+    r"|\byou are (?:out of the (?:game|house|comp|competition|running)|eliminated)\b"
     r"|\byour (?:pedestal|platform|ledge|disc|ball|grip|heels?) (?:\w+ )?(?:drops?|dropped|slips?|slipped|gives?|gave|fails?|failed|sinks?|sank)\b"
     r"|\bthe (?:yard|house|crowd) erupts\b",
     re.IGNORECASE,
 )
 # A named houseguest (or "you") eliminated in progress — case-SENSITIVE name so ordinary lowercase prose is skipped.
+# Only counts WITH competition context in the same sentence (`_COMP_CONTEXT_RE`) and never "out of your/my…".
 _CLAIM_COMP_ELIM_RE = re.compile(
     r"\b(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)\s+(?:goes|went|is|are|falls|fell|drops|dropped|slides|slid|slips|slipped|steps|stepped)"
-    r"\s+(?:out|off|down|eliminated|early)\b"
+    r"\s+(?:out|off|down|eliminated|early)\b(?!\s+(?:of\s+(?:your|my|his|her|their|our)\b|in\s+the\b|at\s+the\b|by\s+the\b))"
 )
+_COMP_CONTEXT_RE = re.compile(
+    r"\b(?:comp|competition|challenge|podium|platform|ledge|beam|button|buzzer|round|wall|pedestal|disc|ball|slop|"
+    r"water|tank|endurance|field|eliminated|first out|drops? out)\b", re.IGNORECASE)
+# Past-week / outgoing / earlier references are history, not this competition's result.
+_COMP_PAST_RE = re.compile(
+    r"\b(?:last week(?:'s)?|previous|former|outgoing|prior|earlier|ex-hoh|used to|back in|"
+    r"had (?:won|taken|claimed|earned|been)|was (?:the )?(?:hoh|head of household)|"
+    r"(?:last|previous|former|outgoing) (?:hoh|head of household))\b", re.IGNORECASE)
 # Words that make a cue hypothetical / anticipatory ("whoever wins the comp", "about to begin") — never policed.
 _COMP_HYPOTHETICAL_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|going to|about to|"
     r"to see who|hope[sd]?|hoping|wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of)\b",
     re.IGNORECASE,
 )
+# Clause boundaries: a hypothetical marker only exempts ITS clause ("You might think so, but the HOH room is yours").
+_COMP_CLAUSE_SPLIT_RE = re.compile(r";|—|–|\bbut\b|\bthough\b|\byet\b|\bhowever\b", re.IGNORECASE)
+
+
+def _comp_pending_signature(status: dict, state: dict):
+    """The competition pending's round-aware identity (its still-in set), so a staged round advance is visible
+    even though the pending `kind` stays `comp-round`. None when no competition pending / no stillIn."""
+    for src in (state, status):
+        pend = src.get("pending") if isinstance(src, dict) else None
+        if isinstance(pend, dict) and isinstance(pend.get("stillIn"), list):
+            return ",".join(sorted(str((x or {}).get("id") or "") for x in pend["stillIn"] if isinstance(x, dict)))
+    return None
 
 
 def _unsettled_competition_result(text: str, live: dict, before: dict) -> Optional[str]:
     """A-9 — STRUCTURAL screen: the engine's competition is UNSETTLED (a competition phase, still waiting on
-    the player's `comp-intent`/`comp-round` approach) and NOTHING progressed this turn (the engine `beatSeq`
-    equals the turn-start baseline), so any SPECIFIC competition event the narration states was never
-    produced by the engine. Returns an outcome LABEL or None.
+    the player's `comp-intent`/`comp-round` approach) and the COMPETITION did not progress this turn, so any
+    SPECIFIC competition event the narration states was never produced by the engine. Returns a LABEL or None.
 
-    Stands down (None) on every uncertainty — no baseline, unknown `beatSeq`, a board that moved (the comp
-    really resolved this turn), a non-competition phase, no open approach pending, a hypothetical/anticipatory
-    sentence, and sentences with no result cue (pure atmosphere). Closed-set only (ADR 0005 #1)."""
+    "Did not progress" is read from the competition's own state — the phase, the open pending's kind and
+    still-in set, the HOH and the veto holder all equal the turn-start baseline — NOT from the raw beat
+    counter, which any unrelated committed mutation (recordInteraction, moveTo) bumps (#1960 review).
+
+    Stands down (None) on every uncertainty — no baseline, a competition that moved (resolved / a staged
+    round advanced), a non-competition phase, no open approach pending, past-week/outgoing references,
+    hypothetical clauses, and sentences with no result cue (pure atmosphere). Closed-set only (ADR 0005 #1)."""
     if not isinstance(live, dict) or not isinstance(before, dict) or not before:
         return None
     if "competition" not in str(live.get("phase") or "").lower():
         return None
     if live.get("pending") not in ("comp-intent", "comp-round"):
         return None
-    b0, b1 = before.get("beatSeq"), live.get("beatSeq")
-    if not (isinstance(b0, int) and isinstance(b1, int)) or isinstance(b0, bool) or isinstance(b1, bool) or b0 != b1:
-        return None  # unknown, or the beat MOVED (a real advance/decision this turn) — the engine produced events
+    for k in ("phase", "pending", "hoh", "vetoHolder", "compSig"):
+        if before.get(k) != live.get(k):
+            return None  # the competition moved (resolved, or a staged round advanced) — the engine produced events
     for sent in re.split(r"(?<=[.!?\n])", text or ""):
-        if not sent.strip() or _COMP_HYPOTHETICAL_RE.search(sent):
+        if not sent.strip() or _COMP_PAST_RE.search(sent):
             continue
-        if _CLAIM_COMP_RESULT_RE.search(sent) or _CLAIM_COMP_ELIM_RE.search(sent):
-            return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
-                    "still waiting on the player's approach)")
+        for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
+            if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
+                continue
+            if _CLAIM_COMP_RESULT_RE.search(clause) or (
+                    _CLAIM_COMP_ELIM_RE.search(clause) and _COMP_CONTEXT_RE.search(sent)):
+                return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
+                        "still waiting on the player's approach)")
     return None
 
 

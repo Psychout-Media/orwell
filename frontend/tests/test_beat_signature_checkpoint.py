@@ -66,6 +66,7 @@ def test_beat_signature_shape_from_sample_dicts():
         "finished": False,
         "room": None,                  # 0076 — player's live room (no `whereabouts` in this sample)
         "present": [],                 # 0076 — present company names (none in this sample)
+        "compSig": None,               # A-9 — the competition pending's round-aware identity (none in this sample)
         "beatSeq": None,               # A-9 — the engine beat counter (absent in this sample)
     }
 
