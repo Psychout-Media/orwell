@@ -3,6 +3,9 @@ import type {
 } from "../../ports/GameStateRepository";
 import type { FinaleFastForwardView, BehavioralFlags } from "../../ports/GameSession";
 
+/** Which admin knobs the live engine honored (Vault-free names only). */
+export interface LiveKnobResult { applied: string[]; notApplied: string[] }
+
 /**
  * Administrator / God Mode (0016). Inspects, overrides non-Vault mechanics,
  * configures tunables, and manages the sandbox lifecycle. It is walled from the
@@ -10,9 +13,6 @@ import type { FinaleFastForwardView, BehavioralFlags } from "../../ports/GameSes
  * "reveal the Vault" capability, and there is no dependency on `VaultStore`
  * (proven structurally by dependency-cruiser and by the sentinel canary, 0001).
  */
-/** Which admin knobs the live engine honored (Vault-free names only). */
-export interface LiveKnobResult { applied: string[]; notApplied: string[] }
-
 export class AdminPort {
   constructor(private readonly state: GameStateRepository) {}
 
@@ -84,6 +84,11 @@ export class AdminPort {
 
   setLiveKnobsDelegate(fn: (knobs: Record<string, unknown>) => LiveKnobResult): void {
     this.liveKnobsDelegate = fn;
+  }
+
+  /** Re-seed the inspectable config projection WITHOUT touching the live game (a rebuilt sandbox keeps what the admin submitted, even unsupported/invalid knobs). */
+  restoreConfigProjection(knobs: Record<string, unknown>): void {
+    this.state.configure(knobs);
   }
 
   private withKnobs(view: AdminVisibleState, knobs: Record<string, unknown>): AdminVisibleState {

@@ -10,14 +10,15 @@ import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
  */
 const reserveCount = (s: SessionSnapshot): number => s.live?.reserve?.length ?? 0;
 const tieCount = (s: SessionSnapshot): number => s.seededRelationships?.ties.length ?? 0;
+const showmanceCount = (s: SessionSnapshot): number => s.seededRelationships?.showmances.length ?? 0;
 
-function dealt(user: string, seed: number, knobs?: Record<string, unknown>): { reserve: number; ties: number; view?: Record<string, unknown> } {
+function dealt(user: string, seed: number, knobs?: Record<string, unknown>): { reserve: number; ties: number; showmances: number; view?: Record<string, unknown> } {
   const reg = new GameSessionRegistry();
   const sb = reg.sandboxFor(user);
   const view = knobs ? (sb.admin.configure(knobs) as Record<string, unknown>) : undefined;
   sb.session.createCharacter({ playerName: "The Player", seed });
   const snap = sb.session.snapshot() as SessionSnapshot;
-  return { reserve: reserveCount(snap), ties: tieCount(snap), view };
+  return { reserve: reserveCount(snap), ties: tieCount(snap), showmances: showmanceCount(snap), view };
 }
 
 describe("0016 — God-Mode count knobs reach the live game", () => {
@@ -76,5 +77,49 @@ describe("0016 — God-Mode count knobs reach the live game", () => {
     const { view } = dealt("v", 3, { reserveTwists: 1, tieBudget: 1 });
     const json = JSON.stringify(view);
     expect(json).not.toMatch(/fireAtBeat|nature|backstory|kind":"/i);
+  });
+
+  it("configure({showmanceBudget: 0}) deals no showmance seeds where the default budget does", () => {
+    let seed = 0;
+    for (let s = 1; s <= 80 && !seed; s++) if (dealt(`s${s}`, s).showmances > 0) seed = s;
+    expect(seed, "some seed deals a showmance at the default budget").toBeGreaterThan(0);
+    const none = dealt("showmance-off", seed, { showmanceBudget: 0 });
+    expect(none.showmances).toBe(0);
+    expect(none.view!.knobsApplied).toEqual(["showmanceBudget"]);
+    expect(none.view!.knobsNotApplied).toEqual([]);
+  });
+
+  it("reserveTwists is capped at the pool size (an out-of-effect 4/5 is NOT reported applied)", () => {
+    for (const n of [4, 5]) {
+      const v = new GameSessionRegistry().sandboxFor(`cap${n}`).admin.configure({ reserveTwists: n }) as Record<string, unknown>;
+      expect(v.knobsApplied, String(n)).toEqual([]);
+      expect(v.knobsNotApplied, String(n)).toEqual(["reserveTwists"]);
+    }
+    const ok = new GameSessionRegistry().sandboxFor("cap3").admin.configure({ reserveTwists: 3 }) as Record<string, unknown>;
+    expect(ok.knobsApplied).toEqual(["reserveTwists"]);
+  });
+
+  it("reactive twist mode ignores a twist count, so the knob is reported NOT applied there", () => {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("reactive");
+    sb.session.setReactiveTwistsEnabled(true);
+    const v = sb.admin.configure({ reserveTwists: 1 }) as Record<string, unknown>;
+    expect(v.knobsApplied).toEqual([]);
+    expect(v.knobsNotApplied).toEqual(["reserveTwists"]);
+  });
+
+  it("the inspectable config (including unsupported/invalid knobs) survives a sandbox rebuild; only honored knobs reach the live session", () => {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("rebuild");
+    sb.admin.configure({ temperature: 0.4, reserveTwists: 0, tieBudget: 99 });
+    // simulate an LRU eviction + resume: the registry drops the in-memory sandbox and rebuilds it for the same user
+    (reg as unknown as { sandboxes: Map<string, unknown> }).sandboxes.delete("rebuild");
+    const again = reg.sandboxFor("rebuild");
+    const view = again.admin.inspect() as Record<string, unknown>;
+    const cfg = view.config as Record<string, unknown>;
+    expect(cfg.temperature, "unsupported knob stays inspectable").toBe(0.4);
+    expect(cfg.tieBudget, "an invalid value stays inspectable (but was never applied)").toBe(99);
+    again.session.createCharacter({ playerName: "The Player", seed: 3 });
+    expect(reserveCount(again.session.snapshot() as SessionSnapshot), "the honored knob was re-applied to the rebuilt session").toBe(0);
   });
 });
