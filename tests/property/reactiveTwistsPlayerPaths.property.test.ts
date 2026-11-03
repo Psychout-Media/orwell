@@ -14,7 +14,10 @@ import { PLAYER } from "../../src/domain/ids";
  * Roles only.
  */
 const profile = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
-  .split("\n").map((l) => l.trim()).filter((l) => /^ORWELL_[A-Z0-9_]+=\S+$/.test(l)).filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+  .split("\n").map((l) => l.trim()).filter(Boolean)
+  .map((l) => { if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`); return l; })
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+if (profile.length < 20) throw new Error(`the deployed flag profile did not load (${profile.length} flags)`);
 for (const line of profile) { const i = line.indexOf("="); process.env[line.slice(0, i)] = line.slice(i + 1); }
 process.env.ORWELL_REACTIVE_TWISTS = "1";
 const { GameSessionRegistry } = await import("../../src/composition/registry");
@@ -83,6 +86,8 @@ describe("double eviction — the player is a nominee / a voter in the double-ev
     // eslint-disable-next-line no-console
     console.log(`DOUBLE EVICTION (forced, 30 seeds): fired ${fired}; player was a nominee in ${sawPlayerNominee}; player was asked to vote in the twist cycle in ${sawPlayerVoteInTwistWeek}`);
     expect(fired).toBeGreaterThan(20);
+    expect(sawPlayerNominee, "the player was a nominee in some twist week").toBeGreaterThan(0);
+    expect(sawPlayerVoteInTwistWeek, "the player was asked to vote in the twist cycle").toBeGreaterThan(0);
   }, 600_000);
 });
 
@@ -126,6 +131,7 @@ describe("battle-back — the player is an evicted juror in the recent window", 
     console.log(`BATTLE-BACK (forced): player in the field ${inField}; player won+re-entered ${playerWon}; player lost ${playerLost}; problems: ${JSON.stringify(problems.slice(0, 6))}`);
     expect(problems).toEqual([]);
     expect(inField).toBeGreaterThan(0);
+    expect(playerWon, "the player WON and re-entered on at least one seed").toBeGreaterThan(0);
   }, 900_000);
 });
 

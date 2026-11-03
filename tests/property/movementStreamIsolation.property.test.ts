@@ -80,6 +80,8 @@ function passiveAnswer(p: PendingView): Record<string, unknown> {
       return { kind: "exit-interview", vote: "gracious" };
     case "spectator-choice": // 0133
       return { kind: "spectator-choice", vote: "watch" };
+    case "secret-veto": // 0025 reactive twists (default ON since 2026-11-03): the player holds the sealed one-time safety and is on the block — every arm HOLDS it (arms stay comparable)
+      return { kind: "secret-veto", use: false };
     case "finale-interview":
       return { kind: "finale-interview", vote: "gracious" };
     case "juror-question":

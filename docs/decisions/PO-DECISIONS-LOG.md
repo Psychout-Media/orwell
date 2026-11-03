@@ -347,6 +347,14 @@ rulings needed" set). Companion decision notes posted on each GitHub issue; spec
   realtime across windows/devices (#643); (b) be fully functional AND intelligently touch-adapted on
   mobile/tablet/desktop, not a shrunk desktop (#644). Inherited by every kit member.
 
+- **Reactive twists ON for the playtest (2026-11-03, Ryne).** "I want to know if this breaks the game." `ORWELL_REACTIVE_TWISTS` is now a default-ON
+  flag (engine `flagDefaultOn`, `/health` `defaultOn`, `deploy/orwell-env-defaults.sh`), superseding its "NOT flipped" listing in the default-flip entry above
+  (`=0` opts out; `ORWELL_FLAGS_OFF=1` forces it off). **Invariant: the jury of 9 never changes under any twist** — gated by
+  `tests/property/reactiveTwistsGuard` (50 seeds, full deployed profile, plus a production-orchestrator integrity phase) and the per-twist player-path e2e
+  `tests/property/reactiveTwistsPlayerPaths`. Found + fixed on the way: a battle-back winner stayed a 0133 spectator; a battle-back lowered the persisted
+  `juryHouseArrivals` counter (read as degradation: every later turn refused, circuit open). No twist can fire in week 1 (earliest battle-back wk 7,
+  double eviction wk 8, secret veto wk 12 over 50 seeds). No God-Mode dial: the plan is fixed at `createCharacter`.
+
 - **Live-LLM verification — allowlist model egress in the environment.** The 9 model-behavior items
   (#536/#540/#541/#542/#548/#549/#550/#561/#613) can't be verified while OpenRouter egress is blocked;
   the owner will allowlist egress so the guardrails can be confirmed live and closed.

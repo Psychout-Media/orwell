@@ -7969,14 +7969,12 @@ export class GameSessionAdapter implements GameSession {
     // goodbye messages and exit interview (which set `mannerByEvictee`, the grievance a stretch spreads) come
     // after. Running the arrival's stretch only once the stage has closed lets a cold goodbye count (#1932).
     if (this.live.eviction) return;
-    const arrivals = juryEvictees.length; // a pre-jury eviction is not an arrival: nobody joined the jury house
+    const arrivals = juryEvictees.length + (this.live.juryReturns ?? 0); // a pre-jury eviction is not an arrival: nobody joined the jury house; a battle-back returnee ARRIVED once already
     // A save that counted pre-jury evictions as arrivals is AHEAD of the juror count. Pull it back to one short, so
     // the newest juror's stretch is played (once) under the correct membership instead of being skipped; after that
     // the counters are equal and this never fires again.
-    // NEVER after a battle-back (0025): its returnee leaves `evictionOrder`, so the juror count legitimately dips below the processed-arrivals counter,
-    // and lowering a persisted monotonic counter reads as DEGRADATION to the integrity checkpoint (every later commit refused; the circuit opens).
-    const battleBackFired = (this.live.firedTwists ?? []).some((t) => t.kind === "battle-back");
-    if (!battleBackFired && this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
+    // (A battle-back returnee leaves `evictionOrder`, so the target adds them back via `live.juryReturns` below — the persisted counter is never lowered for one.)
+    if (this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
     if (this.juryHouseArrivals === null) {
       // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival
       // marker) is treated as caught up to now, so the NEXT eviction resumes the jury house normally.

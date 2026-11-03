@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+
+afterEach(() => { vi.unstubAllEnvs(); });
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { deriveNotoriety, type OpenSetSeasonOutcome } from "../../src/engine/notoriety";
@@ -177,6 +179,5 @@ describe("0104 — the engine still owns outcome magnitude (anti-sycophancy, man
 
     // The outcome hashes must match: notorietyLegend is flavor-only, never an outcome lever.
     expect(outcomeHash(sbA)).toBe(outcomeHash(sbB));
-    vi.unstubAllEnvs();
   });
 });

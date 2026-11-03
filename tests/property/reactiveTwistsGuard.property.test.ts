@@ -13,7 +13,10 @@ import { resolvePending } from "../../features/support/answerPending";
  * "how likely is a twist in week 1". Roles only.
  */
 const profile = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
-  .split("\n").map((l) => l.trim()).filter((l) => /^ORWELL_[A-Z0-9_]+=\S+$/.test(l)).filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+  .split("\n").map((l) => l.trim()).filter(Boolean)
+  .map((l) => { if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`); return l; })
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+if (profile.length < 20) throw new Error(`the deployed flag profile did not load (${profile.length} flags)`);
 for (const line of profile) { const i = line.indexOf("="); process.env[line.slice(0, i)] = line.slice(i + 1); }
 process.env.ORWELL_REACTIVE_TWISTS = "1";
 const { GameSessionRegistry } = await import("../../src/composition/registry");
@@ -27,7 +30,7 @@ const INTEGRITY_SEEDS_LIST = (process.env.ORWELL_TWIST_INTEGRITY_SEEDS ?? "1,2,9
 const CAST = 16;
 let n = 0;
 
-interface SeasonResult { health: { faults: unknown[]; circuitOpen: boolean }; seed: number; fired: { kind: string; beat: number }[]; jury: number; finalTwo: number; winner: unknown; evictions: number }
+interface SeasonResult { health: { faults: unknown[]; circuitOpen: boolean } | null; seed: number; fired: { kind: string; beat: number }[]; jury: number; finalTwo: number; winner: unknown; evictions: number }
 
 function playSeason(seed: number, integrity = false): SeasonResult {
   const user = `tw${n++}`;
@@ -53,9 +56,9 @@ function playSeason(seed: number, integrity = false): SeasonResult {
     if (v.finished) break;
   }
   const live = s.snapshot().live as NonNullable<Live>;
-  const h = runtime ? (runtime.orchestrator.sandboxHealth(user) as { faults: unknown[]; circuitOpen: boolean }) : { faults: [], circuitOpen: false };
+  const h = runtime ? (runtime.orchestrator.sandboxHealth(user) as { faults: unknown[]; circuitOpen: boolean }) : null;
   return {
-    health: { faults: h.faults, circuitOpen: h.circuitOpen },
+    health: h ? { faults: h.faults, circuitOpen: h.circuitOpen } : null,
     seed, fired: (live.firedTwists ?? []).map((t) => ({ kind: t.kind, beat: t.beat })), jury: (live.jury ?? []).length,
     finalTwo: (live.finalTwo ?? []).length, winner: live.winner, evictions: live.evictionOrder.length,
   };
@@ -67,8 +70,6 @@ describe(`reactive twists ON under the deployed profile: ${SEEDS}-seed full-seas
     for (let seed = 1; seed <= SEEDS; seed++) {
       const r = playSeason(seed);
       results.push(r);
-      expect(r.health.faults, `seed ${seed}: zero integrity faults through the production commit checkpoint (fired: ${r.fired.map((f) => f.kind).join(",") || "none"})`).toEqual([]);
-      expect(r.health.circuitOpen, `seed ${seed}: the integrity circuit never opens`).toBe(false);
       expect(r.winner, `seed ${seed}: a winner is crowned`).toBeTruthy();
       expect(r.finalTwo, `seed ${seed}: a Final 2`).toBe(2);
       expect(r.jury, `seed ${seed}: the jury of 9 never changes under any twist (fired: ${r.fired.map((f) => f.kind).join(",") || "none"})`).toBe(9);
@@ -90,8 +91,9 @@ describe("reactive twists ON through the PRODUCTION runtime: the integrity check
     for (const seed of INTEGRITY_SEEDS_LIST) {
       const r = playSeason(seed, true);
       if (r.fired.length) withTwist++;
-      expect(r.health.faults, `seed ${seed}: zero integrity faults (fired: ${r.fired.map((f) => f.kind).join(",") || "none"})`).toEqual([]);
-      expect(r.health.circuitOpen, `seed ${seed}: the integrity circuit never opens`).toBe(false);
+      expect(r.health, `seed ${seed}: the production runtime ran`).not.toBeNull();
+      expect(r.health!.faults, `seed ${seed}: zero integrity faults (fired: ${r.fired.map((f) => f.kind).join(",") || "none"})`).toEqual([]);
+      expect(r.health!.circuitOpen, `seed ${seed}: the integrity circuit never opens`).toBe(false);
       expect(r.jury, `seed ${seed}: jury of 9`).toBe(9);
       expect(r.winner, `seed ${seed}: crowned`).toBeTruthy();
     }
