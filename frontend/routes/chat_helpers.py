@@ -2408,11 +2408,13 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "your own REMOVAL / EXPULSION from the game (the engine shows you are STILL in the game)"
     # (8) A-9: a SPECIFIC competition event narrated while the engine's competition is unsettled and nothing
     #     progressed this turn (structural — see `_unsettled_competition_result`).
-    if not desync:
-        desync = _unsettled_competition_result(text, after, before)
+    _a9 = None if desync else _unsettled_competition_result(text, after, before)
     # (9) F-3: the player seated in a veto field the engine excluded them from (membership is engine truth).
-    if not desync:
-        desync = _player_seated_in_excluded_field(text, after)
+    # Run BOTH and merge the labels so a sentence combining field membership with an elimination claim gets
+    # the re-ground that names the real field, not only the generic unresolved-competition correction.
+    _f3 = None if desync else _player_seated_in_excluded_field(text, after)
+    if _a9 or _f3:
+        desync = "; and ".join(x for x in (_f3, _a9) if x)
 
     if not desync:
         return None
@@ -3376,10 +3378,13 @@ def _comp_pending_signature(status: dict, state: dict):
 # F-3 (A-11 playtest): narration that SEATS THE PLAYER in the veto competition. Checked ONLY against an engine field
 # that excludes the player (never on uncertainty). Collective "N of you" and the player as the actor of a competition verb.
 _CLAIM_PLAYER_IN_FIELD_RE = re.compile(
+    # collective: "the six of you", "all four of you"
     r"\b(?:the|all|both|only)\s+(?:two|three|four|five|six|seven|eight)\s+of\s+you\b"
-    r"|\byou(?:'|’)?re\s+(?:in|up|playing|competing|one of the (?:six|players|competitors))\b"
-    r"|\byou\s+(?:take your (?:place|mark|spot|position)|step (?:up|onto|into)|line up|compete|play|punch|swing|lunge|grab|reach|race|run the)\b"
-    r"|\byour\s+(?:pedestal|platform|podium|ledge|lane|chip|disc|ball|buzzer|button|turn|round|sequence)\b",
+    # the player stated AS a veto competitor — competition-specific only (never "you're in the kitchen", "you step into…")
+    r"|\byou(?:'|’)?re\s+(?:in the (?:veto|comp|competition|field|running)|competing|playing in the (?:veto|comp|competition)"
+    r"|one of the (?:six|players|competitors))\b"
+    r"|\byou\s+(?:take your (?:place|mark|spot|position)|line up|compete|step (?:up|onto) (?:to )?the (?:pedestal|platform|podium|ledge|mark|line))\b"
+    r"|\byour\s+(?:pedestal|platform|podium|ledge|lane|chip|disc|ball|buzzer|button|sequence)\b",
     re.IGNORECASE,
 )
 
@@ -3396,10 +3401,12 @@ def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
     if not field or not pid or str(pid) in field:
         return None
     for sent in re.split(r"(?<=[.!?\n])", text or ""):
-        if not sent.strip() or _COMP_PAST_RE.search(sent):
+        if not sent.strip():
             continue
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
-            if clause.strip() and not _COMP_HYPOTHETICAL_RE.search(clause) and _CLAIM_PLAYER_IN_FIELD_RE.search(clause):
+            # a past-week phrase exempts only ITS OWN clause ("Last week you played, but the six of you are off now")
+            if (clause.strip() and not _COMP_PAST_RE.search(clause) and not _COMP_HYPOTHETICAL_RE.search(clause)
+                    and _CLAIM_PLAYER_IN_FIELD_RE.search(clause)):
                 names = ", ".join(live.get("vetoFieldNames") or [])
                 return ("the PLAYER competing in the veto competition (the engine's veto field is "
                         + (names or "set") + " — the player is NOT in it)")

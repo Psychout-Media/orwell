@@ -67,3 +67,19 @@ def test_atmosphere_hypotheticals_and_unknowns_are_untouched():
 
 def test_the_closed_set_gate_lets_the_membership_claim_reach_the_board_check():
     assert ch._sentence_has_closed_set_claim("The six of you are off, punching and checking.") is True
+
+
+def test_ordinary_player_movement_and_idiom_in_a_veto_phase_is_never_flagged():
+    for calm in ("You step into the kitchen and grab a glass.", "You're in the kitchen with Bravo.",
+                 "You reach for the fridge. You play it cool.", "You race to the bathroom."):
+        assert ch._player_seated_in_excluded_field(calm, _sig()) is None, calm
+
+
+def test_a_past_week_phrase_exempts_only_its_own_clause():
+    text = "Last week you played the comp, but the six of you are off now."
+    assert ch._player_seated_in_excluded_field(text, _sig())
+
+
+def test_membership_and_elimination_in_one_turn_merge_into_one_reground():
+    directive = ch._narration_claims_outcome(LEAK, _sig(), _sig())
+    assert "NOT in it" in directive and "COMPETITION RESULT" in directive
