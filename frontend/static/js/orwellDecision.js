@@ -1361,15 +1361,7 @@
     document.head.appendChild(st);
   }
 
-  function _renderChyron(a) {
-    if (!a || !a.id || _chyronSeen.has(a.id)) return;
-    _chyronSeen.add(a.id);
-    let already = false;
-    try { already = !!document.querySelector('[data-chyron-id="' + CSS.escape(a.id) + '"]'); }
-    catch (_) { /* CSS.escape unavailable — fall through, the in-memory Set still guards this page load */ }
-    if (already) return;
-    const chatBox = document.getElementById("chat-history");
-    if (!chatBox) return;
+  function _buildChyronCard(a) {
     _chyronCss();
     const card = document.createElement("div");
     card.className = "ow-chyron ow-chyron-" + esc(a.kind || "");
@@ -1381,9 +1373,42 @@
       '<span class="ow-chyron-icon" aria-hidden="true">' + icon + "</span>" +
       '<span class="ow-chyron-text"><span class="ow-chyron-kicker">' + esc(kicker) + "</span>" +
       esc(a.headline || "") + "</span>";
-    chatBox.appendChild(card);
+    return card;
+  }
+
+  function _chyronInDom(id) {
+    try { return !!document.querySelector('[data-chyron-id="' + CSS.escape(id) + '"]'); }
+    catch (_) { return false; }
+  }
+
+  function _renderChyron(a) {
+    if (!a || !a.id || _chyronSeen.has(a.id)) return;
+    _chyronSeen.add(a.id);
+    if (_chyronInDom(a.id)) return;
+    const chatBox = document.getElementById("chat-history");
+    if (!chatBox) return;
+    const kicker = _CHYRON_KICKER[a.kind] || "Big Brother";
+    chatBox.appendChild(_buildChyronCard(a));
     try { chatBox.scrollTop = chatBox.scrollHeight; } catch (_) {}
     try { if (window.orwellAnnounce) window.orwellAnnounce(esc(kicker) + ": " + esc(a.headline || "")); } catch (_) {}
+  }
+
+  // Chyron persistence: a HISTORY render (reload / soft-reload / the canonical addMessage builder) repaints the
+  // announcements that were stored with the turn, in the SAME place a live card lands — immediately AFTER the turn's
+  // bubble (`anchor`), in order. Synchronous (no stagger), silent (no live-region announce: the player already heard
+  // it), deduped by the DOM `data-chyron-id` (the DOM is the truth on a fresh render; the in-memory Set is only
+  // seeded so a later live re-delivery of the same id cannot paint it twice).
+  function _renderChyronsAfter(list, anchor) {
+    if (!Array.isArray(list) || !list.length || !anchor || !anchor.parentNode) return;
+    let at = anchor;
+    list.forEach(function(a) {
+      if (!a || !a.id) return;
+      _chyronSeen.add(a.id);
+      if (_chyronInDom(a.id)) return;
+      const card = _buildChyronCard(a);
+      at.parentNode.insertBefore(card, at.nextSibling);
+      at = card;
+    });
   }
 
   function _announceBatchCoalesced(rendered) {
@@ -1461,5 +1486,5 @@
   // The tiny public seam (mirrors OrwellDecisionStyles): exposed for tests and the element-kit
   // demo page, and so a caller can seed the dedup set (e.g. from an already-rendered transcript
   // replay) without a live DOM query on every historical tool result.
-  window.OrwellChyron = { render: _renderChyron, renderBatch: _renderChyronBatch, _seen: _chyronSeen };
+  window.OrwellChyron = { render: _renderChyron, renderBatch: _renderChyronBatch, renderAfter: _renderChyronsAfter, _seen: _chyronSeen };
 })();

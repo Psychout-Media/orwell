@@ -2179,6 +2179,38 @@ export function renderAssistantMessage(model) {
 }
 
 /**
+ * Chyron persistence: the announcements a stored turn carries — the engine's Vault-free `BeatAnnouncementView`s that
+ * reached the client OWED (pre-resolve / stateDelta; stored as `metadata.announcements`) first, then the ones riding
+ * a persisted advanceGame/submitDecision tool result (re-derived from its stored output), in order, deduped by id.
+ * Repainted after the turn's bubble by `OrwellChyron.renderAfter` so a reload shows the same cards in the same place.
+ */
+function storedAnnouncements(metadata) {
+  const out = [];
+  const seen = new Set();
+  const take = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const a of list) {
+      if (a && typeof a === 'object' && a.id && !seen.has(a.id)) { seen.add(a.id); out.push(a); }
+    }
+  };
+  if (!metadata) return out;
+  take(metadata.announcements);
+  const evs = Array.isArray(metadata.tool_events) ? metadata.tool_events : [];
+  for (const ev of evs) {
+    if (!ev || (ev.tool !== 'advanceGame' && ev.tool !== 'submitDecision') || typeof ev.output !== 'string') continue;
+    try { take((JSON.parse(ev.output) || {}).announcements); } catch (_) { /* a truncated/non-JSON output carries none */ }
+  }
+  return out;
+}
+
+function repaintStoredChyrons(metadata, anchor) {
+  try {
+    const list = storedAnnouncements(metadata);
+    if (list.length && window.OrwellChyron && window.OrwellChyron.renderAfter) window.OrwellChyron.renderAfter(list, anchor);
+  } catch (_) { /* fail open — the cards are an augmentation of the chat, never a reload blocker */ }
+}
+
+/**
  * Add a message to the chat history.
  */
 export function addMessage(role, content, modelName, metadata) {
@@ -2436,6 +2468,7 @@ export function addMessage(role, content, modelName, metadata) {
         box.querySelectorAll('pre code:not(.hljs)').forEach(b => window.hljs.highlightElement(b));
       }
       if (markdownModule.renderMermaid) markdownModule.renderMermaid(box);
+      repaintStoredChyrons(metadata, box.lastElementChild || lastWrap);
       return lastWrap;
     }
 
@@ -2773,6 +2806,7 @@ export function addMessage(role, content, modelName, metadata) {
     if (role === 'assistant' && markdownModule.renderMermaid) {
       markdownModule.renderMermaid(wrap);
     }
+    if (role === 'assistant') repaintStoredChyrons(metadata, wrap);
     return wrap;
   } catch (error) {
     console.error('Error in addMessage:', error);

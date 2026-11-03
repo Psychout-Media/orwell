@@ -6557,10 +6557,12 @@ async def _stream_agent_loop_impl(
     round_texts = []   # Cleaned text per round for history reload
     # F-2/F-4: owed chyron — announcements of a beat the FE pre-resolved this turn reach the client whatever
     # the model says (blank, skipped, or contradicting). Consumed once; the client dispatches `orwell:announcements`.
+    _turn_owed_announcements: list = []  # chyron persistence: stored with the turn so a reload repaints them
     try:
         from routes import chat_helpers as _ch_owed
         _owed = _ch_owed.pop_pending_chyron(owner)
         if _owed:
+            _turn_owed_announcements = [a for a in _owed if isinstance(a, dict)]
             yield f'data: {json.dumps({"announcements": _owed})}\n\n'
     except Exception:
         pass
@@ -10186,6 +10188,8 @@ async def _stream_agent_loop_impl(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    if _turn_owed_announcements:
+        metrics["announcements"] = _turn_owed_announcements  # Vault-free BeatAnnouncementViews; repainted on reload
     yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"
 
     # ADR 0010 (the token-economy meter): one Vault-free token/cost entry per live-game turn — the
