@@ -40,7 +40,7 @@ const DEPARTURE = /goodbye message|exit interview|leaves the house/;
 const WEEKS_AFTER_FIRST_JUROR = 4;
 
 describe("0129 — the jury house is sequestered from a non-juror player", () => {
-  it("no tool reaches a juror, and no event mixes an out-of-the-game houseguest with one still playing", async () => {
+  it("no tool reaches a juror, a pre-jury evictee goes home, and jurors mix only with jurors", async () => {
     for (let seed = 1; seed <= 40; seed++) {
       const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
       const user = `jury-sequester-${seed}`;
@@ -87,21 +87,26 @@ describe("0129 — the jury house is sequestered from a non-juror player", () =>
       }
       if (!probed) continue; // this seed never seated a juror while the player was still active — try the next
 
-      // (b) once out of the game, a houseguest (a juror, or a pre-jury evictee — the jury house is the last-nine
-      //     evictees, so early evictees share it until the ninth pushes them out) appears only with others who
-      //     are out too — never with a houseguest still playing, the player included. The departure beats are
-      //     the one exception: they happen as the evictee walks out.
+      // (b) PO ruling 2026-11-03: "the jury house is fully sequestered… other than other evicted houseguests who
+      //     are on the jury." Once out, a PRE-jury evictee goes home — they appear in no further event at all —
+      //     and a juror appears only with other jurors (never a houseguest still playing, the player included,
+      //     and never a pre-jury evictee). The departure beats are the one exception: they happen as the
+      //     evictee walks out.
+      const finalState = (await mcp.callTool("getGameState", {})) as State;
+      const statusOf = new Map(finalState.house.map((c) => [c.id, c.status]));
       const all = events();
       const out = (x: string, idx: number): boolean => outAt.has(x) && idx >= outAt.get(x)!;
-      const mixed = all.filter((e, idx) => {
+      const isOutJuror = (x: string, idx: number): boolean => out(x, idx) && statusOf.get(x) === "jury";
+      const bad = all.filter((e, idx) => {
         const parts = [...new Set([e.initiator, ...e.witnessSet])];
         if (!parts.some((x) => out(x, idx))) return false;
         if (DEPARTURE.test(String(e.content))) return false;
-        return parts.some((x) => !out(x, idx));
+        if (parts.some((x) => out(x, idx) && statusOf.get(x) === "evicted")) return true; // a pre-jury evictee went home
+        return parts.some((x) => !isOutJuror(x, idx)); // a juror with anyone who is not an out-of-the-game juror
       });
       expect(
-        mixed.map((e) => `${e.id} ${e.type}: ${String(e.content).slice(0, 60)}`),
-        `seed ${seed}: an out-of-the-game houseguest shared an event with one still playing`,
+        bad.map((e) => `${e.id} ${e.type}: ${String(e.content).slice(0, 60)}`),
+        `seed ${seed}: the jury house was not sequestered`,
       ).toEqual([]);
       return;
     }

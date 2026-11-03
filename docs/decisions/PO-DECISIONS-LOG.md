@@ -19,6 +19,11 @@ live ledger of owner calls as they happen.
   through any mutating tool, and the event store shows no juror/non-juror mixing after a juror is seated,
   barring the eviction-night departure beats. Pinned by `tests/unit/jurySequester.test.ts`. The
   player-as-juror surface itself is still the unbuilt part of the 0129 spec.)
+  **Clarified same day (owner): "the jury house is fully sequestered… other than other evicted houseguests
+  who are on the jury."** Only jurors belong in it; pre-jury evictees go home and never share it (as on the
+  real show). The engine's jury house is now "evicted from the jury-start point onward", not the last nine
+  evictees over time (which swept early evictees in until the ninth pushed them out); the juror set at the
+  finale is unchanged.
 - **0005 Houseguest's Choice (strategic veto draw): build it, but after the first playtest.** Bottom of
   the queue.
 - **0003 reveal rate: no change.** Judged in the playtest.

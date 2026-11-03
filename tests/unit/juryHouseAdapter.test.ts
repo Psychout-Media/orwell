@@ -26,6 +26,9 @@ import type { EntityId } from "../../src/domain/ids";
 const FINALIST = npc(14);
 const OTHER_FINALIST = npc(15);
 const JURORS: EntityId[] = Array.from({ length: 9 }, (_, i) => npc(i + 1));
+// PO ruling 2026-11-03: only jurors belong in the jury house — the first `cast − 2 − 9 = 5` evictees are pre-jury
+// and go home. The crafted eviction orders put five such evictees first so the jurors sit at the jury-start index.
+const PRE_JURY: EntityId[] = Array.from({ length: 5 }, (_, i) => npc(101 + i));
 
 /** Craft a jury-PHASE live state (sequester, not yet the finale) with a jury + recorded grievance. */
 function juryPhaseLive(grievanceJuror: EntityId): LiveSeasonState {
@@ -34,7 +37,7 @@ function juryPhaseLive(grievanceJuror: EntityId): LiveSeasonState {
     beat: "hoh-competition", // mid-sequester: the main game is still running with the two finalists +…
     active: [FINALIST, OTHER_FINALIST],
     vetoUsed: false,
-    evictionOrder: [...JURORS], // the last-nine — the jury house operates on these
+    evictionOrder: [...PRE_JURY, ...JURORS], // five pre-jury evictees, then the last-nine — the jury house operates on the latter
     finished: false,
     // The grievance recorded at the betrayed juror's eviction (the manner baseline the room spreads).
     mannerByEvictee: { [grievanceJuror]: { [FINALIST]: { betrayed: true } } },
@@ -278,14 +281,14 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
   function growingJury(user: string, seed: number, n: number) {
     const { reg, sb } = juryPhaseGame(user, seed);
     const snap = reg.snapshot(user) as SessionSnapshot;
-    (snap.live as LiveSeasonState).evictionOrder = JURORS.slice(0, n);
+    (snap.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS.slice(0, n)];
     reg.restore(user, snap);
     const s = reg.sandboxFor(user);
     s.session.setJuryHouseEnabled(true);
     const arrive = (k: number): void => {
       const next = reg.snapshot(user) as SessionSnapshot;
       const live = next.live as LiveSeasonState;
-      live.evictionOrder = JURORS.slice(0, (live.evictionOrder ?? []).length + k);
+      live.evictionOrder = [...PRE_JURY, ...JURORS.slice(0, (live.evictionOrder ?? []).length - PRE_JURY.length + k)];
       reg.restore(user, next);
       reg.sandboxFor(user).session.setJuryHouseEnabled(true);
     };
@@ -330,7 +333,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     expect(sb.session.snapshot().juryHouseTickCount, "eight stretches for jurors two through nine").toBe(8);
     // Three more evictions (a rolling last-nine roster): each still owes a stretch.
     const snap = reg.snapshot("limbo-late") as SessionSnapshot;
-    (snap.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10), npc(11), npc(12)];
+    (snap.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, npc(10), npc(11), npc(12)];
     reg.restore("limbo-late", snap);
     sb = sbOf();
     sb.session.setJuryHouseEnabled(true);
@@ -351,7 +354,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.engine.events.count(), "caught up: no replay of past arrivals").toBe(before);
     const next = reg.snapshot("limbo-legacy") as SessionSnapshot;
-    (next.live as LiveSeasonState).evictionOrder = [...JURORS, npc(10)];
+    (next.live as LiveSeasonState).evictionOrder = [...PRE_JURY, ...JURORS, npc(10)];
     reg.restore("limbo-legacy", next);
     sb = reg.sandboxFor("limbo-legacy");
     sb.session.setJuryHouseEnabled(true);
@@ -381,7 +384,7 @@ describe("0100 — FAST-FORWARD LIMBO (owner ruling 2026-11-02, #1922): one shor
     const { reg } = growingJury("limbo-goodbye", 28, 2);
     const snap = reg.snapshot("limbo-goodbye") as SessionSnapshot;
     const live = snap.live as LiveSeasonState;
-    live.evictionOrder = JURORS.slice(0, 3);
+    live.evictionOrder = [...PRE_JURY, ...JURORS.slice(0, 3)];
     // The third juror's eviction is still mid-stage (goodbyes not yet given).
     live.eviction = {
       stage: "goodbye", nominees: [npc(3), FINALIST], revealOrder: [], voteOf: {}, revealIx: 0,
