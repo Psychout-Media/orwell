@@ -11,7 +11,7 @@ import {
 } from "../../../src/domain/eligibility";
 import type { WeekState } from "../../../src/domain/eligibility";
 import type { Stats } from "../../../src/engine/season";
-import { nominationStrategy, nominationScore, replacementPick, tallyJury } from "../../../src/engine/season";
+import { nominationStrategy, nominationPlan, nominationScore, replacementPick, tallyJury } from "../../../src/engine/season";
 import { detectBlocs, blocTerm } from "../../../src/engine/blocs";
 import type { Bloc } from "../../../src/engine/blocs";
 import { DECISION } from "../../../src/engine/decisionConstants";
@@ -143,6 +143,8 @@ export interface LiveSeasonState {
   compIntent?: Intent;
   hoh?: EntityId;
   nominees?: [EntityId, EntityId];
+  /** #1948 — the NPC HOH's stored target (mirrors `liveSeason.ts`); absent for a human HOH ⇒ the score inference. */
+  nominationTarget?: EntityId;
   vetoField?: EntityId[];
   vetoHolder?: EntityId;
   vetoUsed: boolean;
@@ -580,7 +582,7 @@ function removeEvictee(s: LiveSeasonState, evictee: EntityId): void {
 /** Roll into the next week (or the finale at Final 3 → 2): clear the week's ceremony state. */
 function rollWeek(s: LiveSeasonState): void {
   s.outgoingHoh = s.hoh;
-  s.hoh = undefined; s.nominees = undefined; s.vetoField = undefined;
+  s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined;
   s.vetoHolder = undefined; s.vetoUsed = false; s.saved = undefined;
   s.replacement = undefined; s.finalNominees = undefined; s.vetoComp = undefined;
   if (s.active.length <= 2) {
@@ -990,11 +992,13 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // The strategic nomination read (0044): threat-primary, bent by the rattled-HOH paranoia
       // term (0041), the bloc shield (0043), the week's political temperature, and the HOH's own
       // disposition-gated tactic (pawn / backdoor / direct). Legality still binds downstream.
-      const nominees = nominationStrategy(s.hoh!, s.active, ctx.rel, {
+      const plan = nominationPlan(s.hoh!, s.active, ctx.rel, {
         blocs: currentBlocs(s, ctx),
         mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
       });
+      const nominees = plan.nominees;
+      s.nominationTarget = plan.target; // #1948: mirrors the live loop — the replacement branches on WHO the target is
       s.nominees = nominees; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${nominees[0]} and ${nominees[1]}`, participants: [s.hoh!, ...nominees] };
     }
@@ -1081,7 +1085,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // Mirrors the live pawn-or-target replacement read (0044 §9) — a shared DECISION rule, not a staging
   // difference, so the staged-vs-non-staged litmus keeps comparing like with like.
   const replacement = replacementPick(s.hoh!, otherNominee(s), options, s.active, ctx.rel, {
-    blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+    blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, target: s.nominationTarget,
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
@@ -1170,7 +1174,7 @@ export function applyDecision(
       const [a, b] = input.choice;
       if (a === b) throw new Error("cannot nominate the same houseguest twice");
       if (!legal.has(a) || !legal.has(b)) throw new Error("illegal nominee");
-      s.nominees = [a, b]; s.pending = undefined; s.beat = "veto-competition";
+      s.nominees = [a, b]; s.nominationTarget = undefined; s.pending = undefined; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
     }
     case "veto-decision": {

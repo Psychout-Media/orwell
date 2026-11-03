@@ -59,7 +59,7 @@ import {
 } from "../domain/eligibility";
 import type { WeekState } from "../domain/eligibility";
 import type { Stats } from "./season";
-import { nominationStrategy, nominationScore, replacementPick, tallyJury } from "./season";
+import { nominationStrategy, nominationPlan, nominationScore, replacementPick, tallyJury } from "./season";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
@@ -382,6 +382,13 @@ export interface LiveSeasonState {
   compIntent?: Intent;
   hoh?: EntityId;
   nominees?: [EntityId, EntityId];
+  /**
+   * #1948 — the NPC HOH's actual TARGET from nominations (the top strategic read; OFF the block on a
+   * backdoor). `replacementPick` branches on this identity instead of inferring pawn-vs-target from scores.
+   * Absent for a human HOH's nominations and on a pre-#1948 save ⇒ the score inference, as before. Engine-only,
+   * no rng; cleared at the week roll. Persisted with the live state.
+   */
+  nominationTarget?: EntityId;
   vetoField?: EntityId[];
   vetoHolder?: EntityId;
   vetoUsed: boolean;
@@ -1883,7 +1890,7 @@ function removeEvictee(s: LiveSeasonState, evictee: EntityId): void {
 /** Roll into the next week (or the finale at Final 3 → 2): clear the week's ceremony state. */
 function rollWeek(s: LiveSeasonState): void {
   s.outgoingHoh = s.hoh;
-  s.hoh = undefined; s.nominees = undefined; s.vetoField = undefined;
+  s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined;
   s.vetoHolder = undefined; s.vetoUsed = false; s.saved = undefined;
   s.replacement = undefined; s.finalNominees = undefined; s.vetoComp = undefined;
   s.preNomsNightPassed = undefined; // #1320: re-arm the night-gate for the new reign (undefined ⇒ serialization-neutral)
@@ -2473,12 +2480,14 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // The strategic nomination read (0044): threat-primary, bent by the rattled-HOH paranoia
       // term (0041), the bloc shield (0043), the week's political temperature, and the HOH's own
       // disposition-gated tactic (pawn / backdoor / direct). Legality still binds downstream.
-      const nominees = nominationStrategy(s.hoh!, s.active, ctx.rel, {
+      const plan = nominationPlan(s.hoh!, s.active, ctx.rel, {
         blocs: currentBlocs(s, ctx),
         mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
         style: ctx.nominationStyleOf?.(s.hoh!),
       });
+      const nominees = plan.nominees;
+      s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
       s.nominees = nominees; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${nominees[0]} and ${nominees[1]}`, participants: [s.hoh!, ...nominees] };
     }
@@ -2679,6 +2688,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     blocs: currentBlocs(s, ctx),
     mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
     style: ctx.nominationStyleOf?.(s.hoh!),
+    target: s.nominationTarget,
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
@@ -2733,6 +2743,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
         kind: "replacement",
         replacement: replacementPick(p.by, otherNominee(s), p.options, s.active, ctx.rel, {
           blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(p.by) ?? 0.5, style: ctx.nominationStyleOf?.(p.by),
+          target: s.nominationTarget,
         }),
       };
     case "eviction-vote":
@@ -2789,7 +2800,7 @@ export function applyDecision(
       const [a, b] = input.choice;
       if (a === b) throw new Error("cannot nominate the same houseguest twice");
       if (!legal.has(a) || !legal.has(b)) throw new Error("illegal nominee");
-      s.nominees = [a, b]; s.pending = undefined; s.beat = "veto-competition";
+      s.nominees = [a, b]; s.nominationTarget = undefined; s.pending = undefined; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
     }
     case "veto-decision": {
