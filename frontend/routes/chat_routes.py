@@ -1810,8 +1810,6 @@ def setup_chat_routes(
                                         full_response += data["delta"]
                                         _stream_set(session, partial=full_response)
                                     yield chunk
-                                elif isinstance(data, dict) and "type" not in data and isinstance(data.get("announcements"), list):
-                                    yield chunk  # the owed-chyron frame: forwarded so chat.js dispatches `orwell:announcements` live (it was captured above for storage)
                                 elif data.get("type") == "web_sources":
                                     web_sources = data.get("data", [])
                                     yield chunk

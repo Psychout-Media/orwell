@@ -167,10 +167,10 @@ def test_owed_announcements_are_captured_for_the_stopped_save_too():
     assert '"announcements": _owed_anns' in src, "the normal save merges them into the stored metadata"
 
 
-def test_the_owed_announcements_frame_is_forwarded_to_the_client_not_just_captured():
-    """The agent route's chunk chain had no branch for a bare {"announcements": [...]} frame, so it was dropped and `orwell:announcements`
-    never fired on the SSE path. It must be captured for storage AND forwarded (yield chunk) in the same chain."""
+def test_the_owed_announcements_frame_is_captured_here_and_forwarded_by_exactly_one_branch():
+    """The route CAPTURES a bare {"announcements": [...]} frame for storage (before the branch chain) and the chain forwards it through exactly ONE
+    announcements branch (#2032's) — a second yield would be masked by the client dedup but is still wrong."""
     src = open(os.path.join(FRONTEND, "routes", "chat_routes.py"), encoding="utf-8").read()
-    i = src.index('yield chunk  # the owed-chyron frame')
-    branch = src[src.rindex("elif isinstance(data, dict)", 0, i):i]
-    assert '"type" not in data' in branch and 'data.get("announcements"), list' in branch
+    assert src.count('"announcements" in data and "delta" not in data') == 1, "exactly one announcements-forwarding branch in the chain"
+    assert "yield chunk  # the owed-chyron frame" not in src, "no second yield from the storage capture"
+    assert src.index("_owed_anns.extend(") < src.index('"announcements" in data and "delta" not in data'), "captured before the chain"
