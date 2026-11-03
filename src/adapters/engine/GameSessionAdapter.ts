@@ -51,7 +51,8 @@ import type { Room, Zone, Occupancy } from "../../domain/house";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
-import { DealLedger } from "../../engine/deals";
+import { DealLedger, breakSeverityScale } from "../../engine/deals";
+import { NPC_MEMORY, recordMemory, memoryTilt, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -494,6 +495,13 @@ const SCHEME_TARGETS_ENABLED_DEFAULT = process.env.ORWELL_SCHEME_TARGETS === "1"
  * deploy — the live-loop reconciliation of the new kinds + the reward folds land before it opts in.
  */
 const DEAL_DEPTH_ENABLED_DEFAULT = process.env.ORWELL_DEAL_DEPTH === "1";
+/**
+ * 0024 — whether the NPC MEMORY layer runs by DEFAULT. OFF unless `ORWELL_NPC_MEMORY=1`. A DEDICATED flag (sibling
+ * to `ORWELL_DEAL_DEPTH`) so calibration neutrality is provable in isolation: with it unset NO memory is written,
+ * `memoryTiltFor` is absent from the ctx, and every seeded decision is byte-identical. Toggleable per session via
+ * `setNpcMemoryEnabled`.
+ */
+const NPC_MEMORY_ENABLED_DEFAULT = process.env.ORWELL_NPC_MEMORY === "1";
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1090,6 +1098,7 @@ export class GameSessionAdapter implements GameSession {
   private schemeTargetsEnabled = SCHEME_TARGETS_ENABLED_DEFAULT;
   /** 0121 — deal-depth layer (active-obligation kinds + reliability rewards); off ⇒ 0039/0109 exactly. */
   private dealDepthEnabled = DEAL_DEPTH_ENABLED_DEFAULT;
+  private npcMemoryEnabled = NPC_MEMORY_ENABLED_DEFAULT;
   /** 0121 R1 — seed a diffusing "keeps their word" reputation when a deal is kept (registry-wired; it holds
    *  the KnowledgeService `reconcileDeals` does not). Unset (standalone) ⇒ no reputation ⇒ byte-identical. */
   private dealReputationSink?: (honorer: EntityId, other: EntityId) => void;
@@ -6997,6 +7006,8 @@ export class GameSessionAdapter implements GameSession {
       // AWARE of (knownTo) pushes their vote, scaled by owner persuasiveness × voter susceptibility ×
       // trust × progress (the engine tallies; narration only voices). Bounded; never crosses the wall.
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
+      // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
+      ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
@@ -7139,6 +7150,9 @@ export class GameSessionAdapter implements GameSession {
   /** Turn the 0121 deal-depth layer on/off (active-obligation kinds + reliability rewards). Off by default —
    *  the calibration harness leaves it off (off ⇒ the new kinds can't be made ⇒ byte-identical). */
   setDealDepthEnabled(on: boolean): void { this.dealDepthEnabled = on; }
+  /** 0024 — turn the NPC memory layer on/off for this session (off ⇒ nothing is written or read). */
+  setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
+  npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
   /** Whether the deal-depth layer is live (0121). */
   dealDepthEnabledNow(): boolean { return this.dealDepthEnabled; }
   /** 0121 R1 — wire the "keeps their word" reputation diffuser (the registry owns the KnowledgeService +
@@ -8618,12 +8632,23 @@ export class GameSessionAdapter implements GameSession {
         break;
       }
       case "nominations": {
-        if (s.hoh && s.nominees) for (const nom of s.nominees) fold(nom, s.hoh, "nominated");
+        if (s.hoh && s.nominees) {
+          for (const nom of s.nominees) {
+            this.rememberFriendAct(nom, s.hoh, "nominated-by-friend"); // BEFORE the fold: the trust test reads the pre-shock edge
+            fold(nom, s.hoh, "nominated");
+          }
+        }
         break;
       }
       case "veto-ceremony": {
-        if (s.saved && s.vetoHolder) fold(s.saved, s.vetoHolder, "veto-saved"); // gratitude bond + E54 evidence
-        if (s.replacement && s.hoh) fold(s.replacement, s.hoh, "replaced");     // betrayal-shock if trusted
+        if (s.saved && s.vetoHolder) {
+          this.remember(s.saved, s.vetoHolder, "veto-saved", 0.6);
+          fold(s.saved, s.vetoHolder, "veto-saved"); // gratitude bond + E54 evidence
+        }
+        if (s.replacement && s.hoh) {
+          this.rememberFriendAct(s.replacement, s.hoh, "replaced-by-friend");
+          fold(s.replacement, s.hoh, "replaced");     // betrayal-shock if trusted
+        }
         break;
       }
       case "eviction": {
@@ -9757,6 +9782,9 @@ export class GameSessionAdapter implements GameSession {
             [wronged], "betrayal",
           );
         }
+        // 0024: an ATTRIBUTED break (a public action, or the player's own vote) is a memory the wronged party holds; the
+        // sealed-ballot branch above deliberately writes none (it would de-anonymize the vote through behaviour).
+        this.remember(wronged, breaker, "deal-broken", Math.min(1, 0.6 * breakSeverityScale(deal, this.live?.week)));
         return this.onPlayerEvent?.(
           `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)}`,
           [wronged, breaker], "betrayal",
@@ -10186,6 +10214,50 @@ export class GameSessionAdapter implements GameSession {
     return credits ? DEAL_REPUTATION.dealLean : 0;
   }
 
+  // ── 0024 — NPC MEMORY (a structured, engine-adjudicated ledger; never `SoulProvider.recall`) ───────────────────────
+
+  /** Write one memory `holder → subject` (NPC holders only; only while the layer is on, so flags-off saves are untouched). */
+  private remember(holder: EntityId, subject: EntityId, kind: MemoryKind, severity: number): void {
+    if (!this.npcMemoryEnabled || !this.live || holder === PLAYER || holder === subject) return;
+    recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity });
+  }
+
+  /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */
+  private rememberFriendAct(holder: EntityId, subject: EntityId, kind: "nominated-by-friend" | "replaced-by-friend"): void {
+    if (!this.npcMemoryEnabled || holder === PLAYER) return;
+    if (this.rel.edge(holder, subject).trust < NPC_MEMORY.trustedAbove) return;
+    this.remember(holder, subject, kind, 0.5);
+  }
+
+  /** The residual edge carry for the memory floor: what the relationship edge still holds, so nothing is counted twice. */
+  private memoryCarry(holder: EntityId, subject: EntityId): { threatAboveBaseline: number; bondAboveNeutral: number } {
+    const B = RELATIONSHIP_CONSTANTS.baseline;
+    return {
+      threatAboveBaseline: Math.max(0, this.rel.edge(holder, subject).threat - B.threat),
+      bondAboveNeutral: Math.max(0, this.rel.bondStrength(holder, subject) - (B.trust + B.affinity) / 2),
+    };
+  }
+
+  private memoryDecayScale(holder: EntityId): number {
+    return RELATIONSHIP_CONSTANTS.dispositionFactors[this.dispositionReadOf(holder) ?? "neutral"].decayScale;
+  }
+
+  /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
+  private memoryTiltFor(subject: EntityId, holder: EntityId): number {
+    if (holder === PLAYER || !this.live) return 0;
+    const entries = this.live.npcMemory?.[holder]?.[subject];
+    if (!entries || entries.length === 0) return 0;
+    return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
+  }
+
+  /** An NPC the player has wronged (a strong residual grudge) does not float a safety/alliance deal to them. */
+  private memoryBlocksPlayerDeal(npcId: EntityId): boolean {
+    if (!this.npcMemoryEnabled || !this.live) return false;
+    const entries = this.live.npcMemory?.[npcId]?.[PLAYER];
+    if (!entries || entries.length === 0) return false;
+    return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
+  }
+
   /**
    * 0123 — the NPC->player deal OFFER (the counterpart of `makeDeal`). At a LULL a motivated houseguest
    * pulls the player aside and floats a deal, GROUNDED in their real read (a strong bond ⇒ a final-two ask;
@@ -10214,6 +10286,7 @@ export class GameSessionAdapter implements GameSession {
     let best: number = O.motivationMin;
     for (const n of this.house.npcs) {
       if (evicted.has(n.id) || boundToPlayer(n.id)) continue;
+      if (this.memoryBlocksPlayerDeal(n.id)) continue;             // 0024: an NPC the player wronged does not float a deal
       const e = this.rel.edge(n.id, PLAYER);
       const motivation = Math.max((e.trust + e.affinity) / 2, e.threat); // wants alliance OR wants safety
       if (motivation > best) { best = motivation; from = n.id; }

@@ -37,7 +37,7 @@ export interface FeatureFlagDef {
 }
 
 /**
- * All 29 flags in display (and deployment-doc) order.
+ * All flags in display (and deployment-doc) order.
  *
  * ADDING A NEW FLAG: append it here and it will automatically appear in `/health` and the guard
  * test. DELETING: remove the entry and the contract shrinks cleanly.
@@ -58,6 +58,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_VOTE_DEDUCTION',         key: 'voteDeduction',          parser: 'strict' },
   { envKey: 'ORWELL_TIME_OF_DAY',            key: 'timeOfDay',              parser: 'loose' },
   { envKey: 'ORWELL_DEAL_DEPTH',             key: 'dealDepth',              parser: 'strict' },
+  { envKey: 'ORWELL_NPC_MEMORY',             key: 'npcMemory',              parser: 'strict' },
   { envKey: 'ORWELL_STRATEGIC_CADENCE',      key: 'strategicCadence',       parser: 'strict' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'strict' },
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'strict' },

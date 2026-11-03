@@ -135,6 +135,12 @@ export interface NominationRead {
    * the style terms. Absent ⇒ +0, byte-identical.
    */
   campaignPush?: (target: EntityId) => number;
+  /**
+   * 0024 — the bounded RESIDUAL memory tilt on a houseguest as a nominee: this HOH's own grudge toward them (a broken
+   * deal, a trusted friend who nominated/replaced them) minus their favor (a veto save), net of what the relationship
+   * edge still carries (`memoryTilt`). Added with the campaign push, last. Absent ⇒ +0, byte-identical.
+   */
+  memoryPush?: (target: EntityId) => number;
 }
 
 /** A nomination pair plus the HOH's actual TARGET (a backdoor leaves the target OFF the block). */
@@ -172,7 +178,7 @@ export function nominationPlan(
   const N = DECISION.nomination;
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + W.floaterWeight * floaterRead(t, active, rel) +
-    W.duoWeight * duoRead(t, hoh, active, rel) + (read.campaignPush?.(t) ?? 0);
+    W.duoWeight * duoRead(t, hoh, active, rel) + (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
@@ -213,7 +219,7 @@ export function replacementPick(
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) +
     S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel) +
-    (read.campaignPush?.(t) ?? 0);
+    (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0);
   const ranked = [...options].sort((a, b) => score(b) - score(a));
   // #1948: branch on the HOH's stored target when we have it; otherwise infer it from the scores (legacy).
   const targetStillUp = target !== undefined ? remaining === target : score(remaining) >= score(ranked[0]!);
