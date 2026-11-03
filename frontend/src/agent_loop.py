@@ -1767,7 +1767,7 @@ def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
 # honors it. We gate forcing to models NOT on this known-rejecter list rather than allow-listing one
 # family, so a future honoring model benefits and an admin who swaps to a rejecter is still protected
 # (belt + the runtime kill-switch). Substring match on the resolved model id (provider-prefixed).
-_TOOL_CHOICE_REJECTERS = ("deepseek-v4", "deepseek/deepseek-v4", "deepseek-reasoner", "deepseek-r1")
+_TOOL_CHOICE_REJECTERS = ("deepseek-v4", "deepseek/deepseek-v4", "deepseek-flash", "deepseek-reasoner", "deepseek-r1")
 
 
 def _model_honors_forced_tool_choice(model: str) -> bool:
@@ -6165,7 +6165,7 @@ async def _stream_agent_loop_impl(
         "glm-4", "internlm", "hermes",
         # deepseek-v2/v3/chat support tools via the cloud API; deepseek-r1
         # (reasoning model) does not — handled by the blocklist below.
-        "deepseek-v", "deepseek-chat",
+        "deepseek-v", "deepseek-chat", "deepseek-flash",
     ))
     # Models known to reject tool schemas at the Ollama/local level even when
     # the endpoint URL would otherwise enable native function calling.

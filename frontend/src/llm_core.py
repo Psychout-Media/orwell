@@ -710,6 +710,22 @@ def _is_anthropic_model(model: str) -> bool:
     return "claude" in m or m.startswith("anthropic/")
 
 
+def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
+    """DeepSeek's OWN API (api.deepseek.com) defaults thinking ON, and with ``tools`` on the wire a
+    thinking turn 400s unless ``reasoning_content`` is echoed back on every later request. The agent
+    loop is a tool loop, so on that host we always send ``{"thinking": {"type": "disabled"}}`` and drop
+    the OpenRouter-style ``reasoning`` fields (DeepSeek uses ``thinking``/``reasoning_effort``, not the
+    unified map). The legacy ``deepseek-reasoner`` is thinking-only, so it is left untouched. Host-gated
+    so every other provider (incl. DeepSeek served via OpenRouter) stays byte-identical."""
+    if not _host_match(url, "deepseek.com"):
+        return
+    if "reasoner" in (model or "").lower():
+        return
+    payload.pop("reasoning", None)
+    payload.pop("reasoning_effort", None)
+    payload["thinking"] = {"type": "disabled"}
+
+
 def _apply_reasoning_budget(payload: Dict, provider: str, model: str, policy: Optional[Dict],
                             requested_max_tokens: Optional[int] = None) -> None:
     """ADR 0010 slice B: inject the per-call-class reasoning budget into an OpenAI-compatible payload,
@@ -1170,6 +1186,11 @@ def _ensure_openai_chat_path(url: str) -> str:
         return u
     if u.endswith("/v1") or u.endswith("/api/v1") or u.endswith("/api"):
         return u + "/chat/completions"
+    # DeepSeek's own API is served from the bare host root (``https://api.deepseek.com``, no /v1), so a
+    # stored raw base (a recovered model-less session, the slash-command setup URL) has no path suffix
+    # to key on — recognise the root host explicitly (PO ruling 2026-11-02).
+    if _host_match(u, "deepseek.com") and not (urlparse(u).path or "").strip("/"):
+        return u + "/chat/completions"
     return url
 
 
@@ -1350,6 +1371,8 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
         if max_tokens and max_tokens > 0:
             tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
             payload[tok_key] = max_tokens
+        # DeepSeek's own API defaults thinking ON — keep the sync path off too (host-gated no-op elsewhere).
+        _apply_deepseek_thinking_off(payload, url, model)
     try:
         note_model_activity(target_url, model)
         r = httpx.post(target_url, headers=h, json=payload, timeout=timeout)
@@ -1684,6 +1707,7 @@ async def _llm_call_async_impl(
         # background-authoring), + OpenRouter usage accounting so `cost` is returned — but ONLY when a
         # usage_sink is present (we're metering), so a non-metered call stays byte-identical.
         _apply_reasoning_budget(payload, provider, model, policy, requested_max_tokens=max_tokens)
+        _apply_deepseek_thinking_off(payload, url, model)
         if provider == "openrouter" and usage_sink is not None:
             payload["usage"] = {"include": True}
         # 0112: attach the Vault-free correlation metadata (only when observability is enabled;
@@ -1899,6 +1923,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             payload.pop("temperature", None)
         # ADR 0010 slice B: send the per-call-class reasoning budget (provider-aware; see helper).
         _apply_reasoning_budget(payload, provider, model, policy, requested_max_tokens=max_tokens)
+        _apply_deepseek_thinking_off(payload, url, model)
         if provider not in {"openrouter", "groq"}:
             payload["stream_options"] = {"include_usage": True}
         elif provider == "openrouter":

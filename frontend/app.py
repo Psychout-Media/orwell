@@ -1030,6 +1030,14 @@ async def _startup_event():
             logger.info("LLM I/O live ring seeded with %d archived record(s)", _seeded)
     except Exception as _e:
         logger.debug("LLM I/O ring seed skipped: %s", _e)
+    # PO ruling 2026-11-02: DeepSeek's own API is the new-install default. A keyed, endpoint-less
+    # first boot creates the endpoint from DEEPSEEK_API_KEY (no-op otherwise; never touches existing).
+    try:
+        from src.deepseek_seed import pin_legacy_model_defaults, seed_deepseek_endpoint_from_env
+        pin_legacy_model_defaults()  # existing installs keep their effective models (PR #1935 review)
+        seed_deepseek_endpoint_from_env()
+    except Exception as _e:
+        logger.warning("DeepSeek endpoint seed skipped (fail-open): %s", _e)
     webhook_manager.set_loop(asyncio.get_running_loop())
     # Wipe any leftover incognito sessions from previous process — they're
     # ephemeral by design and must not survive a restart.

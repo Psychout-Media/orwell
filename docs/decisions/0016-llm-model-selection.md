@@ -151,3 +151,36 @@ never sent* (2026-06-21 OpenRouter conformance audit); this build adds it, scope
 - **Owed live verification** (features 0107/0108, real-model golden path): GLM reasoning never reaches the
   public bubble; `tool_choice` + thinking interop on the pinned provider; and an A/B of narration quality +
   tool-call rate vs the DeepSeek incumbent (with DeepSeek V3.2 as a same-ecosystem craft control).
+
+## Amendment 2026-11-02 — DeepSeek's own API is the new-install default (PO ruling)
+
+**Config-only; the engine/closed set is untouched.** For NEW installs the default provider is DeepSeek's
+own OpenAI-compatible API (`https://api.deepseek.com`), narrator **and** utility `deepseek-flash`
+(`DEFAULT_SETTINGS`). This supersedes the OpenRouter OOB pair above as the *default*; OpenRouter stays a
+fully selectable provider, the portrait default stays `google/gemini-3.1-flash-image` (DeepSeek has no image
+API), and **persisted stores keep whatever they carry** — nothing is migrated or overwritten.
+
+- **First-boot seed:** if `DEEPSEEK_API_KEY` is set and the `model_endpoints` table is empty, the front-end
+  creates one shared DeepSeek endpoint through the normal `ModelEndpoint` row (key `EncryptedText`) and
+  sets only `default_endpoint_id` (`frontend/src/deepseek_seed.py`). Any existing endpoint ⇒ no-op, with one exception: a lone, incomplete seed (a single
+  shared DeepSeek endpoint whose default was never bound) is re-bound, never re-created or rewritten.
+- **Thinking is sent OFF** on the DeepSeek host (`{"thinking": {"type": "disabled"}}`): DeepSeek defaults
+  thinking ON, and with `tools` on the wire a thinking turn 400s unless `reasoning_content` is echoed back —
+  the agent loop is a tool loop, so it is disabled at the wire (`llm_core._apply_deepseek_thinking_off`).
+- **Forced `tool_choice: required` is gated by the known-rejecter DENYLIST** (`_TOOL_CHOICE_REJECTERS`, not
+  a GLM allow-list — any non-listed model, e.g. GLM or an OpenAI model, still receives the forced rung).
+  `deepseek-flash` joins the denylist (DeepSeek documents no `required`/forced-function support, and V4
+  rejected it), so on DeepSeek the textual twin (P2-16) applies instead of the wire force.
+- **Model names:** the legacy `deepseek-chat`/`deepseek-reasoner` were slated for discontinuation
+  2026-07-24; the current ids are `deepseek-flash` (V4.1 Flash) and `deepseek-v4-pro`.
+- **Portraits fail soft:** a DeepSeek host does not count as image-capable, so a DeepSeek-only box skips
+  portraits silently.
+- **Existing installs keep their effective models:** because `DEFAULT_SETTINGS` now says `deepseek-flash`,
+  boot runs `pin_legacy_model_defaults` — an install that already has endpoints, none on DeepSeek, and no
+  *saved* `default_model`/`utility_model` (e.g. right after an OOBE reset) gets the prior OOB pair
+  (`z-ai/glm-4.7` + `qwen/qwen3.6-27b`) persisted for exactly the missing keys. Fresh installs and DeepSeek
+  installs are untouched. The seed itself is lock-guarded (two workers cannot both create the endpoint) and
+  recoverable (a lone seeded endpoint with an unbound default is re-bound on the next boot).
+- **Owed live verification:** narration quality and the tool-call rate on `deepseek-flash` vs the GLM-4.7
+  incumbent (the A/B above) — this amendment only changes the default.
+

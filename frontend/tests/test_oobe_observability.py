@@ -78,6 +78,9 @@ def _endpoint_isolation():
 def post_reset_settings(monkeypatch):
     """The live post-reset settings state (settings.json ≈ {} ⇒ the DEFAULT_SETTINGS merge)."""
     merged = dict(settings_mod.DEFAULT_SETTINGS)
+    # Models an install CONFIGURED for OpenRouter's pair (the OOB default is DeepSeek, PO 2026-11-02).
+    merged["default_model"] = "z-ai/glm-4.7"
+    merged["utility_model"] = "qwen/qwen3.6-27b"
     monkeypatch.setattr(settings_mod, "load_settings", lambda: dict(merged))
     monkeypatch.setattr(settings_mod, "get_setting",
                         lambda key, default=None: merged.get(key, default))

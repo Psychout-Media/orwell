@@ -47,13 +47,15 @@ def _read(rel):
 # ── OOB defaults live in DEFAULT_SETTINGS (the assumed defaults) ────────────────
 
 
-def test_oob_default_chat_model_is_glm_4_7():
+def test_oob_default_chat_model_is_deepseek_flash():
     # OWNER RULING 2026-07-13 (live prod debug-bundle audit): the OOB narrator/chat model is the
     # ADR 0016 GLM-4.7 tier (the 2026-07-07/09 glm-5.2 retarget is reverted). The golden fixture is
     # ALSO recorded on glm-4.7 now (owner ruling 2026-07-14 — the gate tests what prod runs).
     from src.settings import DEFAULT_SETTINGS
-    assert DEFAULT_SETTINGS["default_model"] == "z-ai/glm-4.7", (
-        "the assumed default chat model must be glm-4.7 (OpenRouter)"
+    # PO RULING 2026-11-02: DeepSeek's own API (`deepseek-flash`) is the new-install default; the
+    # OpenRouter glm-4.7 default above is superseded (OpenRouter stays selectable, saved stores keep theirs).
+    assert DEFAULT_SETTINGS["default_model"] == "deepseek-flash", (
+        "the assumed default chat model must be deepseek-flash (DeepSeek's own API)"
     )
 
 
@@ -73,7 +75,7 @@ def test_image_autodetect_leads_with_gemini_flash_image():
     )
 
 
-def test_oob_default_utility_model_is_served_qwen():
+def test_oob_default_utility_model_is_deepseek_flash():
     """ADR 0016 as amended (2026-07-07/09 two-tier retarget; corrected 2026-07-21) — the OOB utility
     model (background JSON: cast authoring/prewarm/zeitgeist, summarization, naming) is a cheap, fast
     Qwen 3.6 tier on OpenRouter. OWNER RULING 2026-07-21 (live prod debug bundle): the previously
@@ -82,9 +84,8 @@ def test_oob_default_utility_model_is_served_qwen():
     is the SERVED `qwen/qwen3.6-27b`. It is its OWN key (utility_model), so it does NOT inherit the
     narrator swap."""
     from src.settings import DEFAULT_SETTINGS
-    assert DEFAULT_SETTINGS["utility_model"] == "qwen/qwen3.6-27b", (
-        "the assumed default utility model must be the SERVED Qwen 3.6 27B (qwen/qwen3.6-27b); "
-        "the old qwen/qwen3.6-flash slug is not served on OpenRouter"
+    assert DEFAULT_SETTINGS["utility_model"] == "deepseek-flash", (
+        "the assumed default utility model must be deepseek-flash (DeepSeek's own API, PO 2026-11-02)"
     )
 
 
@@ -367,7 +368,7 @@ def test_reset_drops_stale_model_selection_so_defaults_stand(monkeypatch, tmp_pa
     # The effective post-reset values are the OOB defaults (merge over DEFAULT_SETTINGS).
     from src.settings import DEFAULT_SETTINGS
     effective = {**DEFAULT_SETTINGS, **preserved}
-    assert effective["default_model"] == "z-ai/glm-4.7"
+    assert effective["default_model"] == "deepseek-flash"
     assert effective["image_model"] == "google/gemini-3.1-flash-image"
 
 
@@ -385,7 +386,7 @@ def test_reset_resets_even_a_valid_served_selection_to_defaults(monkeypatch, tmp
 
     from src.settings import DEFAULT_SETTINGS
     effective = {**DEFAULT_SETTINGS, **preserved}
-    assert effective["default_model"] == "z-ai/glm-4.7"
+    assert effective["default_model"] == "deepseek-flash"
     assert effective["image_model"] == "google/gemini-3.1-flash-image"
 
 

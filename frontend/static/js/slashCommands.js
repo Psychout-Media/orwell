@@ -45,7 +45,7 @@ const PROVIDER_PATTERNS = [
   { re: /^xai-/,             name: 'xAI',        url: 'https://api.x.ai/v1' },
 ];
 const SETUP_PROVIDER_URLS = {
-  deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/v1' },
+  deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com' },
   openai: { name: 'OpenAI', url: 'https://api.openai.com/v1' },
   openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
   ollama: { name: 'Ollama Cloud', url: 'https://ollama.com/api' },

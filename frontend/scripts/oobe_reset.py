@@ -15,7 +15,7 @@ What "API-key / LLM-provider config" means here (and where it lives):
   * ``data/settings.json`` → the model SELECTION keys are RESET to the OOB defaults
     (issue #860): a reset does NOT carry the previously-selected models — only operational flags
     (image_gen_enabled, image_quality, vision_enabled) survive. After the reset the defaults stand
-    (narrator z-ai/glm-4.7 + utility qwen/qwen3.6-27b on OpenRouter — the ADR 0016 pair, narrator
+    (narrator + utility deepseek-flash on DeepSeek's own API (PO 2026-11-02; OpenRouter pair was z-ai/glm-4.7 + qwen/qwen3.6-27b — ADR 0016), narrator
     per the 2026-07-13 owner ruling; portrait google/gemini-3.1-flash-image). The default-ENDPOINT
     DESIGNATION (``default_endpoint_id``) is PRESERVED (2026-07-12 PROD-blocker fix): it is
     validated against the carried rows and re-pointed at the sole enabled+keyed endpoint when it
@@ -57,7 +57,7 @@ import sys
 # Reset semantics (issue #860, owner ruling 2026-06-25; amended 2026-07-12): a factory/OOBE reset
 # preserves ONLY the API key(s) + the provider endpoint record(s) (the model_endpoints rows, carried
 # separately) — it does NOT preserve the SELECTED MODELS. After a reset the model selections revert
-# to the OOB defaults (narrator z-ai/glm-4.7 + utility qwen/qwen3.6-27b on OpenRouter — the ADR
+# to the OOB defaults (narrator + utility deepseek-flash on DeepSeek's own API (PO 2026-11-02; was the OpenRouter glm-4.7 + qwen pair — the ADR
 # 0016 pair, narrator per the 2026-07-13 owner ruling; portrait google/gemini-3.1-flash-image), so a
 # stale/placeholder pick (e.g. the "sakana/fugu-ultra" the owner was stuck on) can never ride across
 # a reset.
