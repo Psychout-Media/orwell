@@ -1,3 +1,4 @@
+import { EngineRefusal } from "../../src/domain/errors";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -147,7 +148,9 @@ describe("0133 — watch is the engine's skeleton season; skip fast-forwards to 
     s.submitDecision({ kind: "spectator-choice", vote: "watch" });
     s.submitDecision({ kind: "spectator-choice", vote: "skip" });
     expect(s.getGameState().player!.spectator).toBe("skip");
-    s.submitDecision({ kind: "spectator-choice", vote: "watch" }); // refused: a safe no-op
+    // refused with a typed EngineRefusal naming why (the narrator can tell the player), and nothing changes
+    expect(() => s.submitDecision({ kind: "spectator-choice", vote: "watch" })).toThrow(EngineRefusal);
+    expect(() => s.submitDecision({ kind: "spectator-choice", vote: "watch" })).toThrow(/irreversible/i);
     expect(s.getGameState().player!.spectator).toBe("skip");
   });
 });
