@@ -98,7 +98,7 @@ import {
 // reach the cluster through the chatModule re-export, unchanged.
 import {
   softReloadHistory, flushPendingReconcile, deferPeerResume, flushPendingPeerResume,
-  _isSkippableUserPrompt, _isEmptyTurnNoSave, _isCastingEmptyReplyReprompt, _isBelowThresholdOrDanglingTurn, _msgSeq, _insertBySeq, _reorderBySeq,
+  _isSkippableUserPrompt, _isEmptyTurnNoSave, pruneEmptyAssistantBubbles, _isCastingEmptyReplyReprompt, _isBelowThresholdOrDanglingTurn, _msgSeq, _insertBySeq, _reorderBySeq,
   _visibleMsgCount, _expectedVisibleBubbleCount, _setReconcileDeps,
 } from './chatReconcile.js';
 // #1414 (R3 PR8): the SEVERABLE stream-presentation helpers (PARTIAL by design — the ~1,660-line
@@ -4399,6 +4399,8 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     } finally {
       clearResponseTimeout();
       clearProcessingProbe();
+      // F-5 / N-10: a finished turn must never leave a header-only assistant bubble (see isEmptyAssistantBubble).
+      try { pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) {}
       // #615: a mid-stream engine-tool error (e.g. a 409 stale-beat) can throw out of the reader
       // loop with a tool node still in `.running`. `tool_output` (which normally clears that node's
       // 50ms _elapsedTicker / 100ms _waveInterval) never arrives, so the ticker fires forever on the
@@ -6103,6 +6105,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     // bubbles; this is the one source of truth so that can't recur.
     isSkippableUserPrompt: _isSkippableUserPrompt,
     setPendingContinue,
+    _pruneEmptyAssistantBubbles: pruneEmptyAssistantBubbles,
     regenerateFrom,
     forkFrom,
     editUserMessage,

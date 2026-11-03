@@ -199,6 +199,44 @@ export function _setReconcileDeps(deps) {
   }
 
   /**
+   * F-5 / N-10 (playtest blocker, 2026-11-03): is this assistant bubble a HEADER-ONLY shell — a holder that mounted for a pure-tool or
+   * pre-resolved round and never received any body content? Playtest shots show one "Production HH:MM" empty bubble directly above the real
+   * reply on nearly every game-phase turn (agent_step un-hides the pure-tool round's holder; the narration then lands in another bubble).
+   * Conservative by design — an element is "empty" only when ALL of these hold, so a live or meaningful bubble is never touched:
+   *   · it is an assistant bubble (`.msg-ai`) and NOT live (`.streaming`);
+   *   · it is not a persisted row (`data-db-id`) — the server's history is authoritative for persisted rows;
+   *   · its `.body` has no non-whitespace text, no media (img/video/audio/canvas/iframe/svg), no controls (button/a), no decision/retry
+   *     card, no spinner/thinking chrome that is actually VISIBLE (a hidden debug accordion does not count as content).
+   */
+  export function isEmptyAssistantBubble(el) {
+    if (!el || !el.classList || !el.classList.contains('msg-ai')) return false;
+    if (el.classList.contains('streaming')) return false;
+    if (el.dataset && el.dataset.dbId) return false;
+    const body = el.querySelector('.body');
+    if (!body) return false;
+    // innerText (CSS-aware) so text inside a display:none debug accordion does not count as content; textContent as the detached-node fallback.
+    if (((body.innerText !== undefined ? body.innerText : body.textContent) || '').trim()) return false;
+    if (body.querySelector('img,video,audio,canvas,iframe,svg,button,a,input,textarea,[class*="retry"],[class*="decision"],[class*="odec"]')) return false;
+    for (const chrome of body.querySelectorAll('[class*="spinner"],[class*="thinking"],.agent-thread')) {
+      let visible = true;
+      // getClientRects is empty for an element OR any ancestor that is display:none (a hidden debug accordion's children included).
+      try { visible = chrome.getClientRects().length > 0; } catch (_) { /* assume visible */ }
+      if (visible) return false;
+    }
+    return true;
+  }
+
+  /** Remove every header-only assistant bubble under `box`; returns how many were removed (idempotent). */
+  export function pruneEmptyAssistantBubbles(box) {
+    if (!box || !box.querySelectorAll) return 0;
+    let removed = 0;
+    for (const el of Array.from(box.querySelectorAll('.msg.msg-ai'))) {
+      if (isEmptyAssistantBubble(el)) { el.remove(); removed++; }
+    }
+    return removed;
+  }
+
+  /**
    * BUG 2 (#985 P2-B): the CLEAN-EMPTY-TURN predicate — pure so it can be gated without a live stream.
    * True iff the stream ended cleanly (a `[DONE]`, not a thrown drop), persisted NO message
    * (`!sawSave`), produced NO other visible artifact (`!producedVisible` — image/ask_user/budget/error),
@@ -345,6 +383,9 @@ export function _setReconcileDeps(deps) {
     return n;
   }
 
+  // F-5: liveness probe for the empty-bubble sweep (a thin wrapper so the reconcile body's own hasActiveStream ordering stays pinned).
+  const _streamIsLive = (sid) => hasActiveStream(sid);
+
   /**
    * ADR 0008 — render-and-reconcile to the authoritative seq-ordered log.
    *
@@ -365,6 +406,8 @@ export function _setReconcileDeps(deps) {
       sessionModule.getCurrentSessionId() === sessionId;
     if (!isCurrent()) return;
 
+    // Sweep header-only assistant shells, but NEVER while a stream is live: a peer/observer holder is empty until its first delta.
+    try { if (!_streamIsLive(sessionId)) pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) { /* never block the reconcile */ }
     let data;
     try {
       const res = await fetch(`${_apiBase()}/api/history/${sessionId}`);

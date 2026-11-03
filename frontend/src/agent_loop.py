@@ -1874,6 +1874,27 @@ _ANTI_STALE_FORCED_VOICE = (
     "stuck on, and never a result you guessed. Just bring the player to the present moment the engine "
     "reports.")
 
+# F-6 (playtest, the CAUSE of the doubled reply): the release valve's forced voice carried only the generic CONTINUE-NEVER-REOPEN contract,
+# so on a turn where round 1 had already answered the player's message the model re-answered it (two renditions, fused into one bubble). The
+# directive now QUOTES what the player has already read this turn, so round 2 knows exactly what is covered and must only add what is new.
+_FORCED_VOICE_SHOWN_TAIL = 900
+
+
+def _anti_stale_forced_voice(emitted_visible: bool, shown_text: str) -> str:
+    """The in-turn forced-voice directive. When a scene already streamed this turn it carries the CONTINUE-NEVER-REOPEN contract AND the
+    tail of what was shown ("already read - do not repeat, rephrase or re-answer it"); otherwise it is the plain forced voice. Pure."""
+    if not emitted_visible:
+        return _ANTI_STALE_FORCED_VOICE
+    shown = (shown_text or "").strip()[-_FORCED_VOICE_SHOWN_TAIL:]
+    parts = [_CONTINUE_NEVER_REOPEN]
+    if shown:
+        parts.append(
+            "ALREADY SHOWN TO THE PLAYER THIS TURN (they have read exactly this, and their message was ALREADY answered in it - do NOT "
+            "repeat, rephrase, re-answer or re-voice any of it; add only what is NEW, picking up after it):\n<<<\n" + shown + "\n>>>")
+    parts.append(_ANTI_STALE_FORCED_VOICE)
+    return "\n\n".join(parts)
+
+
 # 0079/0080 ACTIVE OVERSEER — the CONTINUE-NEVER-REOPEN contract (the "stuttering narrator" fix,
 # 2026-07-16). The active overseer's re-prompting levers (nudge / force-advance / reinject-delta) can
 # fire AFTER a scene has ALREADY streamed to the player this turn — e.g. a desync/stale-409 gets
@@ -4988,6 +5009,145 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
     return _GuardedScene(guarded, False, cutaway_emitted)
 
 
+def _ooc_segments(chunk: str, in_aside: bool) -> "tuple[list[tuple[str, bool]], bool]":
+    """N-6: split one streamed chunk into ordered (text, is_aside) segments, plus the aside state to carry. Aside segments keep their `((` / `))`
+    markers verbatim, so joining the segments reproduces the chunk exactly. Pure."""
+    segs: "list[tuple[str, bool]]" = []
+    i = 0
+    n = len(chunk or "")
+    while i < n:
+        if in_aside:
+            j = chunk.find("))", i)
+            if j < 0:
+                segs.append((chunk[i:], True))
+                return segs, True
+            segs.append((chunk[i:j + 2], True))
+            i = j + 2
+            in_aside = False
+        else:
+            j = chunk.find("((", i)
+            if j < 0:
+                segs.append((chunk[i:], False))
+                break
+            if j > i:
+                segs.append((chunk[i:j], False))
+            i = j
+            k = chunk.find("))", j + 2)
+            if k < 0:
+                segs.append((chunk[j:], True))
+                return segs, True
+            segs.append((chunk[j:k + 2], True))
+            i = k + 2
+    return segs, in_aside
+
+
+async def _screen_aside_text(text: str, owner) -> str:
+    """N-6: truth-check the sentences of one `((...))` aside segment against the LIVE board STATE (`chat_helpers._aside_claim_contradicts_board`).
+    A sentence that makes a closed-set claim the board contradicts is DROPPED (never replaced by the cutaway line); a true restatement passes.
+    If the engine is unreadable, a sentence carrying a closed-set claim is dropped (an unverifiable outcome must not stream); claim-free
+    sentences always pass. Returns the surviving text. Fail-open on an internal error (never gag a healthy turn)."""
+    if not text:
+        return text
+    try:
+        from routes import chat_helpers
+        parts = re.split(r"(?<=[.!?\n])", text)
+        if not any(chat_helpers._aside_sentence_makes_board_claim(p) for p in parts):
+            return text
+        live = await chat_helpers._capture_beat_signature(owner)
+        kept = []
+        for p in parts:
+            if p and chat_helpers._aside_sentence_makes_board_claim(p) and (not live or chat_helpers._aside_claim_contradicts_board(p, live)):
+                continue
+            kept.append(p)
+        return "".join(kept)
+    except Exception:
+        return text
+
+
+_GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed", "mirror_ops"])
+
+
+def _apply_mirror_ops(round_response: str, ops) -> str:
+    """Mirror a guarded chunk's EXACT drops back into the raw round buffer: each op is a (raw_before, after) pair for ONE
+    segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
+    sentence-diffed against its own survivor only), so a dropped aside beside surviving narration can never misalign
+    the sentence diff. `raw_before` is always text as it appears in `round_response` (never the synthetic flush `))`)."""
+    for before, after in ops or ():
+        if before == after or not before:
+            continue
+        if after == "":
+            idx = round_response.rfind(before)
+            if idx >= 0:
+                round_response = round_response[:idx] + round_response[idx + len(before):]
+        else:
+            round_response = _mirror_wall_drop(round_response, before, after)
+    return round_response
+
+
+def _strip_stray_closers(text: str) -> str:
+    """N-6: a `))` outside any `((...))` aside is a stray closer, never narration."""
+    return text.replace("))", "") if text and "))" in text else text
+
+
+async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool, emitted_visible: bool,
+                              cutaway_emitted: bool, flush: bool = False) -> "tuple[_GuardedChunk, str]":
+    """N-6 (playtest, Med): a production answer in `((...))` restates the board ("the nominees are X and Y; Z holds the veto") and used to be cut by
+    the A2 scene circuit-breaker with the "live feeds cut away" line. The breaker is for fabricated NARRATION, so aside text is exempt from it and
+    from the cutaway line ONLY. It is still held to the truth: each COMPLETE aside is checked claim-by-claim against the live board STATE
+    (`_screen_aside_text`) - a true restatement streams whole, an aside with ANY contradicted claim is dropped ENTIRELY (never a half-aside, never a
+    stray `))`, never an opener already emitted then invalidated). The stream is sentence-buffered so an aside is routinely split across chunks:
+    `ooc_open` is the carried PENDING buffer ("" when none; else the aside text so far, starting with `((`) - it is held, not emitted, until the
+    closing `))` arrives. `flush=True` (the end-of-round flush) closes a still-open aside with `))` and screens it. Narration outside an aside is
+    screened exactly as before, with stray `))` closers scrubbed. Returns (guarded, new_pending); `guarded.consumed` is the input text this call
+    resolved (emitted or dropped) - the mirror-back baseline for the call sites (held text is not yet consumed)."""
+    pending = ooc_open if isinstance(ooc_open, str) and ooc_open not in ("aside", "drop") else ""
+    text = pending + (clean or "")
+    segs, still_open = _ooc_segments(text, False)
+    if not any(is_aside for _t, is_aside in segs):
+        outside = _strip_stray_closers(text)
+        if not outside.strip():
+            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), ""
+        g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
+        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, ((outside, g.text),)), ""
+    out: "list[str]" = []
+    consumed: "list[str]" = []
+    ops: "list[tuple[str, str]]" = []
+    ce = cutaway_emitted
+    shown = emitted_visible
+    held = ""
+    for idx, (seg, is_aside) in enumerate(segs):
+        if is_aside:
+            if still_open and idx == len(segs) - 1:
+                if not flush:
+                    held = seg  # an unterminated aside: hold it until its closing `))` arrives
+                    continue
+                raw_seg = seg  # what actually sits in the raw round buffer (no synthetic closer)
+                seg = seg + "))"  # end of round: balance it, then screen like any other aside
+            else:
+                raw_seg = seg
+            consumed.append(seg)
+            kept = await _screen_aside_text(seg, owner)
+            if kept == seg:
+                out.append(seg)
+                shown = shown or bool(seg.strip())
+            else:
+                ops.append((raw_seg, ""))  # a contradicted claim - the WHOLE aside is dropped (balanced either way)
+        else:
+            consumed.append(seg)
+            seg = _strip_stray_closers(seg)
+            if not seg.strip():
+                out.append(seg)
+                continue
+            g = await _emit_guarded_scene(seg, owner, scene_broken=scene_broken, emitted_visible=shown, cutaway_emitted=ce)
+            if g.scene_broken:
+                return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, ()), ""  # a fabricated scene cuts the whole chunk, as before
+            ce = g.cutaway_emitted
+            ops.append((seg, g.text))
+            out.append(g.text)
+            shown = shown or bool(g.text.strip())
+    return _GuardedChunk("".join(out), scene_broken, ce, "".join(consumed), tuple(ops)), held
+
+
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
                              nudges_fired, auto_backfills) -> None:
     """0065 Part D — emit ONE Vault-free sync-ledger entry for a finished live-game turn.
@@ -6652,6 +6812,7 @@ async def _stream_agent_loop_impl(
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
+        _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
@@ -7102,8 +7263,9 @@ async def _stream_agent_loop_impl(
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
                                     # ordering/jurisdiction).
-                                    _guarded = await _emit_guarded_scene(
+                                    _guarded, _ooc_open = await _guard_stream_chunk(
                                         _clean, owner,
+                                        ooc_open=_ooc_open,
                                         scene_broken=_scene_broken,
                                         emitted_visible=_emitted_visible,
                                         cutaway_emitted=_cutaway_emitted,
@@ -7125,8 +7287,8 @@ async def _stream_agent_loop_impl(
                                     # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
                                     # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
                                     # very text the guard cut (a reload or second window would show the invented outcome).
-                                    if _guarded.text != _clean and not _scene_broken:
-                                        round_response = _mirror_wall_drop(round_response, _clean, _guarded.text)
+                                    if not _scene_broken:
+                                        round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
                                     _round_emitted_text += _guarded_text or ""
                                     if _guarded_text:
                                         full_response += _guarded_text
@@ -7264,15 +7426,17 @@ async def _stream_agent_loop_impl(
             round_response = _mirror_wall_drop(
                 round_response, _pre_scrub_tail, _clean, split_pattern=r"(?<=[.!?\n;])")
             _game_buf = ""
-            if _clean:
+            if _clean or _ooc_open:
                 # 0065 Part C + A2 — the SAME scene circuit-breaker + per-sentence guard as the mid-loop
                 # emit (closed-set board claims only; creative prose streams untouched; blank-turn raw
                 # fallback). A phantom that appears ONLY in the trailing unterminated sentence is cut here.
-                _guarded = await _emit_guarded_scene(
+                _guarded, _ooc_open = await _guard_stream_chunk(
                     _clean, owner,
+                    ooc_open=_ooc_open,
                     scene_broken=_scene_broken,
                     emitted_visible=_emitted_visible,
                     cutaway_emitted=_cutaway_emitted,
+                    flush=True,
                 )
                 _scene_broken = _guarded.scene_broken
                 _cutaway_emitted = _guarded.cutaway_emitted
@@ -7288,8 +7452,8 @@ async def _stream_agent_loop_impl(
                 # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
                 # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
                 # very text the guard cut (a reload or second window would show the invented outcome).
-                if _guarded.text != _clean and not _scene_broken:
-                    round_response = _mirror_wall_drop(round_response, _clean, _guarded.text)
+                if not _scene_broken:
+                    round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
                 _round_emitted_text += _guarded_text or ""
                 if _guarded_text:
                     full_response += _guarded_text
@@ -8287,12 +8451,9 @@ async def _stream_agent_loop_impl(
                                 # NOT a further advance — so the model narrates where the engine actually is.
                                 _holds = _ANTI_STALE_CAP_HOLDS.get(_belt_key(owner), 0)
                                 if _holds >= 2:
-                                    _voice = _ANTI_STALE_FORCED_VOICE
-                                    if _emitted_visible:
-                                        # A scene already streamed this turn — carry the CONTINUE-NEVER-REOPEN
-                                        # contract (same as every sibling mid-turn re-prompt) so the forced
-                                        # voice reads as "bring us to the present moment", not "re-narrate".
-                                        _voice = _CONTINUE_NEVER_REOPEN + "\n\n" + _voice
+                                    # A scene already streamed this turn — carry the CONTINUE-NEVER-REOPEN contract AND quote what
+                                    # was shown (F-6), so the forced voice reads as "bring us to the present moment", not "re-answer".
+                                    _voice = _anti_stale_forced_voice(_emitted_visible, full_response)
                                     logger.info("[orwell] ANTI-STALE RELEASE VALVE — forcing an IN-TURN voice "
                                                 f"of the current moment (hold #{_holds}, phase={_phase}), NOT a "
                                                 f"further advance round {round_num} user={owner}")

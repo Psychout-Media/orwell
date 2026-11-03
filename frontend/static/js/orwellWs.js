@@ -349,14 +349,23 @@
   // fire during `negotiating`, before we flip to `ws`. Callers of the up-frames
   // (sendTurn/sendDecision) additionally gate on isActive() at their call site.
   function _request(t, ch, d, tag) {
-    return new Promise(function (resolve, reject) {
+    var _cidOut = null;
+    var prom = new Promise(function (resolve, reject) {
       if (!_sock || _sock.readyState !== 1) { reject(new Error("ws-not-open")); return; }
       var cid = _nextCid();
+      _cidOut = cid;
       _pending[cid] = { resolve: resolve, reject: reject, t: tag || t };
       var frame = { t: t, cid: cid, d: d || {} };
       if (ch) frame.ch = ch;
       if (!_send(frame)) { delete _pending[cid]; reject(new Error("ws-send-failed")); }
     });
+    prom._cid = _cidOut;   // N-12: lets a caller that gave up (timeout) cancel the retained entry via cancelRequest()
+    return prom;
+  }
+  // N-12: drop the pending entry of a request the caller abandoned (a timed-out submit) so retries never accumulate retained requests.
+  function cancelRequest(prom) {
+    var cid = prom && prom._cid;
+    if (cid && _pending[cid]) delete _pending[cid];
   }
 
   // Reject the outstanding UP-FRAME requests (turn/decision) whose socket just died. `_request`
@@ -881,6 +890,7 @@
     offFrame: offFrame,
     sendTurn: sendTurn,
     sendDecision: sendDecision,
+    cancelRequest: cancelRequest,
     sendLayout: sendLayout,
     rebind: rebind,
     isActive: function () { return _mode === "ws" && !!_sock && _sock.readyState === 1; },

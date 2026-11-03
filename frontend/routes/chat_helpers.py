@@ -2279,6 +2279,87 @@ def _nomination_mismatch(text: str, before: dict, after: dict) -> bool:
     return False
 
 
+# N-6 (2026-11-03): a `((...))` PRODUCTION ASIDE answers the player's direct question and so RESTATES the board ("the nominees are X and Y;
+# Z holds the veto"). The turn-delta verifier above cannot judge a restatement (nothing MOVED this turn, so it reads a true restatement as a
+# phantom), and the scene breaker used to cut it with the cutaway line. These STATE-based patterns let an aside be checked claim-by-claim
+# against the live board instead: a TRUE restatement passes, a contradicted one (a houseguest named as veto holder / HOH / nominee / evictee
+# the board says is not) is dropped. Names only; never a hidden field.
+_ASIDE_VETO_STATE_RES = (
+    re.compile(rf"\b({_NAME_TOKEN})(?i:\s+(?:holds|is holding|has)\s+the\s+(?:power of\s+)?veto)\b"),
+    re.compile(rf"(?i:\bthe\s+(?:power of\s+)?veto\s+(?:holder|winner)\s+(?:is|was)\s+)({_NAME_TOKEN})"),
+    re.compile(rf"\b({_NAME_TOKEN})(?i:\s+(?:is|was)\s+the\s+(?:power of\s+)?veto\s+(?:holder|winner))\b"),
+)
+_ASIDE_HOH_STATE_RES = (
+    re.compile(rf"\b({_NAME_TOKEN})(?i:\s+(?:is|was)\s+(?:the\s+)?(?:current\s+)?(?:head of household|hoh))\b"),
+    re.compile(rf"(?i:\bthe\s+(?:current\s+)?(?:head of household|hoh)\s+(?:is|was)\s+)({_NAME_TOKEN})"),
+)
+_ASIDE_NOM_STATE_RES = (
+    re.compile(rf"(?i:\bthe\s+nominees?\s+(?:are|is|were)\s+)" + _COORD_NAMES),
+    re.compile(_COORD_NAMES + r"(?i:\s+are\s+(?:the\s+)?(?:two\s+)?nominees)\b"),
+)
+
+
+def _aside_sentence_makes_board_claim(sentence: str) -> bool:
+    """N-6: does this aside sentence make a claim worth checking against the board STATE? The usual closed-set outcome detector PLUS the
+    state-restatement phrasings an aside uses ("X holds the veto", "Y is the HOH", "the nominees are X and Y"). Pure; no board read."""
+    if not sentence or not sentence.strip():
+        return False
+    if _sentence_has_closed_set_claim(sentence):
+        return True
+    return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES)
+
+
+def _aside_matches(sentence: str, res):
+    """Yield (name_group_text, match) for EVERY non-hypothetical match of `res` in `sentence` (all claims, not just the first)."""
+    for rx in res:
+        for m in rx.finditer(sentence or ""):
+            g = (m.group(1) or "").strip().rstrip(".,;:!?'’-")   # the name token may swallow trailing sentence punctuation
+            if not g:
+                continue
+            lead = _N3_CLAUSE_SPLIT_RE.split(sentence[:m.end(1)])[-1] + sentence[m.end(1):m.end()]
+            if _ASIDE_HYP_RE.search(lead):
+                continue
+            yield g, m
+
+
+def _aside_claim_contradicts_board(sentence: str, live: dict) -> bool:
+    """N-6: STATE-based truth check of ONE sentence inside a `((...))` production aside against the live board signature. True => the
+    sentence ASSERTS (plain present/past tense) a houseguest in a closed-set role (veto winner/holder, HOH, nominee, evictee) that the board
+    says they do not hold -> the caller drops it. EVERY extracted claim is checked, not just the first. Phase-aware: a COMMITTED role must match the name; an UNcommitted
+    role has nothing true to assert, so an assertive claim that someone holds/won it is unbacked (N-1) and is dropped. Hypothetical / conditional /
+    past-week sentences ("if X wins the veto", "would", "when") are exempt. A name that matches no ACTIVE houseguest is never a contradiction
+    (the roster guard's job, not this check's). Pure."""
+    if not sentence or not isinstance(live, dict) or not live:
+        return False
+    holder = live.get("vetoHolderName")
+    for nv, _m in _aside_matches(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES):
+        # Committed role: the name must match. UNcommitted role: an assertive "X won/holds the veto" is unbacked (N-1) -> strip.
+        if _name_matches_active(nv, live) and not (holder and _name_matches(nv, holder)):
+            return True
+    hoh = live.get("hohName")
+    for nh, _m in _aside_matches(sentence, _HOH_NAME_RES + _ASIDE_HOH_STATE_RES):
+        if _name_matches_active(nh, live) and not (hoh and _name_matches(nh, hoh)):
+            return True
+    noms = [str(n).strip() for n in (live.get("nomNames") or []) if str(n).strip()]
+    for raw, _m in _aside_matches(sentence, _NOMINEE_NAME_RES + _ASIDE_NOM_STATE_RES):
+        for n in _split_named_people(raw):
+            if _name_matches_active(n, live) and not any(_name_matches(n, nm) for nm in noms):
+                return True
+    # N-7: "a vote to evict <current nominee>" is the sanctioned anonymized-ballot reveal during the eviction phase - not an eviction claim.
+    stripped = _strip_anonymized_ballots(sentence, live)
+    for rx in _EVICTEE_NAME_RES:
+        for m in rx.finditer(stripped):
+            ev = (m.group(1) or "").strip().rstrip(".,;:!?'’-")
+            if not ev:
+                continue
+            lead = _N3_CLAUSE_SPLIT_RE.split(stripped[:m.end(1)])[-1] + stripped[m.end(1):m.end()]
+            if _ASIDE_HYP_RE.search(lead):
+                continue
+            if _name_matches_active(ev, live):
+                return True  # the board lists them ACTIVE, yet the aside says they were evicted
+    return False
+
+
 def _named_title_winner(text: str, res) -> Optional[str]:
     for rx in res:
         m = rx.search(text or "")
@@ -3594,6 +3675,11 @@ _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
     r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+
+# N-6: a hypothetical / conditional / past-week sentence ("If Ian wins the veto...", "whoever wins", "when she wins", "last week's HOH") is not an assertion
+# about the CURRENT board, so it is never a contradiction. The narration path's hypothetical detector plus the aside-specific temporal cues.
+_ASIDE_HYP_RE = re.compile(
+    _VETO_N1_HYP_RE.pattern + r"|\b(?:when|once|after|before|until|last\s+week|previous(?:ly)?|former(?:ly)?|used\s+to|maybe|perhaps|possibly)\b", re.IGNORECASE)
 
 
 # N-3 (A-14 playtest) — a STALE "not yet": the engine had already crowned the HOH / committed the nominees / set the
