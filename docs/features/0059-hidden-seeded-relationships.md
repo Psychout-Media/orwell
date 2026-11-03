@@ -121,5 +121,6 @@ The pre-game tie NATURE for a preexisting romance is `prior-romance` (it was `sh
 `Showmance` arc — `spark → bond → visible → resolved` — that keeps the word). A legacy `showmance` nature in a save or a cast-genesis
 prompt/output is aliased forward (`normalizeTieNature`, `migrateSeededRelationships`). The nature set was broadened per the PO ruling
 (`docs/decisions/PO-DECISIONS-LOG.md`, 2026-11-03): `casting-callback`, `mutual-friend`, `shared-hometown`, `old-acquaintance`,
-`prior-romance`, `family`, `ex`, `old-friend`, `rival`, `former-teammate`, `online-acquaintance`. A nature is flavour only; the standing
+`prior-romance`, `family`, `ex`, `old-friend`, `rival`, plus the two PROPOSED extras `former-teammate` and `online-acquaintance` (still
+pending coordinator confirmation per that log entry — treat them as provisional vocabulary). A nature is flavour only; the standing
 affinity bias is identical for every tie, so no nature is a competition or vote input.

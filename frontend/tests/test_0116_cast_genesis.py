@@ -255,8 +255,9 @@ def test_parser_aliases_the_legacy_showmance_tie_nature_and_accepts_the_new_ones
     prompt/model output that still says 'showmance' is aliased forward, and the broadened natures pass through."""
     import json
     base = json.loads(_valid_proposal_json())
-    for raw, expected in (("showmance", "prior-romance"), ("prior-romance", "prior-romance"), ("family", "family"),
-                          ("rival", "rival"), ("ex", "ex"), ("online-acquaintance", "online-acquaintance")):
+    cases = [("showmance", "prior-romance")] + [(n, n) for n in G._TIE_NATURES]  # EVERY canonical nature must survive the parser
+    assert {"old-friend", "former-teammate", "prior-romance"} <= set(G._TIE_NATURES)
+    for raw, expected in cases:
         base["ties"] = [{"a": "npc:1", "b": "npc:2", "nature": raw, "backstory": "x"}]
         out = G.parse_genesis_proposal(json.dumps(base), _VALID_IDS)
         assert out["ties"][0]["nature"] == expected, raw

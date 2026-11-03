@@ -116,3 +116,42 @@ describe("calibration neutrality: the nature is flavour only (#1909)", () => {
     expect(ties).toBeGreaterThan(0);
   });
 });
+
+describe("review hardening (#1985)", () => {
+  it("normalizeTieNature honours own alias keys only — inherited Object members are unknown, never 'natures'", () => {
+    for (const bad of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+      expect(normalizeTieNature(bad), bad).toBeUndefined();
+    }
+    expect(normalizeTieNature("showmance")).toBe("prior-romance");
+  });
+
+  it("the family prose is exposure-neutral (it reads the same in a sealed audit and an exposed reveal)", () => {
+    expect(tieNatureProse("family")).not.toMatch(/doesn't know|does not know|secret|hidden/i);
+  });
+
+  it("a pre-#1909 casting save (prewarm.genesisTies still spelled 'showmance') is aliased on adoption", async () => {
+    const { McpServer } = await import("../../src/adapters/mcp/McpServer");
+    const { EngineCommandsAdapter } = await import("../../src/adapters/engine/EngineCommandsAdapter");
+    const { buildSandbox } = await import("../support/sandbox");
+    const sb = buildSandbox(1);
+    const session = new GameSessionAdapter();
+    const commands = new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge);
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session });
+    const warm = (await server.callTool("preSeedCast", { seed: 9 })) as { house: { id: string }[] };
+    const ids = warm.house.map((h) => h.id);
+    const npcs = ids.map((id, i) => ({
+      id, name: `Name${i} Surname${i}`, stats: { physical: 5, mental: 5, social: 5 }, hiddenElements: ["a", "b", "c"],
+      identityConcept: "concept",
+    }));
+    await server.callTool("recordCastGenesis", { npcs, ties: [{ a: ids[0], b: ids[1], nature: "casting-callback" }] });
+    // Simulate the old save: the persisted prewarm buffer carries the legacy spelling.
+    const priv = session as unknown as { prewarm: { genesisTies: { nature: string }[] } };
+    expect(priv.prewarm.genesisTies.length, "genesis ties were authored").toBeGreaterThan(0);
+    priv.prewarm.genesisTies[0]!.nature = "showmance";
+    session.createCharacter({ playerName: "The Player" });
+    const natures = (session as unknown as { seededRels: SeededRelationships }).seededRels.ties.map((t) => t.nature);
+    expect(natures.length).toBeGreaterThan(0);
+    for (const n of natures) expect(TIE_NATURES, n).toContain(n);
+    expect(natures).toContain("prior-romance");
+  });
+});

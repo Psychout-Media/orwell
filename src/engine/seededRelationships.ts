@@ -96,7 +96,7 @@ export function normalizeTieNature(raw: unknown): TieNature | undefined {
   if (typeof raw !== "string") return undefined;
   const v = raw.trim();
   if ((TIE_NATURES as readonly string[]).includes(v)) return v as TieNature;
-  return LEGACY_TIE_NATURE_ALIASES[v];
+  return Object.hasOwn(LEGACY_TIE_NATURE_ALIASES, v) ? LEGACY_TIE_NATURE_ALIASES[v] : undefined; // own keys only: `constructor` etc. are not aliases
 }
 
 /**
@@ -210,7 +210,7 @@ const TIE_NATURE_PROSE: Record<TieNature, string> = {
   "shared-hometown": "are from the same hometown",
   "old-acquaintance": "already knew each other before the show",
   "prior-romance": "came in with a pre-show romantic spark",
-  "family": "are family — related, though the house doesn't know it",
+  "family": "are family — related by blood or marriage",
   "ex": "used to date before the show",
   "old-friend": "go back years as friends",
   "rival": "have bad blood from before the show",
