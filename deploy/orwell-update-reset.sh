@@ -12,8 +12,13 @@
 #                                      first-run → restart (the single, final services restart).
 #
 # FAIL-CLOSED (the safety contract of a destructive combo):
-#   • If the UPDATE phase fails, we DO NOT proceed to the wipe — the box stays on its previous
-#     build (orwell-update.sh already reverts a bad build itself) and NOTHING is removed.
+#   • If the UPDATE phase fails, we DO NOT proceed to the wipe — NOTHING is removed. orwell-update.sh
+#     restores the previous SHA + dependencies + build itself and verifies they start (exit 1); if even
+#     that revert fails it exits 3 and we say so plainly — never "the box is on its previous build".
+#   • ONE shared lock (/run/orwell-update.lock, the same file orwell-update.sh takes) is held across BOTH
+#     phases, so a web Update or a manual update can't start between the update and the wipe, or run
+#     while the OOBE reset is scrubbing. The update child is handed the open fd (ORWELL_UPDATE_LOCK_FD)
+#     and recognises it as held — it must not re-lock the file (flock would block it on its own parent).
 #   • If the OOBE-reset helper is missing or errors, the reset script itself removes NOTHING
 #     (it aborts before scrubbing, leaving the config — and your API keys — intact).
 #   • data/.env (ports, tokens, LLM keys) is NEVER touched, like every reset.
@@ -176,20 +181,47 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
+# ── The shared lock with orwell-update.sh — taken AFTER the confirmation prompt and the dry-run exit, so
+# neither a waiting prompt nor a preview ever blocks an update, and a refusal below changes nothing. It
+# is a DIFFERENT file from the ops unit's own /run/orwell-ops-update-reset.lock (which only dedupes that
+# unit's repeat triggers), so there is no lock-order cycle. Released when this process exits.
+UPDATE_LOCK="${ORWELL_UPDATE_LOCK:-/run/orwell-update.lock}"
+command -v flock >/dev/null 2>&1 || die "flock (util-linux) is required to serialize updates."
+exec {ORWELL_UPDATE_LOCK_FD}>>"$UPDATE_LOCK" || die "cannot open the update lock ${UPDATE_LOCK}."
+if ! flock -n "$ORWELL_UPDATE_LOCK_FD"; then
+  echo "ERROR: another orwell update / rollback / Update + Reset is already running in this tree (lock ${UPDATE_LOCK})." >&2
+  echo "       Refusing to run two at once. NOTHING was changed. Retry once it has finished." >&2
+  exit 75
+fi
+export ORWELL_UPDATE_LOCK_FD
+
 # ── ops-progress lane: umbrella timeline for the combined run; the trap surfaces a failure ──
 export ORWELL_OPS_DIR="${APP_DIR%/}/data/ops"
 ops_progress_init "update-reset" 2
 trap 'rc=$?; if [[ "$rc" -ne 0 ]]; then ops_progress_fail "update+reset exited with code $rc — see ops-update-reset.log"; fi' EXIT
 
 # ── Phase 1 — UPDATE (restart suppressed so the reset owns the single final restart) ───────────
-# Fail-closed: if the update fails, orwell-update.sh has already reverted to the previous build and
-# left the services as they were — we ABORT here and never touch user data. Config stays intact.
+# Fail-closed: if the update fails, orwell-update.sh has already restored the previous SHA + dependencies +
+# build and verified them (exit 1), or reports that it could not (exit 3) — we ABORT here either way and
+# never touch user data. Config stays intact. Only exit 1 lets us say "previous build"; 3 and anything
+# unexpected (a signal, an exit before the update armed itself) are reported as unconfirmed.
 msg "phase 1/2 — UPDATE (pull → rebuild → refresh FE deps; restart suppressed)"
 ops_progress_step 1 "updating (pull → rebuild → refresh deps)"
-if ! bash "$UPDATE_SCRIPT" --no-restart; then
-  ops_progress_fail "the update phase failed — nothing was wiped (your API keys are safe)"
-  trap - EXIT  # the explicit fail above is the final status
-  die "UPDATE failed — NOT proceeding to the reset. The box is on its previous build and NOTHING was wiped (your API keys are safe). Fix the update, then retry."
+update_rc=0
+bash "$UPDATE_SCRIPT" --no-restart || update_rc=$?
+if [[ "$update_rc" -ne 0 ]]; then
+  trap - EXIT  # the explicit fail below is the final status
+  case "$update_rc" in
+    1)
+      ops_progress_fail "the update phase failed — the box is on its previous build; nothing was wiped (your API keys are safe)"
+      die "UPDATE failed — NOT proceeding to the reset. The box is on its previous build and NOTHING was wiped (your API keys are safe). Fix the update, then retry." ;;
+    3)
+      ops_progress_fail "the update phase failed AND its automatic revert failed — the box may not start; nothing was wiped (your API keys are safe)"
+      die "UPDATE failed AND its automatic revert FAILED (see the log above) — the box may NOT be runnable. NOT proceeding to the reset; NOTHING was wiped (your data and API keys are untouched). Fix the cause, or recover with: REF=<known-good sha|tag> bash ${DEPLOY_DIR}/orwell-update.sh" ;;
+    *)
+      ops_progress_fail "the update phase exited with code ${update_rc} — its state is unconfirmed; nothing was wiped (your API keys are safe)"
+      die "UPDATE exited with code ${update_rc} before it could confirm the box is on a working build — check it (see the log above). NOT proceeding to the reset; NOTHING was wiped (your data and API keys are untouched)." ;;
+  esac
 fi
 
 # ── Phase 2 — RESET to OOBE (keep API keys), which performs the SINGLE final restart ───────────

@@ -173,8 +173,12 @@ State lives in **two** places (B72 — the old prose misstated this):
   ownership, restarts.
 - **Readiness:** `bash deploy/orwell-ready.sh` — not just liveness: engine reachable + front-end up
   + an LLM genuinely configured (at least one online model). Exit 0 = a player can sit down and play.
-- **Update pin/rollback (B71):** `REF=<sha|tag> orwell-update.sh` pins; `orwell-update.sh --rollback`
-  returns to the previous SHA + build. A failed build never restarts services.
+- **Update pin/rollback (B71):** `REF=<sha|tag> orwell-update.sh` pins (a tag, a full SHA, or an
+  abbreviated SHA); `orwell-update.sh --rollback` returns to the previous SHA + its build. A failed
+  update never restarts services: it restores the previous SHA, its dependencies and its build and
+  verifies they start before reporting "reverted" (and says plainly if even that fails). Only one
+  update / rollback / Update + Reset runs at a time. Rollback restores **code**, not save-format
+  changes — a save written by a newer build is not migrated back.
 
 Updates never touch either data dir (non-degradation, feature 0007).
 
