@@ -4904,6 +4904,19 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
 _GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted"])
 
 
+def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_active: bool, round_emitted: str) -> str:
+    """F-1 (A-11 playtest) — what a round PERSISTS must equal what the player was SHOWN.
+
+    When the scene circuit-breaker cut a round live, only the pre-cut sentences (and at most one diegetic
+    cutaway line) reached the player — but the raw round buffer kept streaming, so the persisted/reload
+    text (derived from it) resurrected the cut, invented outcome on a reload or in a second window. A cut
+    round therefore persists exactly what was emitted. An uncut round is returned unchanged (per-sentence
+    drops are already mirrored out of the raw buffer by `_mirror_wall_drop`)."""
+    if scene_broken and scrub_active:
+        return (round_emitted or "").strip()
+    return cleaned_round
+
+
 async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_visible: bool,
                               cutaway_emitted: bool) -> "_GuardedScene":
     """A2 (2026-07-03) — run one leak-scrubbed stream chunk through BOTH the whole-scene circuit-breaker
@@ -6610,6 +6623,7 @@ async def _stream_agent_loop_impl(
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
+        _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
         # leading-preamble strip's `at_bubble_start` — a later flush within the round must never be
@@ -7078,6 +7092,12 @@ async def _stream_agent_loop_impl(
                                     # buffer so a phantom sentence the player never saw also never
                                     # survives into the persisted/reload text or a post-turn belt.
                                     round_response = _mirror_wall_drop(round_response, _guarded.text, _guarded_text)
+                                    # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
+                                    # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
+                                    # very text the guard cut (a reload or second window would show the invented outcome).
+                                    if _guarded.text != _clean and not _scene_broken:
+                                        round_response = _mirror_wall_drop(round_response, _clean, _guarded.text)
+                                    _round_emitted_text += _guarded_text or ""
                                     if _guarded_text:
                                         full_response += _guarded_text
                                         if _guarded_text.strip():
@@ -7235,6 +7255,12 @@ async def _stream_agent_loop_impl(
                 # `_mirror_wall_drop`'s docstring) so a phantom sentence never survives into the
                 # persisted/reload text or a post-turn belt.
                 round_response = _mirror_wall_drop(round_response, _guarded.text, _guarded_text)
+                # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
+                # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
+                # very text the guard cut (a reload or second window would show the invented outcome).
+                if _guarded.text != _clean and not _scene_broken:
+                    round_response = _mirror_wall_drop(round_response, _clean, _guarded.text)
+                _round_emitted_text += _guarded_text or ""
                 if _guarded_text:
                     full_response += _guarded_text
                     if _guarded_text.strip():
@@ -7338,6 +7364,9 @@ async def _stream_agent_loop_impl(
         # Save cleaned round text for history persistence
         # Keep <think> blocks so they render in the thinking section on reload
         cleaned_round = strip_tool_blocks(round_response).strip()
+        cleaned_round = _persisted_round_text(
+            cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
+            scrub_active=_scrub_active, round_emitted=_round_emitted_text)
         round_texts.append(cleaned_round)
 
         # BUG 2 (truncation) disambiguator: log the REPLY vs REASONING vs EMITTED lengths for this
