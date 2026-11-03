@@ -137,10 +137,11 @@ describe("review hardening (#1985)", () => {
     const session = new GameSessionAdapter();
     const commands = new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge);
     const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session });
-    const warm = (await server.callTool("preSeedCast", { seed: 9 })) as { house: { id: string }[] };
+    const warm = (await server.callTool("preSeedCast", { seed: 9 })) as { house: { id: string; name: string }[] };
     const ids = warm.house.map((h) => h.id);
-    const npcs = ids.map((id, i) => ({
-      id, name: `Name${i} Surname${i}`, stats: { physical: 5, mental: 5, social: 5 }, hiddenElements: ["a", "b", "c"],
+    // Keep each warmed NPC's OWN generated name (id-keyed; no hard-coded names in a test).
+    const npcs = warm.house.map(({ id, name }) => ({
+      id, name, stats: { physical: 5, mental: 5, social: 5 }, hiddenElements: ["a", "b", "c"],
       identityConcept: "concept",
     }));
     await server.callTool("recordCastGenesis", { npcs, ties: [{ a: ids[0], b: ids[1], nature: "casting-callback" }] });
