@@ -212,8 +212,13 @@
          "skip this" ahead of the actual choice). Visual position is unchanged; only tab order moves.
          The 44×44 tap target + descriptive aria-label are preserved below. z-index keeps it above
          the head row's text at any width (belt-and-suspenders alongside the .odec-head gutter). */
-      .odec .odec-x { position: absolute; top: .35rem; right: .35rem; z-index: 1; cursor: pointer; border: none; background: none; color: inherit; opacity: .75; font-size: 1rem; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
-      .odec .odec-x:hover { opacity: .9; }
+      .odec .odec-x { position: absolute; top: .35rem; right: .35rem; z-index: 1; cursor: pointer; border: none; color: #16191f; background: radial-gradient(circle, rgba(255,255,255,.82) 0 12px, transparent 13px); opacity: .85; font-size: 1rem; min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+      /* a11y (coordinator, A-15 matrix): the × used to INHERIT the card's ink — dark #16191f pinned for the
+         light kit glass — but on the exit-interview / "You have been evicted" cards the surface behind it
+         measured rgb(33,58,72): dark-on-dark, 1.48:1. The control now carries its OWN light backing disc
+         behind a dark glyph, so its contrast (≈9:1 on the composite) no longer depends on which host surface
+         the card lands on — the polarity can't drift again (same class as #1916 / #1644). */
+      .odec .odec-x:hover { opacity: 1; }
       /* J5-20: a high-stakes, irreversible decision (eviction/noms/jury vote) wears a risk skin —
          an eviction-red border + a faint red wash so it never reads as a low-stakes comp chip. The
          tint is token-driven (--color-error / --red across the house themes). Color is NEVER the
