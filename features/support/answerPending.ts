@@ -35,6 +35,8 @@ export function answerPending(p: PendingView, policy: AnswerPolicy = {}): Submit
     case "juror-vote": return { kind: "juror-vote", vote: p.options[0]!.id };
     case "goodbye-message": return { kind: "goodbye-message", vote: first ?? "respectful" };
     case "exit-interview": return { kind: "exit-interview", vote: p.stances?.[0] ?? first ?? "gracious" }; // the first LEGAL posture offered
+    case "spectator-choice": return { kind: "spectator-choice", vote: "watch" };
+    case "finale-interview": return { kind: "finale-interview", vote: p.stances?.[0] ?? "gracious" };
     case "juror-question": return { kind: "juror-question", statement: "What was your biggest move?" };
     case "finale-statement": return { kind: "finale-statement", statement: "I played my own game." };
     case "finale-answer": return { kind: "finale-answer", appeal: p.appeals?.[0] ?? "own-game" };

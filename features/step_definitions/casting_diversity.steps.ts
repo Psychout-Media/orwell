@@ -433,6 +433,8 @@ When("the identical seeded competition is resolved for both", function (this: Bb
           : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" }
           : p.kind === "juror-question" ? { kind: p.kind, statement: "x" }
           : p.kind === "exit-interview" ? { kind: p.kind, vote: "gracious" } // 0130: an evicted player's exit stance
+          : p.kind === "spectator-choice" ? { kind: p.kind, vote: "watch" }
+          : p.kind === "finale-interview" ? { kind: p.kind, vote: "gracious" }
           : (() => { throw new Error(`casting_diversity: unhandled pending decision kind '${p.kind}' — answer it explicitly (BDD PAT-1)`); })();
         const sub = sb.session.submitDecision(ans as never) as { finished: boolean; event?: { beat?: string; content?: string } | null };
         if (sub.event?.content) beats.push(norm(sub.event.beat, sub.event.content));

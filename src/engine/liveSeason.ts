@@ -242,7 +242,7 @@ export const SPECTATOR_MODES: readonly SpectatorMode[] = ["watch", "skip"];
 /**
  * 0133 — ONE public line per completed week, built at the week's roll from PUBLIC ceremony facts only (HOH,
  * nominees, veto holder/use, who left, jury size so far). Recorded on every season (no rng, no fold) so a
- * spectating player's "watch" is the engine's own condensed record — nothing narrated that is not recorded.
+ * spectating player's "watch" is the engine's own condensed record — nothing is told that is not recorded.
  */
 export interface WeekDigest {
   week: number;
