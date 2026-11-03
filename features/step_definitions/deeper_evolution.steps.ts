@@ -29,7 +29,7 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
 function evoGame(user: string, seed: number, soulDepth: boolean): UserSandbox {
   const reg = new GameSessionRegistry();
   const sb = reg.sandboxFor(user);
-  if (soulDepth) sb.session.setSoulDepthEnabled(true);
+  sb.session.setSoulDepthEnabled(soulDepth); // explicit both ways: soul-depth defaults ON (2026-11 default flip)
   sb.session.createCharacter({ playerName: "P", seed });
   return sb;
 }

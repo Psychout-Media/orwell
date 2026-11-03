@@ -174,7 +174,7 @@ describe("0059 §5 — calibration-neutral: flag OFF ⇒ the off-screen spine is
    * juryReach + gradient heavy sims are the end-to-end byte-identity proof against the pre-feature numbers.
    */
   function runTicks(user: string, seed: number, ticks = 8): { events: string; rels: string } {
-    GameSessionAdapter.setSeededTieSurfacingEnabled(null); // default OFF
+    GameSessionAdapter.setSeededTieSurfacingEnabled(false); // explicit OFF (default flip 2026-11-03)
     const fx = adrFixture(user, seed);
     for (let t = 0; t < ticks; t++) fx.orch.advance(user, "offscreen-tick");
     return {
@@ -195,7 +195,7 @@ describe("0059 §5 — calibration-neutral: flag OFF ⇒ the off-screen spine is
   });
 
   it("flag OFF: the scheduler records NO tie event and moves NO edge via discovery (provably inert)", () => {
-    GameSessionAdapter.setSeededTieSurfacingEnabled(null);
+    GameSessionAdapter.setSeededTieSurfacingEnabled(false); // explicit OFF (default flip 2026-11-03)
     const fx = adrFixture("n-inert", 11);
     // Prime an observable tie so the scheduler WOULD fire if it were on.
     fx.sb.engine.relationships.edge(npc(1), npc(2)).affinity = 0.99;

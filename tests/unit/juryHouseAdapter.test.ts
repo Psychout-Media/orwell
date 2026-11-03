@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -79,11 +80,17 @@ function juryPhaseGame(user: string, seed: number): { reg: GameSessionRegistry; 
   return { reg, sb: reg.sandboxFor(user) };
 }
 
-describe("0100 — juryHouseTick is OFF by default (byte-identical: zero draws, no grudge)", () => {
+describe("0100 — juryHouseTick when EXPLICITLY OFF (byte-identical: zero draws, no grudge)", () => {
+  it("a fresh session starts at the code default", () => {
+    const { sb } = juryPhaseGame("dflt", 11);
+    expect(sb.session.juryHouseEnabledNow()).toBe(flagDefaultOn("ORWELL_JURY_HOUSE", process.env));
+  });
+
   it("a disabled jury house is a no-op — no jury-house scene, no grudge, the dedicated stream never advances", () => {
     const { sb } = juryPhaseGame("off", 11);
+    sb.session.setJuryHouseEnabled(false); // explicit OFF (default flip 2026-11-03)
     const before = sb.engine.events.count();
-    // Default OFF (the calibration harness never enables it).
+    // Explicitly OFF above.
     sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.engine.events.count(), "no jury-house events recorded when off").toBe(before);
     const live = sb.session.snapshot().live as LiveSeasonState;
@@ -218,7 +225,7 @@ describe("0100 — calibration neutrality: the orchestrator's shared rng stream 
     snap.relationships = juryEdges();
     reg.restore(user, snap);
     const sb2 = reg.sandboxFor(user);
-    if (enableJuryHouse) sb2.session.setJuryHouseEnabled(true);
+    sb2.session.setJuryHouseEnabled(enableJuryHouse);
     // Drive the jury-house tick repeatedly. When ON it draws from its OWN forked stream and folds NO live
     // edge — so the relationship beliefs the seeded competition/vote spine reads stay byte-identical.
     for (let t = 0; t < 15; t++) sb2.session.juryHouseTick(sb2.engine.events, sb2.engine.knowledge);
@@ -241,6 +248,7 @@ describe("0100 — calibration neutrality: the orchestrator's shared rng stream 
 
   it("with the flag OFF, no dedicated draw is taken (the stream counter stays 0)", () => {
     const { sb } = juryPhaseGame("nodraw", 3);
+    sb.session.setJuryHouseEnabled(false); // explicit OFF (default flip 2026-11-03)
     for (let t = 0; t < 20; t++) sb.session.juryHouseTick(sb.engine.events, sb.engine.knowledge);
     expect(sb.session.snapshot().juryHouseTickCount, "the dedicated stream never advanced when off").toBeUndefined();
   });
@@ -262,7 +270,7 @@ describe("0100 — calibration neutrality: the orchestrator's shared rng stream 
     const user = "jh-neutral";
     const sb = reg.sandboxFor(user);
     sb.session.createCharacter({ playerName: "The Player", seed });
-    if (enableJuryHouse) sb.session.setJuryHouseEnabled(true);
+    sb.session.setJuryHouseEnabled(enableJuryHouse);
     // Drive the real off-screen tick path (defaultApply → juryHouseTick) many times on a PRE-jury house,
     // where the jury-house self-gate makes it a no-op ⇒ the shared draw stream is provably untouched.
     for (let t = 0; t < 30; t++) orch.advance(user, "offscreen-tick");

@@ -136,8 +136,11 @@ describe("0013/PG-14/PS-4 — the producer's Diary-Room invitation is live-wired
     s.createCharacter({ playerName: "P", archetype: "social", seed: 81000 });
     driveToNominationsBeat(s);
     // Advance one more beat: nominations resolve into the veto-competition run-up, a routine beat.
-    const v = s.advanceGame();
-    if (v.pending) resolvePending(s, v.pending);
+    // (bounded: the in-game clock's day-break beat may precede it — default flip 2026-11-03)
+    for (let k = 0; k < 4 && s.getGameState().moment === "nominations"; k++) {
+      const v = s.advanceGame();
+      if (v.pending) resolvePending(s, v.pending);
+    }
     expect(s.getGameState().moment).not.toBe("nominations");
     expect(s.getGameState().diaryRoomInvite).toBeUndefined();
   });

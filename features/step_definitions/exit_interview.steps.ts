@@ -146,7 +146,7 @@ Then("no hidden stat, score, or sealed state appears anywhere in them", function
 });
 
 // --- moves no seeded outcome ----------------------------------------------------------
-const BASELINE_108 = ["npc:5","npc:7","npc:1","npc:8","npc:3","npc:12","npc:9","npc:6","npc:13","npc:4","player","npc:14","npc:11","npc:2"]; // re-anchored 2026-11-03 (0044 §9; again for #1948, the replacement branches on the stored HOH target)
+const BASELINE_108 = ["npc:6","npc:1","npc:10","npc:8","npc:12","npc:7","npc:13","npc:15","npc:3","npc:11","npc:5","npc:9","npc:2","npc:4"]; // re-anchored again 2026-11-03 under the SAME default-flag profile for the comp-win threat retune (#1953); earlier: the DEFAULT FLIP (26 flags now code defaults — the deployed game; the owner-approved balance change). Earlier: 0044 §9; #1948 (replacement branches on the stored HOH target)
 Given("the same seed played to completion twice", function (this: BbWorld) {
   const a = newGame(108); playToEnd(a);
   const b = newGame(108); playToEnd(b);
@@ -160,5 +160,10 @@ Then("the eviction order is identical both times", function (this: BbWorld) {
 // balance change legitimately reshapes the seeded spine (0044 §9, #1948). The exit-interview beat itself must stay inert against it:
 // the two same-seed runs above agree, and the beat draws no rng and mutates no seeded state (its own unit tests).
 Then("it matches the approved seeded trajectory anchor", function (this: BbWorld) {
+  // The anchor is captured under the DEFAULT profile; a diagnostic ORWELL_FLAGS_OFF=1 (or a per-flag =0) run plays a different game on purpose.
+  assert.ok(
+    process.env.ORWELL_FLAGS_OFF !== "1" && !Object.keys(process.env).some((k) => k.startsWith("ORWELL_") && /^(0|false|off)$/i.test(process.env[k] ?? "")),
+    "the seed-108 anchor is captured under the default flag profile — unset ORWELL_FLAGS_OFF / any ORWELL_*=0 to run it",
+  );
   assert.deepEqual(this.xiOrderA, BASELINE_108);
 });

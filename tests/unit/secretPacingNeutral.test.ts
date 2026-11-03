@@ -17,7 +17,7 @@ import type { Stats } from "../../src/engine/season";
  * Feature 0092 — the CALIBRATION-NEUTRALITY GATE (the `trajectoryOutcomeNeutral` / `stagedTrajectoryNeutral`
  * sibling). THE load-bearing determinism guarantee:
  *
- *   • With `ORWELL_SECRET_PACING` OFF (the DEFAULT), the secret-pacing drip takes ZERO draws — `pacingDrip`
+ *   • With `ORWELL_SECRET_PACING` OFF (explicitly `=0`, or `ORWELL_FLAGS_OFF=1`; the code default is now ON), the secret-pacing drip takes ZERO draws — `pacingDrip`
  *     returns immediately — so the orchestrator's bounded off-screen tick draws the SAME seeded stream the
  *     competition/vote/jury spine shares, BYTE-IDENTICALLY to the pre-feature build, and 0060 behaves
  *     exactly as today. The `juryReach` / UAT / gradient gates are unperturbed.
@@ -55,22 +55,25 @@ function runTicks(seed: number, user: string, ticks: number): { draws: number[];
 }
 
 // Belt-and-suspenders: the process-global pacing override must never leak past this file even if an
-// assertion throws mid-test (it would flip the default-off calibration state for any later suite).
+// assertion throws mid-test (it would leave a non-default pacing override in place for any later suite).
 afterEach(() => { GameSessionAdapter.setSecretPacingEnabled(null); });
 
 describe("0092 — the off-screen tick's SHARED draw stream is calibration-neutral to secret pacing", () => {
   const SEEDS = [1, 2, 7, 13, 42];
   const TICKS = 24;
 
-  it("flag OFF (the default) is byte-identical to flag EXPLICITLY off", () => {
+  it("the flag default (now ON, default flip 2026-11-03) is byte-identical to flag EXPLICITLY on; the shared draw stream also equals explicit-off", () => {
     for (const seed of SEEDS) {
-      GameSessionAdapter.setSecretPacingEnabled(null); // env default = off
+      GameSessionAdapter.setSecretPacingEnabled(null); // env default = ON
       const def = runTicks(seed, "neu-default", TICKS);
+      GameSessionAdapter.setSecretPacingEnabled(true); // explicitly on
+      const on = runTicks(seed, "neu-on-explicit", TICKS);
       GameSessionAdapter.setSecretPacingEnabled(false); // explicitly off
       const off = runTicks(seed, "neu-off", TICKS);
       GameSessionAdapter.setSecretPacingEnabled(null);
-      expect(off.draws, `seed ${seed}: default vs explicit-off share the same draw stream`).toEqual(def.draws);
-      expect(off.hash, `seed ${seed}: default vs explicit-off reach the same state`).toBe(def.hash);
+      expect(on.draws, `seed ${seed}: default vs explicit-on share the same draw stream`).toEqual(def.draws);
+      expect(on.hash, `seed ${seed}: default vs explicit-on reach the same state`).toBe(def.hash);
+      expect(off.draws, `seed ${seed}: explicit-off shares the same shared draw stream`).toEqual(def.draws);
     }
   });
 

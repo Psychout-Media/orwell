@@ -98,13 +98,14 @@ describe("0122 — the daily sweep: most living houseguests confess each in-game
   });
 
   it("is seed-deterministic — the same seed reproduces the same sweep confessionals", () => {
-    const runA = harness({ depthOn: true, seed: 11, user: "sweep-det" });
+    // re-selected 2026-11-03, default flip (seed 11 no longer yields a sweep confessional)
+    const runA = harness({ depthOn: true, seed: 7, user: "sweep-det" });
     developHouse(runA.sb);
     const beforeA = confessionals(runA.sb).length;
     runA.sb.session.turnIn();
     const a = confessionals(runA.sb).slice(beforeA).map((e) => e.content).join("|");
 
-    const runB = harness({ depthOn: true, seed: 11, user: "sweep-det" });
+    const runB = harness({ depthOn: true, seed: 7, user: "sweep-det" });
     developHouse(runB.sb);
     const beforeB = confessionals(runB.sb).length;
     runB.sb.session.turnIn();

@@ -1,3 +1,4 @@
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { makeSocialGraph, diffuseGossip, rumorFrom } from "../../src/engine/gossip";
@@ -170,7 +171,9 @@ describe("issue #1397 — the live orchestrator wiring is calibration-safe (flag
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("flag");
     sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
-    expect(sb.session.gossipDriftEnabledNow()).toBe(false); // default OFF
+    expect(sb.session.gossipDriftEnabledNow()).toBe(flagDefaultOn("ORWELL_GOSSIP_DRIFT", process.env)); // the code default (ON unless the env says otherwise)
+    sb.session.setGossipDriftEnabled(false);
+    expect(sb.session.gossipDriftEnabledNow()).toBe(false);
     sb.session.setGossipDriftEnabled(true);
     expect(sb.session.gossipDriftEnabledNow()).toBe(true);
     sb.session.setGossipDriftEnabled(false);

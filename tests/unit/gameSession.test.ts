@@ -25,6 +25,9 @@ describe("0015/agent — engine-owned live competition resolution", () => {
 
   it("resolves over the live house and returns only the winner's name (Vault-free)", () => {
     const s = new GameSessionAdapter();
+    // The mechanics-plus library surfaces a legit public comp `type` ("mental"/"physical"…) that this
+    // stat-word scan would misread; pin the baseline OFF (default flip 2026-11-03).
+    s.setCompMechanicsPlusEnabled(false);
     s.createCharacter({ playerName: "The Player", seed: 7 });
     const state = s.getGameState();
     const names = new Set([state.player!.name, ...state.house.map((h) => h.name)]);

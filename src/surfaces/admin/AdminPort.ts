@@ -119,8 +119,8 @@ export class AdminPort {
 
   /**
    * The read-side companion (DEPLOY-12): the CURRENT resolved on/off state of every B2 flag, so an
-   * operator/FE dial can render truthfully instead of only being able to write blind. Returns all-false
-   * when no sandbox/session is composed (never throws; never a Vault handle).
+   * operator/FE dial can render truthfully instead of only being able to write blind. Returns the code
+   * defaults (all ON — the 2026-11 default flip) when no sandbox/session is composed (never throws; never a Vault handle).
    */
   private behavioralFlagsProvider?: () => Required<BehavioralFlags>;
 
@@ -129,10 +129,11 @@ export class AdminPort {
   }
 
   behavioralFlags(): Required<BehavioralFlags> {
+    // No sandbox composed yet: the CODE DEFAULTS (the 2026-11 default flip — these layers run ON unless an env override says
+    // otherwise; a composed sandbox's provider reports the env-resolved truth). This outward surface reads no process state.
     return this.behavioralFlagsProvider?.() ?? {
-      campaigns: false, trajectories: false, triggers: false,
-      secretPacing: false, juryHouse: false, seededTieSurfacing: false, mythMaking: false,
-      showrunner: false,
+      campaigns: true, trajectories: true, triggers: true, secretPacing: true,
+      juryHouse: true, seededTieSurfacing: true, mythMaking: true, showrunner: true,
     };
   }
 

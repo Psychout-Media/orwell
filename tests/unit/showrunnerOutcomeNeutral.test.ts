@@ -44,7 +44,7 @@ function tickDraws(seed: number, drawSeed: number, showrunner: boolean): { draws
   const user = "sr-tick";
   const sb = reg.sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
-  if (showrunner) sb.session.setShowrunnerEnabled(true);
+  sb.session.setShowrunnerEnabled(showrunner);
   const rng = new RecordingRandom(new SeededRandom(drawSeed));
   defaultApply(sb, "offscreen-tick", rng as unknown as SeededRandom, 1000, 3);
   return { draws: rng.draws, noteCount: sb.session.snapshot().showrunnerNoteCount ?? 0 };
@@ -97,7 +97,7 @@ function playAndHash(seed: number, showrunner: boolean): { hash: string; noteCou
   const user = "sr-season";
   const sb = reg.sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
-  if (showrunner) sb.session.setShowrunnerEnabled(true);
+  sb.session.setShowrunnerEnabled(showrunner);
   const orch = new Orchestrator(reg, new FakeClock(), { seed });
   const stream: string[] = [];
   let finished = false;

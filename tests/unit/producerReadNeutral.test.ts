@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { PLAYER } from "../../src/domain/ids";
+import { flagDefaultOn } from "../../src/domain/flagDefaults";
+import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
@@ -50,7 +52,9 @@ describe("#1792 — Producer Read neutrality (flag OFF is a fixed point)", () =>
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("flag-pr");
     sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
-    expect(sb.session.producerReadEnabledNow()).toBe(false); // default OFF
+    expect(sb.session.producerReadEnabledNow()).toBe(flagDefaultOn("ORWELL_PRODUCER_READ", process.env)); // the code default (ON unless the env says otherwise)
+    sb.session.setProducerReadEnabled(false);
+    expect(sb.session.producerReadEnabledNow()).toBe(false);
     sb.session.setProducerReadEnabled(true);
     expect(sb.session.producerReadEnabledNow()).toBe(true);
     sb.session.setProducerReadEnabled(false);
@@ -63,5 +67,18 @@ describe("#1792 — Producer Read neutrality (flag OFF is a fixed point)", () =>
 
   it("flag ON drives the producer-read path without error", () => {
     expect(runOrchestratorHash(true)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("the sink is gated at CALL time: a session switched OFF after the sandbox exists stashes nothing, ON stashes", () => {
+    for (const on of [false, true]) {
+      const reg = new GameSessionRegistry();
+      const sb = reg.sandboxFor(`gate-${on}`);
+      sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
+      sb.session.setProducerReadEnabled(on); // AFTER the sandbox (and its sink wiring) exists
+      const stash = vi.spyOn(sb.session, "stashExchangeAccounting");
+      const npc = sb.session.livingIds().find((id) => id !== PLAYER)!;
+      sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], kind: "strategy", content: "a plan" });
+      expect(stash.mock.calls.length > 0, `producer read ${on ? "ON" : "OFF"}`).toBe(on);
+    }
   });
 });

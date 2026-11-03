@@ -15,6 +15,7 @@ function resolveLegally(s: GameSessionAdapter, p: NonNullable<AdvanceView["pendi
   else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
   else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
   else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" }); // 0006 staged-rounds
+  else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" }); // default flip 2026-11-03
   else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
   else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
   else if (p.kind === "juror-vote") s.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
@@ -48,7 +49,9 @@ describe("B38 — ceremony acts fold hidden consequence", () => {
       s.session.createCharacter({ playerName: "P", archetype: "comp-beast", seed });
       if (s.session.runCompetition({}).winner!.id !== PLAYER) continue; // player must win HOH
       crownHoh(s.session); // 0006 staged-rounds: drive the comp to the crown (player wins)
-      const adv = s.session.advanceGame();           // reach the player's nomination decision
+      // reach the player's nomination decision (the in-game clock's day-break beat may come first — default flip 2026-11-03)
+      let adv = s.session.advanceGame();
+      for (let k = 0; k < 3 && !adv.pending && !adv.finished; k++) adv = s.session.advanceGame();
       if (adv.pending?.kind !== "nominations") continue;
       // Pick a nominee whose hidden edge toward the player still has headroom (the HOH-win fold already
       // nudged the whole house), so the nomination's adverse move is clearly observable, not pre-clamped.

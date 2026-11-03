@@ -233,8 +233,14 @@ export function natureFoldImpact(type: InteractionType): Partial<EdgeSignals> {
  */
 export type CeremonyAct = "nominated" | "veto-saved" | "replaced" | "evicted" | "comp-won" | "self-evicted";
 
-/** A comp win moves only the danger read (E47) — no affinity/trust souring from a clean victory. */
-const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.2 };
+/**
+ * A comp win moves only the danger read (E47) — no affinity/trust souring from a clean victory.
+ * RETUNED 0.2 -> 0.3 (2026-11-03, PO tuning order step 3 "comp wins raise threat more"; #1953): on the default profile a SOLID
+ * player reached Final 2 in 29% of 300 seasons (target 12-20%). At 0.3 the same arm reaches it ~20% (20.7% on seeds 1-300, 20.0% on
+ * independent seeds 301-600) with passive (~11% F2 / ~3% win) and reckless (~3% F2 / ~1% win) unmoved. The knee is at 0.3: solid reach
+ * is flat for 0.3-0.4 while win-given-F2 keeps falling, so 0.3 is the gentlest value that lands reach in band. The constant is a pure threat-only impact (no rng of its own); the shared ceremony fold still applies its seeded temperature jitter to it.
+ */
+const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.3 };
 
 /** A veto save is alliance-grade warmth PLUS demonstrated protection — the E54 evidence signal. */
 const VETO_SAVED_IMPACT: Partial<EdgeSignals> = { trust: +0.16, affinity: +0.14, alignment: +0.15, reliability: +0.15 };
