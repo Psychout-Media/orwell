@@ -97,11 +97,45 @@ export async function ensureModelFiles(
   }
 }
 
+/** Default ONNX intra-op threads for the embed worker. Unbounded (the ORT default = every core) pinned ~6 cores for the minute-long boot-time soul-index
+ *  rebuild of a mid-season save and made each embed (and so every /health + turn that waited behind one on the sync bridge) take hundreds of ms. BGE-small
+ *  is tiny: 2 threads embed a short passage in a few ms and leave the rest of the box to the request path. Override with ORWELL_EMBED_THREADS. */
+export const DEFAULT_EMBED_THREADS = 2;
+
+export function embedThreads(env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const raw = (env.ORWELL_EMBED_THREADS ?? "").trim();
+  const n = /^\d+$/.test(raw) ? Number(raw) : NaN;            // strictly an integer: "4threads" / "2.5" are typos, not 4 / 2
+  return Number.isFinite(n) && n >= 1 && n <= 64 ? n : DEFAULT_EMBED_THREADS;
+}
+
+/** Wrap `InferenceSession.create` so every session gets `intraOpNumThreads` / `interOpNumThreads` (fastembed exposes no option for them). Idempotent; pure over its argument. */
+export function bindSessionThreads(IS: { create: (...a: unknown[]) => Promise<unknown>; __orwellBounded?: boolean }, threads: number): void {
+  if (IS.__orwellBounded) return;
+  const orig = IS.create.bind(IS);
+  IS.create = (...a: unknown[]) => {
+    const [modelPath, opts, ...rest] = a;
+    return orig(modelPath, { ...((opts as Record<string, unknown> | undefined) ?? {}), intraOpNumThreads: threads, interOpNumThreads: 1 }, ...rest);
+  };
+  IS.__orwellBounded = true;
+}
+
+/** Bound the ORT thread pool. FAIL-SOFT: if the installed ORT can't be resolved (it is fastembed's own pinned dependency), embedding still works — just unbounded. */
+async function boundOnnxThreads(): Promise<void> {
+  try {
+    const ortName = "onnxruntime-node"; // a runtime-resolved specifier: esbuild must NOT bundle the native binding (fastembed + this share the one installed copy)
+    const ortMod = (await import(ortName)) as unknown as { InferenceSession: Parameters<typeof bindSessionThreads>[0] };
+    bindSessionThreads(ortMod.InferenceSession, embedThreads());
+  } catch (e) {
+    console.error(`[orwell] could not bound the ONNX thread pool (${e instanceof Error ? e.message : String(e)}); embeddings still work, unbounded.`);
+  }
+}
+
 type Embedder = { passageEmbed(texts: string[], batchSize?: number): AsyncGenerator<number[][], void, unknown> };
 
 async function initEmbedder(cacheDir: string, model: string): Promise<Embedder> {
   mkdirSync(cacheDir, { recursive: true });
   await ensureModelFiles(cacheDir, model);
+  await boundOnnxThreads();
   const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
   // Resolve the pinned model NAME to the enum member (the init overloads demand the
   // concrete non-custom member, not the enum type).

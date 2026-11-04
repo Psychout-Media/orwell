@@ -2,6 +2,7 @@ import { Worker } from "node:worker_threads";
 import type { EmbeddingProvider } from "../../ports/EmbeddingProvider";
 import { DeterministicEmbedding } from "./DeterministicEmbedding";
 import { PINNED_MODEL } from "./fastembedWorker";
+import { CachedEmbedding } from "./PersistentEmbedCache";
 
 /**
  * ENGINE-ONLY real embedding provider (ADR 0004 / audit E86a): fastembed, local ONNX,
@@ -47,6 +48,7 @@ export class FastembedEmbedding implements EmbeddingProvider {
     readonly dim: number,
     private readonly embedTimeoutMs: number,
     private readonly fallback: { embed(text: string): number[] },
+    readonly model: string = PINNED_MODEL,
   ) {}
 
   /** Synchronous real embedding via the worker bridge; deterministic fallback once degraded. */
@@ -116,8 +118,17 @@ export class FastembedEmbedding implements EmbeddingProvider {
 
     worker.removeAllListeners("exit");
     worker.removeAllListeners("error");
-    return new FastembedEmbedding(worker, ctl, payload, dim, opts.embedTimeoutMs ?? 5000, opts.fallback ?? new DeterministicEmbedding());
+    return new FastembedEmbedding(worker, ctl, payload, dim, opts.embedTimeoutMs ?? 5000, opts.fallback ?? new DeterministicEmbedding(), opts.model ?? PINNED_MODEL);
   }
 }
 
 export const createFastembedEmbedding = FastembedEmbedding.create.bind(FastembedEmbedding);
+
+/**
+ * The provider the engine actually runs on: the worker wrapped in the persistent text->vector cache (so a restart re-derives every soul index from the saved notes
+ * without re-embedding a whole mid-season save). The file name carries the pinned model + dim so a model change starts a fresh cache (vector spaces never mix).
+ */
+export function withPersistentCache(provider: FastembedEmbedding, dataDir: string): CachedEmbedding {
+  const model = provider.model.replace(/[^A-Za-z0-9._-]/g, "_"); // the ACTUAL model the worker runs (create() accepts a non-default one), so two same-dim models never share a cache
+  return new CachedEmbedding(provider, `${dataDir.replace(/\/$/, "")}/embed-cache-${model}-${provider.dim}.jsonl`);
+}
