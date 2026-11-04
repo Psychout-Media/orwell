@@ -77,6 +77,12 @@ function setEdges(s: GameSessionAdapter, id: EntityId, v: { trust: number; affin
     const e = relOf(s).edge(a, b);
     e.trust = v.trust; e.affinity = v.affinity; e.threat = v.threat;
   }
+  // AMEND 0075 item 4: `confide()` is engine-refused outside a scene, so every Given that sets up a confiding ally also puts them in the player's room (the one scenario about ABSENCE moves them apart afterwards).
+  seatWithPlayer(s, id);
+}
+function seatWithPlayer(s: GameSessionAdapter, id: EntityId): void {
+  const p = (s as unknown as { presence?: Map<string, string> }).presence;
+  if (p) { p.set(PLAYER, "kitchen"); p.set(id, "kitchen"); }
 }
 
 /** Bank `n` open pacts — the 0039 goodwill the disclosure motive reads (one open pact ≈ 0.2 goodwill). */

@@ -58,6 +58,9 @@ function firstNpcSecret(session: GameSessionAdapter): { id: string; secret: Hidd
 
 /** Drive a strong MUTUAL bond + banked goodwill so a `full` confidence is unlocked (engine-internal). */
 function earnFullConfidence(session: GameSessionAdapter, npcId: string): void {
+  // AMEND 0075 item 4: confide() is engine-refused outside a scene - put the ally in the player's room.
+  const presence = (session as unknown as { presence?: Map<string, string> }).presence;
+  if (presence) { presence.set(PLAYER, "kitchen"); presence.set(npcId, "kitchen"); }
   const rel = (session as unknown as { rel: RelationshipModel }).rel;
   for (const [a, b] of [[npcId, PLAYER], [PLAYER, npcId]] as const) {
     const e = rel.edge(a, b);
@@ -70,6 +73,8 @@ function earnFullConfidence(session: GameSessionAdapter, npcId: string): void {
 /** Set a houseguest up as a manipulator the player reads as a high threat with no warmth — the strategic
  *  (lie) pull, not genuine closeness. Seeded so the lie roll actually fires (verified by the seed scan). */
 function setupLiar(session: GameSessionAdapter, npcId: string): void {
+  const presence = (session as unknown as { presence?: Map<string, string> }).presence; // AMEND 0075 item 4: in a scene with the player
+  if (presence) { presence.set(PLAYER, "kitchen"); presence.set(npcId, "kitchen"); }
   const house = (session as unknown as { house: GameHouse }).house;
   house.npcs.find((n) => n.id === npcId)!.character.archetype = "mastermind";
   const rel = (session as unknown as { rel: RelationshipModel }).rel;
