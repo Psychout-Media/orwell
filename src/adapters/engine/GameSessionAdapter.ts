@@ -610,8 +610,7 @@ const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1"
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = process.env.ORWELL_PREMIERE_ENTRANCES === "1";
 
 /**
- * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). OFF unless `ORWELL_HANGOUT=1`: it spends in-game time outside the per-message pace, so it ships
- * dark until the live pace work lands. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
+ * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
  */
 /** Per-beat chances for the hang-out interruptions (side-stream draws). Tunable here. */
 const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.07;
@@ -625,7 +624,7 @@ const DESIRE_CLOCK_ENABLED_DEFAULT = process.env.ORWELL_DESIRE_CLOCK === "1";
  * the nominees to sound out) is scaled up by the want's urgency (the A8 desire clock). OFF unless `ORWELL_WANT_MOVEMENT=1`; off => `movementIntentFor` is untouched (byte-identical).
  */
 const WANT_MOVEMENT_ENABLED_DEFAULT = process.env.ORWELL_WANT_MOVEMENT === "1";
-const HANGOUT_ENABLED_DEFAULT = process.env.ORWELL_HANGOUT === "1";
+const HANGOUT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HANGOUT");
 
 /**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED

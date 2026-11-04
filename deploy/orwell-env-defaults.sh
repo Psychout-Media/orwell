@@ -57,6 +57,8 @@
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
+#   ORWELL_HANGOUT              'Hang out until X' (the safe fast-forward): short 15-30 min engine-timed beats that stop at the FIRST of the scheduled event coming due, the player
+#       being pulled, an NPC approaching, something observed, or bedtime. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
 #   ORWELL_COMP_INTENT          NPC competition intent (0006b) — derived compete/throw/play-safe.
 #   ORWELL_MYTH_MAKING          NPC myth-making (0101) — a rare notable player act becomes house folklore
 #       and diffuses NPC-to-NPC (owner ruling 2026-07-17: on). Hidden-knowledge layer only; own isolated
@@ -116,6 +118,7 @@ ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_INTENT=1
 ORWELL_FINAL_HOH_THREE_PART=1
+ORWELL_HANGOUT=1
 ORWELL_MYTH_MAKING=1
 ORWELL_VOTE_DEDUCTION=1
 ORWELL_GOSSIP_DRIFT=1
