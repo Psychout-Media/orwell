@@ -82,6 +82,14 @@ _CUES: "list[tuple]" = [  # (role, regex, bind, gap[, dash_ok])
                          r"left\s+the\s+(?:big\s+brother\s+)?house|out\s+of\s+the\s+(?:big\s+brother\s+)?house)\b", re.IGNORECASE), "both", 30),
     ("evict", re.compile(r"\b(?:the\s+)?houseguest\s+(?:who\s+is\s+)?leaving\b[^.!?\n]{0,40}?\b(?:is|:)\s*", re.IGNORECASE), "after", 6),
     ("evict", re.compile(r"\b(?:eviction|evictee)\s*(?:goes\s+to|result\s*[:—\-]|is|:)\s*", re.IGNORECASE), "after", 4),
+    # ── DEPARTURE phrasing with no "evicted" in it (rehearsal: "Lara's out, the door's shut" aired for an eviction the engine had not
+    # run). Strong = unambiguous in ANY phase; the looser set below is eviction-phase-only (a comp elimination is "out" too). ────
+    ("evict", re.compile(r"\b(?:(?:has\s+|have\s+)?left\s+us|leaves\s+us|leaving\s+us|is\s+leaving\s+(?:tonight|the\s+(?:big\s+brother\s+)?house)|"
+                         r"packs?\s+up\s+(?:and|to)\s+(?:leaves?|goe?s?))\b", re.IGNORECASE), "both", 30),
+    ("evict-weak", re.compile(r"(?:\b(?:is|are)|(?<=['’]s))\s+out\b(?!\s+(?:of\s+(?!the\s+(?:big\s+brother\s+)?house\b)|cold|loud|there|here|back|front|for|to|on|in|late|early)\b)",
+                              re.IGNORECASE), "before", 6),
+    ("evict-weak", re.compile(r"\b(?:walks?|walked|walking)\s+out\b|\bthe\s+door\s+(?:closes|clicks|shuts|slams)\b|\b(?:is|are)\s+(?:already\s+|now\s+|still\s+)?packing\b|\bpacking\s+up\b|"
+                              r"\b(?:leaves|left)\s+the\s+(?:big\s+brother\s+)?house\b", re.IGNORECASE), "both", 40),
     ("evict-weak", re.compile(r"\b(?:good-?byes?|farewell|packing\s+(?:her|his|their)\s+bags|packs?\s+(?:her|his|their)\s+bags|packed\s+(?:her|his|their)\s+bags|"
                               r"walks?\s+out\s+(?:the|of\s+the)\s+(?:front\s+)?door|out\s+the\s+(?:front\s+)?door|bag\s+is\s+(?:already\s+)?at\s+the\s+door|"
                               r"the\s+door\s+(?:closes|clicks|shuts)\s+behind)\b", re.IGNORECASE), "both", 40),
