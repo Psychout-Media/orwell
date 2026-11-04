@@ -97,6 +97,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'strict' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
+  // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_VOTE_COUNT', key: 'voteCount', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
