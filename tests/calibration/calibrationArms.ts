@@ -126,7 +126,7 @@ export type Arm = "passive" | "solid" | "reckless" | "managed";
  * unchanged `solid` arm (its bands are the owner's "steady sensible social game" targets); this is the arm that plays the way a jury-conscious human does, so the per-juror
  * profiles (A2) and the "a good player usually wins" ~60% claim can be judged against something that actually exercises the levers:
  *  - GOODBYES: a real warm goodbye to an ally or to someone the player moved against, instead of the default "respectful" (a warm send-off softens a grievance, `mannerLeanOf`);
- *  - MEND: at the finale it makes the `mend` appeal to every juror it moved against (nominated / voted out), `connect` to its tended allies, `own-game` otherwise;
+ *  - MEND: at the finale it makes the `mend` appeal to every juror it personally moved against (nominated, or evicted as Final HOH) - NOT to a juror merely voted out in a secret ballot, where `mend` is a weak appeal, `connect` to its tended allies, `own-game` otherwise;
  *  - RIVAL: at Final 3, as HOH it evicts the finalist with the BIGGER public comp resume (game respect dominates the losses in the diagnosis) and keeps the weaker one as its F2 rival;
  * It reads only public projections the player legitimately has (announcements, its own decisions).
  */
@@ -217,7 +217,7 @@ export function managedAnswer(p: PendingView, allies: ReadonlySet<string>, ctx: 
     }
     case "eviction-vote": case "tie-break": case "replacement": {
       const target = p.options.find(notAlly) ?? p.options[0]!;
-      if (p.kind !== "replacement") ctx.aggrieved.add(target.id);
+      // (A vote is one of many ballots and is secret: it is not a grievance the evictee holds against the player. Only NOMINATING someone is, so only that marks them aggrieved.)
       return p.kind === "replacement" ? { kind: "replacement", replacement: target.id } : { kind: p.kind, vote: target.id };
     }
     case "final-eviction": {
@@ -225,7 +225,7 @@ export function managedAnswer(p: PendingView, allies: ReadonlySet<string>, ctx: 
       const evictable = p.options.filter(notAlly);
       const pool = evictable.length > 0 ? evictable : p.options;
       const target = [...pool].sort((a, b) => wins(b.id) - wins(a.id))[0]!;
-      ctx.aggrieved.add(target.id);
+      ctx.aggrieved.add(target.id); // the player personally evicts them: a real grievance
       return { kind: "final-eviction", vote: target.id };
     }
     case "goodbye-message": {

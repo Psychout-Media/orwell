@@ -13,6 +13,11 @@ describe("A1 - the managed arm plays the jury-management levers", () => {
     expect(r.choice).toEqual(["a", "b"]);
     expect([...c.aggrieved].sort()).toEqual(["a", "b"]);
   });
+  it("a secret-ballot eviction vote is NOT a grievance (only nominating or personally evicting is)", () => {
+    const c = ctx();
+    managedAnswer({ kind: "eviction-vote", options: [o("ally-1"), o("x")] }, allies, c);
+    expect(c.aggrieved.size).toBe(0);
+  });
   it("final-eviction: evicts the finalist with the BIGGER public resume, keeping the weaker as the F2 rival", () => {
     const r = managedAnswer({ kind: "final-eviction", options: [o("big"), o("small")] }, allies, ctx({ big: 5, small: 1 })) as { vote: string };
     expect(r.vote).toBe("big");
