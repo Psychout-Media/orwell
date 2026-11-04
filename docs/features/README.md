@@ -337,3 +337,15 @@ Several substantial FE workstreams land as their own GitHub-issue tracks rather 
   glass performance hardening (#1275), and item #9 chat scroll-edge mask + recede-on-scroll banner
   (#1292). Item-level completeness is tracked in issue **#738**; a small residual tail remains open
   there.
+
+## Thursday-playtest additions (2026-11-04 — design-doc'd, flag-gated; not feature-numbered)
+
+All four are **default ON** except where noted; `=0` on the flag rolls each back. Authoritative status for each is its design doc + the PR named here.
+
+| Capability | Flag | Doc / PR | What it is |
+|---|---|---|---|
+| **Premiere entrances + toast (A9)** | `ORWELL_PREMIERE_ENTRANCES` (ON) | `docs/design/premiere-entrances.md`, #2086 / #2113 | Drag-Race-style ONE-AT-A-TIME entrances (seeded order, the player at a random slot, each a recorded vignette), then the living-room toast (host first, then each houseguest; the player's own speech is chat-authored), then the 48-message clock-driven Day-1 morning. Old champagne circle byte-identical under `=0`. Supersedes the "meet everyone at the toast" gate of 0111 for the flag-on path (0111's flag-on scenarios are in the feature file). |
+| **Hang out until X (A-lever)** | `ORWELL_HANGOUT` (ON) | `docs/design/hang-out-until.md`, #2077 / #2109 | The safe fast-forward: <=8 beats of 15-30 in-game min, stops at the FIRST of event-due (clamped, never early/skipped), pulled, NPC approach, observed (recorded, #2119), or bedtime. Only `event-due` was verified on screen; the rest are unit-proven and fail safe. |
+| **NPC desire clock (A8)** | `ORWELL_DESIRE_CLOCK` (OFF) | `src/engine/desireClock.ts`, #2084 | Hours-keyed NPC approaches/interruptions from each NPC's own want; also drives hang-out `npc-approach`. |
+| **Want-driven movement (A10)** | `ORWELL_WANT_MOVEMENT` (OFF) | `docs/design/npc-want-movement.md`, #2090 / #2112 | The same want scales the pull toward the HOH/nominees; k=1 measured (k>=1.5 fails juryReach seed 18). PO 300-seed bands still to measure before any flip. |
+| **Narration guards N-16 / N-17** | always on | #2110-era `chat_helpers.py`, #2115 | N-16: a competition narrated as STARTED while the engine says it is not due is re-grounded. N-17: an invented first-person confession with no engine disclosure lever that turn is replaced by a deflection. |

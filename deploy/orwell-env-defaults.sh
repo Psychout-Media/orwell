@@ -32,6 +32,8 @@
 #       floor means the edge already carries a fresh betrayal, so the tilt reads 0 within a season today.
 #   ORWELL_NPC_MEMORY_STANDALONE / ORWELL_NPC_MEMORY_WRITERS   (B2, 2026-11-04) the memory ledger is now actually WRITTEN (remembered nominations, withheld vetoes, kept deals) and read
 #       on its own, so a remembered grudge/favor visibly sways nominations and votes (PO: "memories should be turned on"). 3-arm PO bands held (no violations, 100 seeds/arm).
+#   ORWELL_NPC_BELIEFS / ORWELL_NPC_BELIEF_NOMS   (B3/B3b #2017, 2026-11-04) NPCs hold falsifiable beliefs (who is targeting me; sometimes wrong) that tilt the HOH's nominations and the eviction vote
+#       (PO: Ryne, "turn it on"). PO bands re-measured ON in the PR body.
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -114,6 +116,8 @@ ORWELL_DEAL_DEPTH=1
 ORWELL_NPC_MEMORY=1
 ORWELL_NPC_MEMORY_STANDALONE=1
 ORWELL_NPC_MEMORY_WRITERS=1
+ORWELL_NPC_BELIEFS=1
+ORWELL_NPC_BELIEF_NOMS=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_COMP_MECHANICS_PLUS=1

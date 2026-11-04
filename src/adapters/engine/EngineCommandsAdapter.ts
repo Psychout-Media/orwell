@@ -62,6 +62,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    * everyone is up ⇒ byte-identical to the prior behavior.
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
+  private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
   private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }) => void;
   /**
    * The live SUB-ZONE of a houseguest in a zoned big room (0077 Phase 2, OPT-IN). When wired, co-presence
@@ -174,6 +175,11 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** Wire the house occupancy (0049) so recorded scenes gain co-present witnesses + adjacent overhears. */
   setPresenceProvider(fn: () => Occupancy | null): void {
     this.presenceProvider = fn;
+  }
+
+  /** P4g - wire the NPC memory ledger so a recorded betrayal / conflict / kindness scene is remembered by the NPCs it touched. Unwired => inert. */
+  setSceneMemorySink(fn: (holders: readonly EntityId[], kind: string) => void): void {
+    this.sceneMemorySink = fn;
   }
 
   /** B4 - wire the assurance ledger so a recorded casual assurance is kept on the live state. Unwired => inert. */
@@ -533,6 +539,12 @@ export class EngineCommandsAdapter implements EngineCommands {
         beforeIds,
         this.knowledge.knownTo(PLAYER),
       ));
+    }
+    // P4g: a betrayal / conflict / kindness scene is REMEMBERED by the NPCs it touched (0024 ledger) - bounded, deterministic, one write per recorded scene (this point is
+    // reached once per recorded scene: an idempotent replay returned earlier). Inert unwired / writers off.
+    if (this.sceneMemorySink && req.kind) {
+      const touched = (req.toward ?? awakeNamed).filter((id) => id !== PLAYER); // the NAMED partners (not presence-expanded bystanders)
+      if (touched.length > 0) this.sceneMemorySink(touched, req.kind);
     }
     // B4: a casual assurance rides the recorded scene (one per recorded scene per assured party; an idempotent replay returned earlier). Inert unwired / flag off.
     if (this.assuranceSink && req.assurance) {
