@@ -9682,6 +9682,13 @@ export class GameSessionAdapter implements GameSession {
           const kind = kinds[r.int(kinds.length)]!;
           const first = seen[r.int(seen.length)]!;
           const uniq = kind === "someone-moved" ? [first] : [first, seen.filter((x) => x !== first)[r.int(seen.length - 1)]!];
+          // A12: what the player SEES is a recorded, witnessed event (never narrated-but-unrecorded). Public and content-free - the engine knows THAT a whisper / row / move happened in
+          // their eyeshot, never what was said - so no fold is invented (a hidden-impact fold needs real content; the narrator voices the texture, ADR 0005 open set).
+          const [a, b] = uniq.map((id) => this.nameOf(id));
+          const what = kind === "overheard-whisper" ? `${a} and ${b} are seen whispering together out of earshot`
+            : kind === "argument" ? `${a} and ${b} are seen in a tense exchange`
+            : `${a} is seen crossing the house`;
+          this.onPlayerEvent?.(what, [PLAYER, ...uniq], kind === "someone-moved" ? "house-event" : "conversation");
           return { kind, who: uniq.map((id) => this.nameOf(id)) };
         },
       }, rng, req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {});
