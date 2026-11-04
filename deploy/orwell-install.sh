@@ -146,9 +146,10 @@ checkout() {
     mkdir -p "$APP_DIR"
     git -C "$APP_DIR" init -q
   fi
-  # The ownership step below hands the checkout to the `orwell` user while updates run git as
-  # root — without this, git >=2.35 refuses every later fetch with "dubious ownership" (the
-  # update path would be dead on arrival on a real box). Idempotent: added once.
+  # The code tree is root-owned now (see ownership() below), so root git no longer needs this on a
+  # fresh box — but a box installed BEFORE that change still has an `orwell`-owned checkout until
+  # its first update migrates it, and git >=2.35 refuses every fetch there with "dubious
+  # ownership". Kept so that update path is never dead on arrival. Idempotent: added once.
   git config --system --get-all safe.directory 2>/dev/null | grep -qx "$APP_DIR" \
     || git config --system --add safe.directory "$APP_DIR"
   git -C "$APP_DIR" remote set-url origin "$REPO" 2>/dev/null || git -C "$APP_DIR" remote add origin "$REPO"
@@ -318,17 +319,47 @@ write_config() {
   fi
 }
 
+# ── Ownership model (least privilege) ──────────────────────────────────────────────────────────
+# The CODE tree (the checkout, deploy/, dist/, node_modules, frontend/.venv, …) stays ROOT-owned and
+# is never group/world-writable: the root-run ops units (orwell-ops-*.service) execute scripts out
+# of deploy/, and the app units are sandboxed read-only outside their ReadWritePaths, so the service
+# user has no need to write code — and must not be able to, or a compromised service could edit
+# what root runs next. Only the dirs the services legitimately write are handed to it: data/ (or a
+# custom DATA_DIR), frontend/data, backups/ (orwell-backup.service runs as the service user) and
+# .orwell-data (the engine's default save dir when ORWELL_DATA_DIR is unset — legacy/dev layouts).
+# KEEP THIS FUNCTION BYTE-IDENTICAL in orwell-install.sh and orwell-update.sh (a test pins it).
+orwell_apply_ownership() {   # $1 app dir · $2 service user · $3 service group · $4… extra writable dirs
+  local app="${1%/}" user="$2" group="$3" d; shift 3
+  local -a rw=("${app}/data" "${app}/frontend/data" "${app}/backups" "${app}/.orwell-data")
+  for d in "$@"; do rw+=("${d%/}"); done
+  local -a prune=()
+  for d in "${rw[@]}"; do prune+=(-path "$d" -o); done
+  # 1. Everything outside the writable dirs: root:root, and no group/other write bit left behind by
+  #    a previous orwell-owned install (a root-owned but world-writable file is not root-owned in
+  #    any way that matters). -h / ! -type l: act on a symlink itself, never on its target.
+  find "$app" -xdev \( "${prune[@]}" -false \) -prune -o \
+    -exec chown -h root:root {} + \( -type l -o -exec chmod go-w,a+rX {} + \) || return 1
+  # 2. The writable dirs: the service user, recursively (chown -R does not follow symlinks). A
+  #    symlinked dir is left alone — never chowned through to wherever it points.
+  for d in "${rw[@]}"; do
+    [[ -d "$d" ]] || continue
+    if [[ -L "$d" ]]; then echo "WARN: ${d} is a symlink — leaving its ownership alone" >&2; continue; fi
+    chown -R -h "$user":"$group" "$d" || return 1
+  done
+}
+
 ownership() {
   step "least-privilege user (B72/ops A5)"
   id -u orwell >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /opt/orwell orwell
   mkdir -p "${DATA_DIR}/saves" "${APP_DIR}/frontend/data"
   # DEPLOY-9: the backup DIR must exist and be orwell-writable before orwell-backup.timer's first
-  # scheduled run (orwell-backup.service runs as User=orwell) — created here so the chown -R below
-  # covers it, same as every other app-owned directory.
+  # scheduled run (orwell-backup.service runs as User=orwell) — created here so the ownership pass
+  # below hands it to the service user, same as the other writable dirs.
   mkdir -p "${APP_DIR}/backups"
-  # DATA_DIR is chowned explicitly: it defaults inside APP_DIR but is overridable to a path
+  # DATA_DIR is passed explicitly: it defaults inside APP_DIR but is overridable to a path
   # outside it — and the engine (running as `orwell`) must always be able to write saves/models.
-  chown -R orwell:orwell "${APP_DIR}" "${DATA_DIR}"
+  # A re-run on an existing box also MIGRATES a previously orwell-owned code tree back to root.
+  orwell_apply_ownership "$APP_DIR" orwell orwell "$DATA_DIR"
   # G19b — web-triggered maintenance: the FE (E85-hardened: User=orwell, every capability
   # dropped — no systemctl) requests an update by dropping a FLAG FILE in data/ops/; the
   # root-side orwell-ops-update.path unit consumes it. The flag dir must be orwell-WRITABLE
@@ -336,7 +367,7 @@ ownership() {
   # live run log FE-readable: the admin status page tails any data/*.log (G1b). The log is
   # touched, never `install`ed — a re-run must not truncate the run history.
   install -d -m 750 "${DATA_DIR}/ops"
-  chown orwell:orwell "${DATA_DIR}/ops"
+  chown -h orwell:orwell "${DATA_DIR}/ops"
   rm -f "${DATA_DIR}/ops/update-requested"   # a stale pre-install request must not fire mid-install
   rm -f "${DATA_DIR}/ops/factory-reset-requested"  # likewise: no stale OOBE-reset request fires mid-install
   rm -f "${DATA_DIR}/ops/update-reset-requested"   # likewise: no stale Update+Reset request fires mid-install

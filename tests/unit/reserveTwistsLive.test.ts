@@ -14,7 +14,7 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
  * the Vault audit copy persists across a restart (audit I7), and nothing pre-reveal leaks.
  * Roles only — no fixture names.
  */
-describe("live reserve twists (B53)", () => {
+describe("legacy (flag off) — live reserve twists (B53)", () => {
   /** A seed whose loaded reserve includes a double eviction (deterministic — found once, pinned). */
   const seedWithTwist = (): number => {
     for (let s = 1; s < 200; s++) {

@@ -6,7 +6,7 @@ import { buildSandbox } from "../support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView } from "../../src/ports/GameSession";
 
-// Feature 0025 (ORWELL_REACTIVE_TWISTS, flag OFF in deploy) — the player's secret-veto pending is
+// Feature 0025 (ORWELL_REACTIVE_TWISTS — default-ON since 2026-11-03) — the player's secret-veto pending is
 // answerable over the MCP boundary the front-end uses. The audit's "latent break" was that the FE
 // could not submit this kind; #1911 fixed the FE relays, and this pins the ENGINE end of that seam:
 // advanceGame raises the pending, submitDecision (via McpServer.callTool, like every FE relay) resolves

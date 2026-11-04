@@ -82,6 +82,15 @@ describe(`reactive twists ON under the deployed profile: ${SEEDS}-seed full-seas
     // eslint-disable-next-line no-console
     console.log(`TWIST FIRING over ${SEEDS} seeds: ${JSON.stringify(summary)}; seasons with any twist: ${results.filter((r) => r.fired.length).length}`);
     expect(Object.values(byKind).flat().filter((w) => w <= 1).length, "no twist can fire in week 1 (no trigger can be earned that early)").toBe(0);
+    // AMEND 0025 (Ryne-approved): the firing windows #2037 measured over 50 seeds, pinned PERMANENTLY — none in weeks 1-6; earliest battle-back wk 7, double eviction wk 8,
+    // secret veto wk 12. A `>=` floor (never an exact seed pin): a future change that lets a twist fire earlier must be a deliberate, reviewed choice.
+    expect(Object.values(byKind).flat().filter((w) => w <= 6).length, "no reactive twist fires in weeks 1-6").toBe(0);
+    const FLOOR: Record<string, number> = { "battle-back": 7, "double-eviction": 8, "secret-veto": 12 };
+    for (const [kind, floor] of Object.entries(FLOOR)) {
+      const weeks = byKind[kind] ?? [];
+      expect(Math.min(...(weeks.length ? weeks : [floor])), `${kind} never fires before week ${floor}`).toBeGreaterThanOrEqual(floor);
+      if (SEEDS >= 50) expect(weeks.length, `the ${SEEDS}-seed sample actually exercises ${kind} (non-vacuous)`).toBeGreaterThan(0);
+    }
   }, 600_000);
 });
 
