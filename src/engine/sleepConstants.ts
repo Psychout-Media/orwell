@@ -88,6 +88,18 @@ export const SCENE = {
   capHours: 4,           // = SCENE_FELT_MINUTES.max (240) / 60 — one scene's PROPOSED felt time never bills more than this
 } as const;
 
+/**
+ * P4 item 2 — shape the felt time ONE message bills. The narrator PROPOSES a felt duration per scene (`feltMinutes`) and, unshaped, an ordinary chat message billed 1-1.5h
+ * (a chat morning took ~3-6 messages in rehearsal #3, not the ~10 `SCENE.perExchangeHours` targets). An ORDINARY proposal is capped at `ordinaryMaxHours`; only a genuinely
+ * long scene (>= `summitMinHours`: a strategy summit) spends its full proposed time. Tunable here; never below the per-message floor (the caller keeps `minPerMessageHours`).
+ */
+export const PACE = { ordinaryMaxHours: 0.5, summitMinHours: 1.5 } as const;
+
+export function shapeMessageHours(hours: number): number {
+  if (!Number.isFinite(hours) || hours <= 0) return hours;
+  return hours >= PACE.summitMinHours ? hours : Math.min(hours, PACE.ordinaryMaxHours);
+}
+
 /** The default pace a player experiences: ordinary messages from a morning wake (8am) to the afternoon start (12) — derived, never set independently. */
 export const MESSAGES_PER_MORNING = Math.round((CLOCK.phaseStartsHour.afternoon - CLOCK.wakeHour) / SCENE.perExchangeHours);
 

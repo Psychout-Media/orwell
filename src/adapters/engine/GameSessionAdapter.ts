@@ -232,6 +232,7 @@ import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants"
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { shapeMessageHours } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
@@ -7428,6 +7429,7 @@ export class GameSessionAdapter implements GameSession {
     else if (this.pendingFeltHours !== undefined) hours = this.pendingFeltHours;
     else hours = SCENE.perExchangeHours;
     this.pendingFeltHours = undefined;
+    hours = shapeMessageHours(hours); // P4: an ORDINARY message bills at most PACE.ordinaryMaxHours; a summit spends its full proposed time
     // Time advances per SCENE, not per turn: turns inside the same (room + co-present set) accumulate toward
     // the scene cap; a context change starts a fresh scene. The scene key is derived from live occupancy — a
     // pure, Vault-free read (rooms/co-presence are public), so this stays no-rng and byte-identical when off.

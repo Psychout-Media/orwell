@@ -1,0 +1,8 @@
+{
+  "_comment": "Every public `status.phase` the live engine can SIT in (src/engine/liveSeason.ts structural beats + premiere/complete). Guarded both ways: tests/unit/statusPhasesFixture.test.ts (engine ⊆ this list) and frontend/tests/test_phase_drivability_guard.py (each phase is driven by the FE or waits on a player card). A new phase must be added HERE, which forces a decision on how the FE drives it.",
+  "phases": ["premiere", "hoh-competition", "nominations", "veto-competition", "veto-ceremony", "eviction", "final-eviction", "twist-reveal", "battle-back", "finale", "complete"],
+  "exempt": {
+    "premiere": "driven by the premiere belts (champagne-circle advance / meet-everyone), not the ceremony pre-resolve",
+    "complete": "terminal — nothing to drive"
+  }
+}
