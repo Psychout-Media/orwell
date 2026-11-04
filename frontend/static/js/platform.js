@@ -171,7 +171,7 @@ export const ORWELL_MUTATING_TOOLS = Object.freeze([
   // Consequence loop + the single competition authority (all move the board the HUD reads).
   'recordInteraction', 'runCompetition', 'surfaceInformationTo', 'diaryRoom', 'recordImageBeat',
   // Presence & movement (0049 / ADR 0009), premiere meet-everyone (#380), the bedtime lever (ADR 0006).
-  'moveTo', 'moveHouseguest', 'markHouseguestMet', 'turnIn',
+  'moveTo', 'moveHouseguest', 'markHouseguestMet', 'turnIn', 'hangOut',
   // Deals & alliances (0039 / 0107).
   'makeDeal', 'formAlliance', 'joinAlliance',
   // The jury house Q&A (0129): a juror's telling lands in the player's knowledge (Journal).

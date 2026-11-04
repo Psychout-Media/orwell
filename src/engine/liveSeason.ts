@@ -638,6 +638,14 @@ export interface LiveSeasonState {
   sceneKey?: string;
   sceneAccruedHours?: number;
   /**
+   * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
+   * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
+   * `hangOut` lever => absent when off => byte-identical. Persisted with the season.
+   */
+  hangOutCount?: number;
+  hangOutPulledDay?: number;
+  hangOutLog?: Array<{ n: number; day: number; hour: number; beats: number; minutes: number; stopReason: string; detail?: Record<string, unknown> }>;
+  /**
    * #1320 night-gate one-shot: set once the pre-nominations day-break has fired for the CURRENT HOH reign,
    * so the "a new day dawns" beat is inserted exactly once between the HOH crown and the nominations
    * (cleared each reign by `rollWeek`). Written ONLY when the clock-pacing night-gate is active
