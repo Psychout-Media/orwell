@@ -1284,6 +1284,8 @@ export interface BeatEventView {
    * structured for the surface instead of being prose-only. Absent ⇒ no participant beat (e.g. no event).
    */
   participants?: NamedRef[];
+  /** A9 - structured, Vault-free detail for the premiere-entrance / premiere-toast beats (public names only). */
+  detail?: unknown;
 }
 
 /** 0123 — a standing NPC deal offer, voiced in-scene (see `openDealOffer`). */
@@ -1575,6 +1577,24 @@ export interface PremiereIntrosView {
    * the first HOH. Absent only on a pre-0111 save mid-premiere. Vault-free (a projection flag).
    */
   champagneCircle?: "gathered" | "done";
+  /**
+   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default OFF) - present ONLY while the staged premiere entrances/toast run
+   * (and until the premiere ends). Public names only (Vault-free). `index` = houseguests entered so far (the
+   * player counts once they have walked in); `total` = 16; `playerPosition` is 1-based. `arrivedNames` is the
+   * whole NPC inside-list (never invent who else is present). `justArrived` is the latest NPC to enter
+   * (absent when the latest entrant was the player - see `playerJustEntered`). `speakers` = the most recent
+   * toast batch (host = `{name,host:true}`, the player's slot = `{id,name,isPlayer:true}`, never filled by the engine).
+   */
+  entrance?: {
+    stage: "entrances" | "toast" | "done";
+    index: number;
+    total: number;
+    playerPosition: number;
+    arrivedNames: string[];
+    justArrived?: NamedRef;
+    playerJustEntered?: boolean;
+    speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true }>;
+  };
 }
 
 /**
@@ -1660,7 +1680,9 @@ export interface WhereaboutsView {
       // living room for the opening toast, so (exactly like a comp/ceremony) `present` lists everyone,
       // `nearby` is empty, and the player cannot wander off until the toast resolves. Carries no
       // competing/spectating split (nobody competes — the house simply gathers to toast). Vault-free.
-      | "champagne-circle";
+      | "champagne-circle"
+      // A9 - the staged premiere ENTRANCES: only the houseguests already inside are present; the rest are not yet here.
+      | "premiere-entrances";
     competing?: NamedRef[];
     spectating?: NamedRef[];
     youAreCompeting?: boolean;
