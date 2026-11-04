@@ -3,7 +3,9 @@ import type { ArmSummary } from "./calibrationArms";
 /**
  * The PO calibration TARGETS as executable bands (docs/decisions/PO-DECISIONS-LOG.md, 2026-11-02 "Difficulty"):
  *   - PASSIVE - reach F2 about 5-10% (the owner ACCEPTS up to ~13-15% as the realistic "goat" effect), win UNDER 5%.
- *   - SOLID (a steady, sensible social game; the "active smart" target, amended "a tad harder") - reach F2 12-20%, win 6-10%.
+ *   - SOLID (a steady, sensible social game; the "active smart" target, amended "a tad harder") - reach F2 12-20%, win 8-12%.
+ *     The WIN band moved from 6-10% to 8-12% per Ryne's 2026-11-03 ruling ("a good player usually wins, ~60% conversion; reach stays 12-20%; solid wins ~8-12%;
+ *     the PO gate's win band must follow"); reach is unchanged. The band update was meant to ride on the jury retune, which became design-only, so it lands here.
  *   - RECKLESS - bad strategy must not beat doing nothing: F2 rate and wins no higher than passive.
  *   - Active must CLEARLY beat passive: solid F2 and wins strictly above passive.
  * SAMPLING: a rate measured over n seasons is a binomial estimate (n=300, an 8% rate has an SE of about 1.6 points), and the owner's
@@ -14,7 +16,7 @@ import type { ArmSummary } from "./calibrationArms";
  */
 export const PO_BANDS = {
   passive: { f2Max: 0.15, winBelow: 0.05 },
-  solid: { f2Min: 0.12, f2Max: 0.2, winMin: 0.06, winMax: 0.1 },
+  solid: { f2Min: 0.12, f2Max: 0.2, winMin: 0.08, winMax: 0.12 },
 } as const;
 
 export interface PoSummary { passive: ArmSummary; solid: ArmSummary; reckless: ArmSummary }
