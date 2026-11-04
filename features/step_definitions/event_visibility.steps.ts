@@ -175,6 +175,9 @@ Given("a fact an NPC neither witnessed nor was told", function (this: BbWorld) {
   const token = "ZEBRA-QUILL-0002";
   (sb.session as unknown as { presence: Map<string, string> }).presence = new Map<string, string>([[PLAYER, "kitchen"], [a!, "kitchen"], [c!, "bedroom"]]);
   sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, a!], content: `the player and a houseguest quietly agree about ${token}`, kind: "strategy" });
+  // A NPC's knowledge lives in the knowledge service (the recorded event is the witness record, not the NPC's belief store): give the WITNESS the belief through the same sanctioned
+  // `witnessed` pathway the live ADR 0019 tests use. C has no pathway to it.
+  sb.engine.knowledge.seedBelief(a!, { content: `the player and a houseguest quietly agree about ${token}`, factId: "lk-0002:fact" }, "witnessed");
   Object.assign(lk(this), { lkSb: sb, lkA: a, lkC: c, lkToken: token });
 });
 
