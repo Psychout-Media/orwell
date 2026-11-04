@@ -95,6 +95,12 @@ export interface RecordInteractionReq {
    * byte-identical to the legacy 7-way path.
    */
   kind?: string;
+  /**
+   * B4 (casual assurances, behind ORWELL_ASSURANCES, default OFF): this scene carried a cheap promise - "you're safe with me" (`safe`), "you have my vote" (`vote`), "I'm with you"
+   * (`loyal`). Only a RECORDED assurance exists to the engine. `from` defaults to the initiator (the player assuring the others); name an NPC speaker to record THEIR assurance to the
+   * player; `sincerity` (0..1, default 1) lets a strategic lie be low. The ENGINE later decides whether it is kept (self-interested, personality-scaled) - the model never does.
+   */
+  assurance?: { kind: "safe" | "vote" | "loyal"; from?: EntityId; sincerity?: number };
   /** Whose hidden opinion of the initiator moves (default: the other witnesses). */
   toward?: EntityId[];
   /**

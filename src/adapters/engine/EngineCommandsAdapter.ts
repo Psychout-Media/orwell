@@ -62,6 +62,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    * everyone is up ⇒ byte-identical to the prior behavior.
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
+  private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }) => void;
   /**
    * The live SUB-ZONE of a houseguest in a zoned big room (0077 Phase 2, OPT-IN). When wired, co-presence
    * witnessing is zone-scoped: a bystander in the SAME room but a DIFFERENT, out-of-earshot zone (the
@@ -173,6 +174,11 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** Wire the house occupancy (0049) so recorded scenes gain co-present witnesses + adjacent overhears. */
   setPresenceProvider(fn: () => Occupancy | null): void {
     this.presenceProvider = fn;
+  }
+
+  /** B4 - wire the assurance ledger so a recorded casual assurance is kept on the live state. Unwired => inert. */
+  setAssuranceSink(fn: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }) => void): void {
+    this.assuranceSink = fn;
   }
 
   /** Wire the awake set (ADR 0006) so a houseguest who has turned in neither witnesses nor overhears a scene. */
@@ -527,6 +533,13 @@ export class EngineCommandsAdapter implements EngineCommands {
         beforeIds,
         this.knowledge.knownTo(PLAYER),
       ));
+    }
+    // B4: a casual assurance rides the recorded scene (one per recorded scene per assured party; an idempotent replay returned earlier). Inert unwired / flag off.
+    if (this.assuranceSink && req.assurance) {
+      const from = req.assurance.from ?? req.initiator;
+      const sincerity = typeof req.assurance.sincerity === "number" ? req.assurance.sincerity : 1;
+      const tos = from === PLAYER ? awakeNamed.filter((id) => id !== PLAYER) : [PLAYER]; // the NAMED partners (not the presence-expanded bystanders)
+      for (const to of tos) this.assuranceSink({ from, to, kind: req.assurance.kind, sincerity, source: from === PLAYER ? "player" : "npc" });
     }
     this.onPersist?.(); // durable save (0030): events + the hidden layer survive a restart
     // A10/#591 — record the at-most-once key ONLY after a clean commit. Placed AFTER onPersist so a
