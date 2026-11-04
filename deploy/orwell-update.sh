@@ -179,7 +179,13 @@ APP_DIR="$(find_app || true)"; APP_DIR="${APP_DIR:-/opt/orwell}"
 UPDATE_LOCK="${ORWELL_UPDATE_LOCK:-/run/orwell-update.lock}"
 acquire_update_lock() {
   local held="${ORWELL_UPDATE_LOCK_FD:-}"
-  if [[ "$held" =~ ^[0-9]+$ && /proc/self/fd/$held -ef "$UPDATE_LOCK" ]]; then return 0; fi
+  if [[ "$held" =~ ^[0-9]+$ && /proc/self/fd/$held -ef "$UPDATE_LOCK" ]]; then
+    # Same file is not enough: an open-but-UNLOCKED descriptor must not bypass serialization. Re-locking
+    # the same open file description (the parent's) succeeds; anyone else's lock makes this fail.
+    if flock -n "$held" 2>/dev/null; then return 0; fi
+    echo "ERROR: the inherited update-lock fd ${held} does not hold ${UPDATE_LOCK} (another run owns it)." >&2
+    exit 75
+  fi
   command -v flock >/dev/null 2>&1 || { echo "ERROR: flock (util-linux) is required to serialize updates." >&2; exit 1; }
   exec {ORWELL_UPDATE_LOCK_FD}>>"$UPDATE_LOCK" \
     || { echo "ERROR: cannot open the update lock ${UPDATE_LOCK}." >&2; exit 1; }
@@ -419,14 +425,25 @@ commit_rollback_pair() {
   mkdir -p "${APP_DIR}/data"
   # Pin the previous commit: the next --depth 1 fetch / git gc would otherwise leave it reachable only
   # through the reflog, and --rollback must not need the network just to find it.
-  git -C "$APP_DIR" update-ref refs/orwell/update-prev "$PREV_SHA"
-  local tmp   # mktemp (O_EXCL, unpredictable): data/ is writable by the unprivileged service user
-  tmp="$(mktemp "${PREV_FILE}.XXXXXX")"
-  printf '%s' "$PREV_SHA" > "$tmp"
-  chmod 644 "$tmp"
-  rm -rf "$PREV_DIST"
-  if [[ -d "$STAGED_DIST" ]]; then mv "$STAGED_DIST" "$PREV_DIST"; fi
-  mv -f "$tmp" "$PREV_FILE"
+  # The pin, .update-prev and dist.prev change as ONE unit: if any step fails, the old pin is put back so
+  # the surviving (old) pair still has its commit protected from gc.
+  local tmp="" old_pin   # mktemp (O_EXCL, unpredictable): data/ is writable by the unprivileged service user
+  old_pin="$(git -C "$APP_DIR" rev-parse -q --verify refs/orwell/update-prev 2>/dev/null || true)"
+  if ! {
+    git -C "$APP_DIR" update-ref refs/orwell/update-prev "$PREV_SHA" &&
+    tmp="$(mktemp "${PREV_FILE}.XXXXXX")" &&
+    printf '%s' "$PREV_SHA" > "$tmp" &&
+    chmod 644 "$tmp" &&
+    rm -rf "$PREV_DIST" &&
+    { [[ ! -d "$STAGED_DIST" ]] || mv "$STAGED_DIST" "$PREV_DIST"; } &&
+    mv -f "$tmp" "$PREV_FILE"
+  }; then
+    [[ -n "$tmp" ]] && rm -f "$tmp"
+    if [[ -n "$old_pin" ]]; then git -C "$APP_DIR" update-ref refs/orwell/update-prev "$old_pin" 2>/dev/null || true
+    else git -C "$APP_DIR" update-ref -d refs/orwell/update-prev 2>/dev/null || true; fi
+    echo "ERROR: could not replace the rollback pair; the previous pair (and its commit pin) is kept." >&2
+    return 1
+  fi
 }
 
 # A failure anywhere after the update armed itself: put the previous SHA, its dependencies and its dist

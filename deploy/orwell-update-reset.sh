@@ -213,14 +213,14 @@ if [[ "$update_rc" -ne 0 ]]; then
   trap - EXIT  # the explicit fail below is the final status
   case "$update_rc" in
     1)
-      ops_progress_fail "the update phase failed — the box is on its previous build; nothing was wiped (your API keys are safe)"
-      die "UPDATE failed — NOT proceeding to the reset. The box is on its previous build and NOTHING was wiped (your API keys are safe). Fix the update, then retry." ;;
+      ops_progress_fail "the update phase failed — the box is on its previous build; the OOBE reset was NOT run (your API keys are safe)"
+      die "UPDATE failed — NOT proceeding to the reset. The box is on its previous build and no OOBE wipe was done (your API keys are safe). Fix the update, then retry." ;;
     3)
-      ops_progress_fail "the update phase failed AND its automatic revert failed — the box may not start; nothing was wiped (your API keys are safe)"
-      die "UPDATE failed AND its automatic revert FAILED (see the log above) — the box may NOT be runnable. NOT proceeding to the reset; NOTHING was wiped (your data and API keys are untouched). Fix the cause, or recover with: REF=<known-good sha|tag> bash ${DEPLOY_DIR}/orwell-update.sh" ;;
+      ops_progress_fail "the update phase failed AND its automatic revert failed — the box may not start; the OOBE reset was NOT run (your API keys are safe)"
+      die "UPDATE failed AND its automatic revert FAILED (see the log above) — the box may NOT be runnable. NOT proceeding to the reset; no OOBE wipe was done (a failed update may already have changed config such as data/.env, but your saves and API keys were not wiped). Fix the cause, or recover with: REF=<known-good sha|tag> bash ${DEPLOY_DIR}/orwell-update.sh" ;;
     *)
-      ops_progress_fail "the update phase exited with code ${update_rc} — its state is unconfirmed; nothing was wiped (your API keys are safe)"
-      die "UPDATE exited with code ${update_rc} before it could confirm the box is on a working build — check it (see the log above). NOT proceeding to the reset; NOTHING was wiped (your data and API keys are untouched)." ;;
+      ops_progress_fail "the update phase exited with code ${update_rc} — its state is unconfirmed; the OOBE reset was NOT run (your API keys are safe)"
+      die "UPDATE exited with code ${update_rc} before it could confirm the box is on a working build — check it (see the log above). NOT proceeding to the reset; no OOBE wipe was done (your saves and API keys were not wiped)." ;;
   esac
 fi
 

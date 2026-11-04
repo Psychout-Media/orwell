@@ -57,11 +57,14 @@ echo "npm $*" >> "$STUB_LOG"
 case "$1" in
   ci)  # real `npm ci` removes node_modules FIRST — a failure leaves the app without dependencies
     rm -rf node_modules
+    # once a build has failed the "registry" is down: only a cache-preferring install may succeed
+    if [[ -f "$STUB_LOG.registry-down" && "$*" != *--prefer-offline* ]]; then echo "npm ERR! simulated registry outage" >&2; exit 1; fi
     if [[ -n "$STUB_OFFLINE" ]] || grep -q BREAK_NPM_CI package-lock.json; then echo "npm ERR! simulated registry failure" >&2; exit 1; fi
     mkdir node_modules; cp package-lock.json node_modules/.installed-from-lock ;;
   run)
     if grep -q SLOW_FAIL_BUILD package.json; then sleep 3; echo "simulated slow build failure" >&2; exit 1; fi
     if grep -q BREAK_BUILD package.json; then
+      [[ -n "$STUB_REGISTRY_DOWN_AFTER_BUILD_FAIL" ]] && touch "$STUB_LOG.registry-down"
       mkdir -p dist; echo PARTIAL > dist/main.js; echo "simulated build failure" >&2; exit 1
     fi
     mkdir -p dist; echo "BUILD:$(git rev-parse HEAD)" > dist/main.js; : > dist/embedWorker.js ;;
@@ -478,8 +481,10 @@ def test_revert_prefers_the_npm_cache_so_a_registry_failure_does_not_strand_the_
     assert box.run_update().returncode == 0
     before = len(box.calls())
     box.commit("3", break_build=True)
-    assert box.run_update().returncode == 1
+    r = box.run_update(STUB_REGISTRY_DOWN_AFTER_BUILD_FAIL="1")
+    assert r.returncode == 1, _combined(r)                  # restored from the cache although plain `npm ci` now fails
     assert "npm ci --omit=dev --prefer-offline" in box.calls()[before:]
+    assert box.deps() == "LOCK-2" and "reverted to" in _combined(r)
 
 
 # ═════════════════════════════════════ --rollback without the network ══════════════════════════════════
@@ -588,6 +593,21 @@ def test_a_stale_inherited_lock_fd_cannot_bypass_the_lock(box):
     assert box.head() == box.v1 and box.calls() == []
 
 
+def test_an_inherited_fd_that_is_the_lock_file_but_does_not_hold_the_lock_cannot_bypass_it(box):
+    box.commit("2")
+    holder = os.open(box.lock, os.O_WRONLY | os.O_CREAT)
+    other = os.open(box.lock, os.O_WRONLY)                     # same file, a different open file description
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)     # someone else's run owns the lock
+        r = subprocess.run(["bash", str(box.script)], cwd=str(box.root), capture_output=True, text=True, timeout=120,
+                           env=box.env(ORWELL_UPDATE_LOCK_FD=str(other)), pass_fds=(other,))
+    finally:
+        os.close(other)
+        os.close(holder)
+    assert r.returncode == 75, _combined(r)
+    assert box.head() == box.v1 and box.calls() == []
+
+
 def test_the_lock_is_released_when_the_run_ends(box):
     box.commit("2")
     assert box.run_update().returncode == 0
@@ -663,7 +683,7 @@ def test_update_reset_never_wipes_after_a_failed_update_and_only_claims_the_prev
     r = _run_update_reset(box)
     out = _combined(r)
     assert r.returncode == 1 and not (box.root / "reset-ran").exists()
-    assert "NOTHING was wiped" in out and "is on its previous build" in out
+    assert "no OOBE wipe was done" in out and "is on its previous build" in out
     assert box.head() == box.v1 and box.dist() == f"BUILD:{box.v1}"
 
 
@@ -673,7 +693,7 @@ def test_update_reset_says_so_plainly_when_the_automatic_revert_failed(box):
     r = _run_update_reset(box)
     out = _combined(r)
     assert r.returncode == 1 and not (box.root / "reset-ran").exists()
-    assert "automatic revert FAILED" in out and "NOTHING was wiped" in out
+    assert "automatic revert FAILED" in out and "no OOBE wipe was done" in out
     assert "is on its previous build" not in out
     status = json.loads((box.app / "data" / "ops" / "update-reset-status.json").read_text())
     assert "automatic revert failed" in status["error"]

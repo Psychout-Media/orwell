@@ -176,7 +176,7 @@ State lives in **two** places (B72 — the old prose misstated this):
 - **Update pin/rollback (B71):** `REF=<sha|tag> orwell-update.sh` pins (a tag, a full SHA, or an
   abbreviated SHA); `orwell-update.sh --rollback` returns to the previous SHA + its build. A failed
   update never restarts services: it restores the previous SHA, its dependencies and its build and
-  verifies they start before reporting "reverted" (and says plainly if even that fails). Only one
+  verifies they start (the engine is booted on a throwaway port; the front-end dependencies are import-checked, not started) before reporting "reverted" (and says plainly if even that fails). Only one
   update / rollback / Update + Reset runs at a time. Rollback restores **code**, not save-format
   changes — a save written by a newer build is not migrated back.
 
