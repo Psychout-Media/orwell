@@ -103,13 +103,19 @@ if (embedMode === "fastembed") {
         if (typeof t.unref === "function") t.unref();
       }),
     ]);
+    // A persistent text->vector cache around the worker: a restart re-derives every soul index from the saved notes, which used to mean re-embedding a whole mid-season save
+    // (~1500 notes, a minute+ of saturated cores starving /health and turns). Vectors are deterministic derived state, so a restart after the first now embeds ~nothing.
+    // Keyed by model + dim so a model change starts a fresh cache (vector spaces never mix).
+    const { CachedEmbedding } = await import("./adapters/embedding/PersistentEmbedCache");
+    const { PINNED_MODEL } = await import("./adapters/embedding/fastembedWorker");
+    const cached = new CachedEmbedding(provider, `${dataDir.replace(/\/$/, "")}/embed-cache-${PINNED_MODEL.replace(/[^A-Za-z0-9._-]/g, "_")}-${provider.dim}.jsonl`);
     const { setRuntimeEmbedding } = await import("./composition/engineRoot");
-    setRuntimeEmbedding(provider);
+    setRuntimeEmbedding(cached);
     // PERSIST-5: wire the live provider so `embeddingsStatus` can re-check `.degraded` on every
     // `/health` call — a warm-up-time crash is caught below (a boot-time snapshot is enough there,
     // since it can never recover), but THIS reference is what catches a degrade that happens LATER,
     // mid-process (a worker timeout/crash while the game is already live).
-    embeddingsTracker.setLiveProvider(provider);
+    embeddingsTracker.setLiveProvider(cached);
     embeddingsTracker.setBootState(
       provider.degraded
         ? { provider: "deterministic", degraded: true } // worker died mid-process — permanent for this run
