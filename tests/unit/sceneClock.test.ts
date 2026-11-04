@@ -19,35 +19,35 @@ function startedState(): LiveSeasonState {
 }
 
 describe("Extension 6 — advanceClockPerScene (pure Model-B accumulation)", () => {
-  it("accumulates turns inside ONE scene and caps at SCENE.capHours", () => {
+  it("accumulates turns inside ONE scene at the pace floor; a PROPOSED duration (not the floor) is what the cap bounds (P2b)", () => {
     const s = startedState();
     const key = "scene:kitchen|npc:1,npc:2";
-    // Fire far more turns than the cap allows at the per-exchange increment.
-    for (let i = 0; i < 40; i++) advanceClockPerScene(s, key, SCENE.perExchangeHours);
-    // The scene billed AT MOST its cap, no matter the turn count (the never-run-away guarantee).
-    expect(s.sceneAccruedHours).toBeCloseTo(SCENE.capHours, 5);
-    expect((s.nightDepth ?? 0) - WAKE_HOUR).toBeCloseTo(SCENE.capHours, 5);
+    for (let i = 0; i < 10; i++) advanceClockPerScene(s, key, SCENE.perExchangeHours);
+    // 10 ordinary messages = one morning (4h) at the pace; every message billed at least the floor.
+    expect((s.nightDepth ?? 0) - WAKE_HOUR).toBeCloseTo(10 * SCENE.minPerMessageHours, 5);
+    // A single scene's PROPOSED felt time stays capped (the floor is a floor, not a loophole).
+    const t = startedState();
+    advanceClockPerScene(t, "scene:long", 99);
+    expect((t.nightDepth ?? 0) - WAKE_HOUR).toBeCloseTo(SCENE.capHours, 5);
   });
 
-  it("a NEW scene key resets the cap (a fresh scene bills fresh time)", () => {
+  it("a NEW scene key resets the cap (a fresh scene's proposed time bills in full again)", () => {
     const s = startedState();
-    // Max out scene A.
-    for (let i = 0; i < 40; i++) advanceClockPerScene(s, "scene:A", SCENE.perExchangeHours);
+    advanceClockPerScene(s, "scene:A", 99);                       // scene A bills its full cap
+    expect(s.sceneAccruedHours).toBeCloseTo(SCENE.capHours, 5);
     const afterA = s.nightDepth ?? 0;
-    expect(afterA - WAKE_HOUR).toBeCloseTo(SCENE.capHours, 5);
-    // Move to scene B (a different room / participant set): the accrual resets, a fresh turn bills again.
-    advanceClockPerScene(s, "scene:B", SCENE.perExchangeHours);
-    expect(s.sceneAccruedHours).toBeCloseTo(SCENE.perExchangeHours, 5);
-    expect((s.nightDepth ?? 0) - afterA).toBeCloseTo(SCENE.perExchangeHours, 5);
+    advanceClockPerScene(s, "scene:B", 2);                        // a different room / co-present set: fresh cap, the 2h proposal bills
+    expect(s.sceneAccruedHours).toBeCloseTo(2, 5);
+    expect((s.nightDepth ?? 0) - afterA).toBeCloseTo(2, 5);
   });
 
   it("bills a proposed felt duration on a scene's FIRST turn, then only the increment as it continues", () => {
     const s = startedState();
     advanceClockPerScene(s, "scene:X", 1.5); // first turn: a proposed 1.5h scene
     expect((s.nightDepth ?? 0) - WAKE_HOUR).toBeCloseTo(1.5, 5);
-    advanceClockPerScene(s, "scene:X", 0.2); // same scene continues
-    expect((s.nightDepth ?? 0) - WAKE_HOUR).toBeCloseTo(1.7, 5);
-    expect(s.sceneAccruedHours).toBeCloseTo(1.7, 5);
+    advanceClockPerScene(s, "scene:X", SCENE.perExchangeHours); // same scene continues at the pace
+    expect((s.nightDepth ?? 0) - WAKE_HOUR).toBeCloseTo(1.5 + SCENE.perExchangeHours, 5);
+    expect(s.sceneAccruedHours).toBeCloseTo(1.5 + SCENE.perExchangeHours, 5);
   });
 
   it("resetSceneClock forgets the scene so the next turn opens a fresh one (a beat boundary)", () => {
@@ -71,7 +71,7 @@ describe("Extension 6 — advanceClockPerScene (pure Model-B accumulation)", () 
 describe("Extension 6 — the adapter caps a single scene end-to-end", () => {
   afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
-  it("many turns in the same scene bill at most SCENE.capHours (the day can't burn on turn count)", () => {
+  it("ordinary messages in one scene bill the pace floor each (P2b) and never wrap the night", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("scene-cap");
@@ -80,10 +80,11 @@ describe("Extension 6 — the adapter caps a single scene end-to-end", () => {
     sb.session.advanceGame(); // 0111: close the premiere champagne circle
     sb.session.advanceGame(); // start the day
     const start = sb.session.snapshot().live?.nightDepth ?? 0;
-    for (let i = 0; i < 60; i++) sb.session.advanceClockPerConversation(); // one continuous scene
+    for (let i = 0; i < 10; i++) sb.session.advanceClockPerConversation(); // one continuous scene
     const elapsed = (sb.session.snapshot().live?.nightDepth ?? 0) - start;
-    expect(elapsed).toBeLessThanOrEqual(SCENE.capHours + 1e-6);
-    expect(elapsed).toBeCloseTo(SCENE.capHours, 5); // it fills the cap, then stops billing that scene
+    expect(elapsed).toBeCloseTo(10 * SCENE.minPerMessageHours, 5);
+    for (let i = 0; i < 200; i++) sb.session.advanceClockPerConversation();   // spam: the clock clamps at the bitter end, never wraps without the player's turnIn
+    expect(sb.session.snapshot().live?.nightDepth ?? 0).toBeLessThan(32); // DAY_END (8am next day) — clamped, never wrapped
   });
 
   it("is INERT when the master clock is off (calibration spine): scene fields never set, no advance", () => {
