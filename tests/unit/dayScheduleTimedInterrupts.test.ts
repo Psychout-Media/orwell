@@ -142,3 +142,16 @@ describe("0118 — byte-identical / golden-safe + Vault-free guardrails", () => 
     expect(renderGameContext(view)).not.toContain(SENT);
   });
 });
+
+import { minutesUntilDue } from "../../src/engine/daySchedule";
+describe("A7 - minutesUntilDue", () => {
+  const live = (hour: number, beat = "veto-competition") => ({ beat, timeOfDay: "morning", nightDepth: hour }) as never;
+  it("counts whole minutes to the scheduled hour, 0 once due, null with no milestone/clock", () => {
+    expect(minutesUntilDue(live(11.5))).toBe(30);   // afternoon starts at 12
+    expect(minutesUntilDue(live(11.9))).toBe(6);
+    expect(minutesUntilDue(live(12))).toBe(0);
+    expect(minutesUntilDue(live(13))).toBe(0);
+    expect(minutesUntilDue(live(11.5, "premiere"))).toBeNull();
+    expect(minutesUntilDue({ beat: "veto-competition" } as never)).toBeNull();
+  });
+});

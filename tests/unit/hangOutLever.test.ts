@@ -79,7 +79,7 @@ describe("hangOut lever", () => {
   });
   it("every stop reason is reachable and each carries only public detail", () => {
     const seen = new Set<string>();
-    for (let seed = 1; seed <= 60 && seen.size < 4; seed++) {
+    for (let seed = 1; seed <= 200 && seen.size < 4; seed++) {
       const s = parked(seed, `ho${seed}x`, true); if (!s) continue;
       for (let i = 0; i < 12; i++) {
         const r = s.hangOut(); seen.add(r.stopReason!);

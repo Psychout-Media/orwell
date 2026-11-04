@@ -831,6 +831,13 @@ export class BbWorld extends World {
     sentinels?: string[];
     seasonBaseline?: import("./seasonOutcome").SeasonOutcome;
     seasonRead?: import("./seasonOutcome").SeasonOutcome;
+    drResult?: unknown;
+    /** P4b — the clock-on Day-1 premiere scratch state. */
+    fm?: {
+      session: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
+      exit?: import("../../src/ports/GameSession").AdvanceView;
+      next?: import("../../src/ports/GameSession").AdvanceView;
+    };
   };
 
   // Feature 0125 — competition theme variety scratch state (one bag).

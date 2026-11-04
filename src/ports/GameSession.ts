@@ -551,7 +551,9 @@ export interface GameStateView {
    * coming interruption. Present ONLY when the per-conversation clock is live (absent in the seeded
    * calibration spine / golden replay, which pin that clock off) ⇒ byte-identical (the 0108 golden fixture this once referenced was decommissioned 2026-07-21; nothing to re-record).
    */
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean };
+  /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
+  interruption?: { npc: string; desire: string };
+  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -2084,7 +2086,7 @@ export interface HangOutView {
   /** In-game minutes spent. */
   minutes: number;
   /** Vault-free public detail of the stop (names, never ids/numbers). */
-  detail?: { by?: string; npc?: string; kind?: string; who?: string[] };
+  detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
   beatSeq: number;
 }

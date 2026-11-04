@@ -86,7 +86,7 @@ import {
   type WipeoutFailureFact, type WipeoutHistoryEntry,
 } from "./wipeoutReel";
 import {
-  phaseForHour, bedtimeDepthFor, restDeficitForDepth, emergentBedtimeHour, DAY_START, WAKE_HOUR, DAY_END_HOUR, type TimeOfDay,
+  phaseForHour, bedtimeDepthFor, restDeficitForDepth, emergentBedtimeHour, wakeHourAfterBed, DAY_START, WAKE_HOUR, DAY_END_HOUR, type TimeOfDay,
 } from "./timeOfDay";
 import { CLOCK, SCENE } from "./sleepConstants";
 
@@ -616,6 +616,8 @@ export interface LiveSeasonState {
    * kept for save round-trip + the adapter's rest-cue read. Persist with the season (0030).
    */
   playerRetired?: boolean;
+  /** P4d: the hour the player woke at when they bedded early (< the 8am wake); absent => the normal 8am wake. Cleared at the next day boundary. */
+  wakeHour?: number;
   lastSleepPhase?: number;
   /**
    * The 24-hour clock (0066, the #1125 model; gated). `nightDepth` is the legacy field NAME but carries the
@@ -642,6 +644,13 @@ export interface LiveSeasonState {
    * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
    * `hangOut` lever => absent when off => byte-identical. Persisted with the season.
    */
+  /**
+   * A8 (desire clock, `ORWELL_DESIRE_CLOCK`): the absolute in-game hour each NPC last approached the player (hours-based cooldown), and the one NPC interruption currently standing
+   * (set when an NPC's urge crosses its threshold during a conversation step; shown for exactly the next framing, then cleared). Written ONLY by the flag-gated path => absent
+   * when off => byte-identical. Persisted with the season.
+   */
+  desireApproachedAt?: Record<string, number>;
+  interruption?: { npc: string; desire: string; atHour: number };
   hangOutCount?: number;
   hangOutPulledDay?: number;
   hangOutLog?: Array<{ n: number; day: number; hour: number; beats: number; minutes: number; stopReason: string; detail?: Record<string, unknown> }>;
@@ -1880,7 +1889,7 @@ export function firstCeremonyBeatResolved(s: LiveSeasonState): boolean {
  */
 function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): void {
   if (s.finished) return;
-  if (s.playerRetired) { s.nightDepth = WAKE_HOUR; s.timeOfDay = DAY_START; s.playerRetired = false; return; }
+  if (s.playerRetired) { s.nightDepth = s.wakeHour ?? WAKE_HOUR; s.timeOfDay = DAY_START; s.playerRetired = false; return; } // P4d: an early riser wakes at their own hour
   if (s.nightDepth === undefined) { s.nightDepth = WAKE_HOUR; s.timeOfDay = DAY_START; return; }
   const next = s.nightDepth + hours;
   if (next >= DAY_END_HOUR) {
@@ -1890,6 +1899,7 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
       // last awake to the bitter end ⇒ the maximum sleep debt.
       s.lastSleepDepth = DAY_END_HOUR;
       s.lastSleepPhase = DAY_END_HOUR;
+      s.wakeHour = undefined;
       s.nightDepth = WAKE_HOUR;
       s.timeOfDay = DAY_START;
       return;
@@ -1996,6 +2006,7 @@ export function resetSceneClock(s: LiveSeasonState): void {
  */
 export function crossToNextDay(s: LiveSeasonState): void {
   if (s.nightDepth === undefined) return; // dormant until the per-beat clock starts the day
+  s.wakeHour = undefined;
   s.nightDepth = WAKE_HOUR;
   s.timeOfDay = DAY_START;
   s.playerRetired = false;
@@ -2013,7 +2024,10 @@ export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   s.lastSleepDepth = hour;
   s.lastSleepPhase = hour; // legacy field name; now the clock-hour the player was last awake to
   s.playerRetired = true;
-  s.nightDepth = WAKE_HOUR;
+  // P4d: wake = min(8am, bedtime + 8h) - an EVENING bed wakes early; midnight or later wakes at 8am (debt as before).
+  const wake = wakeHourAfterBed(hour);
+  s.wakeHour = wake === WAKE_HOUR ? undefined : wake;
+  s.nightDepth = wake;
   s.timeOfDay = DAY_START;
 }
 
