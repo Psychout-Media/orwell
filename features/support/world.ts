@@ -303,6 +303,8 @@ export class BbWorld extends World {
   livePlayerB?: import("../../src/adapters/mcp/McpServer").McpServer;
   juryFinalists?: [Eid, Eid];
   juryRunMode?: "manner" | "dominance";
+  /** 0128 three-part Final HOH scratch (engine-level scenarios). */
+  fh?: { finalists: string[]; runs: Array<{ seed: number; events: Array<{ beat: string; participants: string[] }>; hoh?: string; evictee?: string; asked: string[][]; state: unknown }>; threePart: boolean; withPlayer: boolean };
   mannerShareRespected?: number;
   mannerShareBetrayed?: number;
   domWinRate?: number;

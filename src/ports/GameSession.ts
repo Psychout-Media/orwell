@@ -1227,7 +1227,8 @@ export type BeatAnnouncementKind =
   | "secret-veto"
   | "eviction-ballot"
   | "eviction-result"
-  | "comp-round-result";
+  | "comp-round-result"
+  | "final-hoh-part";
 
 /**
  * T0-3 — a single Vault-free, engine-authored broadcast fact for a JUST-COMMITTED ceremony beat.
@@ -1264,6 +1265,8 @@ export interface BeatAnnouncementView {
     tieBroken?: boolean;
     /** `comp-round-result` only: houseguests still in the competition after this round's drops (a public count). */
     remaining?: number;
+    /** `final-hoh-part` only (0128): which part of the three-part Final HOH the subject just won (1 or 2). */
+    part?: number;
   };
 }
 
@@ -1360,6 +1363,8 @@ export interface PendingDecisionView {
    */
   round?: number;
   stillIn?: NamedRef[];
+  /** 0128 (flag-gated): for a Final-3 HOH `comp-round`, which part (1|2|3) of the three-part Final HOH this card is. Absent otherwise. */
+  finalHohPart?: 1 | 2 | 3;
   /**
    * STAGED competition (#380 audit 2026-06-20) — for a `comp-round`, whether THIS round's approach is
    * BINDING. Only the first round binds (it is the intent the single outcome roll honors); later rounds

@@ -77,7 +77,7 @@ import { MANNER_THRESHOLDS, MANNER_GRADING } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
-import { drawCompetition, competitionById } from "./competitionLibrary";
+import { drawCompetition, competitionById, COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS } from "./competitionLibrary";
 import type { CompetitionDef, CompetitionFormat, CompetitionPhase } from "./competitionLibrary";
 import { GEN_COMPETITION_BOUNDS } from "./genCompetitionConstants";
 import {
@@ -105,6 +105,9 @@ export type Beat =
   // the witnessed veto chip-draw ceremony (E35) — emitted on BeatEvent only; the structural
   // beat stays `veto-competition` (the draw is its first stage, the comp its second).
   | "veto-draw"
+  // 0128 - the end of Part 1 or Part 2 of the THREE-PART Final HOH (flag-gated): emitted on BeatEvent only; the structural beat stays `hoh-competition` until
+  // Part 3 crowns the Final HOH (that crown keeps the `hoh-competition` key, so the HOH win still folds its consequence).
+  | "final-hoh-part"
   // a single STAGED elimination round (0006 staged-rounds evolution) — emitted on BeatEvent only; the
   // structural beat stays `hoh-competition`/`veto-competition`. The CROWN event keeps the comp beat key
   // (so the HOH/veto win still folds its consequence); only the per-round drops carry this distinct key.
@@ -405,6 +408,10 @@ export interface LiveSeasonState {
   week: number;                 // 1-based HOH reign
   beat: Beat;                   // the next beat to resolve
   active: EntityId[];
+  /** 0128 (flag-gated, persisted 0030): the THREE-PART Final HOH's live-or-next part (1|2|3), and the Part 1 / Part 2 winners once decided. Absent everywhere else. */
+  finalHohPart?: 1 | 2 | 3;
+  p1Winner?: EntityId;
+  p2Winner?: EntityId;
   /**
    * FEATURE 0111 — THE CHAMPAGNE CIRCLE (the premiere's opening GATHERED set-piece). Reuses the 0106
    * whole-house-event machinery: `"gathered"` = the game has convened the whole house in the living
@@ -809,6 +816,12 @@ export interface SeasonCtx {
    */
   mixedComps?: boolean;
   /**
+   * 0128 - the Final 3 HOH is the real show's THREE-PART tournament (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz
+   * between the two part-winners) instead of ONE competition. Absent/false => the single-comp 0045 path, byte-identical (the seeded spine is unmoved). Wired
+   * live behind `ORWELL_FINAL_HOH_THREE_PART` (default OFF); the calibration/UAT harness leaves it off.
+   */
+  finalHohThreePart?: boolean;
+  /**
    * C1 (#1788, Q8 hybrid-greenlit) — the WIPEOUT REEL layer is live for this turn
    * (`ORWELL_WIPEOUT_REEL`). Off/absent ⇒ `beginStaged` computes no `failureStyle` fact for any staged-
    * comp drop ⇒ the `comp-elimination` content is BYTE-IDENTICAL to the pre-feature template/authored-
@@ -894,11 +907,11 @@ function hohField(s: LiveSeasonState, ctx: SeasonCtx): EntityId[] {
  * scores) — the scores feed the PURE, zero-rng `eliminationOrder` that drives the visible drop drama.
  */
 function resolveComp(
-  field: EntityId[], def: CompetitionDef, ctx: SeasonCtx, rng: RandomnessSource, playerApproach: Intent,
+  field: EntityId[], def: CompetitionDef, ctx: SeasonCtx, rng: RandomnessSource, playerApproach: Intent, forceSecondary = false,
 ): CompetitionResult {
   // 0127: a hybrid comp (def carries a `secondary`) blends that secondary aptitude into the score ONLY
   // when `ctx.mixedComps` is on; off ⇒ undefined ⇒ the pure single stat ⇒ byte-identical.
-  const secondaryStat = ctx.mixedComps ? def.secondary : undefined;
+  const secondaryStat = (ctx.mixedComps || forceSecondary) ? def.secondary : undefined; // 0128 Part 2 passes the blend directly (no 0127 flag dependency)
   return resolveCompetition(
     competitorsOf(field, ctx), def.type, roundIntents(field, ctx, playerApproach), rng, undefined, secondaryStat,
   );
@@ -924,9 +937,26 @@ function resolveHoh(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource, p
  * Pauses for the player's per-round approach (`comp-round`) BEFORE the staged outcome resolves; that
  * first approach is the binding intent the single roll honors (anti-sycophancy, committed-before).
  */
+/** 0128 - the field for a part of the three-part Final HOH: Part 1 all three; Part 2 the two Part-1 losers; Part 3 the two part-winners. */
+function finalHohPartField(s: LiveSeasonState, ctx: SeasonCtx, part: 1 | 2 | 3): EntityId[] {
+  if (part === 1) return hohField(s, ctx);
+  if (part === 2) return s.active.filter((id) => id !== s.p1Winner);
+  return [s.p1Winner!, s.p2Winner!];
+}
+
+/** 0128 - the competition for a part: endurance (physical) / physical+mental hybrid / quiz (mental), drawn (one rng draw) from the HOH library. */
+export function finalHohPartDef(part: 1 | 2 | 3, rng: RandomnessSource): CompetitionDef {
+  const matches = (d: CompetitionDef): boolean =>
+    d.phase === "hoh" && (part === 1 ? d.type === "endurance" : part === 2 ? (d.governing === "physical" && d.secondary === "mental") : d.type === "quiz");
+  const pool = [...COMPETITION_LIBRARY, ...COMPETITION_LIBRARY_PLUS].filter(matches);
+  return pool[rng.int(pool.length)]!;
+}
+
 function resolveHohBeat(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  const threePart = !!ctx.finalHohThreePart && s.active.length === 3;
+  const part: 1 | 2 | 3 = threePart ? (s.finalHohPart ?? 1) : 1;
   if (!s.competition) {
-    const field = hohField(s, ctx);
+    const field = threePart ? finalHohPartField(s, ctx, part) : hohField(s, ctx);
     // Anti-sycophancy: the player commits their approach BEFORE the comp resolves. If they are in the
     // field and have not committed one, pause for round 1 (no rng consumed — exactly the baseline pause).
     if (field.includes(ctx.player) && s.compIntent === undefined) {
@@ -936,9 +966,10 @@ function resolveHohBeat(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
     // Resolve ONCE with the baseline RNG pattern (byte-identical crown), then stage the reveals. The
     // committed `s.compIntent` (round 1's approach) is NOT cleared here — `advanceCompetition` consumes
     // it as round 1's expression and reveals the first drop, so round 1 is asked exactly once.
-    const def = drawFor(s, "hoh", rng, ctx);
-    const result = resolveComp(field, def, ctx, rng, s.compIntent ?? "compete");
-    recordDraw(s, "hoh", def); // committed for the week — the next hoh draw avoids it (0042)
+    const def = threePart ? finalHohPartDef(part, rng) : drawFor(s, "hoh", rng, ctx);
+    const result = resolveComp(field, def, ctx, rng, s.compIntent ?? "compete", threePart && part === 2);
+    if (threePart) s.finalHohPart = part; // 0128: the live part (crownCompetition advances it); persisted so a restart resumes
+    else recordDraw(s, "hoh", def); // committed for the week — the next hoh draw avoids it (0042)
     s.vetoComp = undefined;
     s.competition = beginStaged(s, ctx, rng, "hoh-competition", def, field, result);
     freezeCompTheme(s); // L-F4 (#1743): pin the theme inputs at draw so the presentation can't flip mid-comp
@@ -1255,6 +1286,16 @@ function crownCompetition(s: LiveSeasonState): BeatEvent {
   // TRAJECTORY_BEAT) and the per-round `comp-elimination` verb DO carry the drawn def's flavor.
   if (c.comp === "hoh-competition") {
     const finalThree = s.active.length === 3;
+    // 0128: Parts 1 and 2 of the three-part Final HOH ADVANCE the tournament - the structural beat stays `hoh-competition`; only Part 3 crowns the Final HOH below.
+    if (finalThree && s.finalHohPart === 1) {
+      s.p1Winner = winner; s.finalHohPart = 2;
+      return { beat: "final-hoh-part", content: `${winner} wins Part 1 of the final Head of Household and skips ahead to Part 3`, participants: [winner, ...c.field.filter((id) => id !== winner)] };
+    }
+    if (finalThree && s.finalHohPart === 2) {
+      s.p2Winner = winner; s.finalHohPart = 3;
+      return { beat: "final-hoh-part", content: `${winner} wins Part 2 of the final Head of Household and advances to Part 3`, participants: [winner, ...c.field.filter((id) => id !== winner)] };
+    }
+    if (finalThree && s.finalHohPart === 3) { s.finalHohPart = undefined; s.p1Winner = undefined; s.p2Winner = undefined; } // the tournament is over
     s.hoh = winner;
     s.beat = finalThree ? "final-eviction" : "nominations"; // Final 3 (0045) skips noms/veto
     return {

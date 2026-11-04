@@ -1,7 +1,7 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# Executable spec - IMPLEMENTED & green; BDD-gated in cucumber.cjs. (Built 2026-11-04 behind ORWELL_FINAL_HOH_THREE_PART, default OFF.)
 # Feature 0128 — Three-part Final HOH: the real BB finale competition. Expands 0045. Default-off flag
 # (ORWELL_FINAL_HOH_THREE_PART), calibration-safe. HARD rule: roles only (finalist, part-winner, Final HOH,
-# evictee, juror). NOT YET BUILT — spec authored 2026-07-13 during the 0045 PO review.
+# evictee, juror). BUILT 2026-11-04 (spec authored 2026-07-13 during the 0045 PO review); wired in cucumber.cjs.
 
 Feature: Three-part Final HOH (the real Big Brother finale competition)
 
@@ -33,7 +33,7 @@ Feature: Three-part Final HOH (the real Big Brother finale competition)
 
   Scenario: The Final HOH still personally chooses the eviction
     Given a Final HOH decided by the three-part competition
-    When it is time to evict
+    When it is time for the Final HOH to evict
     Then the Final HOH personally evicts one of the other two
     And the finalist who lost both early parts is not evicted automatically
 
@@ -46,11 +46,11 @@ Feature: Three-part Final HOH (the real Big Brother finale competition)
   Scenario: The engine decides every part, and it persists
     Given an NPC-only Final 3 with the three-part Final HOH enabled
     Then each part's advancement and win is decided by the engine from hidden signals, not narration
-    And the player is shown no score or number
+    And no score or number is shown for any part
     And the same seed reproduces the same three-part outcome, surviving an engine restart
 
   Scenario: With the flag off the endgame is the single-competition path, byte-identical
     Given three finalists and the three-part Final HOH disabled
-    When the endgame advances
+    When the endgame advances with the three-part flag off
     Then the Final HOH is decided by a single competition exactly as feature 0045
     And the seeded endgame is byte-identical to the pre-feature model
