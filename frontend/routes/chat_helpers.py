@@ -663,11 +663,40 @@ def _premiere_not_yet_steer() -> str:
             "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
+_PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
+
+
+def _entrance_stage_of(game_state) -> Optional[str]:
+    """A9 - the engine's premiere `entrance.stage` off the board (`premiere.entrance`), or None. The FE never infers the stage."""
+    try:
+        pr = (game_state or {}).get("premiere") if isinstance(game_state, dict) else None
+        ent = pr.get("entrance") if isinstance(pr, dict) else None
+        st = ent.get("stage") if isinstance(ent, dict) else None
+        return st if st in ("entrances", "toast", "done") else None
+    except Exception:
+        return None
+
+
+def premiere_entrance_active(user) -> bool:
+    """A9 - True while the premiere is in its entrances/toast stage (flag-on only). Reads the stash `note_premiere_turn` wrote."""
+    try:
+        return _runway_key(user) in _PREMIERE_ENTRANCE_STAGE
+    except Exception:
+        return False
+
+
 def note_premiere_turn(user, game_state) -> None:
-    """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft."""
+    """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft.
+    A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
     try:
         key = _runway_key(user)
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
+        stage = _entrance_stage_of(game_state) if phase == "premiere" else None
+        if stage in ("entrances", "toast"):
+            _PREMIERE_ENTRANCE_STAGE[key] = stage
+            _PREMIERE_MSGS.pop(key, None)
+            return
+        _PREMIERE_ENTRANCE_STAGE.pop(key, None)
         if phase == "premiere":
             _PREMIERE_MSGS[key] = _PREMIERE_MSGS.get(key, 0) + 1
             # P4h: the premiere has no engine clock (so no `daySchedule`), but production STILL owns the schedule - while the hold is on, hand the narrator the same in-fiction
@@ -682,6 +711,8 @@ def note_premiere_turn(user, game_state) -> None:
 
 def premiere_is_holding(user) -> bool:
     try:
+        if premiere_entrance_active(user):
+            return False  # A9: the entrances/toast are paced by the stall-nudge, not held
         n = _PREMIERE_MSGS.get(_runway_key(user))
         return n is not None and n < _PREMIERE_SOCIAL_MESSAGES
     except Exception:
