@@ -563,6 +563,7 @@ def clear_social_runway(user) -> None:
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
+    _PREMIERE_CLOCK_STARTED.discard(key)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -664,6 +665,7 @@ def _premiere_not_yet_steer() -> str:
             "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
+_PREMIERE_CLOCK_STARTED: set = set()  # runway keys whose first day-schedule board (the premiere's day-break) already armed its narration steer
 _PREMIERE_CLOCK_HOLD: dict = {}  # runway key -> True while the engine clock says the first HOH is not yet due (premiere phase, clock live)
 _PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
 
@@ -710,6 +712,11 @@ def note_premiere_turn(user, game_state) -> None:
         # hold: not due => hold (the clock brings it in); DUE => release at once, even if fewer than _PREMIERE_SOCIAL_MESSAGES messages have passed (a hang-out/lingering run
         # had advanced the clock to the event and the count-hold froze the due HOH comp). No `daySchedule` (clock off / pre-day-break) => the message count, unchanged.
         ds = (game_state or {}).get("daySchedule") if isinstance(game_state, dict) else None
+        if phase == "premiere" and isinstance(ds, dict) and "due" in ds and key not in _PREMIERE_CLOCK_STARTED:
+            # Live finding (Thursday dry run): the premiere exit's day-break is committed by the stall-nudge's SILENT advance, not by the pre-resolve, so the night->morning steer was never armed
+            # and the narrator kept the house "in bed" for ~7 turns after the board said Morning. The FIRST board that carries the day schedule IS that crossing: arm the same one-shot steer.
+            _PREMIERE_CLOCK_STARTED.add(key)
+            _DAY_BREAK_STEER[key] = _day_break_narration_steer("The first night in the house is over, and the first morning dawns.")
         if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
             _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
             if _PREMIERE_CLOCK_HOLD[key]:
