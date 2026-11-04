@@ -227,6 +227,16 @@ def test_scene_break_returns_directive_for_self_crown_phantom(monkeypatch):
     assert _USER in chat_helpers._DESYNC_REGROUND
 
 
+def test_scene_break_log_names_the_phase_and_the_claim(monkeypatch, caplog):
+    import logging
+    chat_helpers._LAST_BEAT_SIG[_USER] = _sig()
+    _board(monkeypatch, _sig(playerIsHoh=False))
+    with caplog.at_level(logging.WARNING):
+        _run(chat_helpers.screen_streamed_scene_break(_USER, "The feeds swing to you — you won HOH! Everyone erupts."))
+    line = next(r.getMessage() for r in caplog.records if "scene circuit-breaker HELD a phantom board change" in r.getMessage())
+    assert "phase=hoh" in line and len(line) > 140, line
+
+
 def test_scene_break_none_for_creative_prose_even_if_engine_down(monkeypatch):
     """Creative prose has no closed-set claim → the breaker never reads the board, never cuts."""
     async def boom(user=None):
@@ -351,3 +361,35 @@ def test_stream_loop_uses_the_scene_guard_helper():
     assert "_emit_guarded_scene(" in src
     assert "screen_streamed_scene_break" in src
     assert "_SCENE_CUTAWAY_LINE" in src
+
+
+# ── A/B 2026-11-04: ONE bounded in-turn re-voice after a cut that left only the cutaway ──────────────────────── #
+
+def test_cut_retry_directive_carries_the_queued_engine_truth_when_only_the_cutaway_was_shown():
+    chat_helpers._DESYNC_REGROUND.pop(_USER, None)
+    chat_helpers._reground_enqueue(_USER, "RE-GROUND ON THE BOARD — the engine shows week 1, phase veto-competition.")
+    d = agent_loop._scene_cut_retry_directive(True, False, agent_loop._SCENE_CUTAWAY_LINE, _USER)
+    assert d and "SCENE CUT" in d and "RE-GROUND ON THE BOARD" in d and "has not happened" in d
+    assert _USER in chat_helpers._DESYNC_REGROUND, "the next-turn re-ground stays queued — the retry only reads it"
+
+
+def test_cut_retry_is_bounded_and_skipped_when_real_narration_was_shown_or_nothing_was_cut():
+    assert agent_loop._scene_cut_retry_directive(True, True, agent_loop._SCENE_CUTAWAY_LINE, _USER) is None, "already spent"
+    assert agent_loop._scene_cut_retry_directive(False, False, "", _USER) is None, "nothing cut"
+    assert agent_loop._scene_cut_retry_directive(True, False, "The room goes quiet. " + agent_loop._SCENE_CUTAWAY_LINE, _USER) is None, \
+        "the player saw real narration this turn — a trimmed tail is not a hole"
+
+
+def test_cut_retry_works_without_a_queued_directive():
+    chat_helpers._DESYNC_REGROUND.pop(_USER, None)
+    d = agent_loop._scene_cut_retry_directive(True, False, "", _USER)
+    assert d and "BOARD block" in d
+
+
+def test_stream_loop_wires_the_single_cut_retry():
+    import os
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(base, "src", "agent_loop.py"), encoding="utf-8").read()
+    assert "_scene_cut_retry_directive(_scene_broken, _scene_cut_retry_used, full_response, owner)" in src
+    assert "if _is_live_game and not tool_blocks and _scene_broken:" in src
+    assert src.count("_scene_cut_retry_used = True") == 1 and src.count("_scene_cut_retry_used = False") == 1

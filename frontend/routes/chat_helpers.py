@@ -495,6 +495,20 @@ _RUNWAY_READY_RE = re.compile(
 _READY_FILLER = r"(?:(?:ok|okay|alright|all right|please|so|yeah|yes|sure|fine|then|nothing|nope|just|well)\s+)*"
 _READY_TARGET = (r"(?:(?:to|through|into|on to|onto|until|past|with|for)\s+)?(?:the\s+)?"
                  r"(?:nominations?|noms|veto|power of veto|comp|competition|ceremony|eviction|week|hoh|head of household|night|morning|next\b)")
+# A/B 2026-11-04: a plain NAVIGATION imperative ("go to the veto ceremony", "run the veto competition. who won?", "take me to nominations") is the clearest
+# readiness there is, and the narrow cue above missed it: the runway held the player for 2-3 more turns while the narrator (asked "who won?") invented the
+# result and the scene breaker cut it. Same narrowness contract: the message must START with the imperative and name a PHASE noun directly — "go to the
+# kitchen", "run to Sam and tell him the veto is rigged", "I go to the veto ceremony with Sam" never match.
+_NAV_NOUN = (r"(?:nominations?|noms|(?:power of )?veto(?:\s+(?:comp|competition|ceremony))?|(?:hoh\s+|head of household\s+)?(?:comp|competition|ceremony)|"
+             r"eviction(?:\s+night)?|(?:next\s+)?(?:week|night|morning)|hoh)\b")
+_NAV_READY_RE = re.compile(
+    r"^\s*" + _READY_FILLER + r"(?:"
+    r"(?:go|head|jump|skip|move)(?:\s+(?:on|ahead|over))?\s+(?:to|into|through)\s+(?:the\s+)?" + _NAV_NOUN +
+    r"|take\s+me\s+(?:to|into|through)\s+(?:the\s+)?" + _NAV_NOUN +
+    r"|(?:run|start|play)\s+(?:the\s+)?(?:next\s+)?" + _NAV_NOUN +
+    r")(?:\W.*)?$",
+    re.IGNORECASE | re.DOTALL,
+)
 _SHORT_READY_RE = re.compile(
     r"^\s*" + _READY_FILLER + r"(?:"
     r"(?:call\s+)?advance(?:game)?(?:\s+" + _READY_TARGET + r".*)?"
@@ -520,7 +534,7 @@ def _player_signals_ready(player_msg) -> bool:
     # the short, progression-only message ("advance", "ok continue", "advance to the veto") — punctuation (incl. dashes) normalised away, length-capped
     norm = re.sub(r"[\u2014\u2013\-.,;:!?\"'`()]+", " ", s)
     norm = re.sub(r"\s+", " ", norm).strip()
-    return len(norm.split()) <= 12 and bool(_SHORT_READY_RE.match(norm))
+    return len(norm.split()) <= 12 and bool(_SHORT_READY_RE.match(norm) or _NAV_READY_RE.match(norm))
 
 
 def _arm_runway(user, sig: str) -> None:
@@ -4046,8 +4060,11 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         directive = _narration_claims_outcome(text, before, live)
         if directive:
             _reground_enqueue(_dkey, directive)  # BL-004: bounded append
+            # Observability (A/B 2026-11-04): log WHICH claim tripped the cut and the engine phase — the bare line could not be
+            # classified afterwards (the cut scene is never persisted), so the cut rate could not be broken down by class.
             logger.warning("[orwell] scene circuit-breaker HELD a phantom board change for user=%s — "
-                           "cutting the whole scene, re-grounding next turn", user)
+                           "cutting the whole scene, re-grounding next turn (phase=%s; %s)", user, live.get("phase"),
+                           " ".join(str(directive).split())[:160])
             return directive
         return None
     except Exception as e:
@@ -5049,9 +5066,12 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         logger.debug("[orwell] spectator re-raise skipped for user=%s: %s", user, e)
         return False
 
+# A/B 2026-11-04: a READY player's staged competition is driven to its result in ONE pre-resolve pass (bounded), so the narration voices the engine's real winner.
+_COMP_RUN_HOPS = 8
+
 
 async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None,
-                                    _after_day_break: bool = False) -> dict:
+                                    _after_day_break: bool = False, _comp_hops: int = 0) -> dict:
     """If the live game sits at an unresolved engine-driven beat with NO player decision pending,
     advance that single beat (one advanceGame) so the moment prompt carries the engine's real
     outcome — but ONLY after the player has had their SOCIAL RUNWAY in the current beat (the
@@ -5240,6 +5260,14 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             logger.info("[orwell] day-break consumed at %s for user=%s — holding one social morning "
                         "turn (P1-2 #1361)", phase, user)
             return _hold_for_social(new_state)
+
+        # A/B 2026-11-04 (scene-cut root cause): a staged COMPETITION advances one round-beat per call while the player — who said "run it" / "who won?" — has
+        # already asked for the result; the narrator then voiced the whole outcome the engine had not reached and the scene breaker cut it. A READY player's
+        # competition keeps resolving here until it LEAVES the competition phase, a player decision pends (the recursion's own pending check), or the hop cap
+        # is hit. Comps only: the eviction reveal (E12 staged ballots) and the ceremonies keep one beat per turn.
+        if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig):
+            return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
 
         # ARM a fresh runway when the resolved beat landed the player in a NEW spectator ceremony
         # beat (a different week:phase, no new pending) — so the NEXT turns are theirs to socialize
