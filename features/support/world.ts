@@ -840,6 +840,18 @@ export class BbWorld extends World {
     };
   };
 
+  // A9 - premiere entrances scratch state (one bag).
+  pe?: {
+    session?: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
+    sandbox?: import("../../src/composition/registry").UserSandbox;
+    seed?: number;
+    sentinel?: string;
+    positions?: number[];
+    orderB?: string[];
+    gateAlwaysTrue?: boolean;
+    hohDuringEntrances?: boolean;
+  };
+
   // Feature 0125 — competition theme variety scratch state (one bag).
   ctv?: {
     on?: { views: import("../../src/ports/GameSession").CompetitionResultView[]; evictionOrder: readonly string[] };
