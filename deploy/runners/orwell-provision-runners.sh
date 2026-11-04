@@ -251,8 +251,9 @@ repo_visibility() {  # -> prints: public | private | unknown
     200) case "$(printf '%s' "$body" | sed -n 's/.*"private"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -n1)" in
            false) echo public ;;  true) echo private ;;  *) echo unknown ;;
          esac ;;
-    # Anonymous 404 = not publicly readable = private (or nonexistent; registration then fails anyway).
-    404) [[ -z "$GIT_TOKEN" ]] && echo private || echo unknown ;;
+    # 404 is NOT proof of "private": a proxy, a misrouted/unavailable API or a typo'd repo all look the
+    # same. Only an authenticated 200 with "private": true counts, so fail closed.
+    404) echo unknown ;;
     *)   echo unknown ;;
   esac
 }
@@ -399,6 +400,12 @@ fi
 chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_HOME"
 
 REG_TOKEN="$(cat "$TOKEN_PATH")"; rm -f "$TOKEN_PATH"
+
+# An --ephemeral runner de-registers itself after its one job but leaves its systemd unit behind, and
+# svc.sh install refuses an existing unit. Drop any leftover service before (re-)registering.
+if [[ -x "${RUNNER_HOME}/svc.sh" ]]; then
+  (cd "${RUNNER_HOME}" && ./svc.sh stop >/dev/null 2>&1 || true; ./svc.sh uninstall >/dev/null 2>&1 || true)
+fi
 
 echo "▸ register runner '${RUNNER_NAME}' (labels: ${RUNNER_LABELS}) — --replace is idempotent; --ephemeral = one job, then de-registered"
 sudo -u "$RUNNER_USER" -H bash -c "cd '${RUNNER_HOME}' && ./config.sh \

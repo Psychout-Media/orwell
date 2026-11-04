@@ -11,7 +11,9 @@
 >   need these runners.
 > - `orwell-provision-runners.sh` **refuses** a public repo (and one it cannot verify as private)
 >   unless you pass `--allow-public-repo` (env `ALLOW_PUBLIC_REPO=1`). Don't, unless the repo is
->   private or you have accepted the risk. `--remove` is never blocked.
+>   private or you have accepted the risk. `--remove` is never blocked. Only an authenticated API
+>   answer of `private: true` passes: with `--reg-token` (no PAT) the check cannot confirm privacy, so
+>   it refuses unless `--allow-public-repo` is given.
 > - Runners are registered `--ephemeral` (one job, then de-registered). That limits how long a
 >   runner stays exposed to a job; it is **not** a sandbox for hostile code.
 
