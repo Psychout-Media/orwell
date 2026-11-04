@@ -46,7 +46,9 @@ const SEEDS = Number.parseInt(process.env.ORWELL_CALIB_SEEDS ?? "30", 10); // mo
 const SEED_START = Number.parseInt(process.env.ORWELL_CALIB_SEED_START ?? "1", 10); // shard offset for parallel runs
 // `npm test` must NOT rewrite tracked files under docs/audits/data/. The artifact is only written on an
 // explicit opt-in: ORWELL_CALIB_WRITE=1 (to the default tracked location) or an explicit ORWELL_CALIB_OUT dir.
-const WRITE_ARTIFACTS = process.env.ORWELL_CALIB_WRITE === "1" || process.env.ORWELL_CALIB_OUT !== undefined;
+// An empty/blank ORWELL_CALIB_OUT is "unset", never an opt-in (it would resolve to the working directory).
+const CALIB_OUT = process.env.ORWELL_CALIB_OUT?.trim() || undefined;
+const WRITE_ARTIFACTS = process.env.ORWELL_CALIB_WRITE === "1" || CALIB_OUT !== undefined;
 const pct = (k: number, n: number): string => (n ? `${((100 * k) / n).toFixed(0)}%` : "—");
 
 describe("calibration instrument — passive vs active reach/win data (no tuning changes)", () => {
@@ -90,7 +92,7 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
 
       // A sharded run (SEED_START ≠ 1) without an explicit ORWELL_CALIB_OUT writes to its own subfolder, so
       // concurrent shards never overwrite each other's artifact.
-      const outDir = process.env.ORWELL_CALIB_OUT ?? (SEED_START === 1
+      const outDir = CALIB_OUT ?? (SEED_START === 1
         ? resolve(__dirname, "../../docs/audits/data")
         : resolve(__dirname, "../../docs/audits/data", `seeds-${SEED_START}-${SEED_START + SEEDS - 1}`));
       const outPath = resolve(outDir, "2026-06-19-calibration-data.json");
