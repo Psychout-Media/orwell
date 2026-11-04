@@ -171,7 +171,7 @@ describe("#1320 night-gate — the pure cross + the live gate are correct", () =
   });
 
   it("Phase 3a — a day-break seats EACH cadence beat (noms, veto, veto-ceremony, eviction) a day on", () => {
-    // The week is now one major beat per in-fiction day (WEEKLY_CADENCE): HOH → noms → veto → veto
+    // The week is now one major beat per in-fiction day (WEEKLY_CADENCE.dayOf; within-day slots DAY_SCHEDULE): HOH → noms → veto → veto
     // ceremony → eviction, each preceded by its own one-shot day-break. So a full week-1 walk sees FOUR
     // day-breaks (one per transition after the HOH crown), never two ceremonies stacked in one day.
     GameSessionAdapter.setTimeOfDayEnabled(true);

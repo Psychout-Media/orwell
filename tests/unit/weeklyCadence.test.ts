@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { WEEKLY_CADENCE, CLOCK } from "../../src/engine/sleepConstants";
+import { DAY_SCHEDULE } from "../../src/engine/daySchedule";
 import { phaseForHour } from "../../src/engine/timeOfDay";
 
 /**
@@ -35,27 +36,26 @@ describe("the weekly 5-cycle — strict order, no rest days, the daily-event spi
 });
 
 describe("period placement — HOH in the morning, veto comp in the afternoon, eviction in the evening", () => {
-  it("the HOH crowns in the MORNING (maximizing the post-HOH playable window — the rest of Day 1)", () => {
-    expect(WEEKLY_CADENCE.periodOf.hoh).toBe("morning");
-    // the HOH period start hour projects to morning, leaving the afternoon/evening/night of Day 1 to play.
-    expect(phaseForHour(CLOCK.phaseStartsHour.morning)).toBe("morning");
-    expect(CLOCK.phaseStartsHour.afternoon).toBeGreaterThan(CLOCK.phaseStartsHour.morning); // room after the HOH
+  it("the HOH comp is scheduled in the AFTERNOON per DAY_SCHEDULE (the house gets a morning to scramble first)", () => {
+    expect(DAY_SCHEDULE["hoh-competition"]).toBe("afternoon");
+    expect(phaseForHour(CLOCK.phaseStartsHour.afternoon)).toBe("afternoon");
+    expect(CLOCK.phaseStartsHour.evening).toBeGreaterThan(CLOCK.phaseStartsHour.afternoon); // room after the HOH
   });
 
   it("the veto COMPETITION runs in the AFTERNOON (Day 3, after the morning player draw)", () => {
-    expect(WEEKLY_CADENCE.periodOf["veto-draw"]).toBe("morning");
-    expect(WEEKLY_CADENCE.periodOf["veto-competition"]).toBe("afternoon");
+    expect(WEEKLY_CADENCE.dayOf["veto-draw"]).toBe(WEEKLY_CADENCE.dayOf["veto-competition"]); // same day, draw first
+    expect(DAY_SCHEDULE["veto-competition"]).toBe("afternoon");
     expect(phaseForHour(CLOCK.phaseStartsHour.afternoon)).toBe("afternoon");
   });
 
   it("the EVICTION is in the EVENING (Day 5)", () => {
-    expect(WEEKLY_CADENCE.periodOf.eviction).toBe("evening");
+    expect(DAY_SCHEDULE.eviction).toBe("evening");
     expect(phaseForHour(CLOCK.phaseStartsHour.evening)).toBe("evening");
   });
 
-  it("nominations and the veto ceremony are morning beats", () => {
-    expect(WEEKLY_CADENCE.periodOf.nominations).toBe("morning");
-    expect(WEEKLY_CADENCE.periodOf["veto-ceremony"]).toBe("morning");
+  it("nominations and the veto ceremony are afternoon beats per DAY_SCHEDULE", () => {
+    expect(DAY_SCHEDULE.nominations).toBe("afternoon");
+    expect(DAY_SCHEDULE["veto-ceremony"]).toBe("afternoon");
   });
 });
 
@@ -66,6 +66,6 @@ describe("the eviction → next-HOH gap is the one light 'process the eviction' 
     expect(WEEKLY_CADENCE.dayOf.eviction).toBe(5);
     const nextHohDay = WEEKLY_CADENCE.dayOf.eviction + 1; // Day 6
     expect(nextHohDay).toBe(6);
-    expect(WEEKLY_CADENCE.periodOf.hoh).toBe("morning"); // the next reign opens in the morning, like every HOH
+    expect(DAY_SCHEDULE["hoh-competition"]).toBe("afternoon"); // the next reign's HOH comp uses the same DAY_SCHEDULE slot
   });
 });

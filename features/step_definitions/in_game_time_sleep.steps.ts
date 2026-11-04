@@ -11,6 +11,7 @@ import {
   eventSpanHours, eventStartHour, eventSpillsPeriod, WAKE_HOUR, DAY_END_HOUR, PERIOD_HOURS,
 } from "../../src/engine/timeOfDay";
 import { CLOCK, WEEKLY_CADENCE } from "../../src/engine/sleepConstants";
+import { DAY_SCHEDULE } from "../../src/engine/daySchedule";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 import { linger } from "../../tests/support/linger";
@@ -315,22 +316,23 @@ Then("every day of the week carries a meaningful beat", function () {
 });
 
 Then("the HOH crowns in the morning, maximizing the post-HOH playable window", function () {
-  assert.equal(WEEKLY_CADENCE.periodOf.hoh, "morning");
-  assert.ok(CLOCK.phaseStartsHour.afternoon > CLOCK.phaseStartsHour.morning, "the day continues after the morning HOH");
+  // DAY_SCHEDULE is the one timetable: the HOH comp is scheduled for the afternoon (the house gets a morning to scramble first).
+  assert.equal(DAY_SCHEDULE["hoh-competition"], "afternoon");
+  assert.ok(CLOCK.phaseStartsHour.evening > CLOCK.phaseStartsHour.afternoon, "the day continues after the HOH");
 });
 
 Then("the veto competition runs in the afternoon", function () {
-  assert.equal(WEEKLY_CADENCE.periodOf["veto-competition"], "afternoon");
-  assert.equal(WEEKLY_CADENCE.periodOf["veto-draw"], "morning"); // the player draw precedes it, same day
+  assert.equal(DAY_SCHEDULE["veto-competition"], "afternoon");
+  assert.equal(WEEKLY_CADENCE.dayOf["veto-draw"], WEEKLY_CADENCE.dayOf["veto-competition"]); // the player draw precedes it, same day
 });
 
 Then("the eviction runs in the evening", function () {
-  assert.equal(WEEKLY_CADENCE.periodOf.eviction, "evening");
+  assert.equal(DAY_SCHEDULE.eviction, "evening");
 });
 
 Then("the next HOH begins the morning after the eviction, not eviction night", function () {
   assert.equal(WEEKLY_CADENCE.dayOf.eviction, 5);
-  assert.equal(WEEKLY_CADENCE.periodOf.hoh, "morning"); // the next reign opens in the morning of the day after
+  assert.equal(DAY_SCHEDULE["hoh-competition"], "afternoon"); // the next reign's HOH comp is on the day after, in the DAY_SCHEDULE slot
 });
 
 // --- Event durations + seeded start-within-period + spillover -------------------------------------
