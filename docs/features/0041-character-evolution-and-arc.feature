@@ -11,7 +11,8 @@ Feature: Character evolution & season arc
 
   Scenario: A blindside shifts the houseguest's emotional state
     Given a houseguest with a settled emotional state
-    When they live through a blindside on the live path
+    # AMEND 0041 #3: honest label - this drives the soul-evolution FUNCTION (`evolveEmotion`) directly; the LIVE hook (the consequence fold calling it) is covered by tests/unit/emotionalModifierLive.test.ts.
+    When they live through a blindside in the soul-evolution function
     Then their hidden emotional state shifts toward distress and volatility
 
   Scenario: The shift modulates later behavior
