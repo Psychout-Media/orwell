@@ -1,5 +1,10 @@
 # 0066 — In-game time of day & the nightly sleep economy
 
+> **Current default (AMEND 2026-11-04):** `ORWELL_TIME_OF_DAY` is now **default ON** in code
+> (`src/featureFlags.ts`, `defaultOn`) as well as in the FE session default and the deploy profile
+> (`deploy/orwell-env-defaults.sh`). The "code default off" wording below is the original rollout history, kept as written;
+> off/0/false still gives the dormant, byte-identical clock-off spine (what the calibration harness pins).
+
 **Status:** ✅ Built · **gate: BDD (`cucumber.cjs`) + unit** — the Phase-2 / 24-hour-model build (#1125,
 2026-06-28) promoted 0066 into the Cucumber gate (`docs/features/0066-in-game-time-and-sleep.feature` +
 `features/step_definitions/in_game_time_sleep.steps.ts`), alongside the Vitest suites named under

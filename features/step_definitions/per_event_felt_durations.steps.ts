@@ -68,7 +68,7 @@ let pfdAfter = 0;
 When("a beat advances the clock with no felt duration supplied", function () {
   const s = { nightDepth: 10, timeOfDay: "morning" } as unknown as LiveSeasonState;
   pfdBefore = s.nightDepth as number;
-  advanceClock(s); // the golden-replay / pre-0119 path
+  advanceClock(s); // the clock-off / pre-0119 path
   pfdAfter = s.nightDepth as number;
 });
 
