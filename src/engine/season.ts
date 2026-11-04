@@ -145,6 +145,8 @@ export interface NominationRead {
    * B3 / #2017 — the HOH's BELIEF that `target` is targeting them (`targets-me` claims; can be wrong), as a bounded nomination tilt. Reads claims only, never the edge. Absent ⇒ +0, byte-identical.
    */
   beliefPush?: (target: EntityId) => number;
+  /** B4 slice 3 (ORWELL_ASSURANCES): the HOH holds a KEPT casual assurance toward `target` ("you're safe with me") - kept off the block while two legal others remain. Absent => byte-identical. */
+  protectedByAssurance?: (target: EntityId) => boolean;
 }
 
 /** A nomination pair plus the HOH's actual TARGET (a backdoor leaves the target OFF the block). */
@@ -179,6 +181,7 @@ export function nominationPlan(
   const mates = blocFor(blocs, hoh)?.members ?? [];
   const nonMates = cands.filter((c) => !mates.includes(c));
   if (nonMates.length >= 2) cands = nonMates;
+  if (read.protectedByAssurance) { const free = cands.filter((c) => !read.protectedByAssurance!(c)); if (free.length >= 2) cands = free; } // B4: a kept assurance shields the assured
   const N = DECISION.nomination;
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + W.floaterWeight * floaterRead(t, active, rel) +
