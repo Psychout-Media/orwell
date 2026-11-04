@@ -103,3 +103,12 @@ def test_the_pre_reveal_bypass_only_reads_the_board_when_text_can_hold_a_nominee
     board["sig"] = dict(BOARD, phase="eviction", evictionBallots=0, nomNames=["Nom Alpha", "Nom Beta"])
     out = run(ch.screen_role_claims(None, '@[Hoh Person] "Nom Alpha."\n'))
     assert "Nom Alpha" not in out and board["calls"] > calls0
+
+
+def test_the_pre_reveal_bypass_matches_name_tokens_on_word_boundaries_not_substrings(board):
+    # A short nominee-name token ("Al") must not fire the board read on ordinary prose that merely CONTAINS it ("also", "alone").
+    ch._LAST_BEAT_SIG["gs:t"] = dict(BOARD, phase="eviction", evictionBallots=0, nomNames=["Al Short", "Nom Beta"])
+    calls0 = board["calls"]
+    t = "Always the lamps hum, and Alone the house waits in the dark.\n"
+    assert run(ch.screen_role_claims(None, t)) == t
+    assert board["calls"] == calls0, "substring 'Al' inside 'Always'/'Alone' must not trigger the engine round-trips"

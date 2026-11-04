@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { renderBoardRecap } from "../../src/engine/momentPrompts";
 import { resolvePending } from "../../features/support/answerPending";
 
 /**
@@ -70,6 +71,18 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     });
     const block = hc(s);
     expect(block).toMatch(/The player \(you, the second person\) is: [^\n]*NOT the Head of Household[^\n]*NOT on the block/);
+  });
+
+  it("the Final 3 final-eviction: no 'nominees' — the HOH alone chooses between the two remaining rivals", () => {
+    const s = driveTo((ss) => ss.getGameState().phase.startsWith("final-eviction"));
+    const view = s.getGameState();
+    expect(view.ceremony.nominees).toHaveLength(0);
+    const board = (renderBoardRecap(view) ?? []).join("\n");
+    expect(board).toContain("BOARD");
+    expect(board).not.toMatch(/nobody yet — name no nominees/);
+    expect(board).toMatch(/Final 3 the HOH alone chooses/);
+    // …while an earlier phase with no nominees keeps the original wording.
+    expect((renderBoardRecap({ ...view, phase: "nominations" }) ?? []).join("\n")).toMatch(/nobody yet — name no nominees/);
   });
 
   it("outside the ceremonies the block carries no BOARD section (byte-identical)", () => {

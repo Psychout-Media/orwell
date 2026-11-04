@@ -63,7 +63,7 @@ _CUES: "list[tuple]" = [  # (role, regex, bind, gap[, dash_ok])
     ("hoh", re.compile(r"\b(?:wins?|won|winning|claims?|earns?)\s+" + _OBJ_DET + r"(?:first\s+|new\s+|next\s+)?" + _HOHW_WIN, re.IGNORECASE), "before", 25),
     ("hoh", re.compile(r"\b(?:new|next|latest)\s+" + _HOHW + r"\s*(?:is|was|:)\s*", re.IGNORECASE), "after", 6),
     ("hoh", re.compile(r"\b" + _HOHW + r"\s+(?:is|goes\s+to|winner|champion)\s*", re.IGNORECASE), "after", 6),
-    ("hoh", re.compile(r"\b(?:the\s+)?(?:power|crown|keys?|HOH\s+room|nomination\s+keys?)(?:\s+(?:is|are)|'s|’s)\s+(?:now\s+|all\s+)?", re.IGNORECASE), "after", 6),
+    ("hoh", re.compile(r"\b(?:the\s+)?(?<!veto\s)(?:power|crown|keys?|HOH\s+room|nomination\s+keys?)(?:\s+(?:is|are)|'s|’s)\s+(?:now\s+|all\s+)?", re.IGNORECASE), "after", 6),
     # ── nominees ───────────────────────────────────────────────────────────────────────────────────────────────────
     ("nominee", re.compile(r"\b(?:nominates?|nominated|nominating|puts?\s+up|put\s+up)\b\s*", re.IGNORECASE), "after", 70),
     ("nominee", re.compile(r"\b(?:on\s+the\s+block|up\s+for\s+eviction)\b", re.IGNORECASE), "before", 40),
@@ -97,6 +97,9 @@ _BALLOT_RE = re.compile(
 _HYPO_RE = re.compile(
     r"\b(?:if|whether|unless|whoever|will|would|might|may|could|should|shall|going\s+to|gonna|hope[sd]?|wish(?:es)?|want(?:s|ed)?\s+to|"
     r"trying\s+to|try(?:ing)?\s+to|plans?\s+to|need(?:s)?\s+to|can|can['’]t|cannot|someone|somebody|anyone|no\s+one|nobody)\b|\?", re.IGNORECASE)
+# "You'll win the HOH" / "you'd be crowned": a future/conditional contraction. Kept OUT of _HYPO_RE because the ceremony ADDRESS cue is itself
+# future-tense dialogue ("Eli, Jeremy — you'll make your case tonight") and must still read as a claim about who is up.
+_HYPO_CONTR_RE = re.compile(r"['’](?:ll|d)\b", re.IGNORECASE)
 _PAST_REF_RE = re.compile(r"\b(?:last\s+week|last\s+night|earlier|previous(?:ly)?|before|ago|remember)\b", re.IGNORECASE)
 _CLAUSE_BREAK = ",;:—–"
 
@@ -198,10 +201,10 @@ def _clause_bounds(s: str, a: int, b: int) -> "tuple[int, int]":
     return lo, hi
 
 
-def _non_assertive(s: str, a: int, b: int) -> bool:
+def _non_assertive(s: str, a: int, b: int, contractions: bool = True) -> bool:
     lo, hi = _clause_bounds(s, a, b)
     clause = s[lo:hi]
-    return bool(_HYPO_RE.search(clause) or _PAST_REF_RE.search(clause)) or "?" in s
+    return bool(_HYPO_RE.search(clause) or _PAST_REF_RE.search(clause) or (contractions and _HYPO_CONTR_RE.search(clause))) or "?" in s
 
 
 def cue_instances(unit: str, phase: str) -> "list[dict]":
@@ -215,7 +218,7 @@ def cue_instances(unit: str, phase: str) -> "list[dict]":
         if role in ("nominee-addr", "vote-for") and not ph.startswith(_BALLOT_PHASES):
             continue
         for m in rx.finditer(s):
-            if _non_assertive(s, m.start(), m.end()):
+            if _non_assertive(s, m.start(), m.end(), contractions=role != "nominee-addr"):
                 continue
             out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap, "dash": bool(_flags and _flags[0])})
     if ph.startswith(_BALLOT_PHASES) and _BALLOT_RE.search(s) and "?" not in s:

@@ -383,6 +383,16 @@ def test_second_person_claims_are_the_players_and_judged_against_the_engine():
     assert not stripped("You take the Power of Veto.\n", sig(vetoHolderName="Player Epsilon"))[1]
 
 
+def test_second_person_conditionals_and_the_veto_power_are_not_phantom_hoh_claims():
+    s = sig(phase="veto-competition", hohName="Hoh Person", vetoHolderName=None)
+    for t in ["You'll win the HOH if the wall holds.\n", "You'd be crowned HOH by morning, they say.\n", "Maybe you'll take the Power of Veto.\n",
+              "The veto power is yours to use.\n", "The veto power's yours if you hold the medallion.\n"]:
+        assert not stripped(t, s)[1], t
+    # the assertive forms are still caught
+    assert stripped("You're the new Head of Household.\n", s)[1]
+    assert stripped("The power's yours.\n", s)[1]
+
+
 def test_second_person_is_not_bound_to_the_nominee_address_cues():
     t = '@[Hoh Person] "Nom Alpha, Nom Beta — you\'ll make your case tonight."\n'
     assert not stripped(t, sig(**EVS))[1]

@@ -1633,11 +1633,12 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
   if (!CEREMONY_PHASE_PREFIXES.some((p) => phase.startsWith(p))) return undefined;
   const cer = view.ceremony;
   const hohComp = phase.startsWith("hoh-competition");
+  const finalThree = phase.startsWith("final-eviction");
   if (!cer || (!hohComp && !(cer.hoh || cer.nominees.length || cer.veto.holder || (cer.veto.players ?? []).length))) return undefined;
   const noms = cer.nominees.map((nm) => nm.name);
   const lines = [
     "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
-    `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : "nobody yet — name no nominees"}.`,
+    `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : finalThree ? "nobody — in the Final 3 the HOH alone chooses which of the two remaining rivals leaves; do not call anyone a nominee" : "nobody yet — name no nominees"}.`,
     `    Veto: ${cer.veto.holder
       ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
       : "still being played or not yet decided — name no winner and no holder"}.`,
