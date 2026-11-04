@@ -1903,7 +1903,8 @@ export function advanceClockPerScene(
   if (s.nightDepth === undefined) return; // the day hasn't started; the per-beat clock initializes it
   if (s.sceneKey !== sceneKey) { s.sceneKey = sceneKey; s.sceneAccruedHours = 0; } // a new scene: fresh cap
   const accrued = s.sceneAccruedHours ?? 0;
-  const advance = Math.max(0, Math.min(proposedHours, capHours - accrued)); // clamp to the scene's remaining room
+  const clamped = Math.max(0, Math.min(proposedHours, capHours - accrued)); // a PROPOSED felt duration clamps to the scene's remaining room…
+  const advance = Math.max(clamped, SCENE.minPerMessageHours);               // …but every message bills at least the pace floor (P2b: the clock always brings the event in)
   s.sceneAccruedHours = accrued + advance;
   if (advance > 0) advanceClockBy(s, advance, false);
 }

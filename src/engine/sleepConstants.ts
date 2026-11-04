@@ -79,9 +79,17 @@ export const CLOCK: ClockConstants = {
  * realism (bigger = the day feels its finite scheming time) against pace (smaller = the house moves slower).
  */
 export const SCENE = {
-  perExchangeHours: 0.2, // ~12 min per turn within a scene
-  capHours: 4,           // = SCENE_FELT_MINUTES.max (240) / 60 — one scene never bills more than this
+  // P2b (Ryne 2026-11-04, "production owns the schedule"): the PACE of an ordinary message. A morning is 4 in-game hours (8 -> 12), so 0.4h/message brings a
+  // scheduled afternoon event in after ~10 ordinary messages (the PO's "8-12 per morning"). ONE constant to tune: MESSAGES_PER_MORNING below.
+  perExchangeHours: 0.4,
+  // The FLOOR every message bills even when its scene has hit the cap — the clock always brings a scheduled event in on its own (a stuck clock is the thing the
+  // FE's logged message cap guards against). Equal to the pace: only a PROPOSED felt duration (a long scene) can bill more, and that stays capped below.
+  minPerMessageHours: 0.4,
+  capHours: 4,           // = SCENE_FELT_MINUTES.max (240) / 60 — one scene's PROPOSED felt time never bills more than this
 } as const;
+
+/** The default pace a player experiences: ordinary messages from a morning wake (8am) to the afternoon start (12) — derived, never set independently. */
+export const MESSAGES_PER_MORNING = Math.round((CLOCK.phaseStartsHour.afternoon - CLOCK.wakeHour) / SCENE.perExchangeHours);
 
 /**
  * 0117 (in-game-time pivot, Phase 1) — the in-game hours that must elapse during the player's social
