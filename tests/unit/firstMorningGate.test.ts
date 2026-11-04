@@ -30,7 +30,7 @@ describe("P4b — the first HOH waits for its hour on day 1", () => {
     expect(live.timeOfDay).toBe("morning");
     const st = s.getGameState();
     expect(st.phase).toBe("hoh-competition");
-    expect(st.daySchedule).toEqual({ next: "hoh-competition", phase: "afternoon", due: false });
+    expect(st.daySchedule).toEqual({ next: "hoh-competition", phase: "afternoon", due: false, minutesUntil: 240 }); // A7: 8am -> the 12:00 afternoon start = exactly 240 minutes (exact, not a subset)
     // the following advance is where the HOH comp actually starts (the FE holds this call until 12:00)
     expect(views[2]!.pending?.kind === "comp-round" || views[2]!.event?.beat === "hoh-competition" || views[2]!.event?.beat === "comp-elimination").toBe(true);
   });
