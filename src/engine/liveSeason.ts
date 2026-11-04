@@ -77,6 +77,7 @@ import { MANNER_THRESHOLDS, MANNER_GRADING } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
+import { jurorProfile, profiledLean, profiledWeights } from "./jurorProfile";
 import { drawCompetition, competitionById, COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS } from "./competitionLibrary";
 import type { CompetitionDef, CompetitionFormat, CompetitionPhase } from "./competitionLibrary";
 import { GEN_COMPETITION_BOUNDS } from "./genCompetitionConstants";
@@ -825,6 +826,12 @@ export interface SeasonCtx {
    * live behind `ORWELL_FINAL_HOH_THREE_PART` (default OFF); the calibration/UAT harness leaves it off.
    */
   finalHohThreePart?: boolean;
+  /**
+   * A2 (design §13, `ORWELL_JUROR_PROFILES`, default OFF) - each juror votes by their OWN profile (archetype weights + friend-forgives) instead of the one global weight
+   * vector. Absent/false => the global ballot, byte-identical (the seeded spine is unmoved). `jurorProfileSalt` (the game seed) keeps profiles stable per game.
+   */
+  jurorProfiles?: boolean;
+  jurorProfileSalt?: string | number;
   /**
    * C1 (#1788, Q8 hybrid-greenlit) — the WIPEOUT REEL layer is live for this turn
    * (`ORWELL_WIPEOUT_REEL`). Off/absent ⇒ `beginStaged` computes no `failureStyle` fact for any staged-
@@ -1722,7 +1729,9 @@ export function voteChoice(
     // character-mediated, engine-tallied. Absent provider ⇒ 0 ⇒ byte-identical (the juryReach spine).
     (ctx.campaignTiltFor?.(n, voter) ?? 0) +
     // 0024: this voter's own residual memory of `n` (a grudge raises the odds they evict `n`, a favor lowers them).
-    (ctx.memoryTiltFor?.(n, voter) ?? 0) -
+    (ctx.memoryTiltFor?.(n, voter) ?? 0) +
+    // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
+    (ctx.beliefTiltFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
     V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
@@ -2527,7 +2536,12 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
   const votes: Record<EntityId, EntityId> = { ...(f.votes ?? {}) };
   for (const juror of f.jury) {
     if (votes[juror]) continue; // the player's own vote (recorded interactively) is kept
-    const leanFor = (fin: EntityId): number =>
+    const prof = ctx.jurorProfiles ? jurorProfile(juror, ctx.jurorProfileSalt ?? 0) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
+    const leanFor = prof
+      ? (fin: EntityId): number =>
+          profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerFor(s, juror, fin), prof) +
+          profiledWeights(prof).gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0)
+      : (fin: EntityId): number =>
       juryLean(edgeAsJuryRel(s, juror, fin, ctx), mannerFor(s, juror, fin)) +
       // GAME RESPECT (ruling 2026-06-11): jurors weigh who actually PLAYED — the public resume
       // (comp wins) splits the two finalists; a goat with no game starts every juror down a
@@ -2536,7 +2550,7 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     // Each juror questioned BOTH finalists (18-Q&A), so each has a recorded appeal here — scored
     // symmetrically by the same `appealEffect`; the player's own answers are exactly as weighted as the NPC's.
     const perfFor = (fin: EntityId): number => appealPerf(f, fin, juror, ctx, s);
-    votes[juror] = castJuryVote(f.finalists, leanFor, perfFor, rng);
+    votes[juror] = prof ? castJuryVote(f.finalists, leanFor, perfFor, rng, profiledWeights(prof)) : castJuryVote(f.finalists, leanFor, perfFor, rng);
   }
   return votes;
 }

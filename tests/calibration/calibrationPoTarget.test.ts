@@ -3,7 +3,10 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
-import { playSeason, summarize, type Arm, type SeasonMetrics } from "./calibrationArms";
+import { playSeason, summarize, type Arm as AnyArm, type SeasonMetrics } from "./calibrationArms";
+
+/** The standing PO gate measures the three original arms only; the jury-managing `managed` arm (A1) is an instrument-only arm. */
+type Arm = Exclude<AnyArm, "managed">;
 import { poViolations } from "./poTargetBands";
 
 /**

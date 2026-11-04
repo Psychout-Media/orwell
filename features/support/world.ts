@@ -444,6 +444,10 @@ export class BbWorld extends World {
   egCtx?: import("../../src/engine/liveSeason").SeasonCtx;
   egWeek?: import("../../src/domain/eligibility").WeekState;
   egVetoFieldOk?: boolean;
+  egReplacementsSeen?: number;
+  egReplacementIsVetoHolder?: boolean;
+  egLastReplacement?: string;
+  egLastReplacementWeek?: number;
   egEmptyElectorate?: boolean;
   egFinished?: boolean;
   egSawFinalEviction?: boolean;

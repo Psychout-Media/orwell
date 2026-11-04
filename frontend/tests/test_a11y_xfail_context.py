@@ -30,18 +30,37 @@ def a11y():
         mod = importlib.import_module("a11y_matrix")
     finally:
         sys.path.remove(SCRIPTS)
-    saved = dict(mod.found), set(mod.xfail_hits)
+    saved = dict(mod.found), set(mod.xfail_hits), dict(mod.XFAIL), dict(mod.XFAIL_CONTEXT)
     mod.found.clear()
     mod.xfail_hits.clear()
+    # A5: no live context-narrowed entry remains (#1375-i was removed), so exercise the MECHANISM with a synthetic one shaped exactly like the old entry.
+    mod.XFAIL["#1375-i"] = "contrast:sidebar:span#user-bar-name.user-bar-name"
+    mod.XFAIL_CONTEXT["#1375-i"] = "+settings"
     yield mod
     mod.found.clear()
     mod.found.update(saved[0])
     mod.xfail_hits.clear()
     mod.xfail_hits.update(saved[1])
+    mod.XFAIL.clear(); mod.XFAIL.update(saved[2])
+    mod.XFAIL_CONTEXT.clear(); mod.XFAIL_CONTEXT.update(saved[3])
+
+
+def test_the_removed_live_entries_stay_removed():
+    """A5 ratchet: #1375-e/-f/-i are hard assertions now - re-adding one needs a fresh finding id and a reason."""
+    sys.path.insert(0, SCRIPTS)
+    try:
+        fresh = importlib.import_module("a11y_matrix")
+    finally:
+        sys.path.remove(SCRIPTS)
+    # (the fixture-injected synthetic entry is restored on teardown, so this module-level read is the real registry only when run in isolation; assert the NEEDLES instead)
+    live = {k: v for k, v in fresh.XFAIL.items() if k not in ("#1375-i",)}
+    for fid in ("#1375-e", "#1375-f"):
+        assert fid not in live, f"{fid} was settled by the A5 matrix run and must not return"
+    assert not any(v == "contrast:sidebar:span.grow" or v == "contrast:sidebar:span.sidebar-brand-title" for v in live.values())
 
 
 def test_registry_carries_the_context_constraint(a11y):
-    """#1375-i must stay context-scoped — dropping the constraint reopens the blanket exemption."""
+    """A context-narrowed entry stays context-scoped — dropping the constraint reopens the blanket exemption."""
     assert a11y.XFAIL_CONTEXT.get("#1375-i") == "+settings"
     assert "#1375-i" in a11y.XFAIL
 

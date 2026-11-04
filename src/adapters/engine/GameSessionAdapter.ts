@@ -588,11 +588,17 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 
 /**
  * 0128 (issue #2045) - the THREE-PART Final HOH (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz between the two part-winners)
- * instead of the single Final-3 competition. OFF unless `ORWELL_FINAL_HOH_THREE_PART=1`: three stat-typed comps change which finalist becomes Final HOH for a given
- * seed, so it is calibration-gated (`juryReach` re-confirmed ON before the deploy flips it). Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp
- * path runs byte-identically.
+ * instead of the single Final-3 competition. ON unless `ORWELL_FINAL_HOH_THREE_PART=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne wants it) after
+ * `juryReach` + `calibrationGradient` held their bands ON. Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp path runs byte-identically.
  */
-const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = process.env.ORWELL_FINAL_HOH_THREE_PART === "1";
+const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THREE_PART");
+
+/**
+ * A2 (design §13) - PER-JUROR vote profiles (archetype weights + friend-forgives) instead of one global ballot weight vector. OFF unless `ORWELL_JUROR_PROFILES=1`: it changes
+ * how individual jurors weigh the terms (the house-mean weight per term is preserved by construction), so it is calibration-gated. Off => `ctx().jurorProfiles` is absent and the
+ * ballot is byte-identical.
+ */
+const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1";
 
 /**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
@@ -1173,6 +1179,7 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
+  private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
 
   private confessionalDepthEnabled = CONFESSIONAL_DEPTH_ENABLED_DEFAULT;
   /** 0123 — NPC-initiated deal offers to the player; off ⇒ no offer/pending/fold ever (byte-identical). */
@@ -7139,6 +7146,7 @@ export class GameSessionAdapter implements GameSession {
       // the calibration/golden harness ⇒ absent ⇒ pure single-stat resolution ⇒ byte-identical).
       ...(this.compMixedEnabled ? { mixedComps: true as const } : {}),
       ...(this.finalHohThreePartEnabled ? { finalHohThreePart: true as const } : {}),
+      ...(this.jurorProfilesEnabled ? { jurorProfiles: true as const, jurorProfileSalt: this.gameSeed ?? 0 } : {}),
       // C1 (#1788): the Wipeout Reel presentation layer — present ONLY when enabled (off in the
       // calibration/golden harness ⇒ absent ⇒ no failure-style fact computed ⇒ byte-identical
       // `comp-elimination` content). `archetypeOf` rides ALONGSIDE it — `beginStaged` only ever reads it
@@ -7175,6 +7183,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
   finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
+  /** A2 - turn per-juror vote profiles on/off for this session (tests/BDD; the deploy sets `ORWELL_JUROR_PROFILES`). */
+  setJurorProfilesEnabled(on: boolean): void { this.jurorProfilesEnabled = on; }
+  jurorProfilesEnabledNow(): boolean { return this.jurorProfilesEnabled; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
   wipeoutReelEnabledNow(): boolean { return this.wipeoutReelEnabled; }
 
