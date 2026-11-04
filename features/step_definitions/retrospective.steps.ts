@@ -31,7 +31,8 @@ function rtNewGame(w: BbWorld, seed: number): void {
   const user = `rt${rtUsers++}`;
   const sb = reg.sandboxFor(user);
   // This scenario pins the LEGACY pre-scheduled twist path (it expects the sealed, never-fired reserve twist to be named on unseal); reactive twists are
-  // default-ON since 2026-11-03 and have their own gates (reactiveTwistsGuard / reactiveTwistsPlayerPaths).
+  // default-ON since 2026-11-03: their unseal (the armed-but-unfired twists, null week) is gated by tests/unit/retrospectiveReactiveTwists.test.ts, and the
+  // season-level twist gates are reactiveTwistsGuard / reactiveTwistsPlayerPaths.
   sb.session.setReactiveTwistsEnabled(false);
   sb.session.createCharacter({ playerName: "The Player", seed });
   // Plant marked hidden state so the sealed/unsealed assertions have teeth: an off-screen

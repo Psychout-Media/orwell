@@ -3142,7 +3142,12 @@ export class GameSessionAdapter implements GameSession {
     // fired (`firedTwists`) — the "sealed twist that never fired" is simply absent, as it was invisible.
     const twists = this.live.reserve?.length
       ? this.live.reserve.map((t) => ({ kind: t.kind as string, firedWeek: fired.get(t.kind) ?? null }))
-      : [...fired].map(([kind, week]) => ({ kind, firedWeek: week }));
+      : [
+        ...[...fired].map(([kind, week]) => ({ kind, firedWeek: week })),
+        // Reactive path, unsealed AFTER the crown (0048: "any unfired twist"): the twists the sealed plan had ARMED this season but the house never earned —
+        // named with a null week, exactly like an unfired legacy reserve entry. (An unarmed one was never in play, so it is not listed.)
+        ...this.armedUnfiredReactiveTwists(fired),
+      ];
     // E12: the weekly secret ballots unseal HERE — and only here, behind the same terminal gate.
     const evictionVotes = (this.live.voteRecord ?? []).map((r) => ({
       week: r.week,
@@ -11765,6 +11770,16 @@ export class GameSessionAdapter implements GameSession {
   private juryStartIndex(): number {
     const cast = this.house ? this.house.npcs.length + 1 : 16;
     return Math.max(0, cast - 2 - 9);
+  }
+
+  /** 0025 reactive: the twists the season's sealed plan ARMED that never fired (engine-only; only ever read by the post-crown retrospective unseal). */
+  private armedUnfiredReactiveTwists(fired: ReadonlyMap<string, number>): Array<{ kind: string; firedWeek: null }> {
+    const plan = this.live?.twistPlan;
+    if (!plan) return [];
+    const armed: Array<[string, boolean]> = [
+      ["double-eviction", plan.doubleEvictionArmed], ["secret-veto", plan.secretVetoArmed], ["battle-back", plan.battleBackArmed],
+    ];
+    return armed.filter(([kind, on]) => on && !fired.has(kind)).map(([kind]) => ({ kind, firedWeek: null }));
   }
 
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */

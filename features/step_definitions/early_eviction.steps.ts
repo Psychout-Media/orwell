@@ -5,6 +5,7 @@ import type { UserSandbox } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { SessionCore } from "../../src/engine/sessionSnapshot";
 import { resolvePending } from "../support/answerPending";
+import { PLAYER } from "../../src/domain/ids";
 import { EngineRefusal } from "../../src/domain/errors";
 
 // Feature 0133 — early eviction: skip-or-watch + the finale-night interview. Roles only — no names.
@@ -95,7 +96,9 @@ When("the remaining weeks are advanced", function () {
 Then("each completed eviction night produced exactly one week digest", function () {
   const d = ee!.s.getGameState().weekDigests ?? [];
   const live = ee!.s.snapshot().live!;
-  const after = live.evictionOrder.slice(ee!.evictionsAtChoice);
+  // Slice by the player's own position in the CURRENT record (identity), not a stored numeric index: a battle-back removes an earlier evictee and shifts it.
+  const at0 = live.evictionOrder.indexOf(PLAYER);
+  const after = live.evictionOrder.slice(at0 >= 0 ? at0 + 1 : ee!.evictionsAtChoice);
   const bb = (live.firedTwists ?? []).filter((t) => t.kind === "battle-back").length;
   assert.ok(after.length > 0, "the watched stretch contained at least one eviction");
   const evictees = d.map((x) => x.evicted?.id);
