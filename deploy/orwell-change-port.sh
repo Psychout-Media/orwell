@@ -208,13 +208,14 @@ if [[ -f "$DROPIN" ]];    then DROPIN_EXISTED=1; DROPIN_SAVED="${snap_dir}/dropi
 
 # The REAL probe: the front-end itself must answer its health route on the port (a bare listener —
 # anything else holding the port — does not count).
-probe_port() { curl -fsS --max-time 2 "http://127.0.0.1:${1}/api/health" 2>/dev/null | grep -q healthy; }
+probe_port() { curl -fsS --max-time 2 "http://127.0.0.1:${1}/api/health" 2>/dev/null | grep -Eq '"status"[[:space:]]*:[[:space:]]*"healthy"'; }
 wait_for_port() { local i; for i in $(seq 1 "${ORWELL_PORT_WAIT:-20}"); do probe_port "$1" && return 0; sleep 1; done; return 1; }
 
 revert_port() {
   warn "reverting to the previous port ${CUR_PORT}"
-  if [[ $ENV_EXISTED -eq 1 ]]; then cat "$ENV_SAVED" > "$ENV_FILE"; else rm -f "$ENV_FILE"; fi
-  if [[ $DROPIN_EXISTED -eq 1 ]]; then mkdir -p "$DROPIN_DIR"; cat "$DROPIN_SAVED" > "$DROPIN"
+  # cp -p: put back the original bytes AND owner/mode (the secrets file must not keep the new metadata)
+  if [[ $ENV_EXISTED -eq 1 ]]; then cp -p "$ENV_SAVED" "$ENV_FILE"; else rm -f "$ENV_FILE"; fi
+  if [[ $DROPIN_EXISTED -eq 1 ]]; then mkdir -p "$DROPIN_DIR"; cp -p "$DROPIN_SAVED" "$DROPIN"
   else rm -f "$DROPIN"; rmdir "$DROPIN_DIR" 2>/dev/null || true; fi
   systemctl daemon-reload || true
   if [[ $NO_RESTART -eq 1 ]]; then return 0; fi

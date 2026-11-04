@@ -78,6 +78,8 @@ _CURL_READY = r"""#!/usr/bin/env python3
 import os, sys
 args = sys.argv[1:]
 open(os.path.join(os.environ["STUB_DIR"], "curl.log"), "a").write(" ".join(args) + "\n")
+if "-K" in args:  # curl config on stdin (how the script passes the bearer token): log it separately
+    open(os.path.join(os.environ["STUB_DIR"], "curl-config.log"), "a").write(sys.stdin.read() + "\n")
 url = args[-1]
 out = None; code_fmt = "-w" in args
 if "-o" in args:
@@ -100,8 +102,17 @@ import os, re, sys
 url = sys.argv[-1]
 m = re.search(r":(\d+)/", url)
 if m and m.group(1) in os.environ.get("STUB_HEALTHY_PORTS", "").split():
-    sys.stdout.write('{"status": "healthy"}'); sys.exit(0)
+    status = "unhealthy" if m.group(1) in os.environ.get("STUB_UNHEALTHY_PORTS", "").split() else "healthy"
+    sys.stdout.write('{"status": "%s"}' % status); sys.exit(0)
 sys.exit(7)
+"""
+
+
+# cp stub: fails when the DESTINATION is a data/.env (uid-independent failure injection, unlike chmod 0).
+_CP_FAIL_ENV = r"""#!/usr/bin/env bash
+dest="${@: -1}"
+if [[ "$dest" == */data/.env && -n "${STUB_CP_FAIL_ENV:-}" ]]; then echo "cp: simulated failure" >&2; exit 1; fi
+exec /bin/cp "$@"
 """
 
 
@@ -120,6 +131,7 @@ def stubs(tmp_path):
     put("systemctl", _SYSTEMCTL)
     put("id", _ID)
     put("pct", _PCT)
+    put("cp", _CP_FAIL_ENV)
     for unit in ("orwell-frontend", "orwell-engine"):
         (state / f"active-{unit}").write_text("")
     env = dict(os.environ)
@@ -153,13 +165,25 @@ def test_ready_with_token_sends_bearer_and_passes(stubs):
     r = _run_ready(stubs, ORWELL_READY_TOKEN="ody_abc", STUB_MODELS_BODY=_ONLINE)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "an LLM is configured and online" in r.stdout
-    assert any("Authorization: Bearer ody_abc" in ln for ln in stubs.log("curl.log"))
+    assert any("Authorization: Bearer ody_abc" in ln for ln in stubs.log("curl-config.log"))
+    assert not any("ody_abc" in ln for ln in stubs.log("curl.log")), "the token must not be on curl's command line"
 
 
 def test_ready_auth_off_needs_no_token(stubs):
     r = _run_ready(stubs, STUB_MODELS_BODY=_ONLINE)
     assert r.returncode == 0 and "an LLM is configured and online" in r.stdout
     assert not any("Authorization" in ln for ln in stubs.log("curl.log"))
+
+
+def test_ready_rejected_token_is_not_ready(stubs):
+    r = _run_ready(stubs, ORWELL_READY_TOKEN="ody_bad", STUB_MODELS_CODE="401")
+    assert r.returncode == 1 and "NOT READY" in r.stdout and "REJECTED" in r.stdout
+
+
+def test_ready_models_server_error_is_reported_as_such_not_as_no_llm(stubs):
+    r = _run_ready(stubs, STUB_MODELS_CODE="503")
+    assert r.returncode == 1 and "could not query the model list (HTTP 503)" in r.stdout
+    assert "no usable LLM" not in r.stdout
 
 
 def test_ready_reachable_but_no_online_model_is_still_not_ready(stubs):
@@ -241,14 +265,9 @@ def test_restore_success_carries_models_and_update_prev_and_restarts(stubs, tmp_
     assert any(ln.startswith("stop ") for ln in log) and any(ln.startswith("start ") for ln in log)
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="relies on an unreadable file failing cp (root bypasses modes)")
 def test_restore_failure_after_move_aside_rolls_back_and_restarts(stubs, tmp_path):
     app = _live_app(tmp_path)
-    (app / "data" / ".env").chmod(0)  # the post-extract .env carry-over (cp) will fail
-    try:
-        r = _restore(stubs, app, _make_backup(tmp_path))
-    finally:
-        (app / "data" / ".env").chmod(0o600) if (app / "data" / ".env").exists() else None
+    r = _restore(stubs, app, _make_backup(tmp_path), STUB_CP_FAIL_ENV="1")  # the post-extract .env carry-over fails
     assert r.returncode != 0
     assert (app / "data" / "saves" / "v000009.json").read_text() == "NEW-SAVE", "live data must be back in place"
     assert not (app / "data" / "saves" / "v000001.json").exists(), "nothing of the backup may remain"
@@ -257,6 +276,24 @@ def test_restore_failure_after_move_aside_rolls_back_and_restarts(stubs, tmp_pat
     assert not [p for p in app.iterdir() if p.name.startswith(".pre-restore-")], "no stranded move-aside dir"
     assert any(ln.startswith("start ") for ln in stubs.log()), "services must be restarted after a failed restore"
     assert (stubs.state / "active-orwell-engine").exists() and (stubs.state / "active-orwell-frontend").exists()
+
+
+def test_restore_rollback_removes_subtrees_that_did_not_exist_before(stubs, tmp_path):
+    app = _live_app(tmp_path)
+    shutil.rmtree(app / "frontend")                          # no live frontend/data at all
+    r = _restore(stubs, app, _make_backup(tmp_path), STUB_CP_FAIL_ENV="1")
+    assert r.returncode != 0
+    assert (app / "data" / "saves" / "v000009.json").read_text() == "NEW-SAVE"
+    assert not (app / "frontend" / "data").exists(), "the backup's newly extracted frontend/data must not survive a failed restore"
+
+
+def test_failed_restore_restarts_only_the_services_that_were_running(stubs, tmp_path):
+    app = _live_app(tmp_path)
+    (stubs.state / "active-orwell-frontend").unlink()        # the operator had the front-end stopped
+    r = _restore(stubs, app, _make_backup(tmp_path), STUB_CP_FAIL_ENV="1")
+    assert r.returncode != 0
+    assert (stubs.state / "active-orwell-engine").exists()
+    assert not (stubs.state / "active-orwell-frontend").exists(), "a unit that was stopped before must stay stopped"
 
 
 def test_restore_refuses_when_a_service_will_not_stop_and_leaves_data_alone(stubs, tmp_path):
@@ -320,6 +357,19 @@ def test_change_port_reverts_when_the_new_port_never_serves(stubs, tmp_path):
     assert len(restarts) == 2, "restart onto the new port, then restart back onto the old one"
 
 
+def test_change_port_unhealthy_status_does_not_count_as_serving(stubs, tmp_path):
+    app, env = _port_env(stubs, tmp_path)
+    port = _free_port()
+    if port < 1024:
+        pytest.skip("odd ephemeral port")
+    env.update(STUB_HEALTHY_PORTS=f"8080 {port}", STUB_UNHEALTHY_PORTS=str(port))   # answers, but {"status": "unhealthy"}
+    r = subprocess.run(["bash", os.path.join(DEPLOY, "orwell-change-port.sh"), str(port), "--yes"],
+                       env=env, capture_output=True, text=True)
+    assert r.returncode != 0, r.stdout + r.stderr
+    assert "did not answer" in r.stderr
+    assert (app / "data" / ".env").read_text() == "ORWELL_PORT=8080\nOTHER=1\n"
+
+
 def test_change_port_privileged_failure_removes_the_new_dropin(stubs, tmp_path):
     app, env = _port_env(stubs, tmp_path)
     r = subprocess.run(["bash", os.path.join(DEPLOY, "orwell-change-port.sh"), "80", "--yes"],
@@ -359,7 +409,7 @@ def _oobe_layout(tmp_path, helper=True):
 
 def _run_oobe(stubs, env, *flags):
     return subprocess.run(["bash", os.path.join(DEPLOY, "orwell-oobe-reset.sh"), "--yes", *flags],
-                          env={**stubs.env, **env}, capture_output=True, text=True)
+                          env={**stubs.env, "ORWELL_START_SETTLE": "0", **env}, capture_output=True, text=True)
 
 
 @pytest.mark.skipif(not HAVE_SYSTEMD_DIR, reason="the script only drives services when /run/systemd/system exists")
@@ -374,6 +424,26 @@ def test_oobe_failed_helper_restarts_services_and_does_not_claim_nothing_removed
     assert any(ln.startswith("stop ") for ln in log) and any(ln.startswith("start ") for ln in log)
     assert (stubs.state / "active-orwell-engine").exists() and (stubs.state / "active-orwell-frontend").exists()
     assert "NOTHING removed" not in r.stderr and "ABORTED" in r.stderr
+
+
+@pytest.mark.skipif(not HAVE_SYSTEMD_DIR, reason="the script only drives services when /run/systemd/system exists")
+def test_oobe_refuses_to_wipe_when_a_service_will_not_stop(stubs, tmp_path):
+    app, fe_data, env = _oobe_layout(tmp_path)
+    r = _run_oobe(stubs, {**env, "STUB_STOP_STICKS": "1"})
+    assert r.returncode != 0 and "still running" in r.stderr
+    assert (fe_data / "auth.json").exists(), "nothing may be wiped under a live service"
+
+
+@pytest.mark.skipif(not HAVE_SYSTEMD_DIR, reason="the script only drives services when /run/systemd/system exists")
+def test_oobe_aborted_reset_restarts_only_services_that_were_running(stubs, tmp_path):
+    app, fe_data, env = _oobe_layout(tmp_path)
+    (stubs.state / "active-orwell-frontend").unlink()        # was stopped before the reset
+    env["ORWELL_OOBE_HELPER"] = str(tmp_path / "helper.py")
+    (tmp_path / "helper.py").write_text("import sys; sys.exit(3)\n")
+    r = _run_oobe(stubs, env)
+    assert r.returncode != 0
+    assert (stubs.state / "active-orwell-engine").exists()
+    assert not (stubs.state / "active-orwell-frontend").exists()
 
 
 @pytest.mark.skipif(not HAVE_SYSTEMD_DIR, reason="the script only drives services when /run/systemd/system exists")
@@ -422,10 +492,15 @@ def test_update_script_cruft_cleanup_targets_the_frontend_db():
                                         ("orwell.sh", "TMP_TOKEN")])
 def test_token_temp_files_are_removed_by_an_exit_trap(script, var):
     src = _read("deploy", script)
-    assert f"trap 'rm -f \"${var}\"' EXIT" in src
+    assert f"trap 'rm -f \"${var}\"" in src and "' EXIT" in src
 
 
 def test_set_token_keeps_env_ownership():
     src = _read("deploy", "orwell-update.sh")
     assert 'chown --reference="$OWNER_REF" "$TMP_ENV"' in src
     assert src.index('chown --reference="$OWNER_REF" "$TMP_ENV"') < src.index('mv "$TMP_ENV" "$ENV_FILE"')
+
+
+def test_orwell_sh_exit_trap_also_removes_the_token_file_inside_the_container():
+    src = _read("deploy", "orwell.sh")
+    assert 'pct exec "$CTID" -- rm -f /tmp/orwell-token' in src.split("trap 'rm -f \"$TMP_TOKEN\"", 1)[1].split("EXIT", 1)[0]

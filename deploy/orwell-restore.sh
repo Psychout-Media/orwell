@@ -88,11 +88,17 @@ SERVICES_STOPPED=0
 RESTORE_COMMITTED=0
 ASIDE=""
 MOVED=()  # subtrees that actually existed live and were moved into ASIDE
+ABSENT=() # subtrees that did NOT exist live: extraction creates them, so a rollback must remove them
+WAS_ACTIVE=()  # units that were running before we stopped them: only those are restarted on a failure
 
 # Fail-safe: undo a partial/failed restore — drop any partially-extracted target subtree, then
 # move the preserved live copy back, leaving the box exactly as it was pre-restore.
 rollback_aside() {
   local rel live saved rc=0
+  for rel in ${ABSENT[@]+"${ABSENT[@]}"}; do   # absent before the restore: the pre-restore tree had none
+    live="${APP_DIR%/}/${rel}"
+    [[ -e "$live" ]] && { rm -rf -- "$live" || rc=1; }
+  done
   for rel in ${MOVED[@]+"${MOVED[@]}"}; do
     live="${APP_DIR%/}/${rel}"
     saved="${ASIDE}/${rel}"
@@ -107,7 +113,7 @@ on_exit() {
   local rc=$?
   trap - EXIT INT TERM
   if [[ "$rc" -ne 0 && "$RESTORE_COMMITTED" -eq 0 ]]; then
-    if [[ -n "$ASIDE" && ${#MOVED[@]} -gt 0 ]]; then
+    if [[ -n "$ASIDE" && ( ${#MOVED[@]} -gt 0 || ${#ABSENT[@]} -gt 0 ) ]]; then
       echo "WARN: restore FAILED — rolling back to the pre-restore state." >&2
       if rollback_aside; then
         # Remove the scaffolding ONLY if it holds no files (never delete a real copy a failed mv left behind).
@@ -125,9 +131,11 @@ on_exit() {
     fi
   fi
   if [[ "$rc" -ne 0 && "$SERVICES_STOPPED" -eq 1 ]]; then
-    echo "==> restarting services after the failed restore" >&2
-    systemctl start orwell-engine orwell-frontend >&2 \
-      || echo "ERROR: could not restart the services — start them: systemctl start orwell-engine orwell-frontend" >&2
+    if [[ ${#WAS_ACTIVE[@]} -gt 0 ]]; then
+      echo "==> restarting services after the failed restore (only those that were running: ${WAS_ACTIVE[*]})" >&2
+      systemctl start "${WAS_ACTIVE[@]}" >&2 \
+        || echo "ERROR: could not restart the services — start them: systemctl start ${WAS_ACTIVE[*]}" >&2
+    fi
   fi
   exit "$rc"
 }
@@ -135,6 +143,9 @@ trap on_exit EXIT
 trap 'exit 130' INT TERM
 
 if [[ "$have_systemd" -eq 1 ]]; then
+  for __svc in orwell-engine orwell-frontend; do   # start order: engine first
+    if systemctl is-active --quiet "$__svc" 2>/dev/null; then WAS_ACTIVE+=("$__svc"); fi
+  done
   SERVICES_STOPPED=1
   systemctl stop orwell-frontend orwell-engine 2>/dev/null || true
   # A service that is still running means something is still writing — refuse to swap data under it.
@@ -153,7 +164,7 @@ move_aside() {
   local rel src dst
   for rel in "${SUBTREES[@]}"; do
     src="${APP_DIR%/}/${rel}"
-    [[ -e "$src" ]] || continue
+    if [[ ! -e "$src" ]]; then ABSENT+=("$rel"); continue; fi
     dst="${ASIDE}/${rel}"
     mkdir -p "$(dirname "$dst")"
     mv "$src" "$dst"

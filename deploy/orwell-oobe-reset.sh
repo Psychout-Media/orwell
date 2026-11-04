@@ -83,7 +83,7 @@ while [[ $# -gt 0 ]]; do
     -y|--yes)        ASSUME_YES=1; EXTRA_FLAGS+=("--yes") ;;
     -n|--dry-run)    DRY_RUN=1;    EXTRA_FLAGS+=("--dry-run") ;;
     --no-restart)    RESTART=0;    EXTRA_FLAGS+=("--no-restart") ;;
-    -h|--help)       sed -n '3,40p' "${BASH_SOURCE[0]:-/dev/null}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)       sed -n '3,48p' "${BASH_SOURCE[0]:-/dev/null}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)               die "unknown option: $1 (try --help)" ;;
   esac
   shift
@@ -269,14 +269,16 @@ ops_step() { [[ "$OPS_PROGRESS" -eq 1 ]] && ops_progress_step "$1" "$2" || true;
 # An aborted reset (nothing wiped yet) must not leave the app down: bring the services back. Only
 # called from the pre-wipe failure paths below, so --no-restart (which means "leave down AFTER a scrub")
 # does not apply.
+# Only units that were RUNNING before this reset stopped them are started again (a unit the operator
+# had stopped stays stopped).
+WAS_ACTIVE=()
 abort_restart_services() {
   [[ "$have_systemd" -eq 1 ]] || return 0
+  [[ ${#WAS_ACTIVE[@]} -gt 0 ]] || return 0
   msg "restarting services (the reset was aborted before the wipe)"
   local svc
-  for svc in "$ENGINE_SVC" "$FRONTEND_SVC"; do
-    if svc_exists "$svc"; then
-      systemctl start "$svc" || warn "could not restart ${svc} — start it by hand: systemctl start ${svc}"
-    fi
+  for svc in "${WAS_ACTIVE[@]}"; do
+    systemctl start "$svc" || warn "could not restart ${svc} — start it by hand: systemctl start ${svc}"
   done
   return 0
 }
@@ -298,7 +300,19 @@ fe_kept() {
 ops_step 1 "stopping services"
 if [[ "$have_systemd" -eq 1 ]]; then
   msg "stopping services"
+  for svc in "$ENGINE_SVC" "$FRONTEND_SVC"; do   # start order: engine first
+    if [[ "$DRY_RUN" -eq 0 ]] && svc_exists "$svc" && systemctl is-active --quiet "$svc" 2>/dev/null; then WAS_ACTIVE+=("$svc"); fi
+  done
   for svc in "$FRONTEND_SVC" "$ENGINE_SVC"; do svc_exists "$svc" && do_svc stop "$svc"; done
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    # Fail closed: a stop that failed (do_svc only warns) must not be followed by a wipe under a live service.
+    for svc in "$FRONTEND_SVC" "$ENGINE_SVC"; do
+      if svc_exists "$svc" && systemctl is-active --quiet "$svc" 2>/dev/null; then
+        abort_restart_services
+        die "${svc} is still running after 'systemctl stop' — the wipe was ABORTED before anything was removed (accounts, saves and uploads are intact)."
+      fi
+    done
+  fi
 else
   warn "systemctl not present — skipping service stop (dev mode). Stop the app yourself first."
 fi
@@ -413,11 +427,20 @@ ops_step 5 "restarting services"
 if [[ "$RESTART" -eq 1 && "$have_systemd" -eq 1 ]]; then
   msg "restarting services"
   START_FAILED=()
+  STARTED=()
   for svc in "$ENGINE_SVC" "$FRONTEND_SVC"; do
     svc_exists "$svc" || continue
     do_svc start "$svc"
-    if [[ "$DRY_RUN" -eq 0 ]] && ! systemctl is-active --quiet "$svc"; then START_FAILED+=("$svc"); fi
+    STARTED+=("$svc")
   done
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    # `systemctl start` returns as soon as a Type=simple unit has forked, so a service that crashes on
+    # boot still looks active for a moment: let them settle before judging.
+    sleep "${ORWELL_START_SETTLE:-3}"
+    for svc in ${STARTED[@]+"${STARTED[@]}"}; do
+      systemctl is-active --quiet "$svc" || START_FAILED+=("$svc")
+    done
+  fi
   if [[ ${#START_FAILED[@]} -gt 0 ]]; then
     die "the data was reset, but ${START_FAILED[*]} did not come back up — check: journalctl -u ${START_FAILED[0]} -n 50; then: systemctl start ${START_FAILED[*]}"
   fi
