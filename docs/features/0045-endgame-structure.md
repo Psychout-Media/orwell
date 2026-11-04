@@ -8,6 +8,7 @@
 > final-HOH competition + a personal eviction through a new pending decision), so a seeded season reaches
 > Final 2 with **every** late-week ceremony legal.
 > **Executable spec:** [`0045-endgame-structure.feature`](./0045-endgame-structure.feature)
+> **Amendment note (0128 / #2045):** Final 3's single final-HOH competition is replaced by the **three-part Final HOH** (0128; default ON via #2066). The Final-3 scenarios in the `.feature` are restated when that lands; until then they describe the final-HOH *eviction* (unchanged), not the comp shape. BDD audit AMEND-0045: S1 now asserts the veto winner is never the replacement nominee, S6 uses a real registry snapshot/restore.
 
 ## 1. Summary
 
