@@ -133,6 +133,16 @@ def test_game_reset_refuses_a_portraits_dir_that_leaves_the_data_dirs(tmp_path):
     assert (elsewhere / "portrait.png").exists()
 
 
+def test_game_reset_refuses_a_save_dir_that_points_into_the_frontend_store(tmp_path):
+    # ORWELL_DATA_DIR comes from data/.env (service-writable): pointing it at the FE store would make a game
+    # reset wipe the accounts, sessions and settings it promises to keep.
+    app, elsewhere = _reset_layout(tmp_path)
+    proc = _run_reset(GAME, app, str(app / "frontend" / "data"))
+    assert proc.returncode != 0 and "overlaps the front-end store" in proc.stderr, proc.stderr
+    assert (app / "frontend" / "data" / "auth.json").exists()
+    assert (app / "data" / "saves" / "u1" / "save.json").exists()
+
+
 def test_game_reset_still_scrubs_the_dotenv_save_dir_inside_data(tmp_path):
     app, elsewhere = _reset_layout(tmp_path)
     (app / "frontend" / "data" / "portraits").mkdir()
@@ -446,6 +456,16 @@ def test_https_env_helpers_upsert_in_place_and_create_0600(tmp_path):
     fresh = tmp_path / "new" / ".env"
     assert _https_fns("set_env_key X 1", fresh).returncode == 0
     assert fresh.read_text() == "X=1\n" and stat.S_IMODE(os.stat(fresh).st_mode) == 0o600
+
+
+def test_https_set_env_key_treats_the_value_as_data_not_as_sed_replacement(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("A=1\nORWELL_TLS_DNS_API_TOKEN=old\n")
+    # a literal backslash-n (and & and |) in the value must stay literal, never become a second .env line
+    proc = _https_fns(r"set_env_key ORWELL_TLS_DNS_API_TOKEN 'x\nINJECTED=1&y|z'", env_file)
+    assert proc.returncode == 0, proc.stderr
+    assert env_file.read_text() == "A=1\nORWELL_TLS_DNS_API_TOKEN=x\\nINJECTED=1&y|z\n"
+    assert len(env_file.read_text().splitlines()) == 2
 
 
 def test_https_env_helpers_refuse_a_symlinked_env_and_leave_the_target_alone(tmp_path):

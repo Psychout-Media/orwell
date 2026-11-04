@@ -59,7 +59,9 @@ _ops_progress_write() {
   # Best-effort: create the dir; if we cannot, give up quietly (never fail the run).
   mkdir -p "$dir" 2>/dev/null || return 0
   local out="${dir}/${action}-status.json"
-  local tmp; tmp="$(mktemp "${dir}/.${action}-status.XXXXXX" 2>/dev/null)" || return 0
+  # The temp file lives in root's own temp dir (sticky /tmp, or $TMPDIR), NOT in $dir: $dir is writable by
+  # the service user, which could swap a temp file there for a symlink between mktemp and the write below.
+  local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/orwell-ops-${action}.XXXXXX" 2>/dev/null)" || return 0
   local ts; ts="$(_ops_progress_ts)"
   message="$(_ops_json_escape "$message")"
   error="$(_ops_json_escape "$error")"

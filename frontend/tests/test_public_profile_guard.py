@@ -115,6 +115,15 @@ def test_refuses_a_control_character_in_a_value_written_to_dotenv(key):
     assert f"{key} contains a control character" in str(exc.value)
 
 
+@pytest.mark.parametrize("bad", ["\nAUTH_ENABLED=false", "\r\nX=1", "\thiorwell.com"])
+def test_a_leading_control_character_is_not_hidden_by_strip(bad):
+    env = dict(SAFE)
+    env["ALLOWED_HOSTS"] = bad
+    with pytest.raises(RuntimeError) as exc:
+        assert_public_profile_safe(env)
+    assert "ALLOWED_HOSTS contains a control character" in str(exc.value)
+
+
 def test_a_trailing_newline_alone_is_still_just_whitespace():
     # The boot path already .strip()s each value; a stray trailing newline (a CRLF-edited .env) is not
     # an embedded control character and must keep booting.

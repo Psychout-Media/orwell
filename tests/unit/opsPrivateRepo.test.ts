@@ -268,6 +268,18 @@ describe("install-script quality — the post-incident hardening (a real install
     const upd = readFileSync(join(DEPLOY, "orwell-update.sh"), "utf8");
     expect(upd).not.toMatch(/chown -R "\$SVC_USER":"\$SVC_GROUP" "\$APP_DIR"/);
     expect(upd).toMatch(/orwell_apply_ownership "\$APP_DIR" "\$SVC_USER" "\$SVC_GROUP"/);
+    // Any spelling (braced or not, quoted or not) of a recursive chown that touches $APP_DIR may only name
+    // one of the writable dirs, never the app dir itself or a code subdirectory.
+    const allowed = new Set(["data", "frontend/data", "backups", ".orwell-data"]);
+    for (const text of [inst, upd]) {
+      for (const line of text.split("\n")) {
+        const code = line.split("#")[0];
+        if (!/\bchown\b[^\n]*-R/.test(code)) continue;
+        for (const m of code.matchAll(/\$\{?APP_DIR\}?(\/[^\s"'}]*)?/g)) {
+          expect(allowed.has((m[1] ?? "").replace(/^\/|\/$/g, "")), line.trim()).toBe(true);
+        }
+      }
+    }
   });
 
   it("the drop-in/verification key on the EFFECTIVE port from data/.env, not the env arg", () => {

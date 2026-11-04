@@ -64,12 +64,37 @@ def test_install_and_update_share_one_ownership_function():
 @pytest.mark.parametrize("path", [INSTALL, UPDATE])
 def test_nothing_chowns_the_whole_app_dir_to_the_service_user(path):
     text = _read(path)
+    allowed = ("data", "frontend/data", "backups", ".orwell-data")
     for ln in text.splitlines():
         code = ln.split("#", 1)[0]
         if re.search(r"\bchown\b[^\n]*-R", code):
-            # every recursive chown that is left must target a named writable dir, never the app dir
-            assert not re.search(r'"\$\{?APP_DIR\}?"(\s|$)', code), f"{path}: {ln.strip()}"
+            # every recursive chown that is left may reference $APP_DIR (braced or not, quoted or not) ONLY
+            # as one of the named writable dirs — never the app dir itself or a code subdirectory
+            for m in re.finditer(r'\$\{?APP_DIR\}?(/[^\s"\'}]*)?', code):
+                sub = (m.group(1) or "").strip("/")
+                assert sub in allowed, f"{path}: {ln.strip()}"
     assert "orwell_apply_ownership" in text
+
+
+def test_a_failing_code_tree_chmod_makes_the_ownership_function_fail(tmp_path):
+    app = _make_app(tmp_path)
+    bin_dir = _stub_chown(tmp_path)
+    (bin_dir / "chmod").write_text("#!/usr/bin/env bash\nexit 1\n")
+    (bin_dir / "chmod").chmod(0o755)
+    log = tmp_path / "chown.log"
+    env = _clean_env(PATH=f"{bin_dir}:{os.environ['PATH']}", CHOWN_LOG=str(log))
+    # called the way orwell-update.sh now calls it: directly, under set -e, NOT inside an `||` list
+    script = f"set -euo pipefail\n{_ownership_fn()}\nif orwell_apply_ownership \"$@\"; then echo OK; else echo FAILED; fi\n"
+    proc = _bash(["-c", script, "x", str(app), "orwell", "orwell"], env)
+    assert "FAILED" in proc.stdout and "OK" not in proc.stdout
+
+
+def test_update_does_not_swallow_an_ownership_failure():
+    text = _read(UPDATE)
+    call = text.index('orwell_apply_ownership "$APP_DIR" "$SVC_USER" "$SVC_GROUP"')
+    window = text[call - 30:call + 400]
+    assert window.lstrip().startswith("if ! orwell_apply_ownership") or "if ! orwell_apply_ownership" in window
+    assert "|| echo" not in text[call:call + 200]
 
 
 def test_update_migrates_through_the_same_function():

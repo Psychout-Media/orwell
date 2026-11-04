@@ -83,9 +83,53 @@ refuse() {   # stamp the failure + exit
 if [[ -L "$OPS_DIR" ]]; then refuse "$OPS_DIR"; fi
 [[ ! -L "$FLAG_FILE" ]] || refuse "$FLAG_FILE"
 CLAIM_DIR="$(mktemp -d)"
-for _f in "$ORIG_CONFIG_FILE" "$ORIG_TOKEN_FILE"; do
-  if [[ -e "$_f" || -L "$_f" ]]; then mv -fT -- "$_f" "${CLAIM_DIR}/${_f##*/}"; fi
-done
+# Move the side files out of the service-writable ops dir into a root-private claim dir. Done through a
+# dirfd opened O_NOFOLLOW|O_DIRECTORY, so swapping the dir for a symlink after the earlier -L check cannot
+# redirect the rename; the files are renamed/copied by name relative to that fd and a symlink is moved as
+# a link (never followed). Exit 3 = the ops dir itself is a symlink.
+claim_side_files() {   # names…  (relative to $OPS_DIR)
+  python3 - "$OPS_DIR" "$CLAIM_DIR" "$@" <<'PY'
+import os, stat, sys
+ops, claim, *names = sys.argv[1:]
+try:
+    dfd = os.open(ops, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+except FileNotFoundError:
+    sys.exit(0)
+except OSError:
+    sys.exit(3)
+cfd = os.open(claim, os.O_RDONLY | os.O_DIRECTORY)
+for name in names:
+    try:
+        st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+    except FileNotFoundError:
+        continue
+    try:
+        os.rename(name, name, src_dir_fd=dfd, dst_dir_fd=cfd)
+        continue
+    except OSError:
+        pass                       # e.g. EXDEV: copy by fd instead
+    if stat.S_ISLNK(st.st_mode):
+        os.symlink(os.readlink(name, dir_fd=dfd), name, dir_fd=cfd)
+    elif stat.S_ISREG(st.st_mode):
+        src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        try:
+            data = b""
+            while True:
+                chunk = os.read(src, 65536)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            os.close(src)
+        out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=cfd)
+        try:
+            os.write(out, data)
+        finally:
+            os.close(out)
+    os.unlink(name, dir_fd=dfd)
+PY
+}
+claim_side_files "${ORIG_CONFIG_FILE##*/}" "${ORIG_TOKEN_FILE##*/}" || refuse "$OPS_DIR"
 CONFIG_FILE="${CLAIM_DIR}/${ORIG_CONFIG_FILE##*/}"; TOKEN_FILE="${CLAIM_DIR}/${ORIG_TOKEN_FILE##*/}"
 for _p in "$CONFIG_FILE" "$TOKEN_FILE"; do
   if [[ -L "$_p" ]]; then refuse "${ORIG_CONFIG_FILE%/*}/${_p##*/}"; fi

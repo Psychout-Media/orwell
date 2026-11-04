@@ -338,13 +338,13 @@ orwell_apply_ownership() {   # $1 app dir · $2 service user · $3 service group
   #    a previous orwell-owned install (a root-owned but world-writable file is not root-owned in
   #    any way that matters). -h / ! -type l: act on a symlink itself, never on its target.
   find "$app" -xdev \( "${prune[@]}" -false \) -prune -o \
-    -exec chown -h root:root {} + \( -type l -o -exec chmod go-w,a+rX {} + \)
+    -exec chown -h root:root {} + \( -type l -o -exec chmod go-w,a+rX {} + \) || return 1
   # 2. The writable dirs: the service user, recursively (chown -R does not follow symlinks). A
   #    symlinked dir is left alone — never chowned through to wherever it points.
   for d in "${rw[@]}"; do
     [[ -d "$d" ]] || continue
     if [[ -L "$d" ]]; then echo "WARN: ${d} is a symlink — leaving its ownership alone" >&2; continue; fi
-    chown -R -h "$user":"$group" "$d"
+    chown -R -h "$user":"$group" "$d" || return 1
   done
 }
 

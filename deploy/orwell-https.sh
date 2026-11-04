@@ -313,7 +313,9 @@ set_env_key() {
   mkdir -p "$(dirname "$ENV_FILE")"
   tmp="$(mktemp)"
   if [[ -f "$ENV_FILE" ]] && grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-    sed "s|^${key}=.*|${key}=${val}|" "$ENV_FILE" > "$tmp"
+    # VAL is data: passed via the environment to awk, so a backslash or & in it is never interpreted
+    # (sed's replacement would turn a literal "\n" into a real newline = an injected .env line).
+    KEY="$key" VAL="$val" awk 'BEGIN { k = ENVIRON["KEY"] "="; v = ENVIRON["VAL"] } index($0, k) == 1 { print k v; next } { print }' "$ENV_FILE" > "$tmp"
   else
     { if [[ -f "$ENV_FILE" ]]; then cat "$ENV_FILE"; fi; printf '%s=%s\n' "$key" "$val"; } > "$tmp"
   fi
@@ -387,7 +389,18 @@ export_root_ca() {
   done
   if [[ -n "$src" ]]; then
     refuse_symlink "$TLS_DIR"; refuse_symlink "$ROOT_CA_OUT"   # re-check: the poll above can take a while
-    install -m 644 "$src" "$ROOT_CA_OUT"
+    # Written through an O_NOFOLLOW fd (then fchmod 0644): a link planted at the name after the check is an error.
+    python3 - "$src" "$ROOT_CA_OUT" <<'PY' || die "could not write ${ROOT_CA_OUT} (is it a symlink?)"
+import os, sys
+with open(sys.argv[1], "rb") as fh:
+    data = fh.read()
+fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+try:
+    os.write(fd, data)
+    os.fchmod(fd, 0o644)
+finally:
+    os.close(fd)
+PY
     # The FE (user orwell) reads it; keep the tls dir traversable + the file world-readable.
     python3 -c 'import os,sys; os.fchmod(os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY), 0o755)' "$TLS_DIR" 2>/dev/null || true
     msg "exported the local CA root → ${ROOT_CA_OUT} (download at /orwell-local-ca.crt)"

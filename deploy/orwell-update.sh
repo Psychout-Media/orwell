@@ -858,21 +858,26 @@ orwell_apply_ownership() {   # $1 app dir · $2 service user · $3 service group
   #    a previous orwell-owned install (a root-owned but world-writable file is not root-owned in
   #    any way that matters). -h / ! -type l: act on a symlink itself, never on its target.
   find "$app" -xdev \( "${prune[@]}" -false \) -prune -o \
-    -exec chown -h root:root {} + \( -type l -o -exec chmod go-w,a+rX {} + \)
+    -exec chown -h root:root {} + \( -type l -o -exec chmod go-w,a+rX {} + \) || return 1
   # 2. The writable dirs: the service user, recursively (chown -R does not follow symlinks). A
   #    symlinked dir is left alone — never chowned through to wherever it points.
   for d in "${rw[@]}"; do
     [[ -d "$d" ]] || continue
     if [[ -L "$d" ]]; then echo "WARN: ${d} is a symlink — leaving its ownership alone" >&2; continue; fi
-    chown -R -h "$user":"$group" "$d"
+    chown -R -h "$user":"$group" "$d" || return 1
   done
 }
 
 if [[ "$(id -u)" -eq 0 ]]; then
   if id "$SVC_USER" >/dev/null 2>&1; then
     echo "==> settling ownership: code tree root-owned; ${SVC_USER}:${SVC_GROUP} owns data/, frontend/data, backups/"
-    orwell_apply_ownership "$APP_DIR" "$SVC_USER" "$SVC_GROUP" "${DATA_DIR:-${APP_DIR}/data}" \
-      || echo "WARN: ownership pass reported errors — check that ${SVC_USER} can still write ${APP_DIR}/data" >&2
+    # Called directly (no `||`): inside an `||` list set -e is off for the whole function, so a failed
+    # code-tree chown/chmod could be masked by a later successful one and the update would carry on with
+    # service-writable scripts that root runs. An ownership failure aborts the update instead.
+    if ! orwell_apply_ownership "$APP_DIR" "$SVC_USER" "$SVC_GROUP" "${DATA_DIR:-${APP_DIR}/data}"; then
+      echo "ERROR: the ownership pass FAILED — refusing to continue with a code tree the service user may still write. Check ${APP_DIR} (chown/chmod errors above) and re-run." >&2
+      exit 1
+    fi
   else
     echo "WARN: service user '${SVC_USER}' not found — skipping ownership restore (set ORWELL_SERVICE_USER)"
   fi

@@ -111,9 +111,53 @@ if [[ -L "$OPS_DIR" ]]; then refuse "$OPS_DIR"; fi
 [[ ! -L "$FLAG_FILE" ]] || refuse "$FLAG_FILE"
 [[ ! -L "$ENV_FILE" ]]  || refuse "$ENV_FILE"
 CLAIM_DIR="$(mktemp -d)"
-for _f in "$ORIG_CONFIG_FILE" "$ORIG_TOKEN_FILE"; do
-  if [[ -e "$_f" || -L "$_f" ]]; then mv -fT -- "$_f" "${CLAIM_DIR}/${_f##*/}"; fi
-done
+# Move the side files out of the service-writable ops dir into a root-private claim dir. Done through a
+# dirfd opened O_NOFOLLOW|O_DIRECTORY, so swapping the dir for a symlink after the earlier -L check cannot
+# redirect the rename; the files are renamed/copied by name relative to that fd and a symlink is moved as
+# a link (never followed). Exit 3 = the ops dir itself is a symlink.
+claim_side_files() {   # names…  (relative to $OPS_DIR)
+  python3 - "$OPS_DIR" "$CLAIM_DIR" "$@" <<'PY'
+import os, stat, sys
+ops, claim, *names = sys.argv[1:]
+try:
+    dfd = os.open(ops, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+except FileNotFoundError:
+    sys.exit(0)
+except OSError:
+    sys.exit(3)
+cfd = os.open(claim, os.O_RDONLY | os.O_DIRECTORY)
+for name in names:
+    try:
+        st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+    except FileNotFoundError:
+        continue
+    try:
+        os.rename(name, name, src_dir_fd=dfd, dst_dir_fd=cfd)
+        continue
+    except OSError:
+        pass                       # e.g. EXDEV: copy by fd instead
+    if stat.S_ISLNK(st.st_mode):
+        os.symlink(os.readlink(name, dir_fd=dfd), name, dir_fd=cfd)
+    elif stat.S_ISREG(st.st_mode):
+        src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        try:
+            data = b""
+            while True:
+                chunk = os.read(src, 65536)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            os.close(src)
+        out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=cfd)
+        try:
+            os.write(out, data)
+        finally:
+            os.close(out)
+    os.unlink(name, dir_fd=dfd)
+PY
+}
+claim_side_files "${ORIG_CONFIG_FILE##*/}" "${ORIG_TOKEN_FILE##*/}" || refuse "$OPS_DIR"
 CONFIG_FILE="${CLAIM_DIR}/${ORIG_CONFIG_FILE##*/}"; TOKEN_FILE="${CLAIM_DIR}/${ORIG_TOKEN_FILE##*/}"
 for _p in "$CONFIG_FILE" "$TOKEN_FILE"; do
   if [[ -L "$_p" ]]; then refuse "${OPS_DIR}/${_p##*/}"; fi
@@ -163,27 +207,40 @@ PY
 # ── .env upsert (idempotent; mirrors orwell-update.sh's --set-token rotate-in-place) ─────────────
 # Replace an existing `KEY=` line in place, else append. data/.env stays mode 600. A tmp + mv keeps
 # the file intact if something trips mid-write; every OTHER line is preserved untouched.
-upsert_env() {
-  local key="$1" value="$2"
+# env_edit KEY [VALUE]: rewrite data/.env without KEY=…, then append KEY=VALUE when VALUE is given.
+# The service user owns data/, so nothing here may follow a link it can plant: data/ is opened O_NOFOLLOW,
+# .env is READ through an O_NOFOLLOW fd, the replacement is built in an O_EXCL temp created relative to the
+# dir fd and written through that same fd (never reopened by name), then renamed over .env (a rename
+# replaces — never follows — whatever is at the name). Mode 0600.
+env_edit() {
   mkdir -p "$DATA_DIR"
-  # No touch/chmod on $ENV_FILE itself (both dereference a symlink): the mktemp copy below is created
-  # 0600 and renamed over it, which creates the file when absent and replaces — never follows — a link.
-  local tmp; tmp="$(mktemp "${DATA_DIR}/.env.XXXXXX")"
-  grep -v "^${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true
-  printf '%s=%s\n' "$key" "$value" >> "$tmp"
-  chmod 600 "$tmp"
-  mv -fT "$tmp" "$ENV_FILE"
+  python3 - "$DATA_DIR" "${ENV_FILE##*/}" "$@" <<'PY'
+import os, secrets, sys
+data_dir, env_name, key, *rest = sys.argv[1:]
+dfd = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    fd = os.open(env_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+    with os.fdopen(fd, "rb") as fh:
+        lines = fh.read().splitlines(keepends=True)
+except FileNotFoundError:
+    lines = []
+prefix = (key + "=").encode()
+out = [ln for ln in lines if not ln.startswith(prefix)]
+if out and not out[-1].endswith(b"\n"):
+    out[-1] += b"\n"
+if rest:
+    out.append(key.encode() + b"=" + rest[0].encode() + b"\n")
+tmp = ".env." + secrets.token_hex(6)
+tfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+try:
+    os.write(tfd, b"".join(out))
+finally:
+    os.close(tfd)
+os.rename(tmp, env_name, src_dir_fd=dfd, dst_dir_fd=dfd)
+PY
 }
-
-# Remove a key entirely from data/.env (used by disconnect; also tmp + mv, mode preserved).
-remove_env_key() {
-  local key="$1"
-  [[ -f "$ENV_FILE" ]] || return 0
-  local tmp; tmp="$(mktemp "${DATA_DIR}/.env.XXXXXX")"
-  grep -v "^${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true
-  chmod 600 "$tmp"
-  mv -fT "$tmp" "$ENV_FILE"
-}
+upsert_env() { env_edit "$1" "$2"; }
+remove_env_key() { [[ -f "$ENV_FILE" || -L "$ENV_FILE" ]] || return 0; env_edit "$1"; }
 
 # ── cloudflared install (idempotent) — apt via the Cloudflare repo, .deb fallback ────────────────
 # Already present ⇒ no-op. apt path first (the Cloudflare pkg repo); if the repo can't be reached we

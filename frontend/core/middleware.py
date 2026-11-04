@@ -307,7 +307,9 @@ def assert_public_profile_safe(env=None) -> None:
     # A control character (a newline above all) in any value that gets written into data/.env would
     # start a new KEY=VALUE line there — fail closed, naming the key, before anything is persisted.
     for _key in ("ALLOWED_HOSTS", "ALLOWED_ORIGINS", "ORWELL_BIND_HOST"):
-        if has_control_chars((env.get(_key) or "").strip()):
+        # Check the RAW value (no .strip(): that would hide a leading newline such as "\nAUTH_ENABLED=false").
+        # Only a trailing line ending is tolerated (a CRLF-edited .env); it cannot start a new line.
+        if has_control_chars((env.get(_key) or "").rstrip("\r\n")):
             problems.append(f"{_key} contains a control character (e.g. a newline)")
     if (env.get("AUTH_ENABLED", "true") or "").strip().lower() == "false":
         problems.append("AUTH_ENABLED=false (authentication disabled)")
