@@ -79,3 +79,54 @@ def test_staged_entrance_advances_are_not_capped_as_silent_decoupling():
     src = pathlib.Path(__file__).resolve().parents[1].joinpath("src", "agent_loop.py").read_text()
     assert "def _premiere_staged(owner)" in src and "_ch_a9.premiere_entrance_active(owner)" in src
     assert "if not _premiere_staged(owner):" in src
+
+
+def _board(phase="premiere", due=None, stage=None):
+    b = {"phase": phase}
+    if due is not None:
+        b["daySchedule"] = {"next": "hoh-competition", "phase": "afternoon", "due": due, "minutesUntil": 0 if due else 120}
+    if stage:
+        b["premiere"] = {"entrance": {"stage": stage}}
+    return b
+
+
+def test_clock_owns_the_premiere_hold_once_the_day_has_started():
+    """Live finding (A9 rerun): a hang-out advanced the clock to the HOH comp (due, 0 minutes) but the premiere MESSAGE-COUNT hold (< _PREMIERE_SOCIAL_MESSAGES) kept the comp frozen
+    for several turns. With `daySchedule` on the board the schedule - not the count - decides: not due => hold; DUE => release immediately."""
+    import importlib
+    ch = importlib.import_module("routes.chat_helpers")
+    u = "clock-owns-hold"
+    ch.clear_social_runway(u)
+    # not due: held even though the message count is far below the threshold AND even after many messages
+    for _ in range(ch._PREMIERE_SOCIAL_MESSAGES + 5):
+        ch.note_premiere_turn(u, _board(due=False))
+    assert ch.premiere_is_holding(u) is True
+    # due: released at once (count irrelevant)
+    ch.note_premiere_turn(u, _board(due=True))
+    assert ch.premiere_is_holding(u) is False
+    ch.clear_social_runway(u)
+    ch.note_premiere_turn(u, _board(due=True))
+    assert ch.premiere_is_holding(u) is False, "due on the first message still releases"
+
+
+def test_no_schedule_keeps_the_message_count_hold():
+    import importlib
+    ch = importlib.import_module("routes.chat_helpers")
+    u = "count-hold"
+    ch.clear_social_runway(u)
+    ch.note_premiere_turn(u, _board())            # clock off / pre-day-break: the old count
+    assert ch.premiere_is_holding(u) is True
+    for _ in range(ch._PREMIERE_SOCIAL_MESSAGES):
+        ch.note_premiere_turn(u, _board())
+    assert ch.premiere_is_holding(u) is False
+    ch.clear_social_runway(u)
+
+
+def test_entrance_stage_still_wins_over_the_clock():
+    import importlib
+    ch = importlib.import_module("routes.chat_helpers")
+    u = "stage-wins"
+    ch.clear_social_runway(u)
+    ch.note_premiere_turn(u, _board(due=False, stage="entrances"))
+    assert ch.premiere_entrance_active(u) is True and ch.premiere_is_holding(u) is False
+    ch.clear_social_runway(u)
