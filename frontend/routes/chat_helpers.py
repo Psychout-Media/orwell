@@ -370,7 +370,10 @@ async def _fetch_game_state(user, *, retry: bool):
 # re-hold mid-reveal, just like the eviction reveal), and the pending-decision guard still skips any
 # beat where the player owes a decision (finale-statement / finale-answer / juror-vote surface as
 # status.pending → their card leads, never auto-resolved).
-_CEREMONY_RESOLVE_PHASES = frozenset({"nominations", "veto-ceremony", "eviction", "finale"})
+# P4 (live double-eviction freeze, 2026-11-04): the TWIST beats and the Final-3 eviction are engine-driven too. `twist-reveal` (the double-eviction production reveal) sat
+# undriven for 34+ turns because it was in the agent loop's advance set but not here, so nothing ever advanced it; `battle-back` and `final-eviction` had the same gap.
+# Guarded by tests/test_phase_drivability_guard.py against the engine's phase list.
+_CEREMONY_RESOLVE_PHASES = frozenset({"nominations", "veto-ceremony", "eviction", "finale", "final-eviction", "twist-reveal", "battle-back"})
 
 # OWNER RULING (2026-06-18): "the engine should make ALL game decisions; the LLM can narrate (and
 # propose influencing characteristics for the weights) — but that's it." So the COMPETITIONS are
@@ -558,6 +561,7 @@ def clear_social_runway(user) -> None:
     _DAY_BREAK_STEER.pop(key, None)   # P1-2: a reset also drops a pending day-break steer
     _SCHEDULE_STEER.pop(key, None)
     _PRODUCTION_HOLD.pop(key, None)
+    _PREMIERE_MSGS.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -593,11 +597,40 @@ _PRODUCTION_HOLD_CAP = 30
 _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
 
 
+# P4 item 1 — the premiere has no engine clock yet (the day starts when the premiere closes), so the FE counts premiere messages against the SAME one-morning pace the engine
+# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / SCENE.perExchangeHours = (12 - 8) / 0.4 = 10 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
+# Until a morning's worth of messages has passed, the advance belts treat the premiere as "production hasn't called the house in" — the first HOH waits for its hour like
+# every other event. Player readiness is NOT an input.
+_PREMIERE_SOCIAL_MESSAGES = 10
+_PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
+
+
+def note_premiere_turn(user, game_state) -> None:
+    """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft."""
+    try:
+        key = _runway_key(user)
+        phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
+        if phase == "premiere":
+            _PREMIERE_MSGS[key] = _PREMIERE_MSGS.get(key, 0) + 1
+        else:
+            _PREMIERE_MSGS.pop(key, None)
+    except Exception:
+        pass
+
+
+def premiere_is_holding(user) -> bool:
+    try:
+        n = _PREMIERE_MSGS.get(_runway_key(user))
+        return n is not None and n < _PREMIERE_SOCIAL_MESSAGES
+    except Exception:
+        return False
+
+
 def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
     try:
-        return _runway_key(user) in _PRODUCTION_HOLD
+        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user)
     except Exception:
         return False
 
@@ -5638,6 +5671,7 @@ async def apply_game_framing(
     # 0065 Part A: this first state read of the turn carries `beatSeq` — seed the last-seen token so
     # the pre-resolve's progression call (just below) attaches the FRESH value, never a stale one.
     _refresh_beat_seq(user, game_state)
+    note_premiere_turn(user, game_state)  # P4: count premiere messages (the first HOH waits a morning's worth)
 
     # 2) The engine answered. Frame by whether a season is actually running.
     if game_state.get("started"):

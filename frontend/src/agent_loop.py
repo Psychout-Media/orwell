@@ -1447,6 +1447,8 @@ _VERIFIER_MAX_ROUNDS = 2  # cap re-verify cycles per turn — never loop forever
 _ADVANCE_PHASES = {
     "premiere", "hoh-competition", "nominations", "veto-competition",
     "veto-ceremony", "eviction", "finale", "twist-reveal",
+    # P4: the other engine-driven phases the nudges must cover (a freeze if the model under-calls advanceGame): the Final-3 eviction and the battle-back twist.
+    "final-eviction", "battle-back",
 }
 _PROGRESSION_TOOLS = {"advanceGame", "submitDecision"}
 # A PREVIEW (runCompetition) reports a ceremony's already-decided winner but commits NOTHING. Previewing
