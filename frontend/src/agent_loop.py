@@ -5552,6 +5552,16 @@ _SILENT_FORCE_ADVANCE_STREAK: Dict[str, int] = {}
 # racing the engine further ahead of the chat. Small by design — the engine is never more than this
 # many beats ahead of narration before the decoupling is surfaced.
 _SILENT_FORCE_ADVANCE_CAP = 2
+
+
+def _premiere_staged(owner) -> bool:
+    """A9: True while the staged premiere entrances/toast run (the board carries `premiere.entrance` with stage entrances|toast). Such an advance releases ONE arrival/batch that the
+    NEXT turn's `justArrived` framing voices by design, so the anti-stale streak/cap must not count it (live finding: the cap held the nudge after 2 advances and the narrator invented arrivals)."""
+    try:
+        from routes import chat_helpers as _ch_a9
+        return bool(_ch_a9.premiere_entrance_active(owner))
+    except Exception:
+        return False
 # F1 release valve: how many times the cap has HELD for this key without narration catching up. The
 # cap alone would leave a *held freeze* — on an emitted-visible turn the stall block breaks at the cap
 # and never reaches the L39b/text escalation below, so a model that keeps re-narrating the stale beat
@@ -8580,17 +8590,11 @@ async def _stream_agent_loop_impl(
                                 # framing) — so the chat can never drift arbitrarily far behind the engine
                                 # with no on-screen signal. Excludes the non-emitted L39b "forced stall L…"
                                 # path (it re-prompts in-turn) and the one-off preview/deliver commits.
-                                # A9: a premiere ENTRANCE/TOAST advance is voiced by the NEXT turn's `justArrived` framing by design (one arrival per advance) - never a decoupling to cap.
-                                _a9_staged = False
-                                try:
-                                    from routes import chat_helpers as _ch_a9
-                                    _a9_staged = bool(_ch_a9.premiere_entrance_active(owner))
-                                except Exception:
-                                    _a9_staged = False
-                                if _why and _why.startswith("stall L") and not _a9_staged:
-                                    _SILENT_FORCE_ADVANCE_STREAK[_belt_key(owner)] = (
-                                        _SILENT_FORCE_ADVANCE_STREAK.get(_belt_key(owner), 0) + 1)
-                                    _ch3.stash_anti_stale_reground(owner)
+                                if _why and _why.startswith("stall L"):
+                                    if not _premiere_staged(owner):  # A9: a staged entrance/toast advance is voiced by the next turn's framing by design
+                                        _SILENT_FORCE_ADVANCE_STREAK[_belt_key(owner)] = (
+                                            _SILENT_FORCE_ADVANCE_STREAK.get(_belt_key(owner), 0) + 1)
+                                        _ch3.stash_anti_stale_reground(owner)
                                 logger.info(f"[orwell] committed advanceGame silently ({_why}, "
                                             f"phase={_phase}) round {round_num} user={owner}")
                                 return True
