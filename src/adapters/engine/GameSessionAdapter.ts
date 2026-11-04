@@ -52,7 +52,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
-import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1006,11 +1006,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private voteDeductionEnabled = VOTE_DEDUCTION_ENABLED_DEFAULT;
   /**
-   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. OFF unless exactly `ORWELL_NPC_BELIEFS=1`
-   * (the engine's own strict read), deliberately NOT part of the default flip (pinned in flagDefaultParity). Off ⇒ no store is created and the season
+   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. ON unless `ORWELL_NPC_BELIEFS=0` (or
+   * `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne, "turn it on") after the PO bands held. Off ⇒ no store is created and the season
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
-  private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
+  private npcBeliefsEnabled = flagDefaultOn("ORWELL_NPC_BELIEFS");
   /**
    * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). OFF unless
    * exactly `ORWELL_NPC_MEMORY_STANDALONE=1`; deliberately NOT part of the default flip (pinned in flagDefaultParity) until its own signed-direction + winner/F2 re-measure. OFF ⇒ the
@@ -1024,10 +1024,10 @@ export class GameSessionAdapter implements GameSession {
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
-   * and from betrayal rumors they heard), instead of re-reading the edge. OFF unless exactly `ORWELL_NPC_BELIEF_NOMS=1` AND `ORWELL_NPC_BELIEFS=1`; never-flipped. OFF ⇒ no ctx provider,
+   * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
    * no claim written ⇒ byte-identical. The writer draws only from a DEDICATED seeded rng (never the shared stream).
    */
-  private npcBeliefNomsEnabled = process.env.ORWELL_NPC_BELIEF_NOMS === "1";
+  private npcBeliefNomsEnabled = flagDefaultOn("ORWELL_NPC_BELIEF_NOMS");
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -10730,6 +10730,15 @@ export class GameSessionAdapter implements GameSession {
   private remember(holder: EntityId, subject: EntityId, kind: MemoryKind, severity: number): void {
     if (!this.npcMemoryEnabled || !this.live || holder === PLAYER || holder === subject) return;
     recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity });
+  }
+
+  /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
+   *  memory layer + writers on (default ON); other kinds write nothing. Deterministic, no rng, bounded by the ledger cap. */
+  rememberPlayerScene(holders: readonly EntityId[], sceneKind: string): void {
+    if (!this.npcMemoryWritersEnabled) return;
+    const m = SCENE_MEMORY_SEVERITY[sceneKind];
+    if (!m) return;
+    for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
   }
 
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */

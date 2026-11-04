@@ -361,3 +361,5 @@ rulings needed" set). Companion decision notes posted on each GitHub issue; spec
 - **Live-LLM verification — allowlist model egress in the environment.** The 9 model-behavior items
   (#536/#540/#541/#542/#548/#549/#550/#561/#613) can't be verified while OpenRouter egress is blocked;
   the owner will allowlist egress so the guardrails can be confirmed live and closed.
+
+- **2026-11-04 — NPC beliefs ON (Ryne: "turn it on").** `ORWELL_NPC_BELIEFS` + `ORWELL_NPC_BELIEF_NOMS` (incl. the B3b vote term) default ON: code default, deploy defaults, /health registry, drift pins. `=0`/`ORWELL_FLAGS_OFF=1` opts out. PO gate bands measured ON in the PR.

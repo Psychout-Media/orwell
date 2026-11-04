@@ -21,6 +21,9 @@ export type MemoryKind =
   | "veto-saved"         // the subject (the veto holder) saved the holder
   | "veto-withheld"       // B2: the subject (the veto holder) did NOT use the veto while the holder sat on the block (written only under ORWELL_NPC_MEMORY_WRITERS)
   | "deal-kept"           // B2: the subject kept a deal with the holder (a favor; written only under ORWELL_NPC_MEMORY_WRITERS)
+  | "scene-betrayal"      // P4g: the PLAYER betrayed the holder in a recorded scene (grudge)
+  | "scene-conflict"      // P4g: the PLAYER clashed with the holder in a recorded scene (smaller grudge)
+  | "scene-kindness"      // P4g: the PLAYER was kind / bonded with the holder in a recorded scene (favor, weaker than a grudge)
   | "nominated-by-hoh";   // B2: the subject (the HOH) put the holder on the block — whatever their prior trust (written only under ORWELL_NPC_MEMORY_WRITERS)
 
 export interface MemoryEntry { kind: MemoryKind; week: number; /** 0..1 — how much it mattered. */ severity: number }
@@ -52,8 +55,8 @@ export const NPC_MEMORY: NpcMemoryConstants = {
   trustedAbove: 0.4,
 };
 
-const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld"]);
-const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept"]);
+const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict"]);
+const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness"]);
 
 const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
 
@@ -148,6 +151,14 @@ export function memoryTiltStandalone(
 ): number {
   return c.grudgeMax * salience(entries, GRUDGE_KINDS, week, decayScale, c) - c.favorMax * salience(entries, FAVOR_KINDS, week, decayScale, c);
 }
+
+/** P4g - how much a remembered PLAYER scene mattered, by kind (bounded, deterministic): a betrayal weighs most, a clash less, a kindness least (negativity bias). */
+export const SCENE_MEMORY_SEVERITY: Readonly<Record<string, { kind: MemoryKind; severity: number }>> = {
+  betrayal: { kind: "scene-betrayal", severity: 0.6 },
+  conflict: { kind: "scene-conflict", severity: 0.4 },
+  bonding: { kind: "scene-kindness", severity: 0.3 },
+  alliance: { kind: "scene-kindness", severity: 0.3 },
+};
 
 /** B2 — how much a remembered nomination mattered, graded by the holder's PRE-fold trust in the HOH (a betrayal by a friend weighs more): 0.3 floor .. 0.7. Pure, bounded. */
 export function nominationMemorySeverity(priorTrust: number): number {

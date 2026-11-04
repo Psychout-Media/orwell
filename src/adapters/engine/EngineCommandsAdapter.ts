@@ -64,6 +64,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    * everyone is up ⇒ byte-identical to the prior behavior.
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
+  private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
   /**
    * The live SUB-ZONE of a houseguest in a zoned big room (0077 Phase 2, OPT-IN). When wired, co-presence
    * witnessing is zone-scoped: a bystander in the SAME room but a DIFFERENT, out-of-earshot zone (the
@@ -175,6 +176,11 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** Wire the house occupancy (0049) so recorded scenes gain co-present witnesses + adjacent overhears. */
   setPresenceProvider(fn: () => Occupancy | null): void {
     this.presenceProvider = fn;
+  }
+
+  /** P4g - wire the NPC memory ledger so a recorded betrayal / conflict / kindness scene is remembered by the NPCs it touched. Unwired => inert. */
+  setSceneMemorySink(fn: (holders: readonly EntityId[], kind: string) => void): void {
+    this.sceneMemorySink = fn;
   }
 
   /** Wire the awake set (ADR 0006) so a houseguest who has turned in neither witnesses nor overhears a scene. */
@@ -535,6 +541,12 @@ export class EngineCommandsAdapter implements EngineCommands {
         beforeIds,
         this.knowledge.knownTo(PLAYER),
       ));
+    }
+    // P4g: a betrayal / conflict / kindness scene is REMEMBERED by the NPCs it touched (0024 ledger) - bounded, deterministic, one write per recorded scene (this point is
+    // reached once per recorded scene: an idempotent replay returned earlier). Inert unwired / writers off.
+    if (this.sceneMemorySink && req.kind) {
+      const touched = (req.toward ?? awakeNamed).filter((id) => id !== PLAYER); // the NAMED partners (not presence-expanded bystanders)
+      if (touched.length > 0) this.sceneMemorySink(touched, req.kind);
     }
     this.onPersist?.(); // durable save (0030): events + the hidden layer survive a restart
     // A10/#591 — record the at-most-once key ONLY after a clean commit. Placed AFTER onPersist so a
