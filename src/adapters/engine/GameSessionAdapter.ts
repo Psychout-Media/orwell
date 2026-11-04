@@ -1071,6 +1071,21 @@ export class GameSessionAdapter implements GameSession {
     return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit }));
   }
 
+  /** B4 slice 4 - the eviction-vote shield `voter` owes nominee `n` from a KEPT 'vote'/'safe' assurance (0 when none, a strategic lie, or the voter decides to break it). Half a deal's honor weight. */
+  assuranceVoteFor(n: EntityId, voter: EntityId): number {
+    if (!this.assurancesEnabled || !this.live?.assurances) return 0;
+    const open = AssuranceLedger.fromJSON(this.live.assurances).openFor(voter).filter((a) => a.to === n && (a.kind === "vote" || a.kind === "safe"));
+    if (open.length === 0) return 0;
+    const stats = this.house?.npcs.find((x) => x.id === voter)?.character.stats;
+    const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter))));
+    const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
+    const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
+    return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit })) ? 0.5 * DECISION.vote.dealHonorWeight : 0;
+  }
+
+  /** B4 slice 4 - `voter` voted `nominee` out: break the open assurance(s) they made to them (once) and the assured remembers. */
+  assuranceVotedOut(voter: EntityId, nominee: EntityId): void { this.assuranceNominated(voter, nominee); }
+
   /** B4 slice 3 - the HOH nominated an assured houseguest: resolve the open assurance(s) BROKEN (once) and the assured remembers it (a smaller grudge than a broken deal). */
   assuranceNominated(holder: EntityId, nominee: EntityId): void {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
@@ -7369,6 +7384,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on

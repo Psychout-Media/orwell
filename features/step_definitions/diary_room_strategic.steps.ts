@@ -42,11 +42,11 @@ Then("it carries the player's Diary-Room strategy as a private steer", function 
 });
 
 Then("that steer is marked as known to the GM but not to the houseguests", function (this: BbWorld) {
-  assert.match(
-    this.drContext!.toLowerCase(),
-    /you know it; the house does not|never voice it|do not|not to the houseguests/,
-    "the steer is fenced GM-only / do-not-voice",
-  );
+  // AMEND secrets wall item 4: the ACTUAL fence sentence, both halves (was an alternation including a bare "do not", which any prompt line matches). The fence is
+  // "(you know it; the house does NOT - narrate the irony, but NEVER voice it to a houseguest and never let anyone act on it)".
+  const ctx = this.drContext!.toLowerCase().replace(/\s+/g, " ");
+  assert.match(ctx, /you know it; the house does not/, "the steer says the GM knows it and the house does not");
+  assert.match(ctx, /never voice it to a houseguest and never let anyone act on it/, "the steer forbids voicing it to a houseguest or letting anyone act on it");
 });
 
 // --- The structural wall ------------------------------------------------------

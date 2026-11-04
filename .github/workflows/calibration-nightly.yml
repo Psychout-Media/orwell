@@ -89,7 +89,7 @@ jobs:
             const p=(k,n)=>n?(100*k/n).toFixed(1)+"%":"n/a";
             let md="### PO-target calibration (default profile)\n\n| arm | seasons | reach F2 | win | reach jury |\n|---|---|---|---|---|\n";
             for(const a of ["passive","solid","reckless"]){const x=out[a]??{n:0,f2:0,win:0,jury:0};md+=`| ${a} | ${x.n} | ${p(x.f2,x.n)} | ${p(x.win,x.n)} | ${p(x.jury,x.n)} |\n`;}
-            md+="\nTargets: passive F2 <= 15%, win < 5%; solid F2 12-20%, win 6-10%; reckless no better than passive.\n";
+            md+="\nTargets: passive F2 <= 15%, win < 5%; solid F2 12-20%, win 8-12%; reckless no better than passive.\n";
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md);'
       - name: assert the PO bands over all 300 seeds
         id: gate
