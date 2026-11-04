@@ -63,11 +63,12 @@ function driveVotesStage(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
 }
 
 describe("staged eviction reveal batching", () => {
-  it("a 13-vote eviction completes its votes stage in ~4-8 reveal beats (not ~13)", () => {
+  it("PO ruling 2026-11-04: a 13-vote eviction reads EVERY ballot in ONE reveal beat, then the result", () => {
     const { s, ctx } = bigEvictionAt(9); // 9–4 → evict npc2
     const { reveals, result } = driveVotesStage(s, ctx, new SeededRandom(7));
-    expect(reveals.length).toBeGreaterThanOrEqual(4);
-    expect(reveals.length).toBeLessThanOrEqual(8);
+    expect(reveals).toHaveLength(1);
+    expect(reveals[0]!.participants).toHaveLength(13); // all thirteen anonymized ballots, in the seeded reveal order
+    expect((reveals[0]!.content.match(/a vote to evict /g) ?? []).length).toBe(13);
     expect(result.beat).toBe("eviction");
     expect(result.participants[0]).toBe(npc(2));
   });
@@ -151,8 +152,8 @@ describe("staged eviction reveal batching", () => {
     }
   });
 
-  it("a small eviction (few votes) stays one ballot per round — already inside the band", () => {
-    // 3 voters → batch size ceil(3/5) = 1, so each reveal reads exactly one ballot (unchanged cadence).
+  it("a small eviction (few votes) is also read in ONE reveal beat", () => {
+    // 3 voters → all three ballots in the single reveal beat.
     const voters = [npc(3), npc(4), npc(5)];
     const active = [PLAYER, npc(1), npc(2), ...voters];
     const s = newLiveSeason(active);
@@ -161,8 +162,9 @@ describe("staged eviction reveal batching", () => {
     for (const v of [npc(3), npc(4)]) { rel.edge(v, npc(2)).threat = 0.9; rel.edge(v, npc(1)).threat = 0.1; }
     rel.edge(npc(5), npc(1)).threat = 0.9; rel.edge(npc(5), npc(2)).threat = 0.1;
     const { reveals, result } = driveVotesStage(s, ctxOf(rel), new SeededRandom(7));
-    expect(reveals).toHaveLength(3); // one ballot per advance
-    for (const ev of reveals) expect(ev.content).toMatch(/^a vote to evict /);
+    expect(reveals).toHaveLength(1);
+    expect(reveals[0]!.participants).toHaveLength(3);
+    expect(reveals[0]!.content).toMatch(/^a vote to evict /);
     expect(result.participants[0]).toBe(npc(2));
   });
 });

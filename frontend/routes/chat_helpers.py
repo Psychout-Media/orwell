@@ -5205,6 +5205,12 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         # already asked for the result; the narrator then voiced the whole outcome the engine had not reached and the scene breaker cut it. A READY player's
         # competition keeps resolving here until it LEAVES the competition phase, a player decision pends (the recursion's own pending check), or the hop cap
         # is hit. Comps only: the eviction reveal (E12 staged ballots) and the ceremonies keep one beat per turn.
+        # PO ruling (Ryne, 2026-11-04): the eviction-night vote reveal is ALL IN ONE TURN. The engine now reads EVERY ballot in one `eviction-reveal` beat; the
+        # RESULT is the very next beat, and it is walked in this SAME pass (no readiness needed — the ceremony has started), so the narration voices all the
+        # ballots AND the committed evictee instead of a half-revealed night. Only reveal -> result is collapsed: goodbyes / exit interview stay one per turn.
+        if (_beat_kind == "eviction-reveal" and phase == "eviction" and _comp_hops < _COMP_RUN_HOPS):
+            return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
         if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig):
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
                                                    _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)

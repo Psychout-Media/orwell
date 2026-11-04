@@ -1054,7 +1054,11 @@ function stagedBatchSize(fieldSize: number): number {
  * same evictee on the same last ballot, and ZERO randomness consumed — only how many ballots a single
  * advance reveals changes. Tunable.
  */
-const STAGED_EVICTION_TARGET_ROUNDS = 5;
+// PO ruling (Ryne, 2026-11-04): the eviction-night vote reveal is ALL IN ONE TURN. Once the player has voted (their card confirmed) every anonymized
+// ballot is read in ONE reveal beat (the narrator reads them all in one suspenseful message), then the result beat. The 5-round drip made eviction night a
+// ~10-turn slog and let the narrator voice the finished eviction while the engine was still reading ballots (the dominant scene-cut class in the 2026-11-04
+// A/B). Still PRESENTATION ONLY: same seeded reveal order, same precomputed tally, same evictee, ZERO randomness; still anonymized (never the voter).
+const STAGED_EVICTION_TARGET_ROUNDS = 1;
 
 /** Ballots to reveal per staged eviction round so the votes stage resolves in ~target rounds (≥1). */
 function stagedEvictionBatchSize(voteCount: number): number {

@@ -796,7 +796,10 @@ const BOOTH_RECEIPTS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BOOTH_RECEIPTS");
  */
 const AUTO_ADVANCE_PENDING_KINDS: ReadonlySet<PendingDecisionView["kind"]> = new Set([
   "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
-  "replacement", "eviction-vote", "tie-break", "final-eviction",
+  "replacement", "tie-break", "final-eviction",
+  // "eviction-vote" is DELIBERATELY NOT here (PO ruling 2026-11-04, the one-turn vote reveal): the vote's own apply already reads EVERY ballot in one
+  // beat, and the RESULT must be a separate, VISIBLE beat (its `eviction` event + chyron reach the client from the next advance). Chaining it here
+  // would commit the evictee silently inside the submit and drop its announcement.
 ]);
 
 /**
@@ -11066,6 +11069,7 @@ export class GameSessionAdapter implements GameSession {
       votesRevealed: e.revealOrder.slice(0, e.revealIx).map((voter) => ({
         votedFor: ref(e.voteOf[voter]!),
       })),
+      ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
     };
   }
 
