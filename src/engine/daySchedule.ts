@@ -110,6 +110,7 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
  */
 const DURATION_CATEGORY: Partial<Record<Beat, "competition" | "ceremony" | "eviction">> = {
   "hoh-competition": "competition",
+  "final-hoh-part": "competition", // 0128: each part of the three-part Final HOH costs a competition's time
   "veto-competition": "competition",
   "nominations": "ceremony",
   "veto-ceremony": "ceremony",

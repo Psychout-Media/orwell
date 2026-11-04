@@ -31,7 +31,8 @@ export type BeatAnnouncementKind =
   | "secret-veto"
   | "eviction-ballot"
   | "eviction-result"
-  | "comp-round-result";
+  | "comp-round-result"
+  | "final-hoh-part"; // 0128: Part 1 / Part 2 of the three-part Final HOH (flag-gated)
 
 /**
  * The engine-internal (id-keyed) shape of one broadcast fact. The adapter resolves `subjects`/
@@ -54,6 +55,8 @@ export interface BeatAnnouncement {
     tieBroken?: boolean;
     /** `comp-round-result` only: how many houseguests are still in the competition after this round's drops. */
     remaining?: number;
+    /** `final-hoh-part` only: which part (1 or 2) the subject just won. */
+    part?: number;
   };
 }
 
@@ -84,6 +87,12 @@ export function buildBeatAnnouncements(ev: BeatEvent, s: LiveSeasonState): BeatA
       return dropped.length > 0
         ? [{ kind: "comp-round-result", week, subjects: dropped, detail: { remaining: stillIn.size } }]
         : [];
+    }
+    case "final-hoh-part": {
+      // 0128: the subject won Part 1 / Part 2 of the three-part Final HOH; `s.finalHohPart` is already the NEXT part (2 or 3), so the part just won is that minus one.
+      const winner = ev.participants[0];
+      const part = (s.finalHohPart ?? 2) - 1;
+      return winner ? [{ kind: "final-hoh-part", week, subjects: [winner], detail: { part } }] : [];
     }
     case "hoh-competition": {
       const winner = ev.participants[0];
@@ -216,6 +225,8 @@ export function announcementHeadline(a: BeatAnnouncement, nameOf: NameResolver):
       const rem = a.detail?.remaining;
       return `${list} ${names.length === 1 ? "is" : "are"} out of the competition${rem !== undefined ? `; ${rem} remain` : ""}.`;
     }
+    case "final-hoh-part":
+      return `${nameOf(a.subjects[0]!)} wins Part ${a.detail?.part ?? 1} of the final Head of Household competition.`;
     case "eviction-ballot":
       return a.subjects.map((id) => `a vote to evict ${nameOf(id)}.`).join(" ");
     case "eviction-result": {

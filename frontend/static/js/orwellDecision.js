@@ -1319,13 +1319,13 @@
   const _CHYRON_ICON = {
     "hoh-winner": "\u{1F3C6}", nominations: "\u{1F528}", "veto-winner": "\u{1F48E}",
     "veto-decision": "\u{1F48E}", "replacement-nominee": "\u{1F528}", "secret-veto": "\u{1F575}",
-    "eviction-ballot": "\u{1F5F3}️", "eviction-result": "\u{1F5F3}️", "comp-round-result": "\u{1F3C1}",
+    "eviction-ballot": "\u{1F5F3}️", "eviction-result": "\u{1F5F3}️", "comp-round-result": "\u{1F3C1}", "final-hoh-part": "\u{1F3C6}",
     "correction": "\u{1F4FC}",  // #1785 AC3: diegetic control-room correction card
   };
   const _CHYRON_KICKER = {
     "hoh-winner": "Head of Household", nominations: "Nominations", "veto-winner": "Power of Veto",
     "veto-decision": "Veto Ceremony", "replacement-nominee": "Replacement Nominee", "secret-veto": "Secret Veto",
-    "eviction-ballot": "Live Vote", "eviction-result": "Eviction", "comp-round-result": "Competition",
+    "eviction-ballot": "Live Vote", "eviction-result": "Eviction", "comp-round-result": "Competition", "final-hoh-part": "Final HOH",
     "correction": "Control Room",  // #1785 AC3: diegetic control-room correction card
   };
   // F4: dedup by announcement id — a chyron renders exactly once per session. Backed ALSO by a DOM
