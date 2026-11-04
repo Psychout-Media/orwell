@@ -2110,6 +2110,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        # N-16: the engine says the scheduled competition is NOT due yet (clock live, `daySchedule.due` False) - True/False, None when there is no schedule (never judge).
+        "compNotDue": (False if not isinstance(state.get("daySchedule"), dict) or "due" not in state.get("daySchedule")
+                       else (not bool(state["daySchedule"].get("due")))) if isinstance(state.get("daySchedule"), dict) else None,
         # A-15: the ENGINE's count of anonymized ballots revealed so far (None = the engine doesn't project it ⇒ never judge).
         "evictionBallots": ((len((state.get("eviction") or {}).get("votesRevealed") or []) if isinstance(state.get("eviction"), dict) else 0)
                             if "eviction" in state else None),
@@ -2922,8 +2925,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     _n3 = None if desync else _stale_denial_contradiction(text, after)
     # (12) N-15: the PLAYER's own card-gated choice narrated as made while its card is still open (never recorded).
     _n15 = None if desync else _uncommitted_player_choice(text, after)
-    if _a9 or _f3 or _n1 or _n3 or _n15:
-        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15) if x)
+    # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
+    _n16 = None if desync else _comp_started_before_due(text, after)
+    if _a9 or _f3 or _n1 or _n3 or _n15 or _n16:
+        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16) if x)
 
     if not desync:
         return None
@@ -4053,6 +4058,30 @@ _N15_NOT_A_CLAIM_RE = re.compile(
     r"\b(?:if|when|once|unless|whether|before|until|should|would|could|might|may|want\s+to|asks?\s+you\s+to|"
     r"invites?\s+you\s+to|ready\s+to|going\s+to|about\s+to|hopes?|hoped|wish(?:es)?|wants?\s+you\s+to|tells?\s+you\s+to|"
     r"(?:he|she|they|the\s+voice|production)\s+says?\s+you\s+(?:must|should|will|can))\b", re.IGNORECASE)
+
+
+# N-16 cues that a competition has BEGUN on screen. A claim needs >= 2 DISTINCT cue families in the same narration (a single "take your spots" can be a stage direction in a
+# production announcement; two together - the call AND the contestants moving - is the competition starting).
+_COMP_STARTED_CUES = (
+    re.compile(r"\b(?:take|find|get\s+to|go\s+to)\s+(?:your|their)\s+(?:spots|places|stations|positions|marks)\b|\blocked\s+in\b|\bstations?\.\s*now\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:first\s+|second\s+)?(?:competition|comp|round)\s+(?:begins|starts|has\s+begun|kicks\s+off)\b|\bready\W{0,3}\s+(?:set\W{0,3}\s+)?go\b|\bthe\s+sequence\s+begins\b|\b(?:three|two)\W{1,4}(?:two|one)\W{1,4}(?:one|go)\b", re.IGNORECASE),
+    re.compile(r"\b(?:climb|climbs|climbed)\s+onto\s+the\s+(?:platform|wall|stage)\b|\bhands\s+find\s+the\s+wall\b|\bscreens?\s+(?:flicker|flash)\w*\b|\bthe\s+rope\b.{0,40}\b(?:tightens|goes\s+taut|burns)\b|\bwall\s+thins\s+out\b", re.IGNORECASE),
+)
+
+
+def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
+    """N-16 - the narration shows the scheduled competition STARTING while the engine says it is not due (clock live, `daySchedule.due` False) and nothing is pending. Production owns the
+    schedule (#2051): the player's / narrator's momentum cannot start it. Returns a LABEL or None. Conservative: only the HOH / veto competition phases, only with an explicit
+    not-due flag, and >= 2 distinct 'it has begun' cue families."""
+    if not isinstance(live, dict) or not text:
+        return None
+    phase = str(live.get("phase") or "").lower()
+    if not phase.endswith("-competition") or live.get("compNotDue") is not True or live.get("pending"):
+        return None
+    if sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) < 2:
+        return None
+    return ("the competition as already STARTED (contestants called to their stations / playing) - the engine shows it is NOT due yet and nothing has begun; "
+            "production has not called it")
 
 
 def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:

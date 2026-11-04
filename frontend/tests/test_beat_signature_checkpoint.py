@@ -70,6 +70,7 @@ def test_beat_signature_shape_from_sample_dicts():
         "vetoFieldIds": [],            # F-3 — the veto competition field (none in this sample)
         "vetoFieldNames": [],
         "playerId": None,              # F-3 — the player id (no player in this sample)
+        "compNotDue": None,            # N-16 - the engine says the scheduled competition is not due (None: no schedule in this sample)
         "evictionBallots": None,       # A-15 — the engine projects no `eviction` key in this sample ⇒ unknown (never judged)
         "evictionEvictee": None,       # P3 — tonight's committed evictee (none in this sample)
         "ballotCounts": None,          # PO 2026-11-04 — per-nominee ballot counts once ballots are read (none in this sample)
