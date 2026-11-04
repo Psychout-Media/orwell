@@ -81,6 +81,13 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["toward"] !== undefined && !isEntityIdArray(args["toward"])) refuse("toward", "an array of houseguest ids ('player' or 'npc:<n>') when present");
       // Phase 2 — the LLM's per-scene felt duration in minutes; the engine clamps it (feltHoursFromMinutes).
       if (args["feltMinutes"] !== undefined && typeof args["feltMinutes"] !== "number") refuse("feltMinutes", "a number of minutes when present");
+      if (args["assurance"] !== undefined) {
+        const a = args["assurance"];
+        if (typeof a !== "object" || a === null || Array.isArray(a)) refuse("assurance", "an object when present");
+        const as = a as Record<string, unknown>;
+        if (as["kind"] !== "safe" && as["kind"] !== "vote" && as["kind"] !== "loyal") refuse("assurance", "{ kind: 'safe' | 'vote' | 'loyal' } when present");
+        if (as["sincerity"] !== undefined && typeof as["sincerity"] !== "number") refuse("assurance", "a numeric sincerity when present");
+      }
       // 0005: the optional generative-consequence descriptor. Shape-guard only (R6 class: a string
       // where an array/object is expected dies deep in the fold) — the engine owns the magnitude and
       // degrades gracefully on an unknown direction, so domain validation stays there, not here.

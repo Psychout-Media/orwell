@@ -53,6 +53,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { AssuranceLedger } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1039,6 +1040,16 @@ export class GameSessionAdapter implements GameSession {
    * no claim written ⇒ byte-identical. The writer draws only from a DEDICATED seeded rng (never the shared stream).
    */
   private npcBeliefNomsEnabled = flagDefaultOn("ORWELL_NPC_BELIEF_NOMS");
+  /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. OFF unless exactly `ORWELL_ASSURANCES=1`; never-flipped. OFF => no ledger on the live state => byte-identical. */
+  private assurancesEnabled = process.env.ORWELL_ASSURANCES === "1";
+  setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
+  /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
+  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
+    if (!this.assurancesEnabled || !this.live) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
+    ledger.add({ ...a, week: this.live.week });
+    this.live.assurances = ledger.toJSON();
+  }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -6520,7 +6531,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return null;
     const evicted = new Set(this.live.evictionOrder);
     if (evicted.has(npcId) || !this.house.npcs.some((n) => n.id === npcId)) return null;
-    const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => (f.factId ?? f.id) === factId || f.id === factId);
+    // BDD audit D2: a Diary Room note is never confrontable — confronting with it would put booth content in front of
+    // a houseguest (a DR→NPC pathway the wall forbids).
+    const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === factId || f.id === factId));
     if (!belief) return null; // the Vault bright line — a non-learned belief is never minted
     const landed = !this.gossipConsequenceEnabled || !isMateriallyDistorted(belief);
     if (!landed) {
@@ -9650,7 +9663,9 @@ export class GameSessionAdapter implements GameSession {
     if (!d.factId) return null;
     // The bright line: the player can only wield a fact they LEGITIMATELY HOLD. Reject anything else —
     // a suspicion, a never-learned secret, another entity's knowledge. No Vault-minting.
-    const fact = (this.playerKnowledgeReader?.() ?? []).find((f) => (f.factId ?? f.id) === d.factId || f.id === d.factId);
+    // BDD audit D2: a Diary Room note is the player's PRIVATE booth record — never a wieldable secret. Exposing or
+    // trading it would surface Diary Room content into a houseguest's knowledge (a DR→NPC pathway the wall forbids).
+    const fact = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === d.factId || f.id === d.factId));
     if (!fact) return null;
     if (this.secretUsedAs[d.factId] === "exposed") return null; // spent (public) — never re-wielded
     // The subject is the houseguest the fact is about (the knowledge `subject`, or the descriptor's hint).

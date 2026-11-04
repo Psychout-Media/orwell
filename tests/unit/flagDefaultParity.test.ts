@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
  */
 const NEVER_FLIPPED = [
   "ORWELL_SHOWRUNNER_REWEIGHT", "ORWELL_FORESHADOW", "ORWELL_TIE_REVEAL",
-  "ORWELL_GOSSIP_CONSEQUENCE", "ORWELL_MULTI_NIGHT_FATIGUE", "ORWELL_WIPEOUT_REEL", "ORWELL_JUROR_PROFILES", "ORWELL_HANGOUT", "ORWELL_DESIRE_CLOCK", "ORWELL_WANT_MOVEMENT",
+  "ORWELL_GOSSIP_CONSEQUENCE", "ORWELL_MULTI_NIGHT_FATIGUE", "ORWELL_WIPEOUT_REEL", "ORWELL_ASSURANCES", "ORWELL_JUROR_PROFILES", "ORWELL_HANGOUT", "ORWELL_DESIRE_CLOCK", "ORWELL_WANT_MOVEMENT",
 ] as const;
 
 const deployKeys = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })

@@ -328,8 +328,11 @@ export class DealLedger {
       if (evId) deal.resolvedEventId = evId;
     }
     // #1802: when the flag is on and the deal has formation witnesses, seed the breach fact into each
-    // witness's knowledge via the existing diffusion pathway (no new fold mechanism).
-    if (sink.dealsWitnesses && deal.formationWitnesses && deal.formationWitnesses.length > 0) {
+    // witness's knowledge via the existing diffusion pathway (no new fold mechanism). NOT for a SEALED break
+    // (#1963/E12, BDD audit D1): the reveal names the breaker, so telling the formation witnesses who broke a deal
+    // by a secret evict ballot would let them infer who cast that sealed vote — the same reason the jury demerit and
+    // the wronged party's own reveal are suppressed above.
+    if (!sealed && sink.dealsWitnesses && deal.formationWitnesses && deal.formationWitnesses.length > 0) {
       for (const witness of deal.formationWitnesses) {
         sink.revealToWitness?.(witness, breaker, deal);
       }
