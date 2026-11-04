@@ -5869,6 +5869,29 @@ _SCENE_CUTAWAY_LINE = (
     "they do when the control room isn't ready to show you the next moment. Give it a beat and pick the "
     "scene back up."
 )
+def _scene_cut_retry_directive(scene_broken: bool, retry_used: bool, shown_text: str, owner) -> "Optional[str]":
+    """A/B 2026-11-04: a whole-scene cut that leaves the player with ONLY the cutaway line used to end the turn on that hole. ONE bounded in-turn
+    re-prompt instead: hand the model the engine truth the breaker already queued (`_overclaim_directive`'s board read — closed-set only, no new
+    content authored here) and ask it to re-voice the current moment. None when nothing was cut, the retry was already spent, or the player HAS seen
+    real narration this turn (the cut then just trims the tail — no hole to fill). Pure apart from reading the queue. Never raises."""
+    try:
+        if not scene_broken or retry_used:
+            return None
+        if (shown_text or "").replace(_SCENE_CUTAWAY_LINE, "").strip():
+            return None
+        from routes import chat_helpers
+        segs = chat_helpers._reground_segments(chat_helpers._desync_key(owner))
+        truth = segs[-1] if segs else ""
+        return (
+            "SCENE CUT — your last draft narrated a board outcome the game has NOT reached, so it was cut and the player saw only a brief cutaway. "
+            "Re-voice THIS moment once, now, in a fresh scene that picks up after the cutaway. A result the engine has not committed has not happened: "
+            "do not announce, imply or stage it (no veto winner, no nominees, no ballots, no evictee beyond what the game has handed you). "
+            + (truth if truth else "Ground every closed-set fact in the current moment prompt and the BOARD block.")
+        )
+    except Exception:
+        return None
+
+
 # The plain operator string for non-game (workspace) turns — kept verbatim so the existing
 # "empty response" / "switch to a different model" guidance still reaches a power user.
 _EMPTY_OPERATOR_LINE = (
@@ -6773,6 +6796,7 @@ async def _stream_agent_loop_impl(
     _emitted_visible = False  # did the player see ANY narration this turn? (scrub can empty a
     _turn_narrate_nudges = 0  # planning-only round → blank turn; we re-prompt once for the scene)
     _cutaway_emitted = False  # A2 (2026-07-03): the diegetic feeds-cut line is emitted at most once/turn
+    _scene_cut_retry_used = False  # A/B 2026-11-04: at most ONE in-turn re-voice after a whole-scene cut that left only the cutaway
     # Orwell #872 (item B): a per-turn flag set when an upstream provider error (e.g. deepseek-v4-pro
     # intermittently 400ing on a continuation/tool round) was surfaced this turn. A pure-error turn
     # produces NO visible narration (_emitted_visible stays False), which would otherwise look like a
@@ -7664,6 +7688,16 @@ async def _stream_agent_loop_impl(
             cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
             scrub_active=_scrub_active, round_emitted=_round_emitted_text)
         round_texts.append(cleaned_round)
+
+        # A/B 2026-11-04 — a whole-scene cut that left the player with only the cutaway: re-voice ONCE from the engine truth (bounded) instead of ending the turn on the hole.
+        if _is_live_game and not tool_blocks and _scene_broken:
+            _cut_retry = _scene_cut_retry_directive(_scene_broken, _scene_cut_retry_used, full_response, owner)
+            if _cut_retry:
+                _scene_cut_retry_used = True
+                logger.info(f"[orwell] scene cut left only the cutaway — one in-turn re-voice from the engine truth round {round_num} user={owner}")
+                messages.append({"role": "system", "content": _cut_retry})
+                yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
+                continue
 
         # BUG 2 (truncation) disambiguator: log the REPLY vs REASONING vs EMITTED lengths for this
         # round so a live bundle can localize a tail-drop. `content_chars` in llm_core counts
