@@ -390,11 +390,8 @@ Then("an engaged scene is never cut short by the clock", function () {
   s.setPerConversationClockEnabled(true);
   s.advanceGame(); // 0111: close the premiere champagne circle
   s.advanceGame(); // start the day (initializes the clock)
-  // Extension 6 (SCENE-based clock): a SINGLE continuous scene caps at SCENE.capHours (4h), so the day
-  // advances as the player moves THROUGH scenes — `resetSceneClock()` stands in for each scene boundary
-  // (a move / someone entering / a beat), which real play produces via presence 0049. Across many scenes
-  // the clock still clamps at late-night and never wraps without the player's own turnIn.
-  for (let i = 0; i < 1000; i++) { s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 }); s.resetSceneClock(); }
+  // P4c: the clock ticks 5 minutes a message; across many messages it still clamps at late-night and never wraps without the player's own turnIn.
+  for (let i = 0; i < 1000; i++) s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
   assert.equal(s.gameStatus().timeOfDay, "late-night", "lingering clamps at late-night, never wrapping the night");
   assert.ok(!s.snapshot().live?.playerRetired, "the player is never auto-retired by an engaged scene");
   GameSessionAdapter.setTimeOfDayEnabled(null);
@@ -418,9 +415,8 @@ Then("the time of day presses forward as the player plays", function (this: BbWo
 
 Then("lingering never wraps the night past the player's own bedtime choice", function (this: BbWorld) {
   const s = bag(this).session!;
-  // Extension 6: a single scene caps at SCENE.capHours; the day advances across scenes — reset stands in for
-  // each scene boundary (move / arrival / beat). Even across unbounded scenes the clock clamps at late-night.
-  for (let i = 0; i < 1000; i++) { s.advanceClockPerConversation(); s.resetSceneClock(); }
+  // P4c: even across unbounded messages the clock clamps at late-night.
+  for (let i = 0; i < 1000; i++) s.advanceClockPerConversation();
   assert.equal(s.gameStatus().timeOfDay, "late-night", "the per-conversation clock clamps at late-night, never wrapping");
   assert.ok(!s.snapshot().live?.playerRetired, "the player is never auto-retired by lingering");
 });

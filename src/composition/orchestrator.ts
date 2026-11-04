@@ -485,10 +485,7 @@ export class Orchestrator {
     // step too (unchanged from before), and anchor the social-play pacing to the beat's new in-game hour so
     // the between-ceremony ticks (0117) measure from here.
     this.lastTurnTickAt.set(user, this.clock.now());
-    // Extension 6 — a resolved beat is a hard SCENE boundary: forget the current social scene so the next
-    // social turns after the ceremony open a fresh scene (with a full cap), not a continuation of the one the
-    // player was in before the beat. Then press the per-conversation clock a small step as before.
-    session.resetSceneClock();
+    // Then press the per-conversation clock one message-step as before.
     session.advanceClockPerConversation();
     const beatHour = session.inGameHour();
     if (beatHour !== undefined) this.lastSocietyTickHour.set(user, beatHour);

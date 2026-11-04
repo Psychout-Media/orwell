@@ -591,6 +591,9 @@ _DAY_BREAK_STEER: dict = {}
 # is False the pre-resolve fires NOTHING (whatever the player typed, whatever the runway says) and this one-turn steer gives the narration an in-fiction cue
 # ("production hasn't called it yet"). Same stash/pop shape as `_DAY_BREAK_STEER`; cleared by `clear_social_runway`.
 _SCHEDULE_STEER: dict = {}
+# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine pace is 5 in-game
+# minutes a message (~48 per 4h block); this cap (~3 blocks) sits well above that so only a genuinely stuck clock ever hits it.
+_PRODUCTION_HOLD_CAP = 150
 
 # "Hang out until X" (PO 2026-11-04): the player's safe fast-forward. A wait/chill-until intent is recognised HERE (FE-driven, not a model lever); the ENGINE runs the
 # short timed beats and decides the stop reason, and this one-turn steer hands the narrator that stop to voice. Same stash/pop shape as `_SCHEDULE_STEER`.
@@ -642,18 +645,22 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     except Exception as e:  # never blocks a turn
         logger.warning("[orwell] hang-out skipped for user=%s: %s", user, e)
         return False
-# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine's default pace brings a
-# milestone due in ~20 ordinary messages (B tunes it to ~8-12); this cap sits well above that so only a genuinely stuck clock ever hits it.
-_PRODUCTION_HOLD_CAP = 30
 _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
 
 
 # P4 item 1 — the premiere has no engine clock yet (the day starts when the premiere closes), so the FE counts premiere messages against the SAME one-morning pace the engine
-# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / SCENE.perExchangeHours = (12 - 8) / 0.4 = 10 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
+# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / (MINUTES_PER_MESSAGE / 60) = (12 - 8) / (5/60) = 48 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
 # Until a morning's worth of messages has passed, the advance belts treat the premiere as "production hasn't called the house in" — the first HOH waits for its hour like
 # every other event. Player readiness is NOT an input.
-_PREMIERE_SOCIAL_MESSAGES = 10
+_PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
+
+
+def _premiere_not_yet_steer() -> str:
+    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call, this afternoon - never on demand."""
+    return ("PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for this afternoon and it is not that time yet. The player cannot start, skip to or "
+            "move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
+            "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
 def note_premiere_turn(user, game_state) -> None:
@@ -663,6 +670,10 @@ def note_premiere_turn(user, game_state) -> None:
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         if phase == "premiere":
             _PREMIERE_MSGS[key] = _PREMIERE_MSGS.get(key, 0) + 1
+            # P4h: the premiere has no engine clock (so no `daySchedule`), but production STILL owns the schedule - while the hold is on, hand the narrator the same in-fiction
+            # "production hasn't called it yet" cue the clock-driven path arms, so an early "can we start the HOH?" is never answered "whenever you want".
+            if _PREMIERE_MSGS[key] < _PREMIERE_SOCIAL_MESSAGES:
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
         else:
             _PREMIERE_MSGS.pop(key, None)
     except Exception:
