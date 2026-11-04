@@ -190,6 +190,42 @@ sanity_path "$CONFIG_DIR"      "engine CONFIG_DIR"
 sanity_path "$ENGINE_SAVE_DIR" "engine SAVE dir"
 sanity_path "$FE_DATA_DIR"     "front-end FE_DATA_DIR"
 
+# ── Safety: root only deletes/chowns inside the app's own data directories ──────────────────────
+# ENGINE_SAVE_DIR can come from data/.env — a file the unprivileged service user can write — so no
+# path here is trusted as typed. Resolve each one (symlinks, `..`, relative) with realpath and refuse
+# anything that is not equal to, or inside, one of the app's data directories: never `/`, the app dir
+# itself, or anything above it. KEEP THIS BLOCK IDENTICAL in orwell-oobe-reset.sh and
+# orwell-game-reset.sh (a test pins it).
+resolve_path() { realpath -m -- "$1" 2>/dev/null || die "cannot resolve '$1' (is realpath installed?)"; }
+path_within()  { [[ "$1" == "$2" || "$1" == "${2%/}"/* ]]; }
+APP_REAL="$(resolve_path "$APP_DIR")"
+DATA_ROOTS=()
+add_data_roots() { local r; for r in "$@"; do DATA_ROOTS+=("$(resolve_path "$r")"); done; }
+confine_to_data_dirs() {   # $1 path · $2 label → prints the RESOLVED path, or dies
+  local real root
+  real="$(resolve_path "$1")"
+  for root in "${DATA_ROOTS[@]}"; do
+    path_within "$APP_REAL" "$root" && continue   # a "root" that is the app dir (or above it) never counts
+    path_within "$real" "$root" && { printf '%s' "$real"; return 0; }
+  done
+  die "$2 '$1' resolves to '$real', outside the app's data directories — refusing."
+}
+# Re-check once the services are down: nothing running as the service user can swap a path component
+# for a symlink after that, so a destination that moved since it was validated is refused.
+recheck_data_dir() { [[ "$(confine_to_data_dirs "$1" "$2")" == "$1" ]] || die "$2 '$1' changed since it was validated — refusing."; }
+add_data_roots "${APP_DIR%/}/data" "${APP_DIR%/}/frontend/data" "${APP_DIR%/}/.orwell-data"
+# The roots are the app's fixed literal paths. A CONFIG_DIR / FE_DATA_DIR that differs from them is only
+# ever honored when it comes from root's OWN environment (ORWELL_CONFIG_DIR / ORWELL_FE_DATA_DIR) — never
+# from data/.env — so a link inside the service-writable tree can't promote its own target to a root.
+[[ -z "${ORWELL_CONFIG_DIR:-}" ]]  || add_data_roots "$CONFIG_DIR"
+[[ -z "${ORWELL_FE_DATA_DIR:-}" ]] || add_data_roots "$FE_DATA_DIR"
+# An ORWELL_DATA_DIR in root's OWN environment is a deliberate operator/dev override and is honored;
+# the one read from data/.env must land inside the app's data directories (the check above).
+[[ -z "${ORWELL_DATA_DIR:-}" ]] || add_data_roots "$ENGINE_SAVE_DIR"
+CONFIG_DIR="$(confine_to_data_dirs "$CONFIG_DIR" "engine CONFIG_DIR")"
+ENGINE_SAVE_DIR="$(confine_to_data_dirs "$ENGINE_SAVE_DIR" "engine SAVE dir")"
+FE_DATA_DIR="$(confine_to_data_dirs "$FE_DATA_DIR" "front-end FE_DATA_DIR")"
+
 # ── Environment detection ─────────────────────────────────────────────────────────────────────
 have_systemd=0
 if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then have_systemd=1; fi
@@ -315,6 +351,19 @@ if [[ "$have_systemd" -eq 1 ]]; then
   fi
 else
   warn "systemctl not present — skipping service stop (dev mode). Stop the app yourself first."
+fi
+# (The "service still running after stop" refusal is above, with the restart of what was running.)
+# Re-check the destinations now that the services are down; a refusal puts back what this run stopped.
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  (
+    recheck_data_dir "$CONFIG_DIR"      "engine CONFIG_DIR"
+    recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
+    recheck_data_dir "$FE_DATA_DIR"     "front-end FE_DATA_DIR"
+  ) || { abort_restart_services; exit 1; }
+else
+  recheck_data_dir "$CONFIG_DIR"      "engine CONFIG_DIR"
+  recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
+  recheck_data_dir "$FE_DATA_DIR"     "front-end FE_DATA_DIR"
 fi
 
 # ── 2. Preserve the API-key / LLM-provider config, then wipe the rest of the FE store ─────────

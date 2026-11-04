@@ -53,6 +53,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 
 # Reset semantics (issue #860, owner ruling 2026-06-25; amended 2026-07-12): a factory/OOBE reset
 # preserves ONLY the API key(s) + the provider endpoint record(s) (the model_endpoints rows, carried
@@ -235,10 +236,15 @@ def rebuild_db_with_endpoints(path: str, rows: list[dict], columns: list[str]) -
             raise ValueError("Invalid input")
 
     # Build the replacement at a sibling temp path (same dir ⇒ os.replace is an atomic rename).
-    tmp = path + ".rebuild.tmp"
-    _remove_db_files(tmp)  # clear any stale temp from a previously interrupted run
-    conn = sqlite3.connect(tmp)
+    # This runs as ROOT inside the service-writable FE store, so the temp is created with mkstemp
+    # (O_EXCL, unpredictable name): a pre-planted symlink at a predictable temp name would otherwise
+    # be followed and root would overwrite its target. An empty file is a valid new SQLite DB.
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".rebuild.", suffix=".tmp",
+                               dir=os.path.dirname(path) or ".")
+    os.close(fd)
+    conn = None
     try:
+        conn = sqlite3.connect(tmp)
         # A minimal, app-compatible model_endpoints schema. The app's SQLAlchemy
         # create_all + migrations will reconcile/extend it on next boot; we only need the
         # columns we are carrying to round-trip. Use the exported column set verbatim.
@@ -255,7 +261,8 @@ def rebuild_db_with_endpoints(path: str, rows: list[dict], columns: list[str]) -
     except BaseException:
         # A failed rebuild must not leave a half-written temp behind, and must NOT touch the
         # still-intact live DB — the original app.db stands, providers preserved.
-        conn.close()
+        if conn is not None:
+            conn.close()
         _remove_db_files(tmp)
         raise
     else:
@@ -280,10 +287,21 @@ def write_preserved_settings(path: str, preserved: dict) -> None:
     OOBE defaults — exactly the intent. An empty preserved dict writes ``{}`` (a clean,
     all-defaults file), still a valid OOBE state."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(preserved, f, indent=2)
-    os.replace(tmp, path)
+    # mkstemp (O_EXCL, unpredictable name), not `path + ".tmp"`: this runs as ROOT inside the
+    # service-writable FE store, where a pre-planted symlink at a predictable temp name would be
+    # followed. os.replace() then swaps it in atomically (a symlink at `path` is replaced, not followed).
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".tmp",
+                               dir=os.path.dirname(path) or ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(preserved, f, indent=2)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def reset_frontend_store() -> dict:
