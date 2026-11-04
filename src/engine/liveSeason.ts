@@ -782,6 +782,8 @@ export interface SeasonCtx {
    * flags-off stays BYTE-IDENTICAL. 0 for the PLAYER as holder. ENGINE-ONLY — never crosses the wall.
    */
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default OFF). Absent ⇒ byte-identical. */
+  beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -2675,6 +2677,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         style: ctx.nominationStyleOf?.(s.hoh!),
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
         ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
@@ -2897,6 +2900,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     target: s.nominationTarget,
     ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
     ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   return {
