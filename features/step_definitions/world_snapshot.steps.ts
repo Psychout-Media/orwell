@@ -4,7 +4,7 @@ import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { UserSandbox } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
-import { resolvePending } from "../../tests/support/adr0003";
+import { resolvePending } from "../support/answerPending";
 import { buildWorldSnapshot, renderZeitgeist } from "../../src/engine/zeitgeist";
 import type { HouseguestCard } from "../../src/ports/GameSession";
 
@@ -41,7 +41,7 @@ function wsStart(label: string): { reg: GameSessionRegistry; sb: UserSandbox; or
 function drive(sb: UserSandbox, beats: number): void {
   for (let i = 0; i < beats; i++) {
     const v = sb.session.advanceGame();
-    if (v.pending) resolvePending(sb.session, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
     if (v.finished) break;
   }
 }
@@ -216,7 +216,7 @@ When("the season has run several weeks since move-in", function (this: BbWorld) 
   const sb = this.wsFix!.sb;
   for (let i = 0; i < 200 && sb.session.gameStatus().week < 4; i++) {
     const v = sb.session.advanceGame();
-    if (v.pending) resolvePending(sb.session, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
     if (v.finished) break;
   }
   this.wsWeek = sb.session.gameStatus().week;
