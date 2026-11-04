@@ -148,6 +148,7 @@ describe("the adapter wiring (live)", () => {
   it("on: a nominee who TRUSTED the HOH remembers it; one who did not does not (the trust test reads the pre-fold edge)", () => {
     const { session, rel, ids } = liveHouse(42);
     session.setNpcMemoryEnabled(true);
+    session.setNpcMemoryWritersEnabled(false); // the writers are default-ON since 2026-11-04 (B2); this test pins the ORIGINAL friend-act gating on its own
     const s = p(session).live;
     s.hoh = ids[0]!;
     s.nominees = [ids[1]!, ids[2]!];
@@ -157,6 +158,23 @@ describe("the adapter wiring (live)", () => {
     const led = p(session).live.npcMemory!;
     expect(led[ids[1]!]?.[ids[0]!]?.[0]?.kind).toBe("nominated-by-friend");
     expect(led[ids[2]!]).toBeUndefined();
+  });
+
+  it("on + the B2 writers (default): the non-friend nominee ALSO remembers being nominated — as a plain nomination, never a friend betrayal", () => {
+    const { session, rel, ids } = liveHouse(42);
+    session.setNpcMemoryEnabled(true);
+    session.setNpcMemoryWritersEnabled(true);
+    const s = p(session).live;
+    s.hoh = ids[0]!;
+    s.nominees = [ids[1]!, ids[2]!];
+    rel.edge(ids[1]!, ids[0]!).trust = 0.9;
+    rel.edge(ids[2]!, ids[0]!).trust = 0.05;
+    p(session).foldCeremonyConsequence({ beat: "nominations", participants: [], content: "" });
+    const led = p(session).live.npcMemory!;
+    expect(led[ids[2]!]?.[ids[0]!]?.map((e) => e.kind)).toEqual(["nominated-by-hoh"]);
+    expect(led[ids[1]!]?.[ids[0]!]?.map((e) => e.kind).sort()).toEqual(["nominated-by-friend", "nominated-by-hoh"]);
+    // graded by prior trust: the friend's remembered nomination weighs more
+    expect(led[ids[1]!]![ids[0]!]!.find((e) => e.kind === "nominated-by-hoh")!.severity).toBeGreaterThan(led[ids[2]!]![ids[0]!]![0]!.severity);
   });
 
   it("on: a veto save is remembered as a favor and the PLAYER is never a holder", () => {
