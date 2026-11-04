@@ -36,12 +36,14 @@ Feature: Soul storage & memory recall — the house remembers the RIGHT moment
     Then it includes the recalled specific memory
     And the houseguest can reference that specific past beat
 
-  Scenario: A recalled HIDDEN memory shapes behavior but does not leak
+  # AMEND 0024 #4: this used to end "behavior MAY still reflect it" - a clause that cannot fail, and soul.memory notes have no behavioural reader today (only the numeric mood and the
+  # NPC-memory ledger move behaviour; see 0041). The scenario now claims only what is true and testable: the hidden memory is held engine-side, survives a save-and-resume, and never leaks.
+  Scenario: A hidden memory is held engine-side and survives resume, but never leaks
     Given a houseguest recalls a memory the player did not witness and was never told
     When any player-facing surface is produced
     Then the hidden memory does not appear
     And no Vault sentinel value appears
-    But the houseguest's behavior may still reflect it
+    But the engine keeps the hidden memory and it survives a save-and-resume
 
   # @standalone-module: SoulStore.soulOf (the sectioned narrative) has no production reader; the live durable soul is hg.soul.memory.
   # The standalone sectioning is proven by tests/unit/soul.test.ts ("Option B" block).

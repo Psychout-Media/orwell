@@ -45,8 +45,8 @@ Given("a houseguest with a settled emotional state", function (this: BbWorld) {
   this.evoStart = { state: this.evoSoul.emotionalState, volatility: this.evoSoul.volatility };
 });
 
-When("they live through a blindside on the live path", function (this: BbWorld) {
-  // `evolveEmotion` is exactly what the live consequence fold calls at an eviction (GameSessionAdapter).
+When("they live through a blindside in the soul-evolution function", function (this: BbWorld) {
+  // A direct call of `evolveEmotion` (the function the live consequence fold calls at an eviction in GameSessionAdapter). The LIVE hook itself is covered by tests/unit/emotionalModifierLive.test.ts.
   evolveEmotion(this.evoSoul!, "blindside");
 });
 

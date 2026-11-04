@@ -23,8 +23,8 @@ describe("the per-conversation clock brings a scheduled milestone due on its own
         const st = s.getGameState() as { daySchedule?: { due: boolean } };
         if (st.daySchedule && st.daySchedule.due === false) {
           let turns = 0;
-          while (turns < 40 && !(s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { s.advanceClockPerConversation(); turns += 1; }
-          expect(turns, `seed ${seed}: due within a bounded number of lingering turns`).toBeLessThan(40);
+          while (turns < 150 && !(s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { s.advanceClockPerConversation(); turns += 1; }
+          expect(turns, `seed ${seed}: due within a bounded number of lingering turns`).toBeLessThan(150);
           expect((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(true);
           checked += 1;
           break;

@@ -8,6 +8,7 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { applyDecision } from "../../src/engine/liveSeason";
 import { assertNoSentinels, assertNoneAppear } from "../../tests/support/assertions";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { GameSessionRegistry } from "../../src/composition/registry";
 
 // Background ("a running game sandbox with a fully populated Producer's Vault") and
 // "the player holds power at a decision point" are defined in mcp_boundary / weekly_loop steps.
@@ -90,25 +91,36 @@ Then("it may hint at off-screen shifts without naming any off-screen event", fun
 // --- Knowledge-constrained dialogue -------------------------------------------
 
 Given("a hidden fact a houseguest neither witnessed nor was told", function (this: BbWorld) {
-  this.npc = npc(3);
+  // AMEND 0012 #3: runs on the LIVE npcVoice knowledge block (the projection the narrator actually reads), not on the vacuous `npcExpress` over an empty knowledge list.
+  const reg = new GameSessionRegistry();
+  const sb = reg.sandboxFor("voice-0012");
+  sb.session.createCharacter({ playerName: "P", seed: 12 });
+  const ids = sb.session.getGameState().house.map((h) => h.id);
+  this.liveVoice = { sb, untold: ids[0]!, told: ids[1]! };
   this.factContent = "the HOH is planning a backdoor";
-  // It exists in the hidden layer (off-screen), but this houseguest has no pathway to it.
-  this.sandbox!.engine.vault.writeHidden({ id: "vault:0012", kind: "hidden-thread", content: this.factContent });
+  // It exists in the hidden layer (off-screen), and one houseguest is genuinely TOLD it (the positive control); the other has no pathway to it.
+  sb.engine.vault.writeHidden({ id: "vault:0012", kind: "hidden-thread", content: this.factContent });
+  // positive control: the told houseguest holds the fact through an engine-recorded pathway (a belief seeded via a told-by pathway, as gossip diffusion does)
+  sb.engine.knowledge.seedBelief(this.liveVoice.told, { content: this.factContent, factId: "0012-control" }, "told-by:player");
 });
 
 When("that houseguest speaks with the player", function (this: BbWorld) {
-  const known = this.sandbox!.engine.knowledge.knownTo(this.npc!);
-  const suspicions = this.sandbox!.engine.knowledge.suspicionsOf(this.npc!);
-  this.expression = npcExpress({ content: this.factContent! }, known, suspicions);
+  const { sb, untold, told } = this.liveVoice!;
+  this.voiceUntold = sb.session.npcVoice(untold)!;
+  this.voiceTold = sb.session.npcVoice(told)!;
 });
 
 Then("its dialogue never asserts that fact", function (this: BbWorld) {
-  assert.notEqual(this.expression!.mode, "assert");
-  if (this.expression!.content) assert.ok(!this.expression!.content.includes(this.factContent!) || this.expression!.mode === "suspect");
+  const fact = this.factContent!;
+  const has = (arr: readonly string[]): boolean => arr.some((x) => x.includes(fact));
+  assert.ok(!has(this.voiceUntold!.knows), "an houseguest with no pathway is handed NO knowledge of the fact");
+  // positive control: the voiced block is not just empty - a houseguest who WAS told it does have it
+  assert.ok(has(this.voiceTold!.knows), "the told houseguest's knowledge block carries the fact (control)");
+  assert.ok(!JSON.stringify(this.voiceUntold).includes(fact) || this.voiceUntold!.suspects.some((x) => x.includes(fact)), "if it appears at all it is only as a suspicion");
 });
 
 Then("at most it expresses suspicion, never knowledge", function (this: BbWorld) {
-  assert.ok(["suspect", "silent"].includes(this.expression!.mode), `mode was ${this.expression!.mode}`);
+  assert.ok(!this.voiceUntold!.knows.some((x) => x.includes(this.factContent!)), "never in the knows list");
 });
 
 // --- Hybrid decisions (explicit + validated, never from prose) ----------------

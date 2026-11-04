@@ -140,7 +140,7 @@ export function memoryTilt(
 }
 
 /**
- * B2 / #2017 — the STANDALONE read (`ORWELL_NPC_MEMORY_STANDALONE`, default OFF, never-flipped): the memory on its own, with NO edge-carry subtraction. The residual floor is
+ * B2 / #2017 — the STANDALONE read (`ORWELL_NPC_MEMORY_STANDALONE`, default ON since #2059 / PO ruling 2026-11-03; `=0` rolls back): the memory on its own, with NO edge-carry subtraction. The residual floor is
  * exactly 0 for every in-season read (the relationship edge already carries a fresh betrayal and decays slower than the memory's salience), so "NPCs act on what they
  * remember" was a no-op. Standalone, a betrayal's grudge outlives the edge's mean-reversion and a favor is repaid because it is remembered — bounded by the SAME grudgeMax /
  * favorMax. It can double-count a fresh shock the edge also carries; that is deliberate and bounded (the maxima sit below a fresh betrayal's own edge move), and it is why this

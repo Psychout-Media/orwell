@@ -116,6 +116,9 @@ export class BbWorld extends World {
   // Conversation & scene system (0012) scratch state.
   approaches?: Eid[];
   expression?: { mode: string; content?: string };
+  liveVoice?: { sb: import("../../src/composition/registry").UserSandbox; untold: import("../../src/domain/ids").EntityId; told: import("../../src/domain/ids").EntityId };
+  voiceUntold?: import("../../src/ports/GameSession").NpcVoiceView;
+  voiceTold?: import("../../src/ports/GameSession").NpcVoiceView;
   compressed?: string;
   full?: string;
   groundTruthBefore?: string;
