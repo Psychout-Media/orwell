@@ -8074,9 +8074,18 @@ export class GameSessionAdapter implements GameSession {
     return sum;
   }
 
+  /** B7 M4 - campaign TARGETS read grudges and beliefs, not only the threat edge (approved tie-in #5). OFF unless exactly `ORWELL_CAMPAIGN_MEMORY=1`; never-flipped. OFF => the raw edge ranking, byte-identical. */
+  private campaignMemoryEnabled = process.env.ORWELL_CAMPAIGN_MEMORY === "1";
+  setCampaignMemoryEnabled(on: boolean): void { this.campaignMemoryEnabled = on; }
   private threatReadsOf(owner: EntityId): Array<{ toward: EntityId; threat: number }> {
+    const bend = (id: EntityId): number => {
+      if (!this.campaignMemoryEnabled || owner === PLAYER) return 0;
+      const mem = this.npcMemoryEnabled ? this.memoryTiltFor(id, owner) : 0;   // + grudge / - favor (the ledger's signed tilt toward acting against `id`)
+      const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(id, owner) : 0; // + they are targeting me
+      return mem + bel;
+    };
     return this.livingIds().filter((id) => id !== owner)
-      .map((id) => ({ toward: id, threat: this.rel.edge(owner, id).threat }))
+      .map((id) => ({ toward: id, threat: Math.max(0, Math.min(1, this.rel.edge(owner, id).threat + bend(id))) }))
       .sort((a, b) => b.threat - a.threat);
   }
 

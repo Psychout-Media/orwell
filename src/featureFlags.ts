@@ -99,6 +99,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'strict' },
   // B7 / #2017 M3: open protective deals also feed the HOH's nominations. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'strict' },
+  // B7 / #2017 M4: campaign targets also read grudges and beliefs. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
