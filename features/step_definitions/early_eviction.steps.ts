@@ -5,6 +5,7 @@ import type { UserSandbox } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { SessionCore } from "../../src/engine/sessionSnapshot";
 import { resolvePending } from "../support/answerPending";
+import { PLAYER } from "../../src/domain/ids";
 import { EngineRefusal } from "../../src/domain/errors";
 
 // Feature 0133 — early eviction: skip-or-watch + the finale-night interview. Roles only — no names.
@@ -94,11 +95,25 @@ When("the remaining weeks are advanced", function () {
 });
 Then("each completed eviction night produced exactly one week digest", function () {
   const d = ee!.s.getGameState().weekDigests ?? [];
-  const after = ee!.s.snapshot().live!.evictionOrder.slice(ee!.evictionsAtChoice);
+  const live = ee!.s.snapshot().live!;
+  // Slice by the player's own position in the CURRENT record (identity), not a stored numeric index: a battle-back removes an earlier evictee and shifts it.
+  const at0 = live.evictionOrder.indexOf(PLAYER);
+  const after = live.evictionOrder.slice(at0 >= 0 ? at0 + 1 : ee!.evictionsAtChoice);
+  const bb = (live.firedTwists ?? []).filter((t) => t.kind === "battle-back").length;
   assert.ok(after.length > 0, "the watched stretch contained at least one eviction");
-  // EXACTLY one digest per eviction made after the player's choice, in order — bounded by the eviction order (a double-eviction week has two
-  // eviction nights under one week number; a same-week eviction BEFORE the player's own is not digested).
-  assert.deepEqual(d.map((x) => x.evicted?.id), after, "the digests are the evictions after the choice, one each, in order");
+  const evictees = d.map((x) => x.evicted?.id);
+  if (bb === 0) {
+    // EXACTLY one digest per eviction made after the player's choice, in order — bounded by the eviction order (a double-eviction week has two eviction
+    // nights under one week number; a same-week eviction BEFORE the player's own is not digested).
+    assert.deepEqual(evictees, after, "the digests are the evictions after the choice, one each, in order");
+    assert.equal(new Set(evictees).size, evictees.length, "no eviction digested twice");
+  } else {
+    // A battle-back voids a juror's eviction (they leave the record) but public history keeps that night's digest, and their re-eviction is a new night:
+    // every CURRENT post-choice eviction is digested, in order, and the surplus is only the voided nights (at most two per battle-back).
+    let at = 0;
+    for (const id of after) { at = evictees.indexOf(id, at); assert.ok(at >= 0, `eviction ${id} is digested, in order`); at += 1; }
+    assert.ok(evictees.length <= after.length + 2 * bb, "the surplus digests are only the battle-back's voided night(s)");
+  }
 });
 const DIGEST_KEYS = ["evicted", "hoh", "juryCount", "nominees", "vetoHolder", "vetoUsed", "week"];
 Then("every digest contains only public broadcast facts", function () {

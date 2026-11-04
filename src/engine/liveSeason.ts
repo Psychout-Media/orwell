@@ -563,6 +563,8 @@ export interface LiveSeasonState {
    * path. ENGINE-ONLY Vault content, carried on the loop state so it persists with the season (0030).
    */
   twistPlan?: TwistPlan;
+  /** Non-player jurors a battle-back has pulled out of the eviction record (0025). The jury-house arrivals target is `jurors now + juryReturns`, so the persisted monotonic arrivals counter never has to be lowered. */
+  juryReturns?: number;
   /**
    * A granted-but-unplayed SECRET VETO (0025 redesign): the sealed one-time safety and who secretly
    * holds it. Granted when the secret-veto trigger fires (invisible), consumed when the holder plays
@@ -2773,8 +2775,20 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const field = s.evictionOrder.slice(-k); // the recent jurors — includes the player if they were one
   const def = drawFor(s, "hoh", rng, ctx);
   const winner = resolveComp(field, def, ctx, rng, "compete").winner;
+  // The returnee leaves the eviction record. The jury is POSITIONAL (the last `castSize - 11`-onward evictions), so removing ANY returnee shifts later evictees down
+  // an index — a pre-jury returnee pushes the first juror out of the jury, a juror returnee just leaves it. Either way the count of non-player jurors can DROP; remember
+  // how many (`juryReturns`): the jury-house arrivals counter is persisted + monotonic (the integrity checkpoint reads a lowered counter as degradation), so its
+  // target must keep counting jurors that already arrived rather than the counter being lowered.
+  const castSize = s.active.length + s.evictionOrder.length;
+  const nonPlayerJurors = (order: readonly EntityId[]): number => order.slice(Math.max(0, castSize - 11)).filter((h) => h !== ctx.player).length;
+  const jurorsBefore = nonPlayerJurors(s.evictionOrder);
   s.evictionOrder = s.evictionOrder.filter((h) => h !== winner);
+  const dropped = jurorsBefore - nonPlayerJurors(s.evictionOrder);
+  if (dropped > 0) s.juryReturns = (s.juryReturns ?? 0) + dropped;
   s.active.push(winner);
+  // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep
+  // fast-forwarding their own weeks as if they were still watching from outside (found by the reactive-twists player-path guard).
+  if (winner === ctx.player) s.spectator = undefined;
   if (s.mannerByEvictee) delete s.mannerByEvictee[winner]; // the voided eviction leaves no jury grudge
   (s.firedTwists ??= []).push({ kind: "battle-back", beat: s.week });
   s.beat = "hoh-competition";

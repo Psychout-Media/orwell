@@ -44,7 +44,7 @@ export interface NamedRef { id: string; name: string; }
 
 export interface PendingDecision {
   kind: "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
-      | "goodbye-message" | "exit-interview" | "spectator-choice" | "finale-interview" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote";
+      | "secret-veto" | "goodbye-message" | "exit-interview" | "spectator-choice" | "finale-interview" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote";
   by: NamedRef;
   options: NamedRef[];
   pick: number;
@@ -112,6 +112,8 @@ export function autoResolve(p: PendingDecision, strategy: DecisionStrategy): Rec
         return { kind: "veto-decision", use: true, save: p.options[0]!.id };
       }
       return { kind: "veto-decision", use: false };
+    case "secret-veto": // 0025 reactive: the player holds the sealed one-time safety and is on the block — play it under always-use-veto, hold it otherwise.
+      return { kind: "secret-veto", use: strategy === "always-use-veto" };
     case "comp-intent": // B46: declare the player's competition approach (default compete).
       return { kind: "comp-intent", intent: "compete" };
     case "comp-round": // 0006 staged-rounds: declare the per-round approach (default compete).

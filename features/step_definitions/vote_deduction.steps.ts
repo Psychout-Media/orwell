@@ -279,6 +279,9 @@ Given("a full season is played with vote deduction disabled", function (this: Vd
   // deduction layer, when ON, may only change the hidden grudges folded — never who is evicted or any competition result.
   const play = (on: boolean): SeasonOutcome => {
     const s = new GameSessionAdapter();
+    // Pinned to the legacy twist path: deduction legitimately changes the manner jurors read, and `voteChoice`'s jury-management term can carry that into a later
+    // week's vote on a seed whose reactive twists (battle-back / double eviction) amplify it — the claim below is about the seeded SPINE, measured on legacy.
+    s.setReactiveTwistsEnabled(false);
     s.createCharacter({ playerName: "P", seed: 7 });
     s.setVoteDeductionEnabled(on);
     return playSeasonOutcome(s);

@@ -12,7 +12,7 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
  * flipped (opt-in; each has its own ruling) are pinned explicitly so none can be flipped by accident. Roles only.
  */
 const NEVER_FLIPPED = [
-  "ORWELL_SHOWRUNNER_REWEIGHT", "ORWELL_FORESHADOW", "ORWELL_REACTIVE_TWISTS", "ORWELL_TIE_REVEAL",
+  "ORWELL_SHOWRUNNER_REWEIGHT", "ORWELL_FORESHADOW", "ORWELL_TIE_REVEAL",
   "ORWELL_GOSSIP_CONSEQUENCE", "ORWELL_MULTI_NIGHT_FATIGUE", "ORWELL_WIPEOUT_REEL",
 ] as const;
 

@@ -1663,11 +1663,11 @@ export class GameSessionAdapter implements GameSession {
   /**
    * 0025 reactive redesign (PO ruling 2026-07-06): when on, a NEW season arms the standing reactive
    * pool (all three twists watch the live house, per-season seeded triggers) instead of the legacy
-   * pre-scheduled double-eviction-only path. Default OFF ⇒ the setup + loop are byte-identical to
-   * before (the tuned calibration baseline is untouched); the whole reactive path is gated by whether
+   * pre-scheduled double-eviction-only path. Default ON (PO ruling 2026-11-03, "I want to know if this breaks the game");
+   * `ORWELL_REACTIVE_TWISTS=0` or `ORWELL_FLAGS_OFF=1` restores the legacy path byte-identically; the whole reactive path is gated by whether
    * `s.twistPlan` is set at setup, so an in-flight legacy game never changes shape.
    */
-  private reactiveTwistsEnabled = process.env.ORWELL_REACTIVE_TWISTS === "1";
+  private reactiveTwistsEnabled = flagDefaultOn("ORWELL_REACTIVE_TWISTS");
 
   setReactiveTwistsEnabled(on: boolean): void {
     this.reactiveTwistsEnabled = on;
@@ -3142,7 +3142,12 @@ export class GameSessionAdapter implements GameSession {
     // fired (`firedTwists`) — the "sealed twist that never fired" is simply absent, as it was invisible.
     const twists = this.live.reserve?.length
       ? this.live.reserve.map((t) => ({ kind: t.kind as string, firedWeek: fired.get(t.kind) ?? null }))
-      : [...fired].map(([kind, week]) => ({ kind, firedWeek: week }));
+      : [
+        ...[...fired].map(([kind, week]) => ({ kind, firedWeek: week })),
+        // Reactive path, unsealed AFTER the crown (0048: "any unfired twist"): the twists the sealed plan had ARMED this season but the house never earned —
+        // named with a null week, exactly like an unfired legacy reserve entry. (An unarmed one was never in play, so it is not listed.)
+        ...this.armedUnfiredReactiveTwists(fired),
+      ];
     // E12: the weekly secret ballots unseal HERE — and only here, behind the same terminal gate.
     const evictionVotes = (this.live.voteRecord ?? []).map((r) => ({
       week: r.week,
@@ -7969,10 +7974,11 @@ export class GameSessionAdapter implements GameSession {
     // goodbye messages and exit interview (which set `mannerByEvictee`, the grievance a stretch spreads) come
     // after. Running the arrival's stretch only once the stage has closed lets a cold goodbye count (#1932).
     if (this.live.eviction) return;
-    const arrivals = juryEvictees.length; // a pre-jury eviction is not an arrival: nobody joined the jury house
+    const arrivals = juryEvictees.length + (this.live.juryReturns ?? 0); // a pre-jury eviction is not an arrival: nobody joined the jury house; a battle-back returnee ARRIVED once already
     // A save that counted pre-jury evictions as arrivals is AHEAD of the juror count. Pull it back to one short, so
     // the newest juror's stretch is played (once) under the correct membership instead of being skipped; after that
     // the counters are equal and this never fires again.
+    // (A battle-back returnee leaves `evictionOrder`, so the target adds them back via `live.juryReturns` below — the persisted counter is never lowered for one.)
     if (this.juryHouseArrivals !== null && this.juryHouseArrivals > arrivals) this.juryHouseArrivals = Math.max(0, arrivals - 1);
     if (this.juryHouseArrivals === null) {
       // A fresh game starts from zero. A pre-limbo save (its rng counter advanced every tick, no arrival
@@ -11764,6 +11770,16 @@ export class GameSessionAdapter implements GameSession {
   private juryStartIndex(): number {
     const cast = this.house ? this.house.npcs.length + 1 : 16;
     return Math.max(0, cast - 2 - 9);
+  }
+
+  /** 0025 reactive: the twists the season's sealed plan ARMED that never fired (engine-only; only ever read by the post-crown retrospective unseal). */
+  private armedUnfiredReactiveTwists(fired: ReadonlyMap<string, number>): Array<{ kind: string; firedWeek: null }> {
+    const plan = this.live?.twistPlan;
+    if (!plan) return [];
+    const armed: Array<[string, boolean]> = [
+      ["double-eviction", plan.doubleEvictionArmed], ["secret-veto", plan.secretVetoArmed], ["battle-back", plan.battleBackArmed],
+    ];
+    return armed.filter(([kind, on]) => on && !fired.has(kind)).map(([kind]) => ({ kind, firedWeek: null }));
   }
 
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */

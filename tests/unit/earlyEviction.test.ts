@@ -111,6 +111,7 @@ describe("0133 — watch is the engine's skeleton season; skip fast-forwards to 
     const { s } = findEarlyEvictionSession();
     s.submitDecision({ kind: "spectator-choice", vote: "watch" });
     let prev = (s.getGameState().weekDigests ?? []).length;
+    const evAtChoice = s.snapshot().live!.evictionOrder.length;
     let sawWeeks = 0;
     for (let i = 0; i < 60 && !s.getGameState().finished; i++) {
       const before = s.getGameState().week;
@@ -119,7 +120,9 @@ describe("0133 — watch is the engine's skeleton season; skip fast-forwards to 
       const digests = s.getGameState().weekDigests ?? [];
       if (digests.length > prev) {
         sawWeeks += 1;
-        expect(digests.length - prev).toBe(1);                       // exactly one line per completed week
+        // one line per completed EVICTION NIGHT: usually one per advance, two across a reactive double-eviction week (two nights under one week number)
+        expect(digests.length - prev).toBeGreaterThanOrEqual(1);
+        expect(digests.length - prev).toBeLessThanOrEqual(2);
         const d = digests[digests.length - 1]!;
         expect(Object.keys(d).sort()).toEqual(["evicted", "hoh", "juryCount", "nominees", "vetoHolder", "vetoUsed", "week"]);
         expect(d.hoh === null || typeof d.hoh.name === "string").toBe(true);
@@ -129,6 +132,15 @@ describe("0133 — watch is the engine's skeleton season; skip fast-forwards to 
       if (s.snapshot().live!.beat === "finale") break;
     }
     expect(sawWeeks).toBeGreaterThan(0);
+    // In total: one digest per eviction night after the player's own. A reactive BATTLE-BACK voids a juror's eviction (they leave the eviction record) but the
+    // public history keeps the night's digest, and their later re-eviction is a new night — so with a battle-back the digests may exceed the CURRENT eviction
+    // record by up to two (the voided night + its repeat); with none it is EXACT.
+    const live = s.snapshot().live!;
+    const bb = (live.firedTwists ?? []).filter((t) => t.kind === "battle-back").length;
+    const total = (s.getGameState().weekDigests ?? []).length;
+    const evictionsAfter = live.evictionOrder.length - evAtChoice;
+    if (bb === 0) expect(total).toBe(evictionsAfter);
+    else { expect(total).toBeGreaterThanOrEqual(evictionsAfter); expect(total).toBeLessThanOrEqual(evictionsAfter + 2 * bb); }
     expect(s.getGameState().player!.spectator).toBe("watch");
   });
 

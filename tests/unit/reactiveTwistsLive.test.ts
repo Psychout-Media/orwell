@@ -86,6 +86,27 @@ describe("0025 battle-back — an evicted juror re-enters the game", () => {
 });
 
 // ── All three can coexist in one season (each at most once) ───────────────────
+describe("0025 battle-back — a returning PLAYER stops being a spectator", () => {
+  it("a pre-jury evictee who chose to watch is an active player again after winning the battle-back (not fast-forwarded)", () => {
+    let proved = false;
+    for (let seed = 1; seed <= 200 && !proved; seed++) {
+      const s = newLiveSeason([npc(1), npc(2), npc(3), npc(4), npc(5), npc(6)]);
+      s.beat = "battle-back";
+      s.evictionOrder = [npc(20), PLAYER, npc(21), npc(22)];
+      s.spectator = { mode: "watch", sinceWeek: 2 };
+      advance(s, ctxOf(new RelationshipModel(0.5)), new SeededRandom(seed));
+      if (!s.active.includes(PLAYER)) {
+        expect(s.spectator, "a losing player is still a spectator").toBeDefined();
+        continue;
+      }
+      proved = true;
+      expect(s.spectator, "the returning player is not a spectator any more").toBeUndefined();
+      expect(s.evictionOrder).not.toContain(PLAYER);
+    }
+    expect(proved, "some seed has the player win the battle-back").toBe(true);
+  });
+});
+
 describe("0025 — all three twists can fire in one season, each once", () => {
   it("firedTwists accumulates the three distinct kinds without duplication", () => {
     // Fire each mechanic in turn on one live state and confirm the ledger holds all three, once each.
