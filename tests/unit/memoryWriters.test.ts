@@ -92,3 +92,39 @@ describe("B2 writers — the positive and the withheld-veto writers", () => {
     expect(off.flat().some((e) => NEW.has(e.kind)), "OFF writes none of the new kinds").toBe(false);
   });
 });
+
+describe("default-ON (2026-11-04, PO: 'memories should be turned on') — a remembered grudge shows up in a NOMINATION", () => {
+  it("a fresh session needs no flag: the writers and the standalone read are ON by default", () => {
+    const s = new GameSessionRegistry().sandboxFor(`dflt-${Math.random()}`).session as unknown as { npcMemoryWritersEnabled: boolean; npcMemoryStandaloneEnabled: boolean };
+    expect(s.npcMemoryWritersEnabled).toBe(true);
+    expect(s.npcMemoryStandaloneEnabled).toBe(true);
+  });
+  it("forced check: with the memory planted, the HOH nominates the houseguest they remember a grudge against in a case where, without the memory, they would not", () => {
+    // Sweep seeds/candidates deterministically for a board where the planted memory is DECISIVE: OFF nominates the grudge's target never, ON always.
+    let decisive = 0;
+    for (let seed = 1; seed <= 12 && decisive === 0; seed++) {
+      const probe = (planted: string | null, on: boolean): string[] => {
+        const s = mk(on, on);
+        s.createCharacter({ playerName: "P", seed });
+        for (let i = 0; i < 4000; i++) {
+          const live = s.snapshot().live!;
+          if (live.beat === "nominations" && live.hoh && live.hoh !== PLAYER) break;
+          const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (r) => void s.submitDecision(r)); if (v.finished) return [];
+        }
+        const core = JSON.parse(JSON.stringify(s.snapshot()));
+        const hoh = core.live.hoh as string;
+        if (planted) core.live.npcMemory = { [hoh]: { [planted]: [{ kind: "nominated-by-hoh", week: core.live.week, severity: 1 }, { kind: "nominated-by-hoh", week: core.live.week, severity: 1 }] } };
+        s.restore(core);
+        for (let k = 0; k < 4 && (s.snapshot().live!.nominees ?? []).length < 2; k++) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (r) => void s.submitDecision(r)); } // a day-break may come first; then the HOH nominates
+        return [...(s.snapshot().live!.nominees ?? [])];
+      };
+      const base = probe(null, false);
+      const living = (): string[] => { const s = mk(false); s.createCharacter({ playerName: "P", seed }); return (s.snapshot().live!.active as string[]).filter((x) => x !== PLAYER); };
+      for (const cand of living()) {
+        if (base.includes(cand)) continue;                 // already nominated without any memory — not a decisive case
+        if (probe(cand, true).includes(cand)) { decisive++; break; }
+      }
+    }
+    expect(decisive, "at least one board where a remembered grudge DECIDES the nomination").toBeGreaterThan(0);
+  });
+});
