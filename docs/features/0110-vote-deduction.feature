@@ -92,6 +92,6 @@ Feature: Vote deduction — a secret ballot becomes a deduced belief, by process
 
   Rule: Calibration-neutral when off
 
-    Scenario: With deduction disabled, the seeded outcomes match the deduction-enabled season
+    Scenario: With deduction disabled, the seeded outcomes match the deduction-enabled season (legacy (flag off) twist path)
       Given a full season is played with vote deduction disabled
       Then the eviction order and the competition tally are identical to the same seed with deduction enabled

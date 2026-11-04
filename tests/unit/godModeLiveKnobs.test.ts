@@ -26,7 +26,7 @@ function dealt(user: string, seed: number, knobs?: Record<string, unknown>): { r
   return { reserve: reserveCount(snap), ties: tieCount(snap), showmances: showmanceCount(snap), view };
 }
 
-describe("0016 — God-Mode count knobs reach the live game", () => {
+describe("legacy (flag off) — 0016 God-Mode count knobs reach the live game", () => {
   it("configure({reserveTwists}) changes how many reserve twists the NEXT season is dealt (default > 0, set to 0 => none)", () => {
     expect(dealt("a", 3).reserve, "the default deals some reserve twists").toBeGreaterThan(0);
     const off = dealt("b", 3, { reserveTwists: 0 });

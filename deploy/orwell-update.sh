@@ -129,7 +129,10 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
       fi
     fi
     [[ -n "${GIT_TOKEN:-}" ]] || { echo "ERROR: --set-token needs GIT_TOKEN=<pat> (or a TTY to prompt)." >&2; exit 1; }
+    # The token file must not outlive this run on ANY exit (a failed push, Ctrl-C, set -e): EXIT trap.
     TMP_TOKEN="$(mktemp /tmp/orwell-token-XXXXXX)"
+    trap 'rm -f "$TMP_TOKEN"' EXIT
+    trap 'exit 130' INT TERM
     chmod 600 "$TMP_TOKEN"
     printf 'GIT_TOKEN=%s\n' "$GIT_TOKEN" > "$TMP_TOKEN"
     pct push "$CTID" "$TMP_TOKEN" /tmp/orwell-token --perms 0600
@@ -253,13 +256,22 @@ if [[ "$SET_TOKEN" -eq 1 ]]; then
   fi
   [[ -n "$TOKEN" ]] || { echo "ERROR: --set-token needs GIT_TOKEN=<pat> (or a TTY to prompt)." >&2; exit 1; }
   mkdir -p "${APP_DIR}/data"
+  # This path runs as root, so a freshly created/renamed data/.env would be root-owned and the
+  # unprivileged service could no longer read its own config. Keep the owner/group of the existing
+  # file (or, for a first token, of the data dir the installer chowned to the service user).
+  OWNER_REF="$ENV_FILE"; [[ -e "$OWNER_REF" ]] || OWNER_REF="${APP_DIR}/data"
   touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-  # Rotate in place: drop any previous GIT_TOKEN line, then append the new one.
+  # Rotate in place: drop any previous GIT_TOKEN line, then append the new one. The temp file holds
+  # the token, so it is removed on any exit.
   TMP_ENV="$(mktemp "${APP_DIR}/data/.env.XXXXXX")"
+  trap 'rm -f "$TMP_ENV"' EXIT
+  trap 'exit 130' INT TERM
   grep -v '^GIT_TOKEN=' "$ENV_FILE" > "$TMP_ENV" || true
   printf 'GIT_TOKEN=%s\n' "$TOKEN" >> "$TMP_ENV"
   chmod 600 "$TMP_ENV"
+  chown --reference="$OWNER_REF" "$TMP_ENV" 2>/dev/null || true
   mv "$TMP_ENV" "$ENV_FILE"
+  trap - EXIT
   wire_credential_helper
   echo "==> deploy token saved to ${ENV_FILE} and git credential helper wired."
   echo "    Rotation: re-run 'orwell-update.sh --set-token' (fine-grained PATs cap at one year)."
@@ -788,7 +800,7 @@ cleanup_inherited_cruft() {
   # As ROOT while the FE is up, even a SELECT can create/checkpoint root-owned app.db-wal/-shm
   # sidecars that then make the unprivileged FE hit "readonly database" / "database is locked"; the
   # DELETE is the same hazard. Running as the DB's owner keeps every sidecar owned by that user.
-  local db="${APP_DIR}/data/app.db"
+  local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"   # the FE store (frontend/data), not engine data/
   if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$db" ]]; then
     if _svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null | grep -q 1; then
       local pat="'%browser%' OR lower(name) LIKE '%playwright%' OR lower(command) LIKE '%playwright%' OR lower(args) LIKE '%@playwright/mcp%' OR lower(name) IN ('memory','rag','email') OR lower(id) IN ('memory','rag','email','builtin_browser')"
@@ -822,18 +834,50 @@ cleanup_inherited_cruft || true
 
 PHASE="the host reconcile (ownership, login panel, systemd units)"
 HOST_TOUCHED=1
-# ── FINDING #3 — restore data-dir + app-dir OWNERSHIP to the service user. Everything above ran as
-# root (git reset, npm ci/build/prune, pip install, the embedding prefetch, the app.db cruft-cleanup),
-# so freshly-written files (dist/, frontend/.venv, models/, app.db + its sidecars) are now root-owned —
-# and the E85-hardened orwell-* services run UNPRIVILEGED, so a root-owned store makes the engine/FE
-# fail to read or write and the UI "refuses to connect". Mirrors orwell-install.sh's ownership() (its
-# `chown -R orwell:orwell "${APP_DIR}" "${DATA_DIR}"`) and orwell-oobe-reset.sh's post-scrub restore.
-# Runs BEFORE the restart so the services boot able to write. Layout-agnostic + best-effort (a missing
-# service user just skips it, with a warning); idempotent (re-chowning already-correct files is a no-op).
+# ── FINDING #3 — settle OWNERSHIP after the root-run build (git reset, npm ci/build/prune, pip, the
+# embedding prefetch and the app.db cruft-cleanup above all ran as root). Same model as
+# orwell-install.sh's ownership(); on a box installed before it, this run also MIGRATES the old
+# orwell-owned code tree back to root. Runs BEFORE the restart so the services boot able to write.
+# Layout-agnostic + best-effort (a missing service user just skips it, with a warning); idempotent.
+# ── Ownership model (least privilege) ──────────────────────────────────────────────────────────
+# The CODE tree (the checkout, deploy/, dist/, node_modules, frontend/.venv, …) stays ROOT-owned and
+# is never group/world-writable: the root-run ops units (orwell-ops-*.service) execute scripts out
+# of deploy/, and the app units are sandboxed read-only outside their ReadWritePaths, so the service
+# user has no need to write code — and must not be able to, or a compromised service could edit
+# what root runs next. Only the dirs the services legitimately write are handed to it: data/ (or a
+# custom DATA_DIR), frontend/data, backups/ (orwell-backup.service runs as the service user) and
+# .orwell-data (the engine's default save dir when ORWELL_DATA_DIR is unset — legacy/dev layouts).
+# KEEP THIS FUNCTION BYTE-IDENTICAL in orwell-install.sh and orwell-update.sh (a test pins it).
+orwell_apply_ownership() {   # $1 app dir · $2 service user · $3 service group · $4… extra writable dirs
+  local app="${1%/}" user="$2" group="$3" d; shift 3
+  local -a rw=("${app}/data" "${app}/frontend/data" "${app}/backups" "${app}/.orwell-data")
+  for d in "$@"; do rw+=("${d%/}"); done
+  local -a prune=()
+  for d in "${rw[@]}"; do prune+=(-path "$d" -o); done
+  # 1. Everything outside the writable dirs: root:root, and no group/other write bit left behind by
+  #    a previous orwell-owned install (a root-owned but world-writable file is not root-owned in
+  #    any way that matters). -h / ! -type l: act on a symlink itself, never on its target.
+  find "$app" -xdev \( "${prune[@]}" -false \) -prune -o \
+    -exec chown -h root:root {} + \( -type l -o -exec chmod go-w,a+rX {} + \) || return 1
+  # 2. The writable dirs: the service user, recursively (chown -R does not follow symlinks). A
+  #    symlinked dir is left alone — never chowned through to wherever it points.
+  for d in "${rw[@]}"; do
+    [[ -d "$d" ]] || continue
+    if [[ -L "$d" ]]; then echo "WARN: ${d} is a symlink — leaving its ownership alone" >&2; continue; fi
+    chown -R -h "$user":"$group" "$d" || return 1
+  done
+}
+
 if [[ "$(id -u)" -eq 0 ]]; then
   if id "$SVC_USER" >/dev/null 2>&1; then
-    echo "==> restoring ownership to ${SVC_USER}:${SVC_GROUP} (root-run build/deps/cleanup left files root-owned)"
-    chown -R "$SVC_USER":"$SVC_GROUP" "$APP_DIR" "${APP_DIR}/data" 2>/dev/null || true
+    echo "==> settling ownership: code tree root-owned; ${SVC_USER}:${SVC_GROUP} owns data/, frontend/data, backups/"
+    # Called directly (no `||`): inside an `||` list set -e is off for the whole function, so a failed
+    # code-tree chown/chmod could be masked by a later successful one and the update would carry on with
+    # service-writable scripts that root runs. An ownership failure aborts the update instead.
+    if ! orwell_apply_ownership "$APP_DIR" "$SVC_USER" "$SVC_GROUP" "${DATA_DIR:-${APP_DIR}/data}"; then
+      echo "ERROR: the ownership pass FAILED — refusing to continue with a code tree the service user may still write. Check ${APP_DIR} (chown/chmod errors above) and re-run." >&2
+      exit 1
+    fi
   else
     echo "WARN: service user '${SVC_USER}' not found — skipping ownership restore (set ORWELL_SERVICE_USER)"
   fi
@@ -911,7 +955,7 @@ if [[ "$APP_DIR" == "/opt/orwell" ]]; then
   # timer existed (reconciled only by this updater) never got it — so the nightly backup failed forever.
   # Mirrors orwell-install.sh (DEPLOY-9); idempotent. The unit's ExecStartPre= re-creates it if removed.
   mkdir -p "${APP_DIR}/backups"
-  if id -u orwell >/dev/null 2>&1; then chown orwell:orwell "${APP_DIR}/backups"; fi
+  if id -u orwell >/dev/null 2>&1; then chown -h orwell:orwell "${APP_DIR}/backups"; fi
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-engine.service"   /etc/systemd/system/orwell-engine.service
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-frontend.service" /etc/systemd/system/orwell-frontend.service
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-backup.service"   /etc/systemd/system/orwell-backup.service
@@ -970,7 +1014,7 @@ if [[ "$APP_DIR" == "/opt/orwell" && -f "${APP_DIR}/deploy/systemd/orwell-ops-up
   # content is ignored — existence only) and the live log exists ahead of the first run,
   # FE-readable (the status page tails it). The log is touched, never truncated by a re-run.
   install -d -m 750 "${APP_DIR}/data/ops"
-  if id -u orwell >/dev/null 2>&1; then chown orwell:orwell "${APP_DIR}/data/ops"; fi
+  if id -u orwell >/dev/null 2>&1; then chown -h orwell:orwell "${APP_DIR}/data/ops"; fi
   touch "${APP_DIR}/data/ops-update.log"
   chmod 644 "${APP_DIR}/data/ops-update.log"
   OPS_UNITS_READY=1
@@ -984,7 +1028,7 @@ if [[ "$APP_DIR" == "/opt/orwell" && -f "${APP_DIR}/deploy/systemd/orwell-ops-up
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-ops-update-reset.path"    /etc/systemd/system/orwell-ops-update-reset.path
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-ops-update-reset.service" /etc/systemd/system/orwell-ops-update-reset.service
   install -d -m 750 "${APP_DIR}/data/ops"
-  if id -u orwell >/dev/null 2>&1; then chown orwell:orwell "${APP_DIR}/data/ops"; fi
+  if id -u orwell >/dev/null 2>&1; then chown -h orwell:orwell "${APP_DIR}/data/ops"; fi
   touch "${APP_DIR}/data/ops-update-reset.log"
   chmod 644 "${APP_DIR}/data/ops-update-reset.log"
   OPS_UPDATE_RESET_READY=1
@@ -998,7 +1042,7 @@ if [[ "$APP_DIR" == "/opt/orwell" && -f "${APP_DIR}/deploy/systemd/orwell-ops-pu
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-ops-public-deployment.path"    /etc/systemd/system/orwell-ops-public-deployment.path
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-ops-public-deployment.service" /etc/systemd/system/orwell-ops-public-deployment.service
   install -d -m 750 "${APP_DIR}/data/ops"
-  if id -u orwell >/dev/null 2>&1; then chown orwell:orwell "${APP_DIR}/data/ops"; fi
+  if id -u orwell >/dev/null 2>&1; then chown -h orwell:orwell "${APP_DIR}/data/ops"; fi
   touch "${APP_DIR}/data/ops-public-deployment.log"
   chmod 644 "${APP_DIR}/data/ops-public-deployment.log"
   OPS_PUBLIC_DEPLOYMENT_READY=1
@@ -1012,7 +1056,7 @@ if [[ "$APP_DIR" == "/opt/orwell" && -f "${APP_DIR}/deploy/systemd/orwell-ops-tl
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-ops-tls.path"    /etc/systemd/system/orwell-ops-tls.path
   install -m 644 "${APP_DIR}/deploy/systemd/orwell-ops-tls.service" /etc/systemd/system/orwell-ops-tls.service
   install -d -m 750 "${APP_DIR}/data/ops"
-  if id -u orwell >/dev/null 2>&1; then chown orwell:orwell "${APP_DIR}/data/ops"; fi
+  if id -u orwell >/dev/null 2>&1; then chown -h orwell:orwell "${APP_DIR}/data/ops"; fi
   touch "${APP_DIR}/data/ops-tls.log"
   chmod 644 "${APP_DIR}/data/ops-tls.log"
   OPS_TLS_READY=1

@@ -16,7 +16,7 @@ Feature: Season retrospective & the Vault unsealing
     Then nothing hidden is returned
     And no Vault sentinel value appears on any surface
 
-  Scenario: The Vault unseals only after a winner is crowned
+  Scenario: The Vault unseals only after a winner is crowned (legacy (flag off) twist path)
     Given a finished season with a crowned winner
     When the player triggers the season retrospective
     Then the unsealed hidden story is returned — off-screen scheming, confessionals, and any unfired twist

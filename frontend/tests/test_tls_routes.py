@@ -214,6 +214,37 @@ def test_disconnect_writes_flag(monkeypatch, tmp_path):
     assert cfg["action"] == "disable"
 
 
+# --------------------------------------------------------------------------- apply: control chars
+
+def test_apply_rejects_control_characters_and_writes_nothing(monkeypatch, tmp_path):
+    # Names + provider become flags for the root script, the token an env value. A control character
+    # (newline above all) is rejected outright — 400 naming the field, nothing written.
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    ops = _wire_ops(monkeypatch, tmp_path, watcher_installed=True)
+    client = _client()
+    cases = [
+        ("localNames", {"localNames": ["orwell.lan\nevil.lan"]}),
+        ("localNames", {"localNames": "orwell.lan\r\n"}),
+        ("domains", {"localNames": ["orwell.lan"], "domains": ["a.example.com\x00"]}),
+        ("dnsProvider", {"localNames": ["orwell.lan"], "dnsProvider": "cloudflare\n"}),
+        ("dnsApiToken", {"localNames": ["orwell.lan"], "dnsApiToken": "to\nken"}),
+    ]
+    for field, body in cases:
+        r = client.post("/api/admin/tls/apply", json=body)
+        assert r.status_code == 400, body
+        assert field in r.json()["detail"], body
+        assert not (ops / "tls-requested").exists(), body
+        assert not (ops / "tls.json").exists(), body
+        assert not (ops / "tls-dns-token").exists(), body
+
+
+def test_tls_name_filter_does_not_accept_trailing_newline():
+    # `$` matches just before a trailing newline; the anchor is \Z so "name\n" can never pass.
+    from core.middleware import _TLS_NAME_RE
+    assert _TLS_NAME_RE.match("orwell.lan")
+    assert not _TLS_NAME_RE.match("orwell.lan\n")
+
+
 # --------------------------------------------------------------------------- wiring
 
 def test_routes_wired_into_app_py():

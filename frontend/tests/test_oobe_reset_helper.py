@@ -195,7 +195,7 @@ def test_rebuild_is_atomic_original_survives_a_crash(monkeypatch, tmp_path):
 
     def _crashing_connect(target, *a, **kw):
         # Fail ONLY when building the temp replacement — i.e. in the rebuild's write window.
-        if str(target).endswith(".rebuild.tmp"):
+        if ".rebuild." in os.path.basename(str(target)) and str(target).endswith(".tmp"):
             raise sqlite3.OperationalError("simulated crash mid-rebuild")
         return real_connect(target, *a, **kw)
 
@@ -213,7 +213,12 @@ def test_rebuild_is_atomic_original_survives_a_crash(monkeypatch, tmp_path):
         "the live provider config MUST survive a failed rebuild (source never removed pre-swap)"
 
     # No half-written temp DB is left behind after the failure.
-    assert not os.path.exists(str(db) + ".rebuild.tmp")
+    assert not _rebuild_temps(tmp_path)
+
+
+def _rebuild_temps(tmp_path):
+    """Any leftover temp DB / sidecar from the rebuild (mkstemp names: app.db.rebuild.<rand>.tmp[-journal])."""
+    return [n for n in os.listdir(tmp_path) if ".rebuild." in n or n.endswith(".tmp")]
 
 
 def test_rebuild_leaves_no_temp_file_on_success(monkeypatch, tmp_path):
@@ -223,9 +228,24 @@ def test_rebuild_leaves_no_temp_file_on_success(monkeypatch, tmp_path):
     _seed_store(str(db), str(settings))
     mod.reset_frontend_store()
     assert os.path.exists(str(db)), "the rebuilt DB must be present"
-    assert not os.path.exists(str(db) + ".rebuild.tmp"), "no temp DB may linger after a clean swap"
+    assert not _rebuild_temps(tmp_path), "no temp DB may linger after a clean swap"
     # And the carried providers round-tripped through the swap.
     conn = sqlite3.connect(str(db))
     n = conn.execute("SELECT COUNT(*) FROM model_endpoints").fetchone()[0]
     conn.close()
     assert n == 2
+
+
+def test_helper_never_writes_through_a_planted_symlink_at_a_temp_name(monkeypatch, tmp_path):
+    """The helper runs as ROOT inside the service-writable FE store: a symlink pre-planted at the old
+    predictable temp names (`settings.json.tmp`, `app.db.rebuild.tmp`) must NOT be followed."""
+    mod, db = _load_helper(monkeypatch, tmp_path)
+    settings = tmp_path / "settings.json"
+    _seed_store(str(db), str(settings))
+    victim = tmp_path / "victim.txt"
+    victim.write_text("VICTIM")
+    for planted in ("settings.json.tmp", "app.db.rebuild.tmp"):
+        (tmp_path / planted).symlink_to(victim)
+    mod.reset_frontend_store()
+    assert victim.read_text() == "VICTIM"
+    assert os.path.exists(str(db)) and os.path.exists(str(settings))

@@ -44,6 +44,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.middleware import (
     allowed_hosts_from_env,
     assert_public_profile_safe,
+    control_char_fields,
     require_admin,
 )
 
@@ -191,6 +192,16 @@ def setup_admin_public_deployment_routes() -> APIRouter:
             if isinstance(raw_domains, list) else []
         allowed_origins = body.get("allowedOrigins")
         tunnel_token = body.get("tunnelToken")
+
+        # Every value below ends up in a side-file a ROOT script reads and writes into data/.env (or
+        # hands to cloudflared). A newline would start a new KEY=VALUE line there, so reject control
+        # characters outright — 400 naming the fields, nothing written.
+        bad = control_char_fields(domains=raw_domains, allowedOrigins=allowed_origins,
+                                  tunnelToken=tunnel_token)
+        if bad:
+            raise HTTPException(
+                status_code=400,
+                detail="Control characters (newlines, tabs, NUL, …) are not allowed in: " + ", ".join(bad))
 
         # DEPLOY-2 (B15): validate the box's REAL current ORWELL_BIND_HOST, not an absent key.
         # `proposed` never carried this key before, so assert_public_profile_safe's own
