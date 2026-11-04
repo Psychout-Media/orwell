@@ -607,7 +607,7 @@ const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1"
  * dark until the live pace work lands. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
  */
 /** Per-beat chances for the hang-out interruptions (side-stream draws). Tunable here. */
-const HANGOUT_PULL_P = 0.05, HANGOUT_APPROACH_P = 0.2, HANGOUT_OBSERVED_P = 0.15;
+const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.07;
 /**
  * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
  * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.

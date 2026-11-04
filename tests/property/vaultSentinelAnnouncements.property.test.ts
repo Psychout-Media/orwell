@@ -128,6 +128,28 @@ function buildAnnouncementSandbox(seed: number): AnnouncementSandbox {
   return { session: sandbox.session, sentinels, hiddenContents };
 }
 
+/**
+ * Does the engine's bare beatSeq counter appear in a human-facing headline? A PUBLIC count the headline states on purpose ("; 7 remain" in a comp-round result, "Part 2" of the final HOH) is NOT
+ * a leak even when it coincides with the counter (seq 7 vs "7 remain" tripped the old substring check). Strip those sanctioned public-count phrases, then require the counter to be absent as a
+ * standalone number. Roles only.
+ */
+export function leaksBeatSeq(headline: string, beatSeq: number): boolean {
+  const stripped = headline.replace(/;\s*\d+\s+remain\b/g, "").replace(/\bPart\s+\d+\b/g, "");
+  return new RegExp(`(?<![\\w.])${beatSeq}(?![\\w])`).test(stripped);
+}
+
+describe("leaksBeatSeq (the check itself)", () => {
+  it("a public remaining-count that coincides with the counter is not a leak; a spilled counter is", () => {
+    expect(leaksBeatSeq("A, B and C are out of the competition; 7 remain.", 7)).toBe(false);
+    expect(leaksBeatSeq("A wins Part 2 of the final Head of Household competition.", 2)).toBe(false);
+    expect(leaksBeatSeq("A wins the HOH (beat 7).", 7)).toBe(true);
+    expect(leaksBeatSeq("A wins the HOH #7", 7)).toBe(true);
+    expect(leaksBeatSeq("A, B are out of the competition; 7 remain. seq 7", 7)).toBe(true);
+    expect(leaksBeatSeq("A wins the HOH.", 7)).toBe(false);
+    expect(leaksBeatSeq("A wins 17 rounds", 7)).toBe(false); // 17 is not 7
+  });
+});
+
 describe("Vault Wall — property over seeds & BeatAnnouncement announcements", () => {
   it("no Vault sentinel or hidden content ever reaches any BeatAnnouncement chyron", () => {
     fc.assert(
@@ -158,7 +180,7 @@ describe("Vault Wall — property over seeds & BeatAnnouncement announcements", 
         // Additional: no raw engine machinery in human-facing text
         for (const a of all) {
           // the bare beatSeq number not spilled into headline
-          expect(a.headline).not.toContain(String(a.beatSeq));
+          expect(leaksBeatSeq(a.headline, a.beatSeq), `beatSeq ${a.beatSeq} spilled into headline: ${a.headline}`).toBe(false);
         }
       }),
       { numRuns: 100 },
