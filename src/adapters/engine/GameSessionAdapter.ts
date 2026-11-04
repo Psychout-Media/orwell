@@ -613,7 +613,10 @@ const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRAN
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
  */
 /** Per-beat chances for the hang-out interruptions (side-stream draws). Tunable here. */
-const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.07;
+// `ORWELL_HANGOUT_P_SCALE` multiplies the three chances for live on-screen VERIFICATION only (A15: make the rarer stop reasons fire within one short playthrough); the deploy never sets it => x1.
+const _hoScale = Number(process.env.ORWELL_HANGOUT_P_SCALE);
+const HANGOUT_P_SCALE = process.env.ORWELL_HANGOUT_P_SCALE !== undefined && Number.isFinite(_hoScale) && _hoScale > 0 ? _hoScale : 1;
+const HANGOUT_PULL_P = Math.min(0.9, 0.03 * HANGOUT_P_SCALE), HANGOUT_APPROACH_P = Math.min(0.9, 0.08 * HANGOUT_P_SCALE), HANGOUT_OBSERVED_P = Math.min(0.9, 0.07 * HANGOUT_P_SCALE);
 /**
  * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
  * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
