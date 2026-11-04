@@ -58,6 +58,13 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** The live occupancy ground truth (0049); when unset, scenes are placeless (standalone — prior behavior). */
   private presenceProvider?: () => Occupancy | null;
   /**
+   * ADR 0006 — who is still AWAKE right now (`null` ⇒ the clock is off ⇒ everyone is up). A houseguest who
+   * has turned in for the night has left the floor, so they neither witness nor overhear a player scene —
+   * the same rule the player's own `whereabouts` view and the off-screen society already apply. Unwired ⇒
+   * everyone is up ⇒ byte-identical to the prior behavior.
+   */
+  private awakeProvider?: () => ReadonlySet<EntityId> | null;
+  /**
    * The live SUB-ZONE of a houseguest in a zoned big room (0077 Phase 2, OPT-IN). When wired, co-presence
    * witnessing is zone-scoped: a bystander in the SAME room but a DIFFERENT, out-of-earshot zone (the
    * far end of the backyard) is NOT auto-added as a witness — two groups can share a big room without
@@ -168,6 +175,11 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** Wire the house occupancy (0049) so recorded scenes gain co-present witnesses + adjacent overhears. */
   setPresenceProvider(fn: () => Occupancy | null): void {
     this.presenceProvider = fn;
+  }
+
+  /** Wire the awake set (ADR 0006) so a houseguest who has turned in neither witnesses nor overhears a scene. */
+  setAwakeProvider(fn: () => ReadonlySet<EntityId> | null): void {
+    this.awakeProvider = fn;
   }
 
   /** Phase 2 — wire the day-clock advance so a scene carrying `feltMinutes` moves the in-game clock by its
@@ -296,6 +308,13 @@ export class EngineCommandsAdapter implements EngineCommands {
     // co-presence expansion (further down). Placeless (no provider / initiator unplaced) keeps prior behavior.
     const occupancy = this.presenceProvider?.() ?? null;
     const room = occupancy?.get(req.initiator);
+    // ADR 0006: a houseguest who has turned in for the night is off the floor — they neither witness nor
+    // overhear the scene, even if presence still seats them in a room (the player's `whereabouts` already
+    // hides them). Never the player or the initiator. `null` (clock off / unwired) ⇒ identity ⇒ byte-identical.
+    const awake = this.awakeProvider?.() ?? null;
+    const isUp = (id: EntityId): boolean => !awake || id === PLAYER || id === req.initiator || awake.has(id);
+    const upOccupancy: Occupancy | null =
+      occupancy && awake ? new Map([...occupancy].filter(([id]) => isUp(id))) : occupancy;
     // BL-014 — CO-PRESENCE RECONCILIATION. The model / FE belts (`_auto_record_scene`, the E22 fallback)
     // can name a `withIds` participant whom the engine's OWN occupancy (presenceProvider → session
     // occupancy → the live presence map) places in a DIFFERENT room — a PHANTOM co-presence. If recorded,
@@ -320,7 +339,8 @@ export class EngineCommandsAdapter implements EngineCommands {
           return where === undefined || where === room; // keep unless POSITIVELY placed in another room
         })
       : req.witnessSet;
-    const witnessSet = [...namedWitnesses];
+    const awakeNamed = awake ? namedWitnesses.filter(isUp) : namedWitnesses; // a named sleeper is a phantom witness too
+    const witnessSet = [...awakeNamed];
     if (req.initiator === PLAYER && !witnessSet.includes(PLAYER)) witnessSet.push(PLAYER);
     if (!witnessSet.includes(PLAYER)) {
       throw new Error("recordInteraction is player-witnessed only: the witness set must include the player (off-screen scenes are the engine's to mint)");
@@ -331,8 +351,8 @@ export class EngineCommandsAdapter implements EngineCommands {
     // poolside) hears nothing. With no zone provider wired, both zones read `undefined`,
     // `zonesSameEarshot` is always true, and every same-room occupant witnesses, byte-identical to pre-0077.
     const sceneZone = occupancy && room ? this.zoneProvider?.(req.initiator) : undefined;
-    if (occupancy && room) {
-      for (const [id, where] of occupancy) {
+    if (upOccupancy && room) {
+      for (const [id, where] of upOccupancy) {
         if (where !== room || witnessSet.includes(id)) continue;
         if (!zonesSameEarshot(room, sceneZone, this.zoneProvider?.(id))) continue; // only same-zone co-presence witnesses in full
         witnessSet.push(id);
@@ -368,7 +388,7 @@ export class EngineCommandsAdapter implements EngineCommands {
     if (occupancy && room) {
       rollOverhears({
         eventId, room, content: req.content, participants: witnessSet,
-        occupancy, knowledge: this.knowledge, rng: this.rng,
+        occupancy: upOccupancy ?? occupancy, knowledge: this.knowledge, rng: this.rng,
         // 0077: a scene behind a closed door is harder to overhear. Player channel only — its own
         // isolated `commands:` rng stream — so the off-screen society/calibration spine is untouched.
         muffle: isPrivateRoom(room) ? PRESENCE.doorMuffle : 1,

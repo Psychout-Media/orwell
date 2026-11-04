@@ -502,6 +502,15 @@ export class BbWorld extends World {
   hpOrch?: import("../../src/composition/orchestrator").Orchestrator;
   hpBefore?: { week: number; phase: string; kind: string };
   hpEventsBefore?: number;
+  hpClockTouched?: boolean;
+  hpAsleep?: Eid[];
+  hpAwake?: Eid[];
+  hpNamed?: Eid;
+  hpInRoom?: Eid;
+  hpNextDoor?: Eid;
+  hpUpInRoom?: Eid;
+  hpUpNextDoor?: Eid;
+  hpWitnessSets?: string[][];
 
   // House map, privacy & eyeshot (0077) scratch state.
   pmRegistry?: import("../../src/composition/registry").GameSessionRegistry;

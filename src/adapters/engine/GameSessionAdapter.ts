@@ -4305,6 +4305,11 @@ export class GameSessionAdapter implements GameSession {
    * is unmoved). Pure read off the shared phase + the STATIC aptitudes (`bedtimeFor`): draws no rng, and
    * reads no soul/Vault number.
    */
+  /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
+  awakeIds(): ReadonlySet<EntityId> | null {
+    return this.awakeNow();
+  }
+
   private awakeNow(): Set<EntityId> | null {
     if (!this.timeOfDayEnabled || !this.live?.timeOfDay || !this.house) return null;
     return new Set(
