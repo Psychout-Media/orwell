@@ -4046,8 +4046,11 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         directive = _narration_claims_outcome(text, before, live)
         if directive:
             _reground_enqueue(_dkey, directive)  # BL-004: bounded append
+            # Observability (A/B 2026-11-04): log WHICH claim tripped the cut and the engine phase — the bare line could not be
+            # classified afterwards (the cut scene is never persisted), so the cut rate could not be broken down by class.
             logger.warning("[orwell] scene circuit-breaker HELD a phantom board change for user=%s — "
-                           "cutting the whole scene, re-grounding next turn", user)
+                           "cutting the whole scene, re-grounding next turn (phase=%s; %s)", user, live.get("phase"),
+                           " ".join(str(directive).split())[:160])
             return directive
         return None
     except Exception as e:
