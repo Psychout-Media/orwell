@@ -411,3 +411,59 @@ def test_a_tally_during_the_veto_ceremony_is_a_phantom_ballot_readout():
     assert stripped("That's eight votes for Nom Alpha, four for Nom Beta.\n", s)[1], "even naming the real nominees: no ballot exists yet"
     assert not stripped("The veto ceremony begins; Hoh Person sets the box on the table.\n", s)[1]
     assert not stripped("That's eight votes for Other Delta, four for Vetoer Gamma.\n", sig(phase="hoh-competition", evictionBallots=0))[1]
+
+
+# ── A-15 follow-up: DEPARTURE phrasing with no "evicted" in it ("X is out", "the door shuts", "has left us") ────────────────────
+_EV = dict(phase="eviction", hohName="Hoh Person", nomNames=["Nom Alpha", "Nom Beta"], evictedNames=[])
+
+
+@pytest.mark.parametrize("text", [
+    "Nom Alpha is out.\n",
+    "Nom Alpha's out, the door's shut.\n",
+    "Nom Alpha walks out into the night.\n",
+    "The door shuts behind Nom Alpha.\n",
+    "Nom Alpha has left us.\n",
+    "Nom Alpha leaves us tonight.\n",
+    "Nom Alpha is leaving the house.\n",
+    "Nom Alpha says her goodbyes.\n",
+    "Nom Alpha is already packing.\n",
+    "Nom Alpha is packing up.\n",
+    "Other Delta is out.\n",  # a non-nominee, equally uncommitted
+    "Nom Alpha, packing up her things, does not look back.\n",
+    "The door slams on Nom Alpha.\n",
+])
+def test_departure_phrasing_for_someone_the_engine_has_not_evicted_is_stripped(text):
+    assert stripped(text, sig(**_EV))[1], text
+
+
+@pytest.mark.parametrize("text", [
+    "Nom Alpha is out of breath.\n",
+    "Nom Alpha is out of ideas.\n",
+    "The lights are out.\n",
+    "Nom Alpha is out there somewhere, pacing.\n",
+    "If Nom Alpha is out, the house tilts.\n",
+    "Is Nom Alpha out?\n",
+    "Nom Alpha is out of the comp.\n",
+    "Nom Alpha is out for blood.\n",
+    "Nom Alpha is out to win it.\n",
+    "Nom Alpha is out on the patio.\n",
+    "Nom Alpha is out in the yard.\n",
+    "Nom Alpha is out late again.\n",
+])
+def test_departure_lookalikes_and_hypotheticals_are_untouched(text):
+    assert not stripped(text, sig(**_EV))[1], text
+
+
+def test_departure_phrasing_is_kept_for_the_person_the_engine_did_evict():
+    s = sig(**dict(_EV, evictedNames=["Nom Beta"]))
+    assert not stripped("Nom Beta is out.\n", s)[1]
+    assert not stripped("The door shuts behind Nom Beta.\n", s)[1]
+    assert stripped("Nom Alpha is out.\n", s)[1], "still stripped for the one who stayed"
+
+
+def test_the_loose_out_cue_is_eviction_phase_only_but_the_strong_forms_hold_in_every_phase():
+    comp = sig(phase="hoh-competition", hohName=None, nomNames=[], evictedNames=[])
+    assert not stripped("Other Delta is out! The wall drops away under their hands.\n", comp)[1], "a comp elimination is 'out' too"
+    assert stripped("Other Delta has left us.\n", comp)[1], "'has left us' is a departure in any phase"
+    assert stripped("Other Delta is leaving tonight.\n", comp)[1]
+    assert stripped("Other Delta packs up and leaves.\n", comp)[1]
