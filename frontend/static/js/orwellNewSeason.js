@@ -73,7 +73,10 @@
     const st = await jget("/api/orwell/state");
     if (!st || !st.started) return null;
     if (st.finished || st.moment === "post-season") return "post-season";
-    if (st.player && st.player.status === "evicted") return "evicted";
+    // E-1 (live rehearsal 2026-11-04): the pre-jury EVICTED player used to get a persistent "Evicted — your season is over / See how it ends" window here (LW10). Since 0133 the
+    // evictee is walked through the exit-interview card and the spectator-choice card (watch / skip), which REPLACE that hand-off — and the window rendered ON TOP of
+    // those cards (covering "Skip ahead" and Confirm), offered a second competing fast-forward, and told the player their season was over when they are back for the
+    // finale. So no window is shown for an evicted player any more; the post-season hand-off above is unchanged. (`/api/orwell/conclude-season` stays for the API.)
     return null;
   }
 

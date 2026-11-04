@@ -26,7 +26,7 @@ import { INFRA_TOOL_NAMES } from "../../src/adapters/mcp/McpServer";
 
 // Every current GameSession port method, exhaustively — TS errors if this drifts from the interface.
 const GAME_SESSION_METHODS: Record<keyof GameSession, true> = {
-  accuseTie: true, advanceGame: true, cancelSelfEviction: true, competitionStagingView: true,
+  accuseTie: true, advanceGame: true, cancelSelfEviction: true, raiseSpectatorChoice: true, competitionStagingView: true,
   askJuror: true, confide: true, confront: true,
   createCharacter: true, dailyRecap: true,
   exposeSecret: true, finaleView: true, formAlliance: true, gameStatus: true, getGameState: true,

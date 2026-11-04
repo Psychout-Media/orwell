@@ -482,6 +482,9 @@ export class McpServer {
       case "requestSelfEviction":
         // 0061 step 1: raise the OOC self-evict confirmation (no state change; the house never hears it).
         return this.deps.session.requestSelfEviction();
+      case "raiseSpectatorChoice":
+        // E-1: re-raise the spectator-choice card for a watching evictee (card-only binding intact).
+        return this.deps.session.raiseSpectatorChoice(args["expectedBeatSeq"] as number | undefined);
       case "cancelSelfEviction":
         // 0061: decline the confirmation — the player plays on, ACTIVE and unchanged.
         return this.deps.session.cancelSelfEviction();

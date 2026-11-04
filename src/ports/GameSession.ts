@@ -2435,6 +2435,12 @@ export interface GameSession {
    */
   requestSelfEviction(): AdvanceView;
   /**
+   * E-1 (2026-11-04) — a player in WATCH mode (pre-jury evictee, 0133) asks to switch to SKIP: re-raise the SAME `spectator-choice` card so they confirm on the card
+   * (the card-only binding is untouched; the model cannot commit it). Idempotent while the card is open. Skip is irreversible: in skip mode, or with nothing to raise
+   * (an active player, a finished season), this is a typed `EngineRefusal`. FE-driven (the visible "Skip ahead" control, or a skip-intent belt).
+   */
+  raiseSpectatorChoice(expectedBeatSeq?: number): AdvanceView;
+  /**
    * Self-eviction cancel (0061 §4.2) — the player declines the confirmation: clear the `self-evict`
    * pending and leave them ACTIVE and in the house, state unchanged. A no-op when nothing is pending.
    */
