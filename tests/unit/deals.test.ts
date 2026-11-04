@@ -291,6 +291,35 @@ describe("#1802 — formation witnesses & audience-scaled folds", () => {
     expect(witnessedBreaches.filter((w) => w !== W1 && w !== W2)).toHaveLength(0);
   });
 
+  it("TEST 3b: a SEALED break (secret evict ballot) tells NO formation witness who broke it (BDD audit D1, #1963/E12)", () => {
+    const ledger = new DealLedger();
+    const witnessedBreaches: string[] = [];
+    let revealedToWronged = false;
+    ledger.make([PROMISOR, PARTNER], "final-two", "ride or die", undefined, 1, undefined, ["witness1", "witness2"]);
+    ledger.reconcile({ actor: PROMISOR, kind: "vote-evict", targets: [PARTNER] }, {
+      rel: new RelationshipModel(0.5), rng: new SeededRandom(1),
+      dealsWitnesses: true,
+      sealed: () => true,
+      revealToWitness: (witness) => { witnessedBreaches.push(witness); },
+      reveal: () => { revealedToWronged = true; return "evt:1"; },
+    });
+    // The breaker's identity must not reach anyone who could tie it to the sealed ballot.
+    expect(witnessedBreaches).toEqual([]);
+    // Control: the same break UNSEALED still reaches both witnesses (TEST 3), so this isn't vacuous.
+    const ledger2 = new DealLedger();
+    const unsealed: string[] = [];
+    ledger2.make([PROMISOR, PARTNER], "final-two", "ride or die", undefined, 1, undefined, ["witness1", "witness2"]);
+    ledger2.reconcile({ actor: PROMISOR, kind: "vote-evict", targets: [PARTNER] }, {
+      rel: new RelationshipModel(0.5), rng: new SeededRandom(1),
+      dealsWitnesses: true,
+      sealed: () => false,
+      revealToWitness: (witness) => { unsealed.push(witness); },
+      reveal: () => "evt:2",
+    });
+    expect(unsealed.sort()).toEqual(["witness1", "witness2"]);
+    void revealedToWronged;
+  });
+
   it("TEST 4: FLAG-OFF byte-identical — without dealsWitnesses, no record is set and no extra callback fires", () => {
     const ledger = new DealLedger();
     const W1 = "witness1";
