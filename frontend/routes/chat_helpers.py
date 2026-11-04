@@ -5066,6 +5066,11 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
             _refresh_beat_seq(user, res if isinstance(res, dict) else {})
         except Exception:
             pass
+        try:  # tell every window (incl. the WS client's pinned beatSeq) the board moved, so the card's confirm carries the fresh token
+            from src import orwell_game_session
+            orwell_game_session.publish_game_updated(user)
+        except Exception:
+            pass
         logger.info("[orwell] spectator-choice card re-raised for user=%s (watching evictee asked to skip ahead)", user)
         return True
     except Exception as e:

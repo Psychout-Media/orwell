@@ -107,3 +107,13 @@ def test_live_e1_fabricated_finale_prose_is_stripped():
     for bad in ("finale stage", "final three", "Jurors", "confetti", "crowned"):
         assert bad not in kept, bad
     assert stripped
+
+
+def test_live_e1_second_fabrication_phrasing_is_stripped():
+    from src import finale_claims as fc
+    board = {"phase": "hoh-competition", "playerStatus": "evicted"}
+    text = ("The screen folds in on itself.\n\nRowan, welcome back. The house is down to its final two - and the jury has made its decision. Let's read the votes.\n\n"
+            "Sara pours cereal.")
+    kept, stripped = fc.strip_phantom_finale(text, board)
+    assert "final two" not in kept and "jury has made" not in kept and "read the votes" not in kept
+    assert "Sara pours cereal" in kept and stripped
