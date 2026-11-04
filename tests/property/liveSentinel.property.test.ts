@@ -201,7 +201,16 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
       };
 
       // Every NON-progression tool, with all houseguests still living (recordInteraction/makeDeal etc.).
-      for (const t of toolsFor("player")) if (t.name !== "advanceGame" && t.name !== "submitDecision") await sweep(player, t.name);
+      // raiseSpectatorChoice (E-1) legitimately REFUSES for a player with no spectator seat — its refusal text is still sentinel-checked.
+      for (const t of toolsFor("player")) {
+        if (t.name === "advanceGame" || t.name === "submitDecision") continue;
+        if (t.name === "raiseSpectatorChoice") {
+          swept.add(t.name);
+          let payload: string;
+          try { payload = JSON.stringify(await player.callTool(t.name, args(t.name, seed))); } catch (err) { payload = String(err instanceof Error ? err.message : err); }
+          for (const sn of sentinels) expect(payload.includes(sn), `seed ${seed}: tool ${t.name} leaked ${sn}`).toBe(false);
+        } else await sweep(player, t.name);
+      }
       for (const t of toolsFor("admin/God Mode")) await sweep(admin, t.name);
 
       // Drive the loop to a winner, sweeping the live projections at EVERY beat — including the finale.
