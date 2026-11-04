@@ -5,7 +5,7 @@
 > confidence↔distress slider + volatility), personality-flat (an NPC's reactivity is a **random draw**, not
 > their character), and mood-only (their *strategy* never hardens). This deepens all three, so the house
 > evolves like real people: independent feelings, a temperament that bends under pressure, and reactivity
-> that actually reflects who each houseguest is. Hidden layer only; **calibration-safe** (one flag, code default off, ON in the deploy profile
+> that actually reflects who each houseguest is. Hidden layer only; **calibration-safe** (one flag, code default ON since #1996 - `ORWELL_SOUL_DEPTH=0` is the rollback, ON in the deploy profile
 > ⇒ byte-identical when off) so the seeded spine is untouched (it once also protected the golden fixture; golden replay decommissioned 2026-07-21).
 > **Executable spec:** [`0124-deeper-character-evolution.feature`](./0124-deeper-character-evolution.feature)
 > **Also proven by:** `tests/unit/deeperEvolution.test.ts`
@@ -52,7 +52,7 @@ persisted (0030), deterministic, and **calibration-neutral when off**.
 
 ## 3. Scope
 
-**In (all behind one default-off flag `ORWELL_SOUL_DEPTH`, dedicated where rng is involved):**
+**In (all behind one flag `ORWELL_SOUL_DEPTH` - default ON since #1996, `=0` rolls back - dedicated where rng is involved):**
 - **A) Multi-axis affect.** Add optional soul axes `distress` and `confidence` (0..1). When the flag is on,
   `evolveEmotion` moves them **independently** per event (blindside ⇒ +distress; comp-win ⇒ +confidence;
   both can be high at once), and the behavior reads factor both (the **distress** term drags a competition
@@ -96,7 +96,7 @@ persisted (0030), deterministic, and **calibration-neutral when off**.
   is skipped when the flag is off ⇒ the `rng.next()` volatility stands and the settle rate is the flat global
   constant ⇒ byte-identical.
 - **The wall + calibration.** All three are hidden soul state — sentinel-clean, no number crosses. One flag
-  `ORWELL_SOUL_DEPTH` (default off) gates every branch; where rng is touched it is **dedicated/draw-preserving**,
+  `ORWELL_SOUL_DEPTH` (default ON since #1996; `=0` turns every branch off) gates every branch; where rng is touched it is **dedicated/draw-preserving**,
   so the seeded competition/vote spine (`juryReach`/gradient/UAT) is **byte-identical**
   until the deploy opts in (the 0117/0120/0121/0122 shipped-flag pattern).
 
@@ -109,7 +109,7 @@ evolveEmotion(soul, event, c, rng?, { soulDepth })   // on ⇒ moves distress/co
 effectiveDisposition(soul, character): Disposition   // baseline ± temperamentDrift, banded w/ hysteresis (on only)
 factory: volatility = soulDepth ? VOL_OF[disposition] : rng.next()   // draw-preserving; settleScale from disposition
 behavior: competition modifier + decision leanings read {confidence, distress} when present; effective disposition
-flag: ORWELL_SOUL_DEPTH (default off)   // off ⇒ no new axis/drift/reactivity ⇒ byte-identical
+flag: ORWELL_SOUL_DEPTH (default ON since #1996; =0 rolls back)   // off ⇒ no new axis/drift/reactivity ⇒ byte-identical
 invariants: CHARACTER byte-stable (0007); bounded; never overrides a hard rule (0005); player sees no number (0001)
 ```
 
@@ -135,5 +135,5 @@ Deepens **0041** (character evolution — `emotionalArc.ts`/`evolveEmotion`, the
 reusing **0024** (SoulStore/recall), **0028** (the emotional/temperature constants + mean-reversion family),
 **0026** (dispositions), and the **0044/0011/0014** decision leanings. Grounded in the **CHARACTER/SOUL split
 + 0007** (byte-stable character), sealed by **0001** (no number to the player), persisted by **0030**.
-Calibration-neutral by construction (one default-off flag + dedicated/draw-preserving rng) ⇒ byte-identical
+Calibration-neutral by construction (one flag, default ON since #1996, `=0` = byte-identical; + dedicated/draw-preserving rng) ⇒ byte-identical
 to 0041 until the deploy opts in.

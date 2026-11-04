@@ -86,9 +86,9 @@ import {
   type WipeoutFailureFact, type WipeoutHistoryEntry,
 } from "./wipeoutReel";
 import {
-  phaseForHour, bedtimeDepthFor, restDeficitForDepth, emergentBedtimeHour, DAY_START, WAKE_HOUR, DAY_END_HOUR, type TimeOfDay,
+  phaseForHour, bedtimeDepthFor, restDeficitForDepth, emergentBedtimeHour, wakeHourAfterBed, DAY_START, WAKE_HOUR, DAY_END_HOUR, type TimeOfDay,
 } from "./timeOfDay";
-import { CLOCK, SCENE } from "./sleepConstants";
+import { CLOCK } from "./sleepConstants";
 
 /**
  * The LIVE weekly loop (feature 0011, wired into the running game). Unlike
@@ -616,6 +616,8 @@ export interface LiveSeasonState {
    * kept for save round-trip + the adapter's rest-cue read. Persist with the season (0030).
    */
   playerRetired?: boolean;
+  /** P4d: the hour the player woke at when they bedded early (< the 8am wake); absent => the normal 8am wake. Cleared at the next day boundary. */
+  wakeHour?: number;
   lastSleepPhase?: number;
   /**
    * The 24-hour clock (0066, the #1125 model; gated). `nightDepth` is the legacy field NAME but carries the
@@ -627,16 +629,6 @@ export interface LiveSeasonState {
    */
   nightDepth?: number;
   lastSleepDepth?: number;
-  /**
-   * Extension 6 (SCENE-based clock) — the CURRENT scene the player is in: a stable key of (room + sorted
-   * co-present set), and the in-game HOURS this scene has already billed. Time advances per SCENE, not per
-   * turn: turns inside the same scene accumulate toward the cap (`SCENE.capHours`); a key change (moved
-   * rooms / someone entered or left / a beat) starts a fresh scene. Written ONLY when the per-conversation
-   * clock is live (the adapter gates it) ⇒ a clock-off / calibration / golden game never sets them ⇒ absent
-   * ⇒ byte-identical. Persisted with the season like the rest of the clock state (0030).
-   */
-  sceneKey?: string;
-  sceneAccruedHours?: number;
   /**
    * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
    * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
@@ -1887,7 +1879,7 @@ export function firstCeremonyBeatResolved(s: LiveSeasonState): boolean {
  */
 function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): void {
   if (s.finished) return;
-  if (s.playerRetired) { s.nightDepth = WAKE_HOUR; s.timeOfDay = DAY_START; s.playerRetired = false; return; }
+  if (s.playerRetired) { s.nightDepth = s.wakeHour ?? WAKE_HOUR; s.timeOfDay = DAY_START; s.playerRetired = false; return; } // P4d: an early riser wakes at their own hour
   if (s.nightDepth === undefined) { s.nightDepth = WAKE_HOUR; s.timeOfDay = DAY_START; return; }
   const next = s.nightDepth + hours;
   if (next >= DAY_END_HOUR) {
@@ -1897,6 +1889,7 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
       // last awake to the bitter end ⇒ the maximum sleep debt.
       s.lastSleepDepth = DAY_END_HOUR;
       s.lastSleepPhase = DAY_END_HOUR;
+      s.wakeHour = undefined;
       s.nightDepth = WAKE_HOUR;
       s.timeOfDay = DAY_START;
       return;
@@ -1961,35 +1954,12 @@ export function advanceClockPerConversation(s: LiveSeasonState, hours: number = 
 }
 
 /**
- * Extension 6 — advance the clock per SCENE, not per turn. `sceneKey` identifies the current scene (room +
- * co-present set, computed by the adapter from occupancy). `proposedHours` is this turn's contribution (the
- * small deterministic increment, or a narrator-proposed felt duration). Model B "capped accumulation": a turn
- * that CONTINUES the same scene bills only up to the scene's remaining room under `capHours`; a NEW `sceneKey`
- * resets the accrual and starts a fresh scene. So a long conversation is a touch longer in-fiction, but turn
- * count can never run the clock away. Pure + deterministic (no rng); clamps at the pre-dawn edge and never
- * wraps the night (`advanceClockBy(..., false)`), so it can't skip the player past their bedtime (ADR 0003).
- * A no-op before the day starts (unchanged from the per-conversation path).
+ * P4c - tick the clock by ONE message's few in-game minutes. Continuous (no scene lump, no cap/floor), so a scheduled event can interrupt mid-conversation. Clamps at the
+ * pre-dawn edge, never wraps the night, no-op before the day starts. Pure, no rng.
  */
-export function advanceClockPerScene(
-  s: LiveSeasonState, sceneKey: string, proposedHours: number = SCENE.perExchangeHours, capHours: number = SCENE.capHours,
-): void {
-  if (s.nightDepth === undefined) return; // the day hasn't started; the per-beat clock initializes it
-  if (s.sceneKey !== sceneKey) { s.sceneKey = sceneKey; s.sceneAccruedHours = 0; } // a new scene: fresh cap
-  const accrued = s.sceneAccruedHours ?? 0;
-  const clamped = Math.max(0, Math.min(proposedHours, capHours - accrued)); // a PROPOSED felt duration clamps to the scene's remaining room…
-  const advance = Math.max(clamped, SCENE.minPerMessageHours);               // …but every message bills at least the pace floor (P2b: the clock always brings the event in)
-  s.sceneAccruedHours = accrued + advance;
-  if (advance > 0) advanceClockBy(s, advance, false);
-}
-
-/**
- * Extension 6 — a SCENE BOUNDARY (a resolved beat, or any hard interrupt): forget the current scene so the
- * next social turn opens a fresh one with a full cap. Deterministic, no clock move of its own. A no-op when
- * no scene is being tracked (clock off) ⇒ byte-identical.
- */
-export function resetSceneClock(s: LiveSeasonState): void {
-  s.sceneKey = undefined;
-  s.sceneAccruedHours = undefined;
+export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void {
+  if (s.nightDepth === undefined) return;
+  if (hours > 0) advanceClockBy(s, hours, false);
 }
 
 /**
@@ -2003,6 +1973,7 @@ export function resetSceneClock(s: LiveSeasonState): void {
  */
 export function crossToNextDay(s: LiveSeasonState): void {
   if (s.nightDepth === undefined) return; // dormant until the per-beat clock starts the day
+  s.wakeHour = undefined;
   s.nightDepth = WAKE_HOUR;
   s.timeOfDay = DAY_START;
   s.playerRetired = false;
@@ -2020,7 +1991,10 @@ export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   s.lastSleepDepth = hour;
   s.lastSleepPhase = hour; // legacy field name; now the clock-hour the player was last awake to
   s.playerRetired = true;
-  s.nightDepth = WAKE_HOUR;
+  // P4d: wake = min(8am, bedtime + 8h) - an EVENING bed wakes early; midnight or later wakes at 8am (debt as before).
+  const wake = wakeHourAfterBed(hour);
+  s.wakeHour = wake === WAKE_HOUR ? undefined : wake;
+  s.nightDepth = wake;
   s.timeOfDay = DAY_START;
 }
 

@@ -65,3 +65,9 @@ export function mostUrgent(cands: readonly Candidate[], hoursUntil: number | nul
   }
   return best;
 }
+
+/** A10 - how hard an unsatisfied want pulls the NPC's MOVEMENT toward its target: 1 at no urgency, up to 1 + k at/over the approach threshold. Pure; k is the single rollback knob. */
+export const WANT_MOVEMENT = { k: 2 } as const;
+export function wantScale(u: number, k: number = WANT_MOVEMENT.k): number {
+  return 1 + k * Math.min(1, Math.max(0, u) / DESIRE.threshold);
+}

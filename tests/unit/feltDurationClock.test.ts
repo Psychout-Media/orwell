@@ -36,12 +36,12 @@ function startedWithClock(): { session: ReturnType<GameSessionRegistry["sandboxF
 const depth = (s: { snapshot: () => { live?: { nightDepth?: number } | null } }): number => s.snapshot().live?.nightDepth ?? 0;
 
 describe("Phase 2 — feltMinutes drives the per-conversation clock", () => {
-  it("advances the clock by the scene's proposed felt duration, not the flat floor", () => {
+  it("a long proposed scene bills NOTHING extra: the message still costs exactly the pace (P4c)", () => {
     const { session, commands, npc } = startedWithClock();
     const start = depth(session);
     commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: "a long strategy summit", feltMinutes: 120 });
     session.advanceClockPerConversation(); // the orchestrator's per-turn tick consumes the stash
-    expect(depth(session) - start).toBeCloseTo(2, 5); // 120 min = 2h, not the 0.5h floor
+    expect(depth(session) - start).toBeCloseTo(SCENE.perExchangeHours, 5); // 120 min proposed => still one message's tick
   });
 
   it("clamps an absurd proposal to the sane envelope (anti-abuse)", () => {
@@ -49,7 +49,7 @@ describe("Phase 2 — feltMinutes drives the per-conversation clock", () => {
     const start = depth(session);
     commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: "a quick word", feltMinutes: 6000 });
     session.advanceClockPerConversation();
-    expect(depth(session) - start).toBeCloseTo(SCENE_FELT_MINUTES.max / 60, 5); // clamped to 4h, not 100h
+    expect(depth(session) - start).toBeCloseTo(SCENE.perExchangeHours, 5); // an absurd proposal bills nothing
   });
 
   it("falls back to the small per-exchange increment when no feltMinutes is proposed (Extension 6 scene model)", () => {
