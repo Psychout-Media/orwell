@@ -144,7 +144,7 @@ Then("the hidden memory does not appear", function (this: BbWorld) {
   assert.ok(!this.lastOutput.includes("SOULSENTINEL"));
 });
 
-Then("the houseguest's behavior may still reflect it", function (this: BbWorld) {
+Then("the engine keeps the hidden memory and it survives a save-and-resume", function (this: BbWorld) {
   const live = liveOf(this)!;
   const mem = live.sb!.session.snapshot().house!.npcs.find((n) => n.id === HG)!.soul.memory;
   assert.ok(mem.includes(this.hiddenMemory!), "the engine-side soul memory the live game persists holds it");
