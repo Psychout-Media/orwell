@@ -1,4 +1,11 @@
 # spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# Design contract: 0076 is Built, and its gates are unit + front-end tests, not Gherkin. The behavior below is verified by:
+#   engine:    tests/unit/presence.test.ts (present company holds the scene; no teleports; seeded base-occupancy draw-count unchanged),
+#              tests/unit/locationGrounding0009.test.ts (the closed-set location/roster grounding the narrator is fed);
+#   front end: frontend/tests/test_0076_presence_desync.py (the desync guard: teleport / from-nowhere staging caught, prose untouched),
+#              frontend/tests/test_0076_presence_movement.py (exits and arrivals narrated as beats),
+#              frontend/tests/test_a2_presence_wall.py (narration may only stage houseguests the engine places in the room).
+# The sibling presence behavior that IS Gherkin-gated lives in 0049 (witnessing, overhearing) and 0077 (floor plan, sightline).
 Feature: 0076 — Presence grounding & motivated movement
   The narrator stops inventing the room. Who is present and who exists are closed-set facts the
   engine owns and feeds every turn; the model voices the scene but never authors the roster or the

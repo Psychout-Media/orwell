@@ -107,10 +107,68 @@ def test_the_drive_is_bounded(monkeypatch):
     assert 2 <= len(calls) <= 12, len(calls)
 
 
-def test_the_eviction_reveal_stays_one_beat_per_turn_even_for_a_ready_player(monkeypatch):
-    calls, board = _wire(monkeypatch, rounds=10_000)
-    board.update(phase="eviction", moment="eviction")
-    start = dict(START, phase="eviction", moment="eviction")
-    ch._RUNWAY_LAST_DONE[ch._runway_key("u")] = ch._runway_sig(start)
-    _run(ch._pre_resolve_npc_ceremony("u", start, retry=False, player_msg="Continue to eviction night."))
-    assert len(calls) == 1, "E12: the staged ballot reveal is never collapsed"
+def _wire_eviction(monkeypatch, beats):
+    calls = []
+    board = {"phase": "eviction", "moment": "eviction", "week": 1, "started": True, "pending": None}
+
+    async def status(user=None):
+        return {"phase": board["phase"], "pending": board["pending"]}
+
+    async def advance(expected_beat_seq=None, idempotency_key=None, user=None):
+        calls.append(len(calls) + 1)
+        kind = beats[min(len(calls), len(beats)) - 1]
+        return {"event": {"beat": kind, "content": f"{kind} #{len(calls)}"}, "announcements": []}
+
+    async def state(user=None, **kw):
+        return dict(board)
+
+    monkeypatch.setattr(oe, "game_status", status)
+    monkeypatch.setattr(oe, "advance_game", advance)
+    monkeypatch.setattr(oe, "get_game_state", state)
+    return calls
+
+
+EVICT_START = {"phase": "eviction", "moment": "eviction", "week": 1, "started": True, "pending": None}
+
+
+def test_the_eviction_reveal_and_its_result_are_walked_in_one_pass_without_a_ready_cue(monkeypatch):
+    """PO ruling 2026-11-04: every ballot in the one reveal beat, then the result beat — the same turn, even for an NPC-only night (no readiness needed)."""
+    calls = _wire_eviction(monkeypatch, ["eviction-reveal", "eviction", "eviction-goodbye", "eviction-goodbye"])
+    ch._RUNWAY_LAST_DONE[ch._runway_key("u")] = ch._runway_sig(EVICT_START)
+    _run(ch._pre_resolve_npc_ceremony("u", dict(EVICT_START), retry=False, player_msg="I linger by the couch."))
+    assert len(calls) == 2, "reveal -> result in this pass; the goodbyes are NOT collapsed"
+
+
+def test_a_non_reveal_eviction_beat_is_still_one_per_turn(monkeypatch):
+    calls = _wire_eviction(monkeypatch, ["eviction-goodbye", "eviction-goodbye", "eviction-goodbye"])
+    ch._RUNWAY_LAST_DONE[ch._runway_key("u")] = ch._runway_sig(EVICT_START)
+    _run(ch._pre_resolve_npc_ceremony("u", dict(EVICT_START), retry=False, player_msg="Continue to eviction night."))
+    assert len(calls) == 1
+
+
+def test_the_eviction_drive_stops_at_a_player_decision(monkeypatch):
+    """A tie-break (player HOH) or any card after the reveal leads — never auto-resolved."""
+    calls = []
+    board = {"phase": "eviction", "moment": "eviction", "week": 1, "started": True, "pending": None}
+
+    async def status(user=None):
+        return {"phase": "eviction", "pending": {"kind": "tie-break"} if calls else None}
+
+    async def advance(expected_beat_seq=None, idempotency_key=None, user=None):
+        calls.append(1)
+        return {"event": {"beat": "eviction-reveal", "content": "x"}, "announcements": []}
+
+    async def state(user=None, **kw):
+        return dict(board)
+
+    monkeypatch.setattr(oe, "game_status", status); monkeypatch.setattr(oe, "advance_game", advance); monkeypatch.setattr(oe, "get_game_state", state)
+    ch._RUNWAY_LAST_DONE[ch._runway_key("u")] = ch._runway_sig(EVICT_START)
+    _run(ch._pre_resolve_npc_ceremony("u", dict(EVICT_START), retry=False, player_msg="ok"))
+    assert len(calls) == 1
+
+
+def test_the_eviction_drive_is_bounded(monkeypatch):
+    calls = _wire_eviction(monkeypatch, ["eviction-reveal"] * 10_000)
+    ch._RUNWAY_LAST_DONE[ch._runway_key("u")] = ch._runway_sig(EVICT_START)
+    _run(ch._pre_resolve_npc_ceremony("u", dict(EVICT_START), retry=False, player_msg="ok"))
+    assert 2 <= len(calls) <= 12, len(calls)

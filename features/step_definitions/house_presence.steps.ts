@@ -1,4 +1,4 @@
-import { Given, When, Then } from "@cucumber/cucumber";
+import { Given, When, Then, After } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -11,6 +11,8 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { resolvePending } from "../support/answerPending";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { linger } from "../../tests/support/linger";
 
 // Feature 0049 — house presence & lingering play. HARD rule: roles only — no names.
 
@@ -109,7 +111,7 @@ Then("both games produce identical occupancy trajectories", function (this: BbWo
 
 // --- Scenario: Whereabouts shows only what a houseguest could see or hear ----------
 
-Given("the player is in a room with some houseguests and others in adjacent rooms", function (this: BbWorld) {
+Given("the player is in a room with some houseguests and others in rooms within sight", function (this: BbWorld) {
   newPresenceGame(this, 8);
   // 0111: close the premiere champagne circle so whereabouts reads the seated presence + sightline rooms
   // (this scenario checks room/adjacency fog-of-war, not the opening gathered toast).
@@ -133,7 +135,7 @@ Then("it lists who is present in the player's room", function (this: BbWorld) {
   assert.deepEqual(w.present.map((p) => p.id).sort(), expected);
 });
 
-Then("it lists who is in adjacent rooms", function (this: BbWorld) {
+Then("it lists who is in rooms within sight", function (this: BbWorld) {
   const w = this.hpWhereabouts!;
   // 0077 Phase 2: `nearby` lists the rooms the player can SEE INTO (sightline), not every adjacent room.
   assert.deepEqual(w.nearby.map((n) => n.room), [...(HOUSE_SIGHTLINE.get(w.room as Room) ?? [])]);
@@ -144,13 +146,13 @@ Then("it lists who is in adjacent rooms", function (this: BbWorld) {
   }
 });
 
-Then("it reveals nothing about non-adjacent rooms", function (this: BbWorld) {
+Then("it reveals nothing about rooms out of sight", function (this: BbWorld) {
   const w = this.hpWhereabouts!;
   // 0077 Phase 2: `nearby` is SIGHTLINE-scoped (eyeshot) — every reported room is one the player can
   // actually SEE into; a closed door one room over is never revealed (the stronger privacy claim).
   for (const n of w.nearby) assert.ok(areVisible(w.room as Room, n.room as Room), `${n.room} is in sightline`);
   // L21/L24 + 0077: duration + the tracked layer ride the view; `zone`/`conspicuous` are optional —
-  // still no non-adjacent room's occupants appear in the visible (`nearby`) set.
+  // still no out-of-sight room's occupants appear in the visible (`nearby`) set.
   const required = ["companions", "nearby", "present", "room", "tracked", "turnsHere"];
   const allowed = [...required, "zone", "conspicuous"];
   assert.ok(required.every((k) => k in w), "the view carries the required keys");
@@ -172,6 +174,8 @@ Given("the player talks with an NPC while another NPC is in the same room", func
   newPresenceGame(this, 14);
   const occupancy = new Map<EntityId, Room>([
     [PLAYER, "backyard"], [npc(1), "backyard"], [npc(2), "backyard"], [npc(3), "kitchen"],
+    // A closed-door bedroom: another room AND out of sight (no sightline into it from the yard).
+    [npc(4), "bedroom-a"],
   ]);
   this.hpSandbox!.commands.setPresenceProvider(() => occupancy);
 });
@@ -186,6 +190,13 @@ When("the scene is recorded", function (this: BbWorld) {
 Then("the other NPC is in the event's witness set", function (this: BbWorld) {
   const ev = this.hpSandbox!.engine.events.queryAll().find((e) => e.id === this.hpEventId)!;
   assert.ok(ev.witnessSet.includes(npc(2)), "the co-present NPC witnessed the scene");
+});
+
+Then("an NPC in another room, out of sight, is not in the event's witness set", function (this: BbWorld) {
+  assert.ok(!areVisible("backyard", "bedroom-a"), "setup: the bedroom is out of sight of the yard");
+  const ev = this.hpSandbox!.engine.events.queryAll().find((e) => e.id === this.hpEventId)!;
+  assert.ok(!ev.witnessSet.includes(npc(4)), "an out-of-sight NPC in another room is no witness");
+  assert.ok(!ev.witnessSet.includes(npc(3)), "nor is one in a different (even adjacent, visible) room");
 });
 
 Then("the event is not secret to any houseguest in the room", function (this: BbWorld) {
@@ -367,4 +378,111 @@ Then("the day's meaningful event is still the scheduled beat", function (this: B
   assert.equal(s.advanceGame().pending?.kind, this.hpBefore!.kind, "the pending scheduled beat is unconsumed");
   const visibleNow = this.hpSandbox!.engine.events.query({ hidden: false }).length;
   assert.ok(visibleNow > this.hpEventsBefore!, "milling was recorded (it has consequence) without advancing the week");
+});
+
+// --- Scenario: A houseguest who has turned in neither witnesses nor overhears (ADR 0006) -------------
+
+/** A started season at night (day clock ON) with >=3 houseguests turned in and >=2 still up. */
+function findThinnedNight(): { sb: NonNullable<BbWorld["hpSandbox"]>; asleep: EntityId[]; awake: EntityId[] } {
+  GameSessionAdapter.setTimeOfDayEnabled(true);
+  for (const seed of [3, 5, 8, 13, 21, 34, 55, 89]) {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor(`hp-night-${seed}`);
+    const s = sb.session;
+    s.createCharacter({ playerName: "The Player", seed });
+    for (let i = 0; i < 60; i++) {
+      const npcs = s.livingIds().filter((id) => id !== PLAYER);
+      if (s.gameStatus().timeOfDay) {
+        for (let pass = 0; pass < 3; pass++) {
+          const up = s.awakeAmong(npcs);
+          if (npcs.length - up.length >= 3 && up.length >= 2) {
+            return { sb, asleep: npcs.filter((id) => !up.includes(id)), awake: up };
+          }
+          linger(s);
+        }
+      }
+      const v = s.advanceGame();
+      if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
+    }
+  }
+  assert.fail("no seed reached a night with >=3 turned in and >=2 still up — scenario setup");
+}
+
+Given("it is late at night and several houseguests have turned in while one is still up", function (this: BbWorld) {
+  const night = findThinnedNight();
+  this.hpSandbox = night.sb;
+  this.hpAsleep = night.asleep;
+  this.hpAwake = night.awake;
+  this.hpClockTouched = true;
+});
+
+Given(
+  "a turned-in houseguest is seated in the player's room beside one who is still up, another turned-in houseguest is named as a participant, and a third is next door beside another who is still up",
+  function (this: BbWorld) {
+    const [inRoom, named, nextDoor] = this.hpAsleep!;
+    const [upInRoom, upNextDoor] = this.hpAwake!;
+    // Kitchen and living room are adjacent. The named sleeper is deliberately UNPLACED, so the only thing
+    // that can drop them is the awake set (a positively-elsewhere name is already dropped by BL-014).
+    (this.hpSandbox!.session as unknown as { presence: Map<EntityId, Room> | null }).presence = new Map<EntityId, Room>([
+      [PLAYER, "kitchen"], [inRoom!, "kitchen"], [upInRoom!, "kitchen"], [nextDoor!, "living-room"], [upNextDoor!, "living-room"],
+    ]);
+    this.hpNamed = named!;
+    this.hpInRoom = inRoom!;
+    this.hpNextDoor = nextDoor!;
+    this.hpUpInRoom = upInRoom!;
+    this.hpUpNextDoor = upNextDoor!;
+  },
+);
+
+Given("the day clock is then switched off", function (this: BbWorld) {
+  GameSessionAdapter.setTimeOfDayEnabled(false);
+});
+
+function lateNightScene(w: BbWorld, content: string): string[] {
+  const { eventId } = w.hpSandbox!.commands.recordInteraction({
+    initiator: PLAYER, witnessSet: [PLAYER, w.hpNamed!], content,
+  });
+  const ev = w.hpSandbox!.engine.events.queryAll().find((e) => e.id === eventId)!;
+  return [...ev.witnessSet];
+}
+
+function overheard(w: BbWorld, id: EntityId): number {
+  return w.hpSandbox!.engine.knowledge.knownTo(id).filter((f) => f.pathway.startsWith("overheard:")).length;
+}
+
+When("the player's scene is recorded and many more follow", function (this: BbWorld) {
+  this.hpWitnessSets = [lateNightScene(this, "a late-night word")];
+  for (let i = 1; i < 60; i++) this.hpWitnessSets.push(lateNightScene(this, `a loud late plan, take ${i}`));
+});
+
+When("the player's scene is recorded", function (this: BbWorld) {
+  this.hpWitnessSets = [lateNightScene(this, "a daytime-style word")];
+});
+
+Then("no turned-in houseguest is in any witness set", function (this: BbWorld) {
+  for (const w of this.hpWitnessSets!) {
+    for (const id of this.hpAsleep!) assert.ok(!w.includes(id), `${id} has turned in yet witnessed`);
+  }
+});
+
+Then("no turned-in houseguest gains an overheard pathway", function (this: BbWorld) {
+  for (const id of this.hpAsleep!) assert.equal(overheard(this, id), 0, `${id} has turned in yet overheard`);
+});
+
+Then("the houseguest who is still up, in the room, does witness", function (this: BbWorld) {
+  assert.ok(this.hpWitnessSets![0]!.includes(this.hpUpInRoom!), "positive control: co-presence still witnesses");
+});
+
+Then("the houseguest who is still up, next door, does overhear", function (this: BbWorld) {
+  assert.ok(overheard(this, this.hpUpNextDoor!) > 0, "positive control: an awake neighbour still overhears across the scenes");
+});
+
+Then("the witness set is exactly the player, everyone seated in the room, and the one named", function (this: BbWorld) {
+  const expected = [PLAYER, this.hpInRoom!, this.hpUpInRoom!, this.hpNamed!].sort();
+  assert.deepEqual([...this.hpWitnessSets![0]!].sort(), expected);
+});
+
+After(function (this: BbWorld) {
+  // The day clock is a process-wide static: never let this feature's override leak into later features.
+  if (this.hpClockTouched) GameSessionAdapter.setTimeOfDayEnabled(null);
 });

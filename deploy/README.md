@@ -375,6 +375,33 @@ Path/log are overridable for tests/dev via `ORWELL_UPDATE_SCRIPT` (default
 `/opt/orwell/deploy/orwell-update.sh`) and `ORWELL_UPDATE_LOG` (default
 `/opt/orwell/data/update.log`); the command itself is always fixed.
 
+### File ownership (least privilege)
+
+The **code tree is root-owned** and never group/world-writable — the checkout, `deploy/`, `dist/`,
+`node_modules`, `frontend/.venv`, `.git`. The root-run ops units execute scripts out of `deploy/`, and
+the app units are sandboxed read-only outside their `ReadWritePaths`, so the `orwell` service user
+needs no write access to code. Only the directories the services legitimately write belong to it:
+`data/` (or a custom `DATA_DIR`), `frontend/data`, `backups/` (the nightly backup unit runs as
+`orwell`) and `.orwell-data` (the engine's default save dir when `ORWELL_DATA_DIR` is unset). Both
+`orwell-install.sh` and `orwell-update.sh` apply this through one function, `orwell_apply_ownership`
+(kept byte-identical in the two files; a test pins it), so **an update on an existing box migrates
+a previously `orwell`-owned code tree back to root** — including when the update is triggered by the
+root ops unit. A custom `DATA_DIR` is honored by passing it in the environment of the install/update.
+
+Root also never trusts a path under the `orwell`-writable tree. `orwell-oobe-reset.sh` and
+`orwell-game-reset.sh` resolve every directory they delete or chown (the engine save dir comes from
+`data/.env`) and refuse anything that does not land inside the app's data dirs — never `/`, the app
+dir, or anything above it. The ops runners (`orwell-ops-tls.sh`, `orwell-ops-public-deployment.sh`,
+`orwell-https.sh`, `orwell-ops-progress.sh`) never follow a symlink under `data/` / `data/ops`: the
+side files (config, token) are first *claimed* — renamed into a private root-owned temp dir, which moves
+a symlink itself rather than its target — and only then checked, read and shredded there; `.env` and
+status files are replaced by `mktemp` + rename, or written/chowned/chmod'ed through an `O_NOFOLLOW` fd.
+Values from those side files are allow-listed / control-character-checked before they reach `data/.env`.
+
+**Still open:** the ops units' `StandardOutput=append:/opt/orwell/data/ops-*.log` run logs live in the
+`orwell`-writable `data/`, and systemd opens them as root. Moving them somewhere root-owned means
+touching the admin log viewer, `logrotate`, and the installer/updater `touch` lines together.
+
 ### The login health panel
 
 Entering the container (`pct enter`, ssh) greets you with a live one-glance panel — both

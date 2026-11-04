@@ -52,7 +52,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
-import { NPC_MEMORY, recordMemory, memoryTilt, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -215,6 +215,7 @@ import { SeededRandom } from "../random/SeededRandom";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
+import { recordRumorClaim, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -796,7 +797,10 @@ const BOOTH_RECEIPTS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BOOTH_RECEIPTS");
  */
 const AUTO_ADVANCE_PENDING_KINDS: ReadonlySet<PendingDecisionView["kind"]> = new Set([
   "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice",
-  "replacement", "eviction-vote", "tie-break", "final-eviction",
+  "replacement", "tie-break", "final-eviction",
+  // "eviction-vote" is DELIBERATELY NOT here (PO ruling 2026-11-04, the one-turn vote reveal): the vote's own apply already reads EVERY ballot in one
+  // beat, and the RESULT must be a separate, VISIBLE beat (its `eviction` event + chyron reach the client from the next advance). Chaining it here
+  // would commit the evictee silently inside the submit and drop its announcement.
 ]);
 
 /**
@@ -981,6 +985,17 @@ export class GameSessionAdapter implements GameSession {
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
   private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
+  /**
+   * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). OFF unless
+   * exactly `ORWELL_NPC_MEMORY_STANDALONE=1`; deliberately NOT part of the default flip (pinned in flagDefaultParity) until its own signed-direction + winner/F2 re-measure. OFF ⇒ the
+   * residual-floor read, byte-identical; it only matters while `ORWELL_NPC_MEMORY` is on (no memory is written otherwise).
+   */
+  private npcMemoryStandaloneEnabled = process.env.ORWELL_NPC_MEMORY_STANDALONE === "1";
+  /**
+   * B2 follow-on — WRITE the memories a season actually produces (an NPC remembers being nominated by the HOH, graded by prior trust). The ledger was measured ~empty (all `veto-saved`
+   * with holder===subject, dropped). OFF unless exactly `ORWELL_NPC_MEMORY_WRITERS=1`; never-flipped (own re-measure first). Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
+   */
+  private npcMemoryWritersEnabled = process.env.ORWELL_NPC_MEMORY_WRITERS === "1";
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -4305,6 +4320,11 @@ export class GameSessionAdapter implements GameSession {
    * is unmoved). Pure read off the shared phase + the STATIC aptitudes (`bedtimeFor`): draws no rng, and
    * reads no soul/Vault number.
    */
+  /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
+  awakeIds(): ReadonlySet<EntityId> | null {
+    return this.awakeNow();
+  }
+
   private awakeNow(): Set<EntityId> | null {
     if (!this.timeOfDayEnabled || !this.live?.timeOfDay || !this.house) return null;
     return new Set(
@@ -7223,6 +7243,8 @@ export class GameSessionAdapter implements GameSession {
   setDealDepthEnabled(on: boolean): void { this.dealDepthEnabled = on; }
   /** 0024 — turn the NPC memory layer on/off for this session (off ⇒ nothing is written or read). */
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
+  setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
+  setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
   /** Whether the deal-depth layer is live (0121). */
   dealDepthEnabledNow(): boolean { return this.dealDepthEnabled; }
@@ -8437,6 +8459,17 @@ export class GameSessionAdapter implements GameSession {
    *  whether to hand `diffuseGossip` a `voiceOf` resolver. */
   gossipDriftEnabledNow(): boolean { return this.gossipDriftEnabled; }
 
+  /**
+   * #2017 S0b-2 — the observer the orchestrator hands `diffuseGossip` so each E44 receipt fold is recorded as a `heard-rumor` belief claim (with the edge delta it absorbed).
+   * `undefined` when `ORWELL_NPC_BELIEFS` is off or no season is live ⇒ NO observer ⇒ the gossip call is byte-identical to today. The observer is read-only (the fold,
+   * its rng draws and its edge moves are unchanged — proven in beliefProvenance.test.ts); it only appends to the engine-only `live.beliefs` store, which nothing reads yet.
+   */
+  beliefReceiptObserver(): ((r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }) => void) | undefined {
+    if (!this.npcBeliefsEnabled || !this.live) return undefined;
+    const live = this.live;
+    return (r) => { recordRumorClaim((live.beliefs ??= {}), r, live.week); };
+  }
+
   private archetypeOf(id: EntityId): string {
     return this.house?.npcs.find((n) => n.id === id)?.character.archetype ?? "floater";
   }
@@ -8709,12 +8742,17 @@ export class GameSessionAdapter implements GameSession {
         if (s.hoh && s.nominees) {
           for (const nom of s.nominees) {
             this.rememberFriendAct(nom, s.hoh, "nominated-by-friend"); // BEFORE the fold: the trust test reads the pre-shock edge
+            if (this.npcMemoryWritersEnabled && nom !== PLAYER) this.remember(nom, s.hoh, "nominated-by-hoh", nominationMemorySeverity(this.rel.edge(nom, s.hoh).trust)); // B2: same pre-fold read
             fold(nom, s.hoh, "nominated");
           }
         }
         break;
       }
       case "veto-ceremony": {
+        // B2: a veto NOT used leaves the NPC nominees on the block — each remembers the holder who could have saved them (graded by their pre-fold trust in the holder).
+        if (this.npcMemoryWritersEnabled && !s.vetoUsed && s.vetoHolder && s.nominees) {
+          for (const nom of s.nominees) if (nom !== PLAYER && nom !== s.vetoHolder) this.remember(nom, s.vetoHolder, "veto-withheld", vetoWithheldSeverity(this.rel.edge(nom, s.vetoHolder).trust));
+        }
         if (s.saved && s.vetoHolder) {
           this.remember(s.saved, s.vetoHolder, "veto-saved", 0.6);
           fold(s.saved, s.vetoHolder, "veto-saved"); // gratitude bond + E54 evidence
@@ -10065,7 +10103,11 @@ export class GameSessionAdapter implements GameSession {
       // partner spreads it NPC→NPC, and third parties who hear it lean toward the honorer as a safer deal
       // partner (the positive mirror of the betrayal rumor). The ledger only calls this when `dealDepth`
       // is on, and the sink is registry-wired (it owns the KnowledgeService), so off ⇒ byte-identical.
-      reputation: (honorer, other) => this.dealReputationSink?.(honorer, other),
+      reputation: (honorer, other) => {
+        this.dealReputationSink?.(honorer, other);
+        // B2: the partner remembers the deal being KEPT (a favor), written alongside the diffusing reputation (same `dealDepth` gate). `remember` skips the player as holder.
+        if (this.npcMemoryWritersEnabled) this.remember(other, honorer, "deal-kept", 0.5);
+      },
       // 0014: the wronged party will weigh this betrayal against the breaker in their jury lean.
       // #1802: formation-witness deal collateral — when enabled, the formation trust-fold
       // scales with audience size (capped by caps) and breaches seed into witness knowledge.
@@ -10571,6 +10613,7 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER || !this.live) return 0;
     const entries = this.live.npcMemory?.[holder]?.[subject];
     if (!entries || entries.length === 0) return 0;
+    if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
     return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
   }
 
@@ -11093,6 +11136,7 @@ export class GameSessionAdapter implements GameSession {
       votesRevealed: e.revealOrder.slice(0, e.revealIx).map((voter) => ({
         votedFor: ref(e.voteOf[voter]!),
       })),
+      ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
     };
   }
 

@@ -6,7 +6,7 @@ import { buildSandbox } from "../support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView } from "../../src/ports/GameSession";
 
-// Feature 0025 (ORWELL_REACTIVE_TWISTS, flag OFF in deploy) — the player's secret-veto pending is
+// Feature 0025 (ORWELL_REACTIVE_TWISTS — default-ON since 2026-11-03) — the player's secret-veto pending is
 // answerable over the MCP boundary the front-end uses. The audit's "latent break" was that the FE
 // could not submit this kind; #1911 fixed the FE relays, and this pins the ENGINE end of that seam:
 // advanceGame raises the pending, submitDecision (via McpServer.callTool, like every FE relay) resolves
@@ -61,6 +61,26 @@ describe("0025 — the secret-veto pending is answerable over the MCP boundary",
     expect(live.secretVeto?.used).toBe(true);
     expect(live.finalNominees).not.toContain(PLAYER);
     expect((live.firedTwists ?? []).map((t) => t.kind)).toContain("secret-veto");
+  });
+
+  it("P5d — playing it BROADCASTS a secret-veto chyron then the HOH's replacement nominee (and holding it announces nothing)", async () => {
+    const { server, session } = playerOnBlockHoldingSecretVeto(26);
+    await call(server, "advanceGame", {});
+    const after = await call(server, "submitDecision", { kind: "secret-veto", use: true });
+    const kinds = (after.announcements ?? []).map((a) => a.kind);
+    expect(kinds).toContain("secret-veto");
+    expect(kinds).toContain("replacement-nominee");
+    expect(kinds.indexOf("secret-veto"), "the reveal precedes the replacement").toBeLessThan(kinds.indexOf("replacement-nominee"));
+    const sv = (after.announcements ?? []).find((a) => a.kind === "secret-veto")!;
+    expect(sv.headline).toMatch(/plays a secret veto and comes off the block/);
+    const live = session.snapshot().live!;
+    expect(sv.subjects.map((x) => x.id)).toEqual([PLAYER]);
+    expect(live.finalNominees).not.toContain(PLAYER);
+    // holding it announces no secret veto
+    const held = playerOnBlockHoldingSecretVeto(27);
+    await call(held.server, "advanceGame", {});
+    const afterHold = await call(held.server, "submitDecision", { kind: "secret-veto", use: false });
+    expect((afterHold.announcements ?? []).map((a) => a.kind)).not.toContain("secret-veto");
   });
 
   it("submitDecision use:false holds it — still on the block, safety kept, no re-prompt this week", async () => {

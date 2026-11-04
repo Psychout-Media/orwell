@@ -5,6 +5,7 @@ import { PLAYER } from "../domain/ids";
 import { scaleImpact } from "./relationshipConstants";
 import type { EdgeSignals } from "./relationshipConstants";
 import type { RelationshipModel } from "./relationships";
+import { edgeDelta, type EdgeDelta } from "./beliefStore";
 import type { NotableActClass } from "./legends";
 import type { VoiceProfile } from "../domain/voiceProfile";
 import {
@@ -275,6 +276,12 @@ export function diffuseGossip(deps: {
    */
   voiceOf?: (id: EntityId) => VoiceProfile | undefined;
   /**
+   * #2017 S0b — an OBSERVER of each E44 receipt fold: told the listener, the subject, the (believed) nature, the confidence and the signed edge delta the
+   * fold actually applied. READ-ONLY (it never touches `rel`, `rng` or any state the diffusion reads), so ABSENT ⇒ byte-identical and PRESENT ⇒ the same
+   * edge moves and the same draws; it exists so the belief store can record provenance for what the edge absorbed.
+   */
+  onReceipt?: (r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }) => void;
+  /**
    * 0121 R1 — an explicit lineage id to seed the belief under (instead of minting a fresh `fact:<origin>:…`).
    * ABSENT (every existing caller) ⇒ mint as before, drawing `rng.int(1_000_000)` — byte-identical. PRESENT
    * ⇒ use it verbatim AND skip that mint draw; used only by the reliability-reputation reward, which runs on
@@ -329,7 +336,12 @@ export function diffuseGossip(deps: {
     if (!rel || !subjects || !heard || listener === PLAYER) return;
     const scaled = scaleImpact(heard, confidence);
     for (const subject of subjects) {
-      if (subject !== listener) rel.applyImpactDirected(listener, subject, scaled, rng);
+      if (subject === listener) continue;
+      if (!deps.onReceipt) { rel.applyImpactDirected(listener, subject, scaled, rng); continue; }
+      const e = rel.edge(listener, subject);
+      const before = { trust: e.trust, affinity: e.affinity, threat: e.threat };
+      rel.applyImpactDirected(listener, subject, scaled, rng);
+      deps.onReceipt({ listener, subject, type: type!, confidence, delta: edgeDelta(before, rel.edge(listener, subject)) });
     }
   };
 

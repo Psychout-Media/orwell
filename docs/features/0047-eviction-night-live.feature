@@ -4,24 +4,27 @@
 
 Feature: Eviction night live
 
-  The weekly eviction plays out live: the votes are revealed in a seeded order — batched into a handful
-  of reveal rounds (live-verify 2026-06-27, mirroring the staged-comp pacing, so a big eviction is not a
-  ~14-advance slog) — with a revealed-only tally, the evicted houseguest gets a goodbye, and goodbye
+  The weekly eviction plays out live: the votes are revealed in a seeded order — ALL IN ONE TURN (PO ruling,
+  Ryne, 2026-11-04; supersedes the 2026-06-27 batched rounds: every anonymized ballot is read in one beat, the
+  result is the next beat) — the evicted houseguest gets a goodbye, and goodbye
   messages from the house shape how that evictee later votes as a juror. The engine decides the reveal
   order and the outcome; no pre-reveal tally ever crosses the wall.
 
-  Scenario: Votes are revealed in batched rounds in a deterministic order
+  # Amended 2026-11-04 (PO ruling, Ryne): the reveal is ALL IN ONE TURN. Re-anchored without loosening: exactly ONE reveal beat, it shows the WHOLE electorate's
+  # ballots (the old batched-rounds / mid-reveal partial states no longer exist), the seeded order and anonymity are unchanged, and the evictee still appears
+  # only on the result beat.
+  Scenario: Votes are revealed in ONE round in a deterministic order
     Given a started game at an eviction with a decided vote
     When the eviction is advanced through the seam
-    Then the eviction votes are revealed monotonically in a few batched rounds
+    Then the eviction votes are revealed in ONE round
     And the reveal order is the same for the same seed
-    And the running tally shows only the votes revealed so far
+    And the surface shows no ballot before the reveal and every ballot, naming only nominees, after it
 
-  Scenario: The evictee is not knowable before the last vote
-    Given an eviction mid-reveal
-    When the eviction surface is read mid-reveal
-    Then it shows no pre-reveal tally and no unread vote
-    And it does not name the evictee until the final vote lands
+  Scenario: The evictee is not knowable before the result beat
+    Given an eviction before the result has landed
+    When the eviction surface is read before the result
+    Then it shows the whole anonymized ballot list and no tally
+    And it does not name the evictee until the result beat lands
     And no Vault sentinel value appears on the eviction surface
 
   # Amended 2026-06-10 (E12 + T2): eviction votes are SECRET BALLOTS, as on the real show — the
@@ -53,7 +56,7 @@ Feature: Eviction night live
 
   Scenario: The staging runs through the decision seam and survives a restart
     Given an eviction staged through the advance seam
-    When the engine restarts mid-reveal
+    When the engine restarts between the reveal and the result
     Then the eviction resumes from where it left off
 
   # Amended 2026-06-10 (E34): the engine never authors the PLAYER's goodbye message. A surviving

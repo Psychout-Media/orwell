@@ -28,6 +28,7 @@ export type BeatAnnouncementKind =
   | "veto-winner"
   | "veto-decision"
   | "replacement-nominee"
+  | "secret-veto"
   | "eviction-ballot"
   | "eviction-result"
   | "comp-round-result";
@@ -122,6 +123,19 @@ export function buildBeatAnnouncements(ev: BeatEvent, s: LiveSeasonState): BeatA
       }
       return out;
     }
+    case "twist-reveal": {
+      // P5d — ONLY a secret veto PLAYED this week is announced (the holder's reveal is a public, witnessed ceremony fact, like the Power of Veto): who came off the block,
+      // then the HOH's replacement nominee. `playSecretVeto` stamps `firedTwists` before it commits, and its participants are [holder, hoh, replacement, staying] — the staying
+      // nominee is deliberately NOT named here (they were already announced at the nominations). Every other twist-reveal (double eviction…) stays silent: out of scope.
+      const fired = s.firedTwists?.[s.firedTwists.length - 1];
+      if (!fired || fired.kind !== "secret-veto" || fired.beat !== week) return [];
+      const [holder, hoh, replacement] = ev.participants;
+      if (!holder || !hoh || !replacement) return [];
+      return [
+        { kind: "secret-veto", week, subjects: [holder] },
+        { kind: "replacement-nominee", week, subjects: [replacement], detail: { by: hoh } },
+      ];
+    }
     case "eviction-reveal": {
       // E12: `ev.participants` IS the anonymized ballot sequence already — the nominee each ballot
       // names, in reveal order, never the voter (`batchedRevealContent` builds the matching prose from
@@ -152,10 +166,10 @@ export function buildBeatAnnouncements(ev: BeatEvent, s: LiveSeasonState): BeatA
       return [{ kind: "eviction-result", week, subjects: [evictee], detail: { by: hoh } }];
     }
     default:
-      // Every other beat (comp-elimination, day-break, veto-draw, twist-reveal, battle-back,
+      // Every other beat (comp-elimination, day-break, veto-draw, battle-back,
       // eviction-goodbye, exit-interview, finale, self-eviction, complete…) announces nothing here —
       // either it carries no closed-set ceremony FACT (day-break, veto-draw, goodbyes, exit-interview)
-      // or it is explicitly scoped OUT of this pass (finale/twist/battle-back — a follow-up).
+      // or it is explicitly scoped OUT of this pass (finale/battle-back/double-eviction — a follow-up; a played secret veto is announced, P5d).
       return [];
   }
 }
@@ -194,6 +208,8 @@ export function announcementHeadline(a: BeatAnnouncement, nameOf: NameResolver):
       const namer = by ? nameOf(by) : "The Head of Household";
       return `${namer} names ${nameOf(a.subjects[0]!)} as the replacement nominee.`;
     }
+    case "secret-veto":
+      return `${nameOf(a.subjects[0]!)} plays a secret veto and comes off the block.`;
     case "comp-round-result": {
       const names = a.subjects.map((id) => nameOf(id));
       const list = names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;

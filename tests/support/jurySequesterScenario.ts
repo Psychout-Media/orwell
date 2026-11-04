@@ -26,6 +26,7 @@ function answer(p: Pending): Record<string, unknown> {
     case "comp-round": return { kind: "comp-round", intent: "compete" };
     case "replacement": return { kind: "replacement", replacement: first };
     case "goodbye-message": return { kind: "goodbye-message", vote: "respectful" };
+    case "secret-veto": return { kind: "secret-veto", use: false }; // hold it (the one-turn reveal moved the seed trajectory onto this pending)
     default: return { kind: p.kind, vote: first };
   }
 }

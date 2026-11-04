@@ -37,6 +37,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.middleware import (
     DEFAULT_LOCAL_TLS_NAMES,
+    control_char_fields,
     local_tls_names_from_env,
     require_admin,
     sanitize_tls_names,
@@ -168,6 +169,16 @@ def setup_admin_tls_routes() -> APIRouter:
         raw_local = body.get("localNames")
         raw_domains = body.get("domains")
         provided_any = bool(raw_local) or bool(raw_domains)
+
+        # Every value below ends up in a side-file a ROOT script reads (names + provider become flags
+        # for orwell-https.sh; the token becomes an env value). Reject control characters outright —
+        # 400 naming the fields, nothing written — rather than silently trimming them.
+        bad = control_char_fields(localNames=raw_local, domains=raw_domains,
+                                  dnsProvider=body.get("dnsProvider"), dnsApiToken=body.get("dnsApiToken"))
+        if bad:
+            raise HTTPException(
+                status_code=400,
+                detail="Control characters (newlines, tabs, NUL, …) are not allowed in: " + ", ".join(bad))
 
         local_names = sanitize_tls_names(raw_local)
         domains = sanitize_tls_names(raw_domains)

@@ -28,6 +28,8 @@ export interface LiveDay {
   publicEvents: number;
   /** Public ceremony broadcasts recorded that day (excluding the day's own ambient house event). */
   ceremonyEvents: number;
+  /** The day's own ambient "Week N, day D:" marker events (houseEvents.ts) — recorded and public, but NOT a meaningful event (AMEND 0008). */
+  markerEvents: number;
 }
 
 export class BbWorld extends World {
@@ -452,6 +454,7 @@ export class BbWorld extends World {
   enSentinel?: string;
   /** T2: the staged eviction's electorate size, read from the engine's own state. */
   enElectorate?: number;
+  enPreReveal?: number;
   // --- exit interviews (0130) scratch state (exit_interview.steps.ts) ---
   xiSession?: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
   xiRetro?: import("../../src/ports/GameSession").RetrospectiveView | null;
@@ -502,6 +505,15 @@ export class BbWorld extends World {
   hpOrch?: import("../../src/composition/orchestrator").Orchestrator;
   hpBefore?: { week: number; phase: string; kind: string };
   hpEventsBefore?: number;
+  hpClockTouched?: boolean;
+  hpAsleep?: Eid[];
+  hpAwake?: Eid[];
+  hpNamed?: Eid;
+  hpInRoom?: Eid;
+  hpNextDoor?: Eid;
+  hpUpInRoom?: Eid;
+  hpUpNextDoor?: Eid;
+  hpWitnessSets?: string[][];
 
   // House map, privacy & eyeshot (0077) scratch state.
   pmRegistry?: import("../../src/composition/registry").GameSessionRegistry;

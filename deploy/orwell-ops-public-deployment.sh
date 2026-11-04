@@ -55,9 +55,38 @@ done
 type ops_progress_init >/dev/null 2>&1 || { ops_progress_init() { :; }; ops_progress_step() { :; }; ops_progress_done() { :; }; ops_progress_fail() { :; }; }
 export ORWELL_OPS_DIR="${OPS_DIR}"
 
+# SYMLINKS / RACES: this script runs as ROOT but reads, shreds, removes and rewrites files under data/ and
+# data/ops/, which the unprivileged service user owns — so nothing there may be followed (shred would
+# destroy a symlink's TARGET; a read would publish the target's contents; a write or chown would hit the
+# target). A "check, then use" on a path the service user can still swap is racy, so the side files are
+# CLAIMED first: renamed (a rename moves a symlink ITSELF, never its target) into a private root-owned temp
+# dir, and only then checked, read and shredded there. data/.env is edited only via mktemp + rename.
+CLAIM_DIR=""
+ORIG_CONFIG_FILE="$CONFIG_FILE"; ORIG_TOKEN_FILE="$TOKEN_FILE"
+
+# Shred the connector token the moment it has been consumed. shred -u where available; otherwise
+# overwrite-then-remove. Called from a trap-safe spot AND idempotent (no-op if already gone).
+shred_token() {
+  # Only ever the CLAIMED copy (root-private); never a path in the service-writable ops dir.
+  [[ -n "$CLAIM_DIR" && -e "$TOKEN_FILE" && ! -L "$TOKEN_FILE" ]] || return 0
+  if command -v shred >/dev/null 2>&1; then
+    shred -u "$TOKEN_FILE" 2>/dev/null || { dd if=/dev/zero of="$TOKEN_FILE" bs=1024 count=1 conv=notrunc 2>/dev/null || true; rm -f "$TOKEN_FILE"; }
+  else
+    dd if=/dev/zero of="$TOKEN_FILE" bs=1024 count=1 conv=notrunc 2>/dev/null || true
+    rm -f "$TOKEN_FILE"
+  fi
+}
+
+cleanup_side_files() {
+  # Shred the claimed token (a no-op once consumed), drop the private dir, then the originals
+  # (re-created mid-run, or never claimed) — never through a symlinked ops dir. `rm -f` of a
+  # symlinked FILE unlinks the link only, so a planted symlink is dropped, never followed.
+  shred_token
+  [[ -z "$CLAIM_DIR" ]] || rm -rf -- "$CLAIM_DIR"
+  if [[ ! -L "$OPS_DIR" ]]; then rm -f -- "$ORIG_CONFIG_FILE" "$ORIG_TOKEN_FILE" "$FLAG_FILE" 2>/dev/null || true; fi
+}
 # Always leave a terminal record + clean up the side files, however we exit. The trap stamps a
 # FAILURE if any command tripped pipefail; the success path clears it before ops_progress_done.
-cleanup_side_files() { rm -f "$CONFIG_FILE" "$TOKEN_FILE" "$FLAG_FILE" 2>/dev/null || true; }
 trap 'rc=$?; if [[ "$rc" -ne 0 ]]; then ops_progress_fail "public-deployment exited with code $rc — see ops-public-deployment.log"; fi; cleanup_side_files' EXIT
 
 # Service names follow the install: prefer orwell-*, fall back to the legacy bbai-* units.
@@ -74,12 +103,72 @@ fi
 # python3 is always present on a real install (the FE is Python). Pull the action + every env key
 # the route layer proposed. NEVER the token (that lives only in its 0600 file). A missing/garbage
 # config is a hard fail — we will not guess what the admin asked for.
-[[ -r "$CONFIG_FILE" ]] || { ops_progress_init "public-deployment" 4; ops_progress_fail "no public-deployment.json side config found"; echo "ERROR: ${CONFIG_FILE} missing" >&2; exit 1; }
+refuse() {   # stamp the failure + exit
+  ops_progress_init "public-deployment" 4; ops_progress_fail "refusing to run: $1 is a symlink"
+  echo "ERROR: $1 is a symlink — refusing to read, shred or write through it" >&2; exit 1
+}
+if [[ -L "$OPS_DIR" ]]; then refuse "$OPS_DIR"; fi
+[[ ! -L "$FLAG_FILE" ]] || refuse "$FLAG_FILE"
+[[ ! -L "$ENV_FILE" ]]  || refuse "$ENV_FILE"
+CLAIM_DIR="$(mktemp -d)"
+# Move the side files out of the service-writable ops dir into a root-private claim dir. Done through a
+# dirfd opened O_NOFOLLOW|O_DIRECTORY, so swapping the dir for a symlink after the earlier -L check cannot
+# redirect the rename; the files are renamed/copied by name relative to that fd and a symlink is moved as
+# a link (never followed). Exit 3 = the ops dir itself is a symlink.
+claim_side_files() {   # names…  (relative to $OPS_DIR)
+  python3 - "$OPS_DIR" "$CLAIM_DIR" "$@" <<'PY'
+import os, stat, sys
+ops, claim, *names = sys.argv[1:]
+try:
+    dfd = os.open(ops, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+except FileNotFoundError:
+    sys.exit(0)
+except OSError:
+    sys.exit(3)
+cfd = os.open(claim, os.O_RDONLY | os.O_DIRECTORY)
+for name in names:
+    try:
+        st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+    except FileNotFoundError:
+        continue
+    try:
+        os.rename(name, name, src_dir_fd=dfd, dst_dir_fd=cfd)
+        continue
+    except OSError:
+        pass                       # e.g. EXDEV: copy by fd instead
+    if stat.S_ISLNK(st.st_mode):
+        os.symlink(os.readlink(name, dir_fd=dfd), name, dir_fd=cfd)
+    elif stat.S_ISREG(st.st_mode):
+        src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        try:
+            data = b""
+            while True:
+                chunk = os.read(src, 65536)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            os.close(src)
+        out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=cfd)
+        try:
+            os.write(out, data)
+        finally:
+            os.close(out)
+    os.unlink(name, dir_fd=dfd)
+PY
+}
+claim_side_files "${ORIG_CONFIG_FILE##*/}" "${ORIG_TOKEN_FILE##*/}" || refuse "$OPS_DIR"
+CONFIG_FILE="${CLAIM_DIR}/${ORIG_CONFIG_FILE##*/}"; TOKEN_FILE="${CLAIM_DIR}/${ORIG_TOKEN_FILE##*/}"
+for _p in "$CONFIG_FILE" "$TOKEN_FILE"; do
+  if [[ -L "$_p" ]]; then refuse "${OPS_DIR}/${_p##*/}"; fi
+done
+
+[[ -r "$CONFIG_FILE" ]] || { ops_progress_init "public-deployment" 4; ops_progress_fail "no public-deployment.json side config found"; echo "ERROR: ${ORIG_CONFIG_FILE} missing" >&2; exit 1; }
 
 ACTION="$(python3 - "$CONFIG_FILE" <<'PY' 2>/dev/null || true
-import json, sys
+import json, os, sys
 try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
+    with os.fdopen(os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as fh:
         cfg = json.load(fh)
     print(str(cfg.get("action", "")).strip())
 except Exception:
@@ -88,19 +177,27 @@ PY
 )"
 [[ "$ACTION" == "apply" || "$ACTION" == "disconnect" ]] || { ops_progress_init "public-deployment" 4; ops_progress_fail "unknown or missing action in public-deployment.json"; echo "ERROR: action must be apply|disconnect (got '${ACTION}')" >&2; exit 1; }
 
-# Emit the env map as KEY=VALUE lines (only for action=apply). Values are config data; quoting on
-# the .env write below keeps any spaces/special chars literal.
+# Emit the env map as KEY=VALUE lines (only for action=apply). The side file is written by the
+# unprivileged web tier (or by anything running as its user), so it is NOT trusted to be what the route
+# layer validated: only the four keys the wizard owns are accepted, and a value with a control character
+# (a newline would start a new KEY=VALUE line in data/.env) is skipped and reported, never written.
 read_env_pairs() {
-  python3 - "$CONFIG_FILE" <<'PY' 2>/dev/null || true
-import json, sys
+  python3 - "$CONFIG_FILE" <<'PY' || true
+import json, os, re, sys
+ALLOWED = {"ORWELL_PUBLIC", "ALLOWED_HOSTS", "ALLOWED_ORIGINS", "SECURE_COOKIES"}
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
+    with os.fdopen(os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as fh:
         cfg = json.load(fh)
     env = cfg.get("env") or {}
     if isinstance(env, dict):
         for k, v in env.items():
-            k = str(k).strip()
-            if k and k.replace("_", "").isalnum():
+            k, v = str(k).strip(), str(v)
+            if k not in ALLOWED:
+                print(f"WARN: ignoring unexpected key '{k}' in the public-deployment config", file=sys.stderr)
+            elif CONTROL.search(v):
+                print(f"WARN: ignoring {k}: its value contains a control character", file=sys.stderr)
+            else:
                 print(f"{k}={v}")
 except Exception:
     pass
@@ -110,26 +207,40 @@ PY
 # ── .env upsert (idempotent; mirrors orwell-update.sh's --set-token rotate-in-place) ─────────────
 # Replace an existing `KEY=` line in place, else append. data/.env stays mode 600. A tmp + mv keeps
 # the file intact if something trips mid-write; every OTHER line is preserved untouched.
-upsert_env() {
-  local key="$1" value="$2"
+# env_edit KEY [VALUE]: rewrite data/.env without KEY=…, then append KEY=VALUE when VALUE is given.
+# The service user owns data/, so nothing here may follow a link it can plant: data/ is opened O_NOFOLLOW,
+# .env is READ through an O_NOFOLLOW fd, the replacement is built in an O_EXCL temp created relative to the
+# dir fd and written through that same fd (never reopened by name), then renamed over .env (a rename
+# replaces — never follows — whatever is at the name). Mode 0600.
+env_edit() {
   mkdir -p "$DATA_DIR"
-  touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-  local tmp; tmp="$(mktemp "${DATA_DIR}/.env.XXXXXX")"
-  grep -v "^${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true
-  printf '%s=%s\n' "$key" "$value" >> "$tmp"
-  chmod 600 "$tmp"
-  mv -f "$tmp" "$ENV_FILE"
+  python3 - "$DATA_DIR" "${ENV_FILE##*/}" "$@" <<'PY'
+import os, secrets, sys
+data_dir, env_name, key, *rest = sys.argv[1:]
+dfd = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    fd = os.open(env_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+    with os.fdopen(fd, "rb") as fh:
+        lines = fh.read().splitlines(keepends=True)
+except FileNotFoundError:
+    lines = []
+prefix = (key + "=").encode()
+out = [ln for ln in lines if not ln.startswith(prefix)]
+if out and not out[-1].endswith(b"\n"):
+    out[-1] += b"\n"
+if rest:
+    out.append(key.encode() + b"=" + rest[0].encode() + b"\n")
+tmp = ".env." + secrets.token_hex(6)
+tfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+try:
+    os.write(tfd, b"".join(out))
+finally:
+    os.close(tfd)
+os.rename(tmp, env_name, src_dir_fd=dfd, dst_dir_fd=dfd)
+PY
 }
-
-# Remove a key entirely from data/.env (used by disconnect; also tmp + mv, mode preserved).
-remove_env_key() {
-  local key="$1"
-  [[ -f "$ENV_FILE" ]] || return 0
-  local tmp; tmp="$(mktemp "${DATA_DIR}/.env.XXXXXX")"
-  grep -v "^${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true
-  chmod 600 "$tmp"
-  mv -f "$tmp" "$ENV_FILE"
-}
+upsert_env() { env_edit "$1" "$2"; }
+remove_env_key() { [[ -f "$ENV_FILE" || -L "$ENV_FILE" ]] || return 0; env_edit "$1"; }
 
 # ── cloudflared install (idempotent) — apt via the Cloudflare repo, .deb fallback ────────────────
 # Already present ⇒ no-op. apt path first (the Cloudflare pkg repo); if the repo can't be reached we
@@ -163,16 +274,19 @@ install_cloudflared() {
   return 1
 }
 
-# Shred the connector token the moment it has been consumed. shred -u where available; otherwise
-# overwrite-then-remove. Called from a trap-safe spot AND idempotent (no-op if already gone).
-shred_token() {
-  [[ -e "$TOKEN_FILE" ]] || return 0
-  if command -v shred >/dev/null 2>&1; then
-    shred -u "$TOKEN_FILE" 2>/dev/null || { dd if=/dev/zero of="$TOKEN_FILE" bs=1024 count=1 conv=notrunc 2>/dev/null || true; rm -f "$TOKEN_FILE"; }
-  else
-    dd if=/dev/zero of="$TOKEN_FILE" bs=1024 count=1 conv=notrunc 2>/dev/null || true
-    rm -f "$TOKEN_FILE"
-  fi
+# read_token: print the token file's contents; fails on a symlink, anything but a regular file, or a token
+# carrying a control character (O_NOFOLLOW, so it cannot be raced). Output goes only into a variable — never to the run log.
+read_token() {
+  python3 - "$TOKEN_FILE" <<'PY'
+import os, re, stat, sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+if not stat.S_ISREG(os.fstat(fd).st_mode):
+    sys.exit(1)
+token = os.read(fd, 65536).decode("utf-8", "replace").rstrip("\r\n")
+if re.search(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]", token):   # a token never contains control characters
+    sys.exit(2)
+sys.stdout.write(token)
+PY
 }
 
 # ── apply ────────────────────────────────────────────────────────────────────────────────────────
@@ -208,7 +322,9 @@ do_apply() {
     # The token is passed via the TUNNEL_TOKEN env var (never argv → never in `ps`/`/proc/<pid>/cmdline`),
     # matching the DNS-token sibling (orwell-ops-tls.sh). The command's own stdout can include the token
     # on some versions, so it is silenced. cloudflared reads TUNNEL_TOKEN when no token arg is given.
-    if TUNNEL_TOKEN="$(cat "$TOKEN_FILE")" cloudflared service install >/dev/null 2>&1; then
+    local tunnel_token
+    tunnel_token="$(read_token)" || { echo "ERROR: could not read the connector token file safely" >&2; exit 1; }
+    if TUNNEL_TOKEN="$tunnel_token" cloudflared service install >/dev/null 2>&1; then
       echo "==> cloudflared service installed"
     else
       echo "WARN: 'cloudflared service install' returned non-zero (it may already be installed)"

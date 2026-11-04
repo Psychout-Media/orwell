@@ -4980,7 +4980,26 @@ def _replays_shown(clean: str, shown: str, *, prefix_words: int = 6, min_words: 
         sw = _replay_words(sent)
         if len(sw) >= n and sw[:n] == key:
             return True
-    return False
+    return _paraphrases_shown(clean, shown)
+
+
+_REPLAY_STOP = frozenset("the a an and or but of to in on at by for with from is are was were be been it its it's that this as you your he she they his her their them i we us not no so if than then just all".split())
+
+
+def _replay_content(sentence: str) -> frozenset:
+    return frozenset(w for w in _replay_words(sentence) if w not in _REPLAY_STOP and len(w) > 2)
+
+
+def _paraphrases_shown(clean: str, shown: str, *, min_sentences: int = 3, min_overlap: float = 0.6, min_share: float = 0.7) -> bool:
+    """P5d — the PARAPHRASED replay the exact-prefix rule misses: the round re-tells the shown scene beat-for-beat in fresh wording (a different opening), so no 6-word
+    prefix matches. A later round whose substantive sentences (>= 3 content words) are mostly (>= 70%, and at least 3 of them) near-duplicates (content-word Jaccard >= 0.6)
+    of sentences already shown this turn is the same scene told twice. Deliberately narrow: new prose, or prose that merely echoes a line, never trips it. Pure."""
+    shown_sets = [c for c in (_replay_content(x) for x in _REPLAY_SENTENCE_SPLIT_RE.split(shown or "")) if len(c) >= 3]
+    round_sets = [c for c in (_replay_content(x) for x in _REPLAY_SENTENCE_SPLIT_RE.split((clean or "").strip())) if len(c) >= 3]
+    if len(round_sets) < min_sentences or not shown_sets:
+        return False
+    matched = sum(1 for r in round_sets if max(len(r & s) / len(r | s) for s in shown_sets) >= min_overlap)
+    return matched >= min_sentences and matched / len(round_sets) >= min_share
 
 
 def _blank_turn_fallback_for_board(live, *, upstream_failed: bool) -> str:
@@ -6786,6 +6805,10 @@ async def _stream_agent_loop_impl(
         _scrub_active = _is_live_game
     _turn_advance_nudges = 0
     _turn_record_nudges = 0
+    # Bound for the WHOLE turn: a turn that exits the round loop early (e.g. the model's own `ask_user`) never reaches the in-loop nudge block that assigns these, and the
+    # post-loop overseer/faithfulness hooks then died on UnboundLocalError (live E-1 soft-fails `overseer:hook-error` / `faith:gate-error`) — skipping both gates that turn.
+    _want_record = False
+    _phase = None
     _turn_deal_nudges = 0  # 0039 deal back-fill: at most one auto-makeDeal per finishing turn
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
@@ -8456,6 +8479,13 @@ async def _stream_agent_loop_impl(
                                         _silent_advance_reconciled[0] = True
                                         return False  # board moved twice — reconciled, S1b picks it up
                                 _ch3._refresh_beat_seq(owner, _adv)  # track the new beatSeq
+                                # E-1 follow-up: this FE-issued advance may have committed a beat the player must SEE (the production chyron — incl. their OWN eviction result);
+                                # nothing owed it before, so it reached the client only if the model happened to voice/advance it itself (seen in 1 of 2 live runs).
+                                # De-duplicated by announcement id, fail-open.
+                                try:
+                                    _ch3.stash_preresolved_announcements(owner, _adv)
+                                except Exception as _own_ann_err:
+                                    logger.debug(f"[orwell] silent-advance announcements not owed: {_own_ann_err}")
                                 # L-F3 (#1742): advanceGame against an OPEN PLAYER PENDING is a
                                 # documented NO-OP — "the engine returns the pending unchanged" (see
                                 # this function's docstring). A bare "no exception" success used to be

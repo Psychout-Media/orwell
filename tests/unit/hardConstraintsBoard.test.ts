@@ -47,13 +47,23 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     expect(hc(s)).toMatch(/card is OPEN|vote card is open/i);
   });
 
-  it("eviction after the player voted: the revealed-ballot count, and nothing beyond it", () => {
+  it("after the player voted (PO ruling 2026-11-04): ALL ballots in the order read, anonymized, no result yet; then the committed result", () => {
     const s = driveTo((_ss, v) => v.pending?.kind === "eviction-vote");
     s.submitDecision({ kind: "eviction-vote", vote: s.getGameState().pending!.options[0]!.id });
-    s.advanceGame();
-    const ballots = s.getGameState().eviction?.votesRevealed.length ?? 0;
-    expect(ballots).toBeGreaterThan(0);
-    expect(hc(s)).toContain(`Ballots revealed so far: ${ballots}`);
+    const ev = s.getGameState().eviction!;
+    expect(ev.votesRevealed.length).toBeGreaterThan(1); // every ballot read in the one reveal
+    expect(ev.evictee).toBeUndefined();
+    let block = hc(s);
+    expect(block).toContain(`BALLOTS (all ${ev.votesRevealed.length}, in the order read`);
+    for (const b of ev.votesRevealed) expect(block).toContain(`a vote to evict ${b.votedFor.name}`);
+    expect(block).toMatch(/result has not been committed yet/i);
+    expect(block).not.toMatch(/\bvoted\b|\bvoter\b:/i);
+    s.advanceGame(); // the result beat
+    const after = s.getGameState().eviction!;
+    expect(after.evictee).toBeDefined();
+    block = hc(s);
+    expect(block).toContain(`RESULT (engine-committed): ${after.evictee!.name} is evicted`);
+    expect(block).toContain(`BALLOTS (all ${after.votesRevealed.length}`);
   });
 
   it("the HOH competition itself: no winner is decided yet, and the player is never told they won", () => {

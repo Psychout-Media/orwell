@@ -117,6 +117,7 @@ function autoResolve(p: Pending): Record<string, unknown> {
     case "tie-break": return { kind: "tie-break", vote: p.options[0]!.id };
     case "final-eviction": return { kind: "final-eviction", vote: p.options[0]!.id };
     case "goodbye-message": return { kind: "goodbye-message", vote: p.options[0]!.id, statement: "Take care." };
+    case "secret-veto": return { kind: "secret-veto", use: false }; // hold the sealed safety (the one-turn reveal moved the trajectory onto this pending)
     case "finale-statement": return { kind: "finale-statement", statement: "I played my own game." };
     case "finale-answer": return { kind: "finale-answer", appeal: p.appeals?.[0] ?? "own-game" };
     case "juror-question": return { kind: "juror-question", statement: "What was your biggest move?" };

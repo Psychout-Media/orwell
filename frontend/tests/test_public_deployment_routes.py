@@ -275,6 +275,40 @@ def test_disconnect_writes_flag(monkeypatch, tmp_path):
     assert config["action"] == "disconnect"
 
 
+# ---------------------------------------------------------------------------------------------
+# apply — control characters never reach the root ops script
+# ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("field,body", [
+    ("domains", {"domains": ["hiorwell.com\nAUTH_ENABLED=false"]}),
+    ("domains", {"domains": ["hiorwell.com", "evil\r.example"]}),
+    ("allowedOrigins", {"domains": ["hiorwell.com"], "allowedOrigins": "https://hiorwell.com\nX=1"}),
+    ("tunnelToken", {"domains": ["hiorwell.com"], "tunnelToken": "tok\nen"}),
+    ("tunnelToken", {"domains": ["hiorwell.com"], "tunnelToken": "tok\x00en"}),
+    ("tunnelToken", {"domains": ["hiorwell.com"], "tunnelToken": "token\n"}),
+])
+def test_apply_rejects_control_characters_and_writes_nothing(monkeypatch, tmp_path, field, body):
+    # Every value in the payload is persisted for a ROOT script that writes it into data/.env; a
+    # newline would start a new KEY=VALUE line there. 400 naming the field — before any write.
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    ops = _wire_ops(monkeypatch, tmp_path, watcher_installed=True)
+    r = _client().post("/api/admin/public-deployment/apply", json=body)
+    assert r.status_code == 400
+    assert field in r.json()["detail"]
+    assert not (ops / "public-deployment-requested").exists()
+    assert not (ops / "public-deployment.json").exists()
+    assert not (ops / "cloudflared-token").exists()
+
+
+def test_apply_clean_payload_still_succeeds(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    ops = _wire_ops(monkeypatch, tmp_path, watcher_installed=True)
+    r = _client().post("/api/admin/public-deployment/apply",
+                       json={"domains": ["hiorwell.com"], "tunnelToken": "clean-token"})
+    assert r.status_code == 200 and r.json()["started"] is True
+    assert (ops / "public-deployment-requested").exists()
+
+
 def test_routes_wired_into_app_py():
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     app_py = open(os.path.join(base, "app.py"), encoding="utf-8").read()

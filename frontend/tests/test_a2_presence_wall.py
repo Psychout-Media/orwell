@@ -105,6 +105,33 @@ def test_scan_drops_the_sentence_staging_an_evicted_houseguest(monkeypatch):
     assert "An Ally rolls her eyes" in out
 
 
+def test_scan_drops_the_sentence_staging_a_turned_in_houseguest(monkeypatch):
+    # ADR 0006 / 0076 presence wall: with the day clock on, a houseguest who has turned in is OFF the
+    # floor. The engine's whereabouts no longer lists them in the room (nor nearby), and getGameState
+    # names them in `asleep` while they stay "active" on the roster. Narration that stages them as
+    # present and acting in the room is a phantom placement and must be dropped, same-turn.
+    from src import orwell_engine
+    state = _state(
+        "living-room", present=["An Ally"],
+        house=_house(active=["An Ally", "A Sleeper"]),
+    )
+    state["timeOfDay"] = "late-night"
+    state["asleep"] = [{"id": "npc:2", "name": "A Sleeper"}]
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(state))
+    transcript = (
+        "The living room had gone quiet. "
+        'A Sleeper sits on the couch beside you and whispers, "we should talk about the vote." '
+        "An Ally rolls her eyes."
+    )
+    out = _run(chat_helpers.screen_presence_wall(_USER, transcript))
+    assert "A Sleeper" not in out                 # the turned-in houseguest is not staged in the room
+    assert "we should talk about the vote" not in out
+    assert "The living room had gone quiet." in out   # ordinary prose survives
+    assert "An Ally rolls her eyes." in out           # the awake one in the room is untouched
+    # A next-turn re-ground is stashed after a drop.
+    assert chat_helpers._DESYNC_REGROUND.get(chat_helpers._desync_key(_USER))
+
+
 def test_scan_passes_clean_narration_through_verbatim(monkeypatch):
     from src import orwell_engine
     state = _state(

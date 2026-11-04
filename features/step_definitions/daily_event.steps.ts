@@ -34,7 +34,7 @@ function playLiveSeason(seed: number): LiveDay[] {
   const days: LiveDay[] = [];
   const dayOf = (week: number, day: number): LiveDay => {
     let d = days.find((x) => x.week === week && x.day === day);
-    if (!d) { d = { week, day, beats: [], publicEvents: 0, ceremonyEvents: 0 }; days.push(d); }
+    if (!d) { d = { week, day, beats: [], publicEvents: 0, ceremonyEvents: 0, markerEvents: 0 }; days.push(d); }
     return d;
   };
   // Tag every event with the in-game (week, day) the season was on AT THE MOMENT IT WAS RECORDED — one
@@ -48,6 +48,7 @@ function playLiveSeason(seed: number): LiveDay[] {
     if (st.day != null && !e.hidden) {
       const d = dayOf(st.week, st.day);
       d.publicEvents += 1;
+      if (DAILY_MARKER.test(e.content)) d.markerEvents += 1;
       if (e.id.startsWith("season:") && !DAILY_MARKER.test(e.content)) d.ceremonyEvents += 1;
     }
     record(e);
@@ -82,7 +83,9 @@ const weeksOf = (days: LiveDay[]): LiveDay[][] => {
   for (const d of days) byWeek.set(d.week, [...(byWeek.get(d.week) ?? []), d]);
   return [...byWeek.values()];
 };
-const isMeaningful = (d: LiveDay): boolean => d.publicEvents > 0;
+// AMEND 0008 (Ryne-approved 2026-11-04): the day's own ambient "Week N, day D:" marker is recorded EVERY day, so counting it made the invariant unfalsifiable. A day is meaningful only
+// if it carries a ceremony beat or a REAL public house event beyond that marker.
+const isMeaningful = (d: LiveDay): boolean => d.publicEvents - d.markerEvents > 0 || d.beats.some((b) => CEREMONY_BEAT.test(b));
 // A ceremony day carries a public ceremony broadcast (a `season:` event other than the day's own marker)
 // or a ceremony beat in a response; a "social day" carries neither.
 const isCeremonyDay = (d: LiveDay): boolean => d.ceremonyEvents > 0 || d.beats.some((b) => CEREMONY_BEAT.test(b));
@@ -106,7 +109,7 @@ Then(
 // --- A week is one HOH reign --------------------------------------------------
 
 Given("a week begins with an HOH competition", function (this: BbWorld) {
-  this.liveDays = playLiveSeason(4); // re-selected 2026-11-03 (default flip + 0133 on main; was 3): a mid-season reign opens with an HOH comp
+  this.liveDays = playLiveSeason(4); // seed 4: a mid-season reign that opens with an HOH comp (week index 1 is a full reign, not the premiere week); a re-pick is EXPECTED after balance changes — re-selected 2026-11-03 (default flip + 0133 on main; was 3): a mid-season reign opens with an HOH comp
   this.liveWeek = weeksOf(this.liveDays)[1]!; // a full mid-season reign (week 1 opens with the premiere)
   const beats = this.liveWeek.flatMap((d) => d.beats);
   const hoh = beats.indexOf("hoh-competition");
@@ -146,7 +149,7 @@ Then("every completed in-game day contains at least one meaningful event", funct
 // --- Social-day cap -----------------------------------------------------------
 
 Given("a season is simulated", function (this: BbWorld) {
-  this.liveDays = playLiveSeason(7);
+  this.liveDays = playLiveSeason(7); // seed 7: a season whose weeks include social days, so the cap + "social day still carries a real event" checks have teeth; a re-pick is EXPECTED after balance changes
 });
 
 // regex: the step text contains parentheses.
@@ -170,4 +173,19 @@ Then("any social day still carries a significant house event", function (this: B
   for (const d of this.liveDays!.filter((x) => !isCeremonyDay(x))) {
     assert.ok(isMeaningful(d), `social day w${d.week}d${d.day} must still carry a significant house event`);
   }
+});
+
+// --- Negative control (AMEND 0008) ---------------------------------------------
+
+Given("a day whose only recorded event is the ambient daily marker", function (this: BbWorld) {
+  this.liveDay = { week: 9, day: 2, beats: [], publicEvents: 1, ceremonyEvents: 0, markerEvents: 1 };
+});
+
+Then("that day does not count as meaningful", function (this: BbWorld) {
+  assert.equal(isMeaningful(this.liveDay!), false, "a day with only the ambient marker must FAIL the daily-event invariant");
+});
+
+Then("a day with the marker plus a real public event does count", function (this: BbWorld) {
+  assert.equal(isMeaningful({ week: 9, day: 3, beats: [], publicEvents: 2, ceremonyEvents: 0, markerEvents: 1 }), true);
+  assert.equal(isMeaningful({ week: 9, day: 4, beats: ["nominations"], publicEvents: 1, ceremonyEvents: 0, markerEvents: 1 }), true, "a ceremony beat alone also counts");
 });

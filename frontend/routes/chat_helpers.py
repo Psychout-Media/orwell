@@ -1958,6 +1958,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         # A-15: the ENGINE's count of anonymized ballots revealed so far (None = the engine doesn't project it ⇒ never judge).
         "evictionBallots": ((len((state.get("eviction") or {}).get("votesRevealed") or []) if isinstance(state.get("eviction"), dict) else 0)
                             if "eviction" in state else None),
+        # PO ruling 2026-11-04 (one-turn vote reveal): once the engine has handed over EVERY ballot the narrator may state the count - the per-nominee ballot
+        # counts (sorted desc) so a tally that MATCHES them is truth, not a fabrication (None/absent until a ballot has been read).
+        "ballotCounts": _ballot_counts(state.get("eviction")),
         "playerName": (str(player.get("name")).strip() if isinstance(player, dict) and isinstance(player.get("name"), str) and str(player.get("name")).strip() else None),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
@@ -2063,6 +2066,53 @@ _CLAIM_SELF_VETO_WIN_RE = re.compile(
 # engine NEVER counts (it hands anonymized ballots only), so ANY "N to M" tally — figures or words —
 # narrated before the engine's commit is a fabrication. The spelled form requires the "to" joiner so
 # ordinary prose ("one or two of them") never matches.
+_TALLY_WORDS = {w: i for i, w in enumerate(
+    ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"])}
+
+
+def _ballot_counts(eviction):
+    """Per-nominee ballot counts, sorted descending, from the engine's `eviction.votesRevealed` (None when no ballot has been read / not projected)."""
+    try:
+        if not isinstance(eviction, dict):
+            return None
+        votes = eviction.get("votesRevealed") or []
+        if not votes:
+            return None
+        tally: dict = {}
+        for v in votes:
+            who = (v.get("votedFor") or {}).get("id") if isinstance(v, dict) else None
+            if who is not None:
+                tally[who] = tally.get(who, 0) + 1
+        return sorted(tally.values(), reverse=True) or None
+    except Exception:
+        return None
+
+
+def _tally_claims_match_ballots(text: str, counts) -> bool:
+    """True iff EVERY numeric tally claim in `text` agrees with the engine's revealed ballot `counts` ("9-1" / "nine to one" must equal the two nominee counts;
+    "nine votes to evict X" must equal one of them). No counts ⇒ False (the engine has revealed nothing to count). Pure."""
+    if not counts:
+        return False
+    padded = list(counts) + [0] * (2 - len(counts))
+    def num(tok: str):
+        tok = tok.strip().lower()
+        return int(tok) if tok.isdigit() else _TALLY_WORDS.get(tok)
+    found = False
+    for m in _CLAIM_TALLY_RE.finditer(text or ""):
+        found = True
+        toks = re.findall(r"\d+|[a-z]+", m.group(0).lower())
+        nums = [n for n in (num(t) for t in toks if t.isdigit() or t in _TALLY_WORDS) if n is not None]
+        if len(nums) >= 2:
+            if sorted(nums[:2], reverse=True) != padded[:2]:
+                return False
+        elif len(nums) == 1:
+            if nums[0] not in counts:
+                return False
+        else:
+            return False
+    return found
+
+
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
 _CLAIM_TALLY_RE = re.compile(
     r"\b\d+\s*(?:votes?|-)\s*(?:to|–|-)\s*\d+\b|"
@@ -2469,6 +2519,13 @@ _BALLOT_PHRASE_RE = re.compile(
     r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
 
 
+# PO ruling 2026-11-04 (one-turn vote reveal): the narrator reads the WHOLE ballot list and may group it - "nine votes to evict X". Sanctioned only when N is
+# one of the engine's own revealed per-nominee ballot counts (`ballotCounts`); any other N stays a fabrication and trips the tally guard.
+_BALLOT_COUNT_RE = re.compile(
+    r"\b(" + r"\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen" + r")\s+(?:votes?|ballots?)\s+(?:to|for)\s+evict\s+"
+    r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
+
+
 def _strip_anonymized_ballots(text: str, live: dict) -> str:
     """Remove "a vote to evict <current nominee>" reveal phrases (eviction phase only) so they are not read as an
     eviction claim. Returns the text unchanged outside the eviction phase or when the named person is not a nominee."""
@@ -2483,7 +2540,16 @@ def _strip_anonymized_ballots(text: str, live: dict) -> str:
         # exact full name, or a SINGLE-token shorthand of a nominee ("a vote to evict Alex Jones" is NOT "Alex Smith")
         return "" if any(name == n or (len(name.split()) == 1 and name in n.split()) for n in noms) else m.group(0)
 
-    return _BALLOT_PHRASE_RE.sub(_repl, text)
+    counts = [c for c in (live.get("ballotCounts") or []) if isinstance(c, int)]
+
+    def _repl_count(m):
+        tok = m.group(1).lower()
+        n = int(tok) if tok.isdigit() else _TALLY_WORDS.get(tok)
+        name = m.group(2).strip().lower()
+        named_nominee = any(name == x or (len(name.split()) == 1 and name in x.split()) for x in noms)
+        return "" if (n in counts and named_nominee) else m.group(0)
+
+    return _BALLOT_COUNT_RE.sub(_repl_count, _BALLOT_PHRASE_RE.sub(_repl, text))
 
 
 def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict) -> Optional[str]:
@@ -2568,8 +2634,11 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      accurate flavor describing what just happened (tautologically true of any evictee) — so
     #      that half stays gated to BEFORE the commit, as before (an eviction genuinely landing this
     #      turn keeps its result-language narration unpoliced).
+    #      PO ruling 2026-11-04 (the vote reveal is ALL IN ONE TURN): once the engine has handed over every ballot (`ballotCounts`), a tally that AGREES with
+    #      those counts is simply the truth the BOARD block gave the narrator - only a tally that contradicts them is still a fabrication.
+    _tally_ok = bool(_CLAIM_TALLY_RE.search(text)) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
     if not desync and str(after.get("phase") or "").lower().startswith(_EVICTION_PHASES) and (
-          _CLAIM_TALLY_RE.search(text)
+          (_CLAIM_TALLY_RE.search(text) and not _tally_ok)
           or (_CLAIM_EVICT_RESULT_RE.search(text) and after.get("evicted") == before.get("evicted"))):
         desync = "an EVICTION VOTE TALLY / RESULT (the count is sealed until the engine commits the eviction)"
     # (4a) A2 (2026-07-03): the model tells the PLAYER they won HOH, but the engine shows the player is
@@ -5073,6 +5142,34 @@ def _player_wants_to_skip_ahead(player_msg) -> bool:
     return bool(s) and bool(_SKIP_AHEAD_RE.search(s))
 
 
+_WATCH_AGAIN_RE = re.compile(
+    r"\b(?:keep|continue|go\s+back\s+to|back\s+to|rather|instead)\s+(?:keep\s+)?watch(?:ing)?\b|\bwatch\s+(?:the\s+rest|it\s+all|instead|after\s+all)\b|"
+    r"\b(?:changed?\s+my\s+mind|actually|wait)\b[^.?!\n]{0,40}\bwatch(?:ing)?\b|\bundo\s+(?:the\s+)?skip\b", re.IGNORECASE)
+
+_SKIP_IS_FINAL_DIRECTIVE = (
+    "SKIP IS FINAL: the player already chose to SKIP AHEAD to the finale and that choice cannot be undone. They have just asked to watch the rest of the season anyway. "
+    "In the show's own voice, say plainly and kindly that skipping was final — the season is no longer theirs to watch from the outside; they are on their way to the finale night. "
+    "Do NOT offer a card, do NOT narrate the watching, and do not pretend it can be reversed."
+)
+
+
+def maybe_note_skip_is_final(user, game_state: dict, player_msg) -> bool:
+    """E-1 follow-up: a player who already SKIPPED and now asks (in chat) to keep watching must hear an in-fiction refusal, not silence or a played-along recap. The card
+    path already refuses at the engine; chat prose never binds, so this queues a one-turn re-ground that the SAME turn's framing consumes. True iff queued. Fail-soft."""
+    try:
+        if not isinstance(game_state, dict) or not game_state.get("started"):
+            return False
+        player = game_state.get("player") or {}
+        if player.get("status") != "evicted" or player.get("spectator") != "skip":
+            return False
+        if not _WATCH_AGAIN_RE.search((player_msg or "").strip()):
+            return False
+        return bool(_reground_enqueue(_desync_key(user), _SKIP_IS_FINAL_DIRECTIVE))
+    except Exception as e:
+        logger.debug("[orwell] skip-is-final note skipped for user=%s: %s", user, e)
+        return False
+
+
 async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bool:
     """Raise the spectator-choice card for a WATCHING evictee whose own message asks to skip ahead. True iff the engine raised it. Fail-soft (never blocks a turn)."""
     try:
@@ -5331,6 +5428,12 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         # already asked for the result; the narrator then voiced the whole outcome the engine had not reached and the scene breaker cut it. A READY player's
         # competition keeps resolving here until it LEAVES the competition phase, a player decision pends (the recursion's own pending check), or the hop cap
         # is hit. Comps only: the eviction reveal (E12 staged ballots) and the ceremonies keep one beat per turn.
+        # PO ruling (Ryne, 2026-11-04): the eviction-night vote reveal is ALL IN ONE TURN. The engine now reads EVERY ballot in one `eviction-reveal` beat; the
+        # RESULT is the very next beat, and it is walked in this SAME pass (no readiness needed — the ceremony has started), so the narration voices all the
+        # ballots AND the committed evictee instead of a half-revealed night. Only reveal -> result is collapsed: goodbyes / exit interview stay one per turn.
+        if (_beat_kind == "eviction-reveal" and phase == "eviction" and _comp_hops < _COMP_RUN_HOPS):
+            return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
         if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig):
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
                                                    _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
@@ -5519,6 +5622,7 @@ async def apply_game_framing(
         # own message lets a "let's move on" cut the runway short.
         if await maybe_raise_spectator_choice(user, game_state, player_msg):
             game_state = (await orwell_engine.get_game_state(user=user)) or game_state  # the open card is now part of the board this turn is framed on
+        maybe_note_skip_is_final(user, game_state, player_msg)
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         # P2: a session this process has never framed is a FRESH CONTEXT — request the

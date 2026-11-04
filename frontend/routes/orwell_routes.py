@@ -300,6 +300,9 @@ async def _post_decision_tail(
     Returns the (possibly modified) result dict.
     """
     from src import orwell_engine
+    # P5 (post-session analyzer): one greppable line per submitted decision card (HTTP and WS share this tail), so card timings - the gap between the
+    # narration that opened the card and the player's confirm - are measurable from the logs alone. No payload content (a goodbye message is the player's words).
+    logger.info("[orwell] decision submitted kind=%s user=%s", kind, user)
     # F14 (#1013): the player's goodbye-message resolves the LAST player-owned gate of the
     # eviction sub-loop, but submitDecision returns only the goodbye BEAT — the engine still
     # owes goodbye → eviction-result → rollWeek, and ONLY advanceGame delivers it.
