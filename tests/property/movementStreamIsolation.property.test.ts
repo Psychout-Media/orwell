@@ -146,11 +146,13 @@ describe("L21/L24 — movement-RNG isolation: the competition/vote stream is una
   it(
     "extreme personality movement weighting leaves every public competition/vote outcome byte-identical",
     async () => {
-      // 2026-11-04: seeds re-picked [1,2,3] -> [2,3,4]. The one-turn eviction reveal (fewer committed turns => fewer off-screen ticks) shifted the
-      // trajectories and seed 1 now diverges in a NOMINATION choice between the two weightings. This is a PRE-EXISTING rare co-presence coupling, not
-      // introduced here: on unmodified main seed 22 diverges the same way (1 in 16 seeds checked; 7/8 of seeds 1-8 pass post-change). Tracked as a
-      // finding for the coordinator (which co-presence-reading layer nominations depend on) - the isolation claim itself is unchanged.
-      const seeds = [2, 3, 4];
+      // AMEND 0078 #2 (Ryne: location SHOULD matter). What this test claims is NARROW and true: weighted movement rides its OWN dedicated stream, so it never perturbs the SEEDED
+      // competition/vote random stream. It does NOT claim location never changes outcomes - co-presence legitimately shapes who talks to whom, and therefore (through recorded events and
+      // the co-presence-reading layers) outcomes. History: on 2026-11-04 seed 1 (post one-turn-reveal) and seed 22 (on the then-main) diverged in a NOMINATION choice and the seeds were
+      // re-picked [1,2,3] -> [2,3,4] rather than explained. Re-measured on main @ 2026-11-04 (after the 5-min pace / hang-out work): seeds 1 and 22 now BOTH match line-for-line
+      // (350/329-beat seasons identical under the extreme weighting), so the divergence was a transient co-presence coupling of the older trajectory, not a shared-stream leak; the seeds
+      // are restored and 22 is kept as a standing regression. If a seed diverges again, bisect the co-presence-reading layers (deal depth/triggers are already pinned off) before touching the seed list.
+      const seeds = [1, 2, 3, 4, 22];
       for (const seed of seeds) {
         // The default weighting (what ships) …
         const baseline = await seasonBeatLog(seed);
