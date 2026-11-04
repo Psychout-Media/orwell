@@ -77,5 +77,5 @@ def test_staged_entrance_advances_are_not_capped_as_silent_decoupling():
     the rest. A premiere entrance/toast advance is voiced by the NEXT turn's `justArrived` framing by design, so the streak must not count it (source pin on the guard)."""
     import pathlib
     src = pathlib.Path(__file__).resolve().parents[1].joinpath("src", "agent_loop.py").read_text()
-    assert "_a9_staged = bool(_ch_a9.premiere_entrance_active(owner))" in src
-    assert 'if _why and _why.startswith("stall L") and not _a9_staged:' in src
+    assert "def _premiere_staged(owner)" in src and "_ch_a9.premiere_entrance_active(owner)" in src
+    assert "if not _premiere_staged(owner):" in src
