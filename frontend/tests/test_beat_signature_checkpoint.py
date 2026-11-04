@@ -71,6 +71,7 @@ def test_beat_signature_shape_from_sample_dicts():
         "vetoFieldNames": [],
         "playerId": None,              # F-3 — the player id (no player in this sample)
         "evictionBallots": None,       # A-15 — the engine projects no `eviction` key in this sample ⇒ unknown (never judged)
+        "evictionEvictee": None,       # P3 — tonight's committed evictee (none in this sample)
         "ballotCounts": None,          # PO 2026-11-04 — per-nominee ballot counts once ballots are read (none in this sample)
         "playerName": None,            # A-15 — the player's display name (role-claim guard roster; none in this sample)
         "beatSeq": None,               # A-9 — the engine beat counter (absent in this sample)
