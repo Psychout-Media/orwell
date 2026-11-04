@@ -45,7 +45,7 @@ def test_service_unit_is_oneshot_root_with_flag_removal_flock_and_log_append():
     assert not any(ln.startswith("RemainAfterExit=") for ln in lines)
     assert "root" in unit.lower()
     # the flag is removed BEFORE the run (no PathExists= retrigger loop)
-    flag_rm = f"ExecStartPre=/bin/rm -f /opt/orwell/data/ops/{FLAG}"
+    flag_rm = f"ExecStartPre=/bin/rm -rf --one-file-system -- /opt/orwell/data/ops/{FLAG}"
     assert flag_rm in unit
     assert unit.index(flag_rm) < unit.index("ExecStart=")
     # overlapping triggers no-op on a flock

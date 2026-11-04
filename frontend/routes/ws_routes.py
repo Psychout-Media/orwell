@@ -40,6 +40,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from typing import Any, AsyncGenerator, Callable, Optional
 
 from fastapi import APIRouter, WebSocket
@@ -299,6 +300,19 @@ def _is_live(session_id: str) -> bool:
         return True
 
 
+def _localhost_bypass_env() -> bool:
+    return os.getenv("LOCALHOST_BYPASS", "false").strip().lower() == "true"
+
+
+def _ws_localhost_bypass(websocket: WebSocket) -> bool:
+    """The documented dev bypass: LOCALHOST_BYPASS=true AND a DIRECT loopback peer (no proxy headers) —
+    the same rule the HTTP AuthMiddleware applies, so a tunnelled/proxied socket never qualifies."""
+    if not _localhost_bypass_env():
+        return False
+    from core.middleware import is_trusted_loopback
+    return is_trusted_loopback(websocket)  # a WebSocket has the .client / .headers the check reads
+
+
 def _ws_owns(user: Optional[str], session_id: str) -> bool:
     """Owner guard for a WebSocket (cross-user isolation 0021). Mirrors ``_verify_session_owner``:
     a persisted row's ``owner`` must match; an id with no DB row is an in-memory ghost / fresh per-tab
@@ -308,6 +322,11 @@ def _ws_owns(user: Optional[str], session_id: str) -> bool:
         return True
     if not session_id:
         return False
+    if not user:
+        # Auth ON and no resolved user: ``ws_session`` only lets such a socket in under the documented
+        # LOCALHOST_BYPASS dev mode (trusted direct loopback, single tenant — like auth-off). Anything
+        # else owns nothing.
+        return _localhost_bypass_env()
     try:
         from core.database import SessionLocal, Session as DBSession
         db = SessionLocal()
@@ -319,7 +338,16 @@ def _ws_owns(user: Optional[str], session_id: str) -> bool:
         logger.debug("[ws] owner lookup failed for %s", session_id, exc_info=True)
         return True  # fail-soft: a transient DB error must not lock a legitimate owner out
     if row is None:
-        return True  # no persisted row — a ghost/pre-game id the user owns by construction
+        # No persisted row: an in-memory ghost session is owned by whoever created it. Mirror
+        # ``session_routes._verify_session_owner``: a ghost that belongs to ANOTHER user is not ours;
+        # an id nobody holds is a fresh per-tab id the resolving user just created (ownable).
+        try:
+            from core.models import _session_manager as _sm
+            ghost = getattr(_sm, "sessions", {}).get(session_id) if _sm is not None else None
+        except Exception:
+            logger.debug("[ws] ghost owner lookup failed for %s", session_id, exc_info=True)
+            return True
+        return ghost is None or getattr(ghost, "owner", None) == user
     return row.owner == user
 
 
@@ -404,8 +432,16 @@ async def ws_session(websocket: WebSocket) -> None:
             with contextlib.suppress(Exception):
                 await websocket.close(code=1008)  # 1008 = policy violation
             return
-        await websocket.accept()
+        # AUTH GATE — the HTTP AuthMiddleware does not wrap a WebSocket, so with auth ON a socket that
+        # resolves no user would otherwise be accepted into the ``None`` (shared/default) bucket. Refuse
+        # it at the handshake with the same policy-violation close as the origin guard (no accept, no
+        # frame). ``AUTH_ENABLED=false`` is unchanged: single-tenant, ``user`` stays None by design.
         user = _ws_current_user(websocket)
+        if user is None and not _auth_disabled() and not _ws_localhost_bypass(websocket):
+            with contextlib.suppress(Exception):
+                await websocket.close(code=1008)
+            return
+        await websocket.accept()
 
         # One send lock: background channel tasks + the receive loop + the heartbeat all serialize
         # their writes through it (Starlette's send is not concurrency-safe across tasks).

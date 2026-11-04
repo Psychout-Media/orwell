@@ -14,8 +14,8 @@ boot), mirroring test_admin_update / test_trusted_host:
   * disconnect writes its config + flag.
 
 The deploy data dir is resolved through the SAME DATA_DIR env the module's _data_dir reads, pointed
-at a tmp dir; the watcher-installed probe reads ORWELL_UPDATE_WATCHER_UNIT (shared with the Update
-lane). Name-agnostic: "admin"/"user" are ACCOUNT ROLES, never houseguests.
+at a tmp dir; the watcher probe reads the lane's OWN unit override (ORWELL_PUBLIC_DEPLOYMENT_WATCHER_UNIT)
+(the Update lane unit is NOT consulted). Name-agnostic: "admin"/"user" are ACCOUNT ROLES, never houseguests.
 """
 import importlib
 import json
@@ -49,9 +49,8 @@ def _wire_ops(monkeypatch, tmp_path, *, watcher_installed: bool):
         # ensure it does NOT exist
         if unit.exists():
             unit.unlink()
-    # admin_update_routes._watcher_installed reads ORWELL_UPDATE_WATCHER_UNIT (the helper the new
-    # module reuses); point it at our unit file.
-    monkeypatch.setenv("ORWELL_UPDATE_WATCHER_UNIT", str(unit))
+    # The lane probes its OWN path unit (not the Update lane's); point it at our unit file.
+    monkeypatch.setenv("ORWELL_PUBLIC_DEPLOYMENT_WATCHER_UNIT", str(unit))
     return tmp_path / "ops"
 
 

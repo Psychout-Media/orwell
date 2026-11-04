@@ -87,7 +87,7 @@ describe("0074 — the ops trigger mirrors the public-deployment seam", () => {
   });
 
   it("the service removes the flag FIRST (no PathExists retrigger) and appends to the live log", () => {
-    expect(svcUnit).toContain("ExecStartPre=/bin/rm -f /opt/orwell/data/ops/tls-requested");
+    expect(svcUnit).toContain("ExecStartPre=/bin/rm -rf --one-file-system -- /opt/orwell/data/ops/tls-requested");
     expect(svcUnit).toContain("append:/opt/orwell/data/ops-tls.log");
     expect(svcUnit.indexOf("ExecStartPre=/bin/rm")).toBeLessThan(svcUnit.indexOf("ExecStart=/bin/bash"));
   });

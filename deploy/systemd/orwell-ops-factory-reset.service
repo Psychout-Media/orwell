@@ -28,7 +28,9 @@ StandardError=append:/opt/orwell/data/ops-factory-reset.log
 # Remove the flag BEFORE the run, never after: with PathExists= a flag that survived a run
 # would re-trigger this service the moment it deactivates — an infinite loop. The flag is
 # dropped unread (the existence-only contract; see the path unit).
-ExecStartPre=/bin/rm -f /opt/orwell/data/ops/factory-reset-requested
+# `rm -rf`, not `rm -f`: a DIRECTORY planted at the flag path makes `rm -f` fail, failing this ExecStartPre on
+# every start and wedging the watcher. rm never follows symlinks; --one-file-system never crosses a mount.
+ExecStartPre=/bin/rm -rf --one-file-system -- /opt/orwell/data/ops/factory-reset-requested
 # flock: overlapping triggers NO-OP (exit 0) instead of stacking a second reset. $$ is
 # systemd's escape for a literal $. The reset runs NON-INTERACTIVELY (--yes) — the type-"RESET"
 # confirmation already happened in the browser before the flag was ever written. Only this one
