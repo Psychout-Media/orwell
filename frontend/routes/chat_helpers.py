@@ -556,6 +556,8 @@ def clear_social_runway(user) -> None:
     _RUNWAY_SIG.pop(key, None)
     _RUNWAY_LAST_DONE.pop(key, None)  # #1127: forget the lingered-through marker on reset/end
     _DAY_BREAK_STEER.pop(key, None)   # P1-2: a reset also drops a pending day-break steer
+    _SCHEDULE_STEER.pop(key, None)
+    _PRODUCTION_HOLD.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -580,6 +582,24 @@ def clear_social_runway(user) -> None:
 # `ORWELL_TIME_PER_CONVERSATION=0`, so the night-gate never fires under record/replay and this
 # framing never renders there.
 _DAY_BREAK_STEER: dict = {}
+
+# PO direction (Ryne, 2026-11-04): PRODUCTION owns the schedule - the player cannot fire or schedule a competition/ceremony early. When the engine's `daySchedule.due`
+# is False the pre-resolve fires NOTHING (whatever the player typed, whatever the runway says) and this one-turn steer gives the narration an in-fiction cue
+# ("production hasn't called it yet"). Same stash/pop shape as `_DAY_BREAK_STEER`; cleared by `clear_social_runway`.
+_SCHEDULE_STEER: dict = {}
+# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine's default pace brings a
+# milestone due in ~20 ordinary messages (B tunes it to ~8-12); this cap sits well above that so only a genuinely stuck clock ever hits it.
+_PRODUCTION_HOLD_CAP = 30
+_PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
+
+
+def production_is_holding(user) -> bool:
+    """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
+    clock (or the logged safety cap) may bring a production event in early."""
+    try:
+        return _runway_key(user) in _PRODUCTION_HOLD
+    except Exception:
+        return False
 
 # F-2/F-4 (A-11 playtest, #1781): a beat the FE PRE-RESOLVED (engine-committed during framing) must ALWAYS reach
 # the player — the model may return blank or skip it (an HOH crowned / noms set that chat never voiced, then
@@ -4964,6 +4984,15 @@ def _runway_sig(game_state: dict) -> str:
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
+def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
+    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only."""
+    label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
+    when = f"this {scheduled_phase}" if scheduled_phase else "later today"
+    return (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {when} and it is not that time yet. The player cannot start, skip to or move it. "
+            f"Keep this scene social. If they ask for it, let a houseguest or the house itself say production hasn't called it yet (it is {when}); "
+            "do NOT narrate the event starting, a result, or anyone being called to it.")
+
+
 def _hold_for_social(game_state: dict) -> dict:
     """Return the state with its moment overridden to the engine's `social` beat, so the framing
     builds the social moment prompt (lingering/scheming) instead of the not-yet-resolved ceremony.
@@ -5123,6 +5152,32 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
 
         sig = _runway_sig(game_state)
         ready = _player_signals_ready(player_msg)
+        # PRODUCTION OWNS THE SCHEDULE (PO direction 2026-11-04). With the in-game clock live the engine puts `daySchedule` on the board; the event then fires when the CLOCK
+        # reaches its hour - never earlier because the player said "ready" (#2041/#2044 readiness may only resolve an event that is already DUE), never later because a
+        # message-count runway has not run out. Not due => the turn stays social with an in-fiction cue, up to a LOGGED safety cap of held messages (a stuck clock must never
+        # hang the game; B's P2b review). Due (or released) => fall through and resolve it even mid-run-up. No `daySchedule` (clock off) => the runway logic below, unchanged.
+        # A staged eviction already under way (goodbyes, exit interview) rides the night that has started.
+        _ds = game_state.get("daySchedule") if isinstance(game_state, dict) else None
+        if isinstance(_ds, dict) and "due" in _ds and not game_state.get("eviction"):
+            _hkey = _runway_key(user)
+            _hsig, _hn = _PRODUCTION_HOLD.get(_hkey, (None, 0))
+            if _hsig != sig:
+                _hn = 0
+            if not _ds.get("due"):
+                if _hn < _PRODUCTION_HOLD_CAP:
+                    _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
+                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""))
+                    logger.info("[orwell] production holds %s for user=%s - not due yet (message %d/%d); the house stays social", phase, user, _hn + 1, _PRODUCTION_HOLD_CAP)
+                    return _hold_for_social(game_state)
+                logger.warning("[orwell] production hold cap (%d messages) reached at %s for user=%s - the clock is not bringing the event in; releasing it", _PRODUCTION_HOLD_CAP, phase, user)
+                try:
+                    from src import log_rings as _lr_hold
+                    _lr_hold.record_soft_failure("production:hold-cap-hit", RuntimeError(f"{phase} not due after {_PRODUCTION_HOLD_CAP} held messages"), corrected="event-released", user=user)
+                except Exception:
+                    pass
+            _PRODUCTION_HOLD.pop(_hkey, None)
+            ready = True            # due (or released): resolve it now - the runway/readiness holds below must not delay a scheduled event
+            _RUNWAY_LEFT[_hkey] = 0
         # #1127 hardening — key runway state via `_runway_key` so a `None` user (auth-off) still arms
         # and holds. The arm/hold/landed-arm paths below ALL key on `rkey`, never `user` directly, so
         # the post-HOH hold works in every auth posture (an auth-on present user keys exactly as today).
@@ -5657,6 +5712,12 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _db_steer
         except Exception as e:
             logger.warning("[orwell] day-break steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _sched_steer = _SCHEDULE_STEER.pop(_runway_key(user), None)
+            if _sched_steer:
+                gm_prompt = gm_prompt + "\n\n" + _sched_steer
+        except Exception as e:
+            logger.warning("[orwell] schedule steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _aired = _aired_fact_steer(user)
             if _aired:
