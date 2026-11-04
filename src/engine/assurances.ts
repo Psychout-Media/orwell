@@ -29,6 +29,8 @@ export const ASSURANCE = {
   keepWeightMax: 0.9,
   /** The trust the assured loses in the assurer when it is broken - smaller than a deal break. */
   brokenTrustDrop: 0.12,
+  /** The memory severity the assured keeps of a broken assurance (a smaller grudge than a broken deal's). */
+  brokenMemorySeverity: 0.3,
 } as const;
 
 const clamp = (x: number, lo: number, hi: number): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
