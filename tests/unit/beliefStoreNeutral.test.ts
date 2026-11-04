@@ -18,6 +18,7 @@ let seq = 0;
 
 function playSeason(on: boolean, deduction = true): { s: GameSessionAdapter; live: LiveSeasonState } {
   vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
+  vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0"); // isolate the store from the (default-ON since P4f) nomination/vote term
   const s = new GameSessionRegistry().sandboxFor(`bs${seq++}`).session;
   s.setVoteDeductionEnabled(deduction);
   s.createCharacter({ playerName: "P", seed: SEED });
