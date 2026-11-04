@@ -91,6 +91,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_MEMORY_WRITERS', key: 'npcMemoryWriters', parser: 'defaultOn' },
   // B3 / #2017: the HOH nominates from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'strict' },
+  // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_VOTE_COUNT', key: 'voteCount', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
