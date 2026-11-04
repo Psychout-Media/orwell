@@ -18,6 +18,8 @@
 > `recordToSoul`/`recall` were unwired from the live loop and a blindside changed nothing.
 > **Executable spec:** [`0041-character-evolution-and-arc.feature`](./0041-character-evolution-and-arc.feature)
 
+> **Known limit (AMEND 0041/0124 #5, 2026-11-04):** the arc notes `recordToSoul` appends to `soul.memory` have **no behavioural reader** today - only the numeric mood/volatility moves behaviour (competition modifier, nomination bend). The notes only ground an NPC's voice via `recall`. This stands until the unified memory/emotion design (#2017 family, `design/npc-emotion-visibility-brief.md`) lands; do not describe the notes as driving decisions.
+
 ## 1. Summary
 
 A season should *change* a houseguest. Today the relationship layer moves, but the houseguest's own
