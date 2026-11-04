@@ -57,6 +57,10 @@ export interface ClockConstants {
   perConversationHours: number;
 }
 
+/** P4d (ASSUMED, pending Ryne): the earliest a player can wake, and the earliest bedtime that wakes early (a daytime turn-in never wakes before lying down). */
+export const EARLY_WAKE_FLOOR_HOUR = 5;
+export const EARLY_WAKE_MIN_BED_HOUR = 20;
+
 export const CLOCK: ClockConstants = {
   wakeHour: 8,
   dayLengthHours: 24,

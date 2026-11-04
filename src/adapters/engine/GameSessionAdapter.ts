@@ -4483,7 +4483,7 @@ export class GameSessionAdapter implements GameSession {
    *  tonight's fights don't follow anyone into tomorrow. Called right after the clock advances / the player
    *  turns in; a no-op mid-day (still the same night) and harmless at game start (empty). */
   private rollNightConflicts(): void {
-    if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.nightConflicts.clear();
+    if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === (this.live?.wakeHour ?? WAKE_HOUR)) this.nightConflicts.clear();
   }
 
   /**
@@ -9195,7 +9195,7 @@ export class GameSessionAdapter implements GameSession {
         // did NOT reach via retirement.
         // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
         // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
+        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
         this.rollNightConflicts();
       }
       this.commit(ev);
