@@ -215,7 +215,7 @@ import { SeededRandom } from "../random/SeededRandom";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
-import { recordRumorClaim, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -998,6 +998,12 @@ export class GameSessionAdapter implements GameSession {
    * with holder===subject, dropped). DEFAULT-ON since 2026-11-04 with the standalone read (3-arm PO bands held); `=0` / `ORWELL_FLAGS_OFF=1` opts out. Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
+  /**
+   * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
+   * and from betrayal rumors they heard), instead of re-reading the edge. OFF unless exactly `ORWELL_NPC_BELIEF_NOMS=1` AND `ORWELL_NPC_BELIEFS=1`; never-flipped. OFF ⇒ no ctx provider,
+   * no claim written ⇒ byte-identical. The writer draws only from a DEDICATED seeded rng (never the shared stream).
+   */
+  private npcBeliefNomsEnabled = process.env.ORWELL_NPC_BELIEF_NOMS === "1";
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -7100,6 +7106,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
@@ -7247,6 +7254,8 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
+  setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
+  setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
   /** Whether the deal-depth layer is live (0121). */
   dealDepthEnabledNow(): boolean { return this.dealDepthEnabled; }
@@ -10595,6 +10604,37 @@ export class GameSessionAdapter implements GameSession {
     if (!this.npcMemoryEnabled || holder === PLAYER) return;
     if (this.rel.edge(holder, subject).trust < NPC_MEMORY.trustedAbove) return;
     this.remember(holder, subject, kind, 0.5);
+  }
+
+  /**
+   * B3 / #2017 — derive (once per holder per week, idempotent by claim id) the `targets-me` beliefs this HOH holds, then return the bounded nomination tilt against `subject`.
+   * Sources, all from what the HOH legitimately KNOWS (symmetric perspective):
+   *   (1) an ACTIVE evict-campaign aimed at the HOH that the HOH is aware of (`knownTo`) ⇒ they believe its owner targets them (confidence 0.8). With a small DEDICATED-seeded chance the
+   *       HOH MISATTRIBUTES it to another houseguest (a wrong belief, by construction — the honest-mistake the PO asked for);
+   *   (2) a `betrayal` rumor they heard about someone ⇒ "they may turn on me" (confidence = the rumor's confidence x 0.5; usually not about the HOH at all).
+   * Never reads the relationship edge; never draws the shared rng; the PLAYER is never a holder here.
+   */
+  private beliefNomTiltFor(subject: EntityId, holder: EntityId): number {
+    if (!this.live || holder === PLAYER || !this.npcBeliefsEnabled) return 0;
+    const live = this.live;
+    const store = (live.beliefs ??= {});
+    const week = live.week;
+    const living = this.livingIds().filter((id) => id !== holder);
+    for (const c of this.campaigns) {
+      if (c.status !== "active" || c.goal !== "evict" || c.target !== holder || !c.knownTo.includes(holder)) continue;
+      const owner = c.owners[0];
+      if (!owner || owner === holder) continue;
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:targets-me:${week}:${holder}:${c.id}`));
+      const wrong = rng.next() < 0.2 && living.length > 2;
+      const pool = living.filter((id) => id !== owner);
+      const claimed = wrong ? pool[Math.floor(rng.next() * pool.length)]! : owner;
+      recordClaim(store, { id: `${holder}|targets-me|${claimed}|c:${c.id}|${week}`, holder, kind: "targets-me", subject: claimed, object: holder, value: true, origin: "told", confidence: 0.8, week });
+    }
+    for (const r of claimsOf(store, holder)) {
+      if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
+      recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
+    }
+    return targetsMeTilt(store, holder, subject, week);
   }
 
   /** The residual edge carry for the memory floor: what the relationship edge still holds, so nothing is counted twice. */

@@ -138,3 +138,26 @@ export function recordRumorClaim(
     confidence: Math.max(0, Math.min(1, r.confidence)), week, impact: r.delta,
   });
 }
+
+/** B3 — weeks for a decision-relevant claim's weight to halve (a stale read of who is targeting me fades). */
+export const TARGETS_ME_HALF_LIFE_WEEKS = 4;
+/** B3 — the MAX nomination tilt a pile of `targets-me` claims can add (bounded, below a fresh betrayal's edge move). */
+export const TARGETS_ME_TILT_MAX = 0.18;
+/** B3 — one fully-confident, fresh `targets-me` claim's tilt (diminishing when several stack, via 1-prod(1-w)). */
+export const TARGETS_ME_TILT_PER_CLAIM = 0.12;
+
+/**
+ * B3 / #2017 — the HOH's BELIEF that `subject` is targeting them, as a nomination tilt against `subject`: each live (un-refuted, believed-true) `targets-me` claim contributes
+ * `confidence x 0.5^(age/halfLife)`, stacked with diminishing returns, scaled to TARGETS_ME_TILT_MAX. Reads the CLAIMS only — never the relationship edge — so it is a belief-driven
+ * term (it can be WRONG), not a re-read of what the edge already carries. Pure: no rng, no I/O.
+ */
+export function targetsMeTilt(store: BeliefStore | undefined, holder: EntityId, subject: EntityId, week: number): number {
+  let keep = 1;
+  for (const c of claimsOf(store, holder)) {
+    if (c.kind !== "targets-me" || c.subject !== subject || c.refuted || !c.value) continue;
+    const age = Math.max(0, week - c.week);
+    const w = Math.max(0, Math.min(1, c.confidence)) * Math.pow(0.5, age / TARGETS_ME_HALF_LIFE_WEEKS);
+    keep *= 1 - Math.min(1, w * (TARGETS_ME_TILT_PER_CLAIM / TARGETS_ME_TILT_MAX));
+  }
+  return TARGETS_ME_TILT_MAX * (1 - keep);
+}
