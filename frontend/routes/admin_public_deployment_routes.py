@@ -13,11 +13,13 @@ manual ``cloudflared``:
   * POST /api/admin/public-deployment/disconnect — drop the disconnect flag (back to LAN-only).
 
 Boundaries / security:
-  * Admin-gated by the shared ``require_admin`` contract (non-admin → 403), exactly like
-    ``admin_update_routes`` / ``admin_ops_status_routes``.
+  * apply / disconnect are gated by ``core.admin_guard.guard_root_op`` (the strict root-op admin gate —
+    NOT the blanket auth-off bypass of ``require_admin`` — plus a same-origin check); the read-only
+    status route keeps ``require_admin``, like ``admin_update_routes`` / ``admin_ops_status_routes``.
   * Privilege-safe: the routes only write side files + an existence-only flag; the actual ``.env``
     upsert + ``cloudflared`` install/run + FE restart happen in the root ops script the flag triggers
-    (modeled on the Update lane). Fail-closed via ``_write_failed_status`` when no watcher is installed.
+    (modeled on the Update lane). Fail-closed via ``_write_failed_status`` when this lane's watcher is not
+    installed AND active (nothing is written then — no token, no config, no flag).
   * The connector token is WRITE-ONLY — accepted on apply, persisted transiently to
     ``data/ops/cloudflared-token`` (mode 0600), consumed + shredded by the root script, and NEVER
     echoed by any GET. Status reports installed/active, never the token.
@@ -25,7 +27,8 @@ Boundaries / security:
 
 The DATA_DIR / data/ops resolution is the SAME as ``admin_update_routes`` (the deploy data tree,
 NOT frontend/data), and the flag mechanism reuses that module's ``_trigger_via_flag`` /
-``_watcher_installed`` / ``_write_failed_status`` helpers so a missing root watcher fails loudly
+``_write_failed_status`` helpers (the watcher probe is this module's own ``_watcher_ready``, for ITS
+unit, ``orwell-ops-public-deployment.path``) so a missing or stopped root watcher fails loudly
 through the same ops-progress channel the status page polls.
 """
 

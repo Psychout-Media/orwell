@@ -203,8 +203,25 @@ def test_auth_off_refuses_a_non_loopback_peer_by_default(box, monkeypatch):
 
 def test_auth_off_allows_a_direct_loopback_peer(box, monkeypatch):
     monkeypatch.delenv(admin_guard.ROOT_OPS_NO_AUTH_ENV)
-    r = _post(_client(client=("127.0.0.1", 50000)), "factory-reset")
+    r = _post(_client(client=("127.0.0.1", 50000), base_url="http://127.0.0.1:8080"), "factory-reset")
     assert r.status_code == 200 and r.json()["started"] is True
+
+
+@pytest.mark.parametrize("host", ["attacker.example", "attacker.example:8080", "127.0.0.1.evil.example"])
+def test_auth_off_loopback_peer_with_a_non_loopback_host_header_is_refused_dns_rebinding(box, monkeypatch, host):
+    # A rebinding page: the TCP peer is loopback and Origin == Host, but the Host header names the attacker.
+    monkeypatch.delenv(admin_guard.ROOT_OPS_NO_AUTH_ENV)
+    r = _post(_client(client=("127.0.0.1", 50000)), "factory-reset",
+              headers={"Host": host, "Origin": f"http://{host}"})
+    assert r.status_code == 403
+    assert not _flag(box, "factory-reset").exists()
+
+
+@pytest.mark.parametrize("host", ["localhost", "localhost:8080", "127.0.0.1", "[::1]:8080", "app.localhost"])
+def test_loopback_host_headers_are_recognised(host):
+    class _R:
+        headers = {"host": host}
+    assert admin_guard._host_is_loopback(_R())
 
 
 def test_auth_off_loopback_behind_a_proxy_is_not_trusted(box, monkeypatch):
@@ -360,8 +377,10 @@ def test_rm_rf_removes_a_directory_planted_at_the_flag_path_without_following_sy
 def test_updater_clears_stale_destructive_flags_before_it_restarts_the_path_units():
     text = (REPO / "deploy" / "orwell-update.sh").read_text()
     guard = text.index("STALE-FLAG GUARD")
-    assert "factory-reset-requested" in text[guard:guard + 900] and "update-reset-requested" in text[guard:guard + 900]
-    assert "-mmin +2" in text[guard:guard + 900]
+    window = text[guard:guard + 1800]
+    assert "for _lane in factory-reset update-reset" in window and '"${_lane}-requested"' in window
+    assert "systemctl is-active --quiet" in window            # only pruned while that lane's service is NOT running
+    assert "-mmin +2" in window
     assert guard < text.index("systemctl enable --now orwell-ops-factory-reset.path")
     assert guard < text.index("systemctl restart orwell-ops-update-reset.path")
 
@@ -379,9 +398,16 @@ def test_stale_flag_find_removes_only_old_destructive_flags(tmp_path):
     (ops / "factory-reset-requested").mkdir()                    # a directory at the flag path, old
     os.utime(ops / "factory-reset-requested", (old_t, old_t))
     text = (REPO / "deploy" / "orwell-update.sh").read_text()
-    m = re.search(r"(find \"\$\{APP_DIR\}/data/ops\".*?\|\| true)", text, re.S)
-    cmd = m.group(1).replace('"${APP_DIR}"', str(tmp_path)).replace("${APP_DIR}", str(tmp_path)).replace("\\\n", " ")
-    assert subprocess.run(["bash", "-c", cmd]).returncode == 0
+    m = re.search(r"(  for _lane in factory-reset update-reset; do.*?\n  done)", text, re.S)
+    body = m.group(1)
+
+    def run(active):
+        # `systemctl is-active --quiet <lane service>` → exit 0 when `active`
+        script = f'systemctl() {{ return {0 if active else 1}; }}\nAPP_DIR="{tmp_path}"\n{body}\n'
+        assert subprocess.run(["bash", "-c", script]).returncode == 0
+    run(active=True)                                            # a lane service is running: nothing is pruned
+    assert (ops / "factory-reset-requested").exists() and (ops / "update-reset-requested").exists()
+    run(active=False)
     assert not (ops / "factory-reset-requested").exists() and not (ops / "update-reset-requested").exists()
     assert (ops / "update-requested").exists()                  # the non-destructive update flag is left
 
@@ -395,3 +421,24 @@ def test_origin_authority_normalises_default_ports_and_rejects_opaque_values():
     assert f("http://[::1]:7000") == ("http", "[::1]:7000")
     for bad in ("null", "", "ftp://x", "http://", "https://x:notaport"):
         assert f(bad) is None
+
+
+def test_non_ascii_confirmation_is_a_400_not_a_500(box):
+    for lane in sorted(CONFIRMED):
+        r = _post(_client(), lane, json={"confirm": "RÉSET"})
+        assert r.status_code == 400, (lane, r.status_code)
+        assert not _flag(box, lane).exists()
+
+
+@pytest.mark.parametrize("lane", sorted(CONFIRMED | {"update"}))
+def test_a_trigger_flag_write_failure_is_reported_as_such_not_as_an_inactive_watcher(box, monkeypatch, lane):
+    mod = {"factory-reset": arr, "update-reset": aurr, "update": aur}[lane]
+
+    def _fail():
+        raise OSError("read-only file system")
+    monkeypatch.setattr(mod, "_trigger_via_flag", _fail)
+    r = _post(_client(), lane)
+    body = r.json()
+    assert body["started"] is False
+    assert "could not be written" in body["error"] and "read-only file system" in body["error"]
+    assert "NOT active" not in body["error"] and "enable --now" not in body["error"]

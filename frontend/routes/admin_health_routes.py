@@ -1251,7 +1251,7 @@ async def _bundle_extras(user: str | None) -> dict:
     extras["systemInfo"] = _system_info()
     extras["featureFlags"] = _feature_flags()
     extras["logs"] = _recent_logs()
-    extras["opsStatus"] = _ops_status_files()
+    extras["opsStatus"] = await asyncio.to_thread(_ops_status_files)   # shells out to `systemctl is-active`
     extras["providerConfig"] = _provider_config()
     extras["sessions"] = _session_metadata()
     try:
@@ -2072,7 +2072,7 @@ def setup_admin_health_routes() -> APIRouter:
         require_admin(request)
         return {
             "scripts": [{"id": k, "label": v[0], "log": v[3]} for k, v in _OPS_SCRIPTS.items()],
-            "updateTrigger": {"installed": _update_trigger_ready(),
+            "updateTrigger": {"installed": await asyncio.to_thread(_update_trigger_ready),   # installed AND active
                               "log": "ops-update.log"},
         }
 
@@ -2090,7 +2090,7 @@ def setup_admin_health_routes() -> APIRouter:
         # The trigger flag must land in the DEPLOY data dir where the root-side path unit watches
         # (frontend/data is a different tree the watcher never sees — that was the silent-no-op bug).
         ops_dir = os.path.join(_ops_data_dir(), "ops")
-        if not os.path.isdir(ops_dir) or not _update_trigger_ready():
+        if not os.path.isdir(ops_dir) or not await asyncio.to_thread(_update_trigger_ready):
             from routes.admin_update_routes import _watcher_unit_path
             return {"triggered": False, "installed": False,
                     "note": inactive_reason(_watcher_unit_path(), "run the update")}
@@ -2744,7 +2744,7 @@ async function triggerUpdate() {
     const r = await fetch("/api/admin/ops/trigger-update", { method: "POST", credentials: "same-origin" });
     const d = await r.json();
     opsMsg.textContent = d.triggered ? "Update triggered — following ops-update.log (the page rides through the restart)."
-                                     : (d.note || "trigger not installed");
+                                     : (d.note || "update trigger unavailable (watcher not installed or not running)");
     if (d.triggered) setTimeout(() => watchLog(d.log), 1500);
   } catch (e) { opsMsg.textContent = "Request failed: " + e.message; }
 }
@@ -2856,8 +2856,10 @@ async function updateReset() {
       updMsg.innerHTML = '<span class="warn">Updating + resetting… returning to OOBE. The app is restarting, reconnecting…</span>';
       waitForBack();
     } else {
-      updMsg.textContent = "Could not start the update + reset" + ((d && (d.detail || d.error)) ? ": " + (d.detail || d.error) : ".");
-      updMsg.className = "bad";
+      updMsg.textContent = "";
+      const bad = document.createElement("span"); bad.className = "bad";   // a span, so the line keeps its own styling
+      bad.textContent = "Could not start the update + reset" + ((d && (d.detail || d.error)) ? ": " + (d.detail || d.error) : ".");
+      updMsg.appendChild(bad);
     }
   } catch (e) {
     // A dropped connection here can simply mean the restart already began — start reconnecting.
@@ -2890,8 +2892,10 @@ async function factoryReset() {
       updMsg.innerHTML = '<span class="warn">Resetting… returning to OOBE. The app is restarting, reconnecting…</span>';
       waitForBack();
     } else {
-      updMsg.textContent = "Could not start the reset" + ((d && (d.detail || d.error)) ? ": " + (d.detail || d.error) : ".");
-      updMsg.className = "bad";
+      updMsg.textContent = "";
+      const bad = document.createElement("span"); bad.className = "bad";   // a span, so the line keeps its own styling
+      bad.textContent = "Could not start the reset" + ((d && (d.detail || d.error)) ? ": " + (d.detail || d.error) : ".");
+      updMsg.appendChild(bad);
     }
   } catch (e) {
     // A dropped connection here can simply mean the restart already began — start reconnecting.
@@ -3091,7 +3095,7 @@ async function loadOps() {
     const t = d.updateTrigger || {};
     h += t.installed
       ? '<button type="button" class="btn" id="ops-update">Run update (root trigger)</button>'
-      : '<span class="sub">update trigger not installed — run the deploy updater once to enable</span>';
+      : '<span class="sub">update trigger unavailable — the root watcher (orwell-ops-update.path) is not installed or not running; run the deploy updater, or: systemctl enable --now orwell-ops-update.path</span>';
     opsRow.innerHTML = h;
     opsRow.querySelectorAll("[data-ops]").forEach(b => b.addEventListener("click", () => runOps(b.dataset.ops)));
     const u = document.getElementById("ops-update");

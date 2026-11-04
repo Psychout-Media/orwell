@@ -727,9 +727,15 @@ systemctl daemon-reload
 # `enable --now` / `restart` below, at a time nobody chose. An active watcher consumes a flag within
 # seconds (its ExecStartPre removes it), so a destructive flag still present after 2 minutes is stale:
 # clear it BEFORE the watchers are (re)started. `rm -rf` so a directory planted at the flag path goes too.
+# A flag is only pruned while ITS lane's service is not running: during a long Update + Reset run (this very
+# script is its child) a follow-up request queued meanwhile is legitimate, however old it is by now.
 if [[ "$APP_DIR" == "/opt/orwell" && -d "${APP_DIR}/data/ops" ]]; then
-  find "${APP_DIR}/data/ops" -maxdepth 1 \( -name factory-reset-requested -o -name update-reset-requested \) \
-    -mmin +2 -exec rm -rf --one-file-system -- {} + 2>/dev/null || true
+  for _lane in factory-reset update-reset; do
+    if ! systemctl is-active --quiet "orwell-ops-${_lane}.service" 2>/dev/null; then
+      find "${APP_DIR}/data/ops" -maxdepth 1 -name "${_lane}-requested" \
+        -mmin +2 -exec rm -rf --one-file-system -- {} + 2>/dev/null || true
+    fi
+  done
 fi
 if [[ "$OPS_UNITS_READY" -eq 1 ]]; then
   # The ops TRIGGER is the path unit (its service is started by the watcher, never enabled).

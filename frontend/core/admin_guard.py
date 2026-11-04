@@ -14,6 +14,7 @@ Kept out of ``core.middleware`` so the guards do not share an import block with 
 other middleware helpers.
 """
 
+import ipaddress
 import json
 import os
 import secrets
@@ -44,10 +45,29 @@ def _truthy(value) -> bool:
 def _has_internal_token(request: Request) -> bool:
     try:
         hdr = request.headers.get(INTERNAL_TOOL_HEADER)
-        if hdr and secrets.compare_digest(hdr, INTERNAL_TOOL_TOKEN):
+        if hdr and secrets.compare_digest(hdr.encode("utf-8"), INTERNAL_TOOL_TOKEN.encode("utf-8")):
             return True
         return getattr(request.state, "current_user", None) == "internal-tool"
     except Exception:
+        return False
+
+
+def _host_is_loopback(request: Request) -> bool:
+    """True iff the Host header names a loopback address (``localhost`` / ``127.0.0.0/8`` / ``::1``).
+
+    A DNS-rebinding page is served from an attacker hostname that is re-pointed at 127.0.0.1: the TCP
+    peer is loopback and Origin/Host match each other, yet the Host header is the ATTACKER's name. So a
+    direct-loopback peer alone is not proof the request came from a page on this machine."""
+    raw = (request.headers.get("host") or "").strip().lower()
+    if raw.startswith("["):                       # [::1]:8080
+        host = raw[1:].split("]", 1)[0]
+    else:
+        host = raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
         return False
 
 
@@ -57,7 +77,8 @@ def require_root_ops(request: Request) -> None:
     * the in-process internal-tool token → allowed (a process secret, not attacker-reachable);
     * ``AUTH_ENABLED`` on → a genuine authenticated admin session is required;
     * ``AUTH_ENABLED=false`` (no admin identity exists) → allowed ONLY for a DIRECT loopback
-      connection (no proxy/tunnel forwarding headers) — the one place auth-off is permitted to run
+      connection (no proxy/tunnel forwarding headers) whose Host header ALSO names a loopback address
+      (DNS-rebinding defence) — the one place auth-off is permitted to run
       (``assert_auth_off_requires_loopback``) — or when the operator set
       ``ORWELL_ROOT_OPS_WITHOUT_AUTH=1`` in data/.env. Anything else is refused.
     """
@@ -69,7 +90,8 @@ def require_root_ops(request: Request) -> None:
             and auth_mgr.is_admin(user):
         return
     if os.getenv("AUTH_ENABLED", "true").strip().lower() == "false":
-        if is_trusted_loopback(request) or _truthy(os.getenv(ROOT_OPS_NO_AUTH_ENV)):
+        if (is_trusted_loopback(request) and _host_is_loopback(request)) \
+                or _truthy(os.getenv(ROOT_OPS_NO_AUTH_ENV)):
             return
         raise HTTPException(
             403,
@@ -169,7 +191,8 @@ async def require_confirmation(request: Request, phrase: str = RESET_PHRASE) -> 
     """400 unless the JSON body carries ``{"confirm": <phrase>}`` (exact match after trimming)."""
     body = await _json_body(request)
     given = body.get(CONFIRM_FIELD)
-    if not isinstance(given, str) or not secrets.compare_digest(given.strip(), phrase):
+    # compare UTF-8 bytes: compare_digest raises TypeError on a non-ASCII str, which would be a 500, not a 400
+    if not isinstance(given, str) or not secrets.compare_digest(given.strip().encode("utf-8"), phrase.encode("utf-8")):
         raise HTTPException(
             400, f'Confirmation required: send {{"{CONFIRM_FIELD}": "{phrase}"}} to run this action.')
 

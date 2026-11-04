@@ -142,3 +142,28 @@ def test_ws_owns_auth_off_is_always_owned(monkeypatch):
     monkeypatch.setenv("AUTH_ENABLED", "false")
     _ghost(monkeypatch, "ghost-of-B", "B")
     assert ws_routes._ws_owns(None, "ghost-of-B") is True
+
+
+# ── LOCALHOST_BYPASS (documented dev mode): a DIRECT loopback socket keeps working with auth on ─────
+def _fake_ws(host, headers=None):
+    return types.SimpleNamespace(client=types.SimpleNamespace(host=host), headers=dict(headers or {}))
+
+
+def test_localhost_bypass_admits_a_direct_loopback_socket_only(monkeypatch):
+    monkeypatch.setenv("LOCALHOST_BYPASS", "true")
+    assert ws_routes._ws_localhost_bypass(_fake_ws("127.0.0.1")) is True
+    assert ws_routes._ws_localhost_bypass(_fake_ws("203.0.113.9")) is False                     # not loopback
+    assert ws_routes._ws_localhost_bypass(_fake_ws("127.0.0.1", {"x-forwarded-for": "203.0.113.9"})) is False  # proxied
+
+
+def test_localhost_bypass_is_off_by_default(monkeypatch):
+    monkeypatch.delenv("LOCALHOST_BYPASS", raising=False)
+    assert ws_routes._ws_localhost_bypass(_fake_ws("127.0.0.1")) is False
+
+
+def test_ws_owns_under_localhost_bypass_is_single_tenant_like_auth_off(monkeypatch):
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("LOCALHOST_BYPASS", "true")
+    assert ws_routes._ws_owns(None, "fresh-per-tab-id-0001") is True
+    monkeypatch.setenv("LOCALHOST_BYPASS", "false")
+    assert ws_routes._ws_owns(None, "fresh-per-tab-id-0001") is False

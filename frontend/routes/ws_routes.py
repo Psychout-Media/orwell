@@ -40,6 +40,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from typing import Any, AsyncGenerator, Callable, Optional
 
 from fastapi import APIRouter, WebSocket
@@ -299,6 +300,19 @@ def _is_live(session_id: str) -> bool:
         return True
 
 
+def _localhost_bypass_env() -> bool:
+    return os.getenv("LOCALHOST_BYPASS", "false").strip().lower() == "true"
+
+
+def _ws_localhost_bypass(websocket: WebSocket) -> bool:
+    """The documented dev bypass: LOCALHOST_BYPASS=true AND a DIRECT loopback peer (no proxy headers) —
+    the same rule the HTTP AuthMiddleware applies, so a tunnelled/proxied socket never qualifies."""
+    if not _localhost_bypass_env():
+        return False
+    from core.middleware import is_trusted_loopback
+    return is_trusted_loopback(websocket)  # a WebSocket has the .client / .headers the check reads
+
+
 def _ws_owns(user: Optional[str], session_id: str) -> bool:
     """Owner guard for a WebSocket (cross-user isolation 0021). Mirrors ``_verify_session_owner``:
     a persisted row's ``owner`` must match; an id with no DB row is an in-memory ghost / fresh per-tab
@@ -306,8 +320,13 @@ def _ws_owns(user: Optional[str], session_id: str) -> bool:
     ⇒ single-tenant, always owned."""
     if _auth_disabled():
         return True
-    if not session_id or not user:
-        return False   # auth ON: an unresolved user owns nothing (``ws_session`` already refuses it)
+    if not session_id:
+        return False
+    if not user:
+        # Auth ON and no resolved user: ``ws_session`` only lets such a socket in under the documented
+        # LOCALHOST_BYPASS dev mode (trusted direct loopback, single tenant — like auth-off). Anything
+        # else owns nothing.
+        return _localhost_bypass_env()
     try:
         from core.database import SessionLocal, Session as DBSession
         db = SessionLocal()
@@ -418,7 +437,7 @@ async def ws_session(websocket: WebSocket) -> None:
         # it at the handshake with the same policy-violation close as the origin guard (no accept, no
         # frame). ``AUTH_ENABLED=false`` is unchanged: single-tenant, ``user`` stays None by design.
         user = _ws_current_user(websocket)
-        if user is None and not _auth_disabled():
+        if user is None and not _auth_disabled() and not _ws_localhost_bypass(websocket):
             with contextlib.suppress(Exception):
                 await websocket.close(code=1008)
             return

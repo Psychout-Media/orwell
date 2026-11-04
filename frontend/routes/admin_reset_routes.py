@@ -33,6 +33,7 @@ Privilege model (identical to the update button — see ``admin_update_routes.py
        ``ORWELL_OOBE_RESET_SUDO=1``) for dev / non-flag installs.
 """
 
+import asyncio
 import datetime as _dt
 import logging
 import os
@@ -212,13 +213,16 @@ def setup_admin_reset_routes() -> APIRouter:
         # PRIVILEGE FIX (ops-run lane): the reset MUST run with root. The privilege-safe door is
         # the root-side flag watcher (G19b) — prefer it whenever it is usable, creating data/ops/
         # first so a box that just gained the watcher units (e.g. via the update button) works.
-        if _flag_trigger_installed() and not force_direct:
+        flag_error = None   # set when the watcher is active but the trigger flag could not be written
+        # off the event loop: the watcher probe shells out to `systemctl is-active` (up to 5 s)
+        if await asyncio.to_thread(_flag_trigger_installed) and not force_direct:
             _ensure_ops_dir()
             logger.info("[factory-reset] admin '%s' triggered OOBE reset via the root flag trigger", who)
             try:
                 return _trigger_via_flag()
             except OSError as e:
                 logger.warning("[factory-reset] flag trigger failed (%s); evaluating detached run", e)
+                flag_error = e
 
         # The detached Popen runs the script AS THE NON-ROOT FE USER — which the script's root-guard
         # aborts before scrubbing anything (this was the silent-no-op bug). So only take it when a
@@ -231,8 +235,12 @@ def setup_admin_reset_routes() -> APIRouter:
 
         # FAIL LOUDLY — no privileged path is available. Surface the error through the same
         # ops-progress channel the status page polls, so it is visible instead of a silent no-op.
-        reason = (inactive_reason(_watcher_unit_path(), "run the reset") +
-                  " Sudo is not enabled either (ORWELL_OOBE_RESET_SUDO=1).")
+        if flag_error is not None:
+            reason = (f"cannot run the reset — the watcher is running but the trigger flag could not be written "
+                      f"({flag_error}); nothing was queued.")
+        else:
+            reason = inactive_reason(_watcher_unit_path(), "run the reset")
+        reason += " Sudo is not enabled either (ORWELL_OOBE_RESET_SUDO=1)."
         logger.error("[factory-reset] admin '%s' could NOT start the OOBE reset: %s", who, reason)
         _write_failed_status("factory-reset", reason)
         return {"started": False, "via": "none", "error": reason}

@@ -33,6 +33,7 @@ Privilege model (see the PR notes + ``deploy/sudoers/orwell-update``):
   present, falls back to the (optionally sudo-wrapped) detached Popen otherwise.
 """
 
+import asyncio
 import datetime as _dt
 import logging
 import os
@@ -209,13 +210,16 @@ def setup_admin_update_routes() -> APIRouter:
         # PRIVILEGE FIX (ops-run lane): prefer the root-side flag watcher (G19b) — the only door
         # that runs the updater with root. Create data/ops/ first so a box that just gained the
         # watcher units works on the very next click.
-        if _flag_trigger_installed() and not force_direct:
+        flag_error = None   # set when the watcher is active but the trigger flag could not be written
+        # off the event loop: the watcher probe shells out to `systemctl is-active` (up to 5 s)
+        if await asyncio.to_thread(_flag_trigger_installed) and not force_direct:
             _ensure_ops_dir()
             logger.info("[update] admin '%s' triggered update via the root flag trigger (G19b)", who)
             try:
                 return _trigger_via_flag()
             except OSError as e:
                 logger.warning("[update] flag trigger failed (%s); evaluating detached run", e)
+                flag_error = e
 
         # The detached Popen runs the updater as the NON-ROOT FE user — which EPERMs partway through
         # (git pull into /opt, write /etc/systemd, systemctl restart). Only take it with a genuine
@@ -228,8 +232,12 @@ def setup_admin_update_routes() -> APIRouter:
 
         # FAIL LOUDLY — no privileged path. Surface it through the ops-progress channel the status
         # page polls so the operator sees the error instead of a silent "started" that never runs.
-        reason = (inactive_reason(_watcher_unit_path(), "run the update") +
-                  " Sudo is not enabled either (ORWELL_UPDATE_SUDO=1).")
+        if flag_error is not None:
+            reason = (f"cannot run the update — the watcher is running but the trigger flag could not be written "
+                      f"({flag_error}); nothing was queued.")
+        else:
+            reason = inactive_reason(_watcher_unit_path(), "run the update")
+        reason += " Sudo is not enabled either (ORWELL_UPDATE_SUDO=1)."
         logger.error("[update] admin '%s' could NOT start the update: %s", who, reason)
         _write_failed_status("update", reason)
         return {"started": False, "via": "none", "error": reason}
