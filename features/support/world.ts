@@ -28,6 +28,8 @@ export interface LiveDay {
   publicEvents: number;
   /** Public ceremony broadcasts recorded that day (excluding the day's own ambient house event). */
   ceremonyEvents: number;
+  /** The day's own ambient "Week N, day D:" marker events (houseEvents.ts) — recorded and public, but NOT a meaningful event (AMEND 0008). */
+  markerEvents: number;
 }
 
 export class BbWorld extends World {
@@ -304,6 +306,11 @@ export class BbWorld extends World {
   mannerShareRespected?: number;
   mannerShareBetrayed?: number;
   domWinRate?: number;
+  domRatesByAppeal?: Record<string, number>;
+  jbSandbox?: ReturnType<import("../../src/composition/registry").GameSessionRegistry["sandboxFor"]>;
+  jbPending?: NonNullable<import("../../src/ports/GameSession").AdvanceView["pending"]>;
+  jbTold?: string[];
+  jbF1?: string;
   finaleSentinels?: string[];
 
   // Durable game persistence (0030) scratch state.

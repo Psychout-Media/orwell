@@ -5,6 +5,10 @@ import type { AdvanceView } from "../../src/ports/GameSession";
 import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 import type { EvictionManner } from "../../src/engine/jury";
+import { FINALE_APPEALS, appealEffect, bestAppeal } from "../../src/engine/jury";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { resolvePending } from "../support/answerPending";
 import { assertNoSentinels } from "../../tests/support/assertions";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { adv, liveFinale, driveFinaleSeam, JURY9 } from "../support/liveFinale";
@@ -144,27 +148,36 @@ When("the live jury votes across many seeded runs", async function (this: BbWorl
     this.mannerShareBetrayed = await shareForA({ betrayed: true }, 60);
     return;
   }
-  // dominance: finalist A holds a clear relationship lead; the player makes its WEAKEST legal
-  // appeal each answer while the NPC finalist plays optimally — jury management must still carry A.
-  let aWins = 0;
+  // dominance (AMEND 0037, 2026-11-04): the LEADER is the NPC finalist (strong accumulated jury relationships); the PLAYER is the UNDERDOG finalist and
+  // plays EACH legal finale appeal in turn (including the engine's strongest one for these jurors). Jury management must still carry the leader every time.
+  const leader = B, underdog = A;
   const runs = 40;
-  for (let seed = 1; seed <= runs; seed++) {
-    const { reg } = await liveFinale(`dom-${seed}`, seed, {
-      finalists: [A, B], jury: JURY9,
-      edgeTo: (_j, f) => (f === A ? { trust: 0.85, affinity: 0.85, threat: 0.1 } : { trust: 0.3, affinity: 0.3, threat: 0.45 }),
-    });
-    const p = reg.resolver()("player", `dom-${seed}`) as Player;
-    const views = await driveFinaleSeam(p, { appeal: "discredit-rival" });
-    const final = views[views.length - 1]!;
-    if (final.winner?.id === A) aWins++;
+  const rates: Record<string, number> = {};
+  for (const appeal of FINALE_APPEALS) {
+    let leaderWins = 0;
+    for (let seed = 1; seed <= runs; seed++) {
+      const { reg } = await liveFinale(`dom-${appeal}-${seed}`, seed, {
+        finalists: [underdog, leader], jury: JURY9,
+        edgeTo: (_j, f) => (f === leader ? { trust: 0.85, affinity: 0.85, threat: 0.1 } : { trust: 0.3, affinity: 0.3, threat: 0.45 }),
+      });
+      const p = reg.resolver()("player", `dom-${appeal}-${seed}`) as Player;
+      const views = await driveFinaleSeam(p, { appeal });
+      const final = views[views.length - 1]!;
+      if (final.winner?.id === leader) leaderWins++;
+    }
+    rates[appeal] = leaderWins / runs;
   }
-  this.domWinRate = aWins / runs;
+  this.domRatesByAppeal = rates;
+  this.domWinRate = Math.min(...Object.values(rates)); // the leader's WORST case = the underdog's best appeal
 });
 
 Then("that juror votes for that finalist in a reduced share of runs", function (this: BbWorld) {
+  // AMEND 0037: a stated minimum gap, not a bare `<` (which a 1/60 flip would satisfy): over the 60 runs the respected juror must vote for the finalist
+  // at least MANNER_MIN_GAP more often than the betrayed juror does.
+  const MANNER_MIN_GAP = 0.15;
   assert.ok(
-    this.mannerShareBetrayed! < this.mannerShareRespected!,
-    `betrayed share ${this.mannerShareBetrayed} should be < respected share ${this.mannerShareRespected}`,
+    this.mannerShareRespected! - this.mannerShareBetrayed! >= MANNER_MIN_GAP,
+    `respected share ${this.mannerShareRespected} should exceed betrayed share ${this.mannerShareBetrayed} by at least ${MANNER_MIN_GAP}`,
   );
 });
 
@@ -172,9 +185,75 @@ Then("that juror votes for that finalist in a reduced share of runs", function (
 // that definition branches on this.domWinRate to assert the LIVE run when 0037 set it.
 
 Then("the player's strongest legal finale appeals do not overturn that clear lead", function (this: BbWorld) {
-  // Proven by the dominance run: A wins >85% despite making its WEAKEST legal appeal while the
-  // rival plays optimally — the bounded finale sway cannot overturn the relationship lead.
-  assert.ok(this.domWinRate! > 0.85, "the bounded finale never overturns the clear lead");
+  // The PLAYER is the underdog finalist here and played every legal appeal; the leader (strong accumulated relationships) wins > 85% against EACH,
+  // including the engine's strongest appeal for these jurors (named below so the claim is about the strongest, not just the weakest).
+  const rates = this.domRatesByAppeal!;
+  const strongest = bestAppeal({ trust: 0.3, affinity: 0.3, threat: 0.45 }, {});
+  assert.ok(FINALE_APPEALS.includes(strongest) && appealEffect(strongest, { trust: 0.3, affinity: 0.3, threat: 0.45 }) >= Math.max(...FINALE_APPEALS.map((a) => appealEffect(a, { trust: 0.3, affinity: 0.3, threat: 0.45 }))), "the engine's strongest appeal for these jurors was among those played");
+  for (const [appeal, rate] of Object.entries(rates)) {
+    assert.ok(rate > 0.85, `the leader must keep a clear lead against the underdog's "${appeal}" appeal (leader win rate ${rate}; strongest is "${strongest}")`);
+  }
+});
+
+// --- S4b: the player-juror's vote card reflects ONLY what their askJuror tellings surfaced (A-13, #2010/#2013) ----
+
+let jbN = 0;
+Given("a live game where the player is a juror at their finale vote card", function (this: BbWorld) {
+  for (let seed = 1; seed <= 120; seed++) {
+    const sb = new GameSessionRegistry().sandboxFor(`jb${jbN++}`);
+    sb.session.createCharacter({ playerName: "P", seed });
+    for (let i = 0; i < 9000; i++) {
+      const v = sb.session.advanceGame();
+      if (v.pending?.kind === "juror-vote" && (sb.session.getGameState().juryHouse?.jurors.length ?? 0) >= 1) {
+        this.jbSandbox = sb; this.jbPending = v.pending; this.jbTold = [];
+        return;
+      }
+      if (v.pending) resolvePending(v.pending, (req) => void sb.session.submitDecision(req));
+      if (v.finished) break;
+    }
+  }
+  throw new Error("no seed reached a juror-vote card with a jury house");
+});
+
+Then("the vote card carries no juror-held tellings", function (this: BbWorld) {
+  assert.equal(this.jbPending!.jurorBrief, undefined, "before any askJuror the card has no brief");
+  assert.ok(!("jurorBrief" in this.jbSandbox!.session.advanceGame().pending!), "...and the re-read card is unchanged too");
+});
+
+When("the player asks one fellow juror what they know and the juror tells them", function (this: BbWorld) {
+  const sb = this.jbSandbox!;
+  const [f1] = this.jbPending!.options;
+  const [juror] = sb.session.getGameState().juryHouse!.jurors;
+  const core = sb.session.snapshot();
+  core.live!.mannerByEvictee = { ...(core.live!.mannerByEvictee ?? {}), [juror!.id]: { [PLAYER]: { respected: true } } } as never; // a warm juror always tells
+  sb.session.restore(core);
+  const seed = (factId: string, content: string): void => { sb.engine.knowledge.seedBelief(juror!.id, { content, originalContent: content, factId, confidence: 0.9, hops: 0, distortion: 0, source: juror!.id }, "origin"); };
+  seed("jvc:told", `MARK-TOLD ${f1!.name} kept their word`);
+  seed("traitors-fury:blame:x", `MARK-BLAME ${f1!.name} voted against them`); // a sealed ballot attribution: must never ride a telling or the card
+  let landed = false;
+  for (let i = 0; i < 15 && !landed; i++) {
+    const r = sb.session.askJuror(juror!.id);
+    if (r?.told && r.content) this.jbTold!.push(r.content);
+    landed = !!r?.content?.includes("MARK-TOLD");
+  }
+  assert.ok(landed, "precondition: the marked fact was told through askJuror");
+  seed("jvc:held", `MARK-HELD ${f1!.name} did something unspoken`); // held by the juror but never told
+  // a `told-by:<juror>` fact that reached the player OUTSIDE the jury-house askJuror (e.g. told earlier in the house) is not "what their askJuror tellings surfaced"
+  sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: `MARK-EARLIER ${f1!.name} was told to me before`, subject: f1!.id, confidence: 0.7 }, `told-by:${juror!.id}`);
+  this.jbF1 = f1!.id;
+});
+
+Then("the vote card reflects exactly that telling and nothing the juror merely holds", function (this: BbWorld) {
+  const card = this.jbSandbox!.session.advanceGame().pending!;
+  assert.ok(card.jurorBrief, "the card now carries the brief");
+  const heard = card.jurorBrief!.flatMap((b) => b.heard);
+  assert.ok(heard.join(" ").includes("MARK-TOLD"), "the told fact is on the card");
+  assert.ok(heard.length <= this.jbTold!.length, `the brief holds at most what was actually told (${heard.length} heard vs ${this.jbTold!.length} told)`);
+  const blob = JSON.stringify(card);
+  assert.ok(!blob.includes("MARK-HELD"), "a fact the juror merely holds never rides the card");
+  assert.ok(!blob.includes("MARK-BLAME"), "a sealed blame attribution never rides the card");
+  assert.ok(!blob.includes("MARK-EARLIER"), "a telling that did not come through askJuror is not on the card");
+  assert.ok(!this.jbTold!.some((c) => c.includes("MARK-BLAME")), "...nor is it ever told");
 });
 
 // --- S5: player on the jury ----------------------------------------------------

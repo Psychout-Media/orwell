@@ -218,3 +218,5 @@ staging** (`finale != null`):
 - [x] Name-agnostic (roles only — finalist/juror); `python3 -m pytest tests/` green (184, +3 finale route);
       the 0032 headless-browser keep-set gate stays green (`orwellFinale.js` loads cleanly); engine gate
       unaffected (352 unit + 256 BDD).
+
+> **Amended 2026-11-04 (BDD audit AMEND 0037, Ryne-approved; Sprint 2):** (1) the "jury management dominates" scenario now has explicit roles — the NPC finalist is the LEADER (strong accumulated relationships), the PLAYER is the UNDERDOG and plays EVERY legal appeal (incl. the engine's strongest, `bestAppeal`); the leader must win > 85% against each (the step used to play the weakest appeal as the leader); (2) the betrayed-vs-respected Then asserts a stated minimum gap (0.15 over 60 runs) instead of a bare `<`; (3) new scenario — a player-juror's vote card (`jurorBrief`) reflects only what their `askJuror` tellings surfaced: none before, exactly that telling after, never a fact a juror merely holds, a sealed `traitors-fury:blame` attribution, or a `told-by` fact that did not come through `askJuror`.
