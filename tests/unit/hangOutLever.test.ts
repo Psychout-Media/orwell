@@ -91,22 +91,28 @@ describe("hangOut lever", () => {
     }
     for (const reason of ["event-due", "npc-approach", "pulled", "observed"]) expect(seen, `stop reason ${reason} reached`).toContain(reason);
   });
-  it("stop: bedtime - already late => no beats; nearing 8pm => stops at it (max-beats is pinned in the pure runner)", () => {
+  it("stop: bedtime - already late => no beats; nearing midnight => stops at it; 8pm is NOT bedtime (max-beats is pinned in the pure runner)", () => {
     const s = parked(3)!;
     // Park the clock just before the night threshold with the event comfortably not due (the next day's milestone).
     const snap = s.snapshot() as unknown as { live: Live & { timeOfDay?: string } };
-    snap.live.nightDepth = 19.9;
+    snap.live.nightDepth = 23.9;
     const c = new GameSessionRegistry().sandboxFor("ho-bed").session as S; c.setHangOutEnabled(true); c.setPerConversationClockEnabled(true);
     GameSessionAdapter.setTimeOfDayEnabled(true);
     c.restore(snap as unknown as Parameters<S["restore"]>[0]);
     const r = c.hangOut();
     expect(["bedtime", "event-due", "pulled", "npc-approach", "observed"]).toContain(r.stopReason);
-    const late = JSON.parse(JSON.stringify(snap)); late.live.nightDepth = 21;
+    const late = JSON.parse(JSON.stringify(snap)); late.live.nightDepth = 24.5;
     const d = new GameSessionRegistry().sandboxFor("ho-bed2").session as S; d.setHangOutEnabled(true); d.setPerConversationClockEnabled(true);
     d.restore(late);
     const r2 = d.hangOut();
     expect(r2.beats).toBe(0);
     expect(["bedtime", "event-due"]).toContain(r2.stopReason);
+    // 8pm-midnight is prime social time: a mid-evening hang-out is NOT stopped as bedtime up front.
+    const eve = JSON.parse(JSON.stringify(snap)); eve.live.nightDepth = 20.5;
+    const e = new GameSessionRegistry().sandboxFor("ho-bed3").session as S; e.setHangOutEnabled(true); e.setPerConversationClockEnabled(true);
+    e.restore(eve);
+    const r3 = e.hangOut();
+    expect(r3.beats > 0 || r3.stopReason === "event-due").toBe(true); // never an up-front "bedtime" at 8:30pm
   });
   it("pulled fires at most once per in-game day", () => {
     for (let seed = 1; seed <= 30; seed++) {

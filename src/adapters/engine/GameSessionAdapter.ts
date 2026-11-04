@@ -9407,7 +9407,8 @@ export class GameSessionAdapter implements GameSession {
           return m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
         },
         eventDue: () => milestoneDueOf(live),
-        bedtime: () => (live.nightDepth ?? WAKE_HOUR) >= CLOCK.phaseStartsHour.night,
+        // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
+        bedtime: () => (live.nightDepth ?? WAKE_HOUR) >= CLOCK.midnightHour || awakeNpcs().length <= 1,
         pulled: (r) => {
           if (!started || live.hangOutPulledDay === day) return null;
           if (r.next() >= HANGOUT_PULL_P) return null;
