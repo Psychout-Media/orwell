@@ -426,6 +426,13 @@ export interface LiveSeasonState {
    * with the live state (0030), so a reload mid-toast resumes gathered.
    */
   champagneCircle?: "gathered" | "done";
+  /**
+   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default OFF) - the premiere staged as sixteen INDIVIDUAL entrances then the toast.
+   * `order` is a seeded side-stream permutation of all 16 ids; `arrived` counts those entered (incl. the player); `spoke`
+   * the toast speakers released ("host" or an id). Persisted (0030); ABSENT when the flag is off (byte-identical).
+   * Premiere-scoped: cleared the instant the phase leaves "premiere".
+   */
+  premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
   compIntent?: Intent;
   hoh?: EntityId;

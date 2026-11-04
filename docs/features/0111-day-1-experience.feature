@@ -38,6 +38,36 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
       And the first power is reachable the moment the toast is done
       And the first power competition is a real seeded competition that is never gifted
 
+  Rule: With premiere entrances ON (A9, ORWELL_PREMIERE_ENTRANCES) the house arrives ONE AT A TIME, then toasts; with it OFF the champagne circle above is unchanged
+
+    Scenario: Each houseguest enters exactly once, in a seeded order, at a recorded player position
+      Given the premiere entrances are enabled for a seeded season
+      Then the entrance order contains every houseguest exactly once
+      And the player's position in the order is recorded
+      And the same seed reproduces the same order
+
+    Scenario: The player's position varies by seed
+      Given premiere entrances for several different seeds
+      Then the player does not occupy the same position in every season
+
+    Scenario: Entrances are released one houseguest per step and everyone is met by the end of the toast
+      Given the premiere entrances are enabled for a seeded season
+      When the entrances and the toast are played through
+      Then every houseguest entered exactly once and each entrance is a recorded event
+      And every houseguest has met the player and every other houseguest by witnessing
+      And the host and every houseguest gave a recorded toast speech, except the player's own chat-authored slot
+      And nothing hidden appears in any entrance or toast output
+
+    Scenario: Nobody is gated on a roll-call and the first power waits for the Day-1 morning
+      Given the premiere entrances are enabled for a seeded season
+      When the entrances and the toast are played through
+      Then the meet-everyone gate is never raised
+      And the first power does not start until the toast is done
+
+    Scenario: With premiere entrances OFF the season is byte-identical to today
+      Given the premiere entrances are disabled for a seeded season
+      Then no premiere entrance state exists and the champagne circle opens as before
+
   Rule: One early social beat demonstrably folds a real read (#908)
 
     Scenario: A Day-1 choice changes how a houseguest later treats the player
