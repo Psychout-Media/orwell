@@ -3,6 +3,7 @@
 > **Status:** Built (see the [README status index](./README.md#index)). Two distinct things wear the "diary room" name, and the split is an
 > **integrity boundary** — keep them apart.
 > **Executable spec:** [`0013-diary-room.feature`](./0013-diary-room.feature)
+> **Mechanical effect (corrected 2026-11-04):** the player Diary Room still has **no pathway to any NPC and never changes NPC behaviour** (proved same-seed by `tests/unit/diaryRoomNoNpcEffect.test.ts`). It is no longer "no live mechanical effect": 0115 / 0138 / 0139 give it effects on the **narrator** (a fenced GM-only steer) and on the **player's own tools** (`playerDossier`, `playerReceipts`). Suppression of an entry that names a houseguest currently present is a **unit-level** guarantee only (not exercised by a BDD scenario).
 
 ## 1. Summary
 
