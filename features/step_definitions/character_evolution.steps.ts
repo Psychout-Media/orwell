@@ -236,6 +236,13 @@ Then("no emotional number or hidden state appears", function (this: BbWorld) {
   const evolved = souls(house).filter((hg) => hg.soul.emotionalState !== 0.5).map((hg) => String(hg.soul.emotionalState));
   assert.ok(evolved.length > 0, "there IS hidden evolved state to leak");
   for (const v of evolved) assert.ok(!this.lastOutput.includes(v), "an emotional number leaked onto a player surface");
+  // AMEND 0041 #4: a ROUNDED copy of a hidden number would slip the exact-string check above (0.6234 -> "0.62" / "62%"). Search the 2-decimal and percent renderings of every evolved
+  // emotionalState / volatility too. (Seed 7's player surfaces carry no other decimals that collide; a collision would be a real finding to investigate, not to loosen.)
+  const hidden = souls(house).flatMap((hg) => [hg.soul.emotionalState, hg.soul.volatility]).filter((v) => typeof v === "number" && v !== 0.5);
+  for (const v of hidden) {
+    const forms = [v.toFixed(2), `${Math.round(v * 100)}%`];
+    for (const f of forms) assert.ok(!new RegExp(`(?<![\\d.])${f.replace(".", "\\.")}(?![\\d])`).test(this.lastOutput!), `a rounded hidden emotional value (${f}) leaked onto a player surface`);
+  }
   for (const field of ["emotionalState", "emotionalHistory", "emotionalBaseline", "volatility"]) {
     assert.ok(!this.lastOutput.includes(field), `the hidden soul field ${field} leaked onto a player surface`);
   }
