@@ -480,7 +480,10 @@ Then("the first HOH has not fired and is not yet due", function (this: BbWorld) 
   const { session } = bag(this).fm!;
   assert.equal(session.gameStatus().hoh, null, "no HOH is crowned");
   assert.equal(session.milestoneDue(), false, "the HOH is not due in the morning");
-  assert.deepEqual(session.getGameState().daySchedule, { next: "hoh-competition", phase: "afternoon", due: false });
+  // A7 (#2078) added `minutesUntil` to the schedule view; the claim here is WHICH event, WHEN, and that it is not due - not the countdown, so compare those fields.
+  const ds = session.getGameState().daySchedule as { next?: string; phase?: string; due?: boolean; minutesUntil?: number } | undefined;
+  assert.deepEqual({ next: ds?.next, phase: ds?.phase, due: ds?.due }, { next: "hoh-competition", phase: "afternoon", due: false });
+  assert.ok(typeof ds?.minutesUntil === "number" && ds.minutesUntil > 0, "the countdown to the scheduled hour is reported and positive");
 });
 
 When("the player spends the morning block in social scenes", function (this: BbWorld) {
