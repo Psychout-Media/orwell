@@ -97,6 +97,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
   // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_VOTE_COUNT', key: 'voteCount', parser: 'strict' },
+  // A22: NPC approaches during the Day-1 social morning after the toast. OFF unless exactly '1'; never-flipped until measured.
+  { envKey: 'ORWELL_MORNING_APPROACH', key: 'morningApproach', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
