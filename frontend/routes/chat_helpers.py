@@ -5113,6 +5113,34 @@ def _player_wants_to_skip_ahead(player_msg) -> bool:
     return bool(s) and bool(_SKIP_AHEAD_RE.search(s))
 
 
+_WATCH_AGAIN_RE = re.compile(
+    r"\b(?:keep|continue|go\s+back\s+to|back\s+to|rather|instead)\s+(?:keep\s+)?watch(?:ing)?\b|\bwatch\s+(?:the\s+rest|it\s+all|instead|after\s+all)\b|"
+    r"\b(?:changed?\s+my\s+mind|actually|wait)\b[^.?!\n]{0,40}\bwatch(?:ing)?\b|\bundo\s+(?:the\s+)?skip\b", re.IGNORECASE)
+
+_SKIP_IS_FINAL_DIRECTIVE = (
+    "SKIP IS FINAL: the player already chose to SKIP AHEAD to the finale and that choice cannot be undone. They have just asked to watch the rest of the season anyway. "
+    "In the show's own voice, say plainly and kindly that skipping was final — the season is no longer theirs to watch from the outside; they are on their way to the finale night. "
+    "Do NOT offer a card, do NOT narrate the watching, and do not pretend it can be reversed."
+)
+
+
+def maybe_note_skip_is_final(user, game_state: dict, player_msg) -> bool:
+    """E-1 follow-up: a player who already SKIPPED and now asks (in chat) to keep watching must hear an in-fiction refusal, not silence or a played-along recap. The card
+    path already refuses at the engine; chat prose never binds, so this queues a one-turn re-ground that the SAME turn's framing consumes. True iff queued. Fail-soft."""
+    try:
+        if not isinstance(game_state, dict) or not game_state.get("started"):
+            return False
+        player = game_state.get("player") or {}
+        if player.get("status") != "evicted" or player.get("spectator") != "skip":
+            return False
+        if not _WATCH_AGAIN_RE.search((player_msg or "").strip()):
+            return False
+        return bool(_reground_enqueue(_desync_key(user), _SKIP_IS_FINAL_DIRECTIVE))
+    except Exception as e:
+        logger.debug("[orwell] skip-is-final note skipped for user=%s: %s", user, e)
+        return False
+
+
 async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bool:
     """Raise the spectator-choice card for a WATCHING evictee whose own message asks to skip ahead. True iff the engine raised it. Fail-soft (never blocks a turn)."""
     try:
@@ -5539,6 +5567,7 @@ async def apply_game_framing(
         # own message lets a "let's move on" cut the runway short.
         if await maybe_raise_spectator_choice(user, game_state, player_msg):
             game_state = (await orwell_engine.get_game_state(user=user)) or game_state  # the open card is now part of the board this turn is framed on
+        maybe_note_skip_is_final(user, game_state, player_msg)
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
