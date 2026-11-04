@@ -11,10 +11,10 @@ import { milestoneDue, nextMilestone } from "../../src/engine/daySchedule";
  */
 const morningOf = (beat: string): LiveSeasonState => ({ nightDepth: WAKE_HOUR, timeOfDay: "morning", beat } as unknown as LiveSeasonState);
 
-describe("the default pace: ~8-12 ordinary messages per morning (one tunable constant)", () => {
-  it("MESSAGES_PER_MORNING is derived from the pace and sits in the PO's 8-12 band", () => {
-    expect(MESSAGES_PER_MORNING).toBeGreaterThanOrEqual(8);
-    expect(MESSAGES_PER_MORNING).toBeLessThanOrEqual(12);
+describe("the default pace: ~48 ordinary messages per morning (5 in-game minutes each) (one tunable constant)", () => {
+  it("MESSAGES_PER_MORNING is derived from the pace and sits in the PO's ~48 band", () => {
+    expect(MESSAGES_PER_MORNING).toBeGreaterThanOrEqual(40);
+    expect(MESSAGES_PER_MORNING).toBeLessThanOrEqual(56);
   });
   it("a scheduled afternoon event is NOT due after one message fewer, and IS due on the MESSAGES_PER_MORNING-th (same scene, cap or not)", () => {
     const s = morningOf("veto-competition");

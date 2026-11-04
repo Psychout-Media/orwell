@@ -174,3 +174,9 @@ def test_the_agent_loop_treats_a_production_hold_as_holding():
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     src = open(os.path.join(base, "src", "agent_loop.py"), encoding="utf-8").read()
     assert "_ch.production_is_holding(owner)" in src
+
+
+def test_the_hold_cap_and_premiere_window_are_rebased_to_the_five_minute_pace():
+    """~48 ordinary messages per 4h block: the safety hold cap must sit well above one block, and the premiere hold must be a full morning (never released early)."""
+    assert ch._PREMIERE_SOCIAL_MESSAGES >= 48
+    assert ch._PRODUCTION_HOLD_CAP >= 2 * ch._PREMIERE_SOCIAL_MESSAGES, "a hold cap is never reached in ordinary play (a stuck clock only)"

@@ -593,7 +593,7 @@ _DAY_BREAK_STEER: dict = {}
 _SCHEDULE_STEER: dict = {}
 # Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine's default pace brings a
 # milestone due in ~20 ordinary messages (B tunes it to ~8-12); this cap sits well above that so only a genuinely stuck clock ever hits it.
-_PRODUCTION_HOLD_CAP = 30
+_PRODUCTION_HOLD_CAP = 150
 _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
 
 
@@ -601,7 +601,7 @@ _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that 
 # uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / SCENE.perExchangeHours = (12 - 8) / 0.4 = 10 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
 # Until a morning's worth of messages has passed, the advance belts treat the premiere as "production hasn't called the house in" — the first HOH waits for its hour like
 # every other event. Player readiness is NOT an input.
-_PREMIERE_SOCIAL_MESSAGES = 10
+_PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 

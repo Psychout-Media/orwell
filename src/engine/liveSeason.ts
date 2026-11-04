@@ -1964,6 +1964,15 @@ export function advanceClockPerScene(
 }
 
 /**
+ * P4c - tick the clock by ONE message's few in-game minutes. Continuous (no scene lump, no cap/floor), so a scheduled event can interrupt mid-conversation. Clamps at the
+ * pre-dawn edge, never wraps the night, no-op before the day starts. Pure, no rng.
+ */
+export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void {
+  if (s.nightDepth === undefined) return;
+  if (hours > 0) advanceClockBy(s, hours, false);
+}
+
+/**
  * Extension 6 — a SCENE BOUNDARY (a resolved beat, or any hard interrupt): forget the current scene so the
  * next social turn opens a fresh one with a full cap. Deterministic, no clock move of its own. A no-op when
  * no scene is being tracked (clock off) ⇒ byte-identical.
