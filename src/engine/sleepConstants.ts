@@ -70,30 +70,17 @@ export const CLOCK: ClockConstants = {
 };
 
 /**
- * Extension 6 (SCENE-based clock — "scenes, not turns", owner ruling 2026-07-12). The clock advances per
- * SCENE (a continuous interaction in one room with a stable co-present set), NOT per turn. `perExchangeHours`
- * is the small amount ONE turn inside a scene contributes (~12 min); `capHours` is the ceiling ANY single
- * scene can bill (mirrors `SCENE_FELT_MINUTES.max` / 60 = 4h) — Model B "capped accumulation", so a long
- * conversation is a touch longer in-fiction but turn count can never run the clock away. A scene resets on a
- * room change, a co-present-set change (someone walks in / leaves), or a beat. Tunable — the increment trades
- * realism (bigger = the day feels its finite scheming time) against pace (smaller = the house moves slower).
+ * P4c (PO ruling, Ryne 2026-11-04): the clock ticks per MESSAGE, continuously, so production and NPCs can interrupt mid-conversation and 3 messages are never hours.
+ * ONE constant to tune: `MINUTES_PER_MESSAGE` (5 => ~48 ordinary messages per 4h block). Cost depends ONLY on message count: nothing bills by conversation kind or by the
+ * narrator's proposed `feltMinutes` (conversation types - passing / casual / strategy / summit - emerge from how many messages they run).
  */
-/** P4c (PO ruling 2026-11-04): in-game MINUTES one ordinary message advances the clock (~48 messages per 4h block). The ONE pace constant. */
 export const MINUTES_PER_MESSAGE = 5;
-/** The narrator's per-scene `feltMinutes` may only NUDGE a single message within this band (minutes) - never bill hours, never change a conversation's length. */
-export const MESSAGE_MINUTES_BAND = { min: 3, max: 8 } as const;
 
 export const SCENE = {
-  // P2b (Ryne 2026-11-04, "production owns the schedule"): the PACE of an ordinary message. A morning is 4 in-game hours (8 -> 12), so MINUTES_PER_MESSAGE/60 per message brings a
-  // scheduled afternoon event in after ~10 ordinary messages (the PO's "8-12 per morning"). ONE constant to tune: MESSAGES_PER_MORNING below.
   perExchangeHours: MINUTES_PER_MESSAGE / 60,
-  // The FLOOR every message bills even when its scene has hit the cap — the clock always brings a scheduled event in on its own (a stuck clock is the thing the
-  // FE's logged message cap guards against). Equal to the pace: only a PROPOSED felt duration (a long scene) can bill more, and that stays capped below.
-  minPerMessageHours: MINUTES_PER_MESSAGE / 60,
-  capHours: 4,           // = SCENE_FELT_MINUTES.max (240) / 60 — one scene's PROPOSED felt time never bills more than this
 } as const;
 
-/** The default pace a player experiences: ordinary messages from a morning wake (8am) to the afternoon start (12) — derived, never set independently. */
+/** The default pace a player experiences: ordinary messages from a morning wake (8am) to the afternoon start (12) - derived, never set independently (= 48). */
 export const MESSAGES_PER_MORNING = Math.round((CLOCK.phaseStartsHour.afternoon - CLOCK.wakeHour) / SCENE.perExchangeHours);
 
 /**

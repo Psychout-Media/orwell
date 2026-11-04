@@ -222,7 +222,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, advanceClockPerConversation, advanceClockPerScene, advanceClockPerMessage, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
+  advanceClock, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -232,7 +232,7 @@ import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants"
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
-import { MINUTES_PER_MESSAGE, MESSAGE_MINUTES_BAND } from "../../engine/sleepConstants";
+import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
@@ -7420,60 +7420,14 @@ export class GameSessionAdapter implements GameSession {
    * the per-beat clock.)
    */
   advanceClockPerConversation(opts?: { kind?: ConversationKind; proposedHours?: number }): void {
-    // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or
-    // the day hasn't started). A duration stashed this turn is DISCARDED here — consumed-or-discarded — so a
-    // felt duration recorded while gated can never leak into a later enabled turn (it would otherwise survive
-    // and be consumed as a stale advance). Absent/inert ⇒ byte-identical floor; nothing else changes.
-    if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) { this.pendingFeltHours = undefined; return; }
-    if (!this.live || this.live.timeOfDay === undefined) { this.pendingFeltHours = undefined; return; } // dormant until the per-beat clock starts the day
-    // Extension 5 (LOOSE conversation durations, ADR 0005 for time): the felt duration is the scene KIND's
-    // type-bounded commit of the LLM-proposed hours; absent a kind/proposal ⇒ the small per-conversation
-    // floor (byte-identical to "no proposal"). Never 0, never a day-skip; the clock still clamps + never wraps.
-    // Phase 2 (duration-based clock): when a scene recorded THIS turn proposed how long it felt, its bounded
-    // duration was stashed here (`pendingFeltHours`) — consume it as the turn's advance so the clock tracks
-    // the play the player actually did, not the flat floor. An explicit `opts` caller still wins; with
-    // neither ⇒ the floor (byte-identical). Consumed once per advance so it can't leak into a later turn.
-    // Extension 6 (SCENE-based clock): the proposed contribution for THIS turn — a narrator-proposed felt
-    // duration when present (opts / stashed), else the small deterministic per-exchange increment. The scene
-    // layer then CAPS the accumulation, so this is a proposal, not a guaranteed advance.
-    // P4c: the clock ticks per MESSAGE (MINUTES_PER_MESSAGE), continuously, so production/NPCs can interrupt mid-conversation. A narrator felt proposal (hours, from
-    // `feltMinutes`) only NUDGES this message within MESSAGE_MINUTES_BAND (felt/12 per message, clamped) - never hours, never a lump bill.
-    let minutes = MINUTES_PER_MESSAGE;
-    // Cost depends ONLY on message count: `opts.kind` / `opts.proposedHours` are accepted for API compatibility but BILL NOTHING (PO 2026-11-04: conversation types emerge from length).
-    if (this.pendingFeltHours !== undefined) minutes = Math.min(MESSAGE_MINUTES_BAND.max, Math.max(MESSAGE_MINUTES_BAND.min, this.pendingFeltHours * 5));
-    this.pendingFeltHours = undefined;
-    advanceClockPerMessage(this.live, minutes / 60);
-  }
-
-  /** Extension 6 — the current scene's identity for the clock: the player's room + the SORTED set of NPCs
-   *  co-present in it. A change (moved rooms, or someone entered/left) opens a fresh scene; a solo room is a
-   *  real scene too (empty co-present set). Absent presence info ⇒ one stable key (the day still costs time).
-   *  Vault-free (rooms + co-presence are public), deterministic, no rng. */
-  private currentSceneKey(): string {
-    const room = this.presence?.get(PLAYER) ?? null;
-    if (!room) return "scene:none";
-    const coPresent: string[] = [];
-    if (this.presence) {
-      for (const [id, where] of this.presence) {
-        if (id !== PLAYER && where === room) coPresent.push(id);
-      }
-    }
-    coPresent.sort();
-    return `scene:${room}|${coPresent.join(",")}`;
-  }
-
-  /** Extension 6 — a hard scene boundary (a resolved beat/ceremony): forget the current scene so the next
-   *  social turn opens a fresh one with a full cap. No clock move; a no-op when no scene is tracked (clock off). */
-  resetSceneClock(): void {
-    if (this.live) resetSceneClock(this.live);
-  }
-
-  /** Phase 2 — a recorded scene's LLM-proposed felt duration (hours, already clamped by
-   *  `feltHoursFromMinutes`), consumed by the next per-turn `advanceClockPerConversation`. Set via the
-   *  command port's felt-duration sink (registry wiring). Purely a pacing hint — no fold, no Vault read. */
-  private pendingFeltHours?: number;
-  stashPendingFeltHours(hours: number): void {
-    this.pendingFeltHours = hours;
+    // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or the day hasn't started). Clock off => nothing advances => byte-identical.
+    if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) return;
+    if (!this.live || this.live.timeOfDay === undefined) return; // dormant until the per-beat clock starts the day
+    // P4c (PO ruling 2026-11-04): the clock ticks per MESSAGE - exactly MINUTES_PER_MESSAGE, continuously, so production/NPCs can interrupt mid-conversation. Cost depends ONLY
+    // on message count: `opts.kind` / `opts.proposedHours` are accepted for API compatibility but BILL NOTHING, and the narrator's `feltMinutes` no longer touches the clock
+    // (conversation types - passing / casual / strategy / summit - emerge from how many messages they run).
+    void opts;
+    advanceClockPerMessage(this.live, MINUTES_PER_MESSAGE / 60);
   }
 
   /** #1792 — pending ExchangeAccounting from the last substantive recordInteraction, consumed once

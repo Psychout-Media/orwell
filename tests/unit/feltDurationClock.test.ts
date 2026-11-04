@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { feltHoursFromMinutes, SCENE_FELT_MINUTES, MESSAGE_MINUTES_BAND, SCENE, CLOCK } from "../../src/engine/sleepConstants";
+import { feltHoursFromMinutes, SCENE_FELT_MINUTES, SCENE, CLOCK } from "../../src/engine/sleepConstants";
 import { PLAYER } from "../../src/domain/ids";
 
 /**
@@ -36,12 +36,12 @@ function startedWithClock(): { session: ReturnType<GameSessionRegistry["sandboxF
 const depth = (s: { snapshot: () => { live?: { nightDepth?: number } | null } }): number => s.snapshot().live?.nightDepth ?? 0;
 
 describe("Phase 2 — feltMinutes drives the per-conversation clock", () => {
-  it("a long proposed scene only NUDGES one message, up to the band max (never hours)", () => {
+  it("a long proposed scene bills NOTHING extra: the message still costs exactly the pace (P4c)", () => {
     const { session, commands, npc } = startedWithClock();
     const start = depth(session);
     commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: "a long strategy summit", feltMinutes: 120 });
     session.advanceClockPerConversation(); // the orchestrator's per-turn tick consumes the stash
-    expect((depth(session) - start) * 60).toBeCloseTo(MESSAGE_MINUTES_BAND.max, 5); // P4c: 120 min proposed => this message ticks at most 8 min
+    expect(depth(session) - start).toBeCloseTo(SCENE.perExchangeHours, 5); // 120 min proposed => still one message's tick
   });
 
   it("clamps an absurd proposal to the sane envelope (anti-abuse)", () => {
@@ -49,7 +49,7 @@ describe("Phase 2 — feltMinutes drives the per-conversation clock", () => {
     const start = depth(session);
     commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: "a quick word", feltMinutes: 6000 });
     session.advanceClockPerConversation();
-    expect((depth(session) - start) * 60).toBeCloseTo(MESSAGE_MINUTES_BAND.max, 5); // clamped to the band, not hours
+    expect(depth(session) - start).toBeCloseTo(SCENE.perExchangeHours, 5); // an absurd proposal bills nothing
   });
 
   it("falls back to the small per-exchange increment when no feltMinutes is proposed (Extension 6 scene model)", () => {

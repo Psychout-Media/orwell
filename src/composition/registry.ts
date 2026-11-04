@@ -93,7 +93,6 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // bounded duration to the session, which the orchestrator's per-turn clock advance then consumes — so
   // the day's clock tracks the play the player actually did, not a flat floor. Self-gated on the running
   // clock (inert in the seeded sims). Pacing-only: no fold, no number crosses to the player.
-  commands.setFeltDurationSink((hours) => session.stashPendingFeltHours(hours));
   // 0077 Phase 2: the live sub-zone reader, so co-presence witnessing in a big room (the backyard, the
   // lounge) is earshot-scoped — the far end of the yard is not auto-witnessed. Unwired ⇒ pre-0077 behavior.
   commands.setZoneProvider((id) => session.currentZone(id));

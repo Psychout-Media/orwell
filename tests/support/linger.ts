@@ -14,7 +14,6 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 export function linger(s: GameSessionAdapter): void {
   const was = s.perConversationClockLive();
   s.setPerConversationClockEnabled(true);
-  s.resetSceneClock();
   // P4c: the clock ticks a few minutes per message (MINUTES_PER_MESSAGE), so a long scene is ~4 in-game hours of messages (it never wraps the night).
   for (let i = 0; i < Math.round((4 * 60) / MINUTES_PER_MESSAGE); i++) s.advanceClockPerConversation();
   s.setPerConversationClockEnabled(was);

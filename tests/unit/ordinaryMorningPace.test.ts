@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { MINUTES_PER_MESSAGE, MESSAGE_MINUTES_BAND, MESSAGES_PER_MORNING } from "../../src/engine/sleepConstants";
+import { MINUTES_PER_MESSAGE, MESSAGES_PER_MORNING } from "../../src/engine/sleepConstants";
 import { milestoneDue } from "../../src/engine/daySchedule";
 
 /**
@@ -10,10 +10,9 @@ import { milestoneDue } from "../../src/engine/daySchedule";
  * bill hours, and never adjusts how long a conversation runs. Conversation types emerge from how many messages they run. Roles only.
  */
 describe("the per-message pace", () => {
-  it("is ~5 in-game minutes a message, ~48 messages a morning, with a small nudge band", () => {
+  it("is 5 in-game minutes a message, ~48 messages a morning, exactly, whatever the narrator proposes", () => {
     expect(MINUTES_PER_MESSAGE).toBe(5);
     expect(MESSAGES_PER_MORNING).toBe(48);
-    expect(MESSAGE_MINUTES_BAND).toEqual({ min: 3, max: 8 });
   });
 });
 
@@ -40,18 +39,13 @@ describe("a scripted chat morning", () => {
     expect(milestoneDue(s.snapshot().live)).toBe(true);
   });
 
-  it("a narrator felt proposal only nudges a message within the 3-8 minute band, never hours", () => {
+  it("a narrator felt proposal does NOT change what a message costs: always exactly 5 minutes (varying proposals, so this CAN fail)", () => {
     const s = morning();
-    s.stashPendingFeltHours(4);                        // a 4h "summit" proposal
-    s.advanceClockPerConversation();
-    expect((hour(s) - 8) * 60).toBeCloseTo(MESSAGE_MINUTES_BAND.max, 5);
-    const mid = hour(s);
-    s.stashPendingFeltHours(0.25);                     // a quick word
-    s.advanceClockPerConversation();
-    expect((hour(s) - mid) * 60).toBeCloseTo(MESSAGE_MINUTES_BAND.min, 5);
-    const m2 = hour(s);
-    s.advanceClockPerConversation();                   // no proposal: the plain pace
-    expect((hour(s) - m2) * 60).toBeCloseTo(MINUTES_PER_MESSAGE, 5);
+    for (const proposal of [4, 0.25, 2, 0.5, 3, 1]) {
+      const before = hour(s);
+      s.advanceClockPerConversation({ kind: proposal > 1 ? "summit" : "passing", proposedHours: proposal });
+      expect((hour(s) - before) * 60).toBeCloseTo(MINUTES_PER_MESSAGE, 5);
+    }
   });
 });
 
@@ -75,16 +69,16 @@ describe("P4c regression + behaviour (AMEND time-stack v2 tests 2-4)", () => {
     expect(mins).toBeLessThan(30); // a hard upper bound: never hours
   });
 
-  it("even with the biggest proposals, 3 messages stay under 3 x the band max (24 minutes)", () => {
+  it("even with the biggest proposals, 3 messages are still exactly 15 minutes", () => {
     const s = day();
-    for (let i = 0; i < 3; i++) { s.stashPendingFeltHours(4); s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 }); }
-    expect((hour(s) - 8) * 60).toBeLessThanOrEqual(3 * MESSAGE_MINUTES_BAND.max + 1e-6);
+    for (let i = 0; i < 3; i++) s.advanceClockPerConversation({ kind: "summit", proposedHours: 4 });
+    expect((hour(s) - 8) * 60).toBeCloseTo(15, 5);
   });
 
   it("the cost is a function of message count only: same count => same elapsed time whatever the labels", () => {
     const run = (label: boolean): number => {
       const s = day();
-      for (let i = 0; i < 20; i++) s.advanceClockPerConversation(label ? { kind: i % 2 ? "summit" : "passing" } : undefined);
+      for (let i = 0; i < 20; i++) s.advanceClockPerConversation(label ? { kind: i % 2 ? "summit" : "passing", proposedHours: (i % 5) + 0.25 } : undefined);
       return hour(s);
     };
     expect(run(true)).toBeCloseTo(run(false), 9);

@@ -3257,8 +3257,8 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 '"about":"<a DIFFERENT third houseguest, never the player>",'
                 '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
                 '"rationale":"<why, grounded in the scene>"}}\n'
-                "Always set `feltMinutes` to how long the exchange plausibly took in the house — the engine "
-                "uses it to pace the in-game clock (a scene, not a turn), so a brief hallway word is ~15-30 "
+                "Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+                "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
                 "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
                 "emotional/strategic direction. Add `consequence` ONLY when "
                 "the scene moves different houseguests DIFFERENTLY (e.g. it warms one and threatens "

@@ -591,14 +591,14 @@ _DAY_BREAK_STEER: dict = {}
 # is False the pre-resolve fires NOTHING (whatever the player typed, whatever the runway says) and this one-turn steer gives the narration an in-fiction cue
 # ("production hasn't called it yet"). Same stash/pop shape as `_DAY_BREAK_STEER`; cleared by `clear_social_runway`.
 _SCHEDULE_STEER: dict = {}
-# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine's default pace brings a
-# milestone due in ~20 ordinary messages (B tunes it to ~8-12); this cap sits well above that so only a genuinely stuck clock ever hits it.
+# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine pace is 5 in-game
+# minutes a message (~48 per 4h block); this cap (~3 blocks) sits well above that so only a genuinely stuck clock ever hits it.
 _PRODUCTION_HOLD_CAP = 150
 _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
 
 
 # P4 item 1 — the premiere has no engine clock yet (the day starts when the premiere closes), so the FE counts premiere messages against the SAME one-morning pace the engine
-# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / SCENE.perExchangeHours = (12 - 8) / 0.4 = 10 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
+# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / (MINUTES_PER_MESSAGE / 60) = (12 - 8) / (5/60) = 48 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
 # Until a morning's worth of messages has passed, the advance belts treat the premiere as "production hasn't called the house in" — the first HOH waits for its hour like
 # every other event. Player readiness is NOT an input.
 _PREMIERE_SOCIAL_MESSAGES = 48
