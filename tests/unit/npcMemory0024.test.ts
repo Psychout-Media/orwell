@@ -160,6 +160,7 @@ describe("the adapter wiring (live)", () => {
     expect(led[ids[2]!]).toBeUndefined();
   });
 
+  // B2: with the writers on (default since 2026-11-04) EVERY NPC nominee remembers the nomination; only a TRUSTING one also files the friend betrayal.
   it("on + the B2 writers (default): the non-friend nominee ALSO remembers being nominated — as a plain nomination, never a friend betrayal", () => {
     const { session, rel, ids } = liveHouse(42);
     session.setNpcMemoryEnabled(true);
