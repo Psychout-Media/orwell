@@ -39,7 +39,7 @@ import type {
 const KNOWN_PENDING_KINDS = new Set<string>([
   "nominations", "veto-decision", "comp-intent", "comp-round", "houseguests-choice", "replacement",
   "eviction-vote", "tie-break", "final-eviction", "goodbye-message", "exit-interview", "finale-statement",
-  "finale-answer", "juror-question", "juror-vote", "spectator-choice", "finale-interview",
+  "finale-answer", "juror-question", "juror-vote", "spectator-choice", "finale-interview", "secret-veto",
 ]);
 
 type Pending = NonNullable<AdvanceView["pending"]>;
@@ -86,6 +86,9 @@ interface BeatTracker {
   prevWeek: number;
   prevEvicted: number;
   everFinished: boolean;
+  /** Battle-backs fired so far (0025 reactive twists): the ONE legitimate way the evicted count can drop (a juror re-enters the house). */
+  battleBacks: number;
+  prevBattleBacks: number;
 }
 
 /**
@@ -143,8 +146,10 @@ function assertBeatInvariants(
     .toBeGreaterThanOrEqual(t.prevWeek);
 
   const evicted = view.house.filter((h) => h.status !== "active").length;
-  expect(evicted, `${label}: evicted count went BACKWARD (${evicted} < ${t.prevEvicted})`)
-    .toBeGreaterThanOrEqual(t.prevEvicted);
+  // The evicted count only ever rises — except by exactly one per battle-back that fired since the last beat (the returnee leaves the eviction record; 0025).
+  const returned = t.battleBacks - t.prevBattleBacks;
+  expect(evicted, `${label}: evicted count went BACKWARD (${evicted} < ${t.prevEvicted}; ${returned} battle-back return(s) allowed)`)
+    .toBeGreaterThanOrEqual(t.prevEvicted - returned);
   expect(evicted, `${label}: evicted count ${evicted} exceeds cast-1 (${CAST_SIZE - 1})`)
     .toBeLessThanOrEqual(CAST_SIZE - 1);
 
@@ -161,6 +166,7 @@ function assertBeatInvariants(
   // Advance the running signature.
   t.prevWeek = view.week;
   t.prevEvicted = evicted;
+  t.prevBattleBacks = t.battleBacks;
   if (view.finished) t.everFinished = true;
 }
 
@@ -169,7 +175,8 @@ function runSeasonWithSyncAudit(seed: number): { finished: boolean; weeks: numbe
   const s = new GameSessionAdapter();
   s.createCharacter({ playerName: "P", seed });
 
-  const t: BeatTracker = { prevWeek: 0, prevEvicted: 0, everFinished: false };
+  const t: BeatTracker = { prevWeek: 0, prevEvicted: 0, everFinished: false, battleBacks: 0, prevBattleBacks: 0 };
+  const battleBacksFired = (): number => ((s.snapshot().live?.firedTwists ?? []) as Array<{ kind: string }>).filter((x) => x.kind === "battle-back").length;
   let finished = false;
   let lastWeek = 0;
   let beats = 0;
@@ -182,6 +189,7 @@ function runSeasonWithSyncAudit(seed: number): { finished: boolean; weeks: numbe
     expect(adv.started, `seed ${seed}: advanceGame returned started=false`).toBe(true);
     lastWinner = adv.winner;
     lastWeek = adv.status.week;
+    t.battleBacks = battleBacksFired();
 
     // After the advance, read BOTH live projections and assert they agree / are well-formed.
     assertBeatInvariants(
@@ -195,6 +203,7 @@ function runSeasonWithSyncAudit(seed: number): { finished: boolean; weeks: numbe
     const pending = adv.pending;
     if (pending && !finished) {
       resolve(s, pending);
+      t.battleBacks = battleBacksFired();
       const postStatus = s.gameStatus();
       const postView = s.getGameState();
       // The decision's resulting winner lives on the next advance/gameStatus; track the latest.
