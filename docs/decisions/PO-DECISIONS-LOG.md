@@ -361,3 +361,5 @@ rulings needed" set). Companion decision notes posted on each GitHub issue; spec
 - **Live-LLM verification — allowlist model egress in the environment.** The 9 model-behavior items
   (#536/#540/#541/#542/#548/#549/#550/#561/#613) can't be verified while OpenRouter egress is blocked;
   the owner will allowlist egress so the guardrails can be confirmed live and closed.
+
+- **2026-11-04 - Premiere entrances + champagne toast ON (Ryne, for Thursday's playtest; A9).** `ORWELL_PREMIERE_ENTRANCES` defaults ON (code default, deploy defaults, /health registry, drift pins; `=0` opts out): the premiere opens with ONE-AT-A-TIME entrances (seeded order, the player at a random slot, each a short vignette), then the living-room toast (host first, then each houseguest; the player's own speech is chat-authored), then the 48-message Day-1 morning. `juryReach` + `calibrationGradient` held their bands ON; the live premiere check found and fixed three bugs (#2086). The old champagne-circle premiere stays byte-identical under `=0`.

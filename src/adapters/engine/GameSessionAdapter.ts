@@ -606,7 +606,7 @@ const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1"
  * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). OFF unless
  * `ORWELL_PREMIERE_ENTRANCES=1`; read at `createCharacter` (season start). Off => nothing new is written.
  */
-const PREMIERE_ENTRANCES_ENABLED_DEFAULT = process.env.ORWELL_PREMIERE_ENTRANCES === "1";
+const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). OFF unless `ORWELL_HANGOUT=1`: it spends in-game time outside the per-message pace, so it ships
