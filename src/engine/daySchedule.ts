@@ -132,3 +132,14 @@ export function beatFeltHours(beat: Beat | undefined): number | null {
   const cat = DURATION_CATEGORY[beat];
   return cat ? eventSpanHours(cat) : null;
 }
+
+/**
+ * A7 - whole MINUTES of in-game time until the next scheduled milestone is due (0 once due), or `null` when there is no milestone / the clock has not started.
+ * Feeds the FE's optional "production announces it in a few minutes" warning. A pure read - never mutates, never draws rng.
+ */
+export function minutesUntilDue(live: LiveSeasonState | null | undefined): number | null {
+  const m = nextMilestone(live);
+  if (!m || live?.timeOfDay === undefined) return null;
+  const hour = live.nightDepth ?? WAKE_HOUR;
+  return Math.max(0, Math.ceil((m.targetHour - hour) * 60 - 1e-6));
+}

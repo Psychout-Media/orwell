@@ -31,7 +31,7 @@ import { moodWord, voiceFingerprint } from "../../engine/voice";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
-import { nextMilestone, milestoneDue as milestoneDueOf, beatFeltHours } from "../../engine/daySchedule";
+import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours } from "../../engine/daySchedule";
 import { driveSuspicion } from "../../engine/suspicion";
 import {
   formCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
@@ -12145,7 +12145,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire
