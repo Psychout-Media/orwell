@@ -4440,7 +4440,7 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house.player.id;
     const room = base.get(me) ?? "living-room";
     const inside = entrances ? new Set<EntityId>(live.premiereEntrance!.order.slice(0, live.premiereEntrance!.arrived)) : null;
-    const overlay: Occupancy = new Map(base);
+    const overlay = new Map(base) as Map<EntityId, Room>;
     for (const n of this.house.npcs) {
       if (this.seatOf(n.id) !== "active") continue;
       if (inside && !inside.has(n.id)) overlay.delete(n.id); // not arrived yet: not in the house, so not a witness
