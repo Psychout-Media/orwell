@@ -63,6 +63,26 @@ describe("0025 — the secret-veto pending is answerable over the MCP boundary",
     expect((live.firedTwists ?? []).map((t) => t.kind)).toContain("secret-veto");
   });
 
+  it("P5d — playing it BROADCASTS a secret-veto chyron then the HOH's replacement nominee (and holding it announces nothing)", async () => {
+    const { server, session } = playerOnBlockHoldingSecretVeto(26);
+    await call(server, "advanceGame", {});
+    const after = await call(server, "submitDecision", { kind: "secret-veto", use: true });
+    const kinds = (after.announcements ?? []).map((a) => a.kind);
+    expect(kinds).toContain("secret-veto");
+    expect(kinds).toContain("replacement-nominee");
+    expect(kinds.indexOf("secret-veto"), "the reveal precedes the replacement").toBeLessThan(kinds.indexOf("replacement-nominee"));
+    const sv = (after.announcements ?? []).find((a) => a.kind === "secret-veto")!;
+    expect(sv.headline).toMatch(/plays a secret veto and comes off the block/);
+    const live = session.snapshot().live!;
+    expect(sv.subjects.map((x) => x.id)).toEqual([PLAYER]);
+    expect(live.finalNominees).not.toContain(PLAYER);
+    // holding it announces no secret veto
+    const held = playerOnBlockHoldingSecretVeto(27);
+    await call(held.server, "advanceGame", {});
+    const afterHold = await call(held.server, "submitDecision", { kind: "secret-veto", use: false });
+    expect((afterHold.announcements ?? []).map((a) => a.kind)).not.toContain("secret-veto");
+  });
+
   it("submitDecision use:false holds it — still on the block, safety kept, no re-prompt this week", async () => {
     const { server, session } = playerOnBlockHoldingSecretVeto(23);
     await call(server, "advanceGame", {});

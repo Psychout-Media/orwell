@@ -224,7 +224,9 @@ describe("T0-3 — a committed ceremony fact announces EXACTLY ONCE across a sea
     const used = all.filter((a) => a.kind === "veto-decision" && a.detail?.used === true).length;
     const replacements = all.filter((a) => a.kind === "replacement-nominee").length;
     expect(used).toBeGreaterThan(0);
-    expect(replacements).toBe(used);
+    // P5d: a PLAYED secret veto also names a replacement nominee (its own `secret-veto` announcement) — every replacement is either a veto-decision's or a secret veto's.
+    const secretVetoes = all.filter((a) => a.kind === "secret-veto").length;
+    expect(replacements).toBe(used + secretVetoes);
   });
 });
 

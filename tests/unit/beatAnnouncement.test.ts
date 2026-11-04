@@ -146,9 +146,9 @@ describe("T0-3 — buildBeatAnnouncements (weekly-loop scope)", () => {
     expect(facts).toEqual([{ kind: "eviction-result", week: 3, subjects: [NOM_A], detail: { by: HOH } }]);
   });
 
-  it("out-of-scope beats (veto-draw, day-break, twist-reveal, finale, self-eviction) ⇒ no announcement", () => {
+  it("out-of-scope beats (veto-draw, day-break, finale, self-eviction) ⇒ no announcement", () => {
     const outOfScope: BeatEvent["beat"][] = [
-      "veto-draw", "day-break", "twist-reveal", "battle-back", "finale", "self-eviction",
+      "veto-draw", "day-break", "battle-back", "finale", "self-eviction",
       "eviction-goodbye", "exit-interview", "complete",
     ];
     for (const beat of outOfScope) {
@@ -200,5 +200,35 @@ describe("T0-3 — announcementHeadline (deterministic, Vault-free broadcast pro
   it("eviction-result with a tie-break names the mechanism, never an extra ballot", () => {
     const a: BeatAnnouncement = { kind: "eviction-result", week: 1, subjects: [NOM_A], detail: { by: HOH, tieBroken: true } };
     expect(announcementHeadline(a, nameOf)).toBe("NomA has been evicted from the house after the Head of Household broke a tied vote.");
+  });
+});
+
+
+describe("P5d — a PLAYED secret veto and its replacement nominee are broadcast (the other twist-reveals stay silent)", () => {
+  const SV_HOLDER = npc(6);
+  const ev: BeatEvent = { beat: "twist-reveal", content: "SECRET VETO: x reveals a secret one-time safety", participants: [SV_HOLDER, HOH, REPLACEMENT, NOM_A] };
+  const played = stateFixture({ hoh: HOH, firedTwists: [{ kind: "secret-veto", beat: 3 }] });
+
+  it("announces the secret veto being played, then the HOH's replacement nominee", () => {
+    const facts = buildBeatAnnouncements(ev, played);
+    expect(facts).toEqual([
+      { kind: "secret-veto", week: 3, subjects: [SV_HOLDER] },
+      { kind: "replacement-nominee", week: 3, subjects: [REPLACEMENT], detail: { by: HOH } },
+    ]);
+    const names: Record<string, string> = { [SV_HOLDER]: "Role X", [HOH]: "Role H", [REPLACEMENT]: "Role R" };
+    const nameOf = (id: string): string => names[id] ?? id;
+    expect(announcementHeadline(facts[0]!, nameOf)).toBe("Role X plays a secret veto and comes off the block.");
+    expect(announcementHeadline(facts[1]!, nameOf)).toBe("Role H names Role R as the replacement nominee.");
+  });
+
+  it("a twist-reveal that is NOT this week's secret veto (double eviction, an earlier week's veto) stays silent", () => {
+    expect(buildBeatAnnouncements(ev, stateFixture({ hoh: HOH, firedTwists: [{ kind: "double-eviction", beat: 3 }] }))).toEqual([]);
+    expect(buildBeatAnnouncements(ev, stateFixture({ hoh: HOH, firedTwists: [{ kind: "secret-veto", beat: 2 }] }))).toEqual([]);
+    expect(buildBeatAnnouncements(ev, stateFixture({ hoh: HOH }))).toEqual([]);
+  });
+
+  it("is Vault-free: only the holder, HOH and replacement ids — never the staying nominee or any hidden field", () => {
+    const blob = JSON.stringify(buildBeatAnnouncements(ev, played));
+    expect(blob).not.toContain(NOM_A);
   });
 });
