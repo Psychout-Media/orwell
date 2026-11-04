@@ -1710,6 +1710,11 @@ def setup_orwell_routes() -> APIRouter:
         try:
             res = await orwell_engine.raise_spectator_choice(user=user)
             orwell_engine.remember_pending(res, user=user)
+            try:  # the raise committed — refresh the FE beatSeq token so the card's confirm isn't a self-inflicted stale-beat no-op
+                from routes.chat_helpers import _refresh_beat_seq
+                _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+            except Exception:
+                pass
             _publish_game_updated(user)  # 0064: instant cross-device reconcile
             return res
         except orwell_engine.EngineToolError as e:

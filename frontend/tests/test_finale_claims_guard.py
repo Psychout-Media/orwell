@@ -88,3 +88,22 @@ def test_the_stream_screen_leaves_an_active_players_finale_talk_alone(monkeypatc
     monkeypatch.setattr(ch, "_capture_beat_signature", fake_sig)
     kept, dropped = asyncio.new_event_loop().run_until_complete(ch.screen_role_claims_ex("u-fin2", "And then it's finale night."))
     assert kept == "And then it's finale night." and dropped == ()
+
+
+def test_live_e1_fabricated_finale_prose_is_stripped():
+    """The exact fabricated-finale phrasing the live forced E-1 narrator produced for a watching evictee (week 6, no finale on the board)."""
+    from src import finale_claims as fc
+    board = {"phase": "hoh-competition", "playerStatus": "evicted"}
+    text = (
+        "The montage stops, and the finale stage is lit and the whole thing is live.\n\n"
+        "Three people are standing at the front of it. The final three.\n\n"
+        "And the voice says: \"Jurors. It's time.\"\n\n"
+        "The confetti comes down.\n\n"
+        "That's the season - Finn Waters, crowned, with the jury's votes on the record.\n\n"
+        "The house wakes slowly and Sara sets down her cereal."
+    )
+    kept, stripped = fc.strip_phantom_finale(text, board)
+    assert "Sara sets down her cereal" in kept
+    for bad in ("finale stage", "final three", "Jurors", "confetti", "crowned"):
+        assert bad not in kept, bad
+    assert stripped

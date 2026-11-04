@@ -96,3 +96,14 @@ def test_skip_ahead_control_and_route_are_wired():
     assert 'pl.status === "evicted" && pl.spectator === "watch"' in js
     routes = (root / "routes/orwell_routes.py").read_text()
     assert '@router.post("/spectator/raise")' in routes and "raise_spectator_choice" in routes
+
+
+def test_the_raise_refreshes_the_fe_beat_seq_so_the_card_confirm_is_not_a_stale_beat_noop(monkeypatch):
+    """Live E-1: the raise bumped the engine beatSeq but the FE kept the old token, so the card's confirm was silently reconciled away (skip never landed)."""
+    async def fake_raise(user=None, **kw):
+        return {"beatSeq": 4242, "pending": {"kind": "spectator-choice"}}
+
+    monkeypatch.setattr(oe, "raise_spectator_choice", fake_raise)
+    gs = {"started": True, "phase": "hoh-competition", "pending": None, "player": {"status": "evicted", "spectator": "watch"}}
+    assert _run(ch.maybe_raise_spectator_choice("u-beat", gs, "skip ahead")) is True
+    assert ch.last_beat_seq("u-beat") == 4242

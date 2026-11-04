@@ -5060,6 +5060,12 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
             orwell_engine.remember_pending(res, user=user)
         except Exception:
             pass
+        # The raise COMMITTED (beatSeq bumped): refresh the FE's last-seen token, or the player's very next card confirm carries a stale expectedBeatSeq and the
+        # decision route silently reconciles it away as a stale-beat no-op (live E-1: the skip never landed).
+        try:
+            _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+        except Exception:
+            pass
         logger.info("[orwell] spectator-choice card re-raised for user=%s (watching evictee asked to skip ahead)", user)
         return True
     except Exception as e:

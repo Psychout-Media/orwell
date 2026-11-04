@@ -22,9 +22,13 @@ _ARRIVAL_RES = [
     re.compile(r"\bthe\s+finalists\s+(?:stand|stands|walk|walks|take|takes|face|faces|sit|sits|step|steps|come|comes|enter|enters|wait|waits)\b", re.IGNORECASE),
     re.compile(r"\bthe\s+jury\s+(?:speaks|casts?|votes?|announces?|delivers?|has\s+(?:voted|spoken)|is\s+seated|takes\s+(?:its|their)\s+seats?|files?\s+in)\b", re.IGNORECASE),
     re.compile(r"\b(?:waits?|waiting)\s+on\s+the\s+jury\b", re.IGNORECASE),
+    re.compile(r"\bfinale\s+(?:stage|set|lights?|floor|show|is\s+(?:lit|live|over))\b|\bthe\s+finale\s+(?:goes|dissolves|fades|ends)\b", re.IGNORECASE),
+    re.compile(r"\bthe\s+(?:final|last)\s+(?:two|three)\b", re.IGNORECASE),
+    re.compile(r"\bjurors?[.,!]?\s+it['’]s\s+time\b|\bthe\s+votes\s+come\s+in\b|[\"“]jurors?[.,!]", re.IGNORECASE),
+    re.compile(r"\b[A-Z]\w+(?:\s+[A-Z]\w+)?,\s+crowned\b|\bconfetti\b|\bthat['’]s\s+the\s+season\b|\bthe\s+season\s+is\s+(?:done|over|complete)\b", re.IGNORECASE),
     re.compile(r"\bis\s+crowned\s+(?:the\s+)?(?:winner|champion|(?:big\s+brother\s+)?(?:season\s+)?\w+\s+winner)\b|\bwins\s+big\s+brother\b|\bthe\s+winner\s+is\b", re.IGNORECASE),
 ]
-_CUE_RE = re.compile(r"finale|last\s+two|final\s+two|finalists|jury|crowned|winner|wins\s+big\s+brother", re.IGNORECASE)
+_CUE_RE = re.compile(r"finale|last\s+two|final\s+two|final\s+three|last\s+three|finalists|jury|jurors?|crowned|winner|confetti|the\s+season|wins\s+big\s+brother", re.IGNORECASE)
 # future / hypothetical / conditional / back-reference wording: the unit talks ABOUT the finale, it does not claim it arrived
 _NON_ASSERTIVE_RE = re.compile(
     r"\b(?:will|would|might|may|could|should|shall|until|before|when|whenever|whoever|whether|if|unless|someday|eventually|soon|"
