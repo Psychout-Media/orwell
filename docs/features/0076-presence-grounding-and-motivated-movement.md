@@ -1,21 +1,22 @@
 # 0076 — Presence grounding & motivated movement (the narrator stops inventing the room)
 
-> **Status:** 🟡 **IN PROGRESS** (drafted 2026-06-22; increments shipping). **Shipped so far:**
+> **Status:** 🟢 **Built** (drafted 2026-06-22; shipped in increments, PR #515 and after). **What shipped:**
 > (1) **the churn fix** — engine, `PRESENCE.companionMoveProb`: present company HOLDS the player's
-> scene (was the 0.6/turn reroll), calibration-safe (weighted stream only), `presence.test.ts` +
-> juryReach green; (2) **the occupancy feed** was found to ALREADY ship — `momentPrompts.renderGameContext`
-> pushes the full `present` + adjacent-room occupancy every turn with binding "voice EXACTLY these,
-> never invent" instructions; (3) **narrated departures** — FE, `_render_presence_movement`: NPC
-> arrivals/departures in the player's room are voiced as beats, no more silent pop-outs
-> (`test_0076_presence_movement.py`); (4) **the presence/identity desync guard** — FE,
-> `record_post_turn_presence_check`: a high-precision, post-turn, prose-untouching re-ground when the
-> narration STAGES an off-scene or evicted houseguest as acting in the scene (the "teleport/invented
-> room" class), gated to skip player-move turns, combining with the board guard
-> (`test_0076_presence_desync.py`). **Remaining:** BDD wiring once the engine 0077 floor-plan lands
-> (sightline-scoped `nearby` will tighten the in-view set). Unit/pytest-gated meanwhile. **Gate (planned):** engine (Vitest +
-> dependency-cruiser + BDD `0076-presence-grounding-and-motivated-movement.feature`) and front-end
-> (pytest — the per-turn occupancy feed + the presence-desync guard, siblings to the 0065 board
-> guard + the `_auto_move_player` belt). **Depends on:** 0049 (house presence & lingering —
+> scene (was the 0.6/turn reroll), calibration-safe (weighted stream only); (2) **the occupancy feed**
+> was found to ALREADY ship — `momentPrompts.renderGameContext` pushes the full `present` +
+> adjacent-room occupancy every turn with binding "voice EXACTLY these, never invent" instructions;
+> (3) **narrated departures** — FE, `_render_presence_movement`: NPC arrivals/departures in the
+> player's room are voiced as beats, no more silent pop-outs; (4) **the presence/identity desync
+> guard** — FE, `record_post_turn_presence_check`: a high-precision, post-turn, prose-untouching
+> re-ground when the narration STAGES an off-scene or evicted houseguest as acting in the scene (the
+> "teleport/invented room" class), gated to skip player-move turns, combining with the board guard.
+> **Gates are unit + FE tests, NOT Gherkin:** engine `tests/unit/presence.test.ts` +
+> `tests/unit/locationGrounding0009.test.ts` (Vitest); front-end
+> `frontend/tests/test_0076_presence_desync.py`, `test_0076_presence_movement.py`,
+> `test_a2_presence_wall.py` (pytest). The sibling
+> [`.feature`](./0076-presence-grounding-and-motivated-movement.feature) is a **design contract**
+> (spec-only, deliberately NOT wired into `cucumber.cjs`; its header names those same gates).
+> **Depends on:** 0049 (house presence & lingering —
 > `presence.ts`, the floor plan, `whereabouts`), 0002 (events/pathways — a move is a recorded
 > happening), 0065 (the LLM↔engine sync spine — the delta-state feed + the pre-emission desync
 > guard this generalizes), 0023 (consequence fold — a motivated exit can carry one). **Supersedes

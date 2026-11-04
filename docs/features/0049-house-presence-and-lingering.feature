@@ -1,5 +1,5 @@
 # Executable spec — IMPLEMENTED & green; BDD-gated in cucumber.cjs. (Originally drafted failing-first.)
-# NOTE (0077 Phase 2): in the whereabouts scenario below, "adjacent rooms" now means rooms within SIGHTLINE (eyeshot);
+# NOTE (0077 Phase 2): the whereabouts scenario below is worded "within sight" (not "adjacent") because it checks SIGHTLINE (eyeshot), not raw adjacency;
 # closed-door rooms are opaque to the live ambient read (the separate `tracked` field carries earned doorway sightings). Adjacency still governs movement and the overhear roll.
 # Feature 0049 — House presence & lingering play: rooms + adjacency ground witnessing and
 # overhearing (both directions), and milling around never advances the week.
@@ -25,18 +25,35 @@ Feature: House presence and lingering play
     And both games produce identical occupancy trajectories
 
   Scenario: Whereabouts shows only what a houseguest could see or hear
-    Given the player is in a room with some houseguests and others in adjacent rooms
+    Given the player is in a room with some houseguests and others in rooms within sight
     When the player reads their whereabouts
     Then it lists who is present in the player's room
-    And it lists who is in adjacent rooms
-    And it reveals nothing about non-adjacent rooms
+    And it lists who is in rooms within sight
+    And it reveals nothing about rooms out of sight
     And it contains no motive, number, hidden state, or Vault sentinel
 
   Scenario: Co-presence makes a witness
     Given the player talks with an NPC while another NPC is in the same room
     When the scene is recorded
     Then the other NPC is in the event's witness set
+    And an NPC in another room, out of sight, is not in the event's witness set
     And the event is not secret to any houseguest in the room
+
+  Scenario: A houseguest who has turned in neither witnesses nor overhears
+    Given it is late at night and several houseguests have turned in while one is still up
+    And a turned-in houseguest is seated in the player's room beside one who is still up, another turned-in houseguest is named as a participant, and a third is next door beside another who is still up
+    When the player's scene is recorded and many more follow
+    Then no turned-in houseguest is in any witness set
+    And no turned-in houseguest gains an overheard pathway
+    And the houseguest who is still up, in the room, does witness
+    And the houseguest who is still up, next door, does overhear
+
+  Scenario: With the day clock off, presence witnesses exactly as before
+    Given it is late at night and several houseguests have turned in while one is still up
+    And the day clock is then switched off
+    And a turned-in houseguest is seated in the player's room beside one who is still up, another turned-in houseguest is named as a participant, and a third is next door beside another who is still up
+    When the player's scene is recorded
+    Then the witness set is exactly the player, everyone seated in the room, and the one named
 
   Scenario: An NPC in the next room can overhear the player
     Given the player confides in an NPC while a schemer is in an adjacent room
