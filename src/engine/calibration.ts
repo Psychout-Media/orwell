@@ -72,12 +72,12 @@ function stagedWeekRecord(s: LiveSeasonState): WeekRecord {
   };
 }
 
-export function playSeason(opts: { seed: number; houseguests: SeasonHouseguest[]; player?: EntityId }): SeasonOutcome {
+export function playSeason(opts: { seed: number; houseguests: SeasonHouseguest[]; player?: EntityId; finalHohThreePart?: boolean }): SeasonOutcome {
   const rng = new SeededRandom(opts.seed);
   const player = opts.player ?? PLAYER;
   const statsOf = new Map(opts.houseguests.map((h) => [h.id, h.stats]));
   const ids = opts.houseguests.map((h) => h.id);
-  const ctx: SeasonCtx = { player, statsOf: (id) => statsOf.get(id)!, rel: seedRelationships(ids, rng) };
+  const ctx: SeasonCtx = { player, statsOf: (id) => statsOf.get(id)!, rel: seedRelationships(ids, rng), ...(opts.finalHohThreePart ? { finalHohThreePart: true } : {}) };
 
   const s = newLiveSeason(ids);
   const weeks: WeekRecord[] = [];
