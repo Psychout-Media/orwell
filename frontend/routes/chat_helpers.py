@@ -487,6 +487,27 @@ _RUNWAY_READY_RE = re.compile(
 )
 
 
+# E-1 (rehearsal 2026-11-04): a player who just wants the game to move types "advance", "continue", "ok next" — NOT a phrase the cue above knows — so the runway held
+# them and every ceremony cost 3-4 turns of "nothing happens". A SHORT message that is ONLY a progression instruction ends the runway too. Deliberately narrow so the J-3
+# contract holds (substantive scheming that merely CONTAINS these words never cuts the lull): the message must START with the progression verb (after polite
+# fillers), the ambiguous verbs (next / go on / skip / keep going) must be (nearly) the whole message, and the clear verbs (advance / continue / proceed / move
+# forward / go ahead) may only be followed by a ceremony/phase noun phrase — never by an instruction to the player's own character ("continue lying to me").
+_READY_FILLER = r"(?:(?:ok|okay|alright|all right|please|so|yeah|yes|sure|fine|then|nothing|nope|just|well)\s+)*"
+_READY_TARGET = (r"(?:(?:to|through|into|on to|onto|until|past|with|for)\s+)?(?:the\s+)?"
+                 r"(?:nominations?|noms|veto|power of veto|comp|competition|ceremony|eviction|week|hoh|head of household|night|morning|next\b)")
+_SHORT_READY_RE = re.compile(
+    r"^\s*" + _READY_FILLER + r"(?:"
+    r"(?:call\s+)?advance(?:game)?(?:\s+" + _READY_TARGET + r".*)?"
+    r"|continue(?:\s+" + _READY_TARGET + r".*)?"
+    r"|proceed(?:\s+" + _READY_TARGET + r".*)?"
+    r"|move\s+(?:forward|ahead|on)(?:\s+" + _READY_TARGET + r".*)?"
+    r"|go\s+ahead"
+    r"|(?:next|go on|skip|keep going)(?:\s+(?:please|then|now))?"
+    r")\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def _player_signals_ready(player_msg) -> bool:
     """Did the player's own latest message ask to move past the social lull to the next ceremony?
     Readiness ends the runway early (seize the lull). Anything substantive is engagement — the
@@ -494,7 +515,12 @@ def _player_signals_ready(player_msg) -> bool:
     s = (player_msg or "").strip()
     if not s:
         return False  # an empty/absent message is not an explicit "move on"
-    return bool(_RUNWAY_READY_RE.search(s))
+    if _RUNWAY_READY_RE.search(s):
+        return True
+    # the short, progression-only message ("advance", "ok continue", "advance to the veto") — punctuation (incl. dashes) normalised away, length-capped
+    norm = re.sub(r"[\u2014\u2013\-.,;:!?\"'`()]+", " ", s)
+    norm = re.sub(r"\s+", " ", norm).strip()
+    return len(norm.split()) <= 12 and bool(_SHORT_READY_RE.match(norm))
 
 
 def _arm_runway(user, sig: str) -> None:
