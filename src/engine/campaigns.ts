@@ -208,6 +208,11 @@ export interface FormCampaignDeps {
   /** The current beat (sets `startedBeat` + the horizon deadline). */
   beat: number;
   c?: CampaignConstants;
+  /**
+   * B5 (vote counting, ORWELL_VOTE_COUNT, default OFF): the actor's own read of whether the eviction count is still IN DOUBT. An EVICT campaign forms only when this says yes
+   * (a decided count is not worked); absent => always forms (byte-identical). Alliance-building is never gated by it.
+   */
+  worthWorking?: (actor: EntityId, target: EntityId) => boolean;
 }
 
 export const PLAN_FOR: Record<CampaignGoal, CampaignMove[]> = {
@@ -238,6 +243,7 @@ export function formCampaigns(actors: readonly CampaignActor[], deps: FormCampai
     let strength = 0;
     if (topThreat && topThreat.threat >= c.threatThreshold) {
       goal = "evict"; target = topThreat.toward; strength = topThreat.threat;
+      if (deps.worthWorking && !deps.worthWorking(a.id, target)) { goal = null; target = null; } // B5: the count is decided - don't campaign
     } else if (topAlly && topAlly.affinity >= c.allyThreshold) {
       goal = "build-alliance"; target = topAlly.toward; strength = topAlly.affinity;
     }

@@ -52,6 +52,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
+import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
@@ -613,7 +614,10 @@ const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRAN
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
  */
 /** Per-beat chances for the hang-out interruptions (side-stream draws). Tunable here. */
-const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.07;
+// `ORWELL_HANGOUT_P_SCALE` multiplies the three chances for live on-screen VERIFICATION only (A15: make the rarer stop reasons fire within one short playthrough); the deploy never sets it => x1.
+const _hoScale = Number(process.env.ORWELL_HANGOUT_P_SCALE);
+const HANGOUT_P_SCALE = process.env.ORWELL_HANGOUT_P_SCALE !== undefined && Number.isFinite(_hoScale) && _hoScale > 0 ? _hoScale : 1;
+const HANGOUT_PULL_P = Math.min(0.9, 0.03 * HANGOUT_P_SCALE), HANGOUT_APPROACH_P = Math.min(0.9, 0.08 * HANGOUT_P_SCALE), HANGOUT_OBSERVED_P = Math.min(0.9, 0.07 * HANGOUT_P_SCALE);
 /**
  * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
  * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
@@ -1010,6 +1014,9 @@ export class GameSessionAdapter implements GameSession {
    * no campaign forms/advances and `ctx().campaignTiltFor` is absent ⇒ the seeded vote is unchanged.
    */
   private campaignsEnabled = CAMPAIGNS_ENABLED_DEFAULT;
+  /** B5 / #2017 - vote counting: an evict campaign forms only while the actor believes the count is IN DOUBT (`voteEstimate.ts`). OFF unless exactly `ORWELL_VOTE_COUNT=1`; never-flipped. OFF => no gate => byte-identical. */
+  private voteCountEnabled = process.env.ORWELL_VOTE_COUNT === "1";
+  setVoteCountEnabled(on: boolean): void { this.voteCountEnabled = on; }
   /**
    * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
    * never enables it, so `ctx().compIntentOf` is absent and every NPC "compete"s ⇒ every seeded gate is
@@ -8077,6 +8084,24 @@ export class GameSessionAdapter implements GameSession {
   /** B7 M4 - campaign TARGETS read grudges and beliefs, not only the threat edge (approved tie-in #5). OFF unless exactly `ORWELL_CAMPAIGN_MEMORY=1`; never-flipped. OFF => the raw edge ranking, byte-identical. */
   private campaignMemoryEnabled = process.env.ORWELL_CAMPAIGN_MEMORY === "1";
   setCampaignMemoryEnabled(on: boolean): void { this.campaignMemoryEnabled = on; }
+  /**
+   * B5 - does `actor` still believe the count against `target` is in doubt? Per OTHER living voter (not the actor, the target, or the player's hidden ballot): the true P(votes to evict) is read from
+   * that voter's own threat/trust edges toward the target; the actor perceives it with a seeded personality `overconfidence` and a seeded per-(actor, week) noise stream (a DEDICATED sub-rng, never
+   * the shared stream). Deterministic; the estimate is private to the actor and never projected.
+   */
+  private voteStillInDoubt(actor: EntityId, target: EntityId): boolean {
+    const voters = this.livingIds().filter((v) => v !== actor && v !== target);
+    if (voters.length === 0) return true;
+    const trueSupport = voters.map((v) => {
+      const e = this.rel.edge(v, target);
+      return Math.max(0, Math.min(1, 0.5 + 0.6 * (e.threat - 0.5 * e.trust)));
+    });
+    const oc = 0.2 + 0.6 * ((hashSeed(`${this.gameSeed ?? 0}:overconfidence:${actor}`) % 1000) / 1000);
+    const nrng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:votecount:${actor}:${this.live?.week ?? 0}`));
+    const noise = voters.map(() => nrng.next() * 2 - 1);
+    return inDoubt(believedMargin(trueSupport, oc, noise), voters.length);
+  }
+
   private threatReadsOf(owner: EntityId): Array<{ toward: EntityId; threat: number }> {
     const bend = (id: EntityId): number => {
       if (!this.campaignMemoryEnabled || owner === PLAYER) return 0;
@@ -8134,7 +8159,7 @@ export class GameSessionAdapter implements GameSession {
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
-      for (const f of formCampaigns(this.campaignActors(), { rng, beat })) {
+      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
         if (activeCount() >= CAMPAIGN.maxConcurrent) break;
         if (!this.campaigns.some((c) => c.status === "active" && c.owners[0] === f.owners[0])) this.campaigns.push(f);
       }

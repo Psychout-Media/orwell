@@ -26,6 +26,7 @@ const NEVER_FLIPPED = [
   "ORWELL_VETO_MEMORY",
   "ORWELL_DEAL_NOMS",
   "ORWELL_CAMPAIGN_MEMORY",
+  "ORWELL_VOTE_COUNT",
 ] as const;
 
 const deployKeys = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
