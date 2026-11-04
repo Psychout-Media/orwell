@@ -1224,6 +1224,7 @@ export type BeatAnnouncementKind =
   | "veto-winner"
   | "veto-decision"
   | "replacement-nominee"
+  | "secret-veto"
   | "eviction-ballot"
   | "eviction-result"
   | "comp-round-result";
