@@ -15,8 +15,19 @@ set -euo pipefail
 APP_DIR_EXPLICIT="${APP_DIR:-}"     # honor an explicit override; otherwise auto-detect below
 BRANCH="${BRANCH:-main}"
 # B71/ops A4 — pin + rollback:
-#   REF=<sha|tag>          update to a PINNED ref instead of the branch tip
+#   REF=<sha|tag>          update to a PINNED ref (a tag, a full SHA, or an abbreviated SHA) instead of
+#                          the branch tip
 #   orwell-update.sh --rollback   return to the previous build (SHA + dist) recorded by the last update
+#
+# A failed update leaves a RUNNABLE app: on ANY failure once the update has begun (fetch, npm, pip, env
+# reconcile, unit reconcile) the previous SHA, its engine + front-end dependencies and its dist are
+# restored, and the restored build is verified to start BEFORE "reverted" is printed or recorded. If the
+# revert itself fails the script says so plainly. Exit codes: 0 ok · 1 failed, previous build in place
+# (restored + verified, or never touched) · 3 failed AND the revert failed (the box may not start) ·
+# 75 another update already holds the lock.
+# The rollback pair (data/.update-prev + dist.prev) moves together, only when an update fully succeeds.
+# One shared flock (/run/orwell-update.lock) keeps the web Update, Update+Reset and a manual run from
+# working in the same tree at once.
 # A4/ruling #17 — private-repo token (one-time setup / annual rotation for an EXISTING install):
 #   orwell-update.sh --set-token  prompt for (or take GIT_TOKEN=) the deploy PAT, persist it into
 #                                 data/.env, and wire the git credential helper — then exit.
@@ -75,6 +86,13 @@ if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && -z "${REF:-}" && $# -eq 0 ]] && tui
     rollback) ROLLBACK=1 ;;
     token)    SET_TOKEN=1 ;;
   esac
+fi
+
+# REF reaches `git fetch` (and, over the host→container bridge, a quoted shell string): accept only what a
+# tag / SHA / ref name can contain and never a leading "-" (option injection).
+if [[ -n "$REF" && ! "$REF" =~ ^[A-Za-z0-9_][A-Za-z0-9._/@+-]*$ ]]; then
+  echo "ERROR: REF='${REF}' is not a valid tag or commit SHA." >&2
+  exit 1
 fi
 
 # First install dir found here: an explicit override, then the current path, then the legacy one.
@@ -147,6 +165,39 @@ fi
 # ── In-container (or direct) update ────────────────────────────────────────────────────────────
 APP_DIR="$(find_app || true)"; APP_DIR="${APP_DIR:-/opt/orwell}"
 
+# ── ONE shared lock for every run in this tree: the web Update, Update + Reset, a manual update,
+# --rollback and --set-token (all write the checkout, node_modules, dist and data/.env). It is a
+# DIFFERENT file from the per-unit locks in deploy/systemd/orwell-ops-*.service (those only dedupe
+# repeat triggers of ONE unit — each takes its own /run/orwell-ops-<unit>.lock on fd 9 and then execs
+# THIS script), so there is no lock-order cycle with them. flock is per open-file-description: a child
+# that re-opened the file would block on its parent's lock. So orwell-update-reset.sh — which holds this
+# lock across BOTH its phases and runs this script as a child — hands the open fd down via
+# ORWELL_UPDATE_LOCK_FD, and an inherited fd is honoured only when it really is this lock file (a stale
+# exported variable cannot bypass the lock). Non-blocking by design: a second run refuses (75) rather
+# than queueing a redundant build; it never touches the running run's ops status. Released when the
+# process exits (the fd dies with it). orwell-update-reset.sh takes the same file — keep them in sync.
+UPDATE_LOCK="${ORWELL_UPDATE_LOCK:-/run/orwell-update.lock}"
+acquire_update_lock() {
+  local held="${ORWELL_UPDATE_LOCK_FD:-}"
+  if [[ "$held" =~ ^[0-9]+$ && /proc/self/fd/$held -ef "$UPDATE_LOCK" ]]; then
+    # Same file is not enough: an open-but-UNLOCKED descriptor must not bypass serialization. Re-locking
+    # the same open file description (the parent's) succeeds; anyone else's lock makes this fail.
+    if flock -n "$held" 2>/dev/null; then return 0; fi
+    echo "ERROR: the inherited update-lock fd ${held} does not hold ${UPDATE_LOCK} (another run owns it)." >&2
+    exit 75
+  fi
+  command -v flock >/dev/null 2>&1 || { echo "ERROR: flock (util-linux) is required to serialize updates." >&2; exit 1; }
+  exec {ORWELL_UPDATE_LOCK_FD}>>"$UPDATE_LOCK" \
+    || { echo "ERROR: cannot open the update lock ${UPDATE_LOCK}." >&2; exit 1; }
+  if ! flock -n "$ORWELL_UPDATE_LOCK_FD"; then
+    echo "ERROR: another orwell update / rollback / Update + Reset is already running in this tree (lock ${UPDATE_LOCK})." >&2
+    echo "       Refusing to run two at once. Watch it with: tail -f ${APP_DIR}/data/ops-update.log — then retry." >&2
+    exit 75
+  fi
+  export ORWELL_UPDATE_LOCK_FD
+}
+acquire_update_lock
+
 # Service names follow the install: prefer orwell-*, fall back to the legacy bbai-* units when
 # that's what is registered (a container provisioned before the rename).
 unit_exists() { systemctl list-unit-files "$1" 2>/dev/null | grep -q "$1"; }
@@ -159,7 +210,9 @@ else
 fi
 
 PREV_FILE="${APP_DIR}/data/.update-prev"      # the last good SHA (data/ survives updates)
-PREV_DIST="${APP_DIR}/dist.prev"              # the last good build output
+PREV_DIST="${APP_DIR}/dist.prev"              # the last good build output — stamped with PREV_FILE's SHA
+STAGED_DIST="${APP_DIR}/dist.staging"         # the RUNNING build, held aside while an update is in flight
+DIST_STAMP=".orwell-build-sha"                # inside dist.prev / dist.staging: the SHA that build came from
 ENV_FILE="${APP_DIR}/data/.env"
 
 # Wire git to read GIT_TOKEN from data/.env at use time (A4/ruling #17). Idempotent; also the
@@ -215,79 +268,326 @@ fi
 
 wire_credential_helper
 
-# ── Rollback (B71/ops A4): return to the recorded previous SHA + its dist, then restart. ──────
+# ── Update / rollback safety net ───────────────────────────────────────────────────────────────
+# An update dirties three things; each step sets its flag BEFORE it runs, so a revert only redoes what
+# the failed run could have damaged. (A fetch that failed on a network blip must not trigger an
+# `npm ci` that needs the same network and deletes node_modules for nothing.)
+ENGINE_DIRTY=0   # `npm ci` deletes node_modules first
+FE_DIRTY=0       # pip install into frontend/.venv
+DIST_DIRTY=0     # `npm run build` rewrites dist/
+HOST_TOUCHED=0   # the host reconcile (units, log policy, login panel) started — it is NOT undone by a revert
+
+install_frontend_deps() {   # cwd = frontend/
+  # Pinned lockfile first (audit E83): updates re-install exactly what CI tested, never a blind
+  # re-resolution of unpinned ranges.
+  if [[ -f requirements.lock.txt ]]; then
+    ./.venv/bin/pip install -q -r requirements.lock.txt
+  else
+    ./.venv/bin/pip install -q -r requirements.txt
+  fi
+}
+
+# Sets TARGET to what to reset to. `git fetch origin <tag>` lands the ref in FETCH_HEAD ONLY (no local
+# tag is created), so the old `git reset --hard <tag>` exited 128 — resolve what was fetched to a commit
+# SHA and reset to that. Annotated tags peel to their commit; a full SHA is fetched directly. An
+# abbreviated SHA (or a SHA the server will not serve unadvertised) is resolved after fetching tags +
+# branches — and, because this checkout is shallow (--depth 1, like the branch fetch), after deepening
+# to the full history if it is older than the shallow tip. The PREVIOUS commit stays available for
+# --rollback via the refs/orwell/update-prev pin written by commit_rollback_pair.
+fetch_target() {
+  if [[ -n "$REF" ]]; then
+    TARGET=""
+    if git -C "$APP_DIR" fetch --depth 1 origin "$REF"; then
+      TARGET="$(git -C "$APP_DIR" rev-parse --verify --quiet 'FETCH_HEAD^{commit}' || true)"
+    else
+      echo "==> '${REF}' is not an advertised tag/branch — fetching tags + branches to resolve it as a commit"
+      git -C "$APP_DIR" fetch --tags origin
+      TARGET="$(git -C "$APP_DIR" rev-parse --verify --quiet "${REF}^{commit}" || true)"
+      if [[ -z "$TARGET" && "$(git -C "$APP_DIR" rev-parse --is-shallow-repository)" == "true" ]]; then
+        echo "==> not in the shallow checkout — fetching the full history to resolve it"
+        git -C "$APP_DIR" fetch --unshallow --tags origin
+        TARGET="$(git -C "$APP_DIR" rev-parse --verify --quiet "${REF}^{commit}" || true)"
+      fi
+    fi
+    if [[ -z "$TARGET" ]]; then
+      echo "ERROR: REF='${REF}' does not resolve to a commit on origin (tag, full SHA, or abbreviated SHA expected)." >&2
+      return 1
+    fi
+    echo "==> REF ${REF} -> ${TARGET}"
+  else
+    git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
+    TARGET="origin/${BRANCH}"
+  fi
+}
+
+# Every build is stamped (dist/.orwell-build-sha) with the SHA it was built from: written after a good
+# build, and removed BEFORE one starts so a partial dist is never stamped.
+stamp_dist() { git -C "$APP_DIR" rev-parse HEAD > "${APP_DIR}/dist/${DIST_STAMP}"; }
+
+# Hold the RUNNING build aside for this attempt. It is the only copy a failed update can restore, and it
+# never touches dist.prev — the rollback pair is replaced only when an update fully succeeds
+# (commit_rollback_pair), so a failed attempt cannot pair an older SHA with a newer build. The stamp
+# is kept only if it proves this build came from the SHA being left (HEAD); a build with no stamp, or
+# another SHA's, is still restorable on failure but is never trusted as a rollback target.
+snapshot_running_dist() {
+  rm -rf "$STAGED_DIST"
+  [[ -d "${APP_DIR}/dist" ]] || return 0
+  cp -a "${APP_DIR}/dist" "$STAGED_DIST"
+  if [[ "$(cat "${STAGED_DIST}/${DIST_STAMP}" 2>/dev/null || true)" != "$PREV_SHA" ]]; then
+    rm -f "${STAGED_DIST}/${DIST_STAMP}"
+  fi
+}
+
+# Put the tree back on $1: reset git, reinstall the engine + front-end dependencies a failed run could
+# have damaged, and restore dist from the copy $2 (empty/absent ⇒ rebuild from source). Every step is
+# `|| return 1` — callers use it inside `if`, where `set -e` is suspended.
+restore_build() {
+  local sha="$1" dist_src="${2:-}" rebuild=0
+  git -C "$APP_DIR" reset --hard "$sha" || return 1
+  if [[ "$DIST_DIRTY" -eq 1 && ! -d "$dist_src" ]]; then rebuild=1; fi
+  if [[ "$rebuild" -eq 1 ]]; then
+    # No copy of that build: rebuild it (needs the dev chain, then prune like the update does).
+    ( cd "$APP_DIR" && npm ci --prefer-offline && npm run build ) || return 1
+    stamp_dist || return 1
+    ( cd "$APP_DIR" && npm prune --omit=dev ) || echo "WARN: npm prune --omit=dev failed (dev deps remain; harmless)"
+  elif [[ "$ENGINE_DIRTY" -eq 1 ]]; then
+    # dist is restored from its copy below, so only the RUNTIME tree is needed (what prune leaves).
+    # --prefer-offline: the cache this box filled when it installed these exact pins can serve a revert
+    # even if the registry is what just failed.
+    ( cd "$APP_DIR" && npm ci --omit=dev --prefer-offline ) || return 1
+  fi
+  if [[ "$DIST_DIRTY" -eq 1 && "$rebuild" -eq 0 ]]; then
+    rm -rf "${APP_DIR}/dist" || return 1
+    cp -a "$dist_src" "${APP_DIR}/dist" || return 1   # keeps its stamp (if it had a trustworthy one)
+  fi
+  if [[ "$FE_DIRTY" -eq 1 ]]; then
+    ( cd "${APP_DIR}/frontend" && install_frontend_deps ) || return 1
+  fi
+  return 0
+}
+
+# "Reverted" / "rollback complete" are only printed after THIS passes. It never touches the live save
+# or the running services: every runtime dependency in package.json must be installed, the engine boots
+# (as the current user, WITHOUT data/.env) on a free loopback port with a throwaway save dir (default
+# deterministic embeddings, no model fetch) and must answer /health, and the front-end venv must import
+# its web stack. It does not start the real front-end app (that would open the live app.db).
+verify_runnable() {
+  echo "==> verifying the restored build can start (runtime deps + throwaway engine boot + front-end import check)"
+  local fe="${APP_DIR}/frontend" port tmp pid rc=1 i
+  if [[ ! -f "${APP_DIR}/dist/main.js" ]]; then
+    echo "  verify: ${APP_DIR}/dist/main.js is missing" >&2; return 1
+  fi
+  if ! ( cd "$APP_DIR" && node -e 'const fs = require("fs"); const m = Object.keys(require("./package.json").dependencies || {}).filter((p) => !fs.existsSync("node_modules/" + p + "/package.json")); if (m.length) { console.error("not installed: " + m.join(", ")); process.exit(1); }' ); then
+    echo "  verify: node_modules is missing runtime dependencies" >&2; return 1
+  fi
+  if [[ ! -x "${fe}/.venv/bin/uvicorn" ]] || ! "${fe}/.venv/bin/python" -c 'import uvicorn, fastapi' >/dev/null 2>&1; then
+    echo "  verify: the front-end virtualenv cannot import uvicorn/fastapi" >&2; return 1
+  fi
+  port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])' 2>/dev/null)" || port=""
+  [[ -n "$port" ]] || { echo "  verify: could not pick a free loopback port" >&2; return 1; }
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "${tmp}/save"
+  (
+    # a stray engine must never be able to hold the update lock
+    if [[ -n "${ORWELL_UPDATE_LOCK_FD:-}" ]]; then exec {ORWELL_UPDATE_LOCK_FD}>&-; fi
+    cd "$APP_DIR" || exit 1
+    exec env -u ORWELL_EMBEDDINGS ORWELL_ENGINE_PORT="$port" ORWELL_DATA_DIR="${tmp}/save" \
+      ORWELL_ENGINE_HOST=127.0.0.1 node dist/main.js
+  ) >"${tmp}/engine.log" 2>&1 &
+  pid=$!
+  for ((i = 0; i < 120; i++)); do
+    if curl -fsS --noproxy '*' --max-time 2 "http://127.0.0.1:${port}/health" 2>/dev/null | grep -q '"ok":true'; then rc=0; break; fi
+    kill -0 "$pid" 2>/dev/null || break      # it died: no point polling
+    sleep 0.25
+  done
+  kill "$pid" 2>/dev/null || true
+  for ((i = 0; i < 20; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  if [[ "$rc" -ne 0 ]]; then
+    echo "  verify: the engine did not become healthy on :${port}; its output:" >&2
+    tail -n 20 "${tmp}/engine.log" >&2 || true
+  fi
+  rm -rf "$tmp"
+  return "$rc"
+}
+
+# The rollback pair — data/.update-prev (SHA) + dist.prev (that SHA's build, stamped) — is replaced ONLY
+# here, once an update has fully succeeded, and the two move together. A failed attempt never reaches
+# this, so the pair stays an older, mutually consistent one. Re-running at the SAME commit keeps the
+# existing pair (overwriting it would make --rollback a no-op onto the version already running).
+commit_rollback_pair() {
+  if [[ "$(git -C "$APP_DIR" rev-parse HEAD)" == "$PREV_SHA" ]]; then
+    echo "==> already on ${PREV_SHA}: keeping the existing rollback target"
+    rm -rf "$STAGED_DIST"
+    return 0
+  fi
+  mkdir -p "${APP_DIR}/data"
+  # Pin the previous commit: the next --depth 1 fetch / git gc would otherwise leave it reachable only
+  # through the reflog, and --rollback must not need the network just to find it.
+  # The pin, .update-prev and dist.prev change as ONE unit: if any step fails, the old pin is put back so
+  # the surviving (old) pair still has its commit protected from gc.
+  local tmp="" old_pin   # mktemp (O_EXCL, unpredictable): data/ is writable by the unprivileged service user
+  old_pin="$(git -C "$APP_DIR" rev-parse -q --verify refs/orwell/update-prev 2>/dev/null || true)"
+  if ! {
+    git -C "$APP_DIR" update-ref refs/orwell/update-prev "$PREV_SHA" &&
+    tmp="$(mktemp "${PREV_FILE}.XXXXXX")" &&
+    printf '%s' "$PREV_SHA" > "$tmp" &&
+    chmod 644 "$tmp" &&
+    rm -rf "$PREV_DIST" &&
+    { [[ ! -d "$STAGED_DIST" ]] || mv "$STAGED_DIST" "$PREV_DIST"; } &&
+    mv -f "$tmp" "$PREV_FILE"
+  }; then
+    [[ -n "$tmp" ]] && rm -f "$tmp"
+    if [[ -n "$old_pin" ]]; then git -C "$APP_DIR" update-ref refs/orwell/update-prev "$old_pin" 2>/dev/null || true
+    else git -C "$APP_DIR" update-ref -d refs/orwell/update-prev 2>/dev/null || true; fi
+    echo "ERROR: could not replace the rollback pair; the previous pair (and its commit pin) is kept." >&2
+    return 1
+  fi
+}
+
+# A failure anywhere after the update armed itself: put the previous SHA, its dependencies and its dist
+# back, verify the result starts, and ONLY THEN say "reverted". Returns 1 (restored + verified) or 3
+# (the revert itself failed — said plainly, never as a success).
+revert_failed_update() {
+  local rc="$1"
+  set +e
+  # A half-finished revert is worse than a finished one: ignore Ctrl-C / stop / hangup, and a closed log
+  # pipe (`orwell-update.sh | tee log` whose reader died) — SIGPIPE must not kill it between `npm ci`
+  # having deleted node_modules and the restore.
+  trap '' INT TERM HUP PIPE
+  # …and a dead pipe also makes git/npm FAIL when they write to it, so probe stdout/stderr (a blank line
+  # is harmless) and re-point a dead one at the ops log, which is also where the web run's output lands.
+  local ops_log="${APP_DIR}/data/ops-update.log"
+  if ! { printf '\n'; } 2>/dev/null; then { exec >>"$ops_log"; } 2>/dev/null || exec >/dev/null; fi
+  if ! { printf '\n' >&2; } 2>/dev/null; then { exec 2>>"$ops_log"; } 2>/dev/null || exec 2>/dev/null; fi
+  echo "ERROR: update FAILED during ${PHASE} (exit ${rc}) — restoring ${PREV_SHA}; services were NOT restarted." >&2
+  if [[ "$ENGINE_DIRTY$FE_DIRTY$DIST_DIRTY" == "000" && "$(git -C "$APP_DIR" rev-parse HEAD)" == "$PREV_SHA" ]]; then
+    # Failed before anything was touched (e.g. the fetch): there is nothing to restore, and booting a
+    # second engine beside the live one could only add a false alarm.
+    rm -rf "$STAGED_DIST"
+    echo "==> nothing had been changed yet (${PREV_SHA} is still checked out, dependencies and build untouched); services were NOT restarted."
+    ops_progress_fail "update failed during ${PHASE} — nothing had been changed (previous build untouched), services NOT restarted"
+    return 1
+  fi
+  if restore_build "$PREV_SHA" "$STAGED_DIST" && verify_runnable; then
+    rm -rf "$STAGED_DIST"
+    echo "==> reverted to ${PREV_SHA}: its dependencies and build are restored and verified to start; services were NOT restarted."
+    if [[ "$HOST_TOUCHED" -eq 1 ]]; then
+      echo "NOTE: unit files / log policy installed from the new checkout before the failure are NOT reverted (they are idempotent; the next update re-applies them)." >&2
+    fi
+    ops_progress_fail "update failed during ${PHASE} — reverted to ${PREV_SHA} (restored build verified to start), services NOT restarted"
+    echo "Hint: retry with REF=<known-good sha|tag>, or run 'orwell-update.sh --rollback' later." >&2
+    return 1
+  fi
+  echo "ERROR: the revert FAILED — ${PREV_SHA}'s dependencies/build could NOT be restored and verified; the app may not start." >&2
+  echo "       Fix the cause above, then recover with: REF=<known-good sha|tag> bash ${APP_DIR}/deploy/orwell-update.sh" >&2
+  if [[ -d "$STAGED_DIST" ]]; then
+    # a recovery run starts by clearing dist.staging, so keep this copy of the last-running build under its own name
+    rm -rf "${STAGED_DIST}.failed"
+    mv "$STAGED_DIST" "${STAGED_DIST}.failed" \
+      && echo "       The build that was running when this update began is kept at ${STAGED_DIST}.failed." >&2
+  fi
+  ops_progress_fail "update failed during ${PHASE} AND the revert FAILED — the app may not start; recover with REF=<known-good sha|tag> orwell-update.sh (see ops-update.log)"
+  return 3
+}
+
+on_update_exit() {
+  local rc=$? rrc=0
+  trap - EXIT
+  [[ "$rc" -ne 0 ]] || return 0
+  if [[ "$UPDATE_ARMED" -eq 1 ]]; then
+    revert_failed_update "$rc" || rrc=$?
+    exit "$rrc"
+  fi
+  ops_progress_fail "update exited with code $rc — see ops-update.log"
+}
+
+# ── Rollback (B71/ops A4): return to the recorded previous SHA + ITS build, then restart. ─────
+# The SHA is only paired with a dist stamped as built from that SHA (commit_rollback_pair writes both
+# together); a dist.prev that does not match — or predates the stamp — is NOT trusted, the build is
+# redone from source instead. Dependencies are reinstalled for that SHA (a lockfile may differ), and
+# "rollback complete" is printed only after the restored build is verified to start.
 if [[ "$ROLLBACK" -eq 1 ]]; then
   [[ -f "$PREV_FILE" ]] || { echo "ERROR: no previous update recorded (${PREV_FILE} missing) — nothing to roll back to." >&2; exit 1; }
-  PREV_SHA="$(cat "$PREV_FILE")"
-  echo "==> rolling back to ${PREV_SHA}"
-  git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  if [[ -d "$PREV_DIST" ]]; then
-    rm -rf "${APP_DIR}/dist"
-    cp -a "$PREV_DIST" "${APP_DIR}/dist"
-  else
-    ( cd "$APP_DIR" && npm ci && npm run build )
+  RB_SHA="$(cat "$PREV_FILE")"
+  [[ "$RB_SHA" =~ ^[0-9a-fA-F]{7,64}$ ]] \
+    || { echo "ERROR: ${PREV_FILE} does not hold a commit SHA — refusing to roll back." >&2; exit 1; }
+  echo "==> rolling back to ${RB_SHA}"
+  if ! git -C "$APP_DIR" cat-file -e "${RB_SHA}^{commit}" 2>/dev/null; then
+    echo "==> ${RB_SHA} is not in the local checkout — fetching it from origin"
+    git -C "$APP_DIR" fetch --depth 1 origin "$RB_SHA" \
+      || { echo "ERROR: ${RB_SHA} is neither in the local checkout nor fetchable from origin — cannot roll back." >&2; exit 1; }
   fi
-  systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
-  echo "==> rollback complete (now on ${PREV_SHA})."
-  exit 0
+  RB_DIST=""
+  if [[ -d "$PREV_DIST" ]]; then
+    if [[ "$(cat "${PREV_DIST}/${DIST_STAMP}" 2>/dev/null || true)" == "$RB_SHA" ]]; then
+      RB_DIST="$PREV_DIST"
+    else
+      echo "NOTE: ${PREV_DIST} is not stamped as built from ${RB_SHA} — NOT using it; rebuilding from source instead."
+    fi
+  fi
+  # Reinstall dependencies only if that SHA's lockfiles differ from what is installed now: `npm ci`
+  # deletes node_modules first, and a rollback is exactly what you run when things are already wrong
+  # (possibly with the registry down). Same locks ⇒ the installed tree is already the right one.
+  CUR_SHA="$(git -C "$APP_DIR" rev-parse HEAD)"
+  git -C "$APP_DIR" diff --quiet "$CUR_SHA" "$RB_SHA" -- package-lock.json || ENGINE_DIRTY=1
+  git -C "$APP_DIR" diff --quiet "$CUR_SHA" "$RB_SHA" -- frontend/requirements.lock.txt frontend/requirements.txt || FE_DIRTY=1
+  DIST_DIRTY=1
+  echo "==> restoring ${RB_SHA}: build$([[ $ENGINE_DIRTY -eq 1 ]] && echo ' + engine dependencies')$([[ $FE_DIRTY -eq 1 ]] && echo ' + front-end dependencies')"
+  if restore_build "$RB_SHA" "$RB_DIST" && verify_runnable; then
+    systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
+    echo "==> rollback complete (now on ${RB_SHA}; the restored build was verified to start)."
+    exit 0
+  fi
+  echo "ERROR: ROLLBACK FAILED — ${RB_SHA} could not be restored and verified; the app may not start." >&2
+  echo "       Services were NOT restarted. Fix the cause above and re-run --rollback, or: REF=<known-good sha|tag> bash ${APP_DIR}/deploy/orwell-update.sh" >&2
+  exit 3
 fi
 
 # ── ops-progress lane: publish a live timeline for THIS update; the trap surfaces a failure ──
 # (fetching → rebuilding → refreshing deps → restarting → updated). data/ops/update-status.json
-# is where the web tier reads it; any non-zero exit below trips the trap and records "FAILED: …".
+# is where the web tier reads it. Any non-zero exit before the commit point below trips the EXIT trap,
+# which restores the previous SHA + dependencies + dist, verifies them, and records the outcome.
 export ORWELL_OPS_DIR="${APP_DIR%/}/data/ops"
 ops_progress_init "update" 5
-trap 'rc=$?; if [[ "$rc" -ne 0 ]]; then ops_progress_fail "update exited with code $rc — see ops-update.log"; fi' EXIT
+UPDATE_ARMED=0; PHASE="starting"
+trap on_update_exit EXIT
+trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP   # route signals through the EXIT trap
 
 echo "==> updating orwell in ${APP_DIR} (save in ${APP_DIR}/data is preserved)"
 PREV_SHA="$(git -C "$APP_DIR" rev-parse HEAD)"
-# Keep the running build so a failed update (or a later --rollback) can restore it untouched.
-if [[ -d "${APP_DIR}/dist" ]]; then
-  rm -rf "$PREV_DIST"
-  cp -a "${APP_DIR}/dist" "$PREV_DIST"
-fi
+# Hold the running build aside so a failed update can restore it untouched. dist.prev + data/.update-prev
+# (the --rollback pair) are NOT touched until the update fully succeeds — see commit_rollback_pair.
+snapshot_running_dist
+UPDATE_ARMED=1
 
 # Fetch + check out the TARGET (a pinned REF wins over the branch tip).
+PHASE="fetching the target"
 ops_progress_step 1 "fetching latest code"
-if [[ -n "$REF" ]]; then
-  git -C "$APP_DIR" fetch origin "$REF" || git -C "$APP_DIR" fetch --tags origin
-  TARGET="$REF"
-else
-  git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
-  TARGET="origin/${BRANCH}"
-fi
+fetch_target
 git -C "$APP_DIR" reset --hard "$TARGET"
 
 # Build BEFORE committing to the swap (B71/ops A4): a failed build must leave the services on the
 # PREVIOUS checkout + build — never a new tree with a stale dist, never a restart into a broken build.
-echo "==> rebuild engine (the update commits only if this succeeds)"
+# `npm ci` deletes node_modules first, so a failure here (or later) restores the previous dependencies
+# too — see revert_failed_update.
+echo "==> rebuild engine (the update commits only if everything below succeeds)"
+PHASE="the engine build"
 ops_progress_step 2 "rebuilding engine"
 cd "$APP_DIR"
-if ! (npm ci && npm run build); then
-  echo "ERROR: build FAILED on ${TARGET} — reverting to ${PREV_SHA}; services were NOT restarted." >&2
-  ops_progress_fail "build failed on ${TARGET} — reverted to ${PREV_SHA}, services NOT restarted"
-  trap - EXIT  # the explicit fail above is the final status; don't let the EXIT trap re-stamp it
-  git -C "$APP_DIR" reset --hard "$PREV_SHA"
-  if [[ -d "$PREV_DIST" ]]; then rm -rf "${APP_DIR}/dist"; cp -a "$PREV_DIST" "${APP_DIR}/dist"; fi
-  echo "Hint: retry with REF=<known-good sha|tag>, or run 'orwell-update.sh --rollback' later." >&2
-  exit 1
-fi
+ENGINE_DIRTY=1
+npm ci
+DIST_DIRTY=1
+rm -f "${APP_DIR}/dist/${DIST_STAMP}"   # a partial dist must never carry a stamp
+npm run build
+stamp_dist
 
 # Production hardening: the host runs the BUNDLED engine (dist/main.js + the 3 pinned native deps),
 # so once the build above is done it needs only the RUNTIME tree. Drop the dev/build chain
 # (esbuild, vitest, cucumber, …) so the deployed box doesn't carry its advisories (npm audit: all
 # dev-chain — see README "Dependency advisories"). Non-fatal; the next update re-installs it to build.
 npm prune --omit=dev || echo "WARN: npm prune --omit=dev failed (dev deps remain; harmless)"
-
-# ── FINDING #4 — record the rollback breadcrumb HERE, right after the engine build succeeds and
-# BEFORE the FE dep-install + the unit reconcile below (both run under bare `set -e`, and both can
-# fail). PREV_SHA + PREV_DIST are the verified-good prior build — the build guard above already
-# reverted on a build failure — so this is the earliest safe rollback point. Recording it here means
-# a later pip/reconcile failure still leaves an ACCURATE `--rollback` target (the immediately-prior
-# build) instead of a STALE SHA carried over from an older update. Moving it earlier is safe: PREV_FILE
-# only records WHERE to roll back to; nothing in this run consumes it. (data/ survives updates.)
-mkdir -p "${APP_DIR}/data"
-printf '%s' "$PREV_SHA" > "$PREV_FILE"
 
 # ── FINDING #3 — resolve the service USER/GROUP (mirrors orwell-oobe-reset.sh's resolution, ~L368):
 # needed both to drop privileges for the sqlite cruft-cleanup below AND to restore ownership after the
@@ -334,6 +634,7 @@ _svc_sqlite3() {
 # dir the engine reads. A box with no data/.env is skipped (the systemd EnvironmentFile is optional `-`).
 # Prefer the freshly-pulled lib in the checkout; fall back to this script's own dir (the pushed /tmp copy
 # carries only the updater, so the checkout copy is the real one).
+PHASE="the data/.env reconcile"
 ENV_DEFAULTS_LIB="${APP_DIR}/deploy/orwell-env-defaults.sh"
 [[ -r "$ENV_DEFAULTS_LIB" ]] || ENV_DEFAULTS_LIB="${__here}/orwell-env-defaults.sh"
 if [[ -f "$ENV_FILE" && -r "$ENV_DEFAULTS_LIB" ]]; then
@@ -429,18 +730,11 @@ fi
 rm -f "$_pf_log"
 
 echo "==> refresh front-end deps"
+PHASE="the front-end dependency install"
 ops_progress_step 3 "refreshing front-end deps"
 cd "${APP_DIR}/frontend"
-# Pinned lockfile first (audit E83): updates re-install exactly what CI tested, never a blind
-# re-resolution of unpinned ranges.
-if [[ -f requirements.lock.txt ]]; then
-  ./.venv/bin/pip install -q -r requirements.lock.txt
-else
-  ./.venv/bin/pip install -q -r requirements.txt
-fi
-
-# (The rollback breadcrumb PREV_FILE was recorded right after the engine build succeeded, above —
-#  FINDING #4 — so a pip/reconcile failure here still leaves an accurate `--rollback` target.)
+FE_DIRTY=1
+install_frontend_deps
 
 # ── Issue #636 — converge an existing box to the lean game build ───────────────────────────────
 # The FE is vendored from a larger workspace whose browser (Playwright NPX), ChromaDB RAG
@@ -526,6 +820,8 @@ cleanup_inherited_cruft() {
 }
 cleanup_inherited_cruft || true
 
+PHASE="the host reconcile (ownership, login panel, systemd units)"
+HOST_TOUCHED=1
 # ── FINDING #3 — restore data-dir + app-dir OWNERSHIP to the service user. Everything above ran as
 # root (git reset, npm ci/build/prune, pip install, the embedding prefetch, the app.db cruft-cleanup),
 # so freshly-written files (dist/, frontend/.venv, models/, app.db + its sidecars) are now root-owned —
@@ -722,6 +1018,21 @@ if [[ "$APP_DIR" == "/opt/orwell" && -f "${APP_DIR}/deploy/systemd/orwell-ops-tl
   OPS_TLS_READY=1
 fi
 systemctl daemon-reload
+# STALE-FLAG GUARD: a path unit (PathExists=) fires the moment it starts if its flag is already on disk.
+# A flag dropped while a watcher was stopped would therefore run — for a reset, WIPE — at the first
+# `enable --now` / `restart` below, at a time nobody chose. An active watcher consumes a flag within
+# seconds (its ExecStartPre removes it), so a destructive flag still present after 2 minutes is stale:
+# clear it BEFORE the watchers are (re)started. `rm -rf` so a directory planted at the flag path goes too.
+# A flag is only pruned while ITS lane's service is not running: during a long Update + Reset run (this very
+# script is its child) a follow-up request queued meanwhile is legitimate, however old it is by now.
+if [[ "$APP_DIR" == "/opt/orwell" && -d "${APP_DIR}/data/ops" ]]; then
+  for _lane in factory-reset update-reset; do
+    if ! systemctl is-active --quiet "orwell-ops-${_lane}.service" 2>/dev/null; then
+      find "${APP_DIR}/data/ops" -maxdepth 1 -name "${_lane}-requested" \
+        -mmin +2 -exec rm -rf --one-file-system -- {} + 2>/dev/null || true
+    fi
+  done
+fi
 if [[ "$OPS_UNITS_READY" -eq 1 ]]; then
   # The ops TRIGGER is the path unit (its service is started by the watcher, never enabled).
   # `enable --now` no-ops when already running; the restart re-arms it with any fresh unit
@@ -755,6 +1066,14 @@ if [[ "$BACKUP_TIMER_READY" -eq 1 ]]; then
   systemctl enable --now orwell-backup.timer
   systemctl restart orwell-backup.timer
 fi
+
+# ── COMMIT POINT — everything that can fail (build, deps, reconcile) has succeeded: record the
+# rollback pair (previous SHA + its stamped dist) together, then disarm the revert. The restart below is
+# deliberately OUTSIDE the revert: by here the new build is fully in place, and a unit that fails to
+# restart is a service problem a code revert would not fix.
+PHASE="recording the rollback pair"
+commit_rollback_pair
+UPDATE_ARMED=0
 
 # ops-progress lane: terminal OK. Clear the trap before the success write so the EXIT trap can't
 # re-stamp it. (The FE restart below can kill this very process if it is the FE — but the updater

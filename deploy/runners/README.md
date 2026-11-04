@@ -1,8 +1,25 @@
 # deploy/runners/ — Proxmox GitHub Actions self-hosted runners
 
+> ## WARNING — never register self-hosted runners on a PUBLIC repository
+>
+> `kevinhirsch/orwell` is **public**. On a public repo anyone can open a pull request, and a PR's
+> workflow file chooses its own `runs-on:` — so a PR containing `runs-on: self-hosted` runs
+> attacker-chosen code on these runners (and from there on your LAN and the Proxmox host's other
+> guests). Approval settings for outside contributors narrow this; they do not remove it.
+>
+> - [`ci.yml`](../../.github/workflows/ci.yml) runs on GitHub-hosted `ubuntu-latest`; it does **not**
+>   need these runners.
+> - `orwell-provision-runners.sh` **refuses** a public repo (and one it cannot verify as private)
+>   unless you pass `--allow-public-repo` (env `ALLOW_PUBLIC_REPO=1`). Don't, unless the repo is
+>   private or you have accepted the risk. `--remove` is never blocked. Only an authenticated API
+>   answer of `private: true` passes: with `--reg-token` (no PAT) the check cannot confirm privacy, so
+>   it refuses unless `--allow-public-repo` is given.
+> - Runners are registered `--ephemeral` (one job, then de-registered). That limits how long a
+>   runner stays exposed to a job; it is **not** a sandbox for hostile code.
+
 `orwell-provision-runners.sh` spins up N **GitHub Actions self-hosted runners** as Proxmox LXC
-containers so the repo's CI — which uses `runs-on: self-hosted` throughout
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — can run its jobs (the engine gate,
+containers so a repo's CI — when its workflow targets `runs-on: self-hosted` (as
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) did before it moved to gh-hosted runners) — can run its jobs (the engine gate,
 the sharded heavy-sims lanes, coverage, deploy-smoke, and the front-end Playwright job) **in
 parallel** instead of queuing on one box. Default target: **6 runners**.
 
@@ -25,9 +42,10 @@ Runs on the **Proxmox host**. For each runner `i` in `1..COUNT` it:
    **`actions/runner`** linux-x64 agent.
 3. Creates a **non-root** `runner` user and registers the agent **non-interactively** as that user:
    `./config.sh --url https://github.com/kevinhirsch/orwell --token <regtoken> --name
-   orwell-runner-<i> --labels self-hosted --unattended --replace`.
-4. Installs it as an **auto-restarting systemd service** (`./svc.sh install runner && ./svc.sh
-   start`) — zero-touch after: survives reboot, restarts on crash.
+   orwell-runner-<i> --labels self-hosted --unattended --replace --ephemeral`.
+4. Installs it as a **systemd service** (`./svc.sh install runner && ./svc.sh start`). Because the
+   runner is `--ephemeral` it takes **one job, then GitHub de-registers it** — re-run the script
+   (idempotent, `--replace`) to refill the pool.
 
 ### The PAT never enters a container
 
@@ -88,6 +106,7 @@ supersedes the prior registration of the same name), never an error.
 | `--runner-version V` | `RUNNER_VERSION` | latest | `actions/runner` version (no `v`); empty = resolve latest |
 | `--token PAT` | `GIT_TOKEN` | — | GitHub PAT (prefer the env var) |
 | `--env-file PATH` | `ENV_FILE` | `<repo>/data/.env` | Where to read `GIT_TOKEN=` |
+| `--allow-public-repo` | `ALLOW_PUBLIC_REPO=1` | off | **Dangerous.** Allow a public (or unverifiable) repo — see the warning above |
 | `--remove` | `REMOVE=1` | off | Unregister + destroy mode |
 | `--yes` / `-y` | `ORWELL_NONINTERACTIVE=1` | off | Skip the confirmation prompt |
 | `-h`, `--help` | — | — | Help |

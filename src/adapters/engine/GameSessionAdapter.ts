@@ -220,7 +220,7 @@ import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
-  requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
+  raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
@@ -978,6 +978,12 @@ export class GameSessionAdapter implements GameSession {
    * is folded ⇒ every seeded gate is BYTE-IDENTICAL; the live deploy enables it via `ORWELL_VOTE_DEDUCTION=1`.
    */
   private voteDeductionEnabled = VOTE_DEDUCTION_ENABLED_DEFAULT;
+  /**
+   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. OFF unless exactly `ORWELL_NPC_BELIEFS=1`
+   * (the engine's own strict read), deliberately NOT part of the default flip (pinned in flagDefaultParity). Off ⇒ no store is created and the season
+   * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
+   */
+  private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -7089,6 +7095,7 @@ export class GameSessionAdapter implements GameSession {
       // 0110: fold the eviction jury grudge on the evictee's DEDUCED belief (process of elimination) —
       // present ONLY when enabled (off in the calibration harness ⇒ absent ⇒ true ballot folded ⇒ byte-identical).
       ...(this.voteDeductionEnabled ? { voteDeduction: true as const } : {}),
+      ...(this.npcBeliefsEnabled ? { npcBeliefs: true as const } : {}),
       // 0126: fold the expanded mechanic pool into the competition draw — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ the base 12-mechanic draw ⇒ byte-identical).
       ...(this.compMechanicsPlusEnabled ? { expandedComps: true as const } : {}),
@@ -9286,6 +9293,22 @@ export class GameSessionAdapter implements GameSession {
     });
   }
 
+  /** E-1 — re-raise the spectator-choice card for a WATCHING pre-jury evictee (see the port). Typed refusal when there is nothing to raise or the player is skipping. */
+  raiseSpectatorChoice(expectedBeatSeq?: number): AdvanceView {
+    this.guardBeatSeq(expectedBeatSeq);
+    if (!this.house || !this.live) throw new EngineRefusal("no active game");
+    const live = this.live;
+    if (live.spectator?.mode === "skip") throw new EngineRefusal("skipping ahead to the finale is irreversible — the player is already skipping, so there is no choice to re-open");
+    if (live.finished || !live.spectator) throw new EngineRefusal("there is no spectator choice to re-open (only a player who was evicted before the jury and chose to watch has one)");
+    if (live.pending?.kind === "spectator-choice") return this.advanceView(null); // already open — idempotent
+    if (live.pending) throw new EngineRefusal(`another decision (${live.pending.kind}) is open — answer it first`);
+    return this.inOneCommit(() => {
+      raiseSpectatorChoiceState(live, PLAYER);
+      this.commit({ beat: "spectator-choice", content: `${PLAYER} asks to reconsider skipping ahead to the finale`, participants: [PLAYER] });
+      return this.advanceView(null);
+    });
+  }
+
   /** Self-eviction cancel (0061 §4.2) — clear the confirmation; the player plays on, ACTIVE, unchanged. */
   cancelSelfEviction(): AdvanceView {
     if (!this.house || !this.live) return this.advanceView(null);
@@ -10977,7 +11000,11 @@ export class GameSessionAdapter implements GameSession {
       case "spectator-choice":
         return {
           kind: p.kind, by,
-          prompt: "You are out before the jury formed. Skip ahead to the finale, or keep watching a condensed version of the rest of the season? Either way you will be back for the finale night.",
+          // A RE-RAISED card (E-1: watch -> skip) carries a DIFFERENT prompt: the FE keys its at-most-once decision token on the card's kind|options|prompt, so an identical
+          // prompt would replay the first (watch) answer verbatim and the skip would never land.
+          prompt: p.again
+            ? "You chose to keep watching. Do you want to skip ahead to the finale instead? Skipping is final — once you skip, you can't go back to watching. Either way you will be back for the finale night."
+            : "You are out before the jury formed. Skip ahead to the finale, or keep watching a condensed version of the rest of the season? Either way you will be back for the finale night.",
           options: p.modes.map((m) => ({ id: m, name: m })),
           pick: 1,
         };

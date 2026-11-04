@@ -3,6 +3,7 @@ import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../domain/competitionOutcome";
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
+import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
 
 /** The competition intents the player may declare (Bible: compete / throw / play-safe), 0006/0034. */
@@ -178,7 +179,7 @@ export type PendingDecision =
   // --- exit interview (0130): the player, as the EVICTEE, answers the producers in their own words/posture ---
   | { kind: "exit-interview"; by: EntityId; evictee: EntityId; stances: ExitStance[] }
   // --- early eviction (0133): the pre-jury evictee chooses to skip to the finale or keep watching ---
-  | { kind: "spectator-choice"; by: EntityId; modes: SpectatorMode[] }
+  | { kind: "spectator-choice"; by: EntityId; modes: SpectatorMode[]; /** E-1: a re-raised card (watch → skip) — its card text differs so the FE's per-card idempotency key can never replay the first answer. */ again?: true }
   // --- early eviction (0133): the pre-jury evictee's finale-night interview (posture + optional words) ---
   | { kind: "finale-interview"; by: EntityId; stances: ExitStance[] }
   // --- finale (0037) ---
@@ -495,6 +496,12 @@ export interface LiveSeasonState {
    */
   deducedCulprits?: Record<EntityId, EntityId[]>;
   /**
+   * #2017 S0a — the NPC belief store (`beliefStore.ts`): per-holder typed claims with origin + confidence. ENGINE-ONLY, never projected, read
+   * by NOTHING yet (data model + plumbing), no rng. Created ONLY when `ORWELL_NPC_BELIEFS` is on (absent ⇒ byte-identical season state). Rides on
+   * this `live` state, so it is persisted and restored with the season exactly like `juryGrudge`.
+   */
+  beliefs?: BeliefStore;
+  /**
    * The per-week eviction ballot record (E12): who voted to evict whom, kept ENGINE-ONLY for
    * manner/deal reconciliation and for the 0048 retrospective UNSEALING. Eviction votes are
    * secret ballots in Big Brother — no projection attributes a weekly vote to its voter while
@@ -786,6 +793,8 @@ export interface SeasonCtx {
    * `ORWELL_VOTE_DEDUCTION`; the calibration/UAT harness leaves it off.
    */
   voteDeduction?: boolean;
+  /** #2017 S0a — record belief claims (data model + plumbing only; nothing reads them). Default OFF (`ORWELL_NPC_BELIEFS`, pinned never-flipped). */
+  npcBeliefs?: boolean;
   /**
    * 0126 — fold the expanded mechanic pool (9 HOH + 9 veto extra) into the competition draw. Absent/false
    * ⇒ the bare base 12, byte-identical (the seeded spine is unmoved). Wired live behind
@@ -2075,6 +2084,18 @@ function armReactiveTwist(s: LiveSeasonState): void {
   }
 }
 
+/**
+ * E-1 (2026-11-04) — re-raise the `spectator-choice` card for a player who chose WATCH, so they can switch to SKIP ON THE CARD (the card-only binding stays: the model
+ * still cannot commit it). Pure state change, no rng. `true` ⇒ the card is now (or already was) open; `false` ⇒ nothing to raise (no spectator, finished, or SKIP —
+ * skip is irreversible, the caller refuses).
+ */
+export function raiseSpectatorChoice(s: LiveSeasonState, player: EntityId): boolean {
+  if (s.finished || !s.spectator || s.spectator.mode !== "watch") return false;
+  if (s.pending) return s.pending.kind === "spectator-choice";
+  s.pending = { kind: "spectator-choice", by: player, modes: [...SPECTATOR_MODES], again: true };
+  return true;
+}
+
 /** Atomic eviction (record manner + remove + roll) — used by the non-staged paths (Final-3 0045). */
 function applyEviction(s: LiveSeasonState, evictee: EntityId, ctx: SeasonCtx, responsible: EntityId[]): void {
   recordEvictionManner(s, evictee, responsible, ctx);
@@ -2343,6 +2364,14 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // #1790 — store the POSSIBLY-WRONG deduced set on engine-only season state for jury-house blame
   // routing (AC1). NEVER projected to any surface — this is an engine-only store.
   (s.deducedCulprits ??= {})[evictee] = believedVoters;
+  // #2017 S0a — mirror the evictee's possibly-wrong deduction into the belief store as `voted-against-me` claims (origin `deduced`). Flag-gated: OFF ⇒
+  // the store is never created. Written from values already computed above (no rng, no new draw) and read by nothing, so it moves no outcome.
+  if (ctx.npcBeliefs && ctx.voteDeduction) {  // only a REAL 0110 deduction is a belief: with deduction off `believedVoters` is the true ballot
+    const store = (s.beliefs ??= {});
+    for (const v of believedVoters) {
+      recordClaim(store, { holder: evictee, kind: "voted-against-me", subject: v, value: true, origin: "deduced", confidence: DEDUCED_CLAIM_CONFIDENCE, week: s.week });
+    }
+  }
   recordEvictionManner(s, evictee, [s.hoh!, ...believedVoters], ctx);
   removeEvictee(s, evictee);          // out now — the last vote landed; the result is public
   e.goodbyeFrom = selectGoodbyeSenders(s, evictee, ctx.player, rng);
@@ -3070,7 +3099,8 @@ export function applyDecision(
       if (!SPECTATOR_MODES.includes(input.mode)) throw new Error("a legal spectator mode is required (watch / skip)");
       s.pending = undefined;
       s.spectatorOffered = true;
-      s.spectator = { mode: input.mode, sinceWeek: s.week };
+      // A re-raised card (watch -> skip) keeps the ORIGINAL sinceWeek, so the weeks already digested are not dropped from the player's recap.
+      s.spectator = { mode: input.mode, sinceWeek: s.spectator?.sinceWeek ?? s.week };
       return {
         beat: "spectator-choice",
         content: input.mode === "skip"

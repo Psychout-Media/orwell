@@ -67,11 +67,18 @@ def test_ops_update_trigger_requires_install_then_writes_flag(monkeypatch, tmp_p
     monkeypatch.setenv("AUTH_ENABLED", "false")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     client = TestClient(_app(), raise_server_exceptions=False)
-    # not installed: no data/ops dir → honest refusal, nothing written
+    unit = tmp_path / "orwell-ops-update.path"
+    monkeypatch.setenv("ORWELL_UPDATE_WATCHER_UNIT", str(unit))
+    # not installed: no watcher unit → honest refusal, nothing written
     r = client.post("/api/admin/ops/trigger-update")
     assert r.json()["triggered"] is False and r.json()["installed"] is False
-    # installed: the flag is written; content is a timestamp (ignored by the unit)
+    # a bare data/ops dir (created on every box) is NOT proof the flag will be consumed
     (tmp_path / "ops").mkdir()
+    r = client.post("/api/admin/ops/trigger-update")
+    assert r.json()["triggered"] is False
+    assert not (tmp_path / "ops" / "update-requested").exists()
+    # installed + active: the flag is written; content is a timestamp (ignored by the unit)
+    unit.write_text("[Path]\n")
     r2 = client.post("/api/admin/ops/trigger-update")
     assert r2.json()["triggered"] is True
     assert (tmp_path / "ops" / "update-requested").exists()

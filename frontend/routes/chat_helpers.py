@@ -4650,6 +4650,30 @@ async def screen_role_claims(user, text: str) -> str:
 
 
 async def screen_role_claims_ex(user, text: str) -> "tuple[str, tuple]":
+    """(kept text, the stripped units' exact original text): the PHANTOM-FINALE screen (an evicted player must not be told the finale / final two / jury verdict /
+    winner has ARRIVED before the engine committed it — E-1 2026-11-04) followed by the name+role screen. Fail-open: any hiccup returns what it has."""
+    fin_stripped: tuple = ()
+    try:
+        from src import finale_claims as _fc
+        if _fc.has_finale_cue(text):
+            _live_fin = await _capture_beat_signature(user)
+            if _live_fin:
+                text, _fs = _fc.strip_phantom_finale(text, _live_fin)
+                if _fs:
+                    fin_stripped = tuple(_fs)
+                    logger.warning("[orwell] phantom-finale guard STRIPPED %d unit(s) for user=%s: %s", len(_fs), user,
+                                   "; ".join(repr(u.strip()[:70]) for u in _fs))
+                    _reground_enqueue(_desync_key(user), (
+                        "RE-GROUND ON THE FINALE — last turn the narration said the finale, the final two, the jury's verdict or the winner had arrived. "
+                        "None of that has happened: the game is still mid-season. Voice only what the House Status panel and the production chyron show, "
+                        "and never announce the finale, finalists or a winner the game has not committed."))
+    except Exception as e:
+        logger.debug("[orwell] phantom-finale guard skipped for user=%s: %s", user, e)
+    kept, stripped = await _screen_role_claims_core(user, text)
+    return kept, tuple(fin_stripped) + tuple(stripped)
+
+
+async def _screen_role_claims_core(user, text: str) -> "tuple[str, tuple]":
     """(kept text, the stripped units' exact original text). Fail-open: any hiccup returns (text, ())."""
     try:
         if not text or not text.strip():
@@ -5005,6 +5029,53 @@ def current_game_moment(user) -> Optional[str]:
     "default"-fallback way framing writes it. Vault-free (closed-set public status only)."""
     return _LAST_FRAMED_GAME_MOMENT.get(user or "default")
 
+
+# E-1 (live rehearsal 2026-11-04): a WATCHING pre-jury evictee who asks to skip ahead had NO path — the spectator-choice card was gone and the model cannot commit a
+# card-only choice (it improvised a fictional finale instead). The engine can re-raise the SAME card on demand (`raiseSpectatorChoice`); this belt raises it when the
+# player's own words ask to skip, and the player confirms ON the card. Narrow cue (skip-ahead / fast-forward / see how it ends), watching evictee only, once per card.
+_SKIP_AHEAD_RE = re.compile(
+    r"\b(?:skip\s+(?:ahead|to\s+(?:the\s+)?(?:finale|end)|the\s+rest|it\s+all|all\s+of\s+it|forward)|just\s+skip|fast[\s-]?forward|"
+    r"jump\s+(?:ahead\s+)?to\s+the\s+(?:finale|end)|(?:go|take\s+me|get)\s+(?:me\s+)?(?:straight\s+)?to\s+the\s+(?:finale|end)|"
+    r"(?:show\s+me|let\s+me\s+see|see)\s+how\s+(?:it\s+all\s+|it\s+)?ends)\b", re.IGNORECASE)
+
+
+def _player_wants_to_skip_ahead(player_msg) -> bool:
+    s = (player_msg or "").strip()
+    return bool(s) and bool(_SKIP_AHEAD_RE.search(s))
+
+
+async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bool:
+    """Raise the spectator-choice card for a WATCHING evictee whose own message asks to skip ahead. True iff the engine raised it. Fail-soft (never blocks a turn)."""
+    try:
+        if not isinstance(game_state, dict) or not game_state.get("started") or game_state.get("pending"):
+            return False
+        player = game_state.get("player") or {}
+        if player.get("status") != "evicted" or player.get("spectator") != "watch":
+            return False
+        if not _player_wants_to_skip_ahead(player_msg):
+            return False
+        from src import orwell_engine
+        res = await orwell_engine.raise_spectator_choice(user=user)
+        try:
+            orwell_engine.remember_pending(res, user=user)
+        except Exception:
+            pass
+        # The raise COMMITTED (beatSeq bumped): refresh the FE's last-seen token, or the player's very next card confirm carries a stale expectedBeatSeq and the
+        # decision route silently reconciles it away as a stale-beat no-op (live E-1: the skip never landed).
+        try:
+            _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+        except Exception:
+            pass
+        try:  # tell every window (incl. the WS client's pinned beatSeq) the board moved, so the card's confirm carries the fresh token
+            from src import orwell_game_session
+            orwell_game_session.publish_game_updated(user)
+        except Exception:
+            pass
+        logger.info("[orwell] spectator-choice card re-raised for user=%s (watching evictee asked to skip ahead)", user)
+        return True
+    except Exception as e:
+        logger.debug("[orwell] spectator re-raise skipped for user=%s: %s", user, e)
+        return False
 
 # A/B 2026-11-04: a READY player's staged competition is driven to its result in ONE pre-resolve pass (bounded), so the narration voices the engine's real winner.
 _COMP_RUN_HOPS = 8
@@ -5397,6 +5468,8 @@ async def apply_game_framing(
         # social-runway gate inside HOLDS the next ceremony for a few social turns (overriding the
         # moment to `social`) so the player is never fast-forwarded past their scheming; the player's
         # own message lets a "let's move on" cut the runway short.
+        if await maybe_raise_spectator_choice(user, game_state, player_msg):
+            game_state = (await orwell_engine.get_game_state(user=user)) or game_state  # the open card is now part of the board this turn is framed on
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         # P2: a session this process has never framed is a FRESH CONTEXT — request the

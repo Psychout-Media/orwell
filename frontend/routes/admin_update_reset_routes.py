@@ -36,6 +36,7 @@ Privilege model (identical to the other two buttons — see ``admin_update_route
        ``ORWELL_UPDATE_RESET_SUDO=1``) for dev / non-flag installs.
 """
 
+import asyncio
 import datetime as _dt
 import logging
 import os
@@ -45,7 +46,8 @@ from datetime import timezone
 
 from fastapi import APIRouter, Request
 
-from core.middleware import require_admin
+from core.admin_guard import RESET_PHRASE, guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
 from src.auth_helpers import effective_user
 
 logger = logging.getLogger(__name__)
@@ -93,9 +95,10 @@ def _watcher_unit_path() -> str:
 
 
 def _watcher_installed() -> bool:
-    """True when the root-side path unit is installed — the privileged door that runs the combined
-    Update + Reset with root (the unit watches ``data/ops/<flag>`` and runs the script as root)."""
-    return os.path.isfile(_watcher_unit_path())
+    """True when the root-side path unit is installed AND ACTIVE — the privileged door that runs the
+    combined Update + Reset with root (the unit watches ``data/ops/<flag>`` and runs the script as
+    root). A stopped/disabled unit would leave the flag unread until it next starts."""
+    return watcher_active(_watcher_unit_path())
 
 
 def _flag_trigger_installed() -> bool:
@@ -198,9 +201,10 @@ def setup_admin_update_reset_routes() -> APIRouter:
         restarts this process). Prefers the privilege-safe root flag trigger when installed;
         otherwise launches the fixed script detached (optionally sudo-wrapped).
 
-        Destructive: the status-page button requires a type-"RESET" confirmation before it posts
-        here. This endpoint re-checks admin server-side regardless of the UI."""
-        require_admin(request)
+        Destructive: the status-page button asks for a typed "RESET" and sends it as
+        ``{"confirm": "RESET"}``; this endpoint REQUIRES that field server-side (400 without it), and
+        re-checks admin (``require_root_ops``) and same-origin regardless of the UI."""
+        await guard_root_op(request, confirm=RESET_PHRASE)
         who = None
         try:
             who = effective_user(request)
@@ -212,13 +216,16 @@ def setup_admin_update_reset_routes() -> APIRouter:
         # PRIVILEGE FIX (ops-run lane): prefer the root-side flag watcher (G19b) — the only door that
         # runs the combined script with root. Create data/ops/ first so a box that just gained the
         # watcher units works on the very next click.
-        if _flag_trigger_installed() and not force_direct:
+        flag_error = None   # set when the watcher is active but the trigger flag could not be written
+        # off the event loop: the watcher probe shells out to `systemctl is-active` (up to 5 s)
+        if await asyncio.to_thread(_flag_trigger_installed) and not force_direct:
             _ensure_ops_dir()
             logger.info("[update-reset] admin '%s' triggered Update + Reset via the root flag trigger", who)
             try:
                 return _trigger_via_flag()
             except OSError as e:
                 logger.warning("[update-reset] flag trigger failed (%s); evaluating detached run", e)
+                flag_error = e
 
         # The detached Popen runs as the NON-ROOT FE user, which EPERMs / aborts on the run-as-root
         # guard — the silent no-op. Only take it with a genuine privileged path.
@@ -229,9 +236,12 @@ def setup_admin_update_reset_routes() -> APIRouter:
 
         # FAIL LOUDLY — no privileged path. Surface it through the ops-progress channel the status
         # page polls so the operator sees the error instead of a silent "started" that never runs.
-        reason = ("no privileged path to run Update + Reset — the root-side flag watcher "
-                  "(orwell-ops-update-reset.path) is not installed and sudo is not enabled. "
-                  "Re-run the deploy installer/updater on the host or set ORWELL_UPDATE_RESET_SUDO=1.")
+        if flag_error is not None:
+            reason = (f"cannot run Update + Reset — the watcher is running but the trigger flag could not be written "
+                      f"({flag_error}); nothing was queued.")
+        else:
+            reason = inactive_reason(_watcher_unit_path(), "run Update + Reset")
+        reason += " Sudo is not enabled either (ORWELL_UPDATE_RESET_SUDO=1)."
         logger.error("[update-reset] admin '%s' could NOT start Update + Reset: %s", who, reason)
         _write_failed_status("update-reset", reason)
         return {"started": False, "via": "none", "error": reason}

@@ -33,6 +33,7 @@ Privilege model (see the PR notes + ``deploy/sudoers/orwell-update``):
   present, falls back to the (optionally sudo-wrapped) detached Popen otherwise.
 """
 
+import asyncio
 import datetime as _dt
 import logging
 import os
@@ -42,7 +43,8 @@ from datetime import timezone
 
 from fastapi import APIRouter, Request
 
-from core.middleware import require_admin
+from core.admin_guard import guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
 from src.auth_helpers import effective_user
 
 logger = logging.getLogger(__name__)
@@ -87,9 +89,10 @@ def _watcher_unit_path() -> str:
 
 
 def _watcher_installed() -> bool:
-    """True when the root-side G19b path unit is installed — the privileged door that actually
-    runs the updater with root (the unit watches ``data/ops/update-requested`` and runs as root)."""
-    return os.path.isfile(_watcher_unit_path())
+    """True when the root-side G19b path unit is installed AND ACTIVE — the privileged door that
+    actually runs the updater with root (the unit watches ``data/ops/update-requested`` and runs as
+    root). A stopped/disabled unit would leave the flag unread, so it must not count."""
+    return watcher_active(_watcher_unit_path())
 
 
 def _flag_trigger_installed() -> bool:
@@ -195,7 +198,7 @@ def setup_admin_update_routes() -> APIRouter:
         Admin-only. Returns ``{started: true}`` IMMEDIATELY — never blocks on completion (the
         update restarts this process). Prefers the privilege-safe root flag trigger when
         installed; otherwise launches the fixed script detached (optionally sudo-wrapped)."""
-        require_admin(request)
+        await guard_root_op(request)
         who = None
         try:
             who = effective_user(request)
@@ -207,13 +210,16 @@ def setup_admin_update_routes() -> APIRouter:
         # PRIVILEGE FIX (ops-run lane): prefer the root-side flag watcher (G19b) — the only door
         # that runs the updater with root. Create data/ops/ first so a box that just gained the
         # watcher units works on the very next click.
-        if _flag_trigger_installed() and not force_direct:
+        flag_error = None   # set when the watcher is active but the trigger flag could not be written
+        # off the event loop: the watcher probe shells out to `systemctl is-active` (up to 5 s)
+        if await asyncio.to_thread(_flag_trigger_installed) and not force_direct:
             _ensure_ops_dir()
             logger.info("[update] admin '%s' triggered update via the root flag trigger (G19b)", who)
             try:
                 return _trigger_via_flag()
             except OSError as e:
                 logger.warning("[update] flag trigger failed (%s); evaluating detached run", e)
+                flag_error = e
 
         # The detached Popen runs the updater as the NON-ROOT FE user — which EPERMs partway through
         # (git pull into /opt, write /etc/systemd, systemctl restart). Only take it with a genuine
@@ -226,9 +232,12 @@ def setup_admin_update_routes() -> APIRouter:
 
         # FAIL LOUDLY — no privileged path. Surface it through the ops-progress channel the status
         # page polls so the operator sees the error instead of a silent "started" that never runs.
-        reason = ("no privileged path to run the update — the root-side flag watcher "
-                  "(orwell-ops-update.path) is not installed and sudo is not enabled. "
-                  "Re-run the deploy installer/updater on the host or set ORWELL_UPDATE_SUDO=1.")
+        if flag_error is not None:
+            reason = (f"cannot run the update — the watcher is running but the trigger flag could not be written "
+                      f"({flag_error}); nothing was queued.")
+        else:
+            reason = inactive_reason(_watcher_unit_path(), "run the update")
+        reason += " Sudo is not enabled either (ORWELL_UPDATE_SUDO=1)."
         logger.error("[update] admin '%s' could NOT start the update: %s", who, reason)
         _write_failed_status("update", reason)
         return {"started": False, "via": "none", "error": reason}

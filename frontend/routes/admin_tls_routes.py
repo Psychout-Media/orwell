@@ -48,9 +48,23 @@ from core.middleware import (
 from routes.admin_update_routes import (
     _ensure_ops_dir,
     _ops_dir,
-    _watcher_installed,
     _write_failed_status,
 )
+from core.admin_guard import guard_root_op
+from core.ops_watcher import inactive_reason, watcher_active
+
+# The root path unit that consumes THIS lane's flag — its own unit, not the Update lane's. Overridable
+# for tests/dev.
+_WATCHER_UNIT = "/etc/systemd/system/orwell-ops-tls.path"
+
+
+def _watcher_unit_path() -> str:
+    return os.environ.get("ORWELL_TLS_WATCHER_UNIT") or _WATCHER_UNIT
+
+
+def _watcher_ready() -> bool:
+    """True iff the TLS path unit is installed AND active (see ``core.ops_watcher``)."""
+    return watcher_active(_watcher_unit_path())
 
 _TOKEN_FILE = "tls-dns-token"
 _CONFIG_FILE = "tls.json"
@@ -146,7 +160,7 @@ def setup_admin_tls_routes() -> APIRouter:
     async def tls_apply(request: Request):
         """Sanitise the proposed names, then drop the non-secret config + the (optional) mode-0600 DNS
         token + the existence-only flag. Fails closed (400) on no valid host to cover."""
-        require_admin(request)
+        await guard_root_op(request)
         body = await request.json() if await _has_body(request) else {}
         if not isinstance(body, dict):
             body = {}
@@ -178,6 +192,13 @@ def setup_admin_tls_routes() -> APIRouter:
             # A bare enable with no fields → cover the safe defaults (orwell.lan, orwell.local).
             local_names = list(DEFAULT_LOCAL_TLS_NAMES)
 
+        # Nothing is written unless the root watcher is really running: an early return used to leave
+        # the DNS token (and config) on disk with nobody to consume or shred them.
+        if not _watcher_ready():
+            reason = inactive_reason(_watcher_unit_path(), "apply local HTTPS")
+            _write_failed_status(_ACTION, reason)
+            return {"started": False, "via": "none", "error": reason, "log": "ops-tls.log"}
+
         _ensure_ops_dir()
         config = {
             "action": "apply",
@@ -201,28 +222,21 @@ def setup_admin_tls_routes() -> APIRouter:
             finally:
                 os.close(fd)
 
-        if not _watcher_installed():
-            reason = ("no privileged path to apply local HTTPS — the root-side flag watcher "
-                      "(orwell-ops-tls.path) is not installed. Re-run the deploy installer/updater on "
-                      "the host so the ops units exist.")
-            _write_failed_status(_ACTION, reason)
-            return {"started": False, "via": "none", "error": reason, "log": "ops-tls.log"}
         return _trigger_tls_flag()
 
     @router.post("/tls/disconnect")
     async def tls_disconnect(request: Request):
         """Back to plain HTTP: drop the disable config + the existence-only flag (the root script
         flips ORWELL_TLS_MODE off, disables caddy, restarts the FE)."""
-        require_admin(request)
+        await guard_root_op(request)
+        if not _watcher_ready():
+            reason = inactive_reason(_watcher_unit_path(), "disable local HTTPS")
+            _write_failed_status(_ACTION, reason)
+            return {"started": False, "via": "none", "error": reason, "log": "ops-tls.log"}
         _ensure_ops_dir()
         config_path = os.path.join(_ops_dir(), _CONFIG_FILE)
         with open(config_path, "w", encoding="utf-8") as fh:
             json.dump({"action": "disable", "ts": _now_iso()}, fh)
-        if not _watcher_installed():
-            reason = ("no privileged path to disable local HTTPS — the root-side flag watcher "
-                      "(orwell-ops-tls.path) is not installed.")
-            _write_failed_status(_ACTION, reason)
-            return {"started": False, "via": "none", "error": reason, "log": "ops-tls.log"}
         return _trigger_tls_flag()
 
     return router

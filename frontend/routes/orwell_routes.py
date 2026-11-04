@@ -1702,6 +1702,33 @@ def setup_orwell_routes() -> APIRouter:
             logger.warning(f"[orwell] self-eviction request failed: {e}")
             return JSONResponse(status_code=502, content={"error": f"engine unreachable: {e}"})
 
+    @router.post("/spectator/raise")
+    async def orwell_spectator_raise(request: Request):
+        """E-1 — a WATCHING pre-jury evictee asks to skip ahead: re-raise the SAME spectator-choice card (the confirm happens ON the card; the card-only binding is
+        untouched, skip stays irreversible). A typed engine refusal (already skipping / nothing to raise) is a 409 with its plain-language reason."""
+        user = _current_user(request)
+        try:
+            res = await orwell_engine.raise_spectator_choice(user=user)
+            orwell_engine.remember_pending(res, user=user)
+            try:  # the raise committed — refresh the FE beatSeq token so the card's confirm isn't a self-inflicted stale-beat no-op
+                from routes.chat_helpers import _refresh_beat_seq
+                _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+            except Exception:
+                pass
+            _publish_game_updated(user)  # 0064: instant cross-device reconcile
+            return res
+        except orwell_engine.EngineToolError as e:
+            if e.no_game:
+                return JSONResponse(status_code=409, content={"started": False, "error": "no active game"})
+            msg = str(e)
+            if any(k in msg.lower() for k in ("irreversible", "no spectator choice", "another decision", "re-open")):
+                return JSONResponse(status_code=409, content={"error": msg})
+            logger.warning(f"[orwell] spectator raise failed: {e}")
+            return JSONResponse(status_code=502, content={"error": msg})
+        except Exception as e:
+            logger.warning(f"[orwell] spectator raise failed: {e}")
+            return JSONResponse(status_code=502, content={"error": f"engine unreachable: {e}"})
+
     @router.post("/self-eviction/cancel")
     async def orwell_self_eviction_cancel(request: Request):
         """0061 — the player declined the self-evict confirmation. Clear it; they remain ACTIVE and in

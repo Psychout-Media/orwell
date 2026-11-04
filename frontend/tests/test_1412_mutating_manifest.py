@@ -164,6 +164,6 @@ def test_the_current_mutator_set_is_pinned():
         "moveTo", "moveHouseguest", "markHouseguestMet", "turnIn",
         "makeDeal", "formAlliance", "joinAlliance", "askJuror",
         "exposeSecret", "tradeSecret", "confront", "accuseTie",
-        "manageSandbox",
+        "manageSandbox", "raiseSpectatorChoice",
     }
     assert set(_manifest_tools()) == expected

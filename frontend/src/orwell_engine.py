@@ -896,6 +896,12 @@ async def request_self_eviction(user: str | None = None) -> dict:
     return await _call("requestSelfEviction", {}, user=user)
 
 
+async def raise_spectator_choice(user: str | None = None) -> dict:
+    """E-1 (2026-11-04): a WATCHING pre-jury evictee asks to switch to SKIP — re-raise the spectator-choice CARD so they confirm on it (card-only binding intact; skip is
+    irreversible: a typed engine refusal in skip mode / with nothing to raise)."""
+    return await _call("raiseSpectatorChoice", {}, user=user)
+
+
 async def cancel_self_eviction(user: str | None = None) -> dict:
     """Self-eviction cancel (0061): the player decided to stay — clear the confirmation; they remain
     ACTIVE and in the house, unchanged."""

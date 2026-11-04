@@ -322,8 +322,8 @@ describe("G19b ops trigger — web-requested update via the root path unit", () 
   });
 
   it("the service removes the flag FIRST (no PathExists= retrigger loop), then runs", () => {
-    expect(svcUnit).toContain("ExecStartPre=/bin/rm -f /opt/orwell/data/ops/update-requested");
-    expect(svcUnit.indexOf("ExecStartPre=/bin/rm -f /opt/orwell/data/ops/update-requested"))
+    expect(svcUnit).toContain("ExecStartPre=/bin/rm -rf --one-file-system -- /opt/orwell/data/ops/update-requested");
+    expect(svcUnit.indexOf("ExecStartPre=/bin/rm -rf --one-file-system -- /opt/orwell/data/ops/update-requested"))
       .toBeLessThan(svcUnit.indexOf("ExecStart=/bin/bash"));
   });
 
@@ -333,7 +333,7 @@ describe("G19b ops trigger — web-requested update via the root path unit", () 
     const flagExecLines = svcUnit
       .split("\n")
       .filter((l) => l.startsWith("Exec") && l.includes("update-requested"));
-    expect(flagExecLines).toEqual(["ExecStartPre=/bin/rm -f /opt/orwell/data/ops/update-requested"]);
+    expect(flagExecLines).toEqual(["ExecStartPre=/bin/rm -rf --one-file-system -- /opt/orwell/data/ops/update-requested"]);
   });
 
   it("overlapping triggers no-op on the lock (flock) instead of stacking a second build", () => {
