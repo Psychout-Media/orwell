@@ -4623,8 +4623,8 @@ async def screen_role_claims_ex(user, text: str) -> "tuple[str, tuple]":
         _cached = _LAST_BEAT_SIG.get(_dkey) or {}
         # Pre-reveal eviction: a bare nominee-name line is a ballot readout, but only text that can HOLD a nominee name needs the
         # board read — creative prose with no nominee name skips the engine round-trips (the cost is per streamed chunk).
-        _ballots_unrevealed = (phase_hint.lower().startswith("eviction") and _cached.get("evictionBallots") == 0
-                               and any(tok and tok in text for nm in (_cached.get("nomNames") or []) for tok in str(nm).split()))
+        _ballots_unrevealed = (phase_hint.lower().startswith(("eviction", "veto-ceremony")) and _cached.get("evictionBallots") == 0
+                               and any(tok and re.search(r"(?<![\w'’])" + re.escape(tok) + r"(?![\w])", text) for nm in (_cached.get("nomNames") or []) for tok in str(nm).split()))
         if not _rc.cues_in(_rc._norm(text), phase_hint) and carry["ttl"] <= 0 and not _ballots_unrevealed:
             return text, ()  # cheap pre-filter: no role cue and nothing carried ⇒ creative prose, untouched (ADR 0005 #1)
         live = await _capture_beat_signature(user)

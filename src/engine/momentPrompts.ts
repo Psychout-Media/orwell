@@ -1617,7 +1617,52 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       if (bits.length) lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }
+  // A-15 (rehearsal 2026-11-03): the committed BOARD, last in the terminal block (nearest generation). In the ceremony phases the
+  // narrator invented veto winners, evictees and even different nominees because these facts lived only mid-prompt. Short,
+  // engine-committed, Vault-free (the same public ceremony projection GAME CONTEXT carries). Byte-identical outside ceremonies.
+  const board = renderBoardRecap(view);
+  if (board) lines.push(...board);
   return lines.join("\n");
+}
+
+const CEREMONY_PHASE_PREFIXES = ["hoh-competition", "nominations", "veto", "eviction", "final-eviction"];
+
+/** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
+export function renderBoardRecap(view: GameStateView): string[] | undefined {
+  const phase = String(view.phase ?? "").toLowerCase();
+  if (!CEREMONY_PHASE_PREFIXES.some((p) => phase.startsWith(p))) return undefined;
+  const cer = view.ceremony;
+  const hohComp = phase.startsWith("hoh-competition");
+  const finalThree = phase.startsWith("final-eviction");
+  if (!cer || (!hohComp && !(cer.hoh || cer.nominees.length || cer.veto.holder || (cer.veto.players ?? []).length))) return undefined;
+  const noms = cer.nominees.map((nm) => nm.name);
+  const lines = [
+    "- BOARD (engine-committed — the ONLY truth for these; name EXACTLY these people, never anyone else, and never invent a result):",
+    `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : finalThree ? "nobody — in the Final 3 the HOH alone chooses which of the two remaining rivals leaves; do not call anyone a nominee" : "nobody yet — name no nominees"}.`,
+    `    Veto: ${cer.veto.holder
+      ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
+      : finalThree
+        ? "none — there is no Power of Veto in the Final 3; stage no veto"
+        : "still being played or not yet decided — name no winner and no holder"}.`,
+  ];
+  // The PLAYER's own seat, stated flatly: the live rehearsal had the narrator tell the player "the power's yours" (a won HOH the
+  // engine had given to someone else) and invite them to name nominees — second-person fiction the third-person facts above never stop.
+  const pid = view.player?.id;
+  const pl: string[] = [];
+  if (hohComp && !cer.hoh) pl.push("the HOH is NOT decided yet — name no winner and never tell the player they won; the game hands you the result");
+  if (cer.hoh && pid && cer.hoh.id !== pid) pl.push("NOT the Head of Household (never offer them the nomination keys or say the power is theirs)");
+  if (noms.length && pid && !cer.nominees.some((nm) => nm.id === pid)) pl.push("NOT on the block");
+  if (cer.veto.holder && pid && cer.veto.holder.id !== pid) pl.push("NOT the veto holder");
+  if (pl.length) lines.push(`    The player (you, the second person) is: ${pl.join("; ")}.`);
+  if (phase.startsWith("eviction") || phase.startsWith("final-eviction")) {
+    const revealed = view.eviction?.votesRevealed.length ?? 0;
+    if (view.pending?.kind === "eviction-vote") {
+      lines.push("    The player's eviction-vote card is OPEN: no ballot has been read — stage no ballot, tally or result; set the room, present the vote, then wait.");
+    } else {
+      lines.push(`    Ballots revealed so far: ${revealed} (each anonymized). Read no ballot, tally or evictee beyond what the game hands you.`);
+    }
+  }
+  return lines;
 }
 
 /**

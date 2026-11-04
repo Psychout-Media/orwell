@@ -32,6 +32,8 @@ _ELL = "‥"  # internal marker for an ellipsis, so "..." never reads as three s
 _ELLIPSIS_RE = re.compile(r"\.{3,}|…")
 _SPEAKER_TAG_RE = re.compile(r"@\[[^\]]+\]\s*[—\-:]*\s*")
 _EVICTION_PHASES = ("eviction", "final-eviction")
+# ballots/tallies cannot exist before the veto ceremony day: the live run aired "eight votes for X, four for Y" DURING the veto ceremony
+_BALLOT_PHASES = ("eviction", "veto-ceremony")
 
 _OBJ_DET = r"(?:(?:the|her|his|their|a|an|that|this)\s+)?"
 _VETO_OBJ = r"(?:medal(?:lion)?|power\s+of\s+veto|veto|PoV)"
@@ -39,7 +41,7 @@ _HOHW = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:competition|comp|room
 _HOHW_WIN = r"(?:head\s+of\s+(?:the\s+)?household|HOH)(?!\s+(?:room|ceremony|reign|week|key))"  # "wins the HOH competition" IS a claim
 
 # (role, regex, bind direction, max gap in chars between the cue and the bound name)
-_CUES: "list[tuple[str, re.Pattern, str, int]]" = [
+_CUES: "list[tuple]" = [  # (role, regex, bind, gap[, dash_ok])
     # ── veto: who WON / HOLDS it ───────────────────────────────────────────────────────────────────────────────────
     ("veto-hold", re.compile(r"\b(?:wins?|won|winning|holds?(?:\s+up)?|holding|clutch\w*|grips?|gripp\w*|lifts?|lifted|lifting|raises?|raised|"
                             r"wears?|wearing|claims?|claimed|earns?|earned|takes?(?!\s+place)|took|taken)\s+" + _OBJ_DET + r"(?:[A-Za-z'’-]+\s+){0,2}?" + _VETO_OBJ + r"\b",
@@ -57,13 +59,24 @@ _CUES: "list[tuple[str, re.Pattern, str, int]]" = [
                             re.IGNORECASE), "before", 25),
     # ── Head of Household ──────────────────────────────────────────────────────────────────────────────────────────
     ("hoh", re.compile(r"\b(?:is|are|as|becomes?|became|crowned|named)\s+" + _OBJ_DET + r"(?:new\s+|next\s+|latest\s+|current\s+|reigning\s+)?" + _HOHW, re.IGNORECASE), "before", 25),
+    ("hoh", re.compile(r"['’](?:re|s)\s+" + _OBJ_DET + r"(?:new\s+|next\s+|latest\s+|current\s+|reigning\s+)?" + _HOHW, re.IGNORECASE), "before", 2),
     ("hoh", re.compile(r"\b(?:wins?|won|winning|claims?|earns?)\s+" + _OBJ_DET + r"(?:first\s+|new\s+|next\s+)?" + _HOHW_WIN, re.IGNORECASE), "before", 25),
     ("hoh", re.compile(r"\b(?:new|next|latest)\s+" + _HOHW + r"\s*(?:is|was|:)\s*", re.IGNORECASE), "after", 6),
     ("hoh", re.compile(r"\b" + _HOHW + r"\s+(?:is|goes\s+to|winner|champion)\s*", re.IGNORECASE), "after", 6),
+    ("hoh", re.compile(r"\b(?:the\s+)?(?<!veto\s)(?:power|crown|keys?|HOH\s+room|nomination\s+keys?)(?:\s+(?:is|are)|'s|’s)\s+(?:now\s+|all\s+)?", re.IGNORECASE), "after", 6),
     # ── nominees ───────────────────────────────────────────────────────────────────────────────────────────────────
     ("nominee", re.compile(r"\b(?:nominates?|nominated|nominating|puts?\s+up|put\s+up)\b\s*", re.IGNORECASE), "after", 70),
     ("nominee", re.compile(r"\b(?:on\s+the\s+block|up\s+for\s+eviction)\b", re.IGNORECASE), "before", 40),
     ("nominee", re.compile(r"\bthe\s+nominees?\s+(?:are|is)\s*", re.IGNORECASE), "after", 6),
+    # ── ceremony ADDRESS (A-15 follow-up: the narrator invented different nominees in dialogue — "Eli, Jeremy — you'll make your case
+    # tonight" — while the engine's were someone else; phrasing carries no "nominate"/"on the block") ───────────────────────────
+    ("nominee", re.compile(r"\b(?:up\s+tonight|facing\s+eviction|in\s+the\s+hot\s+seat)\b", re.IGNORECASE), "before", 40),
+    ("nominee", re.compile(r"\bthe\s+(?:two\s+)?nominees?\s*[,:\u2014\u2013-]\s*", re.IGNORECASE), "after", 8, True),
+    ("nominee-addr", re.compile(r"\b(?:make|makes|making|state|states|stating|plead|pleads|pleading|campaign|campaigns|campaigning)\s+(?:(?:his|her|their|your)\s+)?(?:final\s+)?case\b"
+                               r"(?=[^.!?\n]{0,40}\b(?:tonight|to\s+the\s+(?:house|room)|before\s+the\s+vote|one\s+last\s+time)\b)", re.IGNORECASE), "before", 45, True),
+    ("nominee-addr", re.compile(r"\b(?:plead|pleads|pleading|beg|begs|begging|pitch|pitches|pitching)\b[^.!?\n]{0,25}\bto\s+(?:stay|be\s+saved|keep\s+(?:him|her|them))\b", re.IGNORECASE), "before", 45, True),
+    # a vote readout names ONLY the real nominees — before AND after the engine has revealed ballots (eviction phase)
+    ("vote-for", re.compile(r"\b(?:votes?\s+(?:for|to\s+evict)|(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)\s+(?:votes?\s+)?for)\s*", re.IGNORECASE), "after", 4),
     # ── eviction RESULTS (the bare event noun — "the eviction is tonight", "a vote to evict X" — is NOT a cue) ───────────
     ("evict", re.compile(r"\b(?:evicted|voted\s+out|sent\s+home|going\s+home|leaving\s+the\s+(?:big\s+brother\s+)?house|leaves\s+the\s+(?:big\s+brother\s+)?house|"
                          r"left\s+the\s+(?:big\s+brother\s+)?house|out\s+of\s+the\s+(?:big\s+brother\s+)?house)\b", re.IGNORECASE), "both", 30),
@@ -84,6 +97,9 @@ _BALLOT_RE = re.compile(
 _HYPO_RE = re.compile(
     r"\b(?:if|whether|unless|whoever|will|would|might|may|could|should|shall|going\s+to|gonna|hope[sd]?|wish(?:es)?|want(?:s|ed)?\s+to|"
     r"trying\s+to|try(?:ing)?\s+to|plans?\s+to|need(?:s)?\s+to|can|can['’]t|cannot|someone|somebody|anyone|no\s+one|nobody)\b|\?", re.IGNORECASE)
+# "You'll win the HOH" / "you'd be crowned": a future/conditional contraction. Kept OUT of _HYPO_RE because the ceremony ADDRESS cue is itself
+# future-tense dialogue ("Eli, Jeremy — you'll make your case tonight") and must still read as a claim about who is up.
+_HYPO_CONTR_RE = re.compile(r"['’](?:ll|d)\b", re.IGNORECASE)
 _PAST_REF_RE = re.compile(r"\b(?:last\s+week|last\s+night|earlier|previous(?:ly)?|before|ago|remember)\b", re.IGNORECASE)
 _CLAUSE_BREAK = ",;:—–"
 
@@ -147,10 +163,19 @@ def _name_patterns(names: Iterable[str]) -> "list[tuple[str, re.Pattern]]":
     return pats
 
 
-def name_spans(s: str, names: Iterable[str]) -> "list[tuple[str, int, int]]":
-    """(canonical name, start, end) for every occurrence in `s`; longer matches mask shorter ones."""
+_SECOND_PERSON_RE = re.compile(r"(?<![\w'’])(?:you|your|yours|yourself)(?![\w])|(?<![\w'’])you(?:'re|’re|'ve|’ve|'ll|’ll|'d|’d)(?![\w])", re.IGNORECASE)
+
+
+def name_spans(s: str, names: Iterable[str], player: Optional[str] = None) -> "list[tuple[str, int, int]]":
+    """(canonical name, start, end) for every occurrence in `s`; longer matches mask shorter ones. With `player`, the second person
+    ("you", "you're", "yours") IS the player — the live rehearsal told the player "the power's yours" for an HOH the engine gave
+    someone else, which no third-person name check ever sees."""
     taken: "list[tuple[int, int]]" = []
     out: "list[tuple[str, int, int]]" = []
+    if player:
+        for m in _SECOND_PERSON_RE.finditer(s):
+            out.append((player, m.start(), m.end()))
+            taken.append((m.start(), m.end()))
     for canon, pat in _name_patterns(names):
         for m in pat.finditer(s):
             if any(m.start() < b and m.end() > a for a, b in taken):
@@ -160,9 +185,9 @@ def name_spans(s: str, names: Iterable[str]) -> "list[tuple[str, int, int]]":
     return sorted(out, key=lambda t: t[1])
 
 
-def names_in(unit: str, names: Iterable[str]) -> "list[str]":
+def names_in(unit: str, names: Iterable[str], player: Optional[str] = None) -> "list[str]":
     seen: "list[str]" = []
-    for canon, _a, _b in name_spans(_clean(unit), names):
+    for canon, _a, _b in name_spans(_clean(unit), names, player):
         if canon not in seen:
             seen.append(canon)
     return seen
@@ -176,10 +201,10 @@ def _clause_bounds(s: str, a: int, b: int) -> "tuple[int, int]":
     return lo, hi
 
 
-def _non_assertive(s: str, a: int, b: int) -> bool:
+def _non_assertive(s: str, a: int, b: int, contractions: bool = True) -> bool:
     lo, hi = _clause_bounds(s, a, b)
     clause = s[lo:hi]
-    return bool(_HYPO_RE.search(clause) or _PAST_REF_RE.search(clause)) or "?" in s
+    return bool(_HYPO_RE.search(clause) or _PAST_REF_RE.search(clause) or (contractions and _HYPO_CONTR_RE.search(clause))) or "?" in s
 
 
 def cue_instances(unit: str, phase: str) -> "list[dict]":
@@ -187,14 +212,16 @@ def cue_instances(unit: str, phase: str) -> "list[dict]":
     s = _clean(unit)
     ph = str(phase or "").lower()
     out: "list[dict]" = []
-    for role, rx, bind, gap in _CUES:
+    for role, rx, bind, gap, *_flags in _CUES:
         if role == "evict-weak" and not ph.startswith(_EVICTION_PHASES):
             continue
+        if role in ("nominee-addr", "vote-for") and not ph.startswith(_BALLOT_PHASES):
+            continue
         for m in rx.finditer(s):
-            if _non_assertive(s, m.start(), m.end()):
+            if _non_assertive(s, m.start(), m.end(), contractions=role != "nominee-addr"):
                 continue
-            out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap})
-    if ph.startswith("eviction") and _BALLOT_RE.search(s) and "?" not in s:
+            out.append({"role": role, "a": m.start(), "b": m.end(), "bind": bind, "gap": gap, "dash": bool(_flags and _flags[0])})
+    if ph.startswith(_BALLOT_PHASES) and _BALLOT_RE.search(s) and "?" not in s:
         out.append({"role": "ballot", "a": 0, "b": len(s), "bind": "all", "gap": len(s)})
     return out
 
@@ -213,8 +240,10 @@ def _bound(s: str, cue: dict, spans: "list[tuple[str, int, int]]") -> "list[str]
         return [n for n, _a, _b in spans]
     got: "list[str]" = []
 
+    breaks = ".!?" if cue.get("dash") else ";:\u2014\u2013.!?"  # an address cue ("Eli, Jeremy — you'll make your case") reads across a dash
+
     def _clear(between: str) -> bool:
-        return not any(ch in between for ch in ";:\u2014\u2013.!?")
+        return not any(ch in between for ch in breaks)
 
     if cue["bind"] in ("before", "both"):
         before = [t for t in spans if t[2] <= cue["a"]]
@@ -260,28 +289,30 @@ def _matches_any(name: str, candidates: Iterable[Optional[str]]) -> bool:
 def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, carried: "set[str] | None" = None) -> Optional[str]:
     """A short reason when this unit asserts a role the engine did not commit to the person it is bound to, else None."""
     phase = str(sig.get("phase") or "").lower()
-    if not instances and not carried and not phase.startswith("eviction"):
+    if not instances and not carried and not phase.startswith(_BALLOT_PHASES):
         return None
     s = _clean(unit)
-    spans = name_spans(s, roster)
+    player = sig.get("playerName")
+    spans = name_spans(s, roster, player)
     if not spans:
         return None
-    player = sig.get("playerName")
     veto_holder, hoh = sig.get("vetoHolderName"), sig.get("hohName")
     noms = list(sig.get("nomNames") or [])
     evicted = list(sig.get("evictedNames") or [])
     if sig.get("playerStatus") not in (None, "active") and player:
         evicted = evicted + [player]
     by_role: "dict[str, list[str]]" = {}
+    spans_third = name_spans(s, roster)  # no second person: "Eli, Jeremy — you'll make your case" addresses the NAMED, not the player
     for c in instances:
-        by_role.setdefault(c["role"], []).extend(_bound(s, c, spans))
+        use = spans_third if c["role"] in ("nominee", "nominee-addr", "vote-for") else spans
+        by_role.setdefault(c["role"], []).extend(_bound(s, c, use))
     for role in (carried or set()):
         if _non_assertive(s, 0, 0):
             continue
         by_role.setdefault(role, []).extend(n for n, _a, _b in spans)  # the continuation half: the whole unit is the answer
-    if "ballot" not in by_role and phase.startswith("eviction") and _is_bare_names(unit, sig.get("nomNames") or []):
+    if "ballot" not in by_role and phase.startswith(_BALLOT_PHASES) and _is_bare_names(unit, sig.get("nomNames") or []):
         by_role["ballot"] = [n for n, _a, _b in spans]
-    if by_role.get("ballot") and phase.startswith("eviction") and sig.get("evictionBallots") == 0:
+    if by_role.get("ballot") and phase.startswith(_BALLOT_PHASES) and sig.get("evictionBallots") == 0:
         return "ballot readout before the engine revealed any ballot (the player's vote is not yet cast)"
     for role in ("veto-hold", "veto-use"):
         bad = [n for n in by_role.get(role, []) if not _matches_any(n, [veto_holder])]
@@ -290,6 +321,10 @@ def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, ca
     bad = [n for n in by_role.get("hoh", []) if not _matches_any(n, [hoh])]
     if bad:
         return "HOH uncommitted" if not hoh else "HOH is not " + ", ".join(sorted(set(bad)))
+    if noms:  # only judged once the engine HAS committed nominees (before that the unit is lobbying or speculation)
+        bad = [n for n in by_role.get("nominee-addr", []) + by_role.get("vote-for", []) if not _matches_any(n, noms)]
+        if bad:
+            return "named a non-nominee at the eviction: " + ", ".join(sorted(set(bad)))
     bad = [n for n in by_role.get("nominee", []) if not _matches_any(n, noms)]
     if bad:
         return "nominees uncommitted" if not noms else "named a non-nominee: " + ", ".join(sorted(set(bad)))
@@ -326,7 +361,7 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
                 continue
             drop_closers = False
             inst = cue_instances(unit, phase)
-            names = names_in(unit, roster)
+            names = names_in(unit, roster, sig.get("playerName"))
             starts_cont = bool(re.match(r"^[\s*_\"“”‘’`]*" + _ELL, unit))
             carried = set(carry["roles"]) if (carry["ttl"] > 0 and (starts_cont or names)) else set()
             reason = judge(unit, inst, roster, sig, carried) if names else None
