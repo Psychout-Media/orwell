@@ -562,6 +562,7 @@ def clear_social_runway(user) -> None:
     _SCHEDULE_STEER.pop(key, None)
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
+    _PREMIERE_CLOCK_HOLD.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -663,6 +664,7 @@ def _premiere_not_yet_steer() -> str:
             "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
+_PREMIERE_CLOCK_HOLD: dict = {}  # runway key -> True while the engine clock says the first HOH is not yet due (premiere phase, clock live)
 _PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
 
 
@@ -697,6 +699,16 @@ def note_premiere_turn(user, game_state) -> None:
             _PREMIERE_MSGS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
+        # Live finding (A9 rerun): once the engine CLOCK is live (day-break done, `daySchedule` on the board) the schedule - not a message count - owns the premiere->first-HOH
+        # hold: not due => hold (the clock brings it in); DUE => release at once, even if fewer than _PREMIERE_SOCIAL_MESSAGES messages have passed (a hang-out/lingering run
+        # had advanced the clock to the event and the count-hold froze the due HOH comp). No `daySchedule` (clock off / pre-day-break) => the message count, unchanged.
+        ds = (game_state or {}).get("daySchedule") if isinstance(game_state, dict) else None
+        if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
+            _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
+            if _PREMIERE_CLOCK_HOLD[key]:
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
+            return
+        _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
             _PREMIERE_MSGS[key] = _PREMIERE_MSGS.get(key, 0) + 1
             # P4h: the premiere has no engine clock (so no `daySchedule`), but production STILL owns the schedule - while the hold is on, hand the narrator the same in-fiction
@@ -713,6 +725,8 @@ def premiere_is_holding(user) -> bool:
     try:
         if premiere_entrance_active(user):
             return False  # A9: the entrances/toast are paced by the stall-nudge, not held
+        if _runway_key(user) in _PREMIERE_CLOCK_HOLD:
+            return bool(_PREMIERE_CLOCK_HOLD[_runway_key(user)])  # the engine clock owns the hold (see note_premiere_turn)
         n = _PREMIERE_MSGS.get(_runway_key(user))
         return n is not None and n < _PREMIERE_SOCIAL_MESSAGES
     except Exception:
