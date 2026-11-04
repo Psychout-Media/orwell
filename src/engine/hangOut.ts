@@ -71,3 +71,11 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
   }
   return { stopReason: "max-beats", beats: cap, minutes: Math.round(minutes) };
 }
+
+/**
+ * Is it "bedtime" for a hang-out? From midnight on, or once the NIGHT block (20:00+) has thinned the house to the player plus at most one awake houseguest. The thin-house rule applies
+ * ONLY in the evening/night: at 5am after an early wake (P4d) a sleeping house is not "bedtime" - the hang-out should run on until the house wakes. Pure.
+ */
+export function hangOutBedtime(hour: number, awakeNpcs: number, nightStartHour = 20, midnightHour = 24): boolean {
+  return hour >= midnightHour || (hour >= nightStartHour && awakeNpcs <= 1);
+}

@@ -2386,6 +2386,24 @@ _ENTRANCE_LULL_TURNS = 2
 _ENTRANCE_CUE_RE = re.compile(r"\b(next|watch(ing)?|just watch|go on|carry on|continue|who'?s next|keep (them )?coming)\b", re.IGNORECASE)
 
 
+_TOAST_VOICE_HOLD_CAP = 2   # at most this many consecutive turns the next toast batch is held for the narrator to voice the current one (never a stall)
+_TOAST_VOICE_HOLDS: dict = {}
+
+
+def _toast_batch_voiced(text: str, speakers) -> bool:
+    """True if this turn's narration voiced EVERY speaker on the mic (the host counts via 'host'/'production'/'speakers'/'voice'). Pure; empty list => True."""
+    t = (text or "").lower()
+    for sp in speakers or ():
+        if sp == "host":
+            if not any(w in t for w in ("host", "production", "over the speakers", "voice comes")):
+                return False
+        else:
+            first = str(sp).split()[0].lower() if str(sp).strip() else ""
+            if first and first not in t:
+                return False
+    return True
+
+
 def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, stale: bool):
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
@@ -4878,6 +4896,27 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             pass  # any screening hiccup falls through to emit (conservatism)
         out.append(part)
     return "".join(out)
+
+
+async def _confession_guard(text: str, owner) -> "tuple[str, list]":
+    """N-17 - replace an INVENTED first-person confession line (no engine disclosure lever this turn) with a short in-voice deflection. Returns (text, [(old, new)]) so the caller mirrors the
+    replacement into the raw round buffer. Fail-open: any hiccup returns the text unchanged."""
+    if not text:
+        return text, []
+    try:
+        from routes import chat_helpers
+        return chat_helpers.screen_invented_confession(owner, text)
+    except Exception:
+        return text, []
+
+
+def _mirror_confession_replace(round_response: str, ops) -> str:
+    """Apply the N-17 line replacements to the raw round buffer (rightmost occurrence, like `_mirror_wall_drop`), so a confession the player never saw does not survive into saved history."""
+    for old, new in ops or ():
+        idx = round_response.rfind(old)
+        if idx >= 0:
+            round_response = round_response[:idx] + new + round_response[idx + len(old):]
+    return round_response
 
 
 async def _knowledge_wall_guard(text: str, owner) -> str:
@@ -7458,6 +7497,9 @@ async def _stream_agent_loop_impl(
                                     # presence wall runs right after it and is equally non-overridden: it
                                     # drops a phantom (off-scene/evicted) houseguest staged as present,
                                     # same-turn, before the player ever sees it.
+                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                                    round_response = _mirror_confession_replace(round_response, _cf_ops)
+                                    _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner)
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
@@ -7631,6 +7673,9 @@ async def _stream_agent_loop_impl(
                 # A0 knowledge wall: a Vault-Wall leak is never re-admitted by a fallback. A2 (#1726)
                 # presence wall runs right after it, equally non-overridden — drops a phantom
                 # (off-scene/evicted) houseguest staged as present, same-turn, before the player sees it.
+                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                round_response = _mirror_confession_replace(round_response, _cf_ops)
+                _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                 _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                 _guarded_text = await _presence_wall_guard(_guarded_text, owner)
                 # Greptile P1 (#1746): mirror any DROP back into the raw round buffer (see
@@ -7939,6 +7984,14 @@ async def _stream_agent_loop_impl(
                     if _ch.premiere_entrance_active(owner):
                         _is_lull, _stale = _entrance_pacing(
                             _TURNS_SINCE_PROGRESS.get(_bk, 0), _extract_last_user_message(messages) or "", _is_lull, _stale)
+                        # Toast voice-hold: do not release the NEXT batch of speakers until the narrator has voiced the CURRENT one (bounded: _TOAST_VOICE_HOLD_CAP turns).
+                        _sp = _ch._PREMIERE_TOAST_SPEAKERS.get(_ch._runway_key(owner))
+                        if _sp and (_is_lull or _stale):
+                            if not _toast_batch_voiced(full_response, _sp) and _TOAST_VOICE_HOLDS.get(_bk, 0) < _TOAST_VOICE_HOLD_CAP:
+                                _TOAST_VOICE_HOLDS[_bk] = _TOAST_VOICE_HOLDS.get(_bk, 0) + 1
+                                _is_lull, _stale = False, False
+                            else:
+                                _TOAST_VOICE_HOLDS.pop(_bk, None)
                 except Exception:
                     pass
                 # The ORDER of the turn's beat-tools decides whether it left an uncommitted/undelivered

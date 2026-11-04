@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runHangOut, HANGOUT, type HangOutProbes } from "../../src/engine/hangOut";
+import { runHangOut, hangOutBedtime, HANGOUT, type HangOutProbes } from "../../src/engine/hangOut";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 
 /** "Hang out until X": every stop reason, the event clamp, the beat cap, determinism. Roles only. */
@@ -92,5 +92,18 @@ describe("runHangOut", () => {
     expect(r.stopReason).toBe("event-due");
     expect(r.beats).toBe(1);
     expect(r.minutes).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe("hangOutBedtime", () => {
+  it("midnight on is always bedtime; 8pm-midnight only once the house thinned to <=1 awake; a sleeping house at 5am is NOT bedtime", () => {
+    expect(hangOutBedtime(24, 15)).toBe(true);
+    expect(hangOutBedtime(26.5, 9)).toBe(true);
+    expect(hangOutBedtime(21, 1)).toBe(true);
+    expect(hangOutBedtime(21, 0)).toBe(true);
+    expect(hangOutBedtime(21, 2)).toBe(false);
+    expect(hangOutBedtime(19.9, 0)).toBe(false);   // before the night block a thin house is just daytime quiet
+    expect(hangOutBedtime(5, 0)).toBe(false);      // early riser: the house is asleep, run on until it wakes
+    expect(hangOutBedtime(5, 1)).toBe(false);
   });
 });

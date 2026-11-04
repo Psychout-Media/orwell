@@ -563,6 +563,7 @@ def clear_social_runway(user) -> None:
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
+    _PREMIERE_TOAST_SPEAKERS.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -665,6 +666,7 @@ def _premiere_not_yet_steer() -> str:
 
 
 _PREMIERE_CLOCK_HOLD: dict = {}  # runway key -> True while the engine clock says the first HOH is not yet due (premiere phase, clock live)
+_PREMIERE_TOAST_SPEAKERS: dict = {}  # runway key -> names of the current toast batch ('host' for the host) - for the voice-hold in agent_loop
 _PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
 
 
@@ -697,6 +699,19 @@ def note_premiere_turn(user, game_state) -> None:
         if stage in ("entrances", "toast"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
             _PREMIERE_MSGS.pop(key, None)
+            # live finding (Thursday dry run): the engine RECORDS each toast batch, but a chatting player pulls the narrator off the circle and the speeches are never voiced. Remember who is
+            # on the mic (names off the board) so the pacing ladder can hold the next batch until this one has actually been voiced.
+            sp = []
+            try:
+                for x in (((game_state or {}).get("premiere") or {}).get("entrance") or {}).get("speakers") or []:
+                    if isinstance(x, dict) and not x.get("isPlayer"):
+                        sp.append("host" if x.get("host") else str(x.get("name") or ""))
+            except Exception:
+                sp = []
+            if stage == "toast" and sp:
+                _PREMIERE_TOAST_SPEAKERS[key] = sp
+            else:
+                _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
         if stage == "done":
@@ -3767,6 +3782,75 @@ def stash_knowledge_wall_reground(user) -> None:
         pass
 
 
+# ── N-17 — the invented-CONFESSION guard (Ryne, card 19: "I don't really want the narrator to improvise too much in this area") ──────────────────── #
+#
+# "Never invent a confession" used to be prompt wording only. A houseguest's FIRST-PERSON confession of a hidden personal fact ("I've never told anyone ... I did time") must come from an ENGINE
+# disclosure decision (confide / tradeSecret / exposeSecret / askJuror / a surfacing). When the model voices one with NO such call this turn, the unit (the line) is replaced by an in-voice
+# deflection. CONSERVATIVE by design (if in doubt, don't fire): >= 2 distinct cue families, or ONE strong cue plus a personal-fact noun in the same line.
+_CONF_I = re.IGNORECASE
+_CONF_STRONG = (
+    re.compile(r"\b(?:i(?:'|’)?ve|i\s+have)\s+never\s+(?:told|said|admitted|shown|breathed)\b[^.!?\n]{0,40}\b(?:anyone|anybody|a\s+soul|nobody|no\s+one)\b", _CONF_I),
+    re.compile(r"\bmy\s+(?:real\s+|dirty\s+|biggest\s+|deepest\s+|little\s+)?secret\s+is\b|\bhere(?:'|’)?s\s+my\s+secret\b", _CONF_I),
+    re.compile(r"\bi\s+(?:have|need|got|gotta)\s+to\s+(?:confess|come\s+clean)\b|\bi(?:'|’)?ve\s+(?:got\s+)?to\s+confess\b|\bi\s+confess\b", _CONF_I),
+    re.compile(r"\b(?:nobody|no\s+one)\s+(?:here\s+)?knows\s+(?:that\s+)?i\b", _CONF_I),
+)
+_CONF_WEAK = (
+    re.compile(r"\bthe\s+truth\s+is,?\s+i\b", _CONF_I),
+    re.compile(r"\bi\s+(?:have\s+been|(?:'|’)ve\s+been|was)\s+(?:hiding|keeping)\b[^.!?\n]{0,40}\bfrom\s+(?:everyone|you|all\s+of\s+you)\b|\bi\s+lied\s+(?:to\s+(?:you|everyone)\s+)?about\b", _CONF_I),
+)
+_CONF_PERSONAL_FACT_RE = re.compile(
+    r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
+    r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
+
+_CONFESSION_DEFLECTIONS = (
+    "The moment hangs — whatever was about to be said gets swallowed, and they smile it off.",
+    "They start to say something, think better of it, and wave it away with a half-laugh.",
+    "A beat of silence; then they shrug it off and let the subject drop.",
+)
+
+
+def _line_is_invented_confession(line: str) -> bool:
+    """N-17 - does this line carry an NPC first-person confession of a hidden personal fact? Pure; conservative."""
+    if not line or len(line) < 12:
+        return False
+    strong = sum(1 for rx in _CONF_STRONG if rx.search(line))
+    weak = sum(1 for rx in _CONF_WEAK if rx.search(line))
+    if strong + weak >= 2:
+        return True
+    return strong == 1 and bool(_CONF_PERSONAL_FACT_RE.search(line))
+
+
+def screen_invented_confession(user, text: str) -> "tuple[str, list]":
+    """N-17 - replace each LINE that voices an invented first-person confession (no engine disclosure this turn) with a short in-voice deflection. Returns (new_text, [(old_line, new_line)])
+    so the caller can mirror the same replacement into the raw round buffer. No-op (text, []) when an engine disclosure lever ran this turn, nothing matches, or anything hiccups."""
+    if not text or not text.strip():
+        return text, []
+    try:
+        from src import orwell_engine as _oe
+        if _oe.disclosure_this_turn(user):
+            return text, []
+        if (user or "__anon__") not in _GAME_WAS_ACTIVE:
+            return text, []  # not a started game (casting etc.): never judge
+        lines = text.split("\n")
+        ops = []
+        out = []
+        n = 0
+        for ln in lines:
+            if _line_is_invented_confession(ln):
+                new = _CONFESSION_DEFLECTIONS[n % len(_CONFESSION_DEFLECTIONS)]
+                n += 1
+                ops.append((ln, new))
+                out.append(new)
+            else:
+                out.append(ln)
+        if not ops:
+            return text, []
+        logger.warning("[orwell] N-17: replaced %d invented-confession line(s) with a deflection (user=%s)", len(ops), user)
+        return "\n".join(out), ops
+    except Exception:
+        return text, []
+
+
 async def screen_knowledge_wall(user, text: str) -> str:
     """A0 post-hoc knowledge-wall scan. Returns `text` with any sentence that puts SEALED content in a
     houseguest's mouth DROPPED (delimiters preserved for the rest). Cheap hot path: no sealed facts, or
@@ -5870,6 +5954,7 @@ async def apply_game_framing(
     if game_state.get("started"):
         game_active = True
         _GAME_WAS_ACTIVE.add(_gkey)
+        orwell_engine.clear_disclosure_turn(user)  # N-17: a fresh turn - no engine disclosure lever has run yet
         # C-02: resolve an unresolved NPC-driven ceremony FOR REAL before building the moment prompt,
         # so the model voices the engine's actual nominees/outcome instead of inventing one. No-op
         # unless the game sits at such a beat with no player decision pending (best-effort). The
