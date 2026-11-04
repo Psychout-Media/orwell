@@ -352,17 +352,19 @@ if [[ "$have_systemd" -eq 1 ]]; then
 else
   warn "systemctl not present — skipping service stop (dev mode). Stop the app yourself first."
 fi
-# A service that is still running means nothing has stopped writing — refuse to scrub under it.
-if [[ "$DRY_RUN" -eq 0 && "$have_systemd" -eq 1 ]]; then
-  for svc in "$FRONTEND_SVC" "$ENGINE_SVC"; do
-    if svc_exists "$svc" && systemctl is-active --quiet "$svc"; then
-      die "${svc} is still running after 'systemctl stop' — refusing to scrub under a live service."
-    fi
-  done
+# (The "service still running after stop" refusal is above, with the restart of what was running.)
+# Re-check the destinations now that the services are down; a refusal puts back what this run stopped.
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  (
+    recheck_data_dir "$CONFIG_DIR"      "engine CONFIG_DIR"
+    recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
+    recheck_data_dir "$FE_DATA_DIR"     "front-end FE_DATA_DIR"
+  ) || { abort_restart_services; exit 1; }
+else
+  recheck_data_dir "$CONFIG_DIR"      "engine CONFIG_DIR"
+  recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
+  recheck_data_dir "$FE_DATA_DIR"     "front-end FE_DATA_DIR"
 fi
-recheck_data_dir "$CONFIG_DIR"      "engine CONFIG_DIR"
-recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
-recheck_data_dir "$FE_DATA_DIR"     "front-end FE_DATA_DIR"
 
 # ── 2. Preserve the API-key / LLM-provider config, then wipe the rest of the FE store ─────────
 # The Python helper reads model_endpoints + the LLM-selection settings into memory and rebuilds
