@@ -157,13 +157,13 @@ describe("#1320 night-gate — the pure cross + the live gate are correct", () =
       if (adv.event?.beat === "nominations") break;
     }
     const hohIdx = beats.findIndex((b) => b.beat === "hoh-competition");
-    const dayBreakIdx = beats.findIndex((b) => b.beat === "day-break");
+    const dayBreakIdx = beats.findIndex((b, i) => b.beat === "day-break" && i > hohIdx); // P4b: week 1 now also opens with a first-morning day-break BEFORE the HOH — this test is about the one AFTER the crown
     const nomsIdx = beats.findIndex((b) => b.beat === "nominations");
     expect(hohIdx, "the HOH is crowned").toBeGreaterThanOrEqual(0);
     expect(nomsIdx, "the nominations resolve").toBeGreaterThan(hohIdx);
     expect(dayBreakIdx, "a day-break is inserted after the HOH crown").toBeGreaterThan(hohIdx);
     expect(dayBreakIdx, "…and strictly BEFORE the nominations (the gate seats noms a day on)").toBeLessThan(nomsIdx);
-    expect(beats.filter((b) => b.beat === "day-break").length, "exactly one day-break per reign (one-shot)").toBe(1);
+    expect(beats.filter((b, i) => b.beat === "day-break" && i > hohIdx).length, "exactly one day-break per reign (one-shot) after the crown").toBe(1);
     // The crown and the nominations are no longer the same in-fiction moment — the day-break wrapped the
     // clock back to a fresh morning (a new day), and the noms follow on that day (their exact phase then
     // drifts with the player's own per-conversation lingering, which is the point — the day now has time).
@@ -190,7 +190,7 @@ describe("#1320 night-gate — the pure cross + the live gate are correct", () =
       if (adv.pending) resolveLegally(sb.session, adv.pending);
       if ((sb.session.snapshot().live?.evictionOrder ?? []).length > 0) break; // stop at the first eviction
     }
-    expect(names.filter((n) => n === "day-break").length, "four day-breaks — one per cadence transition in week 1").toBe(4);
+    expect(names.filter((n) => n === "day-break").length, "five day-breaks in week 1: the one-shot first morning (P4b) + one per cadence transition").toBe(5);
     // …and each cadence beat is emitted and preceded by a day-break (the beat lands a day on, never
     // same-day as the prior). NOTE: a day-break is not always the IMMEDIATELY-preceding beat — the veto
     // comp is STAGED (a `veto-draw` + inert `comp-elimination` rounds sit between its day-break and the
@@ -274,7 +274,7 @@ describe("Phase 3a night-gate — a running double eviction is one compressed ni
     // is a real suppression, not a harness that never sees a day-break at all. (Ordinary cadence intact.)
     const wk = runOrdinaryWeek(true);
     expect(wk.evictions, "a real eviction resolved").toBe(1);
-    expect(wk.dayBreaks, "one day-break per cadence transition (noms, veto, veto-ceremony, eviction)").toBe(4);
+    expect(wk.dayBreaks, "one day-break per cadence transition (noms, veto, veto-ceremony, eviction) + the week-1 first-morning one (P4b)").toBe(5);
   });
 
   it("a running double eviction with the night-gate ON stays ONE compressed night — zero day-breaks", () => {

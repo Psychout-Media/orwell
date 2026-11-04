@@ -645,6 +645,8 @@ export interface LiveSeasonState {
    * Persisted with the season like the rest of the clock state (0030).
    */
   preNomsNightPassed?: boolean;
+  /** P4b — set once the one-shot day-1 `day-break` (the premiere exit that starts the first morning WITHOUT staging the HOH comp) has fired. Clock-live only; absent ⇒ byte-identical. */
+  firstMorningPassed?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (WEEKLY_CADENCE: Day 1 HOH → 2 noms → 3 veto → 4 veto
@@ -2640,6 +2642,20 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
 
   switch (s.beat) {
     case "hoh-competition":
+      // P4b FIRST MORNING (live screen check on main 24936f96): the premiere exit used to start the clock AND raise the first HOH's comp card at 8am on day 1 — no
+      // 8->12 social morning, and the HOH could be played at 8am (the FE due-gate cannot hold a card that is already pending). With the clock live (`ctx.nightGate`)
+      // the premiere exit is now a one-shot diegetic `day-break` that STARTS day 1 at 8am without staging the comp; the NEXT advance (held by the FE's due-gate until
+      // the afternoon) is where the HOH actually starts. One-shot, week 1 only, never during a twist; clock off (the seeded calibration spine) skips it => byte-identical.
+      if (ctx.nightGate && s.week === 1 && !s.firstMorningPassed && s.nightDepth === undefined && s.twist?.phase !== "running") {
+        s.firstMorningPassed = true;
+        s.nightDepth = WAKE_HOUR;
+        s.timeOfDay = DAY_START;
+        return {
+          beat: "day-break",
+          content: "The first night in the house is over, and the first morning dawns. The Head of Household competition is set for later today.",
+          participants: [],
+        };
+      }
       // STAGED (0006 staged-rounds evolution): the comp plays out in visible elimination rounds. The
       // sub-loop pauses for the player's PER-ROUND approach (`comp-round`) when they are still in —
       // committed before each round resolves, locked after (anti-sycophancy). No up-front binding popup.

@@ -5185,6 +5185,18 @@ async def _refresh_after_model_progression(owner, res) -> None:
 
 async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
+    # P4b — PRODUCTION OWNS THE SCHEDULE on the MODEL's own lever too: while this turn's pre-resolve is holding a not-yet-due scheduled event (the HOH comp on day-1 morning, a
+    # ceremony before its hour), the model's advanceGame must not start it ("run the HOH competition", "let's go to nominations"). Nothing advances; the model gets an
+    # in-fiction note. The pre-resolve's logged safety cap pops the hold, so a stuck clock can't freeze the game. The premiere count is NOT a hold here (the champagne-circle
+    # close is the model's first advanceGame).
+    try:
+        from routes import chat_helpers as _ch_gate
+        if _ch_gate.scheduled_event_is_held(owner):
+            return {"output": json.dumps({"held": True, "note": "Production hasn't called the house in yet — the next scheduled event is set for later today. Stay in the scene "
+                                          "and keep the houseguests talking; do NOT narrate it starting, and do not call advanceGame again until the production calls the house in."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
     try:
         _ebs, _ik = _model_progression_cas(owner, "advanceGame")
         try:
