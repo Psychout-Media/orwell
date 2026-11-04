@@ -8709,7 +8709,7 @@ async def _stream_agent_loop_impl(
                                     _ov_sig_a = _OvSignals(
                                         in_advance_phase=True,
                                         play_quiet=bool(_is_lull),
-                                        engaged_scene=bool(_want_record),
+                                        engaged_scene=bool(_want_record and not _progressed and not _is_lull),
                                         recorded_interaction=bool(_recorded),
                                         progression_tool_called=bool(_progressed),
                                         io_error=any(isinstance(ev, dict) and ev.get("error")
@@ -10178,7 +10178,7 @@ async def _stream_agent_loop_impl(
                 _ov_sig = Signals(
                     in_advance_phase=(_phase in _ADVANCE_PHASES),
                     play_quiet=bool(_is_lull),
-                    engaged_scene=bool(_want_record),
+                    engaged_scene=bool(_want_record and not _progressed and not _is_lull),
                     recorded_interaction=bool(_ov_names & _RECORD_TOOLS),
                     progression_tool_called=bool(_ov_names & _PROGRESSION_TOOLS),
                     io_error=any(isinstance(ev, dict) and ev.get("error") for ev in (tool_events or [])),
@@ -10256,7 +10256,7 @@ async def _stream_agent_loop_impl(
                 _faith_claim = False
             await _faith_check(
                 _turn_narration_full, claim_bearing=_faith_claim,
-                engaged_scene=bool(_want_record), owner=owner,
+                engaged_scene=bool(_want_record and not _progressed and not _is_lull), owner=owner,
                 beat_before=_ledger_beat_seq_before,
                 endpoint_url=_belt_endpoint, model=_belt_model, headers=_belt_headers,
                 last_user=_extract_last_user_message(messages))
