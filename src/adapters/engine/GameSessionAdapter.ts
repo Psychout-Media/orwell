@@ -184,6 +184,7 @@ function isUsableTagline(s: string): boolean {
 }
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
+import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
 import { startNewGame, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
@@ -602,6 +603,11 @@ const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THR
  * ballot is byte-identical.
  */
 const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1";
+/**
+ * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). OFF unless
+ * `ORWELL_PREMIERE_ENTRANCES=1`; read at `createCharacter` (season start). Off => nothing new is written.
+ */
+const PREMIERE_ENTRANCES_ENABLED_DEFAULT = process.env.ORWELL_PREMIERE_ENTRANCES === "1";
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). OFF unless `ORWELL_HANGOUT=1`: it spends in-game time outside the per-message pace, so it ships
@@ -1209,6 +1215,7 @@ export class GameSessionAdapter implements GameSession {
   private compMixedEnabled = COMP_MIXED_ENABLED_DEFAULT;
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
+  private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
@@ -4551,8 +4558,12 @@ export class GameSessionAdapter implements GameSession {
    * for pre-L21/L24 saves (no base yet) or before the first tick.
    */
   societyOccupancy(): Occupancy | null {
-    const base = this.presenceBase ?? this.presence;
-    if (!base) return base;
+    const base0 = this.presenceBase ?? this.presence;
+    if (!base0) return base0;
+    // A9: during the staged entrances the un-arrived are not in the house - the society never pairs them.
+    const notHere = this.notYetArrived();
+    let base = base0;
+    if (notHere) { base = new Map(); for (const [id, room] of base0) if (!notHere.has(id)) base.set(id, room); }
     const awake = this.awakeNow();
     if (!awake) return base; // clock off ⇒ identity ⇒ byte-identical society + calibration spine
     // ADR 0006: asleep houseguests have left the floor for the night — drop them so the off-screen
@@ -4588,6 +4599,7 @@ export class GameSessionAdapter implements GameSession {
     // convened in the living room. This is a whole-house event exactly like a comp/ceremony (no field
     // split — nobody competes, the house simply toasts), so the pin (movePlayer no-op) + gathered
     // whereabouts come for free. Released to `"done"` on the model's first advanceGame (see advanceGame).
+    if (s.premiereEntrance?.stage === "entrances") return { kind: "premiere-entrances" }; // A9
     if (s.champagneCircle === "gathered") return { kind: "champagne-circle" };
     if (s.competition) { // a staged comp is running ⇒ its real field is authoritative
       return { kind: s.competition.comp, field: [...s.competition.field] };
@@ -4617,7 +4629,8 @@ export class GameSessionAdapter implements GameSession {
     const ev = this.houseEventInSession();
     if (ev) {
       const named = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
-      const others = this.livingIds().filter((id) => id !== me);
+      const notHere = this.notYetArrived(); // A9: un-arrived houseguests are nowhere during the entrances
+      const others = this.livingIds().filter((id) => id !== me && !notHere?.has(id));
       const compSplit = ev.field
         ? (() => {
             const field = new Set(ev.field!);
@@ -4646,11 +4659,12 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0006: as the night thins, houseguests who have turned in are no longer "around" — the house
     // empties for the player. `null` when the clock is off ⇒ everyone shows ⇒ byte-identical whereabouts.
     const awake = this.awakeNow();
+    const notHere2 = this.notYetArrived();
     const isUp = (id: EntityId): boolean => !awake || awake.has(id);
     const inRoom = (r: Room): NamedRef[] => {
       const out: NamedRef[] = [];
       for (const [id, where] of this.presence!) {
-        if (where === r && id !== me && isUp(id)) out.push({ id, name: this.nameOf(id) });
+        if (where === r && id !== me && isUp(id) && !notHere2?.has(id)) out.push({ id, name: this.nameOf(id) });
       }
       return out;
     };
@@ -4829,7 +4843,8 @@ export class GameSessionAdapter implements GameSession {
     const player = this.house.player.id;
     // B52/audit D5: an evicted houseguest can't pull you aside — only LIVING NPCs approach.
     const evicted = new Set(this.live?.evictionOrder ?? []);
-    const npcIds0 = this.house.npcs.filter((n) => !evicted.has(n.id)).map((n) => n.id);
+    const notHere = this.notYetArrived(); // A9: un-arrived houseguests cannot approach
+    const npcIds0 = this.house.npcs.filter((n) => !evicted.has(n.id) && !notHere?.has(n.id)).map((n) => n.id);
     // ADR 0006: a houseguest who has turned in for the night won't pull you aside at 3am — only those
     // still up approach. Identity when the clock is off ⇒ byte-identical approach ranking.
     const npcAwake = this.awakeNow();
@@ -4903,7 +4918,7 @@ export class GameSessionAdapter implements GameSession {
 
   /** Lazily clear a stale tracker once the premiere is over (keeps the snapshot clean; idempotent). */
   private clearPremiereIfOver(): void {
-    const staleCircle = this.live?.champagneCircle !== undefined;
+    const staleCircle = this.live?.champagneCircle !== undefined || this.live?.premiereEntrance !== undefined;
     if (!this.inPremiere() && (this.premiereMet.size > 0 || this.premiereHotReads.size > 0 || staleCircle)) {
       this.premiereMet.clear();
       // #1318: the hot-read set is premiere-scoped too — clear it alongside so it never lingers in the
@@ -4911,7 +4926,7 @@ export class GameSessionAdapter implements GameSession {
       this.premiereHotReads.clear();
       // 0111: the champagne-circle flag is premiere-scoped — clear it so a post-premiere `live` never
       // reports a stale `champagne-circle` house event (which would wrongly pin the player).
-      if (this.live) this.live.champagneCircle = undefined;
+      if (this.live) { this.live.champagneCircle = undefined; delete this.live.premiereEntrance; }
       this.persist();
     }
   }
@@ -4969,6 +4984,10 @@ export class GameSessionAdapter implements GameSession {
     // the circle pre-registers every hot read, so any stray belt/model mark is an idempotent no-op.)
     const hotReads = activeNpcs.filter((n) => this.premiereHotReads.has(n.id)).length;
     const everyoneVisible = activeNpcs.every((n) => this.presence === null || this.presence.has(n.id));
+    const pe = this.live?.premiereEntrance;
+    // A9: during the staged entrances the roll-call gate is GONE (not re-added): un-arrived houseguests are not
+    // "remaining" and `complete`/`powerReachable` stay TRUE exactly as under the old circle.
+    if (pe) remaining.length = 0;
     const everyoneMet = remaining.length === 0;
     // +1 on both counts for the player (they ARE met — they're playing). total = the whole cast.
     return {
@@ -4978,10 +4997,134 @@ export class GameSessionAdapter implements GameSession {
       remaining,
       met,
       hotReads,
-      powerReachable: everyoneMet && everyoneVisible,
+      powerReachable: everyoneMet && (pe ? true : everyoneVisible),
       // 0111: surface the champagne-circle sub-state so the moment prompt knows whether the toast is
       // still GATHERED (voice the toast, house pinned) or DONE (released to bedroom pick / settling in).
       ...(this.live?.champagneCircle !== undefined ? { champagneCircle: this.live.champagneCircle } : {}),
+      ...(pe ? { entrance: this.entranceView(pe) } : {}),
+    };
+  }
+
+  /** A9 - season start (flag on): plan the seeded order and seat those who are already inside when the player walks in. */
+  private startPremiereEntrances(seed: number | string): void {
+    if (!this.house || !this.live) return;
+    const ids = [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+    const plan = planEntrances(ids, this.house.player.id, seed);
+    this.live.premiereEntrance = { order: plan.order, playerPos: plan.playerPos, arrived: 0, stage: "entrances", spoke: [] };
+    for (let i = 0; i < plan.playerPos; i++) this.recordArrival(i);
+    this.live.premiereEntrance.arrived = plan.playerPos;
+  }
+
+  /** A9 - the Vault-free public projection of the staged-entrances state (names only; never ids in prose). */
+  private entranceView(pe: NonNullable<LiveSeasonState["premiereEntrance"]>): NonNullable<PremiereIntrosView["entrance"]> {
+    const me = this.house!.player.id;
+    const arrivedIds = pe.order.slice(0, pe.arrived);
+    const lastId = pe.arrived > 0 ? pe.order[pe.arrived - 1] : undefined;
+    const speakerOf = (x: string): { id?: string; name: string; host?: true; isPlayer?: true } =>
+      x === "host" ? { name: "The host", host: true } :
+      x === me ? { id: x, name: this.nameOf(x), isPlayer: true } : { id: x, name: this.nameOf(x) };
+    let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true }> | undefined;
+    if (pe.stage !== "entrances" && pe.spoke.length > 0) {
+      const len = pe.spoke.length;
+      const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
+      speakers = pe.spoke.slice(from).map(speakerOf);
+    }
+    return {
+      stage: pe.stage,
+      index: pe.arrived,
+      total: pe.order.length,
+      playerPosition: pe.playerPos + 1,
+      arrivedNames: arrivedIds.filter((id) => id !== me).map((id) => this.nameOf(id)),
+      ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
+      ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
+      ...(speakers ? { speakers } : {}),
+    };
+  }
+
+  /** A9 - the houseguests who have NOT yet entered during the staged entrances (else null: nothing hidden). */
+  private notYetArrived(): Set<EntityId> | null {
+    const pe = this.live?.premiereEntrance;
+    if (!pe || pe.stage !== "entrances") return null;
+    return new Set(pe.order.slice(pe.arrived));
+  }
+
+  /**
+   * A9 - record ONE arrival (event + met-marks + the bounded first-read fold). The witness set is everyone
+   * already inside + the arriver (the player only when already inside, or when it is the player's own
+   * entrance). The first read rides a SEEDED SIDE stream (never the shared season spine). No persist (caller's).
+   */
+  private recordArrival(i: number): { id: EntityId; inside: EntityId[]; playerEntrance: boolean } {
+    const pe = this.live!.premiereEntrance!;
+    const me = this.house!.player.id;
+    const id = pe.order[i]!;
+    const inside = pe.order.slice(0, i);
+    const witness = [...inside, id];
+    this.onPlayerEvent?.(`${this.nameOf(id)} arrives`, witness, "premiere-entrance");
+    if (id !== me) {
+      this.premiereMet.add(id);
+      this.premiereHotReads.add(id);
+      this.introducedNames.add(id);
+    }
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:premiere-read:${i}`));
+    for (const holder of inside) this.rel.applyImpactDirected(holder, id, PREMIERE_FIRST_READ, rng);
+    return { id, inside, playerEntrance: id === me };
+  }
+
+  /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
+  private advancePremiereEntrance(): AdvanceView {
+    const s = this.live!;
+    const pe = s.premiereEntrance!;
+    const me = this.house!.player.id;
+    if (pe.stage === "entrances") {
+      const r = this.recordArrival(pe.arrived);
+      pe.arrived += 1;
+      if (pe.arrived >= pe.order.length) {
+        pe.stage = "toast";
+        s.champagneCircle = "gathered"; // the existing whole-house pin
+      }
+      this.persist();
+      const view = this.advanceView(null);
+      return {
+        ...view,
+        event: {
+          beat: "premiere-entrance",
+          content: `${this.nameOf(r.id)} arrives`,
+          participants: [{ id: r.id, name: this.nameOf(r.id) }],
+          detail: {
+            arriver: { id: r.id, name: this.nameOf(r.id) },
+            index: pe.arrived,
+            of: pe.order.length,
+            insideNames: r.inside.filter((x) => x !== me).map((x) => this.nameOf(x)),
+            playerEntrance: r.playerEntrance,
+          },
+        },
+      };
+    }
+    // stage "toast": release the next batch of speakers.
+    const all = toastSpeakers(pe.order);
+    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
+    for (const sp of batch) {
+      if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
+      else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
+      pe.spoke.push(sp); // the player's slot is a marker only - chat-authored, never recorded here
+    }
+    if (pe.spoke.length >= all.length) {
+      pe.stage = "done";
+      s.champagneCircle = "done"; // the existing release
+    }
+    this.persist();
+    const view = this.advanceView(null);
+    return {
+      ...view,
+      event: {
+        beat: "premiere-toast",
+        content: "The champagne toast",
+        detail: {
+          speakers: batch.map((sp) => (sp === "host" ? "host" : sp === me ? { id: sp, name: this.nameOf(sp), isPlayer: true } : { id: sp, name: this.nameOf(sp) })),
+          index: pe.spoke.length,
+          of: all.length,
+        },
+      },
     };
   }
 
@@ -4999,7 +5142,7 @@ export class GameSessionAdapter implements GameSession {
     this.clearPremiereIfOver();
     if (!this.house || !this.inPremiere()) return null;
     // Only a real, active NPC can be "met" — the player is implicitly met; an unknown/departed id is a no-op.
-    const isActiveNpc = this.house.npcs.some((n) => n.id === id && this.seatOf(n.id) === "active");
+    const isActiveNpc = this.house.npcs.some((n) => n.id === id && this.seatOf(n.id) === "active") && !this.notYetArrived()?.has(id);
     if (isActiveNpc) {
       let changed = false;
       if (!this.premiereMet.has(id)) {
@@ -5042,6 +5185,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.inPremiere()) return;
     for (const id of npcIds) {
       if (!this.house.npcs.some((n) => n.id === id && this.seatOf(n.id) === "active")) continue;
+      if (this.notYetArrived()?.has(id)) continue; // A9: not in the house yet
       if (!this.premiereMet.has(id)) { this.premiereMet.add(id); this.introducedNames.add(id); }
       this.premiereHotReads.add(id);
     }
@@ -5382,7 +5526,7 @@ export class GameSessionAdapter implements GameSession {
     // engine-recorded, Vault-free and seed-neutral (projection sets only; no rng, no fold). The premiere's
     // introductions auto-happen at the champagne toast (the first thing that happens), NOT via a manual
     // roll-call. Done after `this.live` exists so seat resolution is unambiguous (every NPC is active at genesis).
-    this.meetWholeHouseAtChampagneCircle();
+    if (!this.premiereEntrancesEnabled) this.meetWholeHouseAtChampagneCircle(); // A9: entrances meet them one at a time
     // FEATURE 0111 — GATHER the whole house for the champagne circle: the toast is a whole-house EVENT,
     // not free prose. Marking the live season `"gathered"` makes `houseEventInSession()` report a
     // `champagne-circle` event, so `whereabouts()` seats the whole house co-present in the living room
@@ -5393,7 +5537,7 @@ export class GameSessionAdapter implements GameSession {
     // and the whole change persists in the same season-start commit (no extra beatSeq bump). Released to
     // free-roam premiere on the model's first `advanceGame` (`champagneCircle = "done"`), which does NOT
     // start the first HOH — the bedroom pick + settling-in premiere beats still run.
-    this.live.champagneCircle = "gathered";
+    if (!this.premiereEntrancesEnabled) this.live.champagneCircle = "gathered"; // A9: the entrances gather the house themselves
     if (this.reactiveTwistsEnabled) {
       // 0025 REACTIVE (PO ruling 2026-07-06): arm the standing pool — all three twists watch the live
       // house, each fires when the house EARNS its (per-season seeded) trigger, at most once, and all
@@ -5484,6 +5628,7 @@ export class GameSessionAdapter implements GameSession {
     // Vault (engine-only; invisible to player AND admin — they surface only organically). Done AFTER
     // first impressions so the bias rides the scattered baseline; persisted so a showmance never resets.
     this.seedSeededRelationships(seed);
+    if (this.premiereEntrancesEnabled) this.startPremiereEntrances(seed); // A9 (after the seeded ties exist)
     this.wireDispositions(); // archetype → disposition (B55): grudges stick, loyalists forgive
     // 0124 (part C): tune each houseguest's starting reactivity to their disposition (temperamental ⇒ more
     // volatile + slower to settle) instead of the flat random draw. Off ⇒ skipped ⇒ the draw stands (byte-identical).
@@ -7246,6 +7391,9 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — turn the Wipeout Reel presentation layer on/off. Off by default (byte-identical
    *  `comp-elimination` content); the deploy/live-demo flip turns it on per the Q8 hybrid ruling. */
   setWipeoutReelEnabled(on: boolean): void { this.wipeoutReelEnabled = on; }
+  /** A9 - turn the staged premiere entrances on/off for this session (read at `createCharacter`; tests/BDD; the deploy sets `ORWELL_PREMIERE_ENTRANCES`). */
+  setPremiereEntrancesEnabled(on: boolean): void { this.premiereEntrancesEnabled = on; }
+  premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
   finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
@@ -8945,6 +9093,10 @@ export class GameSessionAdapter implements GameSession {
     // the player has picked a bedroom and settled, begins the first HOH. Committed like any beat (one
     // persist, one beatSeq bump) so the released state is durable; `advanceView(null)` reports no new
     // beat (nothing was resolved — only the toast scene closed).
+    if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
+      const staged = this.inOneCommit(() => this.advancePremiereEntrance());
+      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
+    }
     if (this.live.champagneCircle === "gathered") {
       const closed = this.inOneCommit(() => {
         this.live!.champagneCircle = "done";
@@ -11053,6 +11205,7 @@ export class GameSessionAdapter implements GameSession {
     // 0111: the champagne-circle flag is premiere-scoped — clear it the instant the phase leaves
     // "premiere" so a post-premiere `live` never reports a stale `champagne-circle` house event.
     if (this.phase !== "premiere" && s.champagneCircle !== undefined) s.champagneCircle = undefined;
+    if (this.phase !== "premiere" && s.premiereEntrance !== undefined) delete s.premiereEntrance; // A9
     this.ceremony = {
       hoh: s.hoh,
       nominees: (s.finalNominees ?? s.nominees ?? []).slice(),

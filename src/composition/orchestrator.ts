@@ -438,6 +438,10 @@ export class Orchestrator {
     // real HOH-staging advance, which also clears the flag but ADDS a comp pending, is NOT a pure close and
     // still earns its tick).
     if (this.isPureChampagneClose(baseline, candidate)) return;
+    // A9 (ORWELL_PREMIERE_ENTRANCES): the staged entrances + toast are premiere scenes - the house schemes only once the toast is done. A commit that is mid-entrances/toast (or the
+    // one that closes the toast) earns NO off-screen tick. Flag off => the live state has no `premiereEntrance` => this never fires (byte-identical).
+    const peStage = (x: SessionSnapshot | undefined): string | undefined => (x?.live as { premiereEntrance?: { stage?: string } } | undefined)?.premiereEntrance?.stage;
+    if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const progressed = !baseline || !baseline.started
