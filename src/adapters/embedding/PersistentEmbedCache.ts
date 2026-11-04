@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { appendFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /**
@@ -57,6 +57,9 @@ export class CachedEmbedding {
   get size(): number { return this.map.size; }
 
   embed(text: string): number[] {
+    // Once the inner provider has degraded to the deterministic fallback the WHOLE process is in that space: a cached fastembed vector must not be served beside fallback
+    // vectors (an index never mixes spaces) — so after a degrade everything goes straight to the inner (fallback) provider.
+    if (this.degraded) return this.inner.embed(text);
     const k = keyOf(text);
     const hit = this.map.get(k);
     if (hit) return hit.slice();
@@ -65,8 +68,26 @@ export class CachedEmbedding {
     if (!this.degraded && Array.isArray(v) && v.length > 0) {
       this.map.set(k, v.slice());
       this.queue(k, v);
+      this.enforceBound();
     }
     return v;
+  }
+
+  /** Keep the in-memory map AND the file within `maxEntries` while running (not only at load): drop the oldest, and rewrite the file once a tenth of the cap is stale. */
+  private staleOnDisk = 0;
+  private enforceBound(): void {
+    while (this.map.size > this.max) {
+      const oldest = this.map.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.map.delete(oldest);
+      this.staleOnDisk++;
+    }
+    if (this.staleOnDisk > Math.max(1, Math.floor(this.max / 10)) && this.writable) {
+      this.staleOnDisk = 0;
+      this.drain();
+      const snapshot = [...this.map].map(([k, v]) => JSON.stringify({ k, v: encode(v) }) + "\n").join("");
+      this.writing = this.writing.then(() => writeFile(this.file, snapshot)).catch(() => { this.writable = false; });
+    }
   }
 
   /** Resolves once every queued append has hit disk (tests / orderly shutdown). */
@@ -99,7 +120,7 @@ export class CachedEmbedding {
         const o = JSON.parse(line) as { k?: unknown; v?: unknown };
         if (typeof o.k !== "string" || typeof o.v !== "string") continue;
         const vec = decode(o.v);
-        if (vec) entries.push([o.k, vec]);
+        if (vec && (this.inner.dim === undefined || vec.length === this.inner.dim)) entries.push([o.k, vec]);   // a wrong-length vector is a stale/foreign line: never poison an index
       } catch { /* a truncated / corrupt line: skip it */ }
     }
     const kept = entries.length > this.max ? entries.slice(entries.length - this.max) : entries;

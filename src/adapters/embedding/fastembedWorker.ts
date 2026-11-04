@@ -103,23 +103,31 @@ export async function ensureModelFiles(
 export const DEFAULT_EMBED_THREADS = 2;
 
 export function embedThreads(env: Readonly<Record<string, string | undefined>> = process.env): number {
-  const n = Number.parseInt(env.ORWELL_EMBED_THREADS ?? "", 10);
+  const raw = (env.ORWELL_EMBED_THREADS ?? "").trim();
+  const n = /^\d+$/.test(raw) ? Number(raw) : NaN;            // strictly an integer: "4threads" / "2.5" are typos, not 4 / 2
   return Number.isFinite(n) && n >= 1 && n <= 64 ? n : DEFAULT_EMBED_THREADS;
 }
 
-/** Inject `intraOpNumThreads` / `interOpNumThreads` into every ONNX session fastembed creates (it exposes no option for them). Idempotent. */
-async function boundOnnxThreads(): Promise<void> {
-  const ortName = "onnxruntime-node"; // a runtime-resolved specifier: esbuild must NOT bundle the native binding (fastembed + this share the one installed copy)
-  const ortMod = (await import(ortName)) as unknown as { InferenceSession: { create: (...a: unknown[]) => Promise<unknown>; __orwellBounded?: boolean } };
-  const IS = ortMod.InferenceSession;
+/** Wrap `InferenceSession.create` so every session gets `intraOpNumThreads` / `interOpNumThreads` (fastembed exposes no option for them). Idempotent; pure over its argument. */
+export function bindSessionThreads(IS: { create: (...a: unknown[]) => Promise<unknown>; __orwellBounded?: boolean }, threads: number): void {
   if (IS.__orwellBounded) return;
   const orig = IS.create.bind(IS);
-  const threads = embedThreads();
   IS.create = (...a: unknown[]) => {
     const [modelPath, opts, ...rest] = a;
     return orig(modelPath, { ...((opts as Record<string, unknown> | undefined) ?? {}), intraOpNumThreads: threads, interOpNumThreads: 1 }, ...rest);
   };
   IS.__orwellBounded = true;
+}
+
+/** Bound the ORT thread pool. FAIL-SOFT: if the installed ORT can't be resolved (it is fastembed's own pinned dependency), embedding still works — just unbounded. */
+async function boundOnnxThreads(): Promise<void> {
+  try {
+    const ortName = "onnxruntime-node"; // a runtime-resolved specifier: esbuild must NOT bundle the native binding (fastembed + this share the one installed copy)
+    const ortMod = (await import(ortName)) as unknown as { InferenceSession: Parameters<typeof bindSessionThreads>[0] };
+    bindSessionThreads(ortMod.InferenceSession, embedThreads());
+  } catch (e) {
+    console.error(`[orwell] could not bound the ONNX thread pool (${e instanceof Error ? e.message : String(e)}); embeddings still work, unbounded.`);
+  }
 }
 
 type Embedder = { passageEmbed(texts: string[], batchSize?: number): AsyncGenerator<number[][], void, unknown> };

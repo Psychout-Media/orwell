@@ -48,6 +48,7 @@ export class FastembedEmbedding implements EmbeddingProvider {
     readonly dim: number,
     private readonly embedTimeoutMs: number,
     private readonly fallback: { embed(text: string): number[] },
+    readonly model: string = PINNED_MODEL,
   ) {}
 
   /** Synchronous real embedding via the worker bridge; deterministic fallback once degraded. */
@@ -117,7 +118,7 @@ export class FastembedEmbedding implements EmbeddingProvider {
 
     worker.removeAllListeners("exit");
     worker.removeAllListeners("error");
-    return new FastembedEmbedding(worker, ctl, payload, dim, opts.embedTimeoutMs ?? 5000, opts.fallback ?? new DeterministicEmbedding());
+    return new FastembedEmbedding(worker, ctl, payload, dim, opts.embedTimeoutMs ?? 5000, opts.fallback ?? new DeterministicEmbedding(), opts.model ?? PINNED_MODEL);
   }
 }
 
@@ -128,6 +129,6 @@ export const createFastembedEmbedding = FastembedEmbedding.create.bind(Fastembed
  * without re-embedding a whole mid-season save). The file name carries the pinned model + dim so a model change starts a fresh cache (vector spaces never mix).
  */
 export function withPersistentCache(provider: FastembedEmbedding, dataDir: string): CachedEmbedding {
-  const model = PINNED_MODEL.replace(/[^A-Za-z0-9._-]/g, "_");
+  const model = provider.model.replace(/[^A-Za-z0-9._-]/g, "_"); // the ACTUAL model the worker runs (create() accepts a non-default one), so two same-dim models never share a cache
   return new CachedEmbedding(provider, `${dataDir.replace(/\/$/, "")}/embed-cache-${model}-${provider.dim}.jsonl`);
 }

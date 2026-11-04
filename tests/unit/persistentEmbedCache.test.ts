@@ -12,7 +12,7 @@ import { CachedEmbedding } from "../../src/adapters/embedding/PersistentEmbedCac
 class Counting {
   calls = 0;
   degraded = false;
-  readonly dim = 4;
+  readonly dim: number = 4;
   embed(text: string): number[] {
     this.calls++;
     let h = 0;
@@ -63,6 +63,48 @@ describe("CachedEmbedding", () => {
     c2.embed("fallback-space note");
     expect(probe.calls, "the degraded vector was not persisted").toBe(1);
     expect(second.size).toBe(0);
+  });
+
+  it("a provider that degrades ON the producing call: that fallback vector is not persisted, and afterwards even cached hits are not served (no mixed spaces)", async () => {
+    const file = fresh();
+    class FlipsOnCall extends Counting {
+      embed(text: string): number[] { const v = super.embed(text); if (text === "the call that kills the worker") this.degraded = true; return v; }
+    }
+    const inner = new FlipsOnCall();
+    const c = new CachedEmbedding(inner, file);
+    const good = c.embed("an earlier good note");                 // cached while healthy
+    c.embed("the call that kills the worker");                     // the inner flips to degraded INSIDE this call
+    await c.flush();
+    expect(new CachedEmbedding(new Counting(), file).size, "only the healthy vector persisted").toBe(1);
+    const before = inner.calls;
+    const after = c.embed("an earlier good note");                 // a HIT in the healthy space, but the process is now in the fallback space
+    expect(inner.calls, "post-degrade everything goes to the (fallback) inner provider").toBe(before + 1);
+    expect(after).toEqual(good);                                   // (the test double is deterministic; the point is the call went to inner)
+  });
+
+  it("rejects cached vectors of the wrong dimension on load (a stale/foreign line never poisons an index)", async () => {
+    const file = fresh();
+    const seed = new CachedEmbedding(new Counting(), file);       // dim 4
+    seed.embed("four-dim note");
+    await seed.flush();
+    class Wide extends Counting { readonly dim = 6; embed(t: string): number[] { this.calls++; return Array.from({ length: 6 }, (_, i) => i + t.length); } }
+    const wide = new Wide();
+    const c = new CachedEmbedding(wide, file);
+    expect(c.size, "the 4-dim line is rejected for a 6-dim provider").toBe(0);
+    c.embed("four-dim note");
+    expect(wide.calls).toBe(1);
+  });
+
+  it("stays within maxEntries WHILE RUNNING (memory and file), not only at the next load", async () => {
+    const file = fresh();
+    const c = new CachedEmbedding(new Counting(), file, { maxEntries: 20 });
+    for (let i = 0; i < 100; i++) c.embed(`running note ${i}`);
+    expect(c.size).toBeLessThanOrEqual(20);
+    await c.flush();
+    await new Promise((r) => setTimeout(r, 20));
+    await c.flush();
+    expect(readFileSync(file, "utf8").trim().split("\n").length, "the file was compacted while running").toBeLessThan(60);
+    expect(new CachedEmbedding(new Counting(), file, { maxEntries: 20 }).size).toBeLessThanOrEqual(20);
   });
 
   it("tolerates a corrupt or truncated file (a crash mid-append): good lines load, bad ones are skipped", async () => {
@@ -123,6 +165,22 @@ describe("the embed worker's ONNX thread bound", () => {
     expect(DEFAULT_EMBED_THREADS).toBe(2);
     expect(embedThreads({})).toBe(2);
     expect(embedThreads({ ORWELL_EMBED_THREADS: "4" })).toBe(4);
-    for (const bad of ["0", "-1", "abc", "", "999"]) expect(embedThreads({ ORWELL_EMBED_THREADS: bad }), bad).toBe(2);
+    for (const bad of ["0", "-1", "abc", "", "999", "4threads", "2.5", "1e1", " 3x"]) expect(embedThreads({ ORWELL_EMBED_THREADS: bad }), bad).toBe(2);
+    expect(embedThreads({ ORWELL_EMBED_THREADS: " 3 " })).toBe(3);
+  });
+
+  it("bindSessionThreads gives EVERY ort session both thread options (and keeps the caller's own options), once", async () => {
+    const { bindSessionThreads } = await import("../../src/adapters/embedding/fastembedWorker");
+    const seen: Array<Record<string, unknown>> = [];
+    const IS: { create: (...a: unknown[]) => Promise<unknown>; __orwellBounded?: boolean } = {
+      create: async (_path: unknown, opts?: unknown) => { seen.push(opts as Record<string, unknown>); return {}; },
+    };
+    bindSessionThreads(IS, 3);
+    bindSessionThreads(IS, 3);                                      // idempotent: no double wrap
+    await IS.create("model.onnx", { executionProviders: ["cpu"], graphOptimizationLevel: "all" });
+    await IS.create("other.onnx");
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toEqual({ executionProviders: ["cpu"], graphOptimizationLevel: "all", intraOpNumThreads: 3, interOpNumThreads: 1 });
+    expect(seen[1]).toEqual({ intraOpNumThreads: 3, interOpNumThreads: 1 });
   });
 });
