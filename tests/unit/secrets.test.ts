@@ -17,6 +17,12 @@ const SECRET_PATTERNS = [
   // Slack / Google API keys — cheap to refute, common paste mistakes.
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
   /\bAIza[0-9A-Za-z_-]{35}\b/,
+  // OpenRouter keys (`sk-or-v1-<64 hex>`) — the app's own provider. The generic `sk-` pattern above
+  // misses them: its [A-Za-z0-9]{24,} run is broken by the hyphens after `sk-`.
+  /sk-or-v1-[A-Za-z0-9]{20,}/,
+  // OpenAI project / service-account / admin keys (`sk-proj-…`): base64url body with `-` and `_`,
+  // which the generic `sk-` pattern also misses.
+  /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/,
 ];
 
 // Audit E78: the guard used to scan only deploy/ + root configs — not src/, not the vendored
@@ -73,5 +79,34 @@ describe("secrets never live in the repo (feature 0010 + audit E78)", () => {
   it("no real .env file is committed (only .env.example)", () => {
     const envFiles = tracked.filter((f) => /(^|\/)\.env$/.test(f));
     expect(envFiles).toEqual([]);
+  });
+});
+
+describe("secret patterns recognise each key format", () => {
+  // Samples are assembled at runtime, never written as literals: this file is itself swept by the
+  // test above and scanned by gitleaks, so a complete key-shaped literal here would trip both.
+  const hex64 = "0123456789abcdef".repeat(4);
+  const base64url = "Ab3_-Zy9".repeat(8);
+  const matchesAny = (sample: string): boolean => SECRET_PATTERNS.some((p) => p.test(sample));
+
+  it.each([
+    ["OpenRouter key", "OPENROUTER_API_KEY=sk-or-v1-" + hex64],
+    ["OpenRouter key in prose", "use sk-or-v1-" + hex64 + " to call it"],
+    ["OpenAI project key", "OPENAI_API_KEY=sk-proj-" + base64url],
+    ["OpenAI service-account key", "sk-svcacct-" + base64url],
+    ["OpenAI admin key", "sk-admin-" + base64url],
+    ["Anthropic key (existing format)", "sk-ant-" + "a".repeat(24)],
+    ["generic sk- key (existing format)", "sk-" + "a".repeat(32)],
+  ])("flags a %s", (_label, sample) => {
+    expect(matchesAny(sample)).toBe(true);
+  });
+
+  it.each([
+    ["a bare OpenRouter prefix", "sk-or-v1-"],
+    ["an elided OpenRouter placeholder", "sk-or-v1-..."],
+    ["a short OpenRouter-looking token", "sk-or-v1-abc123"],
+    ["an OpenAI prefix with no body", "/^sk-proj-/ and `/setup openai sk-proj-...`"],
+  ])("does not flag %s", (_label, sample) => {
+    expect(matchesAny(sample)).toBe(false);
   });
 });
