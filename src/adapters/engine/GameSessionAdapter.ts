@@ -6520,7 +6520,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return null;
     const evicted = new Set(this.live.evictionOrder);
     if (evicted.has(npcId) || !this.house.npcs.some((n) => n.id === npcId)) return null;
-    const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => (f.factId ?? f.id) === factId || f.id === factId);
+    // BDD audit D2: a Diary Room note is never confrontable — confronting with it would put booth content in front of
+    // a houseguest (a DR→NPC pathway the wall forbids).
+    const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === factId || f.id === factId));
     if (!belief) return null; // the Vault bright line — a non-learned belief is never minted
     const landed = !this.gossipConsequenceEnabled || !isMateriallyDistorted(belief);
     if (!landed) {
@@ -9650,7 +9652,9 @@ export class GameSessionAdapter implements GameSession {
     if (!d.factId) return null;
     // The bright line: the player can only wield a fact they LEGITIMATELY HOLD. Reject anything else —
     // a suspicion, a never-learned secret, another entity's knowledge. No Vault-minting.
-    const fact = (this.playerKnowledgeReader?.() ?? []).find((f) => (f.factId ?? f.id) === d.factId || f.id === d.factId);
+    // BDD audit D2: a Diary Room note is the player's PRIVATE booth record — never a wieldable secret. Exposing or
+    // trading it would surface Diary Room content into a houseguest's knowledge (a DR→NPC pathway the wall forbids).
+    const fact = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === d.factId || f.id === d.factId));
     if (!fact) return null;
     if (this.secretUsedAs[d.factId] === "exposed") return null; // spent (public) — never re-wielded
     // The subject is the houseguest the fact is about (the knowledge `subject`, or the descriptor's hint).
