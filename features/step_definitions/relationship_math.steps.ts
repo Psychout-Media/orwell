@@ -84,8 +84,16 @@ Then("the paranoid houseguest's grudge is stronger and decays slower", function 
   const bond = this.rel!.edge(C, B);
   assert.ok(clash.threat > bond.threat, "paranoid grudge should be stronger");
   assert.ok(clash.trust < bond.trust);
+  // AMEND 0024/0026 #3: the old check (clash threat > bond threat AFTER decay) was already true BEFORE any decay, so it could not fail on the decay rate. Compare the FRACTION of the
+  // grudge (threat above the baseline) that SURVIVES the same quiet stretch: the paranoid keeps a larger fraction than the forgiving, and both actually fade.
+  const base = RELATIONSHIP_CONSTANTS.baseline.threat;
+  const excess = (h: typeof A): number => this.rel!.edge(h, B).threat - base;
+  const clashBefore = excess(A), bondBefore = excess(C);
+  assert.ok(clashBefore > 0 && bondBefore > 0, "both hold a real grudge to decay");
   for (let i = 0; i < 5; i++) this.rel!.decay(0.1); // a quiet stretch for both
-  assert.ok(this.rel!.edge(A, B).threat > this.rel!.edge(C, B).threat, "paranoid grudge should decay slower");
+  const clashKept = excess(A) / clashBefore, bondKept = excess(C) / bondBefore;
+  assert.ok(clashKept < 1 && bondKept < 1, `both grudges fade (clash kept ${clashKept.toFixed(3)}, bond kept ${bondKept.toFixed(3)})`);
+  assert.ok(clashKept > bondKept, `the paranoid grudge decays SLOWER: it keeps a larger fraction (${clashKept.toFixed(3)} vs ${bondKept.toFixed(3)})`);
 });
 
 Then("the forgiving houseguest's grudge is softer and fades faster", function (this: BbWorld) {
