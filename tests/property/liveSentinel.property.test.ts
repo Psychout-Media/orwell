@@ -4,6 +4,7 @@ import { toolsFor } from "../../src/surfaces/tools/registry";
 import type { McpServer } from "../../src/adapters/mcp/McpServer";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import { PLAYER, npc } from "../../src/domain/ids";
+import { answerPending } from "../../features/support/answerPending";
 
 /**
  * Feature B42 / audit E8 — the sentinel canary must bite the LIVE game. The old sweep ran against a
@@ -404,4 +405,56 @@ describe("#1735 (A4) / #1732 (A3) — the terminal HARD-CONSTRAINTS block carrie
     const mp = sb.session.getMomentPrompt({});
     expect(mp.hardConstraints).toBeUndefined();
   });
+});
+
+/**
+ * A3 (0133 Sprint-2 item) - the sentinel canary must also bite the SPECTATOR / DIGEST path. A player evicted before the jury forms chooses `watch`; the engine then
+ * runs whole player-less weeks and surfaces a condensed `weekDigests` projection (HOH / nominees / veto / evictee), and raises the finale interview at the end.
+ * Plant sentinels into every kind of hidden state at the moment of the spectator choice and prove no read or advance in watch mode - including the digests and the
+ * finale-interview card - ever returns one. Seeds are SEARCHED (the balance moves which seed evicts the player early). Roles only.
+ */
+describe("A3 - the sentinel canary bites the spectator / week-digest path (0133)", () => {
+  it("watch mode: advanceGame, getGameState (weekDigests), gameStatus, the moment prompt and the finale interview never leak a sentinel", async () => {
+    let exercised = false;
+    for (let seed = 1; seed <= 60 && !exercised; seed++) {
+      const reg = new GameSessionRegistry();
+      const user = `u-a3-${seed}`;
+      const player = reg.resolver()("player", user) as McpServer;
+      await player.callTool("createCharacter", { playerName: "The Player", seed });
+      // Auto-play until the player is evicted before the jury forms (the spectator-choice card).
+      let card: AdvanceView["pending"] = null;
+      for (let i = 0; i < 8000; i++) {
+        const adv = (await player.callTool("advanceGame", {})) as AdvanceView;
+        if (adv.pending?.kind === "spectator-choice") { card = adv.pending; break; }
+        if (adv.pending) await player.callTool("submitDecision", answerPending(adv.pending) as unknown as Record<string, unknown>);
+        if (adv.finished) break;
+      }
+      if (!card) continue;
+      const sentinels = plantLiveSentinels(reg, user, seed);
+      const leaks = (name: string, value: unknown): void => {
+        const blob = JSON.stringify(value);
+        for (const s of sentinels) expect(blob.includes(s), `seed ${seed}: spectator-path ${name} leaked ${s}`).toBe(false);
+      };
+      leaks("the spectator-choice card itself", card);
+      await player.callTool("submitDecision", { kind: "spectator-choice", vote: "watch" });
+      let digestsSeen = 0, interviewSeen = false, finished = false;
+      for (let i = 0; i < 400 && !finished; i++) {
+        const adv = (await player.callTool("advanceGame", {})) as AdvanceView & { weekDigests?: unknown[] };
+        leaks("advanceGame", adv);
+        const gs = (await player.callTool("getGameState", {})) as { weekDigests?: unknown[] };
+        leaks("getGameState", gs);
+        digestsSeen = Math.max(digestsSeen, gs.weekDigests?.length ?? 0, adv.weekDigests?.length ?? 0);
+        leaks("gameStatus", await player.callTool("gameStatus", {}));
+        leaks("getMomentPrompt", await player.callTool("getMomentPrompt", { moment: "social" }));
+        if (adv.pending?.kind === "finale-interview") { interviewSeen = true; leaks("the finale-interview card", adv.pending); }
+        if (adv.pending) await player.callTool("submitDecision", answerPending(adv.pending) as unknown as Record<string, unknown>);
+        finished = adv.finished;
+      }
+      expect(finished, `seed ${seed}: the season finished in watch mode`).toBe(true);
+      expect(digestsSeen, `seed ${seed}: the watch path actually produced week digests`).toBeGreaterThan(0);
+      exercised = true;
+      void interviewSeen; // the interview card is swept when it is raised (finale interview depends on the player not being a finalist)
+    }
+    expect(exercised, "a seed in 1..60 evicted the player before the jury formed").toBe(true);
+  }, 600_000);
 });
