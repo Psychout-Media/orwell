@@ -7862,7 +7862,8 @@ async def _stream_agent_loop_impl(
                     # ARMS the runway (a `None` owner under auth-off keys the stable sentinel, not the
                     # ad-hoc `owner or ""`); otherwise the hold would be invisible here and the plain
                     # stall-advance would shove past the protected social play under auth-off.
-                    _runway_holding = _ch._RUNWAY_LEFT.get(_ch._runway_key(owner), 0) > 0
+                    _runway_holding = (_ch._RUNWAY_LEFT.get(_ch._runway_key(owner), 0) > 0
+                                       or _ch.production_is_holding(owner))  # P2b: a not-yet-due scheduled event is held too - no stall-nudge may fire it early
                 except Exception:
                     _runway_holding = False
                 # #670: did the pre-resolve already walk a real beat THIS turn (a ceremony OR a staged

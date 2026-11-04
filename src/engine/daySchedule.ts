@@ -97,7 +97,9 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return false;
   const hour = live.nightDepth ?? WAKE_HOUR;
-  return hour >= m.targetHour;
+  // Float-safe: the clock accrues in 0.2h steps (0.2 * 20 = 3.999999999999986...), so a scene that reaches EXACTLY the scheduled hour (the 8am wake + a 4h scene
+  // cap = the 12:00 afternoon start) landed at 11.999999999999986 and was never "due" - a stall once the front-end stopped firing events ahead of the schedule.
+  return hour + 1e-6 >= m.targetHour;
 }
 
 /**
