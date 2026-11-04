@@ -43,24 +43,21 @@ function driveReveal(s: LiveSeasonState, ctx: SeasonCtx, rng: SeededRandom): Bea
 }
 
 describe("0047 — eviction night live", () => {
-  it("reveals the votes one at a time, then lands the result on the last vote", () => {
+  it("PO ruling 2026-11-04: ONE advance reads every ballot (anonymized, in the seeded order), then the next lands the result", () => {
     const { s, ctx, voters } = evictionAt();
     const rng = new SeededRandom(7);
-    const reveals: BeatEvent[] = [];
-    for (let i = 0; i < voters.length; i++) {
-      const ev = advance(s, ctx, rng)!;
-      expect(ev.beat).toBe("eviction-reveal");
-      expect(s.eviction!.revealIx).toBe(i + 1); // exactly one more vote read per advance
-      // E12: the read ballot is ANONYMIZED — it names the nominee, never the voter.
-      expect(ev.content).toMatch(/^a vote to evict /);
-      for (const v of voters) {
-        expect(ev.content.includes(v)).toBe(false);
-        expect(ev.participants.includes(v)).toBe(false);
-      }
-      reveals.push(ev);
+    const ev = advance(s, ctx, rng)!;
+    expect(ev.beat).toBe("eviction-reveal");
+    expect(s.eviction!.revealIx).toBe(voters.length); // every vote read in this single advance
+    // E12: the read ballots are ANONYMIZED — they name the nominee, never the voter.
+    expect(ev.content).toMatch(/^a vote to evict /);
+    expect((ev.content.match(/a vote to evict /g) ?? []).length).toBe(voters.length);
+    expect(ev.participants).toHaveLength(voters.length);
+    for (const v of voters) {
+      expect(ev.content.includes(v)).toBe(false);
+      expect(ev.participants.includes(v)).toBe(false);
     }
-    expect(reveals).toHaveLength(voters.length);
-    // The result lands only after the last vote is read.
+    expect(s.evictionOrder).toEqual([]); // the result has NOT landed yet — it is the very next beat
     const result = advance(s, ctx, rng)!;
     expect(result.beat).toBe("eviction");
     expect(result.participants[0]).toBe(npc(2)); // the 3–1 vote evicts npc2
@@ -125,18 +122,18 @@ describe("0047 — eviction night live", () => {
     for (const sender of cold.senders) expect(cold.s.mannerByEvictee![npc(2)]![sender]!.goodbye).toBe("cold");
   });
 
-  it("a staged eviction survives an engine restart mid-reveal and resumes to the same result", () => {
+  it("a staged eviction survives an engine restart between the reveal and the result and resumes to the same result", () => {
     const finishOrder = (st: LiveSeasonState, ctx: SeasonCtx): EntityId => {
       const rng = new SeededRandom(7);
       for (let g = 0; g < 100 && !st.finished && st.beat === "eviction"; g++) advance(st, ctx, rng);
       return st.evictionOrder[0]!;
     };
     const { s, ctx } = evictionAt();
-    advance(s, ctx, new SeededRandom(7)); advance(s, ctx, new SeededRandom(7)); // read 2 of 4 votes
+    advance(s, ctx, new SeededRandom(7)); // all 4 votes read in the one reveal beat; the result has not landed
     expect(s.eviction?.stage).toBe("votes");
-    expect(s.eviction?.revealIx).toBe(2);
-    const restored = cloneSession<LiveSeasonState>(s); // a durable round-trip (0030) mid-reveal
-    expect(restored.eviction?.revealIx).toBe(2);
+    expect(s.eviction?.revealIx).toBe(4);
+    const restored = cloneSession<LiveSeasonState>(s); // a durable round-trip (0030) between the reveal and the result
+    expect(restored.eviction?.revealIx).toBe(4);
     // The resumed reveal reaches the same engine-decided evictee.
     expect(finishOrder(restored, ctx)).toBe(npc(2));
   });

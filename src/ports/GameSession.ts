@@ -1419,6 +1419,11 @@ export interface EvictionView {
   nominees: NamedRef[];
   /** The anonymized ballots revealed so far, in reveal order — the nominee each vote names, never the voter. */
   votesRevealed: Array<{ votedFor: NamedRef }>;
+  /**
+   * The evictee, once the result beat has landed (PO ruling 2026-11-04: the whole ballot list is read in one turn and the result follows) — absent
+   * while the ballots are unread or the result has not been committed. Public after the fact; never present before the last ballot.
+   */
+  evictee?: NamedRef;
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */

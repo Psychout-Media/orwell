@@ -452,6 +452,7 @@ export class BbWorld extends World {
   enSentinel?: string;
   /** T2: the staged eviction's electorate size, read from the engine's own state. */
   enElectorate?: number;
+  enPreReveal?: number;
   // --- exit interviews (0130) scratch state (exit_interview.steps.ts) ---
   xiSession?: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
   xiRetro?: import("../../src/ports/GameSession").RetrospectiveView | null;

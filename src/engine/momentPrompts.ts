@@ -1657,11 +1657,18 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
   if (cer.veto.holder && pid && cer.veto.holder.id !== pid) pl.push("NOT the veto holder");
   if (pl.length) lines.push(`    The player (you, the second person) is: ${pl.join("; ")}.`);
   if (phase.startsWith("eviction") || phase.startsWith("final-eviction")) {
-    const revealed = view.eviction?.votesRevealed.length ?? 0;
+    const ev = view.eviction;
+    const ballots = ev?.votesRevealed ?? [];
     if (view.pending?.kind === "eviction-vote") {
       lines.push("    The player's eviction-vote card is OPEN: no ballot has been read — stage no ballot, tally or result; set the room, present the vote, then wait.");
+    } else if (ballots.length === 0) {
+      lines.push("    No ballot has been read yet. Read no ballot, tally or evictee beyond what the game hands you.");
     } else {
-      lines.push(`    Ballots revealed so far: ${revealed} (each anonymized). Read no ballot, tally or evictee beyond what the game hands you.`);
+      // PO ruling 2026-11-04: the whole vote is read in ONE turn — every anonymized ballot, in order, then the result. The narrator gets the full truth.
+      lines.push(`    BALLOTS (all ${ballots.length}, in the order read; anonymized — name NO voter): ${ballots.map((b) => `a vote to evict ${b.votedFor.name}`).join("; ")}.`);
+      lines.push(ev?.evictee
+        ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
+        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
     }
   }
   return lines;
