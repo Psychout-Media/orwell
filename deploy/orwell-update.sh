@@ -129,7 +129,10 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
       fi
     fi
     [[ -n "${GIT_TOKEN:-}" ]] || { echo "ERROR: --set-token needs GIT_TOKEN=<pat> (or a TTY to prompt)." >&2; exit 1; }
+    # The token file must not outlive this run on ANY exit (a failed push, Ctrl-C, set -e): EXIT trap.
     TMP_TOKEN="$(mktemp /tmp/orwell-token-XXXXXX)"
+    trap 'rm -f "$TMP_TOKEN"' EXIT
+    trap 'exit 130' INT TERM
     chmod 600 "$TMP_TOKEN"
     printf 'GIT_TOKEN=%s\n' "$GIT_TOKEN" > "$TMP_TOKEN"
     pct push "$CTID" "$TMP_TOKEN" /tmp/orwell-token --perms 0600
@@ -253,13 +256,22 @@ if [[ "$SET_TOKEN" -eq 1 ]]; then
   fi
   [[ -n "$TOKEN" ]] || { echo "ERROR: --set-token needs GIT_TOKEN=<pat> (or a TTY to prompt)." >&2; exit 1; }
   mkdir -p "${APP_DIR}/data"
+  # This path runs as root, so a freshly created/renamed data/.env would be root-owned and the
+  # unprivileged service could no longer read its own config. Keep the owner/group of the existing
+  # file (or, for a first token, of the data dir the installer chowned to the service user).
+  OWNER_REF="$ENV_FILE"; [[ -e "$OWNER_REF" ]] || OWNER_REF="${APP_DIR}/data"
   touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-  # Rotate in place: drop any previous GIT_TOKEN line, then append the new one.
+  # Rotate in place: drop any previous GIT_TOKEN line, then append the new one. The temp file holds
+  # the token, so it is removed on any exit.
   TMP_ENV="$(mktemp "${APP_DIR}/data/.env.XXXXXX")"
+  trap 'rm -f "$TMP_ENV"' EXIT
+  trap 'exit 130' INT TERM
   grep -v '^GIT_TOKEN=' "$ENV_FILE" > "$TMP_ENV" || true
   printf 'GIT_TOKEN=%s\n' "$TOKEN" >> "$TMP_ENV"
   chmod 600 "$TMP_ENV"
+  chown --reference="$OWNER_REF" "$TMP_ENV" 2>/dev/null || true
   mv "$TMP_ENV" "$ENV_FILE"
+  trap - EXIT
   wire_credential_helper
   echo "==> deploy token saved to ${ENV_FILE} and git credential helper wired."
   echo "    Rotation: re-run 'orwell-update.sh --set-token' (fine-grained PATs cap at one year)."
@@ -788,7 +800,7 @@ cleanup_inherited_cruft() {
   # As ROOT while the FE is up, even a SELECT can create/checkpoint root-owned app.db-wal/-shm
   # sidecars that then make the unprivileged FE hit "readonly database" / "database is locked"; the
   # DELETE is the same hazard. Running as the DB's owner keeps every sidecar owned by that user.
-  local db="${APP_DIR}/data/app.db"
+  local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"   # the FE store (frontend/data), not engine data/
   if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$db" ]]; then
     if _svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null | grep -q 1; then
       local pat="'%browser%' OR lower(name) LIKE '%playwright%' OR lower(command) LIKE '%playwright%' OR lower(args) LIKE '%@playwright/mcp%' OR lower(name) IN ('memory','rag','email') OR lower(id) IN ('memory','rag','email','builtin_browser')"

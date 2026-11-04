@@ -87,13 +87,13 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
     cp "${BASH_SOURCE[0]}" "$TMP_RESET"
     pct push "$CTID" "$TMP_RESET" /tmp/orwell-game-reset.sh
     rm -f "$TMP_RESET"
-    pct exec "$CTID" -- bash /tmp/orwell-game-reset.sh "${EXTRA_FLAGS[@]:-}"
+    pct exec "$CTID" -- bash /tmp/orwell-game-reset.sh ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
   elif [[ -n "${BASH_EXECUTION_STRING:-}" ]]; then
     TMP_RESET="$(mktemp /tmp/orwell-game-reset-XXXXXX.sh)"
     printf '%s\n' "$BASH_EXECUTION_STRING" > "$TMP_RESET"
     pct push "$CTID" "$TMP_RESET" /tmp/orwell-game-reset.sh
     rm -f "$TMP_RESET"
-    pct exec "$CTID" -- bash /tmp/orwell-game-reset.sh "${EXTRA_FLAGS[@]:-}"
+    pct exec "$CTID" -- bash /tmp/orwell-game-reset.sh ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
   else
     pct exec "$CTID" -- bash -c "for d in /opt/orwell /opt/bbai; do
         [ -f \"\$d/deploy/orwell-game-reset.sh\" ] && exec bash \"\$d/deploy/orwell-game-reset.sh\" ${EXTRA_FLAGS[*]:-}

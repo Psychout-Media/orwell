@@ -2,16 +2,19 @@
 #
 # orwell — OOBE reset (keep API keys). Returns the app to EXACT first-run onboarding while
 # preserving ONLY the API-key / LLM-provider configuration, so the operator never has to
-# re-enter their LLM setup.
+# re-enter their LLM setup. The SELECTED MODELS are reset to the OOB defaults (issue #860).
+#
+# This is the ONE implementation of every "back to OOBE" reset: orwell-factory-reset.sh is a thin
+# wrapper that delegates here (same as the admin "Factory Reset (OOBE)" button), so the two cannot differ.
 #
 # Scrubs EVERYTHING a fresh install lacks: every per-user game sandbox (saves, souls, the
 # hidden Vault layer), and the entire front-end store — ALL accounts, ALL chats/sessions,
 # ALL memory, ALL MCP server configs, EVERY user setting, ALL uploads and portraits — then
 # restarts so the next visit begins at first-run OOBE (account creation / casting).
 #
-# PRESERVED (this is the whole point — the difference from orwell-factory-reset.sh):
-#   • the configured LLM / image PROVIDERS (the model_endpoints table in the FE app.db),
-#   • the LLM-SELECTION settings (which endpoint/model is the default for chat/utility/…),
+# PRESERVED (this is the whole point — so an LLM is already wired after the reset):
+#   • the configured LLM / image PROVIDERS (the model_endpoints table in the FE app.db) and the
+#     default-ENDPOINT designation (default_endpoint_id — which provider, not which model),
 #   • the encryption keys that decrypt them (data/.app_key, data/.key) and the legacy
 #     data/api_keys.json — so after the reset an LLM is ALREADY configured.
 #   • the engine config data/.env (ports, tokens, LLM keys — AND the public-deployment / SSL
@@ -20,8 +23,11 @@
 #   • the data/ops/ tree (the public-deployment apply record the admin page reads back, plus the
 #     live ops trigger/status dir) — preserved below. The OS-level cloudflared tunnel/service is
 #     never touched either. So a box that was made PUBLIC on the web STAYS public across the reset.
-# So after this reset the app sits at OOBE, but an LLM is already wired — and if the box was
-# reachable on the internet, it still is.
+# RESET (not kept — issue #860): the SELECTED MODELS (default/utility/research/vision/image model
+# and their fallbacks, plus the per-class endpoint picks) revert to the OOB defaults in
+# frontend/src/settings.py, so a stale or placeholder pick can never ride across a reset.
+# So after this reset the app sits at OOBE, but an LLM provider is already wired — and if the box
+# was reachable on the internet, it still is.
 #
 # The selective FE-store surgery (export model_endpoints + the LLM settings, wipe the rest,
 # rebuild) is done by the quarantined Python helper frontend/scripts/oobe_reset.py; this
@@ -77,7 +83,7 @@ while [[ $# -gt 0 ]]; do
     -y|--yes)        ASSUME_YES=1; EXTRA_FLAGS+=("--yes") ;;
     -n|--dry-run)    DRY_RUN=1;    EXTRA_FLAGS+=("--dry-run") ;;
     --no-restart)    RESTART=0;    EXTRA_FLAGS+=("--no-restart") ;;
-    -h|--help)       sed -n '3,40p' "${BASH_SOURCE[0]:-/dev/null}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)       sed -n '3,48p' "${BASH_SOURCE[0]:-/dev/null}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)               die "unknown option: $1 (try --help)" ;;
   esac
   shift
@@ -113,13 +119,13 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
     cp "${BASH_SOURCE[0]}" "$TMP_RESET"
     pct push "$CTID" "$TMP_RESET" /tmp/orwell-oobe-reset.sh
     rm -f "$TMP_RESET"
-    pct exec "$CTID" -- bash /tmp/orwell-oobe-reset.sh "${EXTRA_FLAGS[@]:-}"
+    pct exec "$CTID" -- bash /tmp/orwell-oobe-reset.sh ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
   elif [[ -n "${BASH_EXECUTION_STRING:-}" ]]; then
     TMP_RESET="$(mktemp /tmp/orwell-oobe-reset-XXXXXX.sh)"
     printf '%s\n' "$BASH_EXECUTION_STRING" > "$TMP_RESET"
     pct push "$CTID" "$TMP_RESET" /tmp/orwell-oobe-reset.sh
     rm -f "$TMP_RESET"
-    pct exec "$CTID" -- bash /tmp/orwell-oobe-reset.sh "${EXTRA_FLAGS[@]:-}"
+    pct exec "$CTID" -- bash /tmp/orwell-oobe-reset.sh ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
   else
     pct exec "$CTID" -- bash -c "for d in /opt/orwell /opt/bbai; do
         [ -f \"\$d/deploy/orwell-oobe-reset.sh\" ] && exec bash \"\$d/deploy/orwell-oobe-reset.sh\" ${EXTRA_FLAGS[*]:-}
@@ -221,8 +227,10 @@ PERMANENTLY DELETES all orwell game + user data:
 
 PRESERVED:
   • your LLM / image PROVIDERS + the keys that decrypt them
-    (model_endpoints, .app_key, .key, api_keys.json) and the LLM-selection settings
+    (model_endpoints, .app_key, .key, api_keys.json) and the default-endpoint designation
   • the engine config ${CONFIG_DIR}/${ENV_KEEP}
+
+RESET to the out-of-box defaults: the SELECTED MODELS (default, utility, research, vision, image).
 
 The next visit starts at first-run onboarding (OOBE) — with an LLM already configured." \
       || die "aborted — no changes made."
@@ -232,10 +240,12 @@ This PERMANENTLY DELETES all orwell game + user data:
   • ${SANDBOXES} game sandbox(es)  under ${ENGINE_SAVE_DIR}/<user>/   (saves, souls, hidden Vault layer)
   • the front-end store            ${FE_DATA_DIR}/                    (ALL accounts, chats, sessions, memory,
                                                                        MCP configs, uploads, portraits, EVERY setting)
-Preserved (so an LLM is already configured at OOBE):
+Preserved (so an LLM provider is already configured at OOBE):
   • your LLM / image providers + the keys that decrypt them (model_endpoints, .app_key, .key, api_keys.json)
-  • the LLM-selection settings (default chat/utility/research/vision/image endpoint + model)
+  • the default-endpoint designation (which provider is the default — not which model)
   • the engine config            ${CONFIG_DIR}/${ENV_KEEP}
+Reset to the out-of-box defaults (issue #860):
+  • the SELECTED MODELS (default/utility/research/vision/image model + fallbacks, per-class endpoint picks)
 The next visit will start at first-run onboarding (OOBE).
 EOF
     read -r -p "Type 'RESET' to proceed: " ans
@@ -256,6 +266,23 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 fi
 ops_step() { [[ "$OPS_PROGRESS" -eq 1 ]] && ops_progress_step "$1" "$2" || true; }
 
+# An aborted reset (nothing wiped yet) must not leave the app down: bring the services back. Only
+# called from the pre-wipe failure paths below, so --no-restart (which means "leave down AFTER a scrub")
+# does not apply.
+# Only units that were RUNNING before this reset stopped them are started again (a unit the operator
+# had stopped stays stopped).
+WAS_ACTIVE=()
+abort_restart_services() {
+  [[ "$have_systemd" -eq 1 ]] || return 0
+  [[ ${#WAS_ACTIVE[@]} -gt 0 ]] || return 0
+  msg "restarting services (the reset was aborted before the wipe)"
+  local svc
+  for svc in "${WAS_ACTIVE[@]}"; do
+    systemctl start "$svc" || warn "could not restart ${svc} — start it by hand: systemctl start ${svc}"
+  done
+  return 0
+}
+
 # ── Helpers (dry-run aware) ───────────────────────────────────────────────────────────────────
 do_rm()  { if [[ "$DRY_RUN" -eq 1 ]]; then echo "  would remove: $1"; else rm -rf -- "$1"; fi; }
 do_svc() {
@@ -273,7 +300,19 @@ fe_kept() {
 ops_step 1 "stopping services"
 if [[ "$have_systemd" -eq 1 ]]; then
   msg "stopping services"
+  for svc in "$ENGINE_SVC" "$FRONTEND_SVC"; do   # start order: engine first
+    if [[ "$DRY_RUN" -eq 0 ]] && svc_exists "$svc" && systemctl is-active --quiet "$svc" 2>/dev/null; then WAS_ACTIVE+=("$svc"); fi
+  done
   for svc in "$FRONTEND_SVC" "$ENGINE_SVC"; do svc_exists "$svc" && do_svc stop "$svc"; done
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    # Fail closed: a stop that failed (do_svc only warns) must not be followed by a wipe under a live service.
+    for svc in "$FRONTEND_SVC" "$ENGINE_SVC"; do
+      if svc_exists "$svc" && systemctl is-active --quiet "$svc" 2>/dev/null; then
+        abort_restart_services
+        die "${svc} is still running after 'systemctl stop' — the wipe was ABORTED before anything was removed (accounts, saves and uploads are intact)."
+      fi
+    done
+  fi
 else
   warn "systemctl not present — skipping service stop (dev mode). Stop the app yourself first."
 fi
@@ -308,9 +347,11 @@ else
     DATA_DIR="$FE_DATA_DIR" \
       DATABASE_URL="sqlite:///${FE_DATA_DIR%/}/app.db" \
       "$PYTHON_BIN" "$OOBE_HELPER" \
-      || die "the OOBE preserve/rebuild helper failed — NOTHING removed (config is intact). Fix Python deps and retry."
+      || { abort_restart_services
+           die "the OOBE preserve/rebuild helper failed — the wipe was ABORTED before anything else was removed (accounts, saves and uploads are intact). The helper replaces app.db atomically, so the provider config is intact too unless its own output above says otherwise. Fix Python deps and retry."; }
   else
     warn "OOBE helper ${OOBE_HELPER} not found — cannot preserve the provider config; ABORTING to avoid losing API keys."
+    abort_restart_services
     die "expected ${OOBE_HELPER} — install the front-end Python deps and retry. (To also drop the API keys, remove frontend/data/.app_key, .key, api_keys.json and app.db by hand.)"
   fi
 
@@ -385,7 +426,24 @@ fi
 ops_step 5 "restarting services"
 if [[ "$RESTART" -eq 1 && "$have_systemd" -eq 1 ]]; then
   msg "restarting services"
-  for svc in "$ENGINE_SVC" "$FRONTEND_SVC"; do svc_exists "$svc" && do_svc start "$svc"; done
+  START_FAILED=()
+  STARTED=()
+  for svc in "$ENGINE_SVC" "$FRONTEND_SVC"; do
+    svc_exists "$svc" || continue
+    do_svc start "$svc"
+    STARTED+=("$svc")
+  done
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    # `systemctl start` returns as soon as a Type=simple unit has forked, so a service that crashes on
+    # boot still looks active for a moment: let them settle before judging.
+    sleep "${ORWELL_START_SETTLE:-3}"
+    for svc in ${STARTED[@]+"${STARTED[@]}"}; do
+      systemctl is-active --quiet "$svc" || START_FAILED+=("$svc")
+    done
+  fi
+  if [[ ${#START_FAILED[@]} -gt 0 ]]; then
+    die "the data was reset, but ${START_FAILED[*]} did not come back up — check: journalctl -u ${START_FAILED[0]} -n 50; then: systemctl start ${START_FAILED[*]}"
+  fi
 elif [[ "$RESTART" -eq 0 ]]; then
   msg "left services stopped (--no-restart). Start them when ready."
 fi
