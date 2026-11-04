@@ -588,11 +588,10 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 
 /**
  * 0128 (issue #2045) - the THREE-PART Final HOH (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz between the two part-winners)
- * instead of the single Final-3 competition. OFF unless `ORWELL_FINAL_HOH_THREE_PART=1`: three stat-typed comps change which finalist becomes Final HOH for a given
- * seed, so it is calibration-gated (`juryReach` re-confirmed ON before the deploy flips it). Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp
- * path runs byte-identically.
+ * instead of the single Final-3 competition. ON unless `ORWELL_FINAL_HOH_THREE_PART=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne wants it) after
+ * `juryReach` + `calibrationGradient` held their bands ON. Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp path runs byte-identically.
  */
-const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = process.env.ORWELL_FINAL_HOH_THREE_PART === "1";
+const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THREE_PART");
 
 /**
  * A2 (design §13) - PER-JUROR vote profiles (archetype weights + friend-forgives) instead of one global ballot weight vector. OFF unless `ORWELL_JUROR_PROFILES=1`: it changes
