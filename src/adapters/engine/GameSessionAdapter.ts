@@ -64,7 +64,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
-import { runHangOut } from "../../engine/hangOut";
+import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
@@ -9637,7 +9637,7 @@ export class GameSessionAdapter implements GameSession {
         },
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
-        bedtime: () => (live.nightDepth ?? WAKE_HOUR) >= CLOCK.midnightHour || awakeNpcs().length <= 1,
+        bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
         pulled: (r) => {
           if (!started || live.hangOutPulledDay === day) return null;
           if (r.next() >= HANGOUT_PULL_P) return null;
