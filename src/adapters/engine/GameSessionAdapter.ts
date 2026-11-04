@@ -53,6 +53,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -1045,6 +1046,31 @@ export class GameSessionAdapter implements GameSession {
    * no claim written ⇒ byte-identical. The writer draws only from a DEDICATED seeded rng (never the shared stream).
    */
   private npcBeliefNomsEnabled = process.env.ORWELL_NPC_BELIEF_NOMS === "1";
+  /** B6 / #2017 - NPC-to-NPC lobbying of the HOH: a bounded pitch tilt in the nomination score. OFF unless exactly `ORWELL_LOBBYING=1`; never-flipped. OFF => no ctx provider => byte-identical. */
+  private lobbyingEnabled = process.env.ORWELL_LOBBYING === "1";
+  setLobbyingEnabled(on: boolean): void { this.lobbyingEnabled = on; }
+  /**
+   * B6 slice 2 - the pitch tilt for `subject` in `holder`'s (the HOH's) nomination score. Pitches are derived ON DEMAND, deterministically, from the live edges (no rng, no stored state): every
+   * other awake NPC the HOH reads as a threat has a stake and pitches for their own safety, with the offer their personality picks (`chooseOffer`) and a strength equal to how threatened they are;
+   * the HOH weighs each by how much it trusts the pitcher. Capped by `LOBBY.maxTilt`. Recording each pitch as a hidden event, minting NPC deals and surfacing via pathways are later slices.
+   */
+  pitchTiltFor(subject: EntityId, holder: EntityId): number {
+    if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const awake = this.awakeNow();
+    const pitches: Pitch[] = [];
+    for (const npc of this.house.npcs) {
+      const id = npc.id;
+      if (id === holder || evicted.has(id) || (awake && !awake.has(id))) continue;
+      const threat = Math.max(0, Math.min(1, this.rel.edge(holder, id).threat));
+      if (threat <= 0) continue;
+      const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id))));
+      const cunning = Math.max(0, Math.min(1, npc.character.stats.mental));
+      pitches.push({ from: id, kind: chooseOffer({ loyalty, cunning, chaos: 1 - loyalty }), strength: threat, protects: id });
+    }
+    return pitchTilt(subject, pitches, (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)));
+  }
+
   /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. OFF unless exactly `ORWELL_ASSURANCES=1`; never-flipped. OFF => no ledger on the live state => byte-identical. */
   private assurancesEnabled = process.env.ORWELL_ASSURANCES === "1";
   setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
@@ -7360,6 +7386,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
