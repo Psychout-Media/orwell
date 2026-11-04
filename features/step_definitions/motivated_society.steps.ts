@@ -320,6 +320,10 @@ Given("the night has thinned the awake set", function (this: BbWorld) {
     const sandbox = reg.sandboxFor(user);
     sandbox.session.createCharacter({ playerName: "The Player", seed });
     if (!advanceUntilThinned(sandbox.session)) continue;
+    // P4b: presence refreshes at a COMMITTED beat and the helper can return the instant the clock passes bedtime (after a linger); seat one beat before reading it (the day-1
+    // first-morning day-break shifted where in the cadence that moment lands).
+    const settle = sandbox.session.advanceGame();
+    if (settle.pending) resolvePending(settle.pending, (req) => sandbox.session.submitDecision(req));
     const npcs = sandbox.session.livingIds().filter((id) => id !== PLAYER);
     const awake = sandbox.session.awakeAmong(npcs);
     if (awake.length >= npcs.length) continue; // need ≥1 turned in for the bound to bite
