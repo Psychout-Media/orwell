@@ -107,3 +107,20 @@ def test_the_raise_refreshes_the_fe_beat_seq_so_the_card_confirm_is_not_a_stale_
     gs = {"started": True, "phase": "hoh-competition", "pending": None, "player": {"status": "evicted", "spectator": "watch"}}
     assert _run(ch.maybe_raise_spectator_choice("u-beat", gs, "skip ahead")) is True
     assert ch.last_beat_seq("u-beat") == 4242
+
+
+@pytest.mark.parametrize("msg,expect", [
+    ("Wait, I want to keep watching instead.", True), ("actually let me go back to watching", True), ("I changed my mind, I'll watch the rest", True),
+    ("who is in the house?", False), ("skip ahead", False), ("", False),
+])
+def test_skip_is_final_note_fires_only_for_a_skipper_who_asks_to_watch(msg, expect):
+    gs = {"started": True, "player": {"status": "evicted", "spectator": "skip"}}
+    ch._DESYNC_REGROUND.pop(ch._desync_key("u-skipfinal"), None)
+    assert ch.maybe_note_skip_is_final("u-skipfinal", gs, msg) is expect
+    queued = ch._DESYNC_REGROUND.pop(ch._desync_key("u-skipfinal"), None)
+    assert bool(queued) is expect and (not expect or "SKIP IS FINAL" in queued)
+
+
+def test_skip_is_final_note_ignores_a_watcher_and_an_active_player():
+    for p in ({"status": "evicted", "spectator": "watch"}, {"status": "active"}):
+        assert ch.maybe_note_skip_is_final("u-x", {"started": True, "player": p}, "I want to keep watching") is False
