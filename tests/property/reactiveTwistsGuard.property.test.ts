@@ -85,7 +85,9 @@ describe(`reactive twists ON under the deployed profile: ${SEEDS}-seed full-seas
     // AMEND 0025 (Ryne-approved): the firing windows #2037 measured over 50 seeds, pinned PERMANENTLY — none in weeks 1-6; earliest battle-back wk 7, double eviction wk 8,
     // secret veto wk 12. A `>=` floor (never an exact seed pin): a future change that lets a twist fire earlier must be a deliberate, reviewed choice.
     expect(Object.values(byKind).flat().filter((w) => w <= 6).length, "no reactive twist fires in weeks 1-6").toBe(0);
-    const FLOOR: Record<string, number> = { "battle-back": 7, "double-eviction": 8, "secret-veto": 12 };
+    // A9 flip (2026-11-04, deliberate + reviewed): with the premiere entrances ON (the deployed default, which this lane runs) the first-read fold re-seeds the society, and the earliest secret
+    // veto in the 50-seed sample moved from week 12 to week 11 (CI measurement on the flip). The floor is the measured window, never an exact seed pin.
+    const FLOOR: Record<string, number> = { "battle-back": 7, "double-eviction": 8, "secret-veto": 11 };
     for (const [kind, floor] of Object.entries(FLOOR)) {
       const weeks = byKind[kind] ?? [];
       expect(Math.min(...(weeks.length ? weeks : [floor])), `${kind} never fires before week ${floor}`).toBeGreaterThanOrEqual(floor);
