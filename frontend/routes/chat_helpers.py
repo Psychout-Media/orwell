@@ -626,6 +626,14 @@ def premiere_is_holding(user) -> bool:
         return False
 
 
+def scheduled_event_is_held(user) -> bool:
+    """P4b — True only while the pre-resolve is holding a NOT-YET-DUE scheduled event for this player (never the premiere count). The model's own advanceGame reads it."""
+    try:
+        return _runway_key(user) in _PRODUCTION_HOLD
+    except Exception:
+        return False
+
+
 def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
