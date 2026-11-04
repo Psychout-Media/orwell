@@ -28,7 +28,6 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
       When the producer frames the season during casting
       Then exactly one curiosity needle signals that a hidden game exists
       And the needle is sourced only from public or seeded framing
-      And the needle carries no specific hidden secret, relationship, or scheme
 
   Rule: The champagne circle meets the whole house at the toast; the first power arrives quickly (#906)
 
@@ -45,7 +44,7 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
       Given a Day-1 social beat between the player and a houseguest
       When the player makes a consequential choice in that beat
       Then the beat is recorded and folds a hidden first read
-      And the fold is guaranteed even when the model under-calls the recording tool
+      And the fold is guaranteed on the live game even when the model records nothing on a premiere turn
       And the change is recalled later only as observable behavior, never as a number
 
     Scenario: With no Day-1 beat, the folds are byte-identical to the baseline
@@ -55,10 +54,11 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
   Rule: The Diary Room is an enterable room on Day 1 (#907)
 
     Scenario: The player can confess on Day 1 with no leak to the house
-      When the player enters the Diary Room on Day 1
+      When the player enters the Diary Room on Day 1 through the live diaryRoom tool
       Then the Diary Room is available as a room before week-one nominations
-      And the player can give a confessional
+      And the confessional is the player's own knowledge
       And nothing said in the Diary Room reaches any houseguest's behavior
+      And the Diary Room entry witnesses only the player
 
   Rule: The Vault Wall holds for player AND admin
 
@@ -68,6 +68,18 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
       Then the curiosity needle exposes no specific hidden fact on either surface
       And no number from the consequence fold appears on either surface
       And the Diary Room exposes no pathway from the player's confession to any NPC
+
+  Rule: With the in-game clock on, Day 1 has a social morning before the first HOH (P4b)
+
+    Scenario: The premiere exit is a one-shot day-break to 8am and the first HOH waits for the afternoon
+      Given a new Day-1 premiere with the in-game clock on
+      Then the toast seats and pins the whole house
+      When the toast closes and the premiere is exited
+      Then the exit is a one-shot day-break to 8am with no competition card
+      And the first HOH has not fired and is not yet due
+      When the player spends the morning block in social scenes
+      Then the first HOH is now due in the afternoon
+      And the first HOH fires only once it is due, and the day-break never repeats
 
   Rule: Day-1 is deterministic and calibration-neutral
 
