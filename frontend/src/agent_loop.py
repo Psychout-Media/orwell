@@ -4880,6 +4880,27 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     return "".join(out)
 
 
+async def _confession_guard(text: str, owner) -> "tuple[str, list]":
+    """N-17 - replace an INVENTED first-person confession line (no engine disclosure lever this turn) with a short in-voice deflection. Returns (text, [(old, new)]) so the caller mirrors the
+    replacement into the raw round buffer. Fail-open: any hiccup returns the text unchanged."""
+    if not text:
+        return text, []
+    try:
+        from routes import chat_helpers
+        return chat_helpers.screen_invented_confession(owner, text)
+    except Exception:
+        return text, []
+
+
+def _mirror_confession_replace(round_response: str, ops) -> str:
+    """Apply the N-17 line replacements to the raw round buffer (rightmost occurrence, like `_mirror_wall_drop`), so a confession the player never saw does not survive into saved history."""
+    for old, new in ops or ():
+        idx = round_response.rfind(old)
+        if idx >= 0:
+            round_response = round_response[:idx] + new + round_response[idx + len(old):]
+    return round_response
+
+
 async def _knowledge_wall_guard(text: str, owner) -> str:
     """A0 — the PRE-EMISSION knowledge-wall scan, applied to already-leak-scrubbed + outcome-guarded
     text just before it streams. Drops any sentence that puts the player's SEALED content (the always-
@@ -7458,6 +7479,9 @@ async def _stream_agent_loop_impl(
                                     # presence wall runs right after it and is equally non-overridden: it
                                     # drops a phantom (off-scene/evicted) houseguest staged as present,
                                     # same-turn, before the player ever sees it.
+                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                                    round_response = _mirror_confession_replace(round_response, _cf_ops)
+                                    _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner)
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
@@ -7631,6 +7655,9 @@ async def _stream_agent_loop_impl(
                 # A0 knowledge wall: a Vault-Wall leak is never re-admitted by a fallback. A2 (#1726)
                 # presence wall runs right after it, equally non-overridden — drops a phantom
                 # (off-scene/evicted) houseguest staged as present, same-turn, before the player sees it.
+                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                round_response = _mirror_confession_replace(round_response, _cf_ops)
+                _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                 _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                 _guarded_text = await _presence_wall_guard(_guarded_text, owner)
                 # Greptile P1 (#1746): mirror any DROP back into the raw round buffer (see

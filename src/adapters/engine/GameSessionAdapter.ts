@@ -52,7 +52,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
-import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
@@ -65,7 +65,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
-import { runHangOut } from "../../engine/hangOut";
+import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
@@ -608,7 +608,7 @@ const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1"
  * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). OFF unless
  * `ORWELL_PREMIERE_ENTRANCES=1`; read at `createCharacter` (season start). Off => nothing new is written.
  */
-const PREMIERE_ENTRANCES_ENABLED_DEFAULT = process.env.ORWELL_PREMIERE_ENTRANCES === "1";
+const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
@@ -1024,11 +1024,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private voteDeductionEnabled = VOTE_DEDUCTION_ENABLED_DEFAULT;
   /**
-   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. OFF unless exactly `ORWELL_NPC_BELIEFS=1`
-   * (the engine's own strict read), deliberately NOT part of the default flip (pinned in flagDefaultParity). Off ⇒ no store is created and the season
+   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. ON unless `ORWELL_NPC_BELIEFS=0` (or
+   * `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne, "turn it on") after the PO bands held. Off ⇒ no store is created and the season
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
-  private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
+  private npcBeliefsEnabled = flagDefaultOn("ORWELL_NPC_BELIEFS");
   /**
    * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). ON unless
    * `ORWELL_NPC_MEMORY_STANDALONE=0` (flipped ON with the memories, #2059; the 3-arm PO bands held). OFF ⇒ the
@@ -1042,10 +1042,10 @@ export class GameSessionAdapter implements GameSession {
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
-   * and from betrayal rumors they heard), instead of re-reading the edge. OFF unless exactly `ORWELL_NPC_BELIEF_NOMS=1` AND `ORWELL_NPC_BELIEFS=1`; never-flipped. OFF ⇒ no ctx provider,
+   * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
    * no claim written ⇒ byte-identical. The writer draws only from a DEDICATED seeded rng (never the shared stream).
    */
-  private npcBeliefNomsEnabled = process.env.ORWELL_NPC_BELIEF_NOMS === "1";
+  private npcBeliefNomsEnabled = flagDefaultOn("ORWELL_NPC_BELIEF_NOMS");
   /** B6 / #2017 - NPC-to-NPC lobbying of the HOH: a bounded pitch tilt in the nomination score. OFF unless exactly `ORWELL_LOBBYING=1`; never-flipped. OFF => no ctx provider => byte-identical. */
   private lobbyingEnabled = process.env.ORWELL_LOBBYING === "1";
   setLobbyingEnabled(on: boolean): void { this.lobbyingEnabled = on; }
@@ -9664,7 +9664,7 @@ export class GameSessionAdapter implements GameSession {
         },
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
-        bedtime: () => (live.nightDepth ?? WAKE_HOUR) >= CLOCK.midnightHour || awakeNpcs().length <= 1,
+        bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
         pulled: (r) => {
           if (!started || live.hangOutPulledDay === day) return null;
           if (r.next() >= HANGOUT_PULL_P) return null;
@@ -10994,6 +10994,15 @@ export class GameSessionAdapter implements GameSession {
   private remember(holder: EntityId, subject: EntityId, kind: MemoryKind, severity: number): void {
     if (!this.npcMemoryEnabled || !this.live || holder === PLAYER || holder === subject) return;
     recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity });
+  }
+
+  /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
+   *  memory layer + writers on (default ON); other kinds write nothing. Deterministic, no rng, bounded by the ledger cap. */
+  rememberPlayerScene(holders: readonly EntityId[], sceneKind: string): void {
+    if (!this.npcMemoryWritersEnabled) return;
+    const m = SCENE_MEMORY_SEVERITY[sceneKind];
+    if (!m) return;
+    for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
   }
 
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */

@@ -83,15 +83,16 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },
   { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
   { envKey: 'ORWELL_BOOTH_RECEIPTS', key: 'boothReceipts', parser: 'defaultOn' },
-  // #2017 S0a: the NPC belief store (data model + plumbing; nothing reads it). OFF unless exactly '1'; NOT part of the default flip (pinned never-flipped).
-  { envKey: 'ORWELL_NPC_BELIEFS', key: 'npcBeliefs', parser: 'strict' },
+  // #2017 S0a: the NPC belief store. Default-ON (PO ruling 2026-11-04, Ryne: "turn it on"); `=0`/`false`/`off` opts out, `ORWELL_FLAGS_OFF=1` forces off.
+  { envKey: 'ORWELL_NPC_BELIEFS', key: 'npcBeliefs', parser: 'defaultOn' },
   // B2 / #2017: read the NPC memory standalone so remembered betrayals/favors visibly sway votes + nominations. Default-ON (PO: "memories should be turned on", 2026-11-04) after the 3-arm PO-band re-measure.
   { envKey: 'ORWELL_NPC_MEMORY_STANDALONE', key: 'npcMemoryStandalone', parser: 'defaultOn' },
   // B2 follow-on: write the memories a season actually produces (remembered nominations, withheld vetoes, kept deals). Default-ON with the standalone read.
   { envKey: 'ORWELL_NPC_MEMORY_WRITERS', key: 'npcMemoryWriters', parser: 'defaultOn' },
-  // B3 / #2017: the HOH nominates from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_HANGOUT',               key: 'hangOut',                parser: 'defaultOn' },
-  { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'strict' },
+  { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
+  // B3 / #2017 (+B3b vote term): the HOH nominates / the house votes from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). Default-ON with it (PO 2026-11-04).
+  { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'strict' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).

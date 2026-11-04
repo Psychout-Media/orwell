@@ -12,8 +12,18 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
  * flipped (opt-in; each has its own ruling) are pinned explicitly so none can be flipped by accident. Roles only.
  */
 const NEVER_FLIPPED = [
-  "ORWELL_SHOWRUNNER_REWEIGHT", "ORWELL_FORESHADOW", "ORWELL_TIE_REVEAL",
-  "ORWELL_GOSSIP_CONSEQUENCE", "ORWELL_MULTI_NIGHT_FATIGUE", "ORWELL_WIPEOUT_REEL", "ORWELL_NPC_BELIEFS", "ORWELL_NPC_BELIEF_NOMS", "ORWELL_ASSURANCES", "ORWELL_LOBBYING", "ORWELL_JUROR_PROFILES", "ORWELL_DESIRE_CLOCK", "ORWELL_WANT_MOVEMENT", "ORWELL_PREMIERE_ENTRANCES",
+  // One flag per line: concurrent flag PRs append DIFFERENT lines instead of conflicting on one.
+  "ORWELL_SHOWRUNNER_REWEIGHT",
+  "ORWELL_FORESHADOW",
+  "ORWELL_TIE_REVEAL",
+  "ORWELL_GOSSIP_CONSEQUENCE",
+  "ORWELL_MULTI_NIGHT_FATIGUE",
+  "ORWELL_WIPEOUT_REEL",
+  "ORWELL_ASSURANCES",
+  "ORWELL_JUROR_PROFILES",
+  "ORWELL_DESIRE_CLOCK",
+  "ORWELL_WANT_MOVEMENT",
+  "ORWELL_LOBBYING",
 ] as const;
 
 const deployKeys = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })

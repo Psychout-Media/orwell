@@ -149,6 +149,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 function playThroughRuntime(on: boolean, seed: number): LiveSeasonState {
   vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
+  vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0"); // the claim OBSERVER must be read-only; the nomination/vote TERM (default ON since P4f) legitimately moves outcomes and is covered by beliefNoms/beliefVoteTilt
   const rt = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-s0b2-"))) });
   const s = rt.registry.sandboxFor(`s0b2-${seed}`).session;
   s.createCharacter({ playerName: "P", seed });

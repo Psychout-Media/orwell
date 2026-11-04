@@ -348,6 +348,25 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
 
 
 
+# N-17: the engine DISCLOSURE levers. When one of these runs in a turn, a houseguest's first-person disclosure that turn is engine-backed (it came from a recorded decision); a confession
+# with NO such call is the narrator inventing a secret. Per-user, cleared at each turn's framing (`clear_disclosure_turn`). Fail-soft bookkeeping only - never gates a call.
+_DISCLOSURE_TOOLS = frozenset({"confide", "tradeSecret", "exposeSecret", "askJuror", "surfaceInformationTo"})
+_DISCLOSURE_TURN: dict = {}
+
+
+def _disclosure_key(user) -> str:
+    return user or "__anon__"
+
+
+def disclosure_this_turn(user) -> bool:
+    """True if an engine disclosure lever ran for `user` since the last `clear_disclosure_turn`."""
+    return bool(_DISCLOSURE_TURN.get(_disclosure_key(user)))
+
+
+def clear_disclosure_turn(user) -> None:
+    _DISCLOSURE_TURN.pop(_disclosure_key(user), None)
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
@@ -361,6 +380,8 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    if name in _DISCLOSURE_TOOLS:
+        _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
         res = await _call_inner(name, args, user=user, timeout=timeout)
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
