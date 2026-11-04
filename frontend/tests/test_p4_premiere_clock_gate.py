@@ -14,15 +14,15 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 def _engine_messages_per_morning() -> int:
     src = (ROOT / "src" / "engine" / "sleepConstants.ts").read_text()
-    per = float(re.search(r"perExchangeHours:\s*([0-9.]+)", src).group(1))
+    per = float(re.search(r"MINUTES_PER_MESSAGE\s*=\s*([0-9.]+)", src).group(1)) / 60
     wake = float(re.search(r"wakeHour:\s*([0-9.]+)", src).group(1))
     aft = float(re.search(r"afternoon:\s*([0-9.]+)", src).group(1))
     return round((aft - wake) / per)
 
 
 def test_the_fe_premiere_window_is_the_engines_one_morning_pace():
-    assert ch._PREMIERE_SOCIAL_MESSAGES == _engine_messages_per_morning(), "tune the pace in ONE place (engine SCENE.perExchangeHours) and mirror it here"
-    assert 8 <= ch._PREMIERE_SOCIAL_MESSAGES <= 12
+    assert ch._PREMIERE_SOCIAL_MESSAGES == _engine_messages_per_morning(), "tune the pace in ONE place (engine MINUTES_PER_MESSAGE) and mirror it here"
+    assert 40 <= ch._PREMIERE_SOCIAL_MESSAGES <= 56  # ~48 messages x 5 min = the 4h morning (PO 2026-11-04)
 
 
 def test_the_premiere_is_held_until_a_morning_of_messages_has_passed():

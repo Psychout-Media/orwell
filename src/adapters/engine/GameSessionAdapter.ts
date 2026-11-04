@@ -224,7 +224,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
+  advanceClock, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -234,7 +234,7 @@ import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants"
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
-import { shapeMessageHours } from "../../engine/sleepConstants";
+import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
@@ -7515,36 +7515,18 @@ export class GameSessionAdapter implements GameSession {
    * the per-beat clock.)
    */
   advanceClockPerConversation(opts?: { kind?: ConversationKind; proposedHours?: number }): void {
-    // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or
-    // the day hasn't started). A duration stashed this turn is DISCARDED here — consumed-or-discarded — so a
-    // felt duration recorded while gated can never leak into a later enabled turn (it would otherwise survive
-    // and be consumed as a stale advance). Absent/inert ⇒ byte-identical floor; nothing else changes.
     if (this.hangOutSkipStepAt !== undefined) { // the hang-out already spent this turn's time: skip the follow-up step once (only if the clock has not moved since)
       const at = this.hangOutSkipStepAt; this.hangOutSkipStepAt = undefined;
-      if (this.live?.nightDepth === at) { this.pendingFeltHours = undefined; return; }
+      if (this.live?.nightDepth === at) return;
     }
-    if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) { this.pendingFeltHours = undefined; return; }
-    if (!this.live || this.live.timeOfDay === undefined) { this.pendingFeltHours = undefined; return; } // dormant until the per-beat clock starts the day
-    // Extension 5 (LOOSE conversation durations, ADR 0005 for time): the felt duration is the scene KIND's
-    // type-bounded commit of the LLM-proposed hours; absent a kind/proposal ⇒ the small per-conversation
-    // floor (byte-identical to "no proposal"). Never 0, never a day-skip; the clock still clamps + never wraps.
-    // Phase 2 (duration-based clock): when a scene recorded THIS turn proposed how long it felt, its bounded
-    // duration was stashed here (`pendingFeltHours`) — consume it as the turn's advance so the clock tracks
-    // the play the player actually did, not the flat floor. An explicit `opts` caller still wins; with
-    // neither ⇒ the floor (byte-identical). Consumed once per advance so it can't leak into a later turn.
-    // Extension 6 (SCENE-based clock): the proposed contribution for THIS turn — a narrator-proposed felt
-    // duration when present (opts / stashed), else the small deterministic per-exchange increment. The scene
-    // layer then CAPS the accumulation, so this is a proposal, not a guaranteed advance.
-    let hours: number;
-    if (opts?.kind) hours = conversationHours(opts.kind, opts.proposedHours);
-    else if (this.pendingFeltHours !== undefined) hours = this.pendingFeltHours;
-    else hours = SCENE.perExchangeHours;
-    this.pendingFeltHours = undefined;
-    hours = shapeMessageHours(hours); // P4: an ORDINARY message bills at most PACE.ordinaryMaxHours; a summit spends its full proposed time
-    // Time advances per SCENE, not per turn: turns inside the same (room + co-present set) accumulate toward
-    // the scene cap; a context change starts a fresh scene. The scene key is derived from live occupancy — a
-    // pure, Vault-free read (rooms/co-presence are public), so this stays no-rng and byte-identical when off.
-    advanceClockPerScene(this.live, this.currentSceneKey(), hours);
+    // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or the day hasn't started). Clock off => nothing advances => byte-identical.
+    if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) return;
+    if (!this.live || this.live.timeOfDay === undefined) return; // dormant until the per-beat clock starts the day
+    // P4c (PO ruling 2026-11-04): the clock ticks per MESSAGE - exactly MINUTES_PER_MESSAGE, continuously, so production/NPCs can interrupt mid-conversation. Cost depends ONLY
+    // on message count: `opts.kind` / `opts.proposedHours` are accepted for API compatibility but BILL NOTHING, and the narrator's `feltMinutes` no longer touches the clock
+    // (conversation types - passing / casual / strategy / summit - emerge from how many messages they run).
+    void opts;
+    advanceClockPerMessage(this.live, MINUTES_PER_MESSAGE / 60);
     // A8: an NPC whose desire clock has crossed its threshold CUTS INTO the conversation (shown for exactly the next framing). Flag off => nothing written.
     if (this.desireClockEnabled && this.house) {
       delete this.live.interruption; // the previous one was already shown
@@ -7554,37 +7536,6 @@ export class GameSessionAdapter implements GameSession {
       const hit = this.desireApproach(ids);
       if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR }; }
     }
-  }
-
-  /** Extension 6 — the current scene's identity for the clock: the player's room + the SORTED set of NPCs
-   *  co-present in it. A change (moved rooms, or someone entered/left) opens a fresh scene; a solo room is a
-   *  real scene too (empty co-present set). Absent presence info ⇒ one stable key (the day still costs time).
-   *  Vault-free (rooms + co-presence are public), deterministic, no rng. */
-  private currentSceneKey(): string {
-    const room = this.presence?.get(PLAYER) ?? null;
-    if (!room) return "scene:none";
-    const coPresent: string[] = [];
-    if (this.presence) {
-      for (const [id, where] of this.presence) {
-        if (id !== PLAYER && where === room) coPresent.push(id);
-      }
-    }
-    coPresent.sort();
-    return `scene:${room}|${coPresent.join(",")}`;
-  }
-
-  /** Extension 6 — a hard scene boundary (a resolved beat/ceremony): forget the current scene so the next
-   *  social turn opens a fresh one with a full cap. No clock move; a no-op when no scene is tracked (clock off). */
-  resetSceneClock(): void {
-    if (this.live) resetSceneClock(this.live);
-  }
-
-  /** Phase 2 — a recorded scene's LLM-proposed felt duration (hours, already clamped by
-   *  `feltHoursFromMinutes`), consumed by the next per-turn `advanceClockPerConversation`. Set via the
-   *  command port's felt-duration sink (registry wiring). Purely a pacing hint — no fold, no Vault read. */
-  private pendingFeltHours?: number;
-  stashPendingFeltHours(hours: number): void {
-    this.pendingFeltHours = hours;
   }
 
   /** #1792 — pending ExchangeAccounting from the last substantive recordInteraction, consumed once
@@ -9536,7 +9487,6 @@ export class GameSessionAdapter implements GameSession {
         n, day, hour, beats: result.beats, minutes: result.minutes, stopReason: result.stopReason,
         ...(result.detail ? { detail: result.detail as Record<string, unknown> } : {}),
       });
-      resetSceneClock(live); // a hang-out is a scene boundary: the next message opens a fresh scene
       this.hangOutSkipStepAt = hour;
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();

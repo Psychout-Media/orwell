@@ -62,7 +62,7 @@ describe("Extension 5 — the felt duration is loose but bounded (no collapse, n
 });
 
 describe("Extension 5 — the per-conversation clock advance honors the bounded felt duration", () => {
-  it("a 'summit' presses the clock further than a 'passing' word (both within their bound), and never wraps", () => {
+  it("cost depends ONLY on message count: a 'summit' label or a huge proposal bills exactly what a 'passing' one does (P4c - types emerge from length, never billed)", () => {
     const reach = (kind: ConversationKind, proposed?: number): number => {
       GameSessionAdapter.setTimeOfDayEnabled(true);
       const s = new GameSessionAdapter();
@@ -77,12 +77,9 @@ describe("Extension 5 — the per-conversation clock advance honors the bounded 
       return after - before;
     };
     const passing = reach("passing");
-    const summit = reach("summit");
-    expect(summit, "a long summit advances the clock more than a passing word").toBeGreaterThan(passing);
-    // and a proposed-but-bounded summit is honored (within the summit cap)
-    const longSummit = reach("summit", 999); // clamps to the summit max
-    expect(longSummit).toBeGreaterThanOrEqual(summit);
-    expect(longSummit).toBeLessThanOrEqual(CONVERSATION_DURATION.maxHours.summit + 0.0001);
+    expect(reach("summit")).toBeCloseTo(passing, 9);
+    expect(reach("summit", 999)).toBeCloseTo(passing, 9);
+    expect(passing * 60).toBeCloseTo(5, 5);
   });
 
   it("with the per-conversation flag OFF, no felt duration advances the clock (byte-identical)", () => {
