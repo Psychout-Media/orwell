@@ -93,4 +93,5 @@ def test_wiring_is_present_at_both_emit_sites():
     import pathlib
     src = pathlib.Path(__file__).resolve().parents[1].joinpath("src", "agent_loop.py").read_text()
     assert src.count("_cf_text, _cf_ops = await _confession_guard(") == 2, "stream site + final site"
-    assert src.count("_mirror_wall_drop(round_response, _cf_text, _guarded_text)") == 2, "the wall-drop mirror pairs from the post-confession text"
+    assert src.count("_guarded = _guarded._replace(text=_cf_text)") == 2, "downstream walls and their mirror see the post-confession text"
+    assert src.count("round_response = _mirror_wall_drop(round_response, _guarded.text, _guarded_text)") == 2, "the wall-guard mirror calls stay unchanged (T0-5 pin)"

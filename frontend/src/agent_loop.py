@@ -7481,12 +7481,13 @@ async def _stream_agent_loop_impl(
                                     # same-turn, before the player ever sees it.
                                     _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
                                     round_response = _mirror_confession_replace(round_response, _cf_ops)
-                                    _guarded_text = await _knowledge_wall_guard(_cf_text, owner)
+                                    _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
+                                    _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner)
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
                                     # survives into the persisted/reload text or a post-turn belt.
-                                    round_response = _mirror_wall_drop(round_response, _cf_text, _guarded_text)
+                                    round_response = _mirror_wall_drop(round_response, _guarded.text, _guarded_text)
                                     # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
                                     # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
                                     # very text the guard cut (a reload or second window would show the invented outcome).
@@ -7656,12 +7657,13 @@ async def _stream_agent_loop_impl(
                 # (off-scene/evicted) houseguest staged as present, same-turn, before the player sees it.
                 _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
                 round_response = _mirror_confession_replace(round_response, _cf_ops)
-                _guarded_text = await _knowledge_wall_guard(_cf_text, owner)
+                _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
+                _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                 _guarded_text = await _presence_wall_guard(_guarded_text, owner)
                 # Greptile P1 (#1746): mirror any DROP back into the raw round buffer (see
                 # `_mirror_wall_drop`'s docstring) so a phantom sentence never survives into the
                 # persisted/reload text or a post-turn belt.
-                round_response = _mirror_wall_drop(round_response, _cf_text, _guarded_text)
+                round_response = _mirror_wall_drop(round_response, _guarded.text, _guarded_text)
                 # F-1: the scene circuit-breaker / per-sentence outcome guard DROPPED prose from the live stream — mirror
                 # that drop into the raw round buffer too, or the persisted/reload text (derived from it) resurrects the
                 # very text the guard cut (a reload or second window would show the invented outcome).
