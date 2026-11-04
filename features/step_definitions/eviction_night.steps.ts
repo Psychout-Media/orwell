@@ -20,11 +20,15 @@ function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>):
 }
 
 /** Drive a fresh game to the FIRST staging eviction (stage "votes"); collect the advance views from there. */
+/** Ballots the surface showed on the read just BEFORE the step that staged the eviction (PO ruling 2026-11-04: must be 0 — no ballot before the reveal / the player's card). */
+let preRevealBallots = -1;
 function driveToEvictionStaging(s: GameSessionAdapter): AdvanceView {
   for (let i = 0; i < 3000; i++) {
+    preRevealBallots = s.getGameState().eviction?.votesRevealed.length ?? 0;
     const v = s.advanceGame();
     if (v.eviction?.stage === "votes") return v;
     if (v.pending) {
+      preRevealBallots = s.getGameState().eviction?.votesRevealed.length ?? 0;
       const sv = resolve(s, v.pending);
       if (sv.eviction?.stage === "votes") return sv;
     }
@@ -51,6 +55,7 @@ const revealOrder = (views: AdvanceView[]): string =>
 Given("a started game at an eviction with a decided vote", function (this: BbWorld) {
   const s = newGame(this, 2);
   this.enViews = [driveToEvictionStaging(s)];
+  this.enPreReveal = preRevealBallots;
   // T2: capture the ELECTORATE size from the engine's own staged state — the honest bound the
   // revealed-ballot assertions are measured against (never derived from the surface under test).
   this.enElectorate = s.snapshot().live!.eviction!.revealOrder.length;
@@ -96,8 +101,9 @@ Then("the surface shows no ballot before the reveal and every ballot, naming onl
   const electorate = this.enElectorate!;
   assert.ok(electorate >= 2, "a real electorate");
   const staging = this.enViews!.filter((v) => v.eviction?.stage === "votes");
-  assert.equal(staging[0]!.eviction!.votesRevealed.length, 0, "before the reveal: no ballot shown");
-  assert.equal(staging[staging.length - 1]!.eviction!.votesRevealed.length, electorate, "the reveal shows every ballot");
+  assert.equal(this.enPreReveal, 0, "before the reveal (incl. while the player's card is open): no ballot shown");
+  assert.equal(staging.length, 1, "exactly one view in the votes stage — there is no partial reveal to observe");
+  assert.equal(staging[0]!.eviction!.votesRevealed.length, electorate, "the reveal shows every ballot");
   for (const v of staging) {
     for (const r of v.eviction!.votesRevealed) {
       assert.ok([v.eviction!.nominees[0]!.id, v.eviction!.nominees[1]!.id].includes(r.votedFor.id), "a revealed ballot names a nominee");
@@ -110,9 +116,7 @@ Then("the surface shows no ballot before the reveal and every ballot, naming onl
 Given("an eviction before the result has landed", function (this: BbWorld) {
   const s = newGame(this, 2);
   const first = driveToEvictionStaging(s);
-  this.enViews = [first];
-  // Advance ONE step: the single reveal beat reads every ballot; the RESULT has not landed yet.
-  this.enViews.push(s.advanceGame());
+  this.enViews = [first]; // the single reveal beat has read every ballot; the RESULT has not landed yet
 });
 
 When("the eviction surface is read before the result", function (this: BbWorld) {
@@ -121,9 +125,8 @@ When("the eviction surface is read before the result", function (this: BbWorld) 
     id: "hidden:0047-bdd", ts: 10_000_003, type: "conversation",
     initiator: npc(1), witnessSet: [npc(1), npc(2)], hidden: true, content: this.enSentinel,
   });
-  const v = this.enSandbox!.session.advanceGame();
-  this.enViews!.push(v);
-  this.lastOutput = JSON.stringify(v) + "\n" + JSON.stringify(this.enSandbox!.session.getGameState());
+  // Read only (no advance - that would land the result): the reveal view + the live state.
+  this.lastOutput = JSON.stringify(this.enViews![this.enViews!.length - 1]) + "\n" + JSON.stringify(this.enSandbox!.session.getGameState());
 });
 
 Then("it shows the whole anonymized ballot list and no tally", function (this: BbWorld) {
@@ -156,7 +159,7 @@ Then("every revealed ballot is anonymized", function (this: BbWorld) {
   // E12: eviction votes are SECRET BALLOTS — every reveal beat reads "a vote to evict …" and the
   // projection's entries carry the nominee only; no voter attribution exists on any surface.
   const reveals = this.enViews!.filter((v) => v.event?.beat === "eviction-reveal");
-  assert.ok(reveals.length >= 2, "ballots were revealed");
+  assert.equal(reveals.length, 1, "ballots were revealed - in the one reveal beat");
   // The reveal is BATCHED (live-verify 2026-06-27): a round reads "a vote to evict X" (one ballot) or
   // "N votes to evict X" (a batch) — anonymized either way (the nominee, never the voter).
   for (const v of reveals) assert.match(v.event!.content, /(^|, )(a|\d+) votes? to evict /, "the ballot reads anonymized");
@@ -300,8 +303,7 @@ Then("nothing the player can see tells the two games apart beyond the tone they 
 
 Given("an eviction staged through the advance seam", function (this: BbWorld) {
   const s = newGame(this, 2);
-  driveToEvictionStaging(s);
-  s.advanceGame(); // the single reveal beat — every ballot read, the result not yet landed
+  driveToEvictionStaging(s); // the single reveal beat has read every ballot; the result has not landed yet
 });
 
 When("the engine restarts between the reveal and the result", function (this: BbWorld) {
