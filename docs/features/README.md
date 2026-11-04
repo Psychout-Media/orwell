@@ -108,7 +108,7 @@ The **[index](#index)** below is the single source of truth for per-feature stat
 | 0021 | [Game session & save lifecycle (per-user sandboxes)](./0021-game-session-and-save-lifecycle.md) | BDD | ✅ Built |
 | 0022 | Player experience MVP-2 (rich game UI) | — | 🗑️ **Removed** (PO review 2026-06-28) — superseded by 0020/0051/0054 under ADR 0003; the dashboard direction was deliberately not taken |
 | 0023 | [Consequence & memory (the MVP-1 backbone)](./0023-consequence-and-memory.md) | BDD | ✅ Built |
-| 0024 | [Soul storage & memory recall (md + vector)](./0024-soul-storage-and-memory-recall.md) | BDD | ✅ Built · **NPC memory acts (#1967) is ON by default** (`ORWELL_NPC_MEMORY`, PO ruling 2026-11-03: memories ON); measured outcome-identical ON vs OFF today (the residual floor means the edge already carries a fresh betrayal) |
+| 0024 | [Soul storage & memory recall (md + vector)](./0024-soul-storage-and-memory-recall.md) | BDD | ✅ Built · **NPC memory acts (#1967) is ON by default** (`ORWELL_NPC_MEMORY`, PO ruling 2026-11-03: memories ON); NOT outcome-identical ON vs OFF since #2059: the standalone read (no edge-carry subtraction) lets a remembered betrayal/favor sway later nominations and votes (PO ruling 2026-11-03; the 3-arm PO bands held) |
 | 0025 | [Reserve twists (Vault-sealed, engine-timed)](./0025-reserve-twists.md) | BDD | ✅ Built · **reactive redesign 2026-07-06** (all 3 twists live, standing pool, dynamic triggers; `ORWELL_REACTIVE_TWISTS`) |
 | 0026 | [Relationship math](./0026-relationship-math.md) | BDD | ✅ Built |
 | 0027 | [NarrativePort LLM adapter](./0027-narrative-port-llm-adapter.md) | BDD | ✅ Built |

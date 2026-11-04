@@ -8,6 +8,8 @@
 > **Executable spec:** [`0017-relationship-model.feature`](./0017-relationship-model.feature)
 > **Also proven by:** `tests/unit/relationshipModel.test.ts`
 
+> **Known limit (AMEND 0024/0017 #5, 2026-11-04):** an edge's `confidence` and the `read()` projection are *modelled and tested* but not yet *consumed* by any strategic decision (nominations, vetoes, votes, campaigns, approaches read trust/affinity/threat, not confidence). They are inputs for the unified memory/belief design (#2017 acceptance criteria: every decision reads all memory sources through one interface; see `design/npc-memory-inventory.md`). Do not describe confidence as shaping behaviour until a reader exists.
+
 ## 1. Summary
 
 Relationships live in the dynamic `Soul` as **directed edges** computed from the accumulated event
