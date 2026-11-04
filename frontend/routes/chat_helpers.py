@@ -1994,6 +1994,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         # PO ruling 2026-11-04 (one-turn vote reveal): once the engine has handed over EVERY ballot the narrator may state the count - the per-nominee ballot
         # counts (sorted desc) so a tally that MATCHES them is truth, not a fabrication (None/absent until a ballot has been read).
         "ballotCounts": _ballot_counts(state.get("eviction")),
+        # P3 (2026-11-04): tonight's COMMITTED evictee (the pre-resolve commits the result at framing in the one-turn reveal), so narrating the result is a recap of a
+        # committed fact - not a phantom - and the evictee is still in the room until they walk out.
+        "evictionEvictee": ((((state.get("eviction") or {}).get("evictee") or {}).get("name")) if isinstance(state.get("eviction"), dict) else None) or None,
         "playerName": (str(player.get("name")).strip() if isinstance(player, dict) and isinstance(player.get("name"), str) and str(player.get("name")).strip() else None),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
@@ -2515,6 +2518,21 @@ def _named_title_winner(text: str, res) -> Optional[str]:
     return None
 
 
+def _recap_names_wrong_evictee(text: str, after: dict) -> bool:
+    """P3: tonight's eviction is already committed (`evictionEvictee`). An eviction-claim SENTENCE that names an ACTIVE houseguest and NOT the committed evictee is a wrong
+    evictee, even in the direct-address form ("X, you have been evicted") the name extractor does not parse. Conservative: full names only."""
+    tonight = str(after.get("evictionEvictee") or "")
+    active = [str(n).strip() for n in (after.get("activeNames") or []) if str(n).strip()]
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        if not _CLAIM_EVICTED_RE.search(sentence):
+            continue
+        if tonight and tonight in sentence:
+            continue
+        if any(re.search(r"(?<![\w'’])" + re.escape(a) + r"(?![\w])", sentence) for a in active):
+            return True
+    return False
+
+
 def _eviction_evictee_mismatch(text: str, before: dict, after: dict) -> bool:
     """F16 (#1014): True when the narration NAMES an eviction target who is an ACTIVE houseguest the
     engine did NOT just evict (this turn's `evictedNames` delta). That is a fabricated/wrong evictee —
@@ -2626,7 +2644,13 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # suppresses a LATER category's own check.
     if _CLAIM_EVICTED_RE.search(text):
         _count_unmoved = after.get("evicted") == before.get("evicted")
-        if (_count_unmoved
+        # P3: tonight's eviction is ALREADY committed (the pre-resolve landed it at framing, so before == after) - narrating the result is a recap, not a phantom. Only a
+        # WRONG evictee (an active houseguest named as leaving) is still a fabrication.
+        _committed_tonight = bool(after.get("evictionEvictee"))
+        if _committed_tonight and _count_unmoved:
+            if _eviction_evictee_mismatch(text, before, after) or _recap_names_wrong_evictee(text, after):
+                desync = "the WRONG evictee leaving (you named a houseguest the engine did NOT evict)"
+        elif (_count_unmoved
                 and not _phase_l.startswith(_EVICTION_PHASES)
                 and not _phase_l.startswith(_FINALE_PHASES)):
             # (1c) AHEAD OF PHASE — a committed-eviction claim while the engine is NOT at an eviction
@@ -2972,6 +2996,11 @@ def _presence_facts(state: dict) -> Optional[dict]:
             evicted.add(name)
         elif name not in in_view:
             active_offscene.add(name)
+    # P3 (2026-11-04): tonight's evictee is legitimately in the room through the whole ceremony (ballots, result, goodbye) until they walk out - not "gone" yet.
+    ev = state.get("eviction")
+    tonight = ((ev.get("evictee") or {}).get("name") if isinstance(ev, dict) and isinstance(ev.get("evictee"), dict) else None)
+    if tonight and tonight in evicted:
+        evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene}
 
