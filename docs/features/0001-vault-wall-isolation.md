@@ -172,3 +172,13 @@ The stack is **chosen** — this feature is no longer gated. Build against these
 | "Cannot leak what it never receives"; permission boundary; do-nots | `CLAUDE_CODE_INSTRUCTIONS.md` §1.5, §2, §13 |
 | No stat/ranking in results | `docs/legacy/BB_GameBible.md` Vault Wall rules (§2) |
 | Definition of done; name-agnostic testing | `CLAUDE_CODE_INSTRUCTIONS.md` §10, §11 |
+
+## 10. Also proven by (AMEND secrets wall, 2026-11-04)
+
+The BDD scenarios above run against the canary sandbox fixture (a stand-in for the live game). The live game's wall is additionally held by:
+- `tests/property/liveSentinel.property.test.ts` - plants sentinels in the LIVE game's hidden state (NPC backstory, soul text, hidden events, the Vault, NPC knowledge, the NPC memory ledger and the NPC belief store) and proves no player or admin tool returns one across the whole game, finale included;
+- `tests/unit/knowledgeScoping0019.test.ts` and `tests/unit/knowledgeVaultLeak1870.test.ts` - ADR 0019 ("context is not knowledge"): the narrator is handed only what a houseguest legitimately knows;
+- `tests/unit/producerVault.test.ts` - the one owner-ruled debug unseal (`producerVault`) stays out-of-band, admin-only and never advertised;
+- dependency-cruiser (`npm run test:arch`) - the structural proof that no outward module imports `VaultStore` / `VectorIndex`.
+
+A "direct question" to the engine about hidden state means the **producer channel** (`askProducers`), never asking an NPC in character: an NPC answers only from what it knows (ADR 0019).
