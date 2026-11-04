@@ -149,6 +149,46 @@ describe("hangOut lever", () => {
   });
 });
 
+describe("hangOut isolation (AMEND time-stack v2 #6)", () => {
+  it("does not perturb the comp/vote random stream: after a hang-out the season plays out EXACTLY as a twin that merely has the same clock hour", () => {
+    let checked = 0;
+    for (const seed of [3, 5, 8]) {
+      const a = parked(seed, `iso${seed}a`);
+      if (!a) continue;
+      a.hangOut();
+      const snapA = JSON.parse(JSON.stringify(a.snapshot())) as { live: Live & Record<string, unknown> };
+      // The twin: the SAME snapshot minus every hang-out artefact - same clock hour, no counter/log/pull-day, so any divergence can only come from a perturbed rng.
+      const snapB = JSON.parse(JSON.stringify(snapA)) as typeof snapA;
+      delete snapB.live.hangOutCount; delete snapB.live.hangOutLog; delete snapB.live.hangOutPulledDay;
+      const play = (snap: typeof snapA, user: string) => {
+        const g = new GameSessionRegistry().sandboxFor(user).session as S;
+        GameSessionAdapter.setTimeOfDayEnabled(true);
+        g.setPerConversationClockEnabled(true); g.setHangOutEnabled(true);
+        g.restore(snap as unknown as Parameters<S["restore"]>[0]);
+        for (let i = 0; i < 6000; i++) { const v = g.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void g.submitDecision(req)); if (v.finished) break; }
+        const l = (g.snapshot() as unknown as { live: { evictionOrder: unknown; winner: unknown } }).live;
+        return { order: l.evictionOrder, winner: l.winner };
+      };
+      expect(play(snapA, `iso${seed}c`)).toEqual(play(snapB, `iso${seed}d`));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+  it("a hang-out never fires an event early: the board's due flag only flips at/after the scheduled hour", () => {
+    for (const seed of [3, 5, 8, 11]) {
+      const s = parked(seed); if (!s) continue;
+      for (let i = 0; i < 30; i++) {
+        const before = (s.getGameState() as { daySchedule?: { due: boolean }; phase: string });
+        const r = s.hangOut();
+        const after = (s.getGameState() as { daySchedule?: { due: boolean }; phase: string });
+        expect(after.phase, "a hang-out never advances the loop").toBe(before.phase);
+        if (r.stopReason !== "event-due") expect(after.daySchedule?.due).toBe(false);
+        if (r.stopReason === "event-due" || r.stopReason === "bedtime") break;
+      }
+    }
+  });
+});
+
 describe("hangOut over the MCP boundary", () => {
   it("is a player tool and dispatches (not 'not available'); bad maxBeats is refused", async () => {
     expect(PLAYER_TOOLS.map((t) => t.name)).toContain("hangOut");
