@@ -1727,7 +1727,9 @@ export function voteChoice(
     // character-mediated, engine-tallied. Absent provider ⇒ 0 ⇒ byte-identical (the juryReach spine).
     (ctx.campaignTiltFor?.(n, voter) ?? 0) +
     // 0024: this voter's own residual memory of `n` (a grudge raises the odds they evict `n`, a favor lowers them).
-    (ctx.memoryTiltFor?.(n, voter) ?? 0) -
+    (ctx.memoryTiltFor?.(n, voter) ?? 0) +
+    // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
+    (ctx.beliefTiltFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
     V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
