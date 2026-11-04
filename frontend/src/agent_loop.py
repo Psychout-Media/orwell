@@ -2401,6 +2401,18 @@ def _player_turn_is_lull(messages) -> bool:
     return False
 
 
+def _lull_message_carries_talk(messages) -> bool:
+    """PO ruling (Ryne 2026-11-04): "if you have a real talk and say 'let's move on' in the same message, the talk
+    STILL COUNTS." A readiness cue makes the turn a lull (-> advance), but when the player's message ALSO carries
+    substance beyond the cue (>= 4 words left once the cue is stripped) the social scene must still be banked.
+    Pure/cheap; the constrained extraction decides whether anyone was genuinely engaged."""
+    last = _extract_last_user_message(messages) or ""
+    if _is_production_cue(last.strip()):
+        return False
+    rest = _LULL_READY_RE.sub(" ", last)
+    return len(re.findall(r"[A-Za-z']+", rest)) >= 4
+
+
 def _peer_advanced_since_framing(progressed: bool, framed_beat_key, current_beat_key,
                                   current_pending_kind=None) -> bool:
     """ADR 0011 — did a concurrent PEER advance the beat during this turn?
@@ -7987,9 +7999,13 @@ async def _stream_agent_loop_impl(
                     or (_milestone_due and (not _progressed) and not _runway_holding)
                     or (_loop_stalled and not _runway_holding)
                     or ((not _progressed) and _is_lull and _stale and not _runway_holding)))
-                # not _progressed: a turn that advanced a comp/ceremony is a beat-resolution, not a
-                # social exchange — its houseguest mentions are comp players, not a scene to bank.
-                _want_record = ((not _recorded) and (not _is_lull) and (not _progressed)
+                # PO ruling (Ryne 2026-11-04): "if you have a real talk and say 'let's move on' in the same
+                # message, the talk STILL COUNTS" - so a turn that ALSO advanced (the model called
+                # advanceGame/submitDecision) is banked like any other. NOT gated on `_progressed`: the
+                # constrained extraction returns {"withIds":[]} for a beat with no genuine houseguest
+                # engagement (comp players are not a scene), and `_bank_scene_consequences` is idempotent
+                # (`_recorded` / the per-turn nudge cap), so a model-recorded scene is never double-folded.
+                _want_record = ((not _recorded) and ((not _is_lull) or _lull_message_carries_talk(messages))
                                 and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN)
                 # 0039 deal back-fill: the turn narrated a struck deal but never called makeDeal. Gated
                 # on a cheap deal-language pre-filter over the WHOLE turn's narration (a deal struck in
