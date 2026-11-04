@@ -29,6 +29,7 @@ interface CState {
   cVoiceJson?: string;
   cWarmthBefore?: number;
   cEdgeBefore?: { trust: number; affinity: number; threat: number };
+  cWarmResults?: ConfideResult[];
 }
 const cf = (w: BbWorld): CState => w as unknown as CState;
 
@@ -227,7 +228,9 @@ Then("the voice carries no sealed secret content", function (this: BbWorld) {
 
 Then("at most a Vault-safe reason-to-open-up hint when the motive and a fresh precipitating event are present", function (this: BbWorld) {
   const hint = cf(this).cSession!.npcVoice(cf(this).cId!)!.mayConfide;
-  if (hint) {
+  // The Given sets BOTH the motive and a precipitating pact, so the hint must be PRESENT (was `if (hint)`, which passed with no hint at all).
+  assert.ok(hint && hint.ready === true, "the motive + a fresh precipitating event offer the hint");
+  {
     assert.ok(!JSON.stringify(hint).includes(cf(this).cSecret!.detail)); // never the secret
     assert.doesNotMatch(JSON.stringify(hint), /0\.\d/); // never a number
   }
@@ -242,8 +245,9 @@ Given("an ally whose disclosure motive would otherwise allow a confidence", func
   cf(this).cId = id; cf(this).cSecret = secret;
 });
 
-Given("the player is not in a scene with that ally", function () {
-  // No open/kept deal exists between them ⇒ no precipitating scene (asserted via mayConfide below).
+Given("the player is not in a scene with that ally", function (this: BbWorld) {
+  // AMEND 0075 (S13): a REAL absence - no precipitating pact AND the ally is in a different room than the player (the engine now refuses confide() without co-presence).
+  (cf(this).cSession as unknown as { presence: Map<string, string> }).presence = new Map<string, string>([[PLAYER, "kitchen"], [cf(this).cId!, "bedroom"]]);
 });
 
 Then("no reason-to-open-up hint is offered for that ally", function (this: BbWorld) {
@@ -251,8 +255,12 @@ Then("no reason-to-open-up hint is offered for that ally", function (this: BbWor
 });
 
 Then("no off-screen process starts a confidence scene on its own", function (this: BbWorld) {
+  // A real negative (was: an empty Given + "the secret is not in the player's knowledge", true for any input): pressing a confidence with NO scene returns no disclosure at all,
+  // and the secret is still absent from what the player knows afterwards.
+  const res = cf(this).cSession!.confide(cf(this).cId!);
+  assert.deepEqual(res, { disclosed: false, tier: "none", truthful: true }, "confide outside a scene discloses nothing");
   const known = cf(this).cSb!.engine.knowledge.knownTo(PLAYER);
-  assert.ok(!known.some((f) => f.content.includes(cf(this).cSecret!.detail))); // nothing surfaced unprompted
+  assert.ok(!known.some((f) => f.content.includes(cf(this).cSecret!.detail)), "nothing surfaced unprompted");
 });
 
 Given("an ally the player just did an in-game favor for", function (this: BbWorld) {
@@ -363,8 +371,19 @@ Given("a full season is played", function (this: BbWorld) {
     setupLiar(s, npc.id);
     s.confide(npc.id); // drive a strategic opening from every would-be liar
   }
+  // The control: warm, non-manipulating friends with sealed secrets are pressed too - they can only ever tell the truth.
+  cf(this).cWarmResults = [];
+  for (const npc of houseOf(s).npcs) {
+    if (!(npc.character.hiddenElements ?? []).length || confideStateOf(s)[npc.id]) continue;
+    npc.character.archetype = "floater";
+    setEdges(s, npc.id, { trust: 0.95, affinity: 0.95, threat: 0.05 });
+    const r = s.confide(npc.id);
+    if (r) (cf(this).cWarmResults ??= []).push(r);
+  }
 });
 
 Then("the number of false confidences never exceeds the season cap", function (this: BbWorld) {
   assert.ok(lieCountOf(cf(this).cSession!) <= CONFIDENCE.maxLiesPerSeason);
+  // ...AND non-manipulators never lie (the cap alone held even if everyone lied up to it).
+  for (const r of cf(this).cWarmResults ?? []) assert.ok(r.truthful, "a warm non-manipulator never tells a false confidence");
 });
