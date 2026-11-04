@@ -5724,6 +5724,23 @@ async def guard_make_deal(with_id: str, term, owner, player_text: str):
     return None, _reconcile_deal_term(term, player_text)
 
 
+def is_deal_refusal(res) -> bool:
+    """True iff the engine's makeDeal result is a REFUSAL: the NPC declined and NO deal was recorded (anti-sycophancy).
+    Strict: only a dict with `refused` exactly True counts, so an accepted deal (or None) is never mistaken for one."""
+    return isinstance(res, dict) and res.get("refused") is True
+
+
+def deal_refusal_for_narrator(res: dict) -> dict:
+    """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
+    why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
+    return {"output": json.dumps({
+        "declined": True,
+        "reason": res.get("reason"),
+        "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
+                    "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
+    }, indent=2), "exit_code": 0}
+
+
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
@@ -5763,6 +5780,8 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         _extra = {"term": term} if term is not None else {}  # absent ⇒ the call is byte-identical to pre-0109
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
+        if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal
+            return deal_refusal_for_narrator(res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
