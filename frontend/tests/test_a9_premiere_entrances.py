@@ -70,3 +70,12 @@ def test_nudge_reuses_the_existing_ladder_not_a_second_mechanism():
     # the entrance hook only rewrites the existing _is_lull/_stale inputs of the one _want_advance expression
     assert src.count("_want_advance = (") == 1
     assert "_entrance_pacing(" in src and "premiere_entrance_active(owner)" in src
+
+
+def test_staged_entrance_advances_are_not_capped_as_silent_decoupling():
+    """Live finding (A9 check): the F1 anti-stale cap held the nudge's silent advance after 2 consecutive silent advances, so the engine stalled at an arrival while the narrator invented
+    the rest. A premiere entrance/toast advance is voiced by the NEXT turn's `justArrived` framing by design, so the streak must not count it (source pin on the guard)."""
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[1].joinpath("src", "agent_loop.py").read_text()
+    assert "_a9_staged = bool(_ch_a9.premiere_entrance_active(owner))" in src
+    assert 'if _why and _why.startswith("stall L") and not _a9_staged:' in src
