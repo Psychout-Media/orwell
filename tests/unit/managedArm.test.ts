@@ -7,11 +7,11 @@ const ctx = (wins: Record<string, number> = {}, aggrieved: string[] = []): JuryC
 const allies = new Set(["ally-1", "ally-2"]);
 
 describe("A1 - the managed arm plays the jury-management levers", () => {
-  it("nominations: biggest public threats first among NON-allies, never an ally, and marks them aggrieved", () => {
+  it("nominations: the solid arm's choice (non-allies in list order, never an ally) and marks them aggrieved", () => {
     const c = ctx({ a: 1, b: 4, c: 2 });
     const r = managedAnswer({ kind: "nominations", options: [o("ally-1"), o("a"), o("b"), o("c")] }, allies, c) as { choice: string[] };
-    expect(r.choice).toEqual(["b", "c"]);
-    expect([...c.aggrieved].sort()).toEqual(["b", "c"]);
+    expect(r.choice).toEqual(["a", "b"]);
+    expect([...c.aggrieved].sort()).toEqual(["a", "b"]);
   });
   it("final-eviction: evicts the finalist with the BIGGER public resume, keeping the weaker as the F2 rival", () => {
     const r = managedAnswer({ kind: "final-eviction", options: [o("big"), o("small")] }, allies, ctx({ big: 5, small: 1 })) as { vote: string };

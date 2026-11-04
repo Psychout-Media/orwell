@@ -128,7 +128,6 @@ export type Arm = "passive" | "solid" | "reckless" | "managed";
  *  - GOODBYES: a real warm goodbye to an ally or to someone the player moved against, instead of the default "respectful" (a warm send-off softens a grievance, `mannerLeanOf`);
  *  - MEND: at the finale it makes the `mend` appeal to every juror it moved against (nominated / voted out), `connect` to its tended allies, `own-game` otherwise;
  *  - RIVAL: at Final 3, as HOH it evicts the finalist with the BIGGER public comp resume (game respect dominates the losses in the diagnosis) and keeps the weaker one as its F2 rival;
- *  - NOMINATIONS: among non-allies it targets the biggest competition threats first (public wins), rather than list order.
  * It reads only public projections the player legitimately has (announcements, its own decisions).
  */
 export interface JuryCtx {
@@ -209,7 +208,9 @@ export function managedAnswer(p: PendingView, allies: ReadonlySet<string>, ctx: 
   const notAlly = (o: NamedRef) => !allies.has(o.id) && o.id !== PLAYER;
   switch (p.kind) {
     case "nominations": {
-      const targets = p.options.filter(notAlly).sort((a, b) => wins(b.id) - wins(a.id)).map((o) => o.id); // biggest public threats first
+      // NOTE (A1 measurement, 200 seeds): nominating the biggest public threats FIRST (an earlier draft) cost the arm its F2 reach (16% vs solid's 24%): it makes the strongest
+      // players enemies early. So nominations stay in the solid arm's list order; only the jury-facing levers below differ.
+      const targets = p.options.filter(notAlly).map((o) => o.id);
       const choice = targets.length >= 2 ? [targets[0]!, targets[1]!] : [p.options[0]!.id, p.options[1]!.id];
       for (const id of choice) ctx.aggrieved.add(id);
       return { kind: "nominations", choice };
