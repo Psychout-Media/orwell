@@ -21,3 +21,19 @@ PO (Ryne 2026-11-04, brief: orwell-playtest/bdd-audit/design/premiere-entrances-
 
 ## Integration (me)
 .feature restate of 0111 for flag-on, full runner pass, live premiere check on dev, go/no-go by Thursday 3pm.
+
+## As built + live findings (2026-11-04, after three live reruns on real DeepSeek)
+
+Shipped DEFAULT ON (`ORWELL_PREMIERE_ENTRANCES`, #2086 / #2113; `=0` restores the old champagne circle byte-identically). Differences from the contract above, each driven by a live finding:
+
+- **Toast batch is 2** (was 4): the narrator voices one or two speeches a turn; a bigger batch left recorded speeches unvoiced. The host is first. The toast is ~9 advances for 16 speakers + host, so the premiere is ~16 entrance turns + ~9 toast turns before the morning.
+- **Voice-hold (#2123).** The engine records each batch, but a chatting player pulls the narrator off the circle. The pacing ladder holds the NEXT batch (max 2 consecutive turns) until this turn's narration voices every listed speaker.
+- **No message-count hold once the toast is done.** The entrances + toast ARE the premiere; stacking the 48-message premiere hold on top froze the engine at `phase=premiere` for 25+ messages. The stall-nudge brings the day-break immediately and the ENGINE CLOCK then owns the 48-message morning (5 in-game min/message).
+- **The schedule owns the hold once the clock is live** (`daySchedule` on the board): not due => hold; DUE => release at once (a hang-out that ran the clock to the HOH comp used to be frozen behind the count).
+- **Anti-stale cap exemption.** The F1 anti-stale silent-advance cap held the nudge after two advances, so the engine stalled at an arrival while the narrator invented the rest; staged entrance/toast advances are exempt (`_premiere_staged`).
+- **Prompt:** the narrator is told never to introduce an arrival the engine has not released, and to voice EVERY speaker listed this turn.
+- **Witness grounding (A11, #2118).** A chat during the gathered toast now counts: `occupancy()` overlays the same whole-house gathered state `whereabouts()` shows.
+- **Guard N-16** re-grounds a competition narrated as STARTED while the schedule says not due; **N-17** (#2115) replaces an invented first-person confession with a deflection when no engine disclosure lever ran that turn.
+- **Test lanes.** The unit and BDD lanes pin the flag OFF per file (they test other features through the old premiere; entrance tests opt IN); property / UAT / calibration run the shipped default ON. juryReach + calibrationGradient held their bands ON. The reactive-twist secret-veto floor moved 12 -> 11 under ON (approved).
+
+Known gaps: only `event-due` of the hang-out stops was seen on screen; the other four are unit-proven. The 300-seed PO-band gate with entrances ON was not run (juryReach + gradient is the bar the three-part-HOH flip used).
