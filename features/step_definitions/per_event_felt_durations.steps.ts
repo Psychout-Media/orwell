@@ -7,7 +7,7 @@ import { advanceClock } from "../../src/engine/liveSeason";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 import { beatFeltHours } from "../../src/engine/daySchedule";
 import { CLOCK } from "../../src/engine/sleepConstants";
-import { resolvePending } from "../../tests/support/adr0003";
+import { resolvePending } from "../support/answerPending";
 
 // Feature 0119 (Phase 3, final, in-game-time pivot) — different events cost different amounts of the
 // in-game day. Roles only; in-game time only.
@@ -23,10 +23,11 @@ function playOutcome(clockOn: boolean, perConvOn: boolean, seed = 7): { winner?:
   sb.session.setPerConversationClockEnabled(perConvOn);
   for (let i = 0; i < 4000; i++) {
     const a = sb.session.advanceGame();
-    if (a.pending) resolvePending(sb.session, a.pending);
+    if (a.pending) resolvePending(a.pending, (req) => sb.session.submitDecision(req));
     if (a.finished) break;
   }
   const snap = sb.session.snapshot();
+  GameSessionAdapter.setTimeOfDayEnabled(null); // restore the default so the forced flag never leaks into later scenarios
   return { winner: snap.live?.winner, order: [...(snap.live?.evictionOrder ?? [])] };
 }
 
@@ -46,11 +47,11 @@ Then("an inert presentation beat has no distinct felt duration", function () {
 });
 
 Given("a seeded season played with the per-beat clock at its flat default", function (this: BbWorld) {
-  this.pfdFlat = playOutcome(false, false, 7);
+  this.pfdFlat = playOutcome(true, false, 7); // the in-game clock ON: the per-beat clock block actually runs in both arms
 });
 
 Given("the same seeded season played with the variable felt durations available", function (this: BbWorld) {
-  this.pfdVariable = playOutcome(false, true, 7);
+  this.pfdVariable = playOutcome(true, true, 7);
 });
 
 When("both seasons are played to a winner", function (this: BbWorld) {
@@ -58,6 +59,8 @@ When("both seasons are played to a winner", function (this: BbWorld) {
 });
 
 Then("the winner and the whole eviction order are identical", function (this: BbWorld) {
+  assert.ok(this.pfdFlat!.winner !== undefined, "the flat arm crowned a winner (a defined winner, not undefined===undefined)");
+  assert.ok(this.pfdVariable!.winner !== undefined, "the variable arm crowned a winner");
   assert.equal(this.pfdVariable!.winner, this.pfdFlat!.winner, "same winner — the seeded stream is untouched");
   assert.deepEqual(this.pfdVariable!.order, this.pfdFlat!.order, "same eviction order");
 });
