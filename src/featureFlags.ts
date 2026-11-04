@@ -86,6 +86,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_BELIEFS', key: 'npcBeliefs', parser: 'strict' },
   // B2 / #2017: read the NPC memory standalone so remembered betrayals/favors visibly sway votes + nominations. OFF unless exactly '1'; NOT part of the default flip (pinned never-flipped).
   { envKey: 'ORWELL_NPC_MEMORY_STANDALONE', key: 'npcMemoryStandalone', parser: 'strict' },
+  // B2 follow-on: write the memories a season actually produces (remembered nominations). OFF unless exactly '1'; NOT part of the default flip.
+  { envKey: 'ORWELL_NPC_MEMORY_WRITERS', key: 'npcMemoryWriters', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

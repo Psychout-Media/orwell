@@ -52,7 +52,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
-import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -987,6 +987,11 @@ export class GameSessionAdapter implements GameSession {
    * residual-floor read, byte-identical; it only matters while `ORWELL_NPC_MEMORY` is on (no memory is written otherwise).
    */
   private npcMemoryStandaloneEnabled = process.env.ORWELL_NPC_MEMORY_STANDALONE === "1";
+  /**
+   * B2 follow-on — WRITE the memories a season actually produces (an NPC remembers being nominated by the HOH, graded by prior trust). The ledger was measured ~empty (all `veto-saved`
+   * with holder===subject, dropped). OFF unless exactly `ORWELL_NPC_MEMORY_WRITERS=1`; never-flipped (own re-measure first). Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
+   */
+  private npcMemoryWritersEnabled = process.env.ORWELL_NPC_MEMORY_WRITERS === "1";
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -7230,6 +7235,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0024 — turn the NPC memory layer on/off for this session (off ⇒ nothing is written or read). */
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
+  setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
   /** Whether the deal-depth layer is live (0121). */
   dealDepthEnabledNow(): boolean { return this.dealDepthEnabled; }
@@ -8716,12 +8722,17 @@ export class GameSessionAdapter implements GameSession {
         if (s.hoh && s.nominees) {
           for (const nom of s.nominees) {
             this.rememberFriendAct(nom, s.hoh, "nominated-by-friend"); // BEFORE the fold: the trust test reads the pre-shock edge
+            if (this.npcMemoryWritersEnabled && nom !== PLAYER) this.remember(nom, s.hoh, "nominated-by-hoh", nominationMemorySeverity(this.rel.edge(nom, s.hoh).trust)); // B2: same pre-fold read
             fold(nom, s.hoh, "nominated");
           }
         }
         break;
       }
       case "veto-ceremony": {
+        // B2: a veto NOT used leaves the NPC nominees on the block — each remembers the holder who could have saved them (graded by their pre-fold trust in the holder).
+        if (this.npcMemoryWritersEnabled && !s.vetoUsed && s.vetoHolder && s.nominees) {
+          for (const nom of s.nominees) if (nom !== PLAYER && nom !== s.vetoHolder) this.remember(nom, s.vetoHolder, "veto-withheld", vetoWithheldSeverity(this.rel.edge(nom, s.vetoHolder).trust));
+        }
         if (s.saved && s.vetoHolder) {
           this.remember(s.saved, s.vetoHolder, "veto-saved", 0.6);
           fold(s.saved, s.vetoHolder, "veto-saved"); // gratitude bond + E54 evidence
@@ -10072,7 +10083,11 @@ export class GameSessionAdapter implements GameSession {
       // partner spreads it NPC→NPC, and third parties who hear it lean toward the honorer as a safer deal
       // partner (the positive mirror of the betrayal rumor). The ledger only calls this when `dealDepth`
       // is on, and the sink is registry-wired (it owns the KnowledgeService), so off ⇒ byte-identical.
-      reputation: (honorer, other) => this.dealReputationSink?.(honorer, other),
+      reputation: (honorer, other) => {
+        this.dealReputationSink?.(honorer, other);
+        // B2: the partner remembers the deal being KEPT (a favor), written alongside the diffusing reputation (same `dealDepth` gate). `remember` skips the player as holder.
+        if (this.npcMemoryWritersEnabled) this.remember(other, honorer, "deal-kept", 0.5);
+      },
       // 0014: the wronged party will weigh this betrayal against the breaker in their jury lean.
       // #1802: formation-witness deal collateral — when enabled, the formation trust-fold
       // scales with audience size (capped by caps) and breaches seed into witness knowledge.
