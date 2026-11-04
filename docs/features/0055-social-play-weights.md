@@ -68,6 +68,13 @@ Complementary to the advance-nudge by design:
   call gives reasoning models headroom (max_tokens) and scans the whole response for the answer JSON,
   since an early/stripped parse returned empty on deepseek-v4-pro.
 
+## Amendment (2026-11-04, Ryne ruling): any real talk counts, whoever advances
+
+- The original gate was "engagement, not a lull, not a beat-advance". That mis-banked nothing but it **dropped real talks**: a message such as "I call her out for the lie - okay, let's move on" is BOTH a real talk and a readiness cue, and the model usually advanced in the same turn, so neither `not _is_lull` nor `not _progressed` let the belt run and the scene folded nothing.
+- **New rule: if the player had a real talk with a houseguest and nothing was recorded, the scene is banked - even when the same message says "let's move on" and even when the model advanced the beat in the same turn.** `_want_record` is no longer gated on `_progressed`; a lull turn still banks when the message carries substance beyond the cue (`_lull_message_carries_talk`: >= 4 words once the readiness cue is stripped). A bare "let's move on" banks nothing. The constrained extraction still returns `withIds: []` for a beat with no genuine houseguest engagement, and `_bank_scene_consequences` is idempotent (a model-recorded scene suppresses the belt; the per-turn nudge cap holds), so there is never a double fold.
+- **#1959 (forced-advance banking):** when a belt forces a silent advance (the loop-break / stall ladder), the finishing block is skipped by the turn's `break`; the shown scene is banked first, through the same `_bank_scene_consequences` helper, so the two paths cannot drift (test_a10_forced_advance_records_scene.py). The idempotency fix keeps the pre-commit bank and the ordinary finishing bank from folding the same scene twice.
+- Gate: `frontend/tests/test_bank_scene_on_progressed_turn.py` drives the real `stream_agent_loop` (talk + model advance => exactly one fold; talk alone => one; solo + advance => none; already recorded => no double; bare "let's move on" => none), mutation-checked on both gates.
+
 ## Testability
 
 - Unit/source-pin: the recording-tool set, the substantive-engagement gate (the inverse of the
@@ -77,3 +84,9 @@ Complementary to the advance-nudge by design:
   (never a number) — e.g. the ally later acts on the bond, the burned bridge later bites.
 - Vault-Wall: the fold stays hidden; no number or secret crosses to the player surface (the
   2026-06-18 Vault-leak audit confirmed the boundary is clean — keep it so).
+
+## Amendment (2026-11-04, AMEND 0012/0055/0023 #4): forced-advance banking and the "talk still counts" rule
+
+- **#1959 (forced-advance banking).** When the FE's belt FORCES an `advanceGame` (the L39b forced-advance rung), the turn's scene is banked through `_bank_scene_consequences` regardless of the lull gate - a forced advance used to skip the auto-record belt and lose the scene's only consequence fold.
+- **Idempotency.** `_bank_scene_consequences` is idempotent: a scene the model already recorded (`_recorded`) or that the per-turn nudge cap already covered is never folded twice, and a deal/confide/expose/trade back-fill still runs first.
+- **The rule (Ryne 2026-11-04):** *any real talk counts, whoever advances.* A message that carries a real player<->houseguest talk AND a readiness cue ("...let's move on") is still banked; a turn that also advanced (the model's `advanceGame`/`submitDecision`, or a pre-resolve) is banked like any other. The constrained extraction decides whether anyone was genuinely engaged (a comp-resolution turn with no real scene returns `{withIds: []}` and records nothing). Built as P4e (#2093); the real-loop tests cover chat+advance = one fold, chat+nothing = one, solo = none, already-recorded = none extra.

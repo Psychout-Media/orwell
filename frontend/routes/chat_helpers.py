@@ -562,6 +562,7 @@ def clear_social_runway(user) -> None:
     _SCHEDULE_STEER.pop(key, None)
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
+    _PREMIERE_CLOCK_HOLD.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -591,6 +592,9 @@ _DAY_BREAK_STEER: dict = {}
 # is False the pre-resolve fires NOTHING (whatever the player typed, whatever the runway says) and this one-turn steer gives the narration an in-fiction cue
 # ("production hasn't called it yet"). Same stash/pop shape as `_DAY_BREAK_STEER`; cleared by `clear_social_runway`.
 _SCHEDULE_STEER: dict = {}
+# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine pace is 5 in-game
+# minutes a message (~48 per 4h block); this cap (~3 blocks) sits well above that so only a genuinely stuck clock ever hits it.
+_PRODUCTION_HOLD_CAP = 150
 
 # "Hang out until X" (PO 2026-11-04): the player's safe fast-forward. A wait/chill-until intent is recognised HERE (FE-driven, not a model lever); the ENGINE runs the
 # short timed beats and decides the stop reason, and this one-turn steer hands the narrator that stop to voice. Same stash/pop shape as `_SCHEDULE_STEER`.
@@ -642,27 +646,82 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     except Exception as e:  # never blocks a turn
         logger.warning("[orwell] hang-out skipped for user=%s: %s", user, e)
         return False
-# Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine's default pace brings a
-# milestone due in ~20 ordinary messages (B tunes it to ~8-12); this cap sits well above that so only a genuinely stuck clock ever hits it.
-_PRODUCTION_HOLD_CAP = 30
 _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
 
 
 # P4 item 1 — the premiere has no engine clock yet (the day starts when the premiere closes), so the FE counts premiere messages against the SAME one-morning pace the engine
-# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / SCENE.perExchangeHours = (12 - 8) / 0.4 = 10 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
+# uses: MESSAGES_PER_MORNING = (afternoon start - wake hour) / (MINUTES_PER_MESSAGE / 60) = (12 - 8) / (5/60) = 48 (mirrored from src/engine/sleepConstants.ts; a test pins them equal).
 # Until a morning's worth of messages has passed, the advance belts treat the premiere as "production hasn't called the house in" — the first HOH waits for its hour like
 # every other event. Player readiness is NOT an input.
-_PREMIERE_SOCIAL_MESSAGES = 10
+_PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
+def _premiere_not_yet_steer() -> str:
+    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call, this afternoon - never on demand."""
+    return ("PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for this afternoon and it is not that time yet. The player cannot start, skip to or "
+            "move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
+            "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
+
+
+_PREMIERE_CLOCK_HOLD: dict = {}  # runway key -> True while the engine clock says the first HOH is not yet due (premiere phase, clock live)
+_PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
+
+
+def _entrance_stage_of(game_state) -> Optional[str]:
+    """A9 - the engine's premiere `entrance.stage` off the board (`premiere.entrance`), or None. The FE never infers the stage."""
+    try:
+        pr = (game_state or {}).get("premiere") if isinstance(game_state, dict) else None
+        ent = pr.get("entrance") if isinstance(pr, dict) else None
+        st = ent.get("stage") if isinstance(ent, dict) else None
+        return st if st in ("entrances", "toast", "done") else None
+    except Exception:
+        return None
+
+
+def premiere_entrance_active(user) -> bool:
+    """A9 - True while the premiere is in its entrances/toast stage (flag-on only). Reads the stash `note_premiere_turn` wrote."""
+    try:
+        return _runway_key(user) in _PREMIERE_ENTRANCE_STAGE
+    except Exception:
+        return False
+
+
 def note_premiere_turn(user, game_state) -> None:
-    """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft."""
+    """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft.
+    A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
     try:
         key = _runway_key(user)
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
+        stage = _entrance_stage_of(game_state) if phase == "premiere" else None
+        if stage in ("entrances", "toast"):
+            _PREMIERE_ENTRANCE_STAGE[key] = stage
+            _PREMIERE_MSGS.pop(key, None)
+            return
+        _PREMIERE_ENTRANCE_STAGE.pop(key, None)
+        if stage == "done":
+            # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
+            # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
+            # (8am -> noon) only starts at the day-break. So once the toast is done there is NO message-count hold: the nudge brings the day-break, then the CLOCK owns the morning.
+            _PREMIERE_MSGS.pop(key, None)
+            _PREMIERE_CLOCK_HOLD.pop(key, None)
+            return
+        # Live finding (A9 rerun): once the engine CLOCK is live (day-break done, `daySchedule` on the board) the schedule - not a message count - owns the premiere->first-HOH
+        # hold: not due => hold (the clock brings it in); DUE => release at once, even if fewer than _PREMIERE_SOCIAL_MESSAGES messages have passed (a hang-out/lingering run
+        # had advanced the clock to the event and the count-hold froze the due HOH comp). No `daySchedule` (clock off / pre-day-break) => the message count, unchanged.
+        ds = (game_state or {}).get("daySchedule") if isinstance(game_state, dict) else None
+        if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
+            _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
+            if _PREMIERE_CLOCK_HOLD[key]:
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
+            return
+        _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
             _PREMIERE_MSGS[key] = _PREMIERE_MSGS.get(key, 0) + 1
+            # P4h: the premiere has no engine clock (so no `daySchedule`), but production STILL owns the schedule - while the hold is on, hand the narrator the same in-fiction
+            # "production hasn't called it yet" cue the clock-driven path arms, so an early "can we start the HOH?" is never answered "whenever you want".
+            if _PREMIERE_MSGS[key] < _PREMIERE_SOCIAL_MESSAGES:
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
         else:
             _PREMIERE_MSGS.pop(key, None)
     except Exception:
@@ -671,6 +730,10 @@ def note_premiere_turn(user, game_state) -> None:
 
 def premiere_is_holding(user) -> bool:
     try:
+        if premiere_entrance_active(user):
+            return False  # A9: the entrances/toast are paced by the stall-nudge, not held
+        if _runway_key(user) in _PREMIERE_CLOCK_HOLD:
+            return bool(_PREMIERE_CLOCK_HOLD[_runway_key(user)])  # the engine clock owns the hold (see note_premiere_turn)
         n = _PREMIERE_MSGS.get(_runway_key(user))
         return n is not None and n < _PREMIERE_SOCIAL_MESSAGES
     except Exception:
@@ -2047,6 +2110,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        # N-16: the engine says the scheduled competition is NOT due yet (clock live, `daySchedule.due` False) - True/False, None when there is no schedule (never judge).
+        "compNotDue": (False if not isinstance(state.get("daySchedule"), dict) or "due" not in state.get("daySchedule")
+                       else (not bool(state["daySchedule"].get("due")))) if isinstance(state.get("daySchedule"), dict) else None,
         # A-15: the ENGINE's count of anonymized ballots revealed so far (None = the engine doesn't project it ⇒ never judge).
         "evictionBallots": ((len((state.get("eviction") or {}).get("votesRevealed") or []) if isinstance(state.get("eviction"), dict) else 0)
                             if "eviction" in state else None),
@@ -2859,8 +2925,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     _n3 = None if desync else _stale_denial_contradiction(text, after)
     # (12) N-15: the PLAYER's own card-gated choice narrated as made while its card is still open (never recorded).
     _n15 = None if desync else _uncommitted_player_choice(text, after)
-    if _a9 or _f3 or _n1 or _n3 or _n15:
-        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15) if x)
+    # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
+    _n16 = None if desync else _comp_started_before_due(text, after)
+    if _a9 or _f3 or _n1 or _n3 or _n15 or _n16:
+        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16) if x)
 
     if not desync:
         return None
@@ -3699,6 +3767,75 @@ def stash_knowledge_wall_reground(user) -> None:
         pass
 
 
+# ── N-17 — the invented-CONFESSION guard (Ryne, card 19: "I don't really want the narrator to improvise too much in this area") ──────────────────── #
+#
+# "Never invent a confession" used to be prompt wording only. A houseguest's FIRST-PERSON confession of a hidden personal fact ("I've never told anyone ... I did time") must come from an ENGINE
+# disclosure decision (confide / tradeSecret / exposeSecret / askJuror / a surfacing). When the model voices one with NO such call this turn, the unit (the line) is replaced by an in-voice
+# deflection. CONSERVATIVE by design (if in doubt, don't fire): >= 2 distinct cue families, or ONE strong cue plus a personal-fact noun in the same line.
+_CONF_I = re.IGNORECASE
+_CONF_STRONG = (
+    re.compile(r"\b(?:i(?:'|’)?ve|i\s+have)\s+never\s+(?:told|said|admitted|shown|breathed)\b[^.!?\n]{0,40}\b(?:anyone|anybody|a\s+soul|nobody|no\s+one)\b", _CONF_I),
+    re.compile(r"\bmy\s+(?:real\s+|dirty\s+|biggest\s+|deepest\s+|little\s+)?secret\s+is\b|\bhere(?:'|’)?s\s+my\s+secret\b", _CONF_I),
+    re.compile(r"\bi\s+(?:have|need|got|gotta)\s+to\s+(?:confess|come\s+clean)\b|\bi(?:'|’)?ve\s+(?:got\s+)?to\s+confess\b|\bi\s+confess\b", _CONF_I),
+    re.compile(r"\b(?:nobody|no\s+one)\s+(?:here\s+)?knows\s+(?:that\s+)?i\b", _CONF_I),
+)
+_CONF_WEAK = (
+    re.compile(r"\bthe\s+truth\s+is,?\s+i\b", _CONF_I),
+    re.compile(r"\bi\s+(?:have\s+been|(?:'|’)ve\s+been|was)\s+(?:hiding|keeping)\b[^.!?\n]{0,40}\bfrom\s+(?:everyone|you|all\s+of\s+you)\b|\bi\s+lied\s+(?:to\s+(?:you|everyone)\s+)?about\b", _CONF_I),
+)
+_CONF_PERSONAL_FACT_RE = re.compile(
+    r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
+    r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
+
+_CONFESSION_DEFLECTIONS = (
+    "The moment hangs — whatever was about to be said gets swallowed, and they smile it off.",
+    "They start to say something, think better of it, and wave it away with a half-laugh.",
+    "A beat of silence; then they shrug it off and let the subject drop.",
+)
+
+
+def _line_is_invented_confession(line: str) -> bool:
+    """N-17 - does this line carry an NPC first-person confession of a hidden personal fact? Pure; conservative."""
+    if not line or len(line) < 12:
+        return False
+    strong = sum(1 for rx in _CONF_STRONG if rx.search(line))
+    weak = sum(1 for rx in _CONF_WEAK if rx.search(line))
+    if strong + weak >= 2:
+        return True
+    return strong == 1 and bool(_CONF_PERSONAL_FACT_RE.search(line))
+
+
+def screen_invented_confession(user, text: str) -> "tuple[str, list]":
+    """N-17 - replace each LINE that voices an invented first-person confession (no engine disclosure this turn) with a short in-voice deflection. Returns (new_text, [(old_line, new_line)])
+    so the caller can mirror the same replacement into the raw round buffer. No-op (text, []) when an engine disclosure lever ran this turn, nothing matches, or anything hiccups."""
+    if not text or not text.strip():
+        return text, []
+    try:
+        from src import orwell_engine as _oe
+        if _oe.disclosure_this_turn(user):
+            return text, []
+        if (user or "__anon__") not in _GAME_WAS_ACTIVE:
+            return text, []  # not a started game (casting etc.): never judge
+        lines = text.split("\n")
+        ops = []
+        out = []
+        n = 0
+        for ln in lines:
+            if _line_is_invented_confession(ln):
+                new = _CONFESSION_DEFLECTIONS[n % len(_CONFESSION_DEFLECTIONS)]
+                n += 1
+                ops.append((ln, new))
+                out.append(new)
+            else:
+                out.append(ln)
+        if not ops:
+            return text, []
+        logger.warning("[orwell] N-17: replaced %d invented-confession line(s) with a deflection (user=%s)", len(ops), user)
+        return "\n".join(out), ops
+    except Exception:
+        return text, []
+
+
 async def screen_knowledge_wall(user, text: str) -> str:
     """A0 post-hoc knowledge-wall scan. Returns `text` with any sentence that puts SEALED content in a
     houseguest's mouth DROPPED (delimiters preserved for the rest). Cheap hot path: no sealed facts, or
@@ -3990,6 +4127,30 @@ _N15_NOT_A_CLAIM_RE = re.compile(
     r"\b(?:if|when|once|unless|whether|before|until|should|would|could|might|may|want\s+to|asks?\s+you\s+to|"
     r"invites?\s+you\s+to|ready\s+to|going\s+to|about\s+to|hopes?|hoped|wish(?:es)?|wants?\s+you\s+to|tells?\s+you\s+to|"
     r"(?:he|she|they|the\s+voice|production)\s+says?\s+you\s+(?:must|should|will|can))\b", re.IGNORECASE)
+
+
+# N-16 cues that a competition has BEGUN on screen. A claim needs >= 2 DISTINCT cue families in the same narration (a single "take your spots" can be a stage direction in a
+# production announcement; two together - the call AND the contestants moving - is the competition starting).
+_COMP_STARTED_CUES = (
+    re.compile(r"\b(?:take|find|get\s+to|go\s+to)\s+(?:your|their)\s+(?:spots|places|stations|positions|marks)\b|\blocked\s+in\b|\bstations?\.\s*now\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:first\s+|second\s+)?(?:competition|comp|round)\s+(?:begins|starts|has\s+begun|kicks\s+off)\b|\bready\W{0,3}\s+(?:set\W{0,3}\s+)?go\b|\bthe\s+sequence\s+begins\b|\b(?:three|two)\W{1,4}(?:two|one)\W{1,4}(?:one|go)\b", re.IGNORECASE),
+    re.compile(r"\b(?:climb|climbs|climbed)\s+onto\s+the\s+(?:platform|wall|stage)\b|\bhands\s+find\s+the\s+wall\b|\bscreens?\s+(?:flicker|flash)\w*\b|\bthe\s+rope\b.{0,40}\b(?:tightens|goes\s+taut|burns)\b|\bwall\s+thins\s+out\b", re.IGNORECASE),
+)
+
+
+def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
+    """N-16 - the narration shows the scheduled competition STARTING while the engine says it is not due (clock live, `daySchedule.due` False) and nothing is pending. Production owns the
+    schedule (#2051): the player's / narrator's momentum cannot start it. Returns a LABEL or None. Conservative: only the HOH / veto competition phases, only with an explicit
+    not-due flag, and >= 2 distinct 'it has begun' cue families."""
+    if not isinstance(live, dict) or not text:
+        return None
+    phase = str(live.get("phase") or "").lower()
+    if not phase.endswith("-competition") or live.get("compNotDue") is not True or live.get("pending"):
+        return None
+    if sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) < 2:
+        return None
+    return ("the competition as already STARTED (contestants called to their stations / playing) - the engine shows it is NOT due yet and nothing has begun; "
+            "production has not called it")
 
 
 def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
@@ -5778,6 +5939,7 @@ async def apply_game_framing(
     if game_state.get("started"):
         game_active = True
         _GAME_WAS_ACTIVE.add(_gkey)
+        orwell_engine.clear_disclosure_turn(user)  # N-17: a fresh turn - no engine disclosure lever has run yet
         # C-02: resolve an unresolved NPC-driven ceremony FOR REAL before building the moment prompt,
         # so the model voices the engine's actual nominees/outcome instead of inventing one. No-op
         # unless the game sits at such a beat with no player decision pending (best-effort). The

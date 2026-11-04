@@ -108,7 +108,7 @@ The **[index](#index)** below is the single source of truth for per-feature stat
 | 0021 | [Game session & save lifecycle (per-user sandboxes)](./0021-game-session-and-save-lifecycle.md) | BDD | ✅ Built |
 | 0022 | Player experience MVP-2 (rich game UI) | — | 🗑️ **Removed** (PO review 2026-06-28) — superseded by 0020/0051/0054 under ADR 0003; the dashboard direction was deliberately not taken |
 | 0023 | [Consequence & memory (the MVP-1 backbone)](./0023-consequence-and-memory.md) | BDD | ✅ Built |
-| 0024 | [Soul storage & memory recall (md + vector)](./0024-soul-storage-and-memory-recall.md) | BDD | ✅ Built · **NPC memory acts (#1967) is ON by default** (`ORWELL_NPC_MEMORY`, PO ruling 2026-11-03: memories ON); measured outcome-identical ON vs OFF today (the residual floor means the edge already carries a fresh betrayal) |
+| 0024 | [Soul storage & memory recall (md + vector)](./0024-soul-storage-and-memory-recall.md) | BDD | ✅ Built · **NPC memory acts (#1967) is ON by default** (`ORWELL_NPC_MEMORY`, PO ruling 2026-11-03: memories ON); NOT outcome-identical ON vs OFF since #2059: the standalone read (no edge-carry subtraction) lets a remembered betrayal/favor sway later nominations and votes (PO ruling 2026-11-03; the 3-arm PO bands held) |
 | 0025 | [Reserve twists (Vault-sealed, engine-timed)](./0025-reserve-twists.md) | BDD | ✅ Built · **reactive redesign 2026-07-06** (all 3 twists live, standing pool, dynamic triggers; `ORWELL_REACTIVE_TWISTS`) |
 | 0026 | [Relationship math](./0026-relationship-math.md) | BDD | ✅ Built |
 | 0027 | [NarrativePort LLM adapter](./0027-narrative-port-llm-adapter.md) | BDD | ✅ Built |
@@ -337,3 +337,15 @@ Several substantial FE workstreams land as their own GitHub-issue tracks rather 
   glass performance hardening (#1275), and item #9 chat scroll-edge mask + recede-on-scroll banner
   (#1292). Item-level completeness is tracked in issue **#738**; a small residual tail remains open
   there.
+
+## Thursday-playtest additions (2026-11-04 — design-doc'd, flag-gated; not feature-numbered)
+
+All four are **default ON** except where noted; `=0` on the flag rolls each back. Authoritative status for each is its design doc + the PR named here.
+
+| Capability | Flag | Doc / PR | What it is |
+|---|---|---|---|
+| **Premiere entrances + toast (A9)** | `ORWELL_PREMIERE_ENTRANCES` (ON) | `docs/design/premiere-entrances.md`, #2086 / #2113 | Drag-Race-style ONE-AT-A-TIME entrances (seeded order, the player at a random slot, each a recorded vignette), then the living-room toast (host first, then each houseguest; the player's own speech is chat-authored), then the 48-message clock-driven Day-1 morning. Old champagne circle byte-identical under `=0`. Supersedes the "meet everyone at the toast" gate of 0111 for the flag-on path (0111's flag-on scenarios are in the feature file). |
+| **Hang out until X (A-lever)** | `ORWELL_HANGOUT` (ON) | `docs/design/hang-out-until.md`, #2077 / #2109 | The safe fast-forward: <=8 beats of 15-30 in-game min, stops at the FIRST of event-due (clamped, never early/skipped), pulled, NPC approach, observed (recorded, #2119), or bedtime. Only `event-due` was verified on screen; the rest are unit-proven and fail safe. |
+| **NPC desire clock (A8)** | `ORWELL_DESIRE_CLOCK` (OFF) | `src/engine/desireClock.ts`, #2084 | Hours-keyed NPC approaches/interruptions from each NPC's own want; also drives hang-out `npc-approach`. |
+| **Want-driven movement (A10)** | `ORWELL_WANT_MOVEMENT` (OFF) | `docs/design/npc-want-movement.md`, #2090 / #2112 | The same want scales the pull toward the HOH/nominees; k=1 measured (k>=1.5 fails juryReach seed 18). PO 300-seed bands still to measure before any flip. |
+| **Narration guards N-16 / N-17** | always on | #2110-era `chat_helpers.py`, #2115 | N-16: a competition narrated as STARTED while the engine says it is not due is re-grounded. N-17: an invented first-person confession with no engine disclosure lever that turn is replaced by a deflection. |

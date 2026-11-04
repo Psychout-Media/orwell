@@ -53,4 +53,12 @@ export function liveReplacementLegalSet(sb: UserSandbox): string[] {
 }
 
 /** The live season state as a stable string — for "the game state is unchanged" checks. */
-export const liveStateOf = (sb: UserSandbox): string => JSON.stringify(sb.session.snapshot().live);
+// The BOARD, not the hidden layer: a free-text social scene legitimately writes the hidden NPC memory ledger (P4g, like the hidden relationship edge it already moves), so that ledger is
+// excluded from "the game state did not move" - what must not move is every public/binding field (beat, week, pendings, nominees, votes...).
+export const liveStateOf = (sb: UserSandbox): string => {
+  const live = (sb.session.snapshot().live ?? null) as (Record<string, unknown> | null);
+  if (!live) return JSON.stringify(live);
+  const { npcMemory: _hiddenMemory, ...board } = live;
+  void _hiddenMemory;
+  return JSON.stringify(board);
+};

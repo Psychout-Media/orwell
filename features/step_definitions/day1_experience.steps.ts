@@ -2,6 +2,8 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
+import { Orchestrator } from "../../src/composition/orchestrator";
+import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import {
   CASTING_FINALIZE_FLOOR, castingFinalizable, emptyIntake, mergeCastingUpdate,
@@ -45,6 +47,17 @@ function bag(w: BbWorld): NonNullable<BbWorld["d1"]> {
 function firstActiveNpc(sb: NonNullable<BbWorld["d1"]>["sandbox"]): EntityId {
   const active = sb!.session.getGameState().house.filter((h) => h.status === "active");
   return active[0]!.id;
+}
+
+/** Walk the player through the house until a houseguest is genuinely in their room (what the FE belt reads from whereabouts), and return them. */
+function coPresentNpc(session: GameSessionAdapter): EntityId {
+  let wa = session.whereabouts()!;
+  for (const room of ["kitchen", "living room", "backyard", "bedroom A", "bedroom B", "bathroom", "HOH room", "dining room"]) {
+    if (wa.present.length) break;
+    wa = session.movePlayer(room) ?? wa;
+  }
+  assert.ok(wa.present.length > 0, "a houseguest is in the player's room");
+  return wa.present[0]!.id;
 }
 
 /** Drive a started premiere sandbox to the FIRST crowned HOH, returning the winner's id. Bounded. */
@@ -146,19 +159,8 @@ Then("the needle is sourced only from public or seeded framing", function (this:
   assert.match(CURIOSITY_NEEDLE_INSTRUCTION, /public\/seeded framing|GENERIC/i);
 });
 
-Then("the needle carries no specific hidden secret, relationship, or scheme", function (this: BbWorld) {
-  const w = bag(this);
-  // Poison the Vault with a unique sentinel; the needle (built from public framing, never a Vault read)
-  // can never carry it. And no pool line names a specific houseguest / raw id / relationship number.
-  const sentinel = "SENTINEL-0111-needle-secret";
-  w.sandbox!.engine.vault.writeHidden({ id: "d1:needle", kind: "confessional", content: sentinel });
-  for (const line of CURIOSITY_NEEDLES) {
-    assert.ok(!line.includes(sentinel), "no needle line carries a sealed secret");
-    assert.ok(!/npc:\d/.test(line), "no needle line names a raw houseguest id");
-    assert.ok(!/\d\.\d/.test(line), "no needle line carries a relationship number");
-  }
-  assert.ok(!w.needle!.includes(sentinel), "the chosen needle carries no sealed secret");
-});
+// (The needle's Vault-freedom is pinned by tests/unit/curiosityNeedle.test.ts: it is a seed-only draw from the fixed public pool;
+// a sentinel written to the Vault cannot reach a function that takes only a seed.)
 
 // === Rule: The champagne circle meets the whole house at the toast (#906) ==========
 
@@ -238,13 +240,44 @@ Then("the beat is recorded and folds a hidden first read", function (this: BbWor
   assert.ok(w.edgeAfter!.threat > w.edgeBefore!.threat, "threat folded up");
 });
 
-Then("the fold is guaranteed even when the model under-calls the recording tool", function (this: BbWorld) {
+Then("the fold is guaranteed on the live game even when the model records nothing on a premiere turn", async function (this: BbWorld) {
   const w = bag(this);
-  // The belt (0055) calls the SAME engine `record` the model would. Recording the identical beat from a
-  // fresh engine (the belt's path) produces the identical fold — the fold does not depend on WHO called.
-  const belt = new ConsequenceEngine(new InMemoryEventStore(), new RelationshipModel(0.5), new SeededRandom(w.seed ?? 111));
-  belt.record({ initiator: PLAYER, witnessSet: [PLAYER, w.npc!], content: "a cold Day-1 betrayal", kind: "betrayal" });
-  assert.deepEqual(belt.relationships().edge(w.npc!, PLAYER), w.edgeAfter, "belt-driven record folds identically to model-driven");
+  // A LIVE premiere game (the Background's), not two standalone engines. The model "under-calls": a premiere turn is taken
+  // (its reads happen) and the model records NOTHING. Then the FE belt (`_auto_record_scene`, 0055; proven in Python by
+  // frontend/tests/test_a10_forced_advance_records_scene.py) makes its one engine call — `recordInteraction` with initiator
+  // "player", the witness set [player, ...ids] and the proposed `kind` — which we drive here through the player's MCP tool.
+  const sb = w.sandbox!;
+  // The toast is over (the premiere moment continues in free roam, before the premiere exit). The belt only ever names a houseguest the
+  // engine's whereabouts places WITH the player, so find a room where one genuinely is.
+  sb.session.advanceGame();
+  assert.equal(sb.session.getGameState().moment, "premiere", "still the premiere moment");
+  const target = coPresentNpc(sb.session);
+  const edgeOf = () => JSON.stringify(sb.engine.relationships.edge(target, PLAYER)); // test seam only; never shown to the player
+  const before = { ...sb.engine.relationships.edge(target, PLAYER) };
+  const beforeJson = edgeOf();
+  const eventsBefore = sb.engine.events.queryAll().length;
+
+  // The premiere turn the model took: it narrated (reads only) and recorded nothing.
+  sb.session.getGameState();
+  sb.session.getMomentPrompt({ moment: "premiere" });
+  sb.session.whereabouts();
+  assert.equal(sb.engine.events.queryAll().length, eventsBefore, "a premiere turn that records nothing adds no event");
+  assert.equal(edgeOf(), beforeJson, "with nothing recorded, no first read has folded");
+
+  // The belt path: the live adapter's recordInteraction, exactly the belt's request shape.
+  const ack = (await sb.mcp.player.callTool("recordInteraction", {
+    initiator: PLAYER, witnessSet: [PLAYER, target], content: "a cold Day-1 betrayal", kind: "betrayal",
+  })) as { eventId: string };
+  assert.ok(ack.eventId, "the belt's record returns the event id");
+
+  const after = { ...sb.engine.relationships.edge(target, PLAYER) };
+  assert.notEqual(edgeOf(), beforeJson, "the first-read edge between the houseguest and the player moved");
+  assert.ok(after.trust <= before.trust && after.threat >= before.threat, "a betrayal never warms the read: trust did not rise, threat did not fall");
+  assert.ok(after.trust < before.trust || after.threat > before.threat, "and it genuinely cooled it (trust fell or threat rose)");
+
+  // The fold is invisible: the player-facing ack, state and visible projection carry no relationship number.
+  const surface = JSON.stringify(ack) + JSON.stringify(sb.session.getGameState()) + JSON.stringify(sb.player.getVisibleState());
+  assert.doesNotMatch(surface, /"trust"|"affinity"|"threat"/, "the first read is never shown to the player");
 });
 
 Then("the change is recalled later only as observable behavior, never as a number", function (this: BbWorld) {
@@ -285,26 +318,30 @@ Then("the relationship folds are byte-identical to the baseline first day", func
 
 // === Rule: The Diary Room is an enterable room on Day 1 (#907) ====================
 
-When("the player enters the Diary Room on Day 1", function (this: BbWorld) {
+When("the player enters the Diary Room on Day 1 through the live diaryRoom tool", async function (this: BbWorld) {
   const w = bag(this);
-  // Still the premiere moment (before any week-1 nomination). The player vents in the DR.
+  // Still the premiere moment (before any week-1 nomination). The player vents in the DR through the LIVE tool.
   assert.equal(w.sandbox!.session.getGameState().moment, "premiere");
   w.drConfession = "day-1 confession: I already don't trust the loud one, but I'll play nice.";
-  w.sandbox!.engine.knowledge.recordDiaryRoom(w.drConfession);
+  w.drResult = await w.sandbox!.mcp.player.callTool("diaryRoom", { entry: w.drConfession });
 });
 
 Then("the Diary Room is available as a room before week-one nominations", function (this: BbWorld) {
   const w = bag(this);
-  // Enterable on Day 1: the premiere is running (nominations have not happened) and the DR content is
-  // now the player's OWN knowledge (recorded through the DR pathway).
-  assert.equal(w.sandbox!.session.getGameState().moment, "premiere");
-  const known = w.sandbox!.engine.knowledge.knownTo(PLAYER);
-  assert.ok(known.some((k) => k.content === w.drConfession), "the DR confession is the player's knowledge");
+  // Enterable on Day 1: the live tool accepted the entry while the premiere is running, before any HOH or nomination.
+  assert.deepEqual(w.drResult, { recorded: true }, "the live diaryRoom tool accepted the Day-1 entry");
+  const st = w.sandbox!.session.getGameState();
+  assert.equal(st.moment, "premiere", "still the premiere moment");
+  assert.equal(w.sandbox!.session.gameStatus().hoh, null, "no HOH yet");
+  assert.deepEqual(w.sandbox!.session.gameStatus().nominees, [], "before week-one nominations");
+  assert.ok((st.playerDiaryRoom ?? []).includes(w.drConfession!), "the entry shows in the player's own diary-room list");
 });
 
-Then("the player can give a confessional", function (this: BbWorld) {
-  const known = bag(this).sandbox!.engine.knowledge.knownTo(PLAYER);
-  assert.ok(known.some((k) => k.content === bag(this).drConfession), "the confessional landed");
+Then("the confessional is the player's own knowledge", function (this: BbWorld) {
+  const w = bag(this);
+  const own = w.sandbox!.player.getVisibleState().knowledge.map((k) => k.content);
+  assert.ok(own.includes(w.drConfession!), "the confessional landed as the player's knowledge");
+  assert.ok(w.sandbox!.engine.knowledge.knownTo(PLAYER).some((k) => k.content === w.drConfession), "and in the player's knowledge store");
 });
 
 Then("nothing said in the Diary Room reaches any houseguest's behavior", function (this: BbWorld) {
@@ -319,9 +356,16 @@ Then("nothing said in the Diary Room reaches any houseguest's behavior", functio
   }
 });
 
+Then("the Diary Room entry witnesses only the player", function (this: BbWorld) {
+  const w = bag(this);
+  const dr = w.sandbox!.engine.events.queryAll().filter((e) => e.type === "diary-room");
+  assert.equal(dr.length, 1, "exactly the one Day-1 entry was recorded");
+  assert.deepEqual(dr[0]!.witnessSet, [PLAYER], "no houseguest witnessed the entry");
+});
+
 // === Rule: The Vault Wall holds for player AND admin ==============================
 
-Given("the player has finished a Day-1 with a curiosity needle and a consequential beat", function (this: BbWorld) {
+Given("the player has finished a Day-1 with a curiosity needle and a consequential beat", async function (this: BbWorld) {
   const w = bag(this);
   w.needle = curiosityNeedle(w.seed ?? 111);
   w.sentinels = ["SENTINEL-0111-vault", "SENTINEL-0111-soul", "SENTINEL-0111-hidden"];
@@ -336,7 +380,7 @@ Given("the player has finished a Day-1 with a curiosity needle and a consequenti
   w.sandbox!.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, target], content: "a Day-1 betrayal", kind: "betrayal" });
   // A Day-1 DR confession, too.
   w.drConfession = "day-1 DR: my real read on the house.";
-  w.sandbox!.engine.knowledge.recordDiaryRoom(w.drConfession);
+  await w.sandbox!.mcp.player.callTool("diaryRoom", { entry: w.drConfession });
 });
 
 When("the Day-1 player-facing and admin-facing projections are assembled", function (this: BbWorld) {
@@ -371,6 +415,106 @@ Then("the Diary Room exposes no pathway from the player's confession to any NPC"
   for (const hg of w.sandbox!.session.getGameState().house.filter((h) => h.status === "active")) {
     assert.ok(!k.knownTo(hg.id).some((f) => f.content === w.drConfession), "no NPC pathway from the DR confession");
   }
+  // And the live entry's witness set is the player alone — no event carries it to any houseguest.
+  const dr = w.sandbox!.engine.events.queryAll().filter((e) => e.type === "diary-room");
+  assert.ok(dr.length >= 1, "the Day-1 DR entry was recorded through the live tool");
+  for (const e of dr) assert.deepEqual(e.witnessSet, [PLAYER], "the DR event witnesses only the player");
+});
+
+// === Rule: With the in-game clock on, Day 1 has a social morning before the first HOH (P4b) ===
+// (The exact ~48-message count of the morning block is asserted by the time-stack spec, not here.)
+
+Given("a new Day-1 premiere with the in-game clock on", function (this: BbWorld) {
+  const w = bag(this);
+  // The Background's clock-off game is not used here: this scenario needs its own clock-on premiere. The `After` hook in
+  // in_game_time_sleep.steps.ts restores the clock override to env after every scenario.
+  GameSessionAdapter.setTimeOfDayEnabled(true);
+  const reg = new GameSessionRegistry();
+  const sb = reg.sandboxFor("day1-clock-on");
+  sb.session.createCharacter({ ...CHARACTER_INTAKE, seed: 7 });
+  sb.session.setPerConversationClockEnabled(true);
+  // Production wiring: a recorded scene is a committed player turn, which is what paces the per-conversation clock.
+  const orch = new Orchestrator(reg, new FakeClock(), { seed: 7, turnDriven: true, auxTicksNever: true });
+  reg.setCommit((u) => orch.commitPlayerTurn(u));
+  reg.setOnReset((u) => orch.forgetUser(u));
+  w.sandbox = sb;
+  w.fm = { session: sb.session };
+});
+
+Then("the toast seats and pins the whole house", function (this: BbWorld) {
+  const { session } = bag(this).fm!;
+  const active = session.getGameState().house.filter((h) => h.status === "active");
+  const pr = session.premiereIntros()!;
+  assert.equal(pr.champagneCircle, "gathered", "the toast is gathered");
+  assert.equal(pr.complete, true, "the whole house is met at the toast");
+  assert.equal(pr.metCount, active.length + 1, "every houseguest (and the player) is met");
+  const wa = session.whereabouts()!;
+  assert.equal(wa.houseEvent?.kind, "champagne-circle", "the toast is a house event");
+  assert.equal(wa.nearby.length, 0, "nobody is out of the circle");
+  assert.deepEqual(wa.present.map((p) => p.id).sort(), active.map((h) => h.id).sort(), "the whole house is seated together");
+  session.movePlayer("kitchen");
+  assert.equal(session.whereabouts()!.room, wa.room, "the player is pinned to the toast: a walk-off is a no-op");
+});
+
+When("the toast closes and the premiere is exited", function (this: BbWorld) {
+  const fm = bag(this).fm!;
+  const close = fm.session.advanceGame();
+  assert.equal(close.pending ?? null, null, "closing the toast raises no decision");
+  assert.equal(fm.session.getGameState().phase, "premiere", "the toast close does not leave the premiere");
+  fm.exit = fm.session.advanceGame();
+});
+
+Then("the exit is a one-shot day-break to 8am with no competition card", function (this: BbWorld) {
+  const fm = bag(this).fm!;
+  assert.equal(fm.exit!.event?.beat, "day-break", "the premiere exit is a day-break");
+  assert.equal(fm.exit!.pending ?? null, null, "no competition card at 8am");
+  const live = fm.session.snapshot().live!;
+  assert.equal(Math.floor(live.nightDepth!), 8, "it is 8am (the committed turn may tick a few minutes past the hour)");
+  assert.equal(live.timeOfDay, "morning");
+  assert.equal(live.firstMorningPassed, true, "the one-shot is spent");
+  assert.equal(fm.session.perConversationClockLive(), true, "the in-game clock is now running");
+  assert.equal(fm.session.getGameState().phase, "hoh-competition", "the HOH is the next beat");
+});
+
+Then("the first HOH has not fired and is not yet due", function (this: BbWorld) {
+  const { session } = bag(this).fm!;
+  assert.equal(session.gameStatus().hoh, null, "no HOH is crowned");
+  assert.equal(session.milestoneDue(), false, "the HOH is not due in the morning");
+  // A7 (#2078) added `minutesUntil` to the schedule view; the claim here is WHICH event, WHEN, and that it is not due - not the countdown, so compare those fields.
+  const ds = session.getGameState().daySchedule as { next?: string; phase?: string; due?: boolean; minutesUntil?: number } | undefined;
+  assert.deepEqual({ next: ds?.next, phase: ds?.phase, due: ds?.due }, { next: "hoh-competition", phase: "afternoon", due: false });
+  assert.ok(typeof ds?.minutesUntil === "number" && ds.minutesUntil > 0, "the countdown to the scheduled hour is reported and positive");
+});
+
+When("the player spends the morning block in social scenes", function (this: BbWorld) {
+  const sb = bag(this).sandbox!;
+  const npc = firstActiveNpc(sb);
+  for (let t = 0; t < 60 && !sb.session.milestoneDue(); t++) {
+    // The HOH must still be unfired at every scene of the morning block.
+    assert.equal(sb.session.gameStatus().hoh, null, "no HOH fires while the morning block is being spent");
+    sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: `morning scene ${t}`, kind: "bonding" });
+  }
+});
+
+Then("the first HOH is now due in the afternoon", function (this: BbWorld) {
+  const { session } = bag(this).fm!;
+  assert.equal(session.milestoneDue(), true, "the morning block is spent: the HOH is due");
+  assert.equal(session.getGameState().daySchedule!.due, true, "the view flag says due");
+  assert.ok((session.inGameHour() ?? 0) >= 12, "it is the afternoon");
+  assert.equal(session.gameStatus().hoh, null, "being due does not crown anyone by itself");
+});
+
+Then("the first HOH fires only once it is due, and the day-break never repeats", function (this: BbWorld) {
+  const { session } = bag(this).fm!;
+  const first = session.advanceGame();
+  assert.notEqual(first.event?.beat, "day-break", "the day-break is one-shot: the next advance starts the HOH");
+  assert.ok(
+    first.pending?.kind === "comp-round" || first.event?.beat === "hoh-competition" || first.event?.beat === "comp-elimination",
+    "the next advance is where the first HOH competition begins",
+  );
+  const hohId = crownFirstHoh(session);
+  assert.ok(hohId.length > 0, "a first HOH is crowned by the afternoon competition");
+  assert.equal(session.gameStatus().week, 1, "the first HOH is the week-1 HOH");
 });
 
 // === Rule: Day-1 is deterministic and calibration-neutral =========================

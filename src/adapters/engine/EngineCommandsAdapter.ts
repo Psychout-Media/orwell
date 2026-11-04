@@ -17,7 +17,6 @@ import { PRESENCE } from "../../engine/presenceConstants";
 import { isPrivateRoom, zonesSameEarshot, type Occupancy, type Zone } from "../../domain/house";
 import { StaleBeatError, EngineRefusal } from "../../domain/errors";
 import { IMAGE_BUDGET } from "../../engine/imageConstants";
-import { feltHoursFromMinutes } from "../../engine/sleepConstants";
 import { computeExchangeAccounting, type ExchangeAccounting } from "../../engine/producerRead";
 
 const INTERACTION_KINDS: ReadonlySet<string> = new Set<InteractionType>([
@@ -54,7 +53,6 @@ export class EngineCommandsAdapter implements EngineCommands {
   private livingProvider?: () => Iterable<EntityId>;
   /** Phase 2 — where a recorded scene's LLM-proposed felt duration (hours, clamped) is handed to the session
    *  to advance the day clock on the next per-turn tick. Unwired ⇒ inert (standalone / no clock). */
-  private feltDurationSink?: (hours: number) => void;
   /** The live occupancy ground truth (0049); when unset, scenes are placeless (standalone — prior behavior). */
   private presenceProvider?: () => Occupancy | null;
   /**
@@ -64,6 +62,8 @@ export class EngineCommandsAdapter implements EngineCommands {
    * everyone is up ⇒ byte-identical to the prior behavior.
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
+  private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
+  private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }) => void;
   /**
    * The live SUB-ZONE of a houseguest in a zoned big room (0077 Phase 2, OPT-IN). When wired, co-presence
    * witnessing is zone-scoped: a bystander in the SAME room but a DIFFERENT, out-of-earshot zone (the
@@ -177,15 +177,19 @@ export class EngineCommandsAdapter implements EngineCommands {
     this.presenceProvider = fn;
   }
 
+  /** P4g - wire the NPC memory ledger so a recorded betrayal / conflict / kindness scene is remembered by the NPCs it touched. Unwired => inert. */
+  setSceneMemorySink(fn: (holders: readonly EntityId[], kind: string) => void): void {
+    this.sceneMemorySink = fn;
+  }
+
+  /** B4 - wire the assurance ledger so a recorded casual assurance is kept on the live state. Unwired => inert. */
+  setAssuranceSink(fn: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }) => void): void {
+    this.assuranceSink = fn;
+  }
+
   /** Wire the awake set (ADR 0006) so a houseguest who has turned in neither witnesses nor overhears a scene. */
   setAwakeProvider(fn: () => ReadonlySet<EntityId> | null): void {
     this.awakeProvider = fn;
-  }
-
-  /** Phase 2 — wire the day-clock advance so a scene carrying `feltMinutes` moves the in-game clock by its
-   *  bounded felt duration (the session self-gates on the running clock). Unwired ⇒ inert. */
-  setFeltDurationSink(fn: (hours: number) => void): void {
-    this.feltDurationSink = fn;
   }
 
   /** Wire the live zone reader (0077) so co-presence witnessing is earshot-scoped within a big room. */
@@ -536,17 +540,25 @@ export class EngineCommandsAdapter implements EngineCommands {
         this.knowledge.knownTo(PLAYER),
       ));
     }
+    // P4g: a betrayal / conflict / kindness scene is REMEMBERED by the NPCs it touched (0024 ledger) - bounded, deterministic, one write per recorded scene (this point is
+    // reached once per recorded scene: an idempotent replay returned earlier). Inert unwired / writers off.
+    if (this.sceneMemorySink && req.kind) {
+      const touched = (req.toward ?? awakeNamed).filter((id) => id !== PLAYER); // the NAMED partners (not presence-expanded bystanders)
+      if (touched.length > 0) this.sceneMemorySink(touched, req.kind);
+    }
+    // B4: a casual assurance rides the recorded scene (one per recorded scene per assured party; an idempotent replay returned earlier). Inert unwired / flag off.
+    if (this.assuranceSink && req.assurance) {
+      const from = req.assurance.from ?? req.initiator;
+      const sincerity = typeof req.assurance.sincerity === "number" ? req.assurance.sincerity : 1;
+      const tos = from === PLAYER ? awakeNamed.filter((id) => id !== PLAYER) : [PLAYER]; // the NAMED partners (not the presence-expanded bystanders)
+      for (const to of tos) this.assuranceSink({ from, to, kind: req.assurance.kind, sincerity, source: from === PLAYER ? "player" : "npc" });
+    }
     this.onPersist?.(); // durable save (0030): events + the hidden layer survive a restart
     // A10/#591 — record the at-most-once key ONLY after a clean commit. Placed AFTER onPersist so a
     // persist failure (which rolls the whole commit back, including this in-memory event) leaves no key
     // behind — a later retry then correctly re-attempts rather than short-circuiting to a rolled-back id.
     if (req.idempotencyKey !== undefined) this.rememberRecordIdempotent(req.idempotencyKey, eventId);
-    // Phase 2 (duration-based clock) — a scene that proposed how long it FELT stashes that bounded
-    // duration for the orchestrator's next per-turn clock advance to consume (instead of the flat floor),
-    // so the day's clock tracks the play the player actually did. Only when the caller proposed it; the
-    // sink self-gates on the running clock, so this is inert in the seeded sims (clock off). No fold, no
-    // number crosses to the player — it moves only the Vault-free day clock.
-    if (req.feltMinutes !== undefined) this.feltDurationSink?.(feltHoursFromMinutes(req.feltMinutes));
+    // `req.feltMinutes` is accepted but no longer touches the clock (P4c: cost depends only on message count).
     return { eventId };
   }
 

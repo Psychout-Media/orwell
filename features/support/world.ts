@@ -116,6 +116,9 @@ export class BbWorld extends World {
   // Conversation & scene system (0012) scratch state.
   approaches?: Eid[];
   expression?: { mode: string; content?: string };
+  liveVoice?: { sb: import("../../src/composition/registry").UserSandbox; untold: import("../../src/domain/ids").EntityId; told: import("../../src/domain/ids").EntityId };
+  voiceUntold?: import("../../src/ports/GameSession").NpcVoiceView;
+  voiceTold?: import("../../src/ports/GameSession").NpcVoiceView;
   compressed?: string;
   full?: string;
   groundTruthBefore?: string;
@@ -831,6 +834,25 @@ export class BbWorld extends World {
     sentinels?: string[];
     seasonBaseline?: import("./seasonOutcome").SeasonOutcome;
     seasonRead?: import("./seasonOutcome").SeasonOutcome;
+    drResult?: unknown;
+    /** P4b — the clock-on Day-1 premiere scratch state. */
+    fm?: {
+      session: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
+      exit?: import("../../src/ports/GameSession").AdvanceView;
+      next?: import("../../src/ports/GameSession").AdvanceView;
+    };
+  };
+
+  // A9 - premiere entrances scratch state (one bag).
+  pe?: {
+    session?: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
+    sandbox?: import("../../src/composition/registry").UserSandbox;
+    seed?: number;
+    sentinel?: string;
+    positions?: number[];
+    orderB?: string[];
+    gateAlwaysTrue?: boolean;
+    hohDuringEntrances?: boolean;
   };
 
   // Feature 0125 — competition theme variety scratch state (one bag).

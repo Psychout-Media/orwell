@@ -89,11 +89,14 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setPresenceProvider(() => session.occupancy());
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
+  // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
+  commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
+  // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default OFF).
+  commands.setAssuranceSink((a) => session.recordAssurance(a));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its
   // bounded duration to the session, which the orchestrator's per-turn clock advance then consumes — so
   // the day's clock tracks the play the player actually did, not a flat floor. Self-gated on the running
   // clock (inert in the seeded sims). Pacing-only: no fold, no number crosses to the player.
-  commands.setFeltDurationSink((hours) => session.stashPendingFeltHours(hours));
   // 0077 Phase 2: the live sub-zone reader, so co-presence witnessing in a big room (the backyard, the
   // lounge) is earshot-scoped — the far end of the yard is not auto-witnessed. Unwired ⇒ pre-0077 behavior.
   commands.setZoneProvider((id) => session.currentZone(id));

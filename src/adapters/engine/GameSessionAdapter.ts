@@ -53,7 +53,8 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -64,8 +65,8 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
-import { runHangOut } from "../../engine/hangOut";
-import { desireFor, mostUrgent, type Candidate } from "../../engine/desireClock";
+import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -184,6 +185,7 @@ function isUsableTagline(s: string): boolean {
 }
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
+import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
 import { startNewGame, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
@@ -225,7 +227,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
+  advanceClock, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -235,7 +237,7 @@ import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants"
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
-import { shapeMessageHours } from "../../engine/sleepConstants";
+import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
@@ -602,10 +604,14 @@ const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THR
  * ballot is byte-identical.
  */
 const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1";
+/**
+ * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). OFF unless
+ * `ORWELL_PREMIERE_ENTRANCES=1`; read at `createCharacter` (season start). Off => nothing new is written.
+ */
+const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
 
 /**
- * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). OFF unless `ORWELL_HANGOUT=1`: it spends in-game time outside the per-message pace, so it ships
- * dark until the live pace work lands. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
+ * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
  */
 /** Per-beat chances for the hang-out interruptions (side-stream draws). Tunable here. */
 const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.07;
@@ -614,7 +620,12 @@ const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.0
  * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
  */
 const DESIRE_CLOCK_ENABLED_DEFAULT = process.env.ORWELL_DESIRE_CLOCK === "1";
-const HANGOUT_ENABLED_DEFAULT = process.env.ORWELL_HANGOUT === "1";
+/**
+ * A10 - NPC MOVEMENT from one internal WANT (docs/design/npc-want-movement.md): an NPC's pull toward the person its current want points at (the HOH to campaign to / plead with,
+ * the nominees to sound out) is scaled up by the want's urgency (the A8 desire clock). OFF unless `ORWELL_WANT_MOVEMENT=1`; off => `movementIntentFor` is untouched (byte-identical).
+ */
+const WANT_MOVEMENT_ENABLED_DEFAULT = process.env.ORWELL_WANT_MOVEMENT === "1";
+const HANGOUT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HANGOUT");
 
 /**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
@@ -1016,14 +1027,14 @@ export class GameSessionAdapter implements GameSession {
    */
   private voteDeductionEnabled = VOTE_DEDUCTION_ENABLED_DEFAULT;
   /**
-   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. OFF unless exactly `ORWELL_NPC_BELIEFS=1`
-   * (the engine's own strict read), deliberately NOT part of the default flip (pinned in flagDefaultParity). Off ⇒ no store is created and the season
+   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. ON unless `ORWELL_NPC_BELIEFS=0` (or
+   * `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne, "turn it on") after the PO bands held. Off ⇒ no store is created and the season
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
-  private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
+  private npcBeliefsEnabled = flagDefaultOn("ORWELL_NPC_BELIEFS");
   /**
-   * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). OFF unless
-   * exactly `ORWELL_NPC_MEMORY_STANDALONE=1`; deliberately NOT part of the default flip (pinned in flagDefaultParity) until its own signed-direction + winner/F2 re-measure. OFF ⇒ the
+   * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). ON unless
+   * `ORWELL_NPC_MEMORY_STANDALONE=0` (flipped ON with the memories, #2059; the 3-arm PO bands held). OFF ⇒ the
    * residual-floor read, byte-identical; it only matters while `ORWELL_NPC_MEMORY` is on (no memory is written otherwise).
    */
   private npcMemoryStandaloneEnabled = NPC_MEMORY_STANDALONE_ENABLED_DEFAULT;
@@ -1034,10 +1045,47 @@ export class GameSessionAdapter implements GameSession {
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
-   * and from betrayal rumors they heard), instead of re-reading the edge. OFF unless exactly `ORWELL_NPC_BELIEF_NOMS=1` AND `ORWELL_NPC_BELIEFS=1`; never-flipped. OFF ⇒ no ctx provider,
+   * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
    * no claim written ⇒ byte-identical. The writer draws only from a DEDICATED seeded rng (never the shared stream).
    */
-  private npcBeliefNomsEnabled = process.env.ORWELL_NPC_BELIEF_NOMS === "1";
+  private npcBeliefNomsEnabled = flagDefaultOn("ORWELL_NPC_BELIEF_NOMS");
+  /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. OFF unless exactly `ORWELL_ASSURANCES=1`; never-flipped. OFF => no ledger on the live state => byte-identical. */
+  private assurancesEnabled = process.env.ORWELL_ASSURANCES === "1";
+  setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
+  /**
+   * B4 slice 3 - does `holder` KEEP an open casual assurance (safe|loyal) made to `target`? Self-interested and personality-scaled (`decideKeep`): the benefit of breaking is how threatening
+   * the assured reads to the holder; the cost is the holder's keepWeight (loyalty, aggression) x the assurance's sincerity. Deterministic, no rng. Flag off / none open => false.
+   */
+  assuranceProtects(target: EntityId, holder: EntityId): boolean {
+    if (!this.assurancesEnabled || !this.live?.assurances) return false;
+    const open = AssuranceLedger.fromJSON(this.live.assurances).openFor(holder).filter((a) => a.to === target && (a.kind === "safe" || a.kind === "loyal"));
+    if (open.length === 0) return false;
+    const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
+    const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
+    const aggression = stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5;
+    const keepWeight = assuranceKeepWeight({ loyalty, aggression });
+    const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(holder, target).threat));
+    return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit }));
+  }
+
+  /** B4 slice 3 - the HOH nominated an assured houseguest: resolve the open assurance(s) BROKEN (once) and the assured remembers it (a smaller grudge than a broken deal). */
+  assuranceNominated(holder: EntityId, nominee: EntityId): void {
+    if (!this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    let broke = false;
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) broke = true; }
+    if (!broke) return;
+    this.live.assurances = ledger.toJSON();
+    this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+  }
+
+  /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
+  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
+    if (!this.assurancesEnabled || !this.live) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
+    ledger.add({ ...a, week: this.live.week });
+    this.live.assurances = ledger.toJSON();
+  }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -1197,10 +1245,12 @@ export class GameSessionAdapter implements GameSession {
   private compMixedEnabled = COMP_MIXED_ENABLED_DEFAULT;
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
+  private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
   private desireClockEnabled = DESIRE_CLOCK_ENABLED_DEFAULT;
+  private wantMovementEnabled = WANT_MOVEMENT_ENABLED_DEFAULT;
   /** The clock hour a hang-out just ended at: the orchestrator's follow-up per-conversation step skips ONCE if the clock has not moved since. */
   private hangOutSkipStepAt: number | undefined;
   /** Hours the last hang-out spent (consumed by the orchestrator to run extra society ticks). */
@@ -4154,7 +4204,33 @@ export class GameSessionAdapter implements GameSession {
       const avoid = threatCharge >= bondCharge * MOVEMENT_INTENT.avoidThreatDominance && bondCharge < MOVEMENT_INTENT.workableBondFloor;
       pulls.push({ target: other, weight: charge, avoid });
     }
+    if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * A10 - fold the NPC's current WANT into its movement pulls. The want (A8 `desireFor`) points at a target - the HOH for a campaign/plea, the nominees for a probe - and its
+   * urgency (A8 `urgency`: rising toward the event, spent by an approach) scales the pull. Never lowers an existing pull; a want whose target had no pull ADDS one. No rng (movement
+   * stays on its isolated stream); a check-in has no target. Pure read of public standing + the clock.
+   */
+  private applyWantToPulls(id: EntityId, pulls: MovementPull[]): void {
+    const live = this.live;
+    if (!live || !firstCeremonyBeatResolved(live)) return;
+    const m = nextMilestone(live);
+    const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
+    const desire = desireFor(m?.beat, { isHoh: this.ceremony.hoh === id, isNominee: noms.has(id) });
+    if (!desire || desire === "check-in") return;
+    const targets: EntityId[] = desire === "probe" ? [...noms] : (this.ceremony.hoh !== undefined ? [this.ceremony.hoh] : []);
+    const until = m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
+    const since = live.desireApproachedAt?.[id];
+    const drive = pulls.reduce((a, p) => Math.max(a, p.weight), MOVEMENT_INTENT.minCharge);
+    const scale = wantScale(desireUrgency({ desire, drive, hoursUntil: until, hoursSinceApproach: since === undefined ? undefined : this.absHour() - since }));
+    for (const t of targets) {
+      if (t === id) continue;
+      const existing = pulls.find((p) => p.target === t);
+      if (existing) existing.weight *= scale;
+      else if (scale > 1) pulls.push({ target: t, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false }); // a spent want (scale 1) adds nothing: back to exactly today's intent
+    }
   }
 
   /**
@@ -4487,7 +4563,7 @@ export class GameSessionAdapter implements GameSession {
    *  tonight's fights don't follow anyone into tomorrow. Called right after the clock advances / the player
    *  turns in; a no-op mid-day (still the same night) and harmless at game start (empty). */
   private rollNightConflicts(): void {
-    if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.nightConflicts.clear();
+    if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === (this.live?.wakeHour ?? WAKE_HOUR)) this.nightConflicts.clear();
   }
 
   /**
@@ -4512,8 +4588,12 @@ export class GameSessionAdapter implements GameSession {
    * for pre-L21/L24 saves (no base yet) or before the first tick.
    */
   societyOccupancy(): Occupancy | null {
-    const base = this.presenceBase ?? this.presence;
-    if (!base) return base;
+    const base0 = this.presenceBase ?? this.presence;
+    if (!base0) return base0;
+    // A9: during the staged entrances the un-arrived are not in the house - the society never pairs them.
+    const notHere = this.notYetArrived();
+    let base = base0;
+    if (notHere) { base = new Map(); for (const [id, room] of base0) if (!notHere.has(id)) base.set(id, room); }
     const awake = this.awakeNow();
     if (!awake) return base; // clock off ⇒ identity ⇒ byte-identical society + calibration spine
     // ADR 0006: asleep houseguests have left the floor for the night — drop them so the off-screen
@@ -4549,6 +4629,7 @@ export class GameSessionAdapter implements GameSession {
     // convened in the living room. This is a whole-house event exactly like a comp/ceremony (no field
     // split — nobody competes, the house simply toasts), so the pin (movePlayer no-op) + gathered
     // whereabouts come for free. Released to `"done"` on the model's first advanceGame (see advanceGame).
+    if (s.premiereEntrance?.stage === "entrances") return { kind: "premiere-entrances" }; // A9
     if (s.champagneCircle === "gathered") return { kind: "champagne-circle" };
     if (s.competition) { // a staged comp is running ⇒ its real field is authoritative
       return { kind: s.competition.comp, field: [...s.competition.field] };
@@ -4578,7 +4659,8 @@ export class GameSessionAdapter implements GameSession {
     const ev = this.houseEventInSession();
     if (ev) {
       const named = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
-      const others = this.livingIds().filter((id) => id !== me);
+      const notHere = this.notYetArrived(); // A9: un-arrived houseguests are nowhere during the entrances
+      const others = this.livingIds().filter((id) => id !== me && !notHere?.has(id));
       const compSplit = ev.field
         ? (() => {
             const field = new Set(ev.field!);
@@ -4607,11 +4689,12 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0006: as the night thins, houseguests who have turned in are no longer "around" — the house
     // empties for the player. `null` when the clock is off ⇒ everyone shows ⇒ byte-identical whereabouts.
     const awake = this.awakeNow();
+    const notHere2 = this.notYetArrived();
     const isUp = (id: EntityId): boolean => !awake || awake.has(id);
     const inRoom = (r: Room): NamedRef[] => {
       const out: NamedRef[] = [];
       for (const [id, where] of this.presence!) {
-        if (where === r && id !== me && isUp(id)) out.push({ id, name: this.nameOf(id) });
+        if (where === r && id !== me && isUp(id) && !notHere2?.has(id)) out.push({ id, name: this.nameOf(id) });
       }
       return out;
     };
@@ -4790,7 +4873,8 @@ export class GameSessionAdapter implements GameSession {
     const player = this.house.player.id;
     // B52/audit D5: an evicted houseguest can't pull you aside — only LIVING NPCs approach.
     const evicted = new Set(this.live?.evictionOrder ?? []);
-    const npcIds0 = this.house.npcs.filter((n) => !evicted.has(n.id)).map((n) => n.id);
+    const notHere = this.notYetArrived(); // A9: un-arrived houseguests cannot approach
+    const npcIds0 = this.house.npcs.filter((n) => !evicted.has(n.id) && !notHere?.has(n.id)).map((n) => n.id);
     // ADR 0006: a houseguest who has turned in for the night won't pull you aside at 3am — only those
     // still up approach. Identity when the clock is off ⇒ byte-identical approach ranking.
     const npcAwake = this.awakeNow();
@@ -4864,7 +4948,7 @@ export class GameSessionAdapter implements GameSession {
 
   /** Lazily clear a stale tracker once the premiere is over (keeps the snapshot clean; idempotent). */
   private clearPremiereIfOver(): void {
-    const staleCircle = this.live?.champagneCircle !== undefined;
+    const staleCircle = this.live?.champagneCircle !== undefined || this.live?.premiereEntrance !== undefined;
     if (!this.inPremiere() && (this.premiereMet.size > 0 || this.premiereHotReads.size > 0 || staleCircle)) {
       this.premiereMet.clear();
       // #1318: the hot-read set is premiere-scoped too — clear it alongside so it never lingers in the
@@ -4872,7 +4956,7 @@ export class GameSessionAdapter implements GameSession {
       this.premiereHotReads.clear();
       // 0111: the champagne-circle flag is premiere-scoped — clear it so a post-premiere `live` never
       // reports a stale `champagne-circle` house event (which would wrongly pin the player).
-      if (this.live) this.live.champagneCircle = undefined;
+      if (this.live) { this.live.champagneCircle = undefined; delete this.live.premiereEntrance; }
       this.persist();
     }
   }
@@ -4930,6 +5014,10 @@ export class GameSessionAdapter implements GameSession {
     // the circle pre-registers every hot read, so any stray belt/model mark is an idempotent no-op.)
     const hotReads = activeNpcs.filter((n) => this.premiereHotReads.has(n.id)).length;
     const everyoneVisible = activeNpcs.every((n) => this.presence === null || this.presence.has(n.id));
+    const pe = this.live?.premiereEntrance;
+    // A9: during the staged entrances the roll-call gate is GONE (not re-added): un-arrived houseguests are not
+    // "remaining" and `complete`/`powerReachable` stay TRUE exactly as under the old circle.
+    if (pe) remaining.length = 0;
     const everyoneMet = remaining.length === 0;
     // +1 on both counts for the player (they ARE met — they're playing). total = the whole cast.
     return {
@@ -4939,10 +5027,134 @@ export class GameSessionAdapter implements GameSession {
       remaining,
       met,
       hotReads,
-      powerReachable: everyoneMet && everyoneVisible,
+      powerReachable: everyoneMet && (pe ? true : everyoneVisible),
       // 0111: surface the champagne-circle sub-state so the moment prompt knows whether the toast is
       // still GATHERED (voice the toast, house pinned) or DONE (released to bedroom pick / settling in).
       ...(this.live?.champagneCircle !== undefined ? { champagneCircle: this.live.champagneCircle } : {}),
+      ...(pe ? { entrance: this.entranceView(pe) } : {}),
+    };
+  }
+
+  /** A9 - season start (flag on): plan the seeded order and seat those who are already inside when the player walks in. */
+  private startPremiereEntrances(seed: number | string): void {
+    if (!this.house || !this.live) return;
+    const ids = [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+    const plan = planEntrances(ids, this.house.player.id, seed);
+    this.live.premiereEntrance = { order: plan.order, playerPos: plan.playerPos, arrived: 0, stage: "entrances", spoke: [] };
+    for (let i = 0; i < plan.playerPos; i++) this.recordArrival(i);
+    this.live.premiereEntrance.arrived = plan.playerPos;
+  }
+
+  /** A9 - the Vault-free public projection of the staged-entrances state (names only; never ids in prose). */
+  private entranceView(pe: NonNullable<LiveSeasonState["premiereEntrance"]>): NonNullable<PremiereIntrosView["entrance"]> {
+    const me = this.house!.player.id;
+    const arrivedIds = pe.order.slice(0, pe.arrived);
+    const lastId = pe.arrived > 0 ? pe.order[pe.arrived - 1] : undefined;
+    const speakerOf = (x: string): { id?: string; name: string; host?: true; isPlayer?: true } =>
+      x === "host" ? { name: "The host", host: true } :
+      x === me ? { id: x, name: this.nameOf(x), isPlayer: true } : { id: x, name: this.nameOf(x) };
+    let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true }> | undefined;
+    if (pe.stage !== "entrances" && pe.spoke.length > 0) {
+      const len = pe.spoke.length;
+      const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
+      speakers = pe.spoke.slice(from).map(speakerOf);
+    }
+    return {
+      stage: pe.stage,
+      index: pe.arrived,
+      total: pe.order.length,
+      playerPosition: pe.playerPos + 1,
+      arrivedNames: arrivedIds.filter((id) => id !== me).map((id) => this.nameOf(id)),
+      ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
+      ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
+      ...(speakers ? { speakers } : {}),
+    };
+  }
+
+  /** A9 - the houseguests who have NOT yet entered during the staged entrances (else null: nothing hidden). */
+  private notYetArrived(): Set<EntityId> | null {
+    const pe = this.live?.premiereEntrance;
+    if (!pe || pe.stage !== "entrances") return null;
+    return new Set(pe.order.slice(pe.arrived));
+  }
+
+  /**
+   * A9 - record ONE arrival (event + met-marks + the bounded first-read fold). The witness set is everyone
+   * already inside + the arriver (the player only when already inside, or when it is the player's own
+   * entrance). The first read rides a SEEDED SIDE stream (never the shared season spine). No persist (caller's).
+   */
+  private recordArrival(i: number): { id: EntityId; inside: EntityId[]; playerEntrance: boolean } {
+    const pe = this.live!.premiereEntrance!;
+    const me = this.house!.player.id;
+    const id = pe.order[i]!;
+    const inside = pe.order.slice(0, i);
+    const witness = [...inside, id];
+    this.onPlayerEvent?.(`${this.nameOf(id)} arrives`, witness, "premiere-entrance");
+    if (id !== me) {
+      this.premiereMet.add(id);
+      this.premiereHotReads.add(id);
+      this.introducedNames.add(id);
+    }
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:premiere-read:${i}`));
+    for (const holder of inside) this.rel.applyImpactDirected(holder, id, PREMIERE_FIRST_READ, rng);
+    return { id, inside, playerEntrance: id === me };
+  }
+
+  /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
+  private advancePremiereEntrance(): AdvanceView {
+    const s = this.live!;
+    const pe = s.premiereEntrance!;
+    const me = this.house!.player.id;
+    if (pe.stage === "entrances") {
+      const r = this.recordArrival(pe.arrived);
+      pe.arrived += 1;
+      if (pe.arrived >= pe.order.length) {
+        pe.stage = "toast";
+        s.champagneCircle = "gathered"; // the existing whole-house pin
+      }
+      this.persist();
+      const view = this.advanceView(null);
+      return {
+        ...view,
+        event: {
+          beat: "premiere-entrance",
+          content: `${this.nameOf(r.id)} arrives`,
+          participants: [{ id: r.id, name: this.nameOf(r.id) }],
+          detail: {
+            arriver: { id: r.id, name: this.nameOf(r.id) },
+            index: pe.arrived,
+            of: pe.order.length,
+            insideNames: r.inside.filter((x) => x !== me).map((x) => this.nameOf(x)),
+            playerEntrance: r.playerEntrance,
+          },
+        },
+      };
+    }
+    // stage "toast": release the next batch of speakers.
+    const all = toastSpeakers(pe.order);
+    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
+    for (const sp of batch) {
+      if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
+      else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
+      pe.spoke.push(sp); // the player's slot is a marker only - chat-authored, never recorded here
+    }
+    if (pe.spoke.length >= all.length) {
+      pe.stage = "done";
+      s.champagneCircle = "done"; // the existing release
+    }
+    this.persist();
+    const view = this.advanceView(null);
+    return {
+      ...view,
+      event: {
+        beat: "premiere-toast",
+        content: "The champagne toast",
+        detail: {
+          speakers: batch.map((sp) => (sp === "host" ? "host" : sp === me ? { id: sp, name: this.nameOf(sp), isPlayer: true } : { id: sp, name: this.nameOf(sp) })),
+          index: pe.spoke.length,
+          of: all.length,
+        },
+      },
     };
   }
 
@@ -4960,7 +5172,7 @@ export class GameSessionAdapter implements GameSession {
     this.clearPremiereIfOver();
     if (!this.house || !this.inPremiere()) return null;
     // Only a real, active NPC can be "met" — the player is implicitly met; an unknown/departed id is a no-op.
-    const isActiveNpc = this.house.npcs.some((n) => n.id === id && this.seatOf(n.id) === "active");
+    const isActiveNpc = this.house.npcs.some((n) => n.id === id && this.seatOf(n.id) === "active") && !this.notYetArrived()?.has(id);
     if (isActiveNpc) {
       let changed = false;
       if (!this.premiereMet.has(id)) {
@@ -5003,6 +5215,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.inPremiere()) return;
     for (const id of npcIds) {
       if (!this.house.npcs.some((n) => n.id === id && this.seatOf(n.id) === "active")) continue;
+      if (this.notYetArrived()?.has(id)) continue; // A9: not in the house yet
       if (!this.premiereMet.has(id)) { this.premiereMet.add(id); this.introducedNames.add(id); }
       this.premiereHotReads.add(id);
     }
@@ -5343,7 +5556,7 @@ export class GameSessionAdapter implements GameSession {
     // engine-recorded, Vault-free and seed-neutral (projection sets only; no rng, no fold). The premiere's
     // introductions auto-happen at the champagne toast (the first thing that happens), NOT via a manual
     // roll-call. Done after `this.live` exists so seat resolution is unambiguous (every NPC is active at genesis).
-    this.meetWholeHouseAtChampagneCircle();
+    if (!this.premiereEntrancesEnabled) this.meetWholeHouseAtChampagneCircle(); // A9: entrances meet them one at a time
     // FEATURE 0111 — GATHER the whole house for the champagne circle: the toast is a whole-house EVENT,
     // not free prose. Marking the live season `"gathered"` makes `houseEventInSession()` report a
     // `champagne-circle` event, so `whereabouts()` seats the whole house co-present in the living room
@@ -5354,7 +5567,7 @@ export class GameSessionAdapter implements GameSession {
     // and the whole change persists in the same season-start commit (no extra beatSeq bump). Released to
     // free-roam premiere on the model's first `advanceGame` (`champagneCircle = "done"`), which does NOT
     // start the first HOH — the bedroom pick + settling-in premiere beats still run.
-    this.live.champagneCircle = "gathered";
+    if (!this.premiereEntrancesEnabled) this.live.champagneCircle = "gathered"; // A9: the entrances gather the house themselves
     if (this.reactiveTwistsEnabled) {
       // 0025 REACTIVE (PO ruling 2026-07-06): arm the standing pool — all three twists watch the live
       // house, each fires when the house EARNS its (per-season seeded) trigger, at most once, and all
@@ -5445,6 +5658,7 @@ export class GameSessionAdapter implements GameSession {
     // Vault (engine-only; invisible to player AND admin — they surface only organically). Done AFTER
     // first impressions so the bias rides the scattered baseline; persisted so a showmance never resets.
     this.seedSeededRelationships(seed);
+    if (this.premiereEntrancesEnabled) this.startPremiereEntrances(seed); // A9 (after the seeded ties exist)
     this.wireDispositions(); // archetype → disposition (B55): grudges stick, loyalists forgive
     // 0124 (part C): tune each houseguest's starting reactivity to their disposition (temperamental ⇒ more
     // volatile + slower to settle) instead of the flat random draw. Off ⇒ skipped ⇒ the draw stands (byte-identical).
@@ -6492,7 +6706,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return null;
     const evicted = new Set(this.live.evictionOrder);
     if (evicted.has(npcId) || !this.house.npcs.some((n) => n.id === npcId)) return null;
-    const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => (f.factId ?? f.id) === factId || f.id === factId);
+    // BDD audit D2: a Diary Room note is never confrontable — confronting with it would put booth content in front of
+    // a houseguest (a DR→NPC pathway the wall forbids).
+    const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === factId || f.id === factId));
     if (!belief) return null; // the Vault bright line — a non-learned belief is never minted
     const landed = !this.gossipConsequenceEnabled || !isMateriallyDistorted(belief);
     if (!landed) {
@@ -7148,6 +7364,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
@@ -7205,6 +7422,9 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — turn the Wipeout Reel presentation layer on/off. Off by default (byte-identical
    *  `comp-elimination` content); the deploy/live-demo flip turns it on per the Q8 hybrid ruling. */
   setWipeoutReelEnabled(on: boolean): void { this.wipeoutReelEnabled = on; }
+  /** A9 - turn the staged premiere entrances on/off for this session (read at `createCharacter`; tests/BDD; the deploy sets `ORWELL_PREMIERE_ENTRANCES`). */
+  setPremiereEntrancesEnabled(on: boolean): void { this.premiereEntrancesEnabled = on; }
+  premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
   finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
@@ -7217,6 +7437,9 @@ export class GameSessionAdapter implements GameSession {
   /** A8 - turn the NPC desire clock on/off for this session (tests/BDD; the deploy sets `ORWELL_DESIRE_CLOCK`). */
   setDesireClockEnabled(on: boolean): void { this.desireClockEnabled = on; }
   desireClockEnabledNow(): boolean { return this.desireClockEnabled; }
+  /** A10 - turn want-driven movement on/off for this session (tests/BDD; the deploy sets `ORWELL_WANT_MOVEMENT`). */
+  setWantMovementEnabled(on: boolean): void { this.wantMovementEnabled = on; }
+  wantMovementEnabledNow(): boolean { return this.wantMovementEnabled; }
 
   /** Absolute in-game hour (days elapsed * 24 + clock hour) - the desire clock's cooldown axis. */
   private absHour(): number { return ((this.live?.dayNumber ?? 1) - 1) * 24 + (this.live?.nightDepth ?? WAKE_HOUR); }
@@ -7484,36 +7707,18 @@ export class GameSessionAdapter implements GameSession {
    * the per-beat clock.)
    */
   advanceClockPerConversation(opts?: { kind?: ConversationKind; proposedHours?: number }): void {
-    // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or
-    // the day hasn't started). A duration stashed this turn is DISCARDED here — consumed-or-discarded — so a
-    // felt duration recorded while gated can never leak into a later enabled turn (it would otherwise survive
-    // and be consumed as a stale advance). Absent/inert ⇒ byte-identical floor; nothing else changes.
     if (this.hangOutSkipStepAt !== undefined) { // the hang-out already spent this turn's time: skip the follow-up step once (only if the clock has not moved since)
       const at = this.hangOutSkipStepAt; this.hangOutSkipStepAt = undefined;
-      if (this.live?.nightDepth === at) { this.pendingFeltHours = undefined; return; }
+      if (this.live?.nightDepth === at) return;
     }
-    if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) { this.pendingFeltHours = undefined; return; }
-    if (!this.live || this.live.timeOfDay === undefined) { this.pendingFeltHours = undefined; return; } // dormant until the per-beat clock starts the day
-    // Extension 5 (LOOSE conversation durations, ADR 0005 for time): the felt duration is the scene KIND's
-    // type-bounded commit of the LLM-proposed hours; absent a kind/proposal ⇒ the small per-conversation
-    // floor (byte-identical to "no proposal"). Never 0, never a day-skip; the clock still clamps + never wraps.
-    // Phase 2 (duration-based clock): when a scene recorded THIS turn proposed how long it felt, its bounded
-    // duration was stashed here (`pendingFeltHours`) — consume it as the turn's advance so the clock tracks
-    // the play the player actually did, not the flat floor. An explicit `opts` caller still wins; with
-    // neither ⇒ the floor (byte-identical). Consumed once per advance so it can't leak into a later turn.
-    // Extension 6 (SCENE-based clock): the proposed contribution for THIS turn — a narrator-proposed felt
-    // duration when present (opts / stashed), else the small deterministic per-exchange increment. The scene
-    // layer then CAPS the accumulation, so this is a proposal, not a guaranteed advance.
-    let hours: number;
-    if (opts?.kind) hours = conversationHours(opts.kind, opts.proposedHours);
-    else if (this.pendingFeltHours !== undefined) hours = this.pendingFeltHours;
-    else hours = SCENE.perExchangeHours;
-    this.pendingFeltHours = undefined;
-    hours = shapeMessageHours(hours); // P4: an ORDINARY message bills at most PACE.ordinaryMaxHours; a summit spends its full proposed time
-    // Time advances per SCENE, not per turn: turns inside the same (room + co-present set) accumulate toward
-    // the scene cap; a context change starts a fresh scene. The scene key is derived from live occupancy — a
-    // pure, Vault-free read (rooms/co-presence are public), so this stays no-rng and byte-identical when off.
-    advanceClockPerScene(this.live, this.currentSceneKey(), hours);
+    // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or the day hasn't started). Clock off => nothing advances => byte-identical.
+    if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) return;
+    if (!this.live || this.live.timeOfDay === undefined) return; // dormant until the per-beat clock starts the day
+    // P4c (PO ruling 2026-11-04): the clock ticks per MESSAGE - exactly MINUTES_PER_MESSAGE, continuously, so production/NPCs can interrupt mid-conversation. Cost depends ONLY
+    // on message count: `opts.kind` / `opts.proposedHours` are accepted for API compatibility but BILL NOTHING, and the narrator's `feltMinutes` no longer touches the clock
+    // (conversation types - passing / casual / strategy / summit - emerge from how many messages they run).
+    void opts;
+    advanceClockPerMessage(this.live, MINUTES_PER_MESSAGE / 60);
     // A8: an NPC whose desire clock has crossed its threshold CUTS INTO the conversation (shown for exactly the next framing). Flag off => nothing written.
     if (this.desireClockEnabled && this.house) {
       delete this.live.interruption; // the previous one was already shown
@@ -7523,37 +7728,6 @@ export class GameSessionAdapter implements GameSession {
       const hit = this.desireApproach(ids);
       if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR }; }
     }
-  }
-
-  /** Extension 6 — the current scene's identity for the clock: the player's room + the SORTED set of NPCs
-   *  co-present in it. A change (moved rooms, or someone entered/left) opens a fresh scene; a solo room is a
-   *  real scene too (empty co-present set). Absent presence info ⇒ one stable key (the day still costs time).
-   *  Vault-free (rooms + co-presence are public), deterministic, no rng. */
-  private currentSceneKey(): string {
-    const room = this.presence?.get(PLAYER) ?? null;
-    if (!room) return "scene:none";
-    const coPresent: string[] = [];
-    if (this.presence) {
-      for (const [id, where] of this.presence) {
-        if (id !== PLAYER && where === room) coPresent.push(id);
-      }
-    }
-    coPresent.sort();
-    return `scene:${room}|${coPresent.join(",")}`;
-  }
-
-  /** Extension 6 — a hard scene boundary (a resolved beat/ceremony): forget the current scene so the next
-   *  social turn opens a fresh one with a full cap. No clock move; a no-op when no scene is tracked (clock off). */
-  resetSceneClock(): void {
-    if (this.live) resetSceneClock(this.live);
-  }
-
-  /** Phase 2 — a recorded scene's LLM-proposed felt duration (hours, already clamped by
-   *  `feltHoursFromMinutes`), consumed by the next per-turn `advanceClockPerConversation`. Set via the
-   *  command port's felt-duration sink (registry wiring). Purely a pacing hint — no fold, no Vault read. */
-  private pendingFeltHours?: number;
-  stashPendingFeltHours(hours: number): void {
-    this.pendingFeltHours = hours;
   }
 
   /** #1792 — pending ExchangeAccounting from the last substantive recordInteraction, consumed once
@@ -8968,6 +9142,10 @@ export class GameSessionAdapter implements GameSession {
     // the player has picked a bedroom and settled, begins the first HOH. Committed like any beat (one
     // persist, one beatSeq bump) so the released state is durable; `advanceView(null)` reports no new
     // beat (nothing was resolved — only the toast scene closed).
+    if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
+      const staged = this.inOneCommit(() => this.advancePremiereEntrance());
+      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
+    }
     if (this.live.champagneCircle === "gathered") {
       const closed = this.inOneCommit(() => {
         this.live!.champagneCircle = "done";
@@ -9217,7 +9395,7 @@ export class GameSessionAdapter implements GameSession {
         // did NOT reach via retirement.
         // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
         // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
+        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
         this.rollNightConflicts();
       }
       this.commit(ev);
@@ -9481,7 +9659,7 @@ export class GameSessionAdapter implements GameSession {
         },
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
-        bedtime: () => (live.nightDepth ?? WAKE_HOUR) >= CLOCK.midnightHour || awakeNpcs().length <= 1,
+        bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
         pulled: (r) => {
           if (!started || live.hangOutPulledDay === day) return null;
           if (r.next() >= HANGOUT_PULL_P) return null;
@@ -9523,7 +9701,6 @@ export class GameSessionAdapter implements GameSession {
         n, day, hour, beats: result.beats, minutes: result.minutes, stopReason: result.stopReason,
         ...(result.detail ? { detail: result.detail as Record<string, unknown> } : {}),
       });
-      resetSceneClock(live); // a hang-out is a scene boundary: the next message opens a fresh scene
       this.hangOutSkipStepAt = hour;
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();
@@ -9687,7 +9864,9 @@ export class GameSessionAdapter implements GameSession {
     if (!d.factId) return null;
     // The bright line: the player can only wield a fact they LEGITIMATELY HOLD. Reject anything else —
     // a suspicion, a never-learned secret, another entity's knowledge. No Vault-minting.
-    const fact = (this.playerKnowledgeReader?.() ?? []).find((f) => (f.factId ?? f.id) === d.factId || f.id === d.factId);
+    // BDD audit D2: a Diary Room note is the player's PRIVATE booth record — never a wieldable secret. Exposing or
+    // trading it would surface Diary Room content into a houseguest's knowledge (a DR→NPC pathway the wall forbids).
+    const fact = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === d.factId || f.id === d.factId));
     if (!fact) return null;
     if (this.secretUsedAs[d.factId] === "exposed") return null; // spent (public) — never re-wielded
     // The subject is the houseguest the fact is about (the knowledge `subject`, or the descriptor's hint).
@@ -10812,6 +10991,15 @@ export class GameSessionAdapter implements GameSession {
     recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity });
   }
 
+  /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
+   *  memory layer + writers on (default ON); other kinds write nothing. Deterministic, no rng, bounded by the ledger cap. */
+  rememberPlayerScene(holders: readonly EntityId[], sceneKind: string): void {
+    if (!this.npcMemoryWritersEnabled) return;
+    const m = SCENE_MEMORY_SEVERITY[sceneKind];
+    if (!m) return;
+    for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
+  }
+
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */
   private rememberFriendAct(holder: EntityId, subject: EntityId, kind: "nominated-by-friend" | "replaced-by-friend"): void {
     if (!this.npcMemoryEnabled || holder === PLAYER) return;
@@ -11066,6 +11254,7 @@ export class GameSessionAdapter implements GameSession {
     // 0111: the champagne-circle flag is premiere-scoped — clear it the instant the phase leaves
     // "premiere" so a post-premiere `live` never reports a stale `champagne-circle` house event.
     if (this.phase !== "premiere" && s.champagneCircle !== undefined) s.champagneCircle = undefined;
+    if (this.phase !== "premiere" && s.premiereEntrance !== undefined) delete s.premiereEntrance; // A9
     this.ceremony = {
       hoh: s.hoh,
       nominees: (s.finalNominees ?? s.nominees ?? []).slice(),

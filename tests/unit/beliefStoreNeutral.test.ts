@@ -18,6 +18,7 @@ let seq = 0;
 
 function playSeason(on: boolean, deduction = true): { s: GameSessionAdapter; live: LiveSeasonState } {
   vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
+  vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0"); // isolate the store from the (default-ON since P4f) nomination/vote term
   const s = new GameSessionRegistry().sandboxFor(`bs${seq++}`).session;
   s.setVoteDeductionEnabled(deduction);
   s.createCharacter({ playerName: "P", seed: SEED });
@@ -98,7 +99,9 @@ describe("the belief store in a live season (S0a)", () => {
 
   it("with vote deduction OFF the store records nothing (the true ballot is never labelled a deduced guess)", () => {
     const on = playSeason(true, false);
-    expect(on.live.beliefs, "ON but no deduction ⇒ no claims").toBeUndefined();
+    // Beliefs are ON by default (P4f), so the store may exist and hold OTHER claim kinds (targets-me, from campaigns/rumors); the invariant is that the true ballot is never labelled a deduced guess.
+    const deduced = Object.values(on.live.beliefs ?? {}).flat().filter((c) => c.kind === "voted-against-me");
+    expect(deduced, "ON but no deduction ⇒ no voted-against-me claims").toEqual([]);
   }, 300_000);
 
   it("no outward projection mentions beliefs or claim kinds", () => {

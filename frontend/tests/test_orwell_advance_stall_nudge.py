@@ -154,8 +154,10 @@ def test_consequence_loop_auto_records_engaged_scenes():
     assert "_RECORD_KINDS" in js
     assert "_backfill_with_cas(owner, _oe.record_interaction, content[:400]" in js
     assert "_oe.record_interaction" in js
-    # gated on engagement (not a lull) + a houseguest scene + nothing recorded + NOT a beat-advance
-    assert "(not _recorded) and (not _is_lull) and (not _progressed)" in js
+    # gated on engagement (not a lull, OR a lull message that still carries a real talk - Ryne 2026-11-04 "the talk still counts") + a houseguest scene + nothing recorded;
+    # deliberately NOT gated on `_progressed` any more (a talk plus a model advance in one turn is still banked - test_bank_scene_on_progressed_turn.py)
+    assert "(not _recorded) and ((not _is_lull) or _lull_message_carries_talk(messages))" in js
+    assert "(not _progressed)\n                                and _turn_record_nudges" not in js
     assert "_scene_touched_houseguest(" in js
     assert "_want_record and _touched" in js
     assert "await _auto_record_scene(" in js

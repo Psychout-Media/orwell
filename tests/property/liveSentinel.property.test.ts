@@ -11,13 +11,21 @@ import { answerPending } from "../../features/support/answerPending";
  * STANDALONE adapter disconnected from the fixture, so the session tools (advanceGame, gameStatus,
  * getGameState, runCompetition, the finale, …) could never fire it. This wires the sweep to the same
  * object graph the resolver serves, plants sentinels into the live hidden state (NPC backstory + soul
- * text + souls + hidden events + Vault + NPC knowledge), and proves NO player/admin tool — across the
+ * text + souls + hidden events + Vault + NPC knowledge + the NPC memory ledger + the NPC belief store), and proves NO player/admin tool — across the
  * whole game including the finale — ever returns one. HARD rule: roles only — no names.
  */
 
 /** Plant a unique sentinel into every kind of hidden state the live game holds; return them all. */
 function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed: number): string[] {
   const sb = reg.sandboxFor(user);
+  // Both hidden NPC stores below are LIVE in the shipped game: the memory ledger (ORWELL_NPC_MEMORY + _STANDALONE + _WRITERS, default ON) and the belief
+  // store (ORWELL_NPC_BELIEFS, read by ORWELL_NPC_BELIEF_NOMS, ON for the playtest). Turn every flag ON explicitly so the sweep plays the shipped
+  // configuration regardless of the process env, and so the engine really READS (and rewrites) the planted rows while the game runs.
+  sb.session.setNpcMemoryEnabled(true);
+  sb.session.setNpcMemoryStandaloneEnabled(true);
+  sb.session.setNpcMemoryWritersEnabled(true);
+  sb.session.setNpcBeliefsEnabled(true);
+  sb.session.setNpcBeliefNomsEnabled(true);
   let n = 0;
   const sentinels: string[] = [];
   const mk = (tag: string): string => { const s = `SENTINEL-B42-${tag}-${seed}-${++n}`; sentinels.push(s); return s; };
@@ -31,6 +39,34 @@ function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed: number
     hg.character.hiddenElements.push({ kind: "secret-motive", detail: mk("hidden") });
     hg.soul.memory.push(mk("soul"));
   }
+  // (1b) The NPC MEMORY LEDGER (0024) and the NPC BELIEF STORE (#2017) — both ENGINE-ONLY season state on `LiveSeasonState` (`npcMemory`, `beliefs`). The ledger is
+  // structured (kind / week / severity — no free text) and the belief claim's only free-text field is `nature`, so the sentinel rides the fields a leaky projection would
+  // actually serialise: the ledger entry's `kind` (cast — there is no engine write path for free text; the real writers `remember` / `recordRumorClaim` take enums) and the
+  // claim's `id` + `nature` + `kind`. Injected into the snapshot the same way the soul/hidden strings above are (`remember` / `beliefNomTiltFor` are private). Each row sits beside
+  // a REAL-kind row so the engine genuinely consumes this holder's memory/beliefs in nominations and votes, and the sentinel rows are built to SURVIVE the ledger cap (a
+  // future-dated, severity-1 entry never decays or evicts) and the belief compaction (confidence 1.0 is never the lowest) for the whole season.
+  const live = core.live!;
+  const ledger = (live.npcMemory ??= {});
+  const store = (live.beliefs ??= {});
+  const npcs = core.house!.npcs;
+  npcs.forEach((hg, i) => {
+    if (i % 2 === 1) return; // "some NPCs": every other houseguest holds the planted memory + belief
+    const other = npcs[(i + 1) % npcs.length]!.id;
+    const memTag = mk("memory");
+    const row = (ledger[hg.id] ??= {});
+    for (const subject of [other, PLAYER]) {
+      (row[subject] ??= []).push(
+        { kind: "nominated-by-hoh", week: live.week, severity: 0.6 },
+        { kind: memTag as never, week: 9_999, severity: 1 },
+      );
+    }
+    const claimTag = mk("belief");
+    const rumorTag = mk("rumor");
+    (store[hg.id] ??= []).push(
+      { id: `${hg.id}|targets-me|${other}|${claimTag}|${live.week}`, holder: hg.id, kind: "targets-me", subject: other, object: hg.id, value: true, origin: "told", nature: claimTag, confidence: 1, week: live.week },
+      { id: `${hg.id}|heard-rumor|${PLAYER}||${rumorTag}`, holder: hg.id, kind: "heard-rumor", subject: PLAYER, value: true, origin: "gossip", nature: "betrayal", source: other, confidence: 1, week: live.week },
+    );
+  });
   sb.session.restore(core); // also rebuilds the soul recall index from the (now sentinel-bearing) memory
 
   // (2) The engine's hidden layer the player/admin projections must never surface.
@@ -140,6 +176,10 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         + JSON.stringify(reg.sandboxFor(user).engine.knowledge.knownTo(npc(2)))
         + JSON.stringify(reg.sandboxFor(user).engine.vault.readHidden());
       for (const s of sentinels) expect(engineSide.includes(s), `seed ${seed}: ${s} was not actually planted`).toBe(true);
+      // …and the memory ledger + belief store are planted AND the layers that read them are ON (the shipped config), so the game really consumes them.
+      expect(sentinels.filter((s) => s.includes("-memory-")).length, "memory-ledger sentinels were planted").toBeGreaterThan(0);
+      expect(sentinels.filter((s) => s.includes("-belief-") || s.includes("-rumor-")).length, "belief-store sentinels were planted").toBeGreaterThan(0);
+      expect(reg.sandboxFor(user).session.npcMemoryEnabledNow(), "the NPC memory layer is ON").toBe(true);
 
       // ADR 0019 Layer 2 — the moment prompt now carries each PRESENT houseguest's OWN knowledge under a
       // labelled per-NPC block ("WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS"). That is a
@@ -264,6 +304,9 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         finished = adv.finished;
       }
       expect(finished, `seed ${seed}: the game reached a winner`).toBe(true);
+      // The memory + belief canaries must still be IN the live hidden state at the finish (not evicted / compacted / dropped), else the late sweeps proved nothing.
+      const liveAtEnd = JSON.stringify(reg.sandboxFor(user).session.snapshot().live ?? null);
+      for (const s of sentinels.filter((x) => /-(memory|belief|rumor)-/.test(x))) expect(liveAtEnd.includes(s), `seed ${seed}: ${s} did not survive in the live state to the finish`).toBe(true);
       totalJurorsTold += jurorsTold;
 
       // E19: one FULL post-finish sweep — every tool against the terminal house, where a season's

@@ -16,7 +16,7 @@
  * night runs past midnight, NPCs turn in and the awake set thins; then pre-dawn larks wake and it refills.
  */
 
-import { CLOCK, SCENE, SLEEP, EVENT_DURATION, AFTER_HOURS, type AfterHoursConstants } from "./sleepConstants";
+import { CLOCK, SCENE, EARLY_WAKE_FLOOR_HOUR, EARLY_WAKE_MIN_BED_HOUR, SLEEP, EVENT_DURATION, AFTER_HOURS, type AfterHoursConstants } from "./sleepConstants";
 
 export { SLEEP, type SleepConstants } from "./sleepConstants";
 
@@ -156,6 +156,9 @@ export function bedtimeFor(stats: BedtimeStats): TimeOfDay {
  * So the awake set SHRINKS evening→midnight (owls retiring) then GROWS midnight→8am (larks rising).
  */
 export function isAwakeAtHour(hour: number, bedHour: number): boolean {
+  // P4d: the clock can now sit BEFORE the 8am wake (a player who bedded early wakes early). An hour before the wake belongs to the NEXT morning of last night's bed, so a
+  // houseguest is up if their own 8h sleep (bed + 8 - 24) has ended by then. Hours >= the wake are untouched (byte-identical).
+  if (hour < WAKE_HOUR) return hour >= bedHour + CLOCK.sleepNeedHours - CLOCK.dayLengthHours;
   if (hour < bedHour) return true;                     // still up tonight
   const wakeAgain = bedHour + CLOCK.sleepNeedHours;     // when their 8h sleep would end
   return hour >= wakeAgain;                             // back up in the pre-dawn window (if before the 8am wake)
@@ -211,6 +214,15 @@ export function sleepDeficitForBedHour(bedHour: number): number {
  * Back-compat: `restDeficitForDepth` now takes the clock-HOUR the houseguest was last awake to (the field
  * is `lastSleepDepth`, legacy name, now an hour) and returns the graded 0..1 deficit. Bed by midnight ⇒ 0.
  */
+/**
+ * P4d - the hour the player wakes after turning in at `bedHour`: bedtime + 8h of sleep, never later than the 8am wake and never earlier than `EARLY_WAKE_FLOOR_HOUR`. Only an
+ * EVENING bed (>= `EARLY_WAKE_MIN_BED_HOUR`) wakes early; a daytime turn-in falls back to the 8am wake. Pure.
+ */
+export function wakeHourAfterBed(bedHour: number): number {
+  if (bedHour < EARLY_WAKE_MIN_BED_HOUR) return WAKE_HOUR;
+  return clamp(bedHour + CLOCK.sleepNeedHours - CLOCK.dayLengthHours, EARLY_WAKE_FLOOR_HOUR, WAKE_HOUR);
+}
+
 export function restDeficitForDepth(lastAwakeHour: number): number {
   return sleepDeficitForBedHour(lastAwakeHour);
 }

@@ -32,6 +32,8 @@
 #       floor means the edge already carries a fresh betrayal, so the tilt reads 0 within a season today.
 #   ORWELL_NPC_MEMORY_STANDALONE / ORWELL_NPC_MEMORY_WRITERS   (B2, 2026-11-04) the memory ledger is now actually WRITTEN (remembered nominations, withheld vetoes, kept deals) and read
 #       on its own, so a remembered grudge/favor visibly sways nominations and votes (PO: "memories should be turned on"). 3-arm PO bands held (no violations, 100 seeds/arm).
+#   ORWELL_NPC_BELIEFS / ORWELL_NPC_BELIEF_NOMS   (B3/B3b #2017, 2026-11-04) NPCs hold falsifiable beliefs (who is targeting me; sometimes wrong) that tilt the HOH's nominations and the eviction vote
+#       (PO: Ryne, "turn it on"). PO bands re-measured ON in the PR body.
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -57,6 +59,10 @@
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
+#   ORWELL_HANGOUT              'Hang out until X' (the safe fast-forward): short 15-30 min engine-timed beats that stop at the FIRST of the scheduled event coming due, the player
+#       being pulled, an NPC approaching, something observed, or bedtime. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
+#   ORWELL_PREMIERE_ENTRANCES    A9: the premiere opens with ONE-AT-A-TIME entrances (a seeded order, the player at a random slot), then the living-room champagne toast with a speech
+#       from the host and each houseguest, then the Day-1 morning. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
 #   ORWELL_COMP_INTENT          NPC competition intent (0006b) — derived compete/throw/play-safe.
 #   ORWELL_MYTH_MAKING          NPC myth-making (0101) — a rare notable player act becomes house folklore
 #       and diffuses NPC-to-NPC (owner ruling 2026-07-17: on). Hidden-knowledge layer only; own isolated
@@ -110,12 +116,16 @@ ORWELL_DEAL_DEPTH=1
 ORWELL_NPC_MEMORY=1
 ORWELL_NPC_MEMORY_STANDALONE=1
 ORWELL_NPC_MEMORY_WRITERS=1
+ORWELL_NPC_BELIEFS=1
+ORWELL_NPC_BELIEF_NOMS=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_INTENT=1
 ORWELL_FINAL_HOH_THREE_PART=1
+ORWELL_HANGOUT=1
+ORWELL_PREMIERE_ENTRANCES=1
 ORWELL_MYTH_MAKING=1
 ORWELL_VOTE_DEDUCTION=1
 ORWELL_GOSSIP_DRIFT=1

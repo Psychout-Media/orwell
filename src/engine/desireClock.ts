@@ -65,3 +65,11 @@ export function mostUrgent(cands: readonly Candidate[], hoursUntil: number | nul
   }
   return best;
 }
+
+/** A10 - how hard an unsatisfied want pulls the NPC's MOVEMENT toward its target: 1 at no urgency, up to 1 + k at/over the approach threshold. Pure; k is the single rollback knob. */
+// `ORWELL_WANT_MOVEMENT_K` overrides k for calibration MEASUREMENT only (the deploy never sets it); default 1 - MEASURED 2026-11-04 (juryReach 20-seed): k=0.5 and 1 pass; k=1.5 and 2 fail seed 18 (a passive player crowned with 1 public comp win); gradient + movementStreamIsolation pass at k=1.
+const _k = Number(process.env.ORWELL_WANT_MOVEMENT_K);
+export const WANT_MOVEMENT = { k: Number.isFinite(_k) && _k >= 0 && process.env.ORWELL_WANT_MOVEMENT_K !== undefined ? _k : 1 } as { k: number };
+export function wantScale(u: number, k: number = WANT_MOVEMENT.k): number {
+  return 1 + k * Math.min(1, Math.max(0, u) / DESIRE.threshold);
+}

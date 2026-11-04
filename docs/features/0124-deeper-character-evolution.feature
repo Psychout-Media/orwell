@@ -1,7 +1,7 @@
 # Executable spec — now IMPLEMENTED & green (originally drafted failing-first). Expands 0041 (character evolution): independent affect
 # axes (confident AND on-edge at once), strategic-temperament drift (a burned houseguest hardens, mean-
 # reverting), and personality-tuned reactivity (a temperamental houseguest is more sensitive + settles
-# slower). Hidden layer only, calibration-safe (code default off ORWELL_SOUL_DEPTH; ON in the deploy profile). HARD rule: roles only
+# slower). Hidden layer only, calibration-safe (ORWELL_SOUL_DEPTH is default ON by code since #1996; =0 rolls back). HARD rule: roles only
 # (houseguest, HOH, nominee) — no names. (Built and wired into cucumber.cjs.)
 
 Feature: Deeper character evolution

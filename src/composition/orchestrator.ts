@@ -438,6 +438,10 @@ export class Orchestrator {
     // real HOH-staging advance, which also clears the flag but ADDS a comp pending, is NOT a pure close and
     // still earns its tick).
     if (this.isPureChampagneClose(baseline, candidate)) return;
+    // A9 (ORWELL_PREMIERE_ENTRANCES): the staged entrances + toast are premiere scenes - the house schemes only once the toast is done. A commit that is mid-entrances/toast (or the
+    // one that closes the toast) earns NO off-screen tick. Flag off => the live state has no `premiereEntrance` => this never fires (byte-identical).
+    const peStage = (x: SessionSnapshot | undefined): string | undefined => (x?.live as { premiereEntrance?: { stage?: string } } | undefined)?.premiereEntrance?.stage;
+    if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const progressed = !baseline || !baseline.started
@@ -485,10 +489,7 @@ export class Orchestrator {
     // step too (unchanged from before), and anchor the social-play pacing to the beat's new in-game hour so
     // the between-ceremony ticks (0117) measure from here.
     this.lastTurnTickAt.set(user, this.clock.now());
-    // Extension 6 — a resolved beat is a hard SCENE boundary: forget the current social scene so the next
-    // social turns after the ceremony open a fresh scene (with a full cap), not a continuation of the one the
-    // player was in before the beat. Then press the per-conversation clock a small step as before.
-    session.resetSceneClock();
+    // Then press the per-conversation clock one message-step as before.
     session.advanceClockPerConversation();
     const beatHour = session.inGameHour();
     if (beatHour !== undefined) this.lastSocietyTickHour.set(user, beatHour);
