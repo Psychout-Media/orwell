@@ -5183,6 +5183,42 @@ def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
             "do NOT narrate the event starting, a result, or anyone being called to it.")
 
 
+_DESIRE_LINES = {
+    "campaign": "wants to campaign to the player for safety before the nominations",
+    "plea": "wants to plead their case before it is decided",
+    "probe": "wants to sound out where the player stands before the next event",
+    "check-in": "just wants a word with the player",
+}
+
+
+def _interruption_steer(game_state) -> str:
+    """A8: an NPC whose own desire clock crossed its threshold is cutting into the conversation. The engine decided WHO and the coarse WHY; the narrator voices the entrance, nothing more."""
+    i = game_state.get("interruption") if isinstance(game_state, dict) else None
+    if not isinstance(i, dict) or not i.get("npc"):
+        return ""
+    why = _DESIRE_LINES.get(str(i.get("desire") or ""), _DESIRE_LINES["check-in"])
+    return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}. Voice the entrance in a line or two and let them speak first; "
+            "invent no outcome, vote or secret beyond that.")
+
+
+# A7 (PO 2026-11-04): production's voice. A WARNING beat when the clock is within this many in-game minutes of a scheduled event, and a CALL when it comes due mid-conversation.
+_PRODUCTION_WARN_MINUTES = 30
+
+
+def _production_warning_steer(phase: str, minutes: int) -> str:
+    """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only."""
+    label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
+    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called (roughly {int(minutes)} in-game minutes away). Let the house feel it: a voice or a bell from production, "
+            "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
+
+
+def _production_call_steer(phase: str) -> str:
+    """The one-turn cue when a scheduled event comes due WHILE the player is mid-conversation: production calls everyone, the person they were talking to turns toward the call."""
+    label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
+    return (f"PRODUCTION CALLS EVERYONE - it is time for the {label}. The player was mid-conversation: whoever they were talking to turns toward the call in character, and the whole house "
+            "gathers. Voice the interruption and the gathering; the engine resolves the event itself, so do NOT invent its outcome.")
+
+
 def _hold_for_social(game_state: dict) -> dict:
     """Return the state with its moment overridden to the engine's `social` beat, so the framing
     builds the social moment prompt (lingering/scheming) instead of the not-yet-resolved ceremony.
@@ -5385,6 +5421,9 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
                     _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""))
+                    _mins = _ds.get("minutesUntil")
+                    if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
+                        _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
                     logger.info("[orwell] production holds %s for user=%s - not due yet (message %d/%d); the house stays social", phase, user, _hn + 1, _PRODUCTION_HOLD_CAP)
                     return _hold_for_social(game_state)
                 logger.warning("[orwell] production hold cap (%d messages) reached at %s for user=%s - the clock is not bringing the event in; releasing it", _PRODUCTION_HOLD_CAP, phase, user)
@@ -5393,6 +5432,9 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     _lr_hold.record_soft_failure("production:hold-cap-hit", RuntimeError(f"{phase} not due after {_PRODUCTION_HOLD_CAP} held messages"), corrected="event-released", user=user)
                 except Exception:
                     pass
+            elif not ready and _comp_hops == 0:
+                # A7: the event came due while the player was still talking (no readiness cue) - production calls everyone; narrate the interruption.
+                _SCHEDULE_STEER[_hkey] = _production_call_steer(phase)
             _PRODUCTION_HOLD.pop(_hkey, None)
             ready = True            # due (or released): resolve it now - the runway/readiness holds below must not delay a scheduled event
             _RUNWAY_LEFT[_hkey] = 0
@@ -5942,6 +5984,12 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _db_steer
         except Exception as e:
             logger.warning("[orwell] day-break steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _int_steer = _interruption_steer(game_state)
+            if _int_steer:
+                gm_prompt = gm_prompt + "\n\n" + _int_steer
+        except Exception as e:
+            logger.warning("[orwell] interruption steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:
