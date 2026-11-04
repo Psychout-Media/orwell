@@ -858,6 +858,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
       const voiceOf = sandbox.session.gossipDriftEnabledNow()
         ? (id: EntityId): VoiceProfile | undefined => npcs.find((n) => n.id === id)?.character.voice
         : undefined;
+      const beliefObserver = sandbox.session.beliefReceiptObserver();
       diffuseGossip({
         knowledge: sandbox.engine.knowledge,
         graph: makeSocialGraph(edges),
@@ -872,6 +873,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         subjects: [scene.initiator, scene.partner],
         sceneType: scene.type,
         ...(voiceOf ? { voiceOf } : {}),
+        // #2017 S0b-2: absent unless ORWELL_NPC_BELIEFS is on (then a READ-ONLY observer that records each receipt as a belief claim).
+        ...(beliefObserver ? { onReceipt: beliefObserver } : {}),
       });
     }
   }

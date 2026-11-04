@@ -215,6 +215,7 @@ import { SeededRandom } from "../random/SeededRandom";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
+import { recordRumorClaim, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -8436,6 +8437,17 @@ export class GameSessionAdapter implements GameSession {
   /** Whether voice-mediated gossip drift is live (issue #1397) — the orchestrator reads this to decide
    *  whether to hand `diffuseGossip` a `voiceOf` resolver. */
   gossipDriftEnabledNow(): boolean { return this.gossipDriftEnabled; }
+
+  /**
+   * #2017 S0b-2 — the observer the orchestrator hands `diffuseGossip` so each E44 receipt fold is recorded as a `heard-rumor` belief claim (with the edge delta it absorbed).
+   * `undefined` when `ORWELL_NPC_BELIEFS` is off or no season is live ⇒ NO observer ⇒ the gossip call is byte-identical to today. The observer is read-only (the fold,
+   * its rng draws and its edge moves are unchanged — proven in beliefProvenance.test.ts); it only appends to the engine-only `live.beliefs` store, which nothing reads yet.
+   */
+  beliefReceiptObserver(): ((r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }) => void) | undefined {
+    if (!this.npcBeliefsEnabled || !this.live) return undefined;
+    const live = this.live;
+    return (r) => { recordRumorClaim((live.beliefs ??= {}), r, live.week); };
+  }
 
   private archetypeOf(id: EntityId): string {
     return this.house?.npcs.find((n) => n.id === id)?.character.archetype ?? "floater";

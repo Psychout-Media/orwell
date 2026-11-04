@@ -133,3 +133,43 @@ describe("refuting a claim", () => {
     expect(back.threat).toBeCloseTo(0.4 * REFUTE_REVERSAL_FRACTION, 9);
   });
 });
+
+// ── S0b-2: wired through the PRODUCTION runtime's off-screen gossip (the orchestrator tick) ──
+import { vi, afterEach } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { composeRuntime } from "../../src/composition/runtime";
+import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
+import { resolvePending } from "../../features/support/answerPending";
+import type { LiveSeasonState } from "../../src/engine/liveSeason";
+
+afterEach(() => vi.unstubAllEnvs());
+
+function playThroughRuntime(on: boolean, seed: number): LiveSeasonState {
+  vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
+  const rt = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-s0b2-"))) });
+  const s = rt.registry.sandboxFor(`s0b2-${seed}`).session;
+  s.createCharacter({ playerName: "P", seed });
+  for (let i = 0; i < 9000; i++) {
+    const v = s.advanceGame();
+    if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
+    if (v.finished) break;
+  }
+  return s.snapshot().live as LiveSeasonState;
+}
+
+describe("S0b-2: the off-screen gossip tick records heard-rumor claims (flag-gated, read-only)", () => {
+  it("OFF: no store; ON: rumor claims with provenance — and everything else in the season state is byte-identical", () => {
+    const off = playThroughRuntime(false, 7);
+    const on = playThroughRuntime(true, 7);
+    expect(off.beliefs).toBeUndefined();
+    const rumors = Object.values(on.beliefs ?? {}).flat().filter((c) => c.kind === "heard-rumor");
+    expect(rumors.length, "the off-screen society produced heard rumors").toBeGreaterThan(0);
+    expect(rumors.every((c) => c.origin === "gossip" && typeof c.nature === "string" && c.impact !== undefined && c.confidence > 0 && c.confidence <= 1)).toBe(true);
+    const { beliefs: _b, ...onRest } = on as LiveSeasonState & { beliefs?: unknown };
+    const sha = (x: unknown): string => createHash("sha256").update(JSON.stringify(x)).digest("hex");
+    expect(sha(onRest), "the gossip observer moved nothing: season state is byte-identical off vs on").toBe(sha(off));
+  }, 300_000);
+});
