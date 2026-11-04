@@ -21,6 +21,17 @@ fails=0
 ENGINE_PID=""
 pass() { echo "  ok  — $*"; }
 fail() { echo "  FAIL — $*"; fails=$((fails + 1)); }
+# A stage that could not run. Locally that is a loud WARN (a dev box may lack deps/network); under CI
+# (CI is set by GitHub Actions) a skipped stage is a FAILURE — otherwise the job prints SMOKE PASSED
+# having verified less than it claims.
+skips=0
+skip_stage() {
+  if [ -n "${CI:-}" ]; then
+    fail "stage skipped under CI (a skipped stage is a failure there): $*"
+  else
+    echo "  WARN — stage skipped: $*"; skips=$((skips + 1))
+  fi
+}
 have() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 check() { # label  haystack  needle
   if have "$2" "$3"; then pass "$1"; else fail "$1 (missing: $3)"; fi
@@ -291,7 +302,7 @@ case "$emb_class" in
     echo "         #1590 import crash — the import succeeded, only the model download failed). Skipping the"
     echo "         live fastembed-boot assertion. Prefetch output:"
     sed 's/^/           /' "$EMB_PREFETCH_LOG"
-    pass "fastembed import path did not CRASH (model download unavailable — tolerated, logged loudly)"
+    skip_stage "fastembed model download unavailable (the import path did not crash; the live fastembed-boot assertion did not run)"
     ;;
   *)
     fail "ORWELL_EMBEDDINGS=fastembed warm-up CRASHED on import/exception (the #1590 class — semantic recall"
@@ -350,8 +361,13 @@ if python3 -c "import uvicorn, httpx, fastapi" >/dev/null 2>&1; then
   fi
   kill "$FE_PID" 2>/dev/null; wait "$FE_PID" 2>/dev/null
 else
-  echo "  skip — front-end deps (uvicorn/httpx/fastapi) not importable here; CI installs them"
+  skip_stage "front-end deps (uvicorn/httpx/fastapi) not importable — the end-to-end turn stage did not run"
 fi
 
 echo
-if [ "$fails" -eq 0 ]; then echo "SMOKE PASSED"; exit 0; else echo "SMOKE FAILED ($fails)"; exit 1; fi
+if [ "$fails" -eq 0 ]; then
+  if [ "$skips" -gt 0 ]; then echo "SMOKE PASSED (with ${skips} stage(s) SKIPPED — see WARN lines above)"; else echo "SMOKE PASSED"; fi
+  exit 0
+else
+  echo "SMOKE FAILED ($fails)"; exit 1
+fi
