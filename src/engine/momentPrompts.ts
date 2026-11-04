@@ -1330,7 +1330,8 @@ export function renderGameContext(view: GameStateView): string {
     ].filter(Boolean);
     return bits.length ? ` — ${bits.join(", ")}` : "";
   };
-  const premiereLines: string[] = !pr ? [] : [
+  const ent = pr ? premiereEntranceOf(pr) : null;
+  const premiereLines: string[] = !pr ? [] : ent ? premiereEntranceLines(ent, pr.met, observable) : [
     `- PREMIERE — THE CHAMPAGNE CIRCLE (engine truth): the producers convened the whole house for ` +
       `champagne-circle introductions, so all ${pr.total - 1} houseguests are MET at the toast — there is ` +
       `no roll-call to work through and nobody left to hunt down.`,
@@ -1745,6 +1746,88 @@ function withoutLeverBullet(base: string, lever: string): string {
 }
 
 /**
+ * A9 (flag `ORWELL_PREMIERE_ENTRANCES`) - the premiere board's `entrance` block, structurally typed here
+ * (the port's `PremiereIntrosView.entrance?` is owned by the engine lane). Public names only.
+ */
+export interface PremiereEntranceShape {
+  stage: "entrances" | "toast" | "done";
+  index: number;
+  total: number;
+  playerPosition: number;
+  arrivedNames: string[];
+  justArrived?: { id: string; name: string };
+  speakers?: { id?: string; name: string }[];
+  playerEntrance?: boolean;
+}
+
+function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
+  const e = (pr as { entrance?: PremiereEntranceShape } | null | undefined)?.entrance;
+  return e && typeof e === "object" && typeof e.stage === "string" ? e : null;
+}
+
+/** The premiere fragment with beats (1) INTRODUCTIONS and (2) THE TOAST replaced by the entrances/toast beats. */
+function premiereEntrancesFragment(): string {
+  const base = MOMENT_PROMPTS["premiere"]!;
+  const a = base.indexOf("(1) INTRODUCTIONS");
+  const b = base.indexOf("OVERRIDE \u2014 ONCE THE CIRCLE HAS CLOSED");
+  if (a < 0 || b < 0 || b < a) return base;
+  const replacement =
+    "(1) ENTRANCES \u2014 the houseguests walk in ONE AT A TIME, each their own short moment (the game " +
+    "releases exactly one arrival per advanceGame; the GAME CONTEXT names who has arrived and who just did). " +
+    "Voice ONLY the arrival the game shows as just arrived, as a SHORT vignette: a line in that person's own " +
+    "register (from their card), ONE observable vibe (look, energy, how they carry themselves), and ONE " +
+    "reaction from someone already inside. Never invent who is present \u2014 the inside list is the whole " +
+    "inside; never name anyone who has not arrived \u2014 you may know the whole cast from the roster cards, but a " +
+    "houseguest who is not on the inside list has NOT walked in: they must not appear, speak, react or be named in " +
+    "the room, however much you want to move things along. Only the game brings in the next arrival (advanceGame); " +
+    "if no new arrival is shown this turn, play the scene with those already inside \u2014 do NOT introduce one yourself. " +
+    "Never a roll-call, never a recap of those already in. " +
+    "Never gate on the player talking to anyone: small-group chat is ordinary play, and the player may chat " +
+    "or just watch. When the player lulls (a message or two) or asks for the next / says they are just " +
+    "watching, call advanceGame to bring in the next arrival \u2014 not before. If the game marks the " +
+    "player's OWN entrance, narrate it from the player's point of view: the room turns to look. " +
+    "(2) THE TOAST \u2014 production's HOST opens it first, in a generic production voice (never a real or " +
+    "famous name), then EVERY speaker the game lists this turn (none skipped) gives a one-to-two sentence toast built from their " +
+    "public facets \u2014 facts to voice in their own register, never a script. Where the player's own slot " +
+    "comes up, INVITE them with a plain \"your turn\" as a chat turn: never force it, never speak for them, " +
+    "and move on if they let it pass. Call advanceGame to bring the next batch of speakers, and when the " +
+    "game reports the toast done the circle is closed. ";
+  return base.slice(0, a) + replacement + base.slice(b);
+}
+
+function premiereEntranceLines(
+  ent: PremiereEntranceShape,
+  met: ReadonlyArray<{ houseguest: { id: string; name: string } }>,
+  observable: (fi: never) => string,
+): string[] {
+  const inside = ent.arrivedNames.length ? ent.arrivedNames.join(", ") : "nobody yet";
+  if (ent.stage === "entrances") {
+    const ja = ent.justArrived;
+    const card = ja ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === ja.id) : undefined;
+    return [
+      `- PREMIERE \u2014 ENTRANCES (engine truth): arrival ${ent.index} of ${ent.total}. INSIDE THE HOUSE NOW: ${inside}. ` +
+        `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
+      ...(ent.playerEntrance
+        ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
+        : ja
+          ? [
+              `- PREMIERE \u2014 JUST ARRIVED: ${ja.name}${card ? (observable as (fi: unknown) => string)(card) : ""}. Voice this ONE arrival as a short vignette (a line in their own register, one observable vibe, one reaction from someone already inside). Then let the player play; call advanceGame for the next arrival only when they lull or ask for it.`,
+            ]
+          : []),
+    ];
+  }
+  if (ent.stage === "toast") {
+    const sp = (ent.speakers ?? []).map((x) => x.name).join(", ");
+    return [
+      `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
+        (sp ? `Speakers this batch, in order: ${sp}. ` : "") +
+        `Open with the production host if the toast has not begun; the player's slot is theirs to take in chat \u2014 invite it, never force it. Call advanceGame for the next batch.`,
+    ];
+  }
+  return [];
+}
+
+/**
  * Compose the full system prompt to inject for a moment: base persona + beat fragment + Vault-free
  * context. `worldContext` (feature 0062) is the OPTIONAL "the world you all moved in with" block — the
  * frozen, shared real-world flavor (built Vault-free by the engine adapter from the persisted snapshot,
@@ -1765,7 +1848,9 @@ export function buildSystemPrompt(
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
   return [
     base,
-    momentFragment(moment),
+    moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)
+      ? premiereEntrancesFragment()
+      : momentFragment(moment),
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.
     ...(producerVoice ? [producerVoice] : []),
