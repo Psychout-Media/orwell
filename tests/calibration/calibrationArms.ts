@@ -8,7 +8,7 @@ import { PLAYER } from "../../src/domain/ids";
 
 // ---- Vault-free view shapes (only the public fields the instrument reads) ----
 interface NamedRef { id: string; name: string }
-interface PendingView { kind: string; options: NamedRef[]; appeals?: string[] }
+interface PendingView { kind: string; options: NamedRef[]; appeals?: string[]; juror?: NamedRef; finalist?: NamedRef; evictee?: NamedRef }
 interface FinaleRevealView { reveals: Array<{ juror: NamedRef; votedFor: NamedRef }> }
 interface AdvanceResult {
   started: boolean;
@@ -17,6 +17,7 @@ interface AdvanceResult {
   winner?: NamedRef | null;
   event?: { beat?: string; content?: string } | null;
   finale?: FinaleRevealView | null;
+  announcements?: Array<{ kind: string; subjects: NamedRef[] }>;
 }
 interface HouseCard { id: string; status: string }
 interface StateView {
@@ -60,6 +61,8 @@ export interface SeasonMetrics {
   } | null;
   /** The exact concern: this player BOTH reached F2 AND lost the jury vote. */
   reachedF2AndLost: boolean;
+  /** F2 appearances only: who the rival was, the public comp resumes, and each juror's ballot (for the jury-makeup / opponent breakdowns). */
+  finaleDetail?: { rival: string; playerCompWins: number; rivalCompWins: number; ballots: Array<{ juror: string; forPlayer: boolean }> };
 }
 
 // ---- The two player policies (mirror juryReach / calibrationGradient exactly) ----
@@ -116,7 +119,24 @@ function passiveAnswer(p: PendingView): Record<string, unknown> {
  * fight every week, befriends someone new, then nominates that friend as HOH). RECKLESS is a sanity
  * check: bad strategy must not beat doing nothing by much. No exact target.
  */
-export type Arm = "passive" | "solid" | "reckless";
+export type Arm = "passive" | "solid" | "reckless" | "managed";
+
+/**
+ * MANAGED (A1, design §13.3, 2026-11-04): SOLID plus REAL JURY MANAGEMENT - an ARM change only, no engine help. The standing PO gate (`calibrationPoTarget`) keeps measuring the
+ * unchanged `solid` arm (its bands are the owner's "steady sensible social game" targets); this is the arm that plays the way a jury-conscious human does, so the per-juror
+ * profiles (A2) and the "a good player usually wins" ~60% claim can be judged against something that actually exercises the levers:
+ *  - GOODBYES: a real warm goodbye to an ally or to someone the player moved against, instead of the default "respectful" (a warm send-off softens a grievance, `mannerLeanOf`);
+ *  - MEND: at the finale it makes the `mend` appeal to every juror it moved against (nominated / voted out), `connect` to its tended allies, `own-game` otherwise;
+ *  - RIVAL: at Final 3, as HOH it evicts the finalist with the BIGGER public comp resume (game respect dominates the losses in the diagnosis) and keeps the weaker one as its F2 rival;
+ *  - NOMINATIONS: among non-allies it targets the biggest competition threats first (public wins), rather than list order.
+ * It reads only public projections the player legitimately has (announcements, its own decisions).
+ */
+export interface JuryCtx {
+  /** Houseguests the player moved against (nominated, or voted/evicted) - the likely aggrieved jurors. */
+  aggrieved: Set<string>;
+  /** Public competition wins (HOH / veto) per houseguest, from the broadcast announcements. */
+  compWins: Map<string, number>;
+}
 
 /** RECKLESS weekly play: start a fight with one houseguest and cosy up to another (rotating by week). */
 async function recklessWeek(mcp: Mcp, st: { friend: string | undefined }, week: number): Promise<void> {
@@ -180,6 +200,46 @@ function solidAnswer(p: PendingView, allies: ReadonlySet<string>): Record<string
       return { kind: "finale-answer", appeal: p.appeals?.includes("own-game") ? "own-game" : (p.appeals?.[0] ?? "own-game") };
     default:
       return passiveAnswer(p);
+  }
+}
+
+/** MANAGED decisions: the solid answers with the jury-management levers layered on. Mutates `ctx.aggrieved` as the player moves against someone. */
+export function managedAnswer(p: PendingView, allies: ReadonlySet<string>, ctx: JuryCtx): Record<string, unknown> {
+  const wins = (id: string): number => ctx.compWins.get(id) ?? 0;
+  const notAlly = (o: NamedRef) => !allies.has(o.id) && o.id !== PLAYER;
+  switch (p.kind) {
+    case "nominations": {
+      const targets = p.options.filter(notAlly).sort((a, b) => wins(b.id) - wins(a.id)).map((o) => o.id); // biggest public threats first
+      const choice = targets.length >= 2 ? [targets[0]!, targets[1]!] : [p.options[0]!.id, p.options[1]!.id];
+      for (const id of choice) ctx.aggrieved.add(id);
+      return { kind: "nominations", choice };
+    }
+    case "eviction-vote": case "tie-break": case "replacement": {
+      const target = p.options.find(notAlly) ?? p.options[0]!;
+      if (p.kind !== "replacement") ctx.aggrieved.add(target.id);
+      return p.kind === "replacement" ? { kind: "replacement", replacement: target.id } : { kind: p.kind, vote: target.id };
+    }
+    case "final-eviction": {
+      // Keep the finalist with the SMALLER public resume as the F2 rival: evict the bigger one (allies are never evicted if the other is not an ally).
+      const evictable = p.options.filter(notAlly);
+      const pool = evictable.length > 0 ? evictable : p.options;
+      const target = [...pool].sort((a, b) => wins(b.id) - wins(a.id))[0]!;
+      ctx.aggrieved.add(target.id);
+      return { kind: "final-eviction", vote: target.id };
+    }
+    case "goodbye-message": {
+      const who = p.evictee?.id;
+      const warm = !!who && (allies.has(who) || ctx.aggrieved.has(who));
+      return { kind: "goodbye-message", vote: warm ? "warm" : "respectful" };
+    }
+    case "finale-answer": {
+      const j = p.juror?.id;
+      const has = (a: string): boolean => !!p.appeals?.includes(a);
+      const appeal = j && ctx.aggrieved.has(j) && has("mend") ? "mend" : j && allies.has(j) && has("connect") ? "connect" : has("own-game") ? "own-game" : (p.appeals?.[0] ?? "own-game");
+      return { kind: "finale-answer", appeal };
+    }
+    default:
+      return solidAnswer(p, allies);
   }
 }
 
@@ -260,8 +320,9 @@ export async function playSeason(
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
 
   let allies = new Set<string>();
+  const jury: JuryCtx = { aggrieved: new Set(), compWins: new Map() };
   const reckless = { friend: undefined as string | undefined };
-  if (arm === "solid") {
+  if (arm === "solid" || arm === "managed") {
     const state0 = (await mcp.callTool("getGameState", {})) as StateView;
     const allyIds = (state0.house ?? [])
       .filter((h) => h.status === "active" && h.id !== PLAYER)
@@ -271,7 +332,7 @@ export async function playSeason(
     await recordEarlyScenes(mcp, allyIds);
   }
   const answer = (p: PendingView): Record<string, unknown> =>
-    arm === "solid" ? solidAnswer(p, allies) : arm === "reckless" ? recklessAnswer(p, reckless) : passiveAnswer(p);
+    arm === "managed" ? managedAnswer(p, allies, jury) : arm === "solid" ? solidAnswer(p, allies) : arm === "reckless" ? recklessAnswer(p, reckless) : passiveAnswer(p);
 
   let finished = false;
   let winner: NamedRef | null = null;
@@ -284,6 +345,11 @@ export async function playSeason(
 
   const countWin = (ev: { beat?: string; content?: string } | null | undefined): void => {
     if (ev?.content && /^The Player wins /.test(ev.content) && /competition$/.test(ev.beat ?? "")) playerCompWins++;
+  };
+
+  // Public broadcast facts only: who won each HOH / veto (the announcements the chyron carries).
+  const noteComps = (r: AdvanceResult): void => {
+    for (const a of r.announcements ?? []) if (a.kind === "hoh-winner" || a.kind === "veto-winner") for (const sbj of a.subjects) jury.compWins.set(sbj.id, (jury.compWins.get(sbj.id) ?? 0) + 1);
   };
 
   // After each step, watch for the player's seat flipping out of "active" and capture the rung.
@@ -306,7 +372,7 @@ export async function playSeason(
       const wk = ((await mcp.callTool("getGameState", {})) as StateView).week ?? 0;
       if (wk > tendedWeek) {
         tendedWeek = wk;
-        if (arm === "solid") await tendAllies(mcp, allies);
+        if (arm === "solid" || arm === "managed") await tendAllies(mcp, allies);
         else await recklessWeek(mcp, reckless, wk);
       }
     }
@@ -314,6 +380,7 @@ export async function playSeason(
     finished = adv.finished;
     winner = adv.winner ?? winner;
     countWin(adv.event);
+    noteComps(adv);
     if (adv.finale) lastFinale = adv.finale;
     await checkSeat();
     if (adv.pending) {
@@ -321,6 +388,7 @@ export async function playSeason(
       finished = sub.finished;
       winner = sub.winner ?? winner;
       countWin(sub.event);
+      noteComps(sub);
       if (sub.finale) lastFinale = sub.finale;
       await checkSeat();
     }
@@ -335,12 +403,18 @@ export async function playSeason(
 
   // Tally the finale vote from the public reveals (juror → votedFor), if the player reached F2.
   let finale: SeasonMetrics["finale"] = null;
+  let finaleDetail: SeasonMetrics["finaleDetail"];
   if (status === "active" && lastFinale) {
     let playerVotes = 0, rivalVotes = 0;
     for (const r of lastFinale.reveals) {
       if (r.votedFor.id === PLAYER) playerVotes++; else rivalVotes++;
     }
     finale = { playerVotes, rivalVotes, jurors: lastFinale.reveals.length };
+    const rivalId = lastFinale.reveals.map((r) => r.votedFor.id).find((id) => id !== PLAYER);
+    if (rivalId) {
+      finaleDetail = { rival: rivalId, playerCompWins, rivalCompWins: jury.compWins.get(rivalId) ?? 0,
+        ballots: lastFinale.reveals.map((r) => ({ juror: r.juror.id, forPlayer: r.votedFor.id === PLAYER })) };
+    }
   }
 
   const flags = rungFlags(status === "active" ? null : houseSizeWhenPlayerLeft);
@@ -360,6 +434,7 @@ export async function playSeason(
     decidedWeek,
     finale,
     reachedF2AndLost: reachedF2 && status === "active" && !won,
+    ...(finaleDetail ? { finaleDetail } : {}),
   };
 }
 
