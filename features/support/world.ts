@@ -28,6 +28,8 @@ export interface LiveDay {
   publicEvents: number;
   /** Public ceremony broadcasts recorded that day (excluding the day's own ambient house event). */
   ceremonyEvents: number;
+  /** The day's own ambient "Week N, day D:" marker events (houseEvents.ts) — recorded and public, but NOT a meaningful event (AMEND 0008). */
+  markerEvents: number;
 }
 
 export class BbWorld extends World {

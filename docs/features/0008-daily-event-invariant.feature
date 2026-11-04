@@ -34,3 +34,8 @@ Feature: Daily-event invariant — every in-game day earns its place
     Then no week (one HOH reign) contains more than one social day (a day with no ceremony beat)
     And many weeks contain none
     And any social day still carries a significant house event
+
+  Scenario: A day whose only event is the ambient daily marker fails the invariant (negative control)
+    Given a day whose only recorded event is the ambient daily marker
+    Then that day does not count as meaningful
+    And a day with the marker plus a real public event does count
