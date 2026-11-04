@@ -23,7 +23,7 @@ export interface PremiereEntranceState {
 }
 
 /** Toast speakers are released this many per `advanceGame`. */
-export const TOAST_BATCH = 4;
+export const TOAST_BATCH = 2;
 
 /** A small bounded FIRST READ (witness -> arriver), public-facets-only, seeded side stream. */
 export const PREMIERE_FIRST_READ: { affinity: number; trust: number } = { affinity: 0.02, trust: 0.01 };

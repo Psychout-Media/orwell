@@ -1787,7 +1787,7 @@ function premiereEntrancesFragment(): string {
     "watching, call advanceGame to bring in the next arrival \u2014 not before. If the game marks the " +
     "player's OWN entrance, narrate it from the player's point of view: the room turns to look. " +
     "(2) THE TOAST \u2014 production's HOST opens it first, in a generic production voice (never a real or " +
-    "famous name), then the speakers the game lists each give a one-to-two sentence toast built from their " +
+    "famous name), then EVERY speaker the game lists this turn (none skipped) gives a one-to-two sentence toast built from their " +
     "public facets \u2014 facts to voice in their own register, never a script. Where the player's own slot " +
     "comes up, INVITE them with a plain \"your turn\" as a chat turn: never force it, never speak for them, " +
     "and move on if they let it pass. Call advanceGame to bring the next batch of speakers, and when the " +
