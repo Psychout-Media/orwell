@@ -52,7 +52,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
-import { NPC_MEMORY, recordMemory, memoryTilt, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -981,6 +981,12 @@ export class GameSessionAdapter implements GameSession {
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
   private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
+  /**
+   * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). OFF unless
+   * exactly `ORWELL_NPC_MEMORY_STANDALONE=1`; deliberately NOT part of the default flip (pinned in flagDefaultParity) until its own signed-direction + winner/F2 re-measure. OFF ⇒ the
+   * residual-floor read, byte-identical; it only matters while `ORWELL_NPC_MEMORY` is on (no memory is written otherwise).
+   */
+  private npcMemoryStandaloneEnabled = process.env.ORWELL_NPC_MEMORY_STANDALONE === "1";
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -7223,6 +7229,7 @@ export class GameSessionAdapter implements GameSession {
   setDealDepthEnabled(on: boolean): void { this.dealDepthEnabled = on; }
   /** 0024 — turn the NPC memory layer on/off for this session (off ⇒ nothing is written or read). */
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
+  setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
   /** Whether the deal-depth layer is live (0121). */
   dealDepthEnabledNow(): boolean { return this.dealDepthEnabled; }
@@ -10571,6 +10578,7 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER || !this.live) return 0;
     const entries = this.live.npcMemory?.[holder]?.[subject];
     if (!entries || entries.length === 0) return 0;
+    if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
     return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
   }
 
