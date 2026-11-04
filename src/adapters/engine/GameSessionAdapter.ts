@@ -508,6 +508,8 @@ const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
  * relationship edge already carries a fresh betrayal, so the tilt reads 0 within a season; see the #2017 design.)
  */
 const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
+const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_STANDALONE");
+const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -998,12 +1000,12 @@ export class GameSessionAdapter implements GameSession {
    * exactly `ORWELL_NPC_MEMORY_STANDALONE=1`; deliberately NOT part of the default flip (pinned in flagDefaultParity) until its own signed-direction + winner/F2 re-measure. OFF ⇒ the
    * residual-floor read, byte-identical; it only matters while `ORWELL_NPC_MEMORY` is on (no memory is written otherwise).
    */
-  private npcMemoryStandaloneEnabled = process.env.ORWELL_NPC_MEMORY_STANDALONE === "1";
+  private npcMemoryStandaloneEnabled = NPC_MEMORY_STANDALONE_ENABLED_DEFAULT;
   /**
    * B2 follow-on — WRITE the memories a season actually produces (an NPC remembers being nominated by the HOH, graded by prior trust). The ledger was measured ~empty (all `veto-saved`
-   * with holder===subject, dropped). OFF unless exactly `ORWELL_NPC_MEMORY_WRITERS=1`; never-flipped (own re-measure first). Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
+   * with holder===subject, dropped). DEFAULT-ON since 2026-11-04 with the standalone read (3-arm PO bands held); `=0` / `ORWELL_FLAGS_OFF=1` opts out. Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
    */
-  private npcMemoryWritersEnabled = process.env.ORWELL_NPC_MEMORY_WRITERS === "1";
+  private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;

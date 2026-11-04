@@ -30,6 +30,8 @@
 #   ORWELL_NPC_MEMORY           NPC memory acts (0024) — a betrayal/favor/broken-promise ledger tilts votes and noms.
 #       PO ruling 2026-11-03: memories ON. Measured outcome-identical ON vs OFF (200 seeds x 3 arms): the residual
 #       floor means the edge already carries a fresh betrayal, so the tilt reads 0 within a season today.
+#   ORWELL_NPC_MEMORY_STANDALONE / ORWELL_NPC_MEMORY_WRITERS   (B2, 2026-11-04) the memory ledger is now actually WRITTEN (remembered nominations, withheld vetoes, kept deals) and read
+#       on its own, so a remembered grudge/favor visibly sways nominations and votes (PO: "memories should be turned on"). 3-arm PO bands held (no violations, 100 seeds/arm).
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -104,6 +106,8 @@ ORWELL_SCHEME_TARGETS=1
 ORWELL_CONFESSIONAL_DEPTH=1
 ORWELL_DEAL_DEPTH=1
 ORWELL_NPC_MEMORY=1
+ORWELL_NPC_MEMORY_STANDALONE=1
+ORWELL_NPC_MEMORY_WRITERS=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_COMP_MECHANICS_PLUS=1

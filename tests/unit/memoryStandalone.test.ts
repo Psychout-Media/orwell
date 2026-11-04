@@ -50,6 +50,7 @@ describe("the adapter: two NPCs with IDENTICAL edges but different remembered hi
   }
   it("OFF: the residual floor — never MORE than the standalone read (the edge carry only subtracts), and a holder with no memory reads 0", () => {
     const { tilt, a, b, subject, session } = setup();
+    (session as unknown as { setNpcMemoryStandaloneEnabled(on: boolean): void }).setNpcMemoryStandaloneEnabled(false); // default-ON since 2026-11-04: pin the opt-out explicitly
     const off = tilt(subject, a);
     expect(tilt(subject, b)).toBe(0);
     (session as unknown as { setNpcMemoryStandaloneEnabled(on: boolean): void }).setNpcMemoryStandaloneEnabled(true);
