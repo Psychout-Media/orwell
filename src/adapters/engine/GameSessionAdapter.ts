@@ -199,6 +199,7 @@ import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
+import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -1016,6 +1017,12 @@ export class GameSessionAdapter implements GameSession {
   private campaignsEnabled = CAMPAIGNS_ENABLED_DEFAULT;
   /** B5 / #2017 - vote counting: an evict campaign forms only while the actor believes the count is IN DOUBT (`voteEstimate.ts`). OFF unless exactly `ORWELL_VOTE_COUNT=1`; never-flipped. OFF => no gate => byte-identical. */
   private voteCountEnabled = process.env.ORWELL_VOTE_COUNT === "1";
+  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
+  private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
+  private copresenceTold = new ToldLedger();
+  setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
+  copresenceEnabledNow(): boolean { return this.copresenceEnabled; }
+  copresenceToldLedger(): ToldLedger { return this.copresenceTold; }
   setVoteCountEnabled(on: boolean): void { this.voteCountEnabled = on; }
   /**
    * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
