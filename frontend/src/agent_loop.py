@@ -8596,7 +8596,14 @@ async def _stream_agent_loop_impl(
                                 # framing) — so the chat can never drift arbitrarily far behind the engine
                                 # with no on-screen signal. Excludes the non-emitted L39b "forced stall L…"
                                 # path (it re-prompts in-turn) and the one-off preview/deliver commits.
-                                if _why and _why.startswith("stall L"):
+                                # A9: a premiere ENTRANCE/TOAST advance is voiced by the NEXT turn's `justArrived` framing by design (one arrival per advance) - never a decoupling to cap.
+                                _a9_staged = False
+                                try:
+                                    from routes import chat_helpers as _ch_a9
+                                    _a9_staged = bool(_ch_a9.premiere_entrance_active(owner))
+                                except Exception:
+                                    _a9_staged = False
+                                if _why and _why.startswith("stall L") and not _a9_staged:
                                     _SILENT_FORCE_ADVANCE_STREAK[_belt_key(owner)] = (
                                         _SILENT_FORCE_ADVANCE_STREAK.get(_belt_key(owner), 0) + 1)
                                     _ch3.stash_anti_stale_reground(owner)

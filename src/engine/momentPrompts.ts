@@ -1777,7 +1777,11 @@ function premiereEntrancesFragment(): string {
     "Voice ONLY the arrival the game shows as just arrived, as a SHORT vignette: a line in that person's own " +
     "register (from their card), ONE observable vibe (look, energy, how they carry themselves), and ONE " +
     "reaction from someone already inside. Never invent who is present \u2014 the inside list is the whole " +
-    "inside; never name anyone who has not arrived. Never a roll-call, never a recap of those already in. " +
+    "inside; never name anyone who has not arrived \u2014 you may know the whole cast from the roster cards, but a " +
+    "houseguest who is not on the inside list has NOT walked in: they must not appear, speak, react or be named in " +
+    "the room, however much you want to move things along. Only the game brings in the next arrival (advanceGame); " +
+    "if no new arrival is shown this turn, play the scene with those already inside \u2014 do NOT introduce one yourself. " +
+    "Never a roll-call, never a recap of those already in. " +
     "Never gate on the player talking to anyone: small-group chat is ordinary play, and the player may chat " +
     "or just watch. When the player lulls (a message or two) or asks for the next / says they are just " +
     "watching, call advanceGame to bring in the next arrival \u2014 not before. If the game marks the " +
@@ -1802,7 +1806,7 @@ function premiereEntranceLines(
     const card = ja ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === ja.id) : undefined;
     return [
       `- PREMIERE \u2014 ENTRANCES (engine truth): arrival ${ent.index} of ${ent.total}. INSIDE THE HOUSE NOW: ${inside}. ` +
-        `Nobody else has arrived \u2014 never place anyone else in the room.`,
+        `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
       ...(ent.playerEntrance
         ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
         : ja
