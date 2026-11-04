@@ -25,7 +25,7 @@ def test_flag_off_is_the_old_hold():
     assert ch.premiere_is_holding(u) is True
 
 
-def test_hold_does_not_count_during_entrances_or_toast_and_starts_after_done():
+def test_hold_does_not_count_during_entrances_toast_or_after_done():
     u = "u-a9-count"
     ch.clear_social_runway(u)
     for st in ("entrances", "toast"):
@@ -34,12 +34,11 @@ def test_hold_does_not_count_during_entrances_or_toast_and_starts_after_done():
         assert ch.premiere_entrance_active(u) is True
         assert ch.premiere_is_holding(u) is False, "entrance pacing is the stall-nudge's job, not the hold"
         assert ch._PREMIERE_MSGS.get(ch._runway_key(u)) is None
-    ch.note_premiere_turn(u, _gs("done"))
-    assert ch.premiere_entrance_active(u) is False
-    assert ch.premiere_is_holding(u) is True and ch._PREMIERE_MSGS[ch._runway_key(u)] == 1
-    for _ in range(ch._PREMIERE_SOCIAL_MESSAGES - 1):
+    # AMEND (live rerun #2): once the toast is DONE there is no message-count hold at all - the nudge brings the day-break and the engine clock owns the morning.
+    for _ in range(3):
         ch.note_premiere_turn(u, _gs("done"))
-    assert ch.premiere_is_holding(u) is False
+    assert ch.premiere_entrance_active(u) is False
+    assert ch.premiere_is_holding(u) is False and ch._PREMIERE_MSGS.get(ch._runway_key(u)) is None
 
 
 def test_leaving_the_premiere_clears_the_entrance_stage():
@@ -129,4 +128,18 @@ def test_entrance_stage_still_wins_over_the_clock():
     ch.clear_social_runway(u)
     ch.note_premiere_turn(u, _board(due=False, stage="entrances"))
     assert ch.premiere_entrance_active(u) is True and ch.premiere_is_holding(u) is False
+    ch.clear_social_runway(u)
+
+
+def test_after_the_toast_there_is_no_message_count_hold_the_clock_morning_follows():
+    """Live finding (A9 rerun #2): entrances+toast ARE the premiere; once stage==done the 48-message premiere hold must NOT run (it froze the engine at phase=premiere for 25+
+    messages). The nudge brings the day-break, then the engine clock owns the 48-message morning."""
+    import importlib
+    ch = importlib.import_module("routes.chat_helpers")
+    u = "toast-done-no-hold"
+    ch.clear_social_runway(u)
+    for _ in range(3):
+        ch.note_premiere_turn(u, _board(stage="done"))
+    assert ch.premiere_is_holding(u) is False
+    assert ch._PREMIERE_MSGS.get(ch._runway_key(u)) is None, "no message counting once the toast is done"
     ch.clear_social_runway(u)

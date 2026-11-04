@@ -699,6 +699,13 @@ def note_premiere_turn(user, game_state) -> None:
             _PREMIERE_MSGS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
+        if stage == "done":
+            # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
+            # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
+            # (8am -> noon) only starts at the day-break. So once the toast is done there is NO message-count hold: the nudge brings the day-break, then the CLOCK owns the morning.
+            _PREMIERE_MSGS.pop(key, None)
+            _PREMIERE_CLOCK_HOLD.pop(key, None)
+            return
         # Live finding (A9 rerun): once the engine CLOCK is live (day-break done, `daySchedule` on the board) the schedule - not a message count - owns the premiere->first-HOH
         # hold: not due => hold (the clock brings it in); DUE => release at once, even if fewer than _PREMIERE_SOCIAL_MESSAGES messages have passed (a hang-out/lingering run
         # had advanced the clock to the event and the count-hold froze the due HOH comp). No `daySchedule` (clock off / pre-day-break) => the message count, unchanged.
