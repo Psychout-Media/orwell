@@ -9,7 +9,7 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor";
 
 export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave";
 
@@ -17,11 +17,11 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
   evictionVote: ["dealsOf", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
-  hohNominations: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor"],
+  hohNominations: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor"],
   // The NPC HOH's replacement pick (`replacementPick(...)`).
   replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor"],
-  // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias only - a KNOWN GAP (approved tie-in #1: the veto should read memory, deals and beliefs too).
-  vetoSave: ["campaignPushFor"],
+  // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
+  vetoSave: ["campaignPushFor", "vetoMemoryFor"],
 };
 
 /** Providers deliberately read by NO strategic decision yet (a write-only / not-yet-wired source). Empty today; an entry needs a reason. */

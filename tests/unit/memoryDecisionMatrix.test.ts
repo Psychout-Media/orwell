@@ -15,7 +15,7 @@ const ctxBody = (): string => {
   return SRC.slice(a, b);
 };
 const interfaceMembers = (): Set<string> => new Set([...ctxBody().matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]!));
-const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor)$/;
+const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|dealNomPushFor)$/;
 
 function fnBody(startMarker: string, endMarker: string): string {
   const a = SRC.indexOf(startMarker);

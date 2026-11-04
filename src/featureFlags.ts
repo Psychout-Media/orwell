@@ -95,6 +95,10 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'defaultOn' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
+  // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'strict' },
+  // B7 / #2017 M3: open protective deals also feed the HOH's nominations. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
