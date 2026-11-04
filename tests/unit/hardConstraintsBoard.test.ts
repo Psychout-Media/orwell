@@ -81,6 +81,8 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     expect(board).toContain("BOARD");
     expect(board).not.toMatch(/nobody yet — name no nominees/);
     expect(board).toMatch(/Final 3 the HOH alone chooses/);
+    expect(board).toMatch(/no Power of Veto in the Final 3/);
+    expect(board).not.toMatch(/still being played/);
     // …while an earlier phase with no nominees keeps the original wording.
     expect((renderBoardRecap({ ...view, phase: "nominations" }) ?? []).join("\n")).toMatch(/nobody yet — name no nominees/);
   });

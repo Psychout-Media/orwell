@@ -1641,7 +1641,9 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     `    HOH: ${cer.hoh ? cer.hoh.name : "not yet crowned"}. On the block: ${noms.length ? noms.join(" and ") : finalThree ? "nobody — in the Final 3 the HOH alone chooses which of the two remaining rivals leaves; do not call anyone a nominee" : "nobody yet — name no nominees"}.`,
     `    Veto: ${cer.veto.holder
       ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (used)" : " (not used)"}`
-      : "still being played or not yet decided — name no winner and no holder"}.`,
+      : finalThree
+        ? "none — there is no Power of Veto in the Final 3; stage no veto"
+        : "still being played or not yet decided — name no winner and no holder"}.`,
   ];
   // The PLAYER's own seat, stated flatly: the live rehearsal had the narrator tell the player "the power's yours" (a won HOH the
   // engine had given to someone else) and invite them to name nominees — second-person fiction the third-person facts above never stop.
