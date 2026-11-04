@@ -90,6 +90,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B2 follow-on: write the memories a season actually produces (remembered nominations, withheld vetoes, kept deals). Default-ON with the standalone read.
   { envKey: 'ORWELL_NPC_MEMORY_WRITERS', key: 'npcMemoryWriters', parser: 'defaultOn' },
   // B3 / #2017: the HOH nominates from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_HANGOUT',               key: 'hangOut',                parser: 'defaultOn' },
   { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'strict' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
