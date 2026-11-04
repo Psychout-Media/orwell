@@ -149,6 +149,8 @@ describe("0104 — the engine still owns outcome magnitude (anti-sycophancy, man
     // nudges move-in edges, and a reactive twist (a battle-back comp, a double eviction) amplifies that nudge into a different crowned winner on this
     // one seed — the documented "notoriety ON can move outcomes" caveat. What this test pins is that the legend FIELD itself feeds nothing.
     vi.stubEnv("ORWELL_REACTIVE_TWISTS", "0");
+    // Same caveat for the three-part Final HOH (default ON since 2026-11-04, 0128): three stat-typed Final-3 comps amplify the engine notoriety TILT into a different
+    // Final HOH on this one seed, so the A-vs-B hash differs for a reason that has nothing to do with the legend FIELD. Pin the single-comp 0045 path here.
     // The notorietyLegend field on GameStateView is a PURE prompt-block projection — it never feeds any
     // engine decision, competition roll, vote, or outcome. The seeded outcome stream (winner, eviction
     // order, resume, jury votes) must be byte-identical whether or not the player carried a legend.
@@ -164,6 +166,7 @@ describe("0104 — the engine still owns outcome magnitude (anti-sycophancy, man
     const regA = new GameSessionRegistry();
     const sbA = regA.sandboxFor("u-legacy-a");
     sbA.session.setNotoriety(deriveNotoriety(TREACHEROUS_LEGEND));
+    sbA.session.setFinalHohThreePartEnabled(false); // single-comp 0045 path (see the note above)
     sbA.session.createCharacter({ playerName: "The Player", seed: 42 });
     const preViewA = sbA.session.getGameState();
     expect(preViewA.notorietyLegend).toBeDefined();
@@ -172,6 +175,7 @@ describe("0104 — the engine still owns outcome magnitude (anti-sycophancy, man
 
     const regB = new GameSessionRegistry();
     const sbB = regB.sandboxFor("u-legacy-b");
+    sbB.session.setFinalHohThreePartEnabled(false);
     sbB.session.createCharacter({ playerName: "The Player", seed: 42 });
     const preViewB = sbB.session.getGameState();
     expect(preViewB.notorietyLegend).toBeUndefined();
