@@ -4429,7 +4429,24 @@ export class GameSessionAdapter implements GameSession {
    * and what witnessing a player scene reads.
    */
   occupancy(): Occupancy | null {
-    return this.presence;
+    // A11 (finding from #2088): while a WHOLE-HOUSE premiere event is on (the gathered champagne circle / toast, or the staged entrances) `whereabouts()` shows everyone convened in the
+    // player's room, but this base map still held the underlying wander positions - so a chat during the toast hit the phantom-witness check ("not in the room") and folded nothing. The
+    // witness grounding must read the SAME overlay the player sees. Only the two premiere events; every other path (and flag-off) returns the base map untouched.
+    const base = this.presence;
+    const live = this.live;
+    if (!base || !live || !this.house) return base;
+    const entrances = live.premiereEntrance?.stage === "entrances";
+    if (!entrances && live.champagneCircle !== "gathered") return base;
+    const me = this.house.player.id;
+    const room = base.get(me) ?? "living-room";
+    const inside = entrances ? new Set<EntityId>(live.premiereEntrance!.order.slice(0, live.premiereEntrance!.arrived)) : null;
+    const overlay: Occupancy = new Map(base);
+    for (const n of this.house.npcs) {
+      if (this.seatOf(n.id) !== "active") continue;
+      if (inside && !inside.has(n.id)) overlay.delete(n.id); // not arrived yet: not in the house, so not a witness
+      else overlay.set(n.id, room);
+    }
+    return overlay;
   }
 
   /**
