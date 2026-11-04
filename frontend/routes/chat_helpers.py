@@ -656,6 +656,13 @@ _PREMIERE_SOCIAL_MESSAGES = 10
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
+def _premiere_not_yet_steer() -> str:
+    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call, this afternoon - never on demand."""
+    return ("PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for this afternoon and it is not that time yet. The player cannot start, skip to or "
+            "move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
+            "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
+
+
 def note_premiere_turn(user, game_state) -> None:
     """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft."""
     try:
@@ -663,6 +670,10 @@ def note_premiere_turn(user, game_state) -> None:
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         if phase == "premiere":
             _PREMIERE_MSGS[key] = _PREMIERE_MSGS.get(key, 0) + 1
+            # P4h: the premiere has no engine clock (so no `daySchedule`), but production STILL owns the schedule - while the hold is on, hand the narrator the same in-fiction
+            # "production hasn't called it yet" cue the clock-driven path arms, so an early "can we start the HOH?" is never answered "whenever you want".
+            if _PREMIERE_MSGS[key] < _PREMIERE_SOCIAL_MESSAGES:
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
         else:
             _PREMIERE_MSGS.pop(key, None)
     except Exception:
