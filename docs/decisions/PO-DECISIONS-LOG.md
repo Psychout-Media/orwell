@@ -362,4 +362,5 @@ rulings needed" set). Companion decision notes posted on each GitHub issue; spec
   (#536/#540/#541/#542/#548/#549/#550/#561/#613) can't be verified while OpenRouter egress is blocked;
   the owner will allowlist egress so the guardrails can be confirmed live and closed.
 
+- **2026-11-04 - 'Hang out until X' ON (Ryne).** `ORWELL_HANGOUT` defaults ON (code default, deploy defaults, /health registry, drift pins; `=0` opts out). Live rerun: a hang-out ran the clock 225 -> 35 -> 0 minutes and stopped EXACTLY at the scheduled HOH comp (never past it); the safety-critical stop is `event-due`. The other four stop reasons (pulled, npc-approach, observed, bedtime) are unit-proven and fail safe (they only end the wait early) but were not seen on screen in the live run.
 - **2026-11-04 — NPC beliefs ON (Ryne: "turn it on").** `ORWELL_NPC_BELIEFS` + `ORWELL_NPC_BELIEF_NOMS` (incl. the B3b vote term) default ON: code default, deploy defaults, /health registry, drift pins. `=0`/`ORWELL_FLAGS_OFF=1` opts out. PO gate bands measured ON in the PR.
