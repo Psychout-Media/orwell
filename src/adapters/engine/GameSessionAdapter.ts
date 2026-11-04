@@ -53,7 +53,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { NPC_MEMORY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
-import { AssuranceLedger } from "../../engine/assurances";
+import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1049,6 +1049,33 @@ export class GameSessionAdapter implements GameSession {
   /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. OFF unless exactly `ORWELL_ASSURANCES=1`; never-flipped. OFF => no ledger on the live state => byte-identical. */
   private assurancesEnabled = process.env.ORWELL_ASSURANCES === "1";
   setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
+  /**
+   * B4 slice 3 - does `holder` KEEP an open casual assurance (safe|loyal) made to `target`? Self-interested and personality-scaled (`decideKeep`): the benefit of breaking is how threatening
+   * the assured reads to the holder; the cost is the holder's keepWeight (loyalty, aggression) x the assurance's sincerity. Deterministic, no rng. Flag off / none open => false.
+   */
+  assuranceProtects(target: EntityId, holder: EntityId): boolean {
+    if (!this.assurancesEnabled || !this.live?.assurances) return false;
+    const open = AssuranceLedger.fromJSON(this.live.assurances).openFor(holder).filter((a) => a.to === target && (a.kind === "safe" || a.kind === "loyal"));
+    if (open.length === 0) return false;
+    const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
+    const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
+    const aggression = stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5;
+    const keepWeight = assuranceKeepWeight({ loyalty, aggression });
+    const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(holder, target).threat));
+    return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit }));
+  }
+
+  /** B4 slice 3 - the HOH nominated an assured houseguest: resolve the open assurance(s) BROKEN (once) and the assured remembers it (a smaller grudge than a broken deal). */
+  assuranceNominated(holder: EntityId, nominee: EntityId): void {
+    if (!this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    let broke = false;
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) broke = true; }
+    if (!broke) return;
+    this.live.assurances = ledger.toJSON();
+    this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
     if (!this.assurancesEnabled || !this.live) return;
@@ -7334,6 +7361,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
