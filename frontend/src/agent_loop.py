@@ -2386,6 +2386,24 @@ _ENTRANCE_LULL_TURNS = 2
 _ENTRANCE_CUE_RE = re.compile(r"\b(next|watch(ing)?|just watch|go on|carry on|continue|who'?s next|keep (them )?coming)\b", re.IGNORECASE)
 
 
+_TOAST_VOICE_HOLD_CAP = 2   # at most this many consecutive turns the next toast batch is held for the narrator to voice the current one (never a stall)
+_TOAST_VOICE_HOLDS: dict = {}
+
+
+def _toast_batch_voiced(text: str, speakers) -> bool:
+    """True if this turn's narration voiced EVERY speaker on the mic (the host counts via 'host'/'production'/'speakers'/'voice'). Pure; empty list => True."""
+    t = (text or "").lower()
+    for sp in speakers or ():
+        if sp == "host":
+            if not any(w in t for w in ("host", "production", "over the speakers", "voice comes")):
+                return False
+        else:
+            first = str(sp).split()[0].lower() if str(sp).strip() else ""
+            if first and first not in t:
+                return False
+    return True
+
+
 def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, stale: bool):
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
@@ -7939,6 +7957,14 @@ async def _stream_agent_loop_impl(
                     if _ch.premiere_entrance_active(owner):
                         _is_lull, _stale = _entrance_pacing(
                             _TURNS_SINCE_PROGRESS.get(_bk, 0), _extract_last_user_message(messages) or "", _is_lull, _stale)
+                        # Toast voice-hold: do not release the NEXT batch of speakers until the narrator has voiced the CURRENT one (bounded: _TOAST_VOICE_HOLD_CAP turns).
+                        _sp = _ch._PREMIERE_TOAST_SPEAKERS.get(_ch._runway_key(owner))
+                        if _sp and (_is_lull or _stale):
+                            if not _toast_batch_voiced(full_response, _sp) and _TOAST_VOICE_HOLDS.get(_bk, 0) < _TOAST_VOICE_HOLD_CAP:
+                                _TOAST_VOICE_HOLDS[_bk] = _TOAST_VOICE_HOLDS.get(_bk, 0) + 1
+                                _is_lull, _stale = False, False
+                            else:
+                                _TOAST_VOICE_HOLDS.pop(_bk, None)
                 except Exception:
                     pass
                 # The ORDER of the turn's beat-tools decides whether it left an uncommitted/undelivered

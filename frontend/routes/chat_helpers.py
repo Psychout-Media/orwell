@@ -563,6 +563,7 @@ def clear_social_runway(user) -> None:
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
+    _PREMIERE_TOAST_SPEAKERS.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -665,6 +666,7 @@ def _premiere_not_yet_steer() -> str:
 
 
 _PREMIERE_CLOCK_HOLD: dict = {}  # runway key -> True while the engine clock says the first HOH is not yet due (premiere phase, clock live)
+_PREMIERE_TOAST_SPEAKERS: dict = {}  # runway key -> names of the current toast batch ('host' for the host) - for the voice-hold in agent_loop
 _PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
 
 
@@ -697,6 +699,19 @@ def note_premiere_turn(user, game_state) -> None:
         if stage in ("entrances", "toast"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
             _PREMIERE_MSGS.pop(key, None)
+            # live finding (Thursday dry run): the engine RECORDS each toast batch, but a chatting player pulls the narrator off the circle and the speeches are never voiced. Remember who is
+            # on the mic (names off the board) so the pacing ladder can hold the next batch until this one has actually been voiced.
+            sp = []
+            try:
+                for x in (((game_state or {}).get("premiere") or {}).get("entrance") or {}).get("speakers") or []:
+                    if isinstance(x, dict) and not x.get("isPlayer"):
+                        sp.append("host" if x.get("host") else str(x.get("name") or ""))
+            except Exception:
+                sp = []
+            if stage == "toast" and sp:
+                _PREMIERE_TOAST_SPEAKERS[key] = sp
+            else:
+                _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
         if stage == "done":
