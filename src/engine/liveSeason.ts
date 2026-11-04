@@ -807,6 +807,10 @@ export interface SeasonCtx {
   pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): does `holder` hold a casual assurance toward `target` that they decided to KEEP? Absent => no protection (byte-identical). */
   assuranceProtects?: (target: EntityId, holder: EntityId) => boolean;
+  /** B4 slice 4 (ORWELL_ASSURANCES): the bounded shield a KEPT 'vote'/'safe' assurance `voter` made to nominee `n` adds against evicting `n`. Absent => 0, byte-identical. */
+  assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
+  /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
+  assuranceVotedOut?: (voter: EntityId, nominee: EntityId) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /**
@@ -1754,6 +1758,8 @@ export function voteChoice(
     (ctx.memoryTiltFor?.(n, voter) ?? 0) +
     // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
     (ctx.beliefTiltFor?.(n, voter) ?? 0) -
+    // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
+    (ctx.assuranceVoteFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
     V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
@@ -1774,6 +1780,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
     const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined);
     votes[target]++;
     voteOf.set(v, target);
+    if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target); // B4 slice 4: voting the assured out breaks the assurance
   }
   return { fn, votes, voteOf };
 }

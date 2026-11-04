@@ -5,6 +5,8 @@ import { buildSandbox } from "../../tests/support/sandbox";
 import { classify } from "../../src/domain/event";
 import type { GameEvent } from "../../src/domain/event";
 import { PLAYER, npc } from "../../src/domain/ids";
+import type { EntityId } from "../../src/domain/ids";
+import { GameSessionRegistry } from "../../src/composition/registry";
 import type { KnowledgeFact } from "../../src/domain/knowledge";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { simulateOffscreenStretch } from "../../src/engine/offscreen";
@@ -159,24 +161,41 @@ Then("the player has no access to that fact", function (this: BbWorld) {
 
 // --- Knowledge vs suspicion ---------------------------------------------------
 
+// AMEND secrets wall item 2 (S12): this scenario now runs on the LIVE game (it used to assert an empty store for a fact that was never recorded, and read back what it had just written).
+// Houseguest A and the player talk in the kitchen (a recorded scene); C is elsewhere. A's `npcVoice.knows` carries the fact (the POSITIVE CONTROL - the check can fail), C's never does,
+// and C can hold it only as a suspicion.
+interface LiveKnowledgeWorld { lkSb?: ReturnType<GameSessionRegistry["sandboxFor"]>; lkA?: EntityId; lkC?: EntityId; lkToken?: string }
+const lk = (w: BbWorld): LiveKnowledgeWorld => w as unknown as LiveKnowledgeWorld;
+
 Given("a fact an NPC neither witnessed nor was told", function (this: BbWorld) {
-  this.npc = npc(3);
-  this.factContent = "a fact this NPC has no pathway to";
+  const sb = new GameSessionRegistry().sandboxFor("lk-0002");
+  sb.session.createCharacter({ playerName: "The Player", seed: 11 });
+  sb.session.advanceGame(); sb.session.advanceGame();
+  const [a, c] = sb.session.livingIds().filter((i) => i !== PLAYER);
+  const token = "ZEBRA-QUILL-0002";
+  (sb.session as unknown as { presence: Map<string, string> }).presence = new Map<string, string>([[PLAYER, "kitchen"], [a!, "kitchen"], [c!, "bedroom"]]);
+  sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, a!], content: `the player and a houseguest quietly agree about ${token}`, kind: "strategy" });
+  // A NPC's knowledge lives in the knowledge service (the recorded event is the witness record, not the NPC's belief store): give the WITNESS the belief through the same sanctioned
+  // `witnessed` pathway the live ADR 0019 tests use. C has no pathway to it.
+  sb.engine.knowledge.seedBelief(a!, { content: `the player and a houseguest quietly agree about ${token}`, factId: "lk-0002:fact" }, "witnessed");
+  Object.assign(lk(this), { lkSb: sb, lkA: a, lkC: c, lkToken: token });
 });
 
 Then("that NPC does not know the fact", function (this: BbWorld) {
-  const known = this.sandbox.engine.knowledge.knownTo(this.npc!);
-  assert.ok(!known.some((k) => k.content === this.factContent));
+  const { lkSb, lkA, lkC, lkToken } = lk(this);
+  const knowsOf = (id: EntityId): string[] => lkSb!.session.npcVoice(id)?.knows ?? [];
+  assert.ok(knowsOf(lkA!).some((k) => k.includes(lkToken!)), "positive control: the houseguest who WITNESSED it knows it");
+  assert.ok(!knowsOf(lkC!).some((k) => k.includes(lkToken!)), "the houseguest who neither witnessed nor was told does not know it");
+  assert.ok(!lkSb!.engine.knowledge.knownTo(lkC!).some((k) => k.content.includes(lkToken!)));
 });
 
 Then(
   "the NPC may hold it only as a suspicion, never as knowledge",
   function (this: BbWorld) {
-    this.sandbox.engine.knowledge.addSuspicion(this.npc!, { content: this.factContent! });
-    const suspicions = this.sandbox.engine.knowledge.suspicionsOf(this.npc!);
-    const known = this.sandbox.engine.knowledge.knownTo(this.npc!);
-    assert.ok(suspicions.some((s) => s.content === this.factContent), "should be a suspicion");
-    assert.ok(!known.some((k) => k.content === this.factContent), "must never be knowledge");
+    const { lkSb, lkC, lkToken } = lk(this);
+    lkSb!.engine.knowledge.addSuspicion(lkC!, { content: `a hunch about ${lkToken}` });
+    assert.ok(lkSb!.engine.knowledge.suspicionsOf(lkC!).some((s) => s.content.includes(lkToken!)), "should be a suspicion");
+    assert.ok(!lkSb!.engine.knowledge.knownTo(lkC!).some((k) => k.content.includes(lkToken!)), "must never be knowledge");
   },
 );
 

@@ -99,3 +99,10 @@ fidelity) measures and #1 relies on for the "legitimately surfaced fact is not b
 
 `bb-sim-spec.md` §6.2–6.4, §12 (Event visibility); `CLAUDE.md` event/visibility model
 (incl. Diary Room); `CLAUDE_CODE_INSTRUCTIONS.md` §4, §13 (do-nots: mislabeling, prompt-Wall).
+
+## 8. Also proven by (AMEND secrets wall, 2026-11-04)
+
+The "an NPC knows only what it witnessed or was told" rule (and ADR 0019, `docs/decisions/0019-context-is-not-knowledge.md`) is held on the LIVE game by:
+- `tests/unit/knowledgeScoping0019.test.ts` - the `npcVoice.knows` block carries only witnessed / told facts, with a told-NPC positive control;
+- `tests/unit/presence.test.ts` - overhearing is presence-gated (a houseguest in another room does not overhear);
+- `tests/unit/sleepersDontWitness.test.ts` - a houseguest who has turned in neither witnesses nor overhears (ADR 0006).
