@@ -26,7 +26,7 @@ _ARRIVAL_RES = [
     re.compile(r"\b(?:final|last)\s+(?:two|three)\b", re.IGNORECASE),
     re.compile(r"\bjury(?:['’]s)?\s+(?:has\s+)?(?:made|decided|reached|verdict|decision)\b|\b(?:read|reading|count|counting)\s+the\s+(?:jury\s+)?votes\b|\bjury\s+votes\s+(?:are|were)\b", re.IGNORECASE),
     re.compile(r"\bjurors?[.,!]?\s+it['’]s\s+time\b|\bthe\s+votes\s+come\s+in\b|[\"“]jurors?[.,!]", re.IGNORECASE),
-    re.compile(r"\b[A-Z]\w+(?:\s+[A-Z]\w+)?,\s+crowned\b|\bconfetti\b|\bthat['’]s\s+the\s+season\b|\bthe\s+season\s+is\s+(?:done|over|complete)\b", re.IGNORECASE),
+    re.compile(r"\bseason['’]?s?\s+(?:is\s+)?(?:already\s+)?crowned\b|\b[A-Z]\w+(?:\s+[A-Z]\w+)?,\s+crowned\b|\bconfetti\b|\bthat['’]s\s+the\s+season\b|\bthe\s+season\s+is\s+(?:done|over|complete)\b", re.IGNORECASE),
     re.compile(r"\bis\s+crowned\s+(?:the\s+)?(?:winner|champion|(?:big\s+brother\s+)?(?:season\s+)?\w+\s+winner)\b|\bwins\s+big\s+brother\b|\bthe\s+winner\s+is\b", re.IGNORECASE),
 ]
 _CUE_RE = re.compile(r"finale|last\s+two|final\s+two|final\s+three|last\s+three|finalists|jury|jurors?|crowned|winner|confetti|the\s+season|wins\s+big\s+brother", re.IGNORECASE)

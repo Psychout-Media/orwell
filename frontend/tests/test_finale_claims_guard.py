@@ -117,3 +117,10 @@ def test_live_e1_second_fabrication_phrasing_is_stripped():
     kept, stripped = fc.strip_phantom_finale(text, board)
     assert "final two" not in kept and "jury has made" not in kept and "read the votes" not in kept
     assert "Sara pours cereal" in kept and stripped
+
+
+def test_live_e1_third_phrasing_seasons_crowned_is_stripped():
+    from src import finale_claims as fc
+    board = {"phase": "hoh-competition", "playerStatus": "evicted"}
+    kept, stripped = fc.strip_phantom_finale("The season's crowned and you've done the interview.\n\nSara pours cereal.", board)
+    assert "crowned" not in kept and "Sara pours cereal" in kept and stripped
