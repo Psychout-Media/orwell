@@ -5183,6 +5183,24 @@ def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
             "do NOT narrate the event starting, a result, or anyone being called to it.")
 
 
+_DESIRE_LINES = {
+    "campaign": "wants to campaign to the player for safety before the nominations",
+    "plea": "wants to plead their case before it is decided",
+    "probe": "wants to sound out where the player stands before the next event",
+    "check-in": "just wants a word with the player",
+}
+
+
+def _interruption_steer(game_state) -> str:
+    """A8: an NPC whose own desire clock crossed its threshold is cutting into the conversation. The engine decided WHO and the coarse WHY; the narrator voices the entrance, nothing more."""
+    i = game_state.get("interruption") if isinstance(game_state, dict) else None
+    if not isinstance(i, dict) or not i.get("npc"):
+        return ""
+    why = _DESIRE_LINES.get(str(i.get("desire") or ""), _DESIRE_LINES["check-in"])
+    return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}. Voice the entrance in a line or two and let them speak first; "
+            "invent no outcome, vote or secret beyond that.")
+
+
 def _hold_for_social(game_state: dict) -> dict:
     """Return the state with its moment overridden to the engine's `social` beat, so the framing
     builds the social moment prompt (lingering/scheming) instead of the not-yet-resolved ceremony.
@@ -5942,6 +5960,12 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _db_steer
         except Exception as e:
             logger.warning("[orwell] day-break steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _int_steer = _interruption_steer(game_state)
+            if _int_steer:
+                gm_prompt = gm_prompt + "\n\n" + _int_steer
+        except Exception as e:
+            logger.warning("[orwell] interruption steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:

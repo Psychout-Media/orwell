@@ -32,7 +32,7 @@ export interface HangOutProbes {
   /** Is the player pulled (diary room / production) after this beat? Draws only from `rng`. */
   pulled(rng: RandomnessSource, beat: number): { by: "diary-room" | "production" } | null;
   /** Does an awake NPC approach/interrupt the player after this beat? */
-  approach(rng: RandomnessSource, beat: number): { npc: string } | null;
+  approach(rng: RandomnessSource, beat: number): { npc: string; desire?: string } | null;
   /** Does the player observe something noteworthy after this beat? */
   observed(rng: RandomnessSource, beat: number): { kind: string; who: string[] } | null;
 }
@@ -44,7 +44,7 @@ export interface HangOutResult {
   /** Total in-game minutes spent (sum of the beats actually advanced). */
   minutes: number;
   /** Vault-free public detail of the stop: who pulled / approached / what was seen. */
-  detail?: { by?: string; npc?: string; kind?: string; who?: string[] };
+  detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
 }
 
 export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxBeats?: number } = {}): HangOutResult {
@@ -64,7 +64,7 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
     const pulled = p.pulled(rng, beat);
     if (pulled) return { stopReason: "pulled", beats: beat, minutes: Math.round(minutes), detail: { by: pulled.by } };
     const ap = p.approach(rng, beat);
-    if (ap) return { stopReason: "npc-approach", beats: beat, minutes: Math.round(minutes), detail: { npc: ap.npc } };
+    if (ap) return { stopReason: "npc-approach", beats: beat, minutes: Math.round(minutes), detail: { npc: ap.npc, ...(ap.desire ? { desire: ap.desire } : {}) } };
     const ob = p.observed(rng, beat);
     if (ob) return { stopReason: "observed", beats: beat, minutes: Math.round(minutes), detail: { kind: ob.kind, who: ob.who } };
     if (p.bedtime()) return { stopReason: "bedtime", beats: beat, minutes: Math.round(minutes) };
