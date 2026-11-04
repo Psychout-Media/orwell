@@ -82,6 +82,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },
   { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
   { envKey: 'ORWELL_BOOTH_RECEIPTS', key: 'boothReceipts', parser: 'defaultOn' },
+  // #2017 S0a: the NPC belief store (data model + plumbing; nothing reads it). OFF unless exactly '1'; NOT part of the default flip (pinned never-flipped).
+  { envKey: 'ORWELL_NPC_BELIEFS', key: 'npcBeliefs', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

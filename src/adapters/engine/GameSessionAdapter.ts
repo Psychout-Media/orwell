@@ -975,6 +975,12 @@ export class GameSessionAdapter implements GameSession {
    * is folded ⇒ every seeded gate is BYTE-IDENTICAL; the live deploy enables it via `ORWELL_VOTE_DEDUCTION=1`.
    */
   private voteDeductionEnabled = VOTE_DEDUCTION_ENABLED_DEFAULT;
+  /**
+   * #2017 S0a — record NPC belief claims (`beliefStore.ts`): data model + plumbing only, read by nothing. OFF unless exactly `ORWELL_NPC_BELIEFS=1`
+   * (the engine's own strict read), deliberately NOT part of the default flip (pinned in flagDefaultParity). Off ⇒ no store is created and the season
+   * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
+   */
+  private npcBeliefsEnabled = process.env.ORWELL_NPC_BELIEFS === "1";
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
   private campaignTickCount = 0;
@@ -7086,6 +7092,7 @@ export class GameSessionAdapter implements GameSession {
       // 0110: fold the eviction jury grudge on the evictee's DEDUCED belief (process of elimination) —
       // present ONLY when enabled (off in the calibration harness ⇒ absent ⇒ true ballot folded ⇒ byte-identical).
       ...(this.voteDeductionEnabled ? { voteDeduction: true as const } : {}),
+      ...(this.npcBeliefsEnabled ? { npcBeliefs: true as const } : {}),
       // 0126: fold the expanded mechanic pool into the competition draw — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ the base 12-mechanic draw ⇒ byte-identical).
       ...(this.compMechanicsPlusEnabled ? { expandedComps: true as const } : {}),
