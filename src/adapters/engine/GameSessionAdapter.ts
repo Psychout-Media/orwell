@@ -220,7 +220,7 @@ import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
-  requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
+  raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, advanceClockPerConversation, advanceClockPerScene, resetSceneClock, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
@@ -9279,6 +9279,22 @@ export class GameSessionAdapter implements GameSession {
     return this.inOneCommit(() => {
       requestSelfEvict(this.live!, this.ctx());
       this.persist(); // durable: a raised confirmation survives a reload (0030)
+      return this.advanceView(null);
+    });
+  }
+
+  /** E-1 — re-raise the spectator-choice card for a WATCHING pre-jury evictee (see the port). Typed refusal when there is nothing to raise or the player is skipping. */
+  raiseSpectatorChoice(expectedBeatSeq?: number): AdvanceView {
+    this.guardBeatSeq(expectedBeatSeq);
+    if (!this.house || !this.live) throw new EngineRefusal("no active game");
+    const live = this.live;
+    if (live.spectator?.mode === "skip") throw new EngineRefusal("skipping ahead to the finale is irreversible — the player is already skipping, so there is no choice to re-open");
+    if (live.finished || !live.spectator) throw new EngineRefusal("there is no spectator choice to re-open (only a player who was evicted before the jury and chose to watch has one)");
+    if (live.pending?.kind === "spectator-choice") return this.advanceView(null); // already open — idempotent
+    if (live.pending) throw new EngineRefusal(`another decision (${live.pending.kind}) is open — answer it first`);
+    return this.inOneCommit(() => {
+      raiseSpectatorChoiceState(live, PLAYER);
+      this.commit({ beat: "spectator-choice", content: `${PLAYER} asks to reconsider skipping ahead to the finale`, participants: [PLAYER] });
       return this.advanceView(null);
     });
   }

@@ -164,6 +164,8 @@ if (typeof window !== 'undefined') window.orwellGameChanged = orwellGameChanged;
 export const ORWELL_MUTATING_TOOLS = Object.freeze([
   // Weekly-loop progression + the player's binding decisions.
   'advanceGame', 'submitDecision',
+  // E-1: a watching evictee re-opens the skip-or-watch card (moves the pending card the HUD reads).
+  'raiseSpectatorChoice',
   // Casting / character lifecycle.
   'updateCasting', 'createCharacter',
   // Consequence loop + the single competition authority (all move the board the HUD reads).

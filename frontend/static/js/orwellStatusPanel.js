@@ -220,6 +220,10 @@ import { onNarrowChange } from './platform.js';
         /* Offline dot (U5): the feed reconnecting, not gone — last-known stays visible. */
         #orwell-status .os-stale { color: #e0a500; margin-left: .35rem; font-size: .7em; vertical-align: middle; }
         /* Memory wall (C21): the roster a real houseguest can see. Public facts only. */
+        /* E-1: a WATCHING evictee's one control — re-opens the spectator-choice CARD (the confirm is on the card; skip is one-way). */
+        #orwell-status .os-skip { margin: .15rem 0 .35rem; font: inherit; font-size: max(.8em, 11px); font-weight: 600; min-height: 32px; padding: .3em .8em;
+          border-radius: 8px; cursor: pointer; border: 1px solid var(--border, #355a66); background: transparent; color: inherit; }
+        #orwell-status .os-skip[disabled] { opacity: .55; cursor: default; }
         #orwell-status .os-you { margin: .35rem 0 .1rem; font-weight: 600; }
         /* S10 legibility floor: the self-role badge (HOH / ON THE BLOCK / VETO / JURY / EVICTED)
            must clear the ~11px crowding floor at EVERY viewport. The bare .72em rode the panel's em
@@ -349,6 +353,7 @@ import { onNarrowChange } from './platform.js';
         </div>
         <div class="os-ceremony" id="os-ceremony">
           <div class="os-you" id="os-you">You<span class="os-badge" id="os-you-badge" hidden></span><span class="os-rest" id="os-you-rest" hidden title="How rested you are — your own read"></span><span class="os-hint" id="os-you-hint" hidden></span></div>
+          <button type="button" class="os-skip" id="os-skip" hidden title="Re-open the skip-or-keep-watching card. Skipping is one-way: you confirm it on the card.">Skip ahead to the finale</button>
           <div class="os-prehoh" id="os-prehoh" hidden>First HOH tonight</div>
           <div id="os-board">
             <div class="os-row"><span class="os-k">HOH</span><span class="os-v" id="os-hoh">—</span></div>
@@ -705,6 +710,25 @@ import { onNarrowChange } from './platform.js';
     const badges = selfBadge(st, state);
     if (badges.length) { setText(badgeEl, badges.join(" · ")); badgeEl.hidden = false; }
     else { badgeEl.hidden = true; }
+
+    // E-1: a WATCHING pre-jury evictee may re-open the skip-or-watch card (switching to skip is confirmed ON the card). Hidden for everyone else and while a card is open.
+    const skipEl = el.querySelector("#os-skip");
+    if (skipEl) {
+      const pl = state && state.player;
+      const show = !!(pl && pl.status === "evicted" && pl.spectator === "watch" && !(st && st.finished) && !(st && st.pending));
+      skipEl.hidden = !show;
+      if (!skipEl._owBound) {
+        skipEl._owBound = true;
+        skipEl.addEventListener("click", async () => {
+          skipEl.disabled = true;
+          try {
+            await fetch("/api/orwell/spectator/raise", { method: "POST", credentials: "same-origin" });
+            try { window.orwellGameChanged && window.orwellGameChanged("spectator-raise"); } catch (_) {}
+          } catch (_) { /* the player can ask in chat instead */ }
+          finally { skipEl.disabled = false; }
+        });
+      }
+    }
 
     // SG-15: the phase-conditional eviction-night seat cue.
     const hintEl = el.querySelector("#os-you-hint");

@@ -2071,6 +2071,18 @@ function armReactiveTwist(s: LiveSeasonState): void {
   }
 }
 
+/**
+ * E-1 (2026-11-04) — re-raise the `spectator-choice` card for a player who chose WATCH, so they can switch to SKIP ON THE CARD (the card-only binding stays: the model
+ * still cannot commit it). Pure state change, no rng. `true` ⇒ the card is now (or already was) open; `false` ⇒ nothing to raise (no spectator, finished, or SKIP —
+ * skip is irreversible, the caller refuses).
+ */
+export function raiseSpectatorChoice(s: LiveSeasonState, player: EntityId): boolean {
+  if (s.finished || !s.spectator || s.spectator.mode !== "watch") return false;
+  if (s.pending) return s.pending.kind === "spectator-choice";
+  s.pending = { kind: "spectator-choice", by: player, modes: [...SPECTATOR_MODES] };
+  return true;
+}
+
 /** Atomic eviction (record manner + remove + roll) — used by the non-staged paths (Final-3 0045). */
 function applyEviction(s: LiveSeasonState, evictee: EntityId, ctx: SeasonCtx, responsible: EntityId[]): void {
   recordEvictionManner(s, evictee, responsible, ctx);
@@ -3066,7 +3078,8 @@ export function applyDecision(
       if (!SPECTATOR_MODES.includes(input.mode)) throw new Error("a legal spectator mode is required (watch / skip)");
       s.pending = undefined;
       s.spectatorOffered = true;
-      s.spectator = { mode: input.mode, sinceWeek: s.week };
+      // A re-raised card (watch -> skip) keeps the ORIGINAL sinceWeek, so the weeks already digested are not dropped from the player's recap.
+      s.spectator = { mode: input.mode, sinceWeek: s.spectator?.sinceWeek ?? s.week };
       return {
         beat: "spectator-choice",
         content: input.mode === "skip"
