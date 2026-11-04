@@ -584,6 +584,14 @@ const COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MIXED");
 const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 
 /**
+ * 0128 (issue #2045) - the THREE-PART Final HOH (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz between the two part-winners)
+ * instead of the single Final-3 competition. OFF unless `ORWELL_FINAL_HOH_THREE_PART=1`: three stat-typed comps change which finalist becomes Final HOH for a given
+ * seed, so it is calibration-gated (`juryReach` re-confirmed ON before the deploy flips it). Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp
+ * path runs byte-identically.
+ */
+const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = process.env.ORWELL_FINAL_HOH_THREE_PART === "1";
+
+/**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
  * flag (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_TRAJECTORIES`) so calibration neutrality is provable in
  * isolation: with it unset, the orchestrator never runs the trigger check ⇒ ZERO draws on any rng ⇒ every
@@ -1155,6 +1163,7 @@ export class GameSessionAdapter implements GameSession {
   private compMixedEnabled = COMP_MIXED_ENABLED_DEFAULT;
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
+  private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
 
   private confessionalDepthEnabled = CONFESSIONAL_DEPTH_ENABLED_DEFAULT;
   /** 0123 — NPC-initiated deal offers to the player; off ⇒ no offer/pending/fold ever (byte-identical). */
@@ -7119,6 +7128,7 @@ export class GameSessionAdapter implements GameSession {
       // 0127: blend a hybrid comp's secondary aptitude into its outcome — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ pure single-stat resolution ⇒ byte-identical).
       ...(this.compMixedEnabled ? { mixedComps: true as const } : {}),
+      ...(this.finalHohThreePartEnabled ? { finalHohThreePart: true as const } : {}),
       // C1 (#1788): the Wipeout Reel presentation layer — present ONLY when enabled (off in the
       // calibration/golden harness ⇒ absent ⇒ no failure-style fact computed ⇒ byte-identical
       // `comp-elimination` content). `archetypeOf` rides ALONGSIDE it — `beginStaged` only ever reads it
@@ -7152,6 +7162,9 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — turn the Wipeout Reel presentation layer on/off. Off by default (byte-identical
    *  `comp-elimination` content); the deploy/live-demo flip turns it on per the Q8 hybrid ruling. */
   setWipeoutReelEnabled(on: boolean): void { this.wipeoutReelEnabled = on; }
+  /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
+  setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
+  finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
   wipeoutReelEnabledNow(): boolean { return this.wipeoutReelEnabled; }
 
@@ -10329,6 +10342,7 @@ export class GameSessionAdapter implements GameSession {
         ...(d.saved !== undefined ? { saved: named(d.saved) } : {}),
         ...(d.tieBroken !== undefined ? { tieBroken: d.tieBroken } : {}),
         ...(d.remaining !== undefined ? { remaining: d.remaining } : {}),
+        ...(d.part !== undefined ? { part: d.part } : {}),
       };
     };
     const view: BeatAnnouncementView = {
@@ -11001,13 +11015,17 @@ export class GameSessionAdapter implements GameSession {
         const stillIn = refs(p.stillIn);
         const others = stillIn.filter((r) => r.id !== PLAYER).map((r) => r.name);
         const fieldLine = others.length ? ` Still in with you: ${others.join(", ")}.` : " You are the last one in.";
+        // 0128: the three-part Final HOH - say which part this is (1 endurance, 2 physical+mental, 3 quiz) so each part's card reads as its own stage of the finale.
+        const finalHohPart = (this.finalHohThreePartEnabled && p.comp === "hoh-competition" && this.live!.active.length === 3) ? (this.live!.finalHohPart ?? 1) : undefined;
+        const partLine = finalHohPart === undefined ? "" : `Final Head of Household, Part ${finalHohPart} of 3 (${finalHohPart === 1 ? "endurance, all three finalists" : finalHohPart === 2 ? "physical and mental, the two who lost Part 1" : "the quiz, the two part-winners"}). `;
         const prompt = p.binding
-          ? `Set your approach to this competition: compete, throw (drop out), or play it safe.${fieldLine} This locks in how you play the comp.`
+          ? `${partLine}Set your approach to this competition: compete, throw (drop out), or play it safe.${fieldLine} This locks in how you play the comp.`
           : `The field narrows — ${stillIn.length} still standing.${fieldLine} Your approach is already locked from the first round, so this is just color: say how you're pushing through, or skip ahead.`;
         return {
           kind: p.kind, by, prompt,
           options: COMP_INTENTS.map((i) => ({ id: i, name: i })),
           round: p.round, stillIn, binding: p.binding, pick: 1,
+          ...(finalHohPart !== undefined ? { finalHohPart } : {}),
         };
       }
       case "houseguests-choice":
