@@ -320,6 +320,10 @@ Given("the night has thinned the awake set", function (this: BbWorld) {
     const sandbox = reg.sandboxFor(user);
     sandbox.session.createCharacter({ playerName: "The Player", seed });
     if (!advanceUntilThinned(sandbox.session)) continue;
+    // P4b: presence refreshes at a COMMITTED beat and the helper can return the instant the clock passes bedtime (after a linger); seat one beat before reading it (the day-1
+    // first-morning day-break shifted where in the cadence that moment lands).
+    const settle = sandbox.session.advanceGame();
+    if (settle.pending) resolvePending(settle.pending, (req) => sandbox.session.submitDecision(req));
     const npcs = sandbox.session.livingIds().filter((id) => id !== PLAYER);
     const awake = sandbox.session.awakeAmong(npcs);
     if (awake.length >= npcs.length) continue; // need ≥1 turned in for the bound to bite
@@ -368,6 +372,9 @@ Then("it yields a well-formed outcome the band gate can score", function (this: 
   const r = this.ms!.seasonResult!;
   assert.ok(["active", "jury", "evicted"].includes(r.status), `a scoreable status (got ${r.status})`);
   assert.ok(typeof r.playerCompWins === "number" && r.playerCompWins >= 0, "the public comp-win count the EARNED_WINS teeth read");
+  // AMEND 0078 #3: a SPECIFIC, deterministic expected outcome (the wiring-only check accepted all three statuses). Seed 1 / passive on the current model: the player makes the jury,
+  // does not reach Final 2, with one public comp win. Re-pin DELIBERATELY when calibration moves (A10 / any movement-strength change) - a silent drift here is the point.
+  assert.deepEqual(r, { seed: 1, status: "jury", f2Win: false, playerCompWins: 1 }, "seed 1, passive, current model");
   assert.ok(MOVEMENT_INTENT.moveIntentStrength > 0, "the intentional-movement lever is live in the measured model");
 });
 

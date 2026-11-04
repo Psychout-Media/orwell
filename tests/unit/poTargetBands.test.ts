@@ -13,9 +13,18 @@ describe("PO calibration targets — the band checker (Ryne's 2026-11-02 rulings
     expect(poViolations(ON_TARGET)).toEqual([]);
   });
 
-  it("the measured retuned profile (300 seeds: solid 20.7% F2 / 5.0% win — at the band edges) passes within sampling error", () => {
+  it("the earlier retuned profile (300 seeds: solid 20.7% F2 / 5.0% win) passed the OLD 6-10% win band; under Ryne's 2026-11-03 8-12% win band its win rate is now (correctly) flagged", () => {
     const retuned: PoSummary = { passive: arm("passive", 32, 5), solid: arm("solid", 62, 15), reckless: arm("reckless", 9, 3) };
-    expect(poViolations(retuned)).toEqual([]);
+    const v = poViolations(retuned);
+    expect(v.length).toBe(1);
+    expect(v[0]).toMatch(/solid win 5\.0% is outside 8\.0%-12\.0%/);
+  });
+
+  it("the 300-seed gate run that opened the tracking issue (solid 12.7% win, reach in band) passes the 8-12% win band (Ryne 2026-11-03: ~60% conversion)", () => {
+    const run: PoSummary = { passive: arm("passive", 22, 7), solid: arm("solid", 55, 38), reckless: arm("reckless", 9, 3) };
+    expect(poViolations(run)).toEqual([]);
+    // ...but the band is still enforced: a clearly-too-high solid win rate is flagged
+    expect(poViolations({ ...run, solid: arm("solid", 55, 55) }).join()).toMatch(/solid win 18\.3% is outside 8\.0%-12\.0%/);
   });
 
   it("the pre-retune default (300 seeds: solid 29.0% F2 / 9.7% win) is flagged on exactly solid reach", () => {

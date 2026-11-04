@@ -628,6 +628,21 @@ export interface LiveSeasonState {
   nightDepth?: number;
   lastSleepDepth?: number;
   /**
+   * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
+   * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
+   * `hangOut` lever => absent when off => byte-identical. Persisted with the season.
+   */
+  /**
+   * A8 (desire clock, `ORWELL_DESIRE_CLOCK`): the absolute in-game hour each NPC last approached the player (hours-based cooldown), and the one NPC interruption currently standing
+   * (set when an NPC's urge crosses its threshold during a conversation step; shown for exactly the next framing, then cleared). Written ONLY by the flag-gated path => absent
+   * when off => byte-identical. Persisted with the season.
+   */
+  desireApproachedAt?: Record<string, number>;
+  interruption?: { npc: string; desire: string; atHour: number };
+  hangOutCount?: number;
+  hangOutPulledDay?: number;
+  hangOutLog?: Array<{ n: number; day: number; hour: number; beats: number; minutes: number; stopReason: string; detail?: Record<string, unknown> }>;
+  /**
    * #1320 night-gate one-shot: set once the pre-nominations day-break has fired for the CURRENT HOH reign,
    * so the "a new day dawns" beat is inserted exactly once between the HOH crown and the nominations
    * (cleared each reign by `rollWeek`). Written ONLY when the clock-pacing night-gate is active
@@ -635,6 +650,8 @@ export interface LiveSeasonState {
    * Persisted with the season like the rest of the clock state (0030).
    */
   preNomsNightPassed?: boolean;
+  /** P4b — set once the one-shot day-1 `day-break` (the premiere exit that starts the first morning WITHOUT staging the HOH comp) has fired. Clock-live only; absent ⇒ byte-identical. */
+  firstMorningPassed?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (WEEKLY_CADENCE: Day 1 HOH → 2 noms → 3 veto → 4 veto
@@ -1717,7 +1734,9 @@ export function voteChoice(
     // character-mediated, engine-tallied. Absent provider ⇒ 0 ⇒ byte-identical (the juryReach spine).
     (ctx.campaignTiltFor?.(n, voter) ?? 0) +
     // 0024: this voter's own residual memory of `n` (a grudge raises the odds they evict `n`, a favor lowers them).
-    (ctx.memoryTiltFor?.(n, voter) ?? 0) -
+    (ctx.memoryTiltFor?.(n, voter) ?? 0) +
+    // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
+    (ctx.beliefTiltFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
     V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
@@ -2605,6 +2624,20 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
 
   switch (s.beat) {
     case "hoh-competition":
+      // P4b FIRST MORNING (live screen check on main 24936f96): the premiere exit used to start the clock AND raise the first HOH's comp card at 8am on day 1 — no
+      // 8->12 social morning, and the HOH could be played at 8am (the FE due-gate cannot hold a card that is already pending). With the clock live (`ctx.nightGate`)
+      // the premiere exit is now a one-shot diegetic `day-break` that STARTS day 1 at 8am without staging the comp; the NEXT advance (held by the FE's due-gate until
+      // the afternoon) is where the HOH actually starts. One-shot, week 1 only, never during a twist; clock off (the seeded calibration spine) skips it => byte-identical.
+      if (ctx.nightGate && s.week === 1 && !s.firstMorningPassed && s.nightDepth === undefined && s.twist?.phase !== "running") {
+        s.firstMorningPassed = true;
+        s.nightDepth = WAKE_HOUR;
+        s.timeOfDay = DAY_START;
+        return {
+          beat: "day-break",
+          content: "The first night in the house is over, and the first morning dawns. The Head of Household competition is set for later today.",
+          participants: [],
+        };
+      }
       // STAGED (0006 staged-rounds evolution): the comp plays out in visible elimination rounds. The
       // sub-loop pauses for the player's PER-ROUND approach (`comp-round`) when they are still in —
       // committed before each round resolves, locked after (anti-sycophancy). No up-front binding popup.

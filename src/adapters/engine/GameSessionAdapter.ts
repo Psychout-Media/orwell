@@ -2,7 +2,7 @@ import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
-  AdvanceView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
+  AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
   DailyRecapView,
@@ -63,6 +63,8 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
+import { runHangOut } from "../../engine/hangOut";
+import { desireFor, mostUrgent, type Candidate } from "../../engine/desireClock";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -588,11 +590,10 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 
 /**
  * 0128 (issue #2045) - the THREE-PART Final HOH (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz between the two part-winners)
- * instead of the single Final-3 competition. OFF unless `ORWELL_FINAL_HOH_THREE_PART=1`: three stat-typed comps change which finalist becomes Final HOH for a given
- * seed, so it is calibration-gated (`juryReach` re-confirmed ON before the deploy flips it). Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp
- * path runs byte-identically.
+ * instead of the single Final-3 competition. ON unless `ORWELL_FINAL_HOH_THREE_PART=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne wants it) after
+ * `juryReach` + `calibrationGradient` held their bands ON. Off => `ctx().finalHohThreePart` is absent and the 0045 single-comp path runs byte-identically.
  */
-const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = process.env.ORWELL_FINAL_HOH_THREE_PART === "1";
+const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THREE_PART");
 
 /**
  * A2 (design §13) - PER-JUROR vote profiles (archetype weights + friend-forgives) instead of one global ballot weight vector. OFF unless `ORWELL_JUROR_PROFILES=1`: it changes
@@ -600,6 +601,19 @@ const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = process.env.ORWELL_FINAL_HOH_THREE_
  * ballot is byte-identical.
  */
 const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1";
+
+/**
+ * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). OFF unless `ORWELL_HANGOUT=1`: it spends in-game time outside the per-message pace, so it ships
+ * dark until the live pace work lands. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
+ */
+/** Per-beat chances for the hang-out interruptions (side-stream draws). Tunable here. */
+const HANGOUT_PULL_P = 0.05, HANGOUT_APPROACH_P = 0.2, HANGOUT_OBSERVED_P = 0.15;
+/**
+ * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
+ * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
+ */
+const DESIRE_CLOCK_ENABLED_DEFAULT = process.env.ORWELL_DESIRE_CLOCK === "1";
+const HANGOUT_ENABLED_DEFAULT = process.env.ORWELL_HANGOUT === "1";
 
 /**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
@@ -1181,6 +1195,12 @@ export class GameSessionAdapter implements GameSession {
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
+  private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
+  private desireClockEnabled = DESIRE_CLOCK_ENABLED_DEFAULT;
+  /** The clock hour a hang-out just ended at: the orchestrator's follow-up per-conversation step skips ONCE if the clock has not moved since. */
+  private hangOutSkipStepAt: number | undefined;
+  /** Hours the last hang-out spent (consumed by the orchestrator to run extra society ticks). */
+  private hangOutPendingHours = 0;
 
   private confessionalDepthEnabled = CONFESSIONAL_DEPTH_ENABLED_DEFAULT;
   /** 0123 — NPC-initiated deal offers to the player; off ⇒ no offer/pending/fold ever (byte-identical). */
@@ -7187,6 +7207,46 @@ export class GameSessionAdapter implements GameSession {
   /** A2 - turn per-juror vote profiles on/off for this session (tests/BDD; the deploy sets `ORWELL_JUROR_PROFILES`). */
   setJurorProfilesEnabled(on: boolean): void { this.jurorProfilesEnabled = on; }
   jurorProfilesEnabledNow(): boolean { return this.jurorProfilesEnabled; }
+  /** Turn the hang-out lever on/off for this session (tests/BDD; the deploy sets `ORWELL_HANGOUT`). */
+  setHangOutEnabled(on: boolean): void { this.hangOutEnabled = on; }
+  hangOutEnabledNow(): boolean { return this.hangOutEnabled; }
+  /** A8 - turn the NPC desire clock on/off for this session (tests/BDD; the deploy sets `ORWELL_DESIRE_CLOCK`). */
+  setDesireClockEnabled(on: boolean): void { this.desireClockEnabled = on; }
+  desireClockEnabledNow(): boolean { return this.desireClockEnabled; }
+
+  /** Absolute in-game hour (days elapsed * 24 + clock hour) - the desire clock's cooldown axis. */
+  private absHour(): number { return ((this.live?.dayNumber ?? 1) - 1) * 24 + (this.live?.nightDepth ?? WAKE_HOUR); }
+
+  /**
+   * A8 - the one NPC (awake, living) whose desire clock has crossed its threshold RIGHT NOW, or null. Deterministic: the relationship drive comes from `rankApproaches` on an
+   * hours-keyed stream, the role is public standing (HOH/nominee), the schedule is the public day schedule. Pure read - the caller records the approach.
+   */
+  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string } | null {
+    const live = this.live;
+    if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
+    const m = nextMilestone(live);
+    const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
+    const rng = new SeededRandom(hashSeed(`desire:${this.gameSeed ?? ""}:${Math.floor(this.absHour() * 10)}`));
+    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng).map((a) => [a.npc, a.drive] as const));
+    const since = live.desireApproachedAt ?? {};
+    const cands: Candidate[] = [];
+    for (const id of ids) {
+      const desire = desireFor(m?.beat, { isHoh: this.ceremony.hoh === id, isNominee: noms.has(id) });
+      if (!desire) continue;
+      cands.push({ npc: id, desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! });
+    }
+    const until = m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
+    const best = mostUrgent(cands, until);
+    return best ? { npc: best.npc, desire: best.desire } : null;
+  }
+
+  /** A8 - record that `npc` approached now (the hours-based cooldown). */
+  private noteApproach(npc: EntityId): void {
+    const live = this.live!;
+    (live.desireApproachedAt ??= {})[npc] = this.absHour();
+  }
+  /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
+  consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
   wipeoutReelEnabledNow(): boolean { return this.wipeoutReelEnabled; }
 
@@ -7420,6 +7480,10 @@ export class GameSessionAdapter implements GameSession {
    * the per-beat clock.)
    */
   advanceClockPerConversation(opts?: { kind?: ConversationKind; proposedHours?: number }): void {
+    if (this.hangOutSkipStepAt !== undefined) { // the hang-out already spent this turn's time: skip the follow-up step once (only if the clock has not moved since)
+      const at = this.hangOutSkipStepAt; this.hangOutSkipStepAt = undefined;
+      if (this.live?.nightDepth === at) return;
+    }
     // Gated no-op: the clock isn't active this turn (per-conversation clock disabled, master clock off, or the day hasn't started). Clock off => nothing advances => byte-identical.
     if (!this.perConversationClockEnabled || !this.timeOfDayEnabled) return;
     if (!this.live || this.live.timeOfDay === undefined) return; // dormant until the per-beat clock starts the day
@@ -7428,6 +7492,15 @@ export class GameSessionAdapter implements GameSession {
     // (conversation types - passing / casual / strategy / summit - emerge from how many messages they run).
     void opts;
     advanceClockPerMessage(this.live, MINUTES_PER_MESSAGE / 60);
+    // A8: an NPC whose desire clock has crossed its threshold CUTS INTO the conversation (shown for exactly the next framing). Flag off => nothing written.
+    if (this.desireClockEnabled && this.house) {
+      delete this.live.interruption; // the previous one was already shown
+      const evicted = new Set(this.live.evictionOrder ?? []);
+      const awake = this.awakeNow();
+      const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
+      const hit = this.desireApproach(ids);
+      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR }; }
+    }
   }
 
   /** #1792 — pending ExchangeAccounting from the last substantive recordInteraction, consumed once
@@ -9300,6 +9373,95 @@ export class GameSessionAdapter implements GameSession {
       const view = this.advanceView(null);
       return recap ? { ...view, dailyRecap: recap } : view;
     }));
+  }
+
+
+  /**
+   * "Hang out until X" (PO 2026-11-04): a bounded run of short beats that stops at the FIRST interruption. Flag-gated; every
+   * refusal path changes NO state. The beats draw from a dedicated side stream (game seed + a persisted call counter), never
+   * the season spine. The clock is clamped to the next scheduled event, so this can never fire or skip one. The stop is
+   * RECORDED on `live.hangOutLog` (witnessed passage of time - never narrated-but-unrecorded).
+   */
+  hangOut(req: HangOutReq = {}): HangOutView {
+    this.guardBeatSeq(req.expectedBeatSeq);
+    const refuse = (reason: NonNullable<HangOutView["reason"]>): HangOutView => ({ ok: false, reason, beats: 0, minutes: 0, beatSeq: this.beatSeq });
+    if (!this.hangOutEnabled) return refuse("disabled");
+    if (!this.house || !this.live) return refuse("no-game");
+    if (this.live.finished || playerHasLeft(this.live, PLAYER)) return refuse("no-game");
+    if (!this.perConversationClockLive()) return refuse("clock-off");
+    if (this.live.pending) return refuse("pending-decision");
+    return this.inOneCommit(() => {
+      const live = this.live!;
+      const n = (live.hangOutCount ?? 0) + 1;
+      live.hangOutCount = n;
+      const rng = new SeededRandom(hashSeed(`hangout:${this.gameSeed ?? ""}:${n}`));
+      const day = live.dayNumber ?? 1;
+      const evicted = new Set(live.evictionOrder ?? []);
+      const awakeNpcs = (): EntityId[] => {
+        const awake = this.awakeNow();
+        return this.house!.npcs.map((x) => x.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
+      };
+      const started = firstCeremonyBeatResolved(live);
+      const result = runHangOut({
+        advance: (h) => { advanceClockPerConversation(live, h); },
+        hoursUntilEvent: () => {
+          const m = nextMilestone(live);
+          return m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
+        },
+        eventDue: () => milestoneDueOf(live),
+        // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
+        bedtime: () => (live.nightDepth ?? WAKE_HOUR) >= CLOCK.midnightHour || awakeNpcs().length <= 1,
+        pulled: (r) => {
+          if (!started || live.hangOutPulledDay === day) return null;
+          if (r.next() >= HANGOUT_PULL_P) return null;
+          live.hangOutPulledDay = day;
+          return { by: r.next() < 0.5 ? "diary-room" : "production" };
+        },
+        approach: (r) => {
+          if (this.desireClockEnabled) {
+            // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
+            const hit = started ? this.desireApproach(awakeNpcs()) : null;
+            if (!hit) return null;
+            this.noteApproach(hit.npc);
+            return { npc: this.nameOf(hit.npc), desire: hit.desire };
+          }
+          if (!started || r.next() >= HANGOUT_APPROACH_P) return null;
+          const ids = awakeNpcs();
+          if (ids.length === 0) return null;
+          const top = rankApproaches(PLAYER, ids, this.rel, r)[0];
+          return top ? { npc: this.nameOf(top.npc) } : null;
+        },
+        observed: (r) => {
+          if (r.next() >= HANGOUT_OBSERVED_P || !this.presence) return null;
+          // Only what is in the player's eyeshot (their room + sightline rooms) - public presence, Vault-free.
+          const me = this.presence.get(PLAYER);
+          if (!me) return null;
+          const visible = new Set<Room>([me, ...(HOUSE_SIGHTLINE.get(me) ?? [])]);
+          const awake = new Set(awakeNpcs());
+          const seen = [...this.presence].filter(([id, where]) => id !== PLAYER && awake.has(id) && visible.has(where)).map(([id]) => id).sort();
+          if (seen.length === 0) return null;
+          const kinds = seen.length >= 2 ? ["overheard-whisper", "argument", "someone-moved"] : ["someone-moved"];
+          const kind = kinds[r.int(kinds.length)]!;
+          const first = seen[r.int(seen.length)]!;
+          const uniq = kind === "someone-moved" ? [first] : [first, seen.filter((x) => x !== first)[r.int(seen.length - 1)]!];
+          return { kind, who: uniq.map((id) => this.nameOf(id)) };
+        },
+      }, rng, req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {});
+      const hour = live.nightDepth ?? WAKE_HOUR;
+      (live.hangOutLog ??= []).push({
+        n, day, hour, beats: result.beats, minutes: result.minutes, stopReason: result.stopReason,
+        ...(result.detail ? { detail: result.detail as Record<string, unknown> } : {}),
+      });
+      this.hangOutSkipStepAt = hour;
+      this.hangOutPendingHours = result.minutes / 60;
+      this.persist();
+      return {
+        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes,
+        ...(result.detail ? { detail: result.detail } : {}),
+        ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}),
+        beatSeq: this.beatSeq,
+      };
+    });
   }
 
   /**
@@ -12082,6 +12244,7 @@ export class GameSessionAdapter implements GameSession {
       ...(playerDossier !== undefined ? { playerDossier } : {}),
       // 0118: the telegraphed day schedule (present only when the per-conversation clock is live).
       ...(daySchedule ? { daySchedule } : {}),
+      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire } } : {}), // A8: an NPC is cutting into the conversation (names only)
     };
   }
 

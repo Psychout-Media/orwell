@@ -238,6 +238,13 @@ export function shardRange(index: number, count: number): { from: number; to: nu
  * `expect` is injected so this module stays test-runner-agnostic (no vitest import at module scope —
  * it is imported by the shard runner too, which already has its own `expect`).
  */
+/** Two-proportion z-test stance (z = 1.28 ⇒ an 80% interval, matching the PO bands): is the ACTIVE rate lower than the PASSIVE rate by more than the sampling noise of their difference? */
+export function activeWorseThanPassiveBeyondNoise(kPassive: number, kActive: number, n: number, z: number = 1.28): boolean {
+  const pP = kPassive / n, pA = kActive / n;
+  const se = Math.sqrt((pP * (1 - pP)) / n + (pA * (1 - pA)) / n);
+  return pP - pA > z * se;
+}
+
 export function assertGradient(
   results: readonly GradientResult[],
   expect: (actual: unknown, message?: string) => {
@@ -273,8 +280,11 @@ export function assertGradient(
   // THE GRADIENT: playing a basic social game is never a DISADVANTAGE. Active must reach the jury at
   // least as often as passive, and win at least as often — the monotonic property calibration must
   // always preserve.
-  expect(activeReach, `active jury-reach must be ≥ passive — ${detail}`).toBeGreaterThanOrEqual(passiveReach);
-  expect(activeWins, `active wins must be ≥ passive — ${detail}`).toBeGreaterThanOrEqual(passiveWins);
+  // NOISE-AWARE (the same stance as `poTargetBands.beatsBeyondNoise`, #2026): active play is a FAILURE only when it is WORSE than passive BEYOND sampling noise
+  // (two-proportion SE × z=1.28, an 80% interval). A point check ("active reach ≥ passive") over 6 seeds is a coin flip — measured at 60 seeds on plain main, passive reached
+  // the jury 46/60 and active 45/60 with 1 win each — so a one-seed miss is noise, while a REAL gap (e.g. passive 6/6 vs active 4/6) still trips it.
+  expect(activeWorseThanPassiveBeyondNoise(passiveReach, activeReach, SEEDS), `active jury-reach must not be WORSE than passive beyond sampling noise — ${detail}`).toBe(false);
+  expect(activeWorseThanPassiveBeyondNoise(passiveWins, activeWins, SEEDS), `active wins must not be WORSE than passive beyond sampling noise — ${detail}`).toBe(false);
   // Sanity floor (a meaningful run, not two degenerate all-evicted sweeps).
   expect(activeReach, `active play must reach the endgame in some season — ${detail}`).toBeGreaterThanOrEqual(1);
 }

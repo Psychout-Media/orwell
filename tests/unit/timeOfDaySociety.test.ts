@@ -46,7 +46,7 @@ function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolea
  * reach their character bedtimes (the earliest larks ~21:00, deepening into the late-night trough). Returns
  * whether at least one NPC has gone to bed (a strict subset of the roster is awake). Resolves pendings.
  */
-function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
+function advanceUntilThinned(s: GameSessionAdapter, cap = 80): boolean { // P4b: the day-1 first-morning day-break shifts the clock one beat later, so allow a few more steps
   for (let i = 0; i < cap; i++) {
     if (s.gameStatus().timeOfDay) {
       const ids = s.livingIds().filter((id) => id !== PLAYER);
@@ -103,6 +103,10 @@ describe("ADR 0006 — the house thins at night (the social bound, 24-hour model
     process.env.ORWELL_TIME_OF_DAY = "1";
     const s = started(3);
     advanceUntilThinned(s);
+    // P4b: presence refreshes at a COMMITTED beat; the helper can return the instant the clock passes bedtime (after a linger), so seat one beat before reading it (the day-1
+    // first-morning day-break shifted where in the cadence that moment lands).
+    const settle = s.advanceGame();
+    if (settle.pending) resolveLegally(s, settle.pending);
     const awake = new Set(s.awakeAmong(npcsOf(s)));
     const w = s.whereabouts();
     const around = [...(w?.present ?? []), ...(w?.nearby ?? []).flatMap((n) => n.present)];

@@ -928,6 +928,19 @@ async def turn_in(expected_beat_seq: int | None = None, idempotency_key: str | N
     return await _call("turnIn", args, user=user)
 
 
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None) -> dict:
+    """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
+    the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
+    an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
+    is off. FE-driven from the player's wait/chill intent - not a model lever."""
+    args: dict = {}
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    if max_beats is not None:
+        args["maxBeats"] = max_beats
+    return await _call("hangOut", args, user=user)
+
+
 async def player_tagline(user: str | None = None) -> dict:
     """A snarky, state-aware Big Brother one-liner for the homepage hero (0033). Vault-free;
     reflects the player's current public standing. Returns ``{"text": "..."}``."""

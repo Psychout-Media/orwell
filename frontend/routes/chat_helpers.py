@@ -594,6 +594,57 @@ _SCHEDULE_STEER: dict = {}
 # Messages the house may be held "not due yet" at one beat before a stuck clock is released (a LOGGED safety cap; B's P2b review). The engine pace is 5 in-game
 # minutes a message (~48 per 4h block); this cap (~3 blocks) sits well above that so only a genuinely stuck clock ever hits it.
 _PRODUCTION_HOLD_CAP = 150
+
+# "Hang out until X" (PO 2026-11-04): the player's safe fast-forward. A wait/chill-until intent is recognised HERE (FE-driven, not a model lever); the ENGINE runs the
+# short timed beats and decides the stop reason, and this one-turn steer hands the narrator that stop to voice. Same stash/pop shape as `_SCHEDULE_STEER`.
+_HANGOUT_STEER: dict = {}
+_HANGOUT_INTENT_RE = re.compile(
+    r"\b(?:hang(?:ing)?\s+out|chill(?:ing)?|kick\s+back|lounge(?:\s+around)?|relax|socialize|mingle|pass\s+the\s+time|kill\s+(?:some\s+)?time|wait(?:\s+around)?|take\s+it\s+easy)\b"
+    r"[^.?!\n]{0,60}?\b(?:until|till|'til|til|for\s+(?:a\s+(?:while|bit|few\s+hours)|some\s+time|the\s+(?:afternoon|rest\s+of\s+the\s+(?:morning|day))))\b",
+    re.IGNORECASE)
+_HANGOUT_STOP_LINES = {
+    "event-due": "production is calling everyone - the scheduled event is on now (the house gathers).",
+    "pulled": "the player is pulled away{by}.",
+    "npc-approach": "{npc} comes over to talk to the player.",
+    "observed": "the player notices something: {obs}.",
+    "bedtime": "it is getting late - bedtime is the player's own call (do not force it).",
+    "max-beats": "a stretch of time passes with nothing demanding the player.",
+}
+
+
+def hang_out_intent(player_msg) -> bool:
+    """True when the player's message asks to hang out / wait / chill until something happens (a conservative wait-verb + until/for-a-while phrase)."""
+    return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
+
+
+def _hang_out_steer(res: dict) -> str:
+    """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them)."""
+    reason = str(res.get("stopReason") or "max-beats")
+    d = res.get("detail") or {}
+    by = {"diary-room": " to the Diary Room", "production": " by production"}.get(str(d.get("by") or ""), "")
+    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
+    line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
+    mins = int(res.get("minutes") or 0)
+    return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. "
+            "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % (mins, line))
+
+
+async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
+    """Recognise a hang-out-until-X intent and, when the engine's lever is live, run it and arm the narrator steer. Returns True when the clock moved (the caller refreshes the
+    board). Fail-open: flag off / clock off / a pending decision / any hiccup => the turn proceeds exactly as before (the engine refuses with `ok:false`, no state change)."""
+    from src import orwell_engine
+    try:
+        if not hang_out_intent(player_msg) or not game_state.get("started") or game_state.get("pending"):
+            return False
+        res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user)
+        _refresh_beat_seq(user, res)
+        if not isinstance(res, dict) or not res.get("ok"):
+            return False
+        _HANGOUT_STEER[_runway_key(user)] = _hang_out_steer(res)
+        return True
+    except Exception as e:  # never blocks a turn
+        logger.warning("[orwell] hang-out skipped for user=%s: %s", user, e)
+        return False
 _PRODUCTION_HOLD: dict = {}  # runway key -> (sig, messages held so far at that beat)
 
 
@@ -622,6 +673,14 @@ def premiere_is_holding(user) -> bool:
     try:
         n = _PREMIERE_MSGS.get(_runway_key(user))
         return n is not None and n < _PREMIERE_SOCIAL_MESSAGES
+    except Exception:
+        return False
+
+
+def scheduled_event_is_held(user) -> bool:
+    """P4b — True only while the pre-resolve is holding a NOT-YET-DUE scheduled event for this player (never the premiere count). The model's own advanceGame reads it."""
+    try:
+        return _runway_key(user) in _PRODUCTION_HOLD
     except Exception:
         return False
 
@@ -5124,6 +5183,24 @@ def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
             "do NOT narrate the event starting, a result, or anyone being called to it.")
 
 
+_DESIRE_LINES = {
+    "campaign": "wants to campaign to the player for safety before the nominations",
+    "plea": "wants to plead their case before it is decided",
+    "probe": "wants to sound out where the player stands before the next event",
+    "check-in": "just wants a word with the player",
+}
+
+
+def _interruption_steer(game_state) -> str:
+    """A8: an NPC whose own desire clock crossed its threshold is cutting into the conversation. The engine decided WHO and the coarse WHY; the narrator voices the entrance, nothing more."""
+    i = game_state.get("interruption") if isinstance(game_state, dict) else None
+    if not isinstance(i, dict) or not i.get("npc"):
+        return ""
+    why = _DESIRE_LINES.get(str(i.get("desire") or ""), _DESIRE_LINES["check-in"])
+    return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}. Voice the entrance in a line or two and let them speak first; "
+            "invent no outcome, vote or secret beyond that.")
+
+
 def _hold_for_social(game_state: dict) -> dict:
     """Return the state with its moment overridden to the engine's `social` beat, so the framing
     builds the social moment prompt (lingering/scheming) instead of the not-yet-resolved ceremony.
@@ -5686,6 +5763,10 @@ async def apply_game_framing(
         if await maybe_raise_spectator_choice(user, game_state, player_msg):
             game_state = (await orwell_engine.get_game_state(user=user)) or game_state  # the open card is now part of the board this turn is framed on
         maybe_note_skip_is_final(user, game_state, player_msg)
+        # "Hang out until X": run BEFORE the pre-resolve so a hang-out that ends on a due event fires it (gathering the house) THIS turn.
+        if await maybe_hang_out(user, game_state, player_msg):
+            game_state = (await orwell_engine.get_game_state(user=user)) or game_state
+            _refresh_beat_seq(user, game_state)
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
@@ -5879,6 +5960,18 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _db_steer
         except Exception as e:
             logger.warning("[orwell] day-break steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _int_steer = _interruption_steer(game_state)
+            if _int_steer:
+                gm_prompt = gm_prompt + "\n\n" + _int_steer
+        except Exception as e:
+            logger.warning("[orwell] interruption steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
+            if _ho_steer:
+                gm_prompt = gm_prompt + "\n\n" + _ho_steer
+        except Exception as e:
+            logger.warning("[orwell] hang-out steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _sched_steer = _SCHEDULE_STEER.pop(_runway_key(user), None)
             if _sched_steer:

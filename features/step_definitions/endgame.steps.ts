@@ -2,13 +2,13 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { GameSessionRegistry } from "../../src/composition/registry";
 import { newLiveSeason, advance, applyDecision, autoDecision } from "../../src/engine/liveSeason";
 import type { SeasonCtx, LiveSeasonState, PendingDecision } from "../../src/engine/liveSeason";
-import { vetoParticipants, vetoFieldSize, evictionVoters, type WeekState } from "../../src/domain/eligibility";
+import { vetoParticipants, vetoFieldSize, evictionVoters, selectableReplacements, type WeekState } from "../../src/domain/eligibility";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import type { AdvanceView } from "../../src/ports/GameSession";
-import { cloneSession } from "../../src/engine/sessionSnapshot";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { resolvePending } from "../support/answerPending";
@@ -33,6 +33,8 @@ When("the loop runs from Final 5 down to Final 2", function (this: BbWorld) {
   this.egVetoFieldOk = true;
   this.egEmptyElectorate = false;
   this.egSawFinalEviction = false;
+  this.egReplacementsSeen = 0;
+  this.egReplacementIsVetoHolder = false;
   let finished = false;
   for (let i = 0; i < 6000 && !finished; i++) {
     const adv = s.advanceGame();
@@ -41,7 +43,14 @@ When("the loop runs from Final 5 down to Final 2", function (this: BbWorld) {
       if (live.vetoField!.length !== vetoFieldSize(live.active.length)) this.egVetoFieldOk = false;
     }
     if (adv.event?.beat === "final-eviction") this.egSawFinalEviction = true;
-    if (adv.pending) resolve(s, adv.pending);
+    if (adv.pending) resolvePending(adv.pending, (req) => s.submitDecision(req), { useVeto: true }); // the player plays the veto when they hold it, so replacements actually occur
+    // AMEND 0045 (S1): the veto winner cannot be named replacement nominee - checked every week a replacement is named, alongside the field-size check.
+    const live = s.snapshot().live!;
+    if (live.replacement !== undefined) {
+      this.egReplacementsSeen = (this.egReplacementsSeen ?? 0) + (live.replacement !== this.egLastReplacement || live.week !== this.egLastReplacementWeek ? 1 : 0);
+      this.egLastReplacement = live.replacement; this.egLastReplacementWeek = live.week;
+      if (live.vetoHolder !== undefined && live.replacement === live.vetoHolder) this.egReplacementIsVetoHolder = true;
+    }
     finished = adv.finished;
   }
   this.egFinished = finished;
@@ -50,6 +59,11 @@ When("the loop runs from Final 5 down to Final 2", function (this: BbWorld) {
 Then("every late-week competition, ceremony, and eviction is legal under the eligibility rules", function (this: BbWorld) {
   assert.equal(this.egFinished, true, "the season reached Final 2 + a winner");
   assert.equal(this.egVetoFieldOk, true, "every veto field was min(6, remaining)");
+  assert.ok((this.egReplacementsSeen ?? 0) >= 1, "the season exercised at least one replacement nominee (the check below is not vacuous)");
+  assert.equal(this.egReplacementIsVetoHolder, false, "the veto winner is never named the replacement nominee (checked every week a replacement was named)");
+  // ...and the rule itself, deterministically (a live season only exercises it when the HOH happens to rank the veto winner first): the legal replacement set never contains the veto winner.
+  const wk: WeekState = { houseguests: [PLAYER, npc(1), npc(2), npc(3), npc(4), npc(5)], player: PLAYER, hoh: npc(1), nominees: [npc(2), npc(3)], vetoWinner: npc(4) };
+  assert.deepEqual(selectableReplacements(wk), [PLAYER, npc(5)], "replacement options exclude the HOH, both nominees and the veto winner");
 });
 
 Then("no eviction ever resolves from an empty electorate", function (this: BbWorld) {
@@ -213,16 +227,44 @@ Then("the eviction manner is recorded for the jury", function (this: BbWorld) {
 });
 
 Then("the same seed reproduces the same endgame, surviving an engine restart", function (this: BbWorld) {
-  // Determinism + serializability: a clone of the pre-eviction state, advanced with the same seed,
-  // reaches the SAME Final 2 — the endgame round-trips through a snapshot (0030).
-  const rel = new RelationshipModel(0.5);
-  rel.edge(npc(1), npc(2)).threat = 0.9; rel.edge(npc(1), PLAYER).threat = 0.1;
-  const fresh = newLiveSeason([PLAYER, npc(1), npc(2)]);
-  fresh.hoh = npc(1); fresh.beat = "final-eviction";
-  const restored = cloneSession<LiveSeasonState>(fresh); // a process-restart round-trip
-  advance(restored, ctxOf(rel), new SeededRandom(1));
-  assert.deepEqual(restored.active, this.egState!.active, "same Final 2 after a restart");
-  assert.deepEqual(restored.evictionOrder, this.egState!.evictionOrder);
+  // AMEND 0045 (S6): a REAL restart - a live game played to the Final-3 final-eviction position, its registry snapshot RESTORED into a fresh registry (the in-memory analogue of
+  // a process restart; the disk round-trip is covered by 0030). The Final-N position, the pending decision and the veto field must match across the restart, and both copies must then
+  // play the SAME endgame. (Replaces the old `cloneSession` of a separately built state, which proved only that a JSON clone of a hand-made state is a JSON clone.)
+  let checked = false;
+  for (let seed = 1; seed <= 40 && !checked; seed++) {
+    const user = `eg-restart-${seed}`;
+    const reg = new GameSessionRegistry();
+    const s = reg.sandboxFor(user).session;
+    s.createCharacter({ playerName: "P", seed });
+    let atFinal3 = false;
+    for (let i = 0; i < 6000; i++) {
+      const v = s.advanceGame();
+      if (s.getGameState().phase === "final-eviction") { atFinal3 = true; break; }
+      if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
+      if (v.finished) break;
+    }
+    if (!atFinal3) continue;
+    const before = s.getGameState();
+    const reg2 = new GameSessionRegistry();
+    reg2.restore(user, reg.snapshot(user));
+    const r = reg2.sandboxFor(user).session;
+    const after = r.getGameState();
+    const activeCount = (g: typeof before): number => g.house.filter((h) => h.status === "active").length + (g.player?.status === "active" ? 1 : 0);
+    assert.equal(activeCount(after), 3, "restored at Final 3");
+    assert.equal(activeCount(after), activeCount(before), "same Final-N position after the restart");
+    assert.equal(after.phase, before.phase, "same phase");
+    assert.deepEqual(after.pending ?? null, before.pending ?? null, "same pending decision after the restart");
+    assert.deepEqual(after.ceremony.veto.players, before.ceremony.veto.players, "same veto field after the restart");
+    // Both copies then play the SAME endgame to the end.
+    const play = (g: GameSessionAdapter): { order: unknown; winner: unknown } => {
+      for (let i = 0; i < 4000; i++) { const v = g.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => g.submitDecision(req)); if (v.finished) break; }
+      const live = g.snapshot().live!;
+      return { order: live.evictionOrder, winner: live.winner };
+    };
+    assert.deepEqual(play(r), play(s), "the restored game finishes the SAME endgame as the original");
+    checked = true;
+  }
+  assert.ok(checked, "a seed in 1..40 reached the Final-3 final eviction");
 });
 
 void (undefined as unknown as PendingDecision); // keep the PendingDecision import meaningful

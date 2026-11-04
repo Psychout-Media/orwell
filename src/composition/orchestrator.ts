@@ -492,6 +492,11 @@ export class Orchestrator {
     // R3: the commit just exported this. A9: a supplementary tick — an empty society this tick is
     // a clean no-op, not a daily-event fault (the live loop owns that invariant via its beats).
     this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
+    // "Hang out until X": the house lived through those hours too - one extra society tick per SOCIETY_TICK_HOURS spent (cap 3), consumed once.
+    const hungHours = session.consumeHangOutHours();
+    for (let i = 0, n = Math.min(3, Math.floor(hungHours / SOCIETY_TICK_HOURS)); i < n; i++) {
+      this.advance(user, "offscreen-tick", { supplementary: true });
+    }
   }
 
   /**
