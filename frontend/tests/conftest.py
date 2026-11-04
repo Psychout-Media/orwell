@@ -50,6 +50,16 @@ if FRONTEND_DIR not in sys.path:
 # `DATABASE_URL` (not carrying the marker) is still left untouched.
 _AUTO_TEST_DB_MARKER = "orwell-test-db-"
 _current_db_url = os.environ.get("DATABASE_URL", "")
+# Leak fix (2026-11-04): every process (the xdist controller AND each worker) gets ONE private TMPDIR that is removed at exit, so the ~70 test files that
+# `tempfile.mkdtemp(...)` (and this DB dir) can never pile up in the host's RAM-backed /tmp (thousands of `orwell-test-db-*` dirs had).
+import atexit as _atexit
+import shutil as _shutil
+
+_RUN_TMP = tempfile.mkdtemp(prefix="orwell-run-")
+os.environ["TMPDIR"] = _RUN_TMP
+tempfile.tempdir = _RUN_TMP
+_atexit.register(_shutil.rmtree, _RUN_TMP, ignore_errors=True)
+
 if not _current_db_url or _AUTO_TEST_DB_MARKER in _current_db_url:
     os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(
         tempfile.mkdtemp(prefix=_AUTO_TEST_DB_MARKER), "app.db"
