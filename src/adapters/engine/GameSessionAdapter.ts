@@ -4429,6 +4429,14 @@ export class GameSessionAdapter implements GameSession {
    * and what witnessing a player scene reads.
    */
   occupancy(): Occupancy | null {
+    return this.presence;
+  }
+
+  /**
+   * The occupancy the WITNESS grounding reads (registry presence provider). `occupancy()` stays the raw open-set map (the ADR 0009 record contract: a recorded NPC move lands in it);
+   * this adds the premiere overlay on top, a read-only copy.
+   */
+  witnessOccupancy(): Occupancy | null {
     // A11 (finding from #2088): while a WHOLE-HOUSE premiere event is on (the gathered champagne circle / toast, or the staged entrances) `whereabouts()` shows everyone convened in the
     // player's room, but this base map still held the underlying wander positions - so a chat during the toast hit the phantom-witness check ("not in the room") and folded nothing. The
     // witness grounding must read the SAME overlay the player sees. Only the two premiere events; every other path (and flag-off) returns the base map untouched.

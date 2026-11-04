@@ -42,6 +42,6 @@ describe("a chat during the gathered toast counts", () => {
   it("outside the toast the base occupancy is returned untouched (no overlay)", () => {
     const { s } = toast(3, "toast-after");
     while ((s.snapshot().live as { champagneCircle?: string }).champagneCircle === "gathered") s.advanceGame();
-    expect(s.occupancy()).toBe((s as unknown as { presence: unknown }).presence);
+    expect(s.witnessOccupancy()).toBe((s as unknown as { presence: unknown }).presence);
   });
 });
