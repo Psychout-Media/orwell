@@ -2065,6 +2065,30 @@ export interface SubmitDecisionReq {
 }
 
 /** Optional progression controls (0065) carried alongside an `advanceGame` call. */
+/**
+ * "Hang out until X" (PO 2026-11-04) - the player's safe fast-forward. Request: optional CAS token + beat cap (<= 8).
+ */
+export interface HangOutReq {
+  expectedBeatSeq?: number;
+  /** Cap on beats this call (1..8; default 8). */
+  maxBeats?: number;
+}
+/** Why a hang-out stopped (the engine decides; the narrator voices it). */
+export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
+export interface HangOutView {
+  /** false = nothing happened (no state change): see `reason`. */
+  ok: boolean;
+  reason?: "disabled" | "clock-off" | "no-game" | "pending-decision";
+  stopReason?: HangOutStopReason;
+  beats: number;
+  /** In-game minutes spent. */
+  minutes: number;
+  /** Vault-free public detail of the stop (names, never ids/numbers). */
+  detail?: { by?: string; npc?: string; kind?: string; who?: string[] };
+  timeOfDay?: string;
+  beatSeq: number;
+}
+
 export interface AdvanceGameReq {
   /**
    * Optional compare-and-swap token (0065 Part A): the `beatSeq` the caller computed this advance
@@ -2470,6 +2494,13 @@ export interface GameSession {
    * byte-identical to the pre-0065 path (opt-in).
    */
   turnIn(req?: AdvanceGameReq): AdvanceView;
+  /**
+   * "Hang out until X" - a bounded run (<= 8) of short (15-30 in-game minute) engine-timed beats that stops at the FIRST of:
+   * the scheduled event coming due (the clock is clamped to it - never fires or skips an event), the player being pulled
+   * (diary room / production), an NPC approaching, something noteworthy observed, or bedtime. Seeded side stream, recorded,
+   * the engine decides the stop reason. Flag-gated (`ORWELL_HANGOUT`); off or clock-off => `{ ok:false }`, zero state change.
+   */
+  hangOut(req?: HangOutReq): HangOutView;
   /**
    * The player makes a deal with a houseguest (0039) — a first-class tracked promise. Recorded as
    * a player-witnessed event (their knowledge); the engine reconciles it against later binding
