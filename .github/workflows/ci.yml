@@ -215,7 +215,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 → 25 (2026-11-04): the unit suite grew past ~3.6k tests and coverage instrumentation now runs
+    # ~14-15 min on ubuntu-latest, so the job was being CANCELLED by its own timeout with no test failure
+    # (#2050, #2053). This raises the ceiling only; every test still runs and must pass.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
