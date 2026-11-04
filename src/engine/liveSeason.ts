@@ -509,6 +509,8 @@ export interface LiveSeasonState {
    * this `live` state, so it is persisted and restored with the season exactly like `juryGrudge`.
    */
   beliefs?: BeliefStore;
+  /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
+  assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**
    * The per-week eviction ballot record (E12): who voted to evict whom, kept ENGINE-ONLY for
    * manner/deal reconciliation and for the 0048 retrospective UNSEALING. Eviction votes are

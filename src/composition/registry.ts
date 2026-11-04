@@ -89,6 +89,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setPresenceProvider(() => session.occupancy());
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
+  // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default OFF).
+  commands.setAssuranceSink((a) => session.recordAssurance(a));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its
   // bounded duration to the session, which the orchestrator's per-turn clock advance then consumes — so
   // the day's clock tracks the play the player actually did, not a flat floor. Self-gated on the running
