@@ -1938,6 +1938,9 @@ def _beat_signature(status: dict, state: dict) -> dict:
         # A-15: the ENGINE's count of anonymized ballots revealed so far (None = the engine doesn't project it ⇒ never judge).
         "evictionBallots": ((len((state.get("eviction") or {}).get("votesRevealed") or []) if isinstance(state.get("eviction"), dict) else 0)
                             if "eviction" in state else None),
+        # PO ruling 2026-11-04 (one-turn vote reveal): once the engine has handed over EVERY ballot the narrator may state the count - the per-nominee ballot
+        # counts (sorted desc) so a tally that MATCHES them is truth, not a fabrication (None/absent until a ballot has been read).
+        "ballotCounts": _ballot_counts(state.get("eviction")),
         "playerName": (str(player.get("name")).strip() if isinstance(player, dict) and isinstance(player.get("name"), str) and str(player.get("name")).strip() else None),
         "beatSeq": (status.get("beatSeq") if isinstance(status.get("beatSeq"), int) else state.get("beatSeq")),
     }
@@ -2043,6 +2046,53 @@ _CLAIM_SELF_VETO_WIN_RE = re.compile(
 # engine NEVER counts (it hands anonymized ballots only), so ANY "N to M" tally — figures or words —
 # narrated before the engine's commit is a fabrication. The spelled form requires the "to" joiner so
 # ordinary prose ("one or two of them") never matches.
+_TALLY_WORDS = {w: i for i, w in enumerate(
+    ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"])}
+
+
+def _ballot_counts(eviction):
+    """Per-nominee ballot counts, sorted descending, from the engine's `eviction.votesRevealed` (None when no ballot has been read / not projected)."""
+    try:
+        if not isinstance(eviction, dict):
+            return None
+        votes = eviction.get("votesRevealed") or []
+        if not votes:
+            return None
+        tally: dict = {}
+        for v in votes:
+            who = (v.get("votedFor") or {}).get("id") if isinstance(v, dict) else None
+            if who is not None:
+                tally[who] = tally.get(who, 0) + 1
+        return sorted(tally.values(), reverse=True) or None
+    except Exception:
+        return None
+
+
+def _tally_claims_match_ballots(text: str, counts) -> bool:
+    """True iff EVERY numeric tally claim in `text` agrees with the engine's revealed ballot `counts` ("9-1" / "nine to one" must equal the two nominee counts;
+    "nine votes to evict X" must equal one of them). No counts ⇒ False (the engine has revealed nothing to count). Pure."""
+    if not counts:
+        return False
+    padded = list(counts) + [0] * (2 - len(counts))
+    def num(tok: str):
+        tok = tok.strip().lower()
+        return int(tok) if tok.isdigit() else _TALLY_WORDS.get(tok)
+    found = False
+    for m in _CLAIM_TALLY_RE.finditer(text or ""):
+        found = True
+        toks = re.findall(r"\d+|[a-z]+", m.group(0).lower())
+        nums = [n for n in (num(t) for t in toks if t.isdigit() or t in _TALLY_WORDS) if n is not None]
+        if len(nums) >= 2:
+            if sorted(nums[:2], reverse=True) != padded[:2]:
+                return False
+        elif len(nums) == 1:
+            if nums[0] not in counts:
+                return False
+        else:
+            return False
+    return found
+
+
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
 _CLAIM_TALLY_RE = re.compile(
     r"\b\d+\s*(?:votes?|-)\s*(?:to|–|-)\s*\d+\b|"
@@ -2449,6 +2499,13 @@ _BALLOT_PHRASE_RE = re.compile(
     r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
 
 
+# PO ruling 2026-11-04 (one-turn vote reveal): the narrator reads the WHOLE ballot list and may group it - "nine votes to evict X". Sanctioned only when N is
+# one of the engine's own revealed per-nominee ballot counts (`ballotCounts`); any other N stays a fabrication and trips the tally guard.
+_BALLOT_COUNT_RE = re.compile(
+    r"\b(" + r"\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen" + r")\s+(?:votes?|ballots?)\s+(?:to|for)\s+evict\s+"
+    r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
+
+
 def _strip_anonymized_ballots(text: str, live: dict) -> str:
     """Remove "a vote to evict <current nominee>" reveal phrases (eviction phase only) so they are not read as an
     eviction claim. Returns the text unchanged outside the eviction phase or when the named person is not a nominee."""
@@ -2463,7 +2520,16 @@ def _strip_anonymized_ballots(text: str, live: dict) -> str:
         # exact full name, or a SINGLE-token shorthand of a nominee ("a vote to evict Alex Jones" is NOT "Alex Smith")
         return "" if any(name == n or (len(name.split()) == 1 and name in n.split()) for n in noms) else m.group(0)
 
-    return _BALLOT_PHRASE_RE.sub(_repl, text)
+    counts = [c for c in (live.get("ballotCounts") or []) if isinstance(c, int)]
+
+    def _repl_count(m):
+        tok = m.group(1).lower()
+        n = int(tok) if tok.isdigit() else _TALLY_WORDS.get(tok)
+        name = m.group(2).strip().lower()
+        named_nominee = any(name == x or (len(name.split()) == 1 and name in x.split()) for x in noms)
+        return "" if (n in counts and named_nominee) else m.group(0)
+
+    return _BALLOT_COUNT_RE.sub(_repl_count, _BALLOT_PHRASE_RE.sub(_repl, text))
 
 
 def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict) -> Optional[str]:
@@ -2548,8 +2614,11 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      accurate flavor describing what just happened (tautologically true of any evictee) — so
     #      that half stays gated to BEFORE the commit, as before (an eviction genuinely landing this
     #      turn keeps its result-language narration unpoliced).
+    #      PO ruling 2026-11-04 (the vote reveal is ALL IN ONE TURN): once the engine has handed over every ballot (`ballotCounts`), a tally that AGREES with
+    #      those counts is simply the truth the BOARD block gave the narrator - only a tally that contradicts them is still a fabrication.
+    _tally_ok = bool(_CLAIM_TALLY_RE.search(text)) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
     if not desync and str(after.get("phase") or "").lower().startswith(_EVICTION_PHASES) and (
-          _CLAIM_TALLY_RE.search(text)
+          (_CLAIM_TALLY_RE.search(text) and not _tally_ok)
           or (_CLAIM_EVICT_RESULT_RE.search(text) and after.get("evicted") == before.get("evicted"))):
         desync = "an EVICTION VOTE TALLY / RESULT (the count is sealed until the engine commits the eviction)"
     # (4a) A2 (2026-07-03): the model tells the PLAYER they won HOH, but the engine shows the player is
