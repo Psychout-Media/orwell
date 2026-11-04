@@ -227,6 +227,16 @@ def test_scene_break_returns_directive_for_self_crown_phantom(monkeypatch):
     assert _USER in chat_helpers._DESYNC_REGROUND
 
 
+def test_scene_break_log_names_the_phase_and_the_claim(monkeypatch, caplog):
+    import logging
+    chat_helpers._LAST_BEAT_SIG[_USER] = _sig()
+    _board(monkeypatch, _sig(playerIsHoh=False))
+    with caplog.at_level(logging.WARNING):
+        _run(chat_helpers.screen_streamed_scene_break(_USER, "The feeds swing to you — you won HOH! Everyone erupts."))
+    line = next(r.getMessage() for r in caplog.records if "scene circuit-breaker HELD a phantom board change" in r.getMessage())
+    assert "phase=hoh" in line and len(line) > 140, line
+
+
 def test_scene_break_none_for_creative_prose_even_if_engine_down(monkeypatch):
     """Creative prose has no closed-set claim → the breaker never reads the board, never cuts."""
     async def boom(user=None):
