@@ -104,11 +104,9 @@ if (embedMode === "fastembed") {
       }),
     ]);
     // A persistent text->vector cache around the worker: a restart re-derives every soul index from the saved notes, which used to mean re-embedding a whole mid-season save
-    // (~1500 notes, a minute+ of saturated cores starving /health and turns). Vectors are deterministic derived state, so a restart after the first now embeds ~nothing.
-    // Keyed by model + dim so a model change starts a fresh cache (vector spaces never mix).
-    const { CachedEmbedding } = await import("./adapters/embedding/PersistentEmbedCache");
-    const { PINNED_MODEL } = await import("./adapters/embedding/fastembedWorker");
-    const cached = new CachedEmbedding(provider, `${dataDir.replace(/\/$/, "")}/embed-cache-${PINNED_MODEL.replace(/[^A-Za-z0-9._-]/g, "_")}-${provider.dim}.jsonl`);
+    // (~1500 notes, a minute+ of saturated cores starving /health and turns). Vectors are deterministic derived state, so a restart after the first embeds ~nothing.
+    const { withPersistentCache } = await import("./adapters/embedding/FastembedEmbedding");
+    const cached = withPersistentCache(provider, dataDir);
     const { setRuntimeEmbedding } = await import("./composition/engineRoot");
     setRuntimeEmbedding(cached);
     // PERSIST-5: wire the live provider so `embeddingsStatus` can re-check `.degraded` on every

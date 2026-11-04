@@ -2,6 +2,7 @@ import { Worker } from "node:worker_threads";
 import type { EmbeddingProvider } from "../../ports/EmbeddingProvider";
 import { DeterministicEmbedding } from "./DeterministicEmbedding";
 import { PINNED_MODEL } from "./fastembedWorker";
+import { CachedEmbedding } from "./PersistentEmbedCache";
 
 /**
  * ENGINE-ONLY real embedding provider (ADR 0004 / audit E86a): fastembed, local ONNX,
@@ -121,3 +122,12 @@ export class FastembedEmbedding implements EmbeddingProvider {
 }
 
 export const createFastembedEmbedding = FastembedEmbedding.create.bind(FastembedEmbedding);
+
+/**
+ * The provider the engine actually runs on: the worker wrapped in the persistent text->vector cache (so a restart re-derives every soul index from the saved notes
+ * without re-embedding a whole mid-season save). The file name carries the pinned model + dim so a model change starts a fresh cache (vector spaces never mix).
+ */
+export function withPersistentCache(provider: FastembedEmbedding, dataDir: string): CachedEmbedding {
+  const model = PINNED_MODEL.replace(/[^A-Za-z0-9._-]/g, "_");
+  return new CachedEmbedding(provider, `${dataDir.replace(/\/$/, "")}/embed-cache-${model}-${provider.dim}.jsonl`);
+}
