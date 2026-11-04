@@ -65,7 +65,7 @@ import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
 import { runHangOut } from "../../engine/hangOut";
-import { desireFor, mostUrgent, type Candidate } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -614,6 +614,11 @@ const HANGOUT_PULL_P = 0.03, HANGOUT_APPROACH_P = 0.08, HANGOUT_OBSERVED_P = 0.0
  * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
  */
 const DESIRE_CLOCK_ENABLED_DEFAULT = process.env.ORWELL_DESIRE_CLOCK === "1";
+/**
+ * A10 - NPC MOVEMENT from one internal WANT (docs/design/npc-want-movement.md): an NPC's pull toward the person its current want points at (the HOH to campaign to / plead with,
+ * the nominees to sound out) is scaled up by the want's urgency (the A8 desire clock). OFF unless `ORWELL_WANT_MOVEMENT=1`; off => `movementIntentFor` is untouched (byte-identical).
+ */
+const WANT_MOVEMENT_ENABLED_DEFAULT = process.env.ORWELL_WANT_MOVEMENT === "1";
 const HANGOUT_ENABLED_DEFAULT = process.env.ORWELL_HANGOUT === "1";
 
 /**
@@ -1208,6 +1213,7 @@ export class GameSessionAdapter implements GameSession {
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
   private desireClockEnabled = DESIRE_CLOCK_ENABLED_DEFAULT;
+  private wantMovementEnabled = WANT_MOVEMENT_ENABLED_DEFAULT;
   /** The clock hour a hang-out just ended at: the orchestrator's follow-up per-conversation step skips ONCE if the clock has not moved since. */
   private hangOutSkipStepAt: number | undefined;
   /** Hours the last hang-out spent (consumed by the orchestrator to run extra society ticks). */
@@ -4161,7 +4167,33 @@ export class GameSessionAdapter implements GameSession {
       const avoid = threatCharge >= bondCharge * MOVEMENT_INTENT.avoidThreatDominance && bondCharge < MOVEMENT_INTENT.workableBondFloor;
       pulls.push({ target: other, weight: charge, avoid });
     }
+    if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * A10 - fold the NPC's current WANT into its movement pulls. The want (A8 `desireFor`) points at a target - the HOH for a campaign/plea, the nominees for a probe - and its
+   * urgency (A8 `urgency`: rising toward the event, spent by an approach) scales the pull. Never lowers an existing pull; a want whose target had no pull ADDS one. No rng (movement
+   * stays on its isolated stream); a check-in has no target. Pure read of public standing + the clock.
+   */
+  private applyWantToPulls(id: EntityId, pulls: MovementPull[]): void {
+    const live = this.live;
+    if (!live || !firstCeremonyBeatResolved(live)) return;
+    const m = nextMilestone(live);
+    const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
+    const desire = desireFor(m?.beat, { isHoh: this.ceremony.hoh === id, isNominee: noms.has(id) });
+    if (!desire || desire === "check-in") return;
+    const targets: EntityId[] = desire === "probe" ? [...noms] : (this.ceremony.hoh !== undefined ? [this.ceremony.hoh] : []);
+    const until = m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
+    const since = live.desireApproachedAt?.[id];
+    const drive = pulls.reduce((a, p) => Math.max(a, p.weight), MOVEMENT_INTENT.minCharge);
+    const scale = wantScale(desireUrgency({ desire, drive, hoursUntil: until, hoursSinceApproach: since === undefined ? undefined : this.absHour() - since }));
+    for (const t of targets) {
+      if (t === id) continue;
+      const existing = pulls.find((p) => p.target === t);
+      if (existing) existing.weight *= scale;
+      else if (scale > 1) pulls.push({ target: t, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false }); // a spent want (scale 1) adds nothing: back to exactly today's intent
+    }
   }
 
   /**
@@ -4494,7 +4526,7 @@ export class GameSessionAdapter implements GameSession {
    *  tonight's fights don't follow anyone into tomorrow. Called right after the clock advances / the player
    *  turns in; a no-op mid-day (still the same night) and harmless at game start (empty). */
   private rollNightConflicts(): void {
-    if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.nightConflicts.clear();
+    if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === (this.live?.wakeHour ?? WAKE_HOUR)) this.nightConflicts.clear();
   }
 
   /**
@@ -7224,6 +7256,9 @@ export class GameSessionAdapter implements GameSession {
   /** A8 - turn the NPC desire clock on/off for this session (tests/BDD; the deploy sets `ORWELL_DESIRE_CLOCK`). */
   setDesireClockEnabled(on: boolean): void { this.desireClockEnabled = on; }
   desireClockEnabledNow(): boolean { return this.desireClockEnabled; }
+  /** A10 - turn want-driven movement on/off for this session (tests/BDD; the deploy sets `ORWELL_WANT_MOVEMENT`). */
+  setWantMovementEnabled(on: boolean): void { this.wantMovementEnabled = on; }
+  wantMovementEnabledNow(): boolean { return this.wantMovementEnabled; }
 
   /** Absolute in-game hour (days elapsed * 24 + clock hour) - the desire clock's cooldown axis. */
   private absHour(): number { return ((this.live?.dayNumber ?? 1) - 1) * 24 + (this.live?.nightDepth ?? WAKE_HOUR); }
@@ -9206,7 +9241,7 @@ export class GameSessionAdapter implements GameSession {
         // did NOT reach via retirement.
         // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
         // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === WAKE_HOUR) this.accrueNightFatigue();
+        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
         this.rollNightConflicts();
       }
       this.commit(ev);
