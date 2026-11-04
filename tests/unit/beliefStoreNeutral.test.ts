@@ -82,8 +82,11 @@ describe("the belief store in a live season (S0a)", () => {
     expect(all.length).toBeGreaterThan(0);
     expect(all.every((c) => c.kind === "voted-against-me" && c.origin === "deduced" && c.value === true && c.confidence > 0 && c.confidence < 1)).toBe(true);
     // the claims ARE the evictee's deduced voters (same subjects, same order), not an independent computation
+    // (A battle-back returnee is evicted TWICE, so a holder can carry claims from two evictions; `deducedCulprits` keeps the latest — compare that week's claims.)
     for (const [holder, claims] of Object.entries(store)) {
-      expect(claims.map((c) => c.subject), `claims for ${holder} mirror live.deducedCulprits`).toEqual([...new Set(on.live.deducedCulprits![holder] ?? [])]);
+      const latest = Math.max(...claims.map((c) => c.week));
+      expect(claims.filter((c) => c.week === latest).map((c) => c.subject), `the latest claims for ${holder} mirror live.deducedCulprits`)
+        .toEqual([...new Set(on.live.deducedCulprits![holder] ?? [])]);
     }
     const holders = Object.keys(store);
     expect(holders.every((h) => (on.live.evictionOrder ?? []).includes(h)), "the holder is the evictee who deduced it").toBe(true);
