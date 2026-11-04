@@ -30,11 +30,21 @@ Feature: Live jury-vote choreography — the interactive finale
     When the live jury votes across many seeded runs
     Then that juror votes for that finalist in a reduced share of runs
 
+  # Amended 2026-11-04 (BDD audit AMEND 0037, Ryne-approved): the old Then claimed the player's STRONGEST appeals could not overturn a clear lead but the step
+  # played the WEAKEST one, with the player as the leader. Roles are now explicit: the NPC finalist is the LEADER (strong accumulated jury relationships), the
+  # PLAYER is the UNDERDOG finalist and plays EVERY legal appeal (including the engine's strongest); the leader must win a clear majority against each.
   Scenario: Jury management dominates and the finale only sways close jurors
     Given a finalist with strong accumulated jury relationships
     When the live jury votes across many seeded runs
     Then that finalist wins the clear majority of runs
     And the player's strongest legal finale appeals do not overturn that clear lead
+
+  # Added 2026-11-04 (AMEND 0037; A-13, #2010/#2013): the informed juror-vote card shows ONLY what the player was told via askJuror.
+  Scenario: A player-juror's vote card reflects only what their askJuror tellings surfaced
+    Given a live game where the player is a juror at their finale vote card
+    Then the vote card carries no juror-held tellings
+    When the player asks one fellow juror what they know and the juror tells them
+    Then the vote card reflects exactly that telling and nothing the juror merely holds
 
   Scenario: The player on the jury casts their own vote and an illegal vote is refused
     Given a live game at Final 2 with the player on the jury

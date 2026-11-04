@@ -306,6 +306,11 @@ export class BbWorld extends World {
   mannerShareRespected?: number;
   mannerShareBetrayed?: number;
   domWinRate?: number;
+  domRatesByAppeal?: Record<string, number>;
+  jbSandbox?: ReturnType<import("../../src/composition/registry").GameSessionRegistry["sandboxFor"]>;
+  jbPending?: NonNullable<import("../../src/ports/GameSession").AdvanceView["pending"]>;
+  jbTold?: string[];
+  jbF1?: string;
   finaleSentinels?: string[];
 
   // Durable game persistence (0030) scratch state.
