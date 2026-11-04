@@ -178,7 +178,7 @@ export type PendingDecision =
   // --- exit interview (0130): the player, as the EVICTEE, answers the producers in their own words/posture ---
   | { kind: "exit-interview"; by: EntityId; evictee: EntityId; stances: ExitStance[] }
   // --- early eviction (0133): the pre-jury evictee chooses to skip to the finale or keep watching ---
-  | { kind: "spectator-choice"; by: EntityId; modes: SpectatorMode[] }
+  | { kind: "spectator-choice"; by: EntityId; modes: SpectatorMode[]; /** E-1: a re-raised card (watch → skip) — its prompt differs so the FE's per-card idempotency key can never replay the first answer. */ again?: true }
   // --- early eviction (0133): the pre-jury evictee's finale-night interview (posture + optional words) ---
   | { kind: "finale-interview"; by: EntityId; stances: ExitStance[] }
   // --- finale (0037) ---
@@ -2079,7 +2079,7 @@ function armReactiveTwist(s: LiveSeasonState): void {
 export function raiseSpectatorChoice(s: LiveSeasonState, player: EntityId): boolean {
   if (s.finished || !s.spectator || s.spectator.mode !== "watch") return false;
   if (s.pending) return s.pending.kind === "spectator-choice";
-  s.pending = { kind: "spectator-choice", by: player, modes: [...SPECTATOR_MODES] };
+  s.pending = { kind: "spectator-choice", by: player, modes: [...SPECTATOR_MODES], again: true };
   return true;
 }
 

@@ -10990,7 +10990,11 @@ export class GameSessionAdapter implements GameSession {
       case "spectator-choice":
         return {
           kind: p.kind, by,
-          prompt: "You are out before the jury formed. Skip ahead to the finale, or keep watching a condensed version of the rest of the season? Either way you will be back for the finale night.",
+          // A RE-RAISED card (E-1: watch -> skip) carries a DIFFERENT prompt: the FE keys its at-most-once decision token on the card's kind|options|prompt, so an identical
+          // prompt would replay the first (watch) answer verbatim and the skip would never land.
+          prompt: p.again
+            ? "You chose to keep watching. Do you want to skip ahead to the finale instead? Skipping is final — once you skip, you can't go back to watching. Either way you will be back for the finale night."
+            : "You are out before the jury formed. Skip ahead to the finale, or keep watching a condensed version of the rest of the season? Either way you will be back for the finale night.",
           options: p.modes.map((m) => ({ id: m, name: m })),
           pick: 1,
         };

@@ -114,3 +114,15 @@ describe("raiseSpectatorChoice reaches the engine over the MCP boundary", () => 
     await expect(server.callTool("raiseSpectatorChoice", {})).rejects.toThrow(/no spectator choice|no active game|re-open/i);
   });
 });
+
+describe("E-1 — the re-raised card has its own identity", () => {
+  it("a re-raised spectator-choice card's prompt differs from the original (the FE keys its at-most-once token on the prompt; an identical one replays the first answer)", () => {
+    const s = pausedOnCard();
+    const original = s.getGameState().pending!;
+    s.submitDecision({ kind: "spectator-choice", vote: "watch" });
+    const again = s.raiseSpectatorChoice().pending!;
+    expect(again.kind).toBe("spectator-choice");
+    expect(again.prompt).not.toBe(original.prompt);
+    expect(again.prompt).toMatch(/skipping is final/i);
+  });
+});
