@@ -595,6 +595,13 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = process.env.ORWELL_FINAL_HOH_THREE_PART === "1";
 
 /**
+ * A2 (design §13) - PER-JUROR vote profiles (archetype weights + friend-forgives) instead of one global ballot weight vector. OFF unless `ORWELL_JUROR_PROFILES=1`: it changes
+ * how individual jurors weigh the terms (the house-mean weight per term is preserved by construction), so it is calibration-gated. Off => `ctx().jurorProfiles` is absent and the
+ * ballot is byte-identical.
+ */
+const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1";
+
+/**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
  * flag (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_TRAJECTORIES`) so calibration neutrality is provable in
  * isolation: with it unset, the orchestrator never runs the trigger check ⇒ ZERO draws on any rng ⇒ every
@@ -1173,6 +1180,7 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
+  private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
 
   private confessionalDepthEnabled = CONFESSIONAL_DEPTH_ENABLED_DEFAULT;
   /** 0123 — NPC-initiated deal offers to the player; off ⇒ no offer/pending/fold ever (byte-identical). */
@@ -7139,6 +7147,7 @@ export class GameSessionAdapter implements GameSession {
       // the calibration/golden harness ⇒ absent ⇒ pure single-stat resolution ⇒ byte-identical).
       ...(this.compMixedEnabled ? { mixedComps: true as const } : {}),
       ...(this.finalHohThreePartEnabled ? { finalHohThreePart: true as const } : {}),
+      ...(this.jurorProfilesEnabled ? { jurorProfiles: true as const, jurorProfileSalt: this.gameSeed ?? 0 } : {}),
       // C1 (#1788): the Wipeout Reel presentation layer — present ONLY when enabled (off in the
       // calibration/golden harness ⇒ absent ⇒ no failure-style fact computed ⇒ byte-identical
       // `comp-elimination` content). `archetypeOf` rides ALONGSIDE it — `beginStaged` only ever reads it
@@ -7175,6 +7184,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
   finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
+  /** A2 - turn per-juror vote profiles on/off for this session (tests/BDD; the deploy sets `ORWELL_JUROR_PROFILES`). */
+  setJurorProfilesEnabled(on: boolean): void { this.jurorProfilesEnabled = on; }
+  jurorProfilesEnabledNow(): boolean { return this.jurorProfilesEnabled; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
   wipeoutReelEnabledNow(): boolean { return this.wipeoutReelEnabled; }
 
