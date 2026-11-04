@@ -79,4 +79,18 @@ describe("runHangOut", () => {
     const c = world(); runHangOut(c.probes, rng(8));
     expect(c.log).not.toEqual(a.log);
   });
+  it("float residue: a sub-minute positive remainder (1e-9h) that eventDue has not caught is event-due, not 8 burned zero-minute beats", () => {
+    const w = world({ eventDue: () => false, hoursUntilEvent: () => 1e-9 });
+    const r = runHangOut(w.probes, rng());
+    expect(r).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
+    expect(w.log).toEqual([]);
+  });
+  it("float residue after real beats stops event-due with the minutes already spent", () => {
+    let calls = 0;
+    const w = world({ eventDue: () => false, hoursUntilEvent: () => (calls++ === 0 ? 5 : 1e-9) });
+    const r = runHangOut(w.probes, rng());
+    expect(r.stopReason).toBe("event-due");
+    expect(r.beats).toBe(1);
+    expect(r.minutes).toBeGreaterThanOrEqual(15);
+  });
 });

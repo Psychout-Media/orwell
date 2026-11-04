@@ -55,6 +55,8 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
   for (let beat = 1; beat <= cap; beat++) {
     let beatMin = HANGOUT.beatMinutesBase + HANGOUT.beatMinutesStep * rng.int(HANGOUT.beatMinutesChoices);
     const until = p.hoursUntilEvent();
+    // Float residue guard (the 11.999... stall): a sub-minute remainder IS the event - without this every beat clamps to ~0 minutes and burns the cap doing nothing.
+    if (until !== null && until * 60 < 1) return { stopReason: "event-due", beats: beat - 1, minutes: Math.round(minutes) };
     if (until !== null) beatMin = Math.min(beatMin, Math.max(0, until) * 60); // never past the event
     p.advance(beatMin / 60);
     minutes += beatMin;
