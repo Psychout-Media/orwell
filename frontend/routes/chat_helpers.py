@@ -2755,6 +2755,36 @@ def _strip_anonymized_ballots(text: str, live: dict) -> str:
     return _BALLOT_COUNT_RE.sub(_repl_count, _BALLOT_PHRASE_RE.sub(_repl, text))
 
 
+# A77 - WHICH guard fired. The two log lines that say a closed-set guard fired ("beat-signature desync detected", "pre-emission guard HELD a phantom closed-set outcome") used to print no class, so the
+# live-triage runbook and the post-session analyzer could not tell N-1 / N-3 / N-15 / N-16 / A-9 apart. The directive text is already Vault-free (public board labels only), so a short tag plus its first
+# 120 chars is safe to log. Markers are distinctive substrings of each detector's label; several can match one directive (merged labels).
+_GUARD_CLASS_MARKERS = (
+    ("N-16", "competition as already STARTED"),
+    ("N-15", "player's choice as already MADE"),
+    ("A-9", "COMPETITION RESULT or its aftermath"),
+    ("F-3", "the PLAYER competing in the veto competition"),
+    ("N-1", "WRONG houseguest as the veto winner"),
+    ("N-3", "is not decided yet"),
+    ("N-3", "nominations have not been made yet"),
+    ("N-3", "Power of Veto has not been played"),
+    ("expulsion", "REMOVAL / EXPULSION"),
+)
+
+
+def _guard_class_tag(directive) -> str:
+    """Short class tag(s) for a re-ground directive, e.g. 'N-16' or 'A-9+F-3'; 'closed-set' when no marker matches (a plain outcome claim: eviction, crown, tally, HOH, nominations, veto)."""
+    d = str(directive or "")
+    tags = []
+    for tag, marker in _GUARD_CLASS_MARKERS:
+        if marker in d and tag not in tags:
+            tags.append(tag)
+    return "+".join(tags) or "closed-set"
+
+
+def _guard_snippet(directive) -> str:
+    return " ".join(str(directive or "").split())[:120]
+
+
 def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict) -> Optional[str]:
     """Compare the turn's narration against the before→after board delta. Return a SPECIFIC
     re-ground directive when the narration asserts an outcome the engine did NOT commit; else
@@ -3013,7 +3043,8 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
         if directive:
             _reground_enqueue(_dkey, directive)  # BL-004: append (never clobber a prior distinct one)
             logger.warning(
-                "[orwell] beat-signature desync detected for user=%s — re-grounding next turn", user,
+                "[orwell] beat-signature desync detected for user=%s — re-grounding next turn (class=%s; %s)",
+                user, _guard_class_tag(directive), _guard_snippet(directive),
             )
     except Exception as e:
         logger.warning("[orwell] post-turn desync check skipped for user=%s: %s", user, e)
@@ -4399,7 +4430,7 @@ async def screen_streamed_outcome(user, sentence: str) -> bool:
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (never clobber a prior distinct one)
         logger.warning(
             "[orwell] pre-emission guard HELD a phantom closed-set outcome for user=%s — "
-            "dropped before emission, re-grounding next turn", user,
+            "dropped before emission, re-grounding next turn (class=%s; %s)", user, _guard_class_tag(directive), _guard_snippet(directive),
         )
         return False
     except Exception as e:

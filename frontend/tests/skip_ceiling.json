@@ -1,5 +1,5 @@
 {
-  "_note": "A41 silent-skip ceilings per CI lane (max tests allowed to skip). Raising one is a deliberate reviewed edit. Measured with -rs; see docs/ (A41).",
-  "unit": null,
-  "browser": null
+  "_note": "A41 silent-skip ceilings per CI lane (max tests allowed to skip). Raising one is a deliberate reviewed edit. Measured with -rs on main CI 2026-11-05 (run 42023314840: fe-unit 0 skipped / 7684 passed, fe-browser-tests 0 skipped); see docs/ (A41).",
+  "unit": 0,
+  "browser": 0
 }
