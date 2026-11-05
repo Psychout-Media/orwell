@@ -273,6 +273,7 @@ import { overhearTieReveal } from "../../engine/tieReveal";
 import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
+import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, showmancePlausible,
@@ -1234,6 +1235,34 @@ export class GameSessionAdapter implements GameSession {
   private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told"): void {
     if (!this.liesCaughtWriting || holder === PLAYER) return;
     recordClaim((this.live!.beliefs ??= {}), { holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
+  }
+  /**
+   * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
+   * listener's trust in them, plus a word-keeper bonus), and sometimes wrong by construction: a dedicated seeded roll (bounded, less likely the more reliable the teller) makes the listener mishear it onto a
+   * different houseguest. No edge fold, no memory entry, no shared rng; absent a belief layer nothing is written. OFF unless exactly `ORWELL_HEARD_ABOUT_ME=1`; never-flipped. OFF => byte-identical.
+   */
+  private heardAboutMeEnabled = process.env.ORWELL_HEARD_ABOUT_ME === "1";
+  setHeardAboutMeEnabled(on: boolean): void { this.heardAboutMeEnabled = on; }
+  recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
+    if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
+    const living = this.livingIds();
+    if (h.teller === PLAYER || !living.includes(h.teller)) return;
+    const live = this.live;
+    const credited = (id: EntityId): boolean => this.reliabilityReader?.(id).has(h.teller) ?? false;
+    for (const listener of new Set(h.listeners)) {
+      if (listener === PLAYER || listener === h.teller || !living.includes(listener)) continue;
+      const reliability = tellerReliability(this.rel.edge(listener, h.teller).trust, credited(listener));
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:heard-about-me:${live.week}:${h.teller}:${listener}:${h.nature}`));
+      const pool = living.filter((id) => id !== PLAYER && id !== listener && id !== h.teller);
+      const subject = isMisheard(rng.next(), reliability) && pool.length > 0 ? pool[Math.floor(rng.next() * pool.length)]! : PLAYER;
+      const confidence = heardConfidence(reliability);
+      const store = (live.beliefs ??= {});
+      if (h.nature === "targeting") {
+        recordClaim(store, { id: `${listener}|targets-me|${subject}|told:${h.teller}|${live.week}`, holder: listener, kind: "targets-me", subject, object: listener, value: true, origin: "told", source: h.teller, confidence, week: live.week });
+      } else {
+        recordClaim(store, { id: `${listener}|heard-rumor|${subject}|told:${h.teller}|${live.week}`, holder: listener, kind: "heard-rumor", subject, value: true, origin: "told", nature: "betrayal", source: h.teller, confidence, week: live.week });
+      }
+    }
   }
   private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
     if (!this.memoryPromisesEnabled) return;

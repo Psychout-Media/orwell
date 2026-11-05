@@ -90,6 +90,13 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (as["kind"] !== "safe" && as["kind"] !== "vote" && as["kind"] !== "loyal") refuse("assurance", "{ kind: 'safe' | 'vote' | 'loyal' } when present");
         if (as["sincerity"] !== undefined && typeof as["sincerity"] !== "number") refuse("assurance", "a numeric sincerity when present");
       }
+      if (args["heardAboutMe"] !== undefined) {
+        const h = args["heardAboutMe"];
+        if (typeof h !== "object" || h === null || Array.isArray(h)) refuse("heardAboutMe", "an object when present");
+        const hs = h as Record<string, unknown>;
+        if (hs["nature"] !== "targeting" && hs["nature"] !== "betrayal") refuse("heardAboutMe", "{ nature: 'targeting' | 'betrayal' } when present");
+        if (hs["from"] !== undefined && !isEntityId(hs["from"])) refuse("heardAboutMe", "a houseguest id for `from` when present");
+      }
       // 0005: the optional generative-consequence descriptor. Shape-guard only (R6 class: a string
       // where an array/object is expected dies deep in the fold) — the engine owns the magnitude and
       // degrades gracefully on an unknown direction, so domain validation stays there, not here.
