@@ -2103,8 +2103,15 @@ export class GameSessionAdapter implements GameSession {
     this.onThreadGossip = fn;
   }
 
+  /** N-17 vs 0092 - the delivery MARKER: a Vault-free counter + the source's PUBLIC id, set whenever a thread surfaces to the player OFF the tool path (the confidant slip / gossip chain run inside the orchestrator tick). Memory only (a restart resets it; the front-end reads a change, not an order). Never content. */
+  private playerSurfaceN = 0;
+  private playerSurfaceSource?: EntityId;
   setOnThreadSurfaceToPlayer(fn: (subject: EntityId, rumor: string) => boolean): void {
-    this.onThreadSurfaceToPlayer = fn;
+    this.onThreadSurfaceToPlayer = (subject, rumor) => {
+      const told = fn(subject, rumor);
+      if (told) { this.playerSurfaceN += 1; this.playerSurfaceSource = subject; }
+      return told;
+    };
   }
 
   /** 0075 — wire the confidence-recording pathway (the composition root owns the KnowledgeService). */
@@ -12571,6 +12578,7 @@ export class GameSessionAdapter implements GameSession {
     return {
       started: true,
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token surfaced on every read
+      ...(this.playerSurfaceN > 0 && this.playerSurfaceSource ? { surfacedToPlayer: { n: this.playerSurfaceN, sourceId: this.playerSurfaceSource } } : {}), // N-17: the delivery marker (ids + a counter, never content)
       // M0-7: the SAME pendingView gameStatus/advance expose — the two closed-set
       // projections of one sandbox must never disagree about the live pending (the
       // eviction-vote ballot surfaced only on gameStatus and state-keyed consumers
