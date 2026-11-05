@@ -97,7 +97,7 @@ export const SOCIETY = {
    */
   playerSubjectProb: 0.1,
   /**
-   * OFF-SCREEN SCHEMING NAMES A REAL TARGET (Wave-2 fidelity enrichment; opt-in via `ORWELL_SCHEME_TARGETS`).
+   * OFF-SCREEN SCHEMING NAMES A REAL TARGET (Wave-2 fidelity enrichment; default ON, opt out via `ORWELL_SCHEME_TARGETS=0`).
    * The NPC counterpart of `playerSubjectProb`: a strategy/alliance/conflict scene between two NPCs is
    * really ABOUT a THIRD houseguest — the person they're plotting against — yet the scene names only its
    * two participants, so the hidden layer (and the gossip that rises from it) carried no concrete target.
@@ -278,7 +278,7 @@ export function richOffscreenStretch(deps: {
    */
   playerSubject?: EntityId;
   /**
-   * RELATIONSHIP TRAJECTORIES (feature 0087, opt-in via `ORWELL_TRAJECTORIES`). When supplied (live-society
+   * RELATIONSHIP TRAJECTORIES (feature 0087, default ON, opt out via `ORWELL_TRAJECTORIES=0`). When supplied (live-society
    * trajectories ON), the directed `a→b` arc's hidden momentum TILTS this scene's nature weights toward
    * continuing the arc (`tiltNatureWeights` over `natureWeights`'s output) BEFORE the existing single
    * `weightedPick` — so a curdling friendship gets more clash scenes as it cools. CRITICAL (calibration):
@@ -289,7 +289,7 @@ export function richOffscreenStretch(deps: {
    */
   trajectoryOf?: (a: EntityId, b: EntityId) => Trajectory;
   /**
-   * STRATEGIC-DRIVE INITIATOR CADENCE (feature 0120, opt-in via `ORWELL_STRATEGIC_CADENCE`). When supplied,
+   * STRATEGIC-DRIVE INITIATOR CADENCE (feature 0120, default ON, opt out via `ORWELL_STRATEGIC_CADENCE=0`). When supplied,
    * the initiator of each off-screen scene is drawn WEIGHTED by each houseguest's strategic drive (a
    * bounded, gently-sloped positive weight — a sharper/more-strategic player schemes a touch more often;
    * "slight variance", never a wild skew). CRITICAL (calibration): it replaces the uniform `rng.pick` with
@@ -300,7 +300,7 @@ export function richOffscreenStretch(deps: {
    */
   initiatorDriveOf?: (id: EntityId) => number;
   /**
-   * OFF-SCREEN SCHEMING NAMES A REAL TARGET (Wave-2 fidelity enrichment, opt-in via `ORWELL_SCHEME_TARGETS`).
+   * OFF-SCREEN SCHEMING NAMES A REAL TARGET (Wave-2 fidelity enrichment, default ON, opt out via `ORWELL_SCHEME_TARGETS=0`).
    * When true (and `edgeOf` present), a strategy/alliance/conflict scene occasionally NAMES the initiator's
    * strongest live THREAT read among the OTHER houseguests as the scheme's target in its still-HIDDEN content
    * (`schemeTargetOf`/`npcTargetClause`, gated by `SOCIETY.schemeTargetProb`). CRITICAL (Vault Wall): the

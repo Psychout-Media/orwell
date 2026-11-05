@@ -65,6 +65,6 @@ describe("the adapter's approach memory bias (ORWELL_APPROACH_MEMORY)", () => {
 
 describe("the decision x source table", () => {
   it("lists the approach decision and its provider", () => {
-    expect(DECISION_SOURCES.approaches).toEqual(["approachMemoryFor"]);
+    expect(DECISION_SOURCES.approaches).toEqual(["approachMemoryFor", "moodApproachFor"]); // B30 added the mood term
   });
 });

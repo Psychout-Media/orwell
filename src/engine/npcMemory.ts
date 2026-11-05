@@ -24,6 +24,8 @@ export type MemoryKind =
   | "scene-betrayal"      // P4g: the PLAYER betrayed the holder in a recorded scene (grudge)
   | "scene-conflict"      // P4g: the PLAYER clashed with the holder in a recorded scene (smaller grudge)
   | "scene-kindness"      // P4g: the PLAYER was kind / bonded with the holder in a recorded scene (favor, weaker than a grudge)
+  | "secret-exposed"     // A24 / AMEND 3a #8: the PLAYER publicly exposed the holder's secret (a landed expose; written only under ORWELL_NPC_MEMORY_WRITERS) - a deep grudge
+  | "secret-given"       // A24 / AMEND 3a #8: the PLAYER traded the holder a secret they wanted (an accepted trade; same flag) - a favor
   | "nominated-by-hoh";   // B2: the subject (the HOH) put the holder on the block — whatever their prior trust (written only under ORWELL_NPC_MEMORY_WRITERS)
 
 export interface MemoryEntry { kind: MemoryKind; week: number; /** 0..1 — how much it mattered. */ severity: number }
@@ -55,8 +57,8 @@ export const NPC_MEMORY: NpcMemoryConstants = {
   trustedAbove: 0.4,
 };
 
-const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict"]);
-const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness"]);
+const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict", "secret-exposed"]);
+const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness", "secret-given"]);
 
 const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
 

@@ -112,6 +112,16 @@
     return { format };
   }
 
+  // A51: one qualitative chip per in-room houseguest from the engine's closed tell word (flag ORWELL_NPC_TELLS; absent => unchanged). Words only: no band, number or cause; the caller passes only `w.present` (never nearby/tracked). Pure, node-testable.
+  function _joinWithTells(list, format) {
+    const TELL_LABEL = { withdrawn: "withdrawn", tearful: "close to tears", snapping: "on edge", "brittle-calm": "too calm", giddy: "giddy", "warm-open": "relaxed", guarded: "guarded", restless: "restless" };
+    return (list || []).map((p) => {
+      const n = format(p);
+      const lab = p && typeof p.tell === "string" && Object.prototype.hasOwnProperty.call(TELL_LABEL, p.tell) ? TELL_LABEL[p.tell] : "";
+      return n && lab ? n + " (" + lab + ")" : n;
+    }).filter(Boolean).join(", ");
+  }
+
   // Flatten every visible person (present + all nearby + tracked beliefs) into one list — the dedup
   // scope, so a tracked houseguest reads with the same first-name disambiguation as everyone on screen.
   function _allPeople(w) {
@@ -178,9 +188,11 @@
     const names = _displayNames(_allPeople(w));
     const join = (list) => (list || []).map((p) => names.format(p)).filter(Boolean).join(", ");
 
+    const joinWithTells = (list) => _joinWithTells(list, (p) => names.format(p));
+
     // HEADER: the room you're in (+ your corner of a big room, 0077) + who's with you — or "alone".
     const present = Array.isArray(w.present) ? w.present : [];
-    const here = present.length ? join(present) : "alone";
+    const here = present.length ? joinWithTells(present) : "alone";
     const roomName = roomLabel(w.room) + (w.zone ? " · " + String(w.zone).replace(/-/g, " ") : "");
     const headLine = roomName + " — " + here;
     // TRANS-26: guard the write — the head text was wholesale-replaced on EVERY ~25s poll even

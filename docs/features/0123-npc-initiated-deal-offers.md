@@ -66,7 +66,7 @@ is a **new front door** onto it, not new plumbing.
     any deal; composes with 0121 depth + 0109 duration + the jury reliability signal).
   - **decline** → no deal; a small **grounded cooling** of the rebuffed NPC's read of the player (hidden —
     the Vault Wall working: the change is real, recorded, invisible).
-- **Calibration safety:** the whole feature is behind a **default-off** flag `ORWELL_NPC_DEAL_OFFERS`, drives
+- **Calibration safety:** the whole feature is behind a **default-ON** flag `ORWELL_NPC_DEAL_OFFERS` (`=0` opts out), drives
   a **dedicated** seeded rng, and only ever acts at a lull — so with the flag off **no offer is generated,
   no pending is raised, nothing folds** ⇒ byte-identical to today (juryReach/gradient/UAT unmoved). The
   golden driver leaves it off ⇒ the fixture never stales.
@@ -124,7 +124,7 @@ PendingDecisionView.kind += "deal-offer"    // + offer:{ from, kind, terms } det
 submitDecision({ kind:"deal-offer", vote:"accept"|"decline" })   // existing lever; no new tool
   accept  → deals.make([player, from], kind, terms, evId, week)  // the SAME spine every deal uses
   decline → recorded + one bounded seeded directed cooling of the NPC's read of the player (hidden)
-flag: ORWELL_NPC_DEAL_OFFERS (default off)  // off ⇒ no offer, no pending, no fold ⇒ byte-identical
+flag: ORWELL_NPC_DEAL_OFFERS (default ON; =0 opts out)  // off ⇒ no offer, no pending, no fold ⇒ byte-identical
 surface: event [player, from], NOT hidden   // player-witnessed approach (0002), never Vault content
 ```
 

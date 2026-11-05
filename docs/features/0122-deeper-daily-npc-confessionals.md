@@ -73,7 +73,7 @@ player or admin (Vault Wall #1/#2) — and **folded into the soul** so the NPC's
 - **A once-per-in-game-day confessional sweep** for the living NPCs, anchored to the in-game **day boundary**
   (0066/0117–0119), with a **bare-game skip** (an NPC with no recent salient witnessed event **and** no clear
   target/ally records nothing that day).
-- **Calibration safety:** the whole feature is behind a **default-off** flag `ORWELL_CONFESSIONAL_DEPTH` and
+- **Calibration safety:** the whole feature is behind a **default-ON** flag `ORWELL_CONFESSIONAL_DEPTH` (`=0` opts out) and
   drives a **dedicated** seeded rng (the `confessional:` family already used for phrasing/recency) — never the
   shared society/vote stream — so with the flag off the confessional stream + the seeded spine are
   **byte-identical** to 0040. Turned on in the real deploy (`smoke.sh` + `orwell-install.sh`, per the
@@ -144,7 +144,7 @@ isBareGame(npc, rel, recentFacts): boolean               // no salient recent wi
                                                          // target/ally ⇒ the NPC stays quiet this day
 dailyConfessionalSweep(...): void                        // once per in-game day, most living NPCs confess
                                                          // (bare skipped); records Vault-only + folds to soul
-flag: ORWELL_CONFESSIONAL_DEPTH (default off)            // off ⇒ byte-identical to 0040; dedicated rng only
+flag: ORWELL_CONFESSIONAL_DEPTH (default ON; =0 opts out)            // off ⇒ byte-identical to 0040; dedicated rng only
 gate: perConversationClockLive()                         // the daily sweep only runs when the clock is live
                                                          // (clock-off ⇒ sweep inert; guarded by perConversationClockNeutral)
 wall: record{ hidden:true, witnessSet:[npc] }            // player NEVER a witness; admin reads no events (0040)

@@ -806,6 +806,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // harness — which never enables them — is byte-identical. Uses its own dedicated rng, never this tick's.
   sandbox.session.campaignTick();
 
+  // B29 - observers react to a visible tell (comfort / exploit / avoid). SELF-GATED: a no-op (zero draws) unless ORWELL_TELL_REACTIONS and ORWELL_NPC_TELLS are on.
+  sandbox.session.tellReactionsTick();
+
   // 0100 — advance the sequestered JURY HOUSE one bounded stretch: the last-nine evictees keep living
   // (hidden juror↔juror scenes) and a grievance one juror carried out DIFFUSES to others, hardening the
   // room's read of the responsible houseguest before the finale. SELF-GATED: a no-op (ZERO draws, no
@@ -849,6 +852,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
     const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
     const relm = sandbox.engine.relationships;
+    const beliefObs = sandbox.session.beliefReceiptObserver();
     spreadForScenes(
       scenes.filter((s) => s.initiator !== core.house!.player.id && s.partner !== core.house!.player.id).map((s) => [s.initiator, s.partner] as const),
       {
@@ -861,6 +865,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
         audienceOf: () => 0,
+        // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
+        ...(beliefObs ? { onTold: (r: { listener: EntityId; subject: EntityId; confidence: number }) => beliefObs({ listener: r.listener, subject: r.subject, type: "gossip", confidence: r.confidence, delta: {} }) } : {}),
       },
     );
   } else if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
@@ -956,7 +962,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // 0091 — TRIGGER ERUPTIONS: AFTER the society/confessional folds, a plausibly-strained, co-present
   // houseguest whose volatile sealed trigger meets a fresh SPARK this tick (a conflict/betrayal scene that
   // just named them) can DETONATE into a Vault-safe PUBLIC house event the player witnesses. STRICTLY
-  // OPT-IN (default-OFF `ORWELL_TRIGGERS`): when off — the default, and the state the seeded juryReach/
+  // OPT-OUT (default-ON `ORWELL_TRIGGERS`; `=0` disables): when off — the state the seeded juryReach/
   // gradient/UAT sims run in — the call is skipped entirely (no precipitant map built, no draw, no event,
   // no fold), so this tick is byte-identical to the pre-feature build and the seeded competition/vote spine
   // is untouched. When on, the fire check runs on a DEDICATED rng INSIDE the session (never this shared
@@ -1054,7 +1060,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // scheduler runs, so the scheduler can consult it. It scores the simmering hidden threads (tension /
   // staleness / board salience) on a PURE pass (no rng) and stores a note proposing which threads to
   // EMPHASIZE — a clamped, boost-only re-weight of 0060's OPEN-SET surfacing selection, never an outcome
-  // (ADR 0005). SELF-GATED (default-OFF `ORWELL_SHOWRUNNER`): off ⇒ no note composed ⇒ the scheduler below
+  // (ADR 0005). SELF-GATED (default-ON `ORWELL_SHOWRUNNER`; `=0` disables): off ⇒ no note composed ⇒ the scheduler below
   // is byte-identical, and the note-composition pass draws ZERO from this shared `rng` either way, so the
   // seeded competition/vote/jury spine is untouched ON or OFF (the load-bearing calibration guarantee).
   sandbox.session.showrunnerTick();

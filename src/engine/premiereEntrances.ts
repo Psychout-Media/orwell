@@ -1,5 +1,5 @@
 /**
- * A9 - PREMIERE ENTRANCES + THE CHAMPAGNE TOAST (`ORWELL_PREMIERE_ENTRANCES`, default OFF).
+ * A9 - PREMIERE ENTRANCES + THE CHAMPAGNE TOAST (`ORWELL_PREMIERE_ENTRANCES`, default ON; `=0` opts out).
  *
  * Pure (no I/O). The premiere's opening is staged as sixteen INDIVIDUAL entrances (one houseguest per
  * `advanceGame`, the player's own slot among them) followed by the toast. The ORDER is a SEEDED SIDE

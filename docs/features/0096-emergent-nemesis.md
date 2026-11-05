@@ -2,7 +2,7 @@
 
 > **Status:** ✅ **BUILT (2026-07-06).** `selectNemesis`/`NEMESIS` in `src/engine/campaigns.ts` (pure, no
 > rng of its own), wired into `GameSessionAdapter.campaignTick` (selection + drive/campaign escalation)
-> and `npcVoice` (the Vault-safe `rivalry` tone hint). Opt-in behind the existing `ORWELL_CAMPAIGNS`.
+> and `npcVoice` (the Vault-safe `rivalry` tone hint). Default ON behind the existing `ORWELL_CAMPAIGNS` (`=0` opts out).
 > Wired in `cucumber.cjs`.
 > **Builds on (does NOT duplicate):** 0085 (NPC campaigns — `src/engine/campaigns.ts`,
 > `GameSessionAdapter.campaignTick` / `campaignTiltFor`), 0086 (houseguest drives — the **`target`**
