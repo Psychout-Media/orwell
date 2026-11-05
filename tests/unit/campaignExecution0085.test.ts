@@ -77,6 +77,7 @@ describe("0085 B2 — when enabled, campaigns form, advance, and diffuse", () =>
     rel.edge(ids[0]!, ids[1]!).threat = 0.85; // owner ids[0] wants ids[1] (the target) out
     rel.edge(ids[0]!, ids[2]!).affinity = 0.95; // ids[2] is the closest ally — the lobby reaches them
     session.setCampaignsEnabled(true);
+    session.setVoteCountEnabled(false); session.setMoodCampaignEnabled(false); session.setCampaignMemoryEnabled(false); session.setNpcTellsEnabled(false); // explicit OFF: these default ON now and gate/alter campaign formation
     const tiltFor = (target: EntityId, voter: EntityId): number =>
       (session as unknown as { campaignTiltFor(t: EntityId, v: EntityId): number }).campaignTiltFor(target, voter);
 

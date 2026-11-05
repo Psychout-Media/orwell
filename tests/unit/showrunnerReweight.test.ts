@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it, expect, afterEach } from "vitest";
 
 // B36: this test asserts the OLD graph-diffusion path (or its neutrality / a positive control that rides it). The co-presence layer (ORWELL_GOSSIP_COPRESENCE) REPLACES that path when on, so the

@@ -777,10 +777,9 @@ const GOSSIP_DRIFT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_GOSSIP_DRIFT");
  * 0066 Phase-2 (#1125) — the three sleep-economy EXTENSIONS, each behind its OWN dedicated flag
  * (sibling to `ORWELL_CAMPAIGNS`/`ORWELL_TRAJECTORIES`/`ORWELL_JURY_HOUSE`), independently toggleable so
  * calibration neutrality is provable for EACH in isolation (the brief: "each behind its own flag,
- * byte-identical when off"). **Polarity is NOT uniform across the trio** — items 1–2 default ON
- * (opt-out via `=0`, per the 2026-07-12 owner ruling that a real playtest needs them live) while item 3
- * stays default OFF (opt-in via `=1`); see each item's own annotation below for the authoritative polarity
- * — don't infer it from this summary alone. All three only mean anything while the master clock is
+ * byte-identical when off"). **All three now default ON** (opt-out via `=0`: items 1–2 per the 2026-07-12
+ * owner ruling that a real playtest needs them live, item 3 per the 2026-11-05 PO ruling "if it's built,
+ * turn it on"); see each item's own annotation below for the authoritative polarity. All three only mean anything while the master clock is
  * running (`ORWELL_TIME_OF_DAY`); each gates ON TOP of it, and when its own flag is off its effect is the
  * identity (scale 1 / meter 0 / no extra advance) ⇒ every seeded gate (juryReach/gradient/UAT) is
  * BYTE-IDENTICAL regardless of any of the three (the calibration/UAT harness leaves `ORWELL_TIME_OF_DAY`
@@ -798,8 +797,8 @@ const GOSSIP_DRIFT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_GOSSIP_DRIFT");
  *     to an earlier bedtime (social, not just comps). **Default ON** (set `=0` to disable) — see the
  *     per-flag comment above its const below.
  *  3. `ORWELL_MULTI_NIGHT_FATIGUE` — the compounding multi-night fatigue meter (consecutive late nights
- *     stack a deeper deficit; rested nights recover). **Default OFF** (set `=1` to enable) — the one
- *     flag in the trio that stayed opt-in.
+ *     stack a deeper deficit; rested nights recover). **Default ON** (set `=0` to disable) — flipped
+ *     2026-11-05 (PO: "if it's built, turn it on").
  */
 // Default ON — a real playtest runs the master clock (the FE flips `time_of_day_enabled` on at boot), and
 // with per-conversation advance OFF the day had no in-fiction time between ceremonies (the fast-forward
@@ -1154,10 +1153,10 @@ export class GameSessionAdapter implements GameSession {
     for (const p of this.derivePitches(hoh)) {
       const witnesses = [...new Set([p.from, hoh, ...this.coPresentWitnessesOf(p.from)])];
       const verb = p.kind === "safety" ? "asks for safety" : p.kind === "info" ? "trades information" : p.kind === "threat" ? "makes a veiled threat" : "makes a pitch";
-      this.onPlayerEvent(`${this.nameOf(p.from)} ${verb} with ${this.nameOf(hoh)} before nominations`, witnesses, "lobbying");
+      this.onPlayerEvent(`${this.nameOf(p.from)} ${verb} with ${this.nameOf(hoh)} before nominations (week ${s.week})`, witnesses, "lobbying");
       const trust = this.rel.edge(hoh, p.from).trust;
       if (p.kind === "safety" && trust >= DECISION.npcDeal.mutualTrustMin && !this.deals.open().some((d) => d.parties.includes(p.from) && d.parties.includes(hoh))) {
-        const evId = this.onPlayerEvent(`${this.nameOf(p.from)} and ${this.nameOf(hoh)} quietly seal a safety pact`, [p.from, hoh], "deal");
+        const evId = this.onPlayerEvent(`${this.nameOf(p.from)} and ${this.nameOf(hoh)} quietly seal a safety pact (week ${s.week})`, [p.from, hoh], "deal");
         this.deals.make([p.from, hoh], "safety", "a quiet pact sealed away from the cameras", evId, s.week);
       }
     }
@@ -1298,8 +1297,8 @@ export class GameSessionAdapter implements GameSession {
    */
   private juryHouseEnabled = JURY_HOUSE_ENABLED_DEFAULT;
   /**
-   * 0066 Phase-2 (#1125) — the three sleep-economy extension flags, each DEFAULT OFF (its dedicated env
-   * default) and each self-gated: when off, its effect is the identity so the seeded calibration spine is
+   * 0066 Phase-2 (#1125) — the three sleep-economy extension flags, each DEFAULT ON (its dedicated env
+   * default; `=0` disables) and each self-gated: when off, its effect is the identity so the seeded calibration spine is
    * BYTE-IDENTICAL (proven per-extension by the dedicated neutrality tests). All three also require the
    * master clock (`timeOfDayEnabled`). A test flips each via its `set*Enabled` setter.
    *   1. per-conversation clock advance · 2. NPC next-day social fatigue · 3. compounding multi-night meter.
