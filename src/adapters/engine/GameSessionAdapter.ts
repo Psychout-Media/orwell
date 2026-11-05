@@ -10223,8 +10223,11 @@ export class GameSessionAdapter implements GameSession {
     const npc = this.house.npcs.find((n) => n.id === npcId);
     const evicted = new Set(this.live.evictionOrder);
     if (!npc || evicted.has(npcId)) return null; // unknown / departed ⇒ no confidence path
-    const secret = this.headlineSecretOf(npc);
     const none: ConfideResult = { disclosed: false, tier: "none", truthful: true };
+    // AMEND 0075 item 4: "never a cold pop-up" is ENGINE-enforced - a houseguest who is not in the player's room is not in a scene with them, so they disclose nothing (no content, no bond fold).
+    // Only when presence is tracked (a bare harness without a house map is unchanged).
+    if (this.presence && this.presence.get(PLAYER) !== this.presence.get(npcId)) return none;
+    const secret = this.headlineSecretOf(npc);
     if (!secret) return none; // nothing sealed to share
 
     const signals = this.confidenceSignalsFor(npc);
