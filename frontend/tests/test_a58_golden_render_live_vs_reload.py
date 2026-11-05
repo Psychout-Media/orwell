@@ -117,6 +117,6 @@ def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id,
     # A88 (from the CI MutationObserver trace): the live bubble is created with a TRANSIENT `streaming` class (spinner/skeleton) that the reload never has - by design, normalised here.
     _norm = lambda c: " ".join(x for x in c.split() if x != "streaming")  # noqa: E731
     assert _norm(mid["cls"]) == _norm(reloaded["cls"]), f"{case_id}: wrapper classes at first paint differ from the reload: {mid['cls']!r} vs {reloaded['cls']!r}"
-    # A88 drift 2 (named): on reload the avatar initials ("PR") sit INSIDE the `.role` element, on the live bubble they arrive at settle, so the label differs for the whole stream; compare ignoring a leading initials chip.
-    _strip = lambda r: r[2:] if len(r) > 2 and r[:2].isupper() and r[2:3].isupper() else r  # noqa: E731
-    assert _strip(mid["role"]) == _strip(reloaded["role"]), f"{case_id}: role label at first paint differs from the reload: {mid['role']!r} vs {reloaded['role']!r}"
+    # A88 drift 2 was a MEASUREMENT artifact, not a render drift: the avatar-initials chip ("PR") is attached by orwellChatFaces.js's MutationObserver in a queued MICROTASK, so a MutationObserver callback
+    # (what the CI trace used) sees the bare "Production" one microtask early, while every painted frame (and this harness's polling) already reads "PRProduction", exactly like the reload. No normalisation needed.
+    assert mid["role"] == reloaded["role"], f"{case_id}: role label at first paint differs from the reload: {mid['role']!r} vs {reloaded['role']!r}"
