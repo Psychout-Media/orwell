@@ -812,6 +812,8 @@ export interface SeasonCtx {
   assuranceProtects?: (target: EntityId, holder: EntityId) => boolean;
   /** B7 M1 (ORWELL_VETO_MEMORY): how much MORE worth saving `nominee` is to the veto `holder` from what the holder remembers / believes / owes (signed: grudge or 'they target me' lowers, favor or an owed deal raises). Absent => +0, byte-identical. */
   vetoMemoryFor?: (nominee: EntityId, holder: EntityId) => number;
+  /** B30 (ORWELL_MOOD_VETO): how the veto holder's visible emotional state shifts how worth saving `nominee` is (a rattled holder rescues the people they are close to; a snapping one is less forgiving). Absent => 0, byte-identical. */
+  moodVetoFor?: (nominee: EntityId, holder: EntityId) => number;
   /** B7 M4b (ORWELL_HC_MEMORY, approved tie-in #6): how much more (+) or less (-) an NPC Houseguest's-Choice holder wants `candidate` as the sixth veto player, from what they remember / believe / owe. Absent => +0, byte-identical. */
   hcMemoryFor?: (candidate: EntityId, holder: EntityId) => number;
   /** B7 M3 (ORWELL_DEAL_NOMS): the nomination-score push from the HOH's open protective deals with `target` (<= 0). Absent => byte-identical. */
@@ -2793,8 +2795,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         : ctx.rel.chooseVetoSave(
           s.vetoHolder!, nominees,
           // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor || ctx.vetoMemoryFor
-            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0)
+          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor
+            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0)
             : undefined,
         );
       if (!saved) {

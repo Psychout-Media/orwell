@@ -29,7 +29,7 @@ import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
-import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION } from "../../engine/tellReactions";
+import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
@@ -1438,6 +1438,20 @@ export class GameSessionAdapter implements GameSession {
   /** B29 (ORWELL_TELL_REACTIONS, default OFF, never-flipped): observers react to a visible tell (comfort / exploit / avoid). Engine-only state, persisted (`tellReactions`). */
   private tellReactionsEnabled = process.env.ORWELL_TELL_REACTIONS === "1";
   setTellReactionsEnabled(on: boolean): void { this.tellReactionsEnabled = on; }
+  /** B30 (ORWELL_MOOD_VETO / ORWELL_MOOD_APPROACH, default OFF, never-flipped; each needs ORWELL_NPC_TELLS): emotion into the veto save and into who seeks the player out. */
+  private moodVetoEnabled = process.env.ORWELL_MOOD_VETO === "1";
+  setMoodVetoEnabled(on: boolean): void { this.moodVetoEnabled = on; }
+  private moodApproachEnabled = process.env.ORWELL_MOOD_APPROACH === "1";
+  setMoodApproachEnabled(on: boolean): void { this.moodApproachEnabled = on; }
+  moodVetoFor(nominee: EntityId, holder: EntityId): number {
+    if (!this.moodVetoEnabled || !this.npcTellsEnabled || holder === PLAYER) return 0;
+    const e = this.rel.edge(holder, nominee);
+    return moodVetoTerm(this.soulObj(holder)?.tells, (e.trust + e.affinity) / 2);
+  }
+  moodApproachFor(npc: EntityId): number {
+    if (!this.moodApproachEnabled || !this.npcTellsEnabled || npc === PLAYER) return 0;
+    return moodApproachTerm(this.soulObj(npc)?.tells);
+  }
   /** "holder|subject" -> the holder's decaying exploit tilt toward the visibly rattled subject. */
   private tellExploit: Record<string, number> = {};
   /** "observer|target" -> the week the observer last reacted to that target (the per-pair cooldown). */
@@ -5157,7 +5171,8 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachMemoryEnabled ? (n) => this.approachMemoryFor(n, player) : undefined);
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined,
+      this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined);
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -7639,6 +7654,7 @@ export class GameSessionAdapter implements GameSession {
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
+      ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),

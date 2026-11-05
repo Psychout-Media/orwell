@@ -104,6 +104,10 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A54 / #2017 M5: npcVoice hands the narrator what the NPC remembers about the player (top 3 plain facts) + an engine-decided, rate-limited bringUp. OFF unless exactly '1'; never-flipped.
   // B29 / #2017 E3: observers react to a visible tell (comfort / exploit / avoid; needs ORWELL_NPC_TELLS). OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_TELL_REACTIONS', key: 'tellReactions', parser: 'strict' },
+  // B30 / #2017 E4a: a visibly rattled veto holder rescues the nominee they are close to (needs ORWELL_NPC_TELLS). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_MOOD_VETO', key: 'moodVeto', parser: 'strict' },
+  // B30 / #2017 E4a: who seeks the player out reads the NPC's visible emotional state (needs ORWELL_NPC_TELLS). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_MOOD_APPROACH', key: 'moodApproach', parser: 'strict' },
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'strict' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'strict' },

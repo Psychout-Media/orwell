@@ -56,3 +56,27 @@ export function chooseTellReaction(i: ReactionInput): TellReaction | null {
 export const addExploit = (cur: number): number => Math.min(TELL_REACTION.exploitCap, cur + TELL_REACTION.exploitTilt);
 /** The exploit tilt after a tick of decay (it fades; a lasting tilt needs the tell to persist). */
 export const decayExploit = (cur: number): number => (cur * TELL_REACTION.exploitDecay < 0.005 ? 0 : cur * TELL_REACTION.exploitDecay);
+
+/**
+ * B30 (#2017 15.6 E4a) - emotion into more decisions. PURE bounded terms read off an NPC's persisted tells (words only), each behind its OWN flag:
+ *  - veto save (ORWELL_MOOD_VETO): a visibly rattled veto holder (withdrawn / tearful / brittle-calm) rescues the nominee they are close to (+ `vetoRescue` x bond); a snapping holder is less forgiving (- `vetoSnap`).
+ *  - approaches (ORWELL_MOOD_APPROACH): a withdrawn / tearful NPC seeks the player out less, a snapping one a little less, a giddy / warm-open one more.
+ */
+export const MOOD_TERMS = { vetoRescue: 0.08, vetoSnap: 0.05, approachWithdrawn: -0.12, approachSnapping: -0.06, approachUp: 0.08 } as const;
+const LOW = new Set<TellKind>(["withdrawn", "tearful", "brittle-calm"]);
+const UP = new Set<TellKind>(["giddy", "warm-open"]);
+
+export function moodVetoTerm(tells: ReadonlyArray<{ kind: TellKind }> | undefined, bond: number): number {
+  if (!tells?.length) return 0;
+  if (tells.some((t) => LOW.has(t.kind))) return MOOD_TERMS.vetoRescue * clamp01(bond);
+  if (tells.some((t) => t.kind === "snapping")) return -MOOD_TERMS.vetoSnap;
+  return 0;
+}
+
+export function moodApproachTerm(tells: ReadonlyArray<{ kind: TellKind }> | undefined): number {
+  if (!tells?.length) return 0;
+  if (tells.some((t) => t.kind === "withdrawn" || t.kind === "tearful")) return MOOD_TERMS.approachWithdrawn;
+  if (tells.some((t) => t.kind === "snapping")) return MOOD_TERMS.approachSnapping;
+  if (tells.some((t) => UP.has(t.kind))) return MOOD_TERMS.approachUp;
+  return 0;
+}
