@@ -1,0 +1,5 @@
+{
+  "_note": "A41 silent-skip ceilings per CI lane (max tests allowed to skip). Raising one is a deliberate reviewed edit. Measured with -rs; see docs/ (A41).",
+  "unit": null,
+  "browser": null
+}
