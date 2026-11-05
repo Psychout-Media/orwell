@@ -25,3 +25,20 @@ describe("src/domain/num clamps", () => {
     expect(offenders, "use src/domain/num instead of a local clamp01").toEqual([]);
   });
 });
+
+import { clamp, fnv1a } from "../../src/domain/num";
+describe("src/domain/num clamp + fnv1a (B47)", () => {
+  it("clamp is the bare form: finite clamps, NaN stays NaN", () => {
+    expect([clamp(-5, 0, 10), clamp(5, 0, 10), clamp(50, 0, 10), clamp(2, 3, 3)]).toEqual([0, 5, 10, 3]);
+    expect(Number.isNaN(clamp(Number.NaN, 0, 1))).toBe(true);
+  });
+  it("fnv1a equals BOTH former implementations bit for bit (per-step >>>0 and end-only >>>0)", () => {
+    const perStep = (s: string): number => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; };
+    const endOnly = (s: string): number => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return h >>> 0; };
+    for (const s of ["", "a", "npc:7|archetype", "0|npc:12|forgiveness", "id|style anchor", "héllo ✓", "x".repeat(500)]) {
+      expect(fnv1a(s)).toBe(perStep(s));
+      expect(fnv1a(s)).toBe(endOnly(s));
+    }
+    expect(fnv1a("a")).toBe(0xe40c292c); // the published FNV-1a 32-bit test vector
+  });
+});

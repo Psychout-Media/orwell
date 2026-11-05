@@ -20,6 +20,7 @@ import {
   GENESIS_INK_MIN, GENESIS_INK_SPAN, GENESIS_LOOK_FEATURES,
 } from "./genesisConstants";
 import type { GenesisCastingRole } from "./genesisConstants";
+import { clamp } from "../domain/num";
 
 /**
  * Feature 0116 — model-authored cast genesis: the ENGINE VALIDATION ENVELOPE (pure, no I/O).
@@ -493,7 +494,6 @@ export function hitsLegacyDenyList(name: string): boolean {
 }
 
 // ── Stat band clamp + renormalize (§3 "Stats": no model number escapes the clamp) ───────────────────
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const STAT = GENESIS_STAT_CLAMP;
 
 /**
