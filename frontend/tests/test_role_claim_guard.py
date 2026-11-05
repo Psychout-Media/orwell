@@ -467,3 +467,45 @@ def test_the_loose_out_cue_is_eviction_phase_only_but_the_strong_forms_hold_in_e
     assert stripped("Other Delta has left us.\n", comp)[1], "'has left us' is a departure in any phase"
     assert stripped("Other Delta is leaving tonight.\n", comp)[1]
     assert stripped("Other Delta packs up and leaves.\n", comp)[1]
+
+
+# ── A78: the seven role-claim cues that no test depended on (a mutation sweep over `_CUES` left the suite green when any of these indices was deleted) ──────────────────────────────────────────────
+# One positive (a wrong / uncommitted person => stripped) and one negative (the committed person, or a hypothetical clause => untouched) per cue, and a sweep proving each positive DEPENDS on its own cue.
+# (index in rc._CUES, label, positive sentence, board kwargs, committed-person sentence, same board kwargs)
+CUE_CASES = [
+    (4, "veto holder/winner (is|:)", "Veto holder is Other Delta.", {}, "Veto holder is Vetoer Gamma.", {"vetoHolderName": "Vetoer Gamma"}),
+    (5, "veto ... in his/her hand", "Other Delta grins, the Power of Veto in her hand.", {}, "Vetoer Gamma grins, the Power of Veto in her hand.", {"vetoHolderName": "Vetoer Gamma"}),
+    (6, "veto hangs/rests around|on|from|with", "The Power of Veto hangs around Other Delta's neck.", {}, "The Power of Veto hangs around Vetoer Gamma's neck.", {"vetoHolderName": "Vetoer Gamma"}),
+    (11, "new/next HOH is|was|:", "The new HOH was Other Delta.", {}, "The new HOH was Hoh Person.", {}),
+    (12, "HOH is|goes to|winner|champion", "The HOH goes to Other Delta.", {}, "The HOH goes to Hoh Person.", {}),
+    (16, "the nominees are|is", "The nominees are Other Delta and Nom Beta.", {}, "The nominees are Nom Alpha and Nom Beta.", {}),
+    (23, "the houseguest (who is) leaving ... is", "The houseguest leaving tonight is Nom Beta.", {"phase": "eviction", "evictedNames": ["Nom Alpha"]},
+     "The houseguest leaving tonight is Nom Alpha.", {"phase": "eviction", "evictedNames": ["Nom Alpha"]}),
+]
+HYPOTHETICAL = {
+    4: "If the veto holder is Other Delta, everything changes.", 5: "If Other Delta had the Power of Veto in her hand, nothing would stand.",
+    6: "Whoever the Power of Veto hangs around, Other Delta wants it.", 11: "If the new HOH was Other Delta, she would sweat.", 12: "If the HOH goes to Other Delta, the house erupts.",
+    16: "If the nominees are Other Delta and Nom Beta, they will campaign.", 23: "If the houseguest leaving tonight is Nom Beta, the house will cry.",
+}
+
+
+@pytest.mark.parametrize("idx,label,pos,pos_kw,neg,neg_kw", CUE_CASES, ids=[f"cue{c[0]}" for c in CUE_CASES])
+def test_a78_each_cue_strips_the_wrong_person_and_leaves_the_committed_one(idx, label, pos, pos_kw, neg, neg_kw):
+    kept, out, _ = stripped(pos, sig(**pos_kw))
+    wrong = "Nom Beta" if idx == 23 else "Other Delta"
+    assert out and wrong not in kept, f"cue #{idx} ({label}): the wrong person was not stripped: {kept!r}"
+    kept2, out2, _ = stripped(neg, sig(**neg_kw))
+    assert kept2 == neg and not out2, f"cue #{idx} ({label}): the committed person must pass untouched: {kept2!r} {out2!r}"
+    hyp = HYPOTHETICAL[idx]
+    kept3, out3, _ = stripped(hyp, sig(**pos_kw))
+    assert kept3 == hyp and not out3, f"cue #{idx} ({label}): a hypothetical clause must pass untouched: {kept3!r}"
+
+
+@pytest.mark.parametrize("idx,label,pos,pos_kw,neg,neg_kw", CUE_CASES, ids=[f"cue{c[0]}" for c in CUE_CASES])
+def test_a78_the_positive_depends_on_its_own_cue_not_on_a_shadowing_one(monkeypatch, idx, label, pos, pos_kw, neg, neg_kw):
+    """The sweep, inside the suite: delete cue `idx` and its positive sentence must stop being stripped. If another cue still strips it the cue is shadowed - delete it and say so."""
+    _, out_with, _ = stripped(pos, sig(**pos_kw))
+    assert out_with
+    monkeypatch.setattr(rc, "_CUES", [c for i, c in enumerate(rc._CUES) if i != idx])
+    _, out_without, _ = stripped(pos, sig(**pos_kw))
+    assert not out_without, f"cue #{idx} ({label}) is shadowed by another cue (the sentence is still stripped without it): remove the dead cue"
