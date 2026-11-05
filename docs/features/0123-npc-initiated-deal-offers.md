@@ -1,5 +1,7 @@
 # 0123 — NPC-initiated deal offers (the house comes to YOU)
 
+> **Current default (AMEND 2026-11-05):** `ORWELL_NPC_DEAL_OFFERS` is **default ON** in the engine (`NPC_DEAL_OFFERS_ENABLED_DEFAULT = flagDefaultOn(...)`, #1996); `=0` turns it off. The "default-off" / "deploy opts in" wording below records how it was built and calibrated (byte-identical OFF), not today's default. The offer is **open state voiced in chat, not a pending card** (see the 2026-11-01 amendment below); sections that still say "pending" describe the first build.
+
 > **Status:** ✅ Built (BDD/TDD-first; BDD-gated in `cucumber.cjs`). Closes the last gap in the deal system:
 > today the **player** proposes deals (`makeDeal`) and **NPCs deal with each other** (`mintNpcDeal`, hidden),
 > but **no houseguest ever comes to the player with an offer**. This adds that pathway — a motivated NPC

@@ -15,7 +15,7 @@ Feature: Negotiated deal duration
 
   # @standalone-module: a pure-fold claim (the no-duration floor is byte-identical to a bare 0039 betrayal), so it runs the standalone DealLedger/RelationshipModel by design; the live no-term default is also pinned in tests/unit/dealTermLive.test.ts.
   @standalone-module
-  Scenario: A no-duration break is byte-identical to 0039 (the feature is off by default)
+  Scenario: A no-duration break is byte-identical to 0039 (no duration is the floor, not a flag)
     Given a deal with no negotiated duration and no label
     When the promisor breaks it with no week context
     Then the betrayal-shock folded is exactly the unscaled 0039 magnitude
