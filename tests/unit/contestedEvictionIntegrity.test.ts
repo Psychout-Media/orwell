@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { freshTmpDir } from "../support/freshTmpDir";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -37,7 +36,7 @@ import { StaleBeatError } from "../../src/domain/errors";
  *
  * HARD rule: roles only — no names.
  */
-const freshDir = (): string => mkdtempSync(join(tmpdir(), "orwell-1106-"));
+const freshDir = (): string => freshTmpDir("orwell-1106-");
 
 function resolveLegally(s: GameSessionAdapter, p: PendingDecisionView): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
