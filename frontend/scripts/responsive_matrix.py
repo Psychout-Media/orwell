@@ -236,10 +236,10 @@ def _auto_resolve(p):
         return {"kind": kind, "statement": "What was your biggest move?"}
     if kind == "exit-interview":
         # 0130 — the player-evictee's producer sit-down. The pending carries `stances`
-        # (gracious/defiant/bitter), NOT the generic `options` list; pick the first legal
+        # (gracious/defiant/bitter) and the engine reads the pick from the shared single-pick field (`vote` OR `choice`) with `statement` as the words - NOT `stance`/`message` (the engine rejected those with 'a legal exit stance is required', so a staged season where the player was evicted never finished). Pick the first legal
         # posture + throwaway words so the finish loop clears the eviction and reaches endgame.
         stances = p.get("stances") or ["gracious"]
-        return {"kind": kind, "stance": stances[0], "message": "Take care."}
+        return {"kind": kind, "vote": stances[0], "statement": "Take care."}
     if kind == "self-evict":
         # Never volunteer the player out of the game during a fast-forward.
         return None
