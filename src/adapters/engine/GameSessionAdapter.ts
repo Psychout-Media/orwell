@@ -55,6 +55,7 @@ import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deal
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
+import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -256,7 +257,7 @@ import { flagDefaultOn as flagDefaultOnIn } from "../../domain/flagDefaults";
 /** The engine's default-on flag read: the pure domain parser over the process env (the one ambient read lives here, in the adapter). */
 const flagDefaultOn = (name: string): boolean => flagDefaultOnIn(name, process.env);
 import {
-  loadSeededRelationships, migrateSeededRelationships, normalizeTieNature, TIE_AFFINITY_BIAS, SHOWMANCE_SPARK_BIAS,
+  loadSeededRelationships, migrateSeededRelationships, normalizeTieNature, type TieNature, TIE_AFFINITY_BIAS, SHOWMANCE_SPARK_BIAS,
   DEFAULT_TIE_BUDGET, DEFAULT_SHOWMANCE_BUDGET, nextShowmanceStage,
   preGameTieToRetrospectiveProse, showmanceToRetrospectiveProse,
   tieExposureOf, tieNatureProse, exposedTies, nextTieExposure,
@@ -6812,6 +6813,45 @@ export class GameSessionAdapter implements GameSession {
     return events;
   }
 
+  /** B50 - accusing a pre-show tie has consequences (Ryne's accuseTie ruling). OFF unless exactly `ORWELL_ACCUSE_COST=1`; never-flipped. OFF => accuseTie is exactly today's (a miss is free, a hit costs the accuser nothing). */
+  private accuseCostEnabled = process.env.ORWELL_ACCUSE_COST === "1";
+  setAccuseCostEnabled(on: boolean): void { this.accuseCostEnabled = on; }
+  /** B50 - a MISS: each accused houseguest's read of the accuser takes a bounded dent (+ a tiny witness ripple) and remembers it (a conflict). Engine-decided, rng-free; the accuser is the player. */
+  private accuseMissCost(aId: EntityId, bId: EntityId): void {
+    if (!this.accuseCostEnabled || !this.house) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:accuse-miss:${aId}:${bId}:${this.week}:${this.phase}`));
+    for (const member of [aId, bId]) {
+      if (member === PLAYER) continue;
+      this.rel.applyImpactDirected(member, PLAYER, ACCUSE.missImpact, rng);
+      this.remember(member, PLAYER, "scene-conflict", 0.3);
+    }
+    const here = this.whereabouts();
+    const inRoom = here ? new Set(here.present.map((p) => p.id)) : null;
+    for (const w of this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && id !== aId && id !== bId && (!inRoom || inRoom.has(id))))) {
+      this.rel.applyImpactDirected(w, PLAYER, ACCUSE.missRipple, rng);
+    }
+    this.persist();
+  }
+  /** B50 - an honest HIT: each exposed member either RESENTS it or RESPECTS the read, by the engine (a dedicated seeded roll weighted by their distrust of the accuser, their temperament and what the tie was). */
+  private accuseHitReactions(aId: EntityId, bId: EntityId, nature: TieNature): void {
+    if (!this.accuseCostEnabled || !this.house) return;
+    for (const member of [aId, bId]) {
+      if (member === PLAYER) continue;
+      const stats = this.house.npcs.find((n) => n.id === member)?.character.stats;
+      const prickly = stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5;
+      const p = sourChance(this.rel.edge(member, PLAYER).trust, prickly, nature);
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:accuse-react:${member}:${aId}:${bId}:${this.week}:${this.phase}`)).next();
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:accuse-react-fold:${member}:${this.week}:${this.phase}`));
+      if (hitReaction(roll, p) === "sour") {
+        this.rel.applyImpactDirected(member, PLAYER, ACCUSE.hitSourImpact, rng);
+        this.remember(member, PLAYER, "scene-conflict", 0.3);
+      } else {
+        this.rel.applyImpactDirected(member, PLAYER, ACCUSE.hitRespectImpact, rng);
+        this.remember(member, PLAYER, "scene-kindness", 0.2);
+      }
+    }
+  }
+
   /**
    * Feature 0095 — `accuseTie`, the single player-reachable authority for exposing a pre-show tie (the
    * `confide` sibling: the model previews/voices "you two knew each other, didn't you?", the ENGINE
@@ -6825,8 +6865,9 @@ export class GameSessionAdapter implements GameSession {
     this.guardBeatSeq(expectedBeatSeq);
     if (!this.house) return null;
     const tie = this.seededRels.ties.find((t) => (t.a === aId && t.b === bId) || (t.a === bId && t.b === aId));
-    if (!tie) return { landed: false }; // no sealed tie exists ⇒ an ordinary wrong guess, no Vault read
+    if (!tie) { this.accuseMissCost(aId, bId); return { landed: false }; } // no sealed tie exists ⇒ an ordinary wrong guess, no Vault read (B50: it dings the accuser when the layer is on)
     if (this.tieExposureCount >= TIE_REVEAL.maxExposuresPerSeason && tieExposureOf(tie) === "sealed") {
+      this.accuseMissCost(aId, bId);
       return { landed: false }; // the season cap is spent — a real tie can still miss (rare, capped)
     }
     const wasSealed = tieExposureOf(tie) === "sealed";
@@ -6850,6 +6891,7 @@ export class GameSessionAdapter implements GameSession {
     for (const learner of learners) {
       for (const member of [aId, bId] as const) this.rel.applyImpactDirected(learner, member, impact, rng);
     }
+    this.accuseHitReactions(aId, bId, tie.nature);
     // Record it as the PLAYER's own knowledge through the in-game pathway (0002) — the accusation
     // landing is the player's own confirmed read, not a Vault read (they made the accusation).
     this.onConfide?.(
