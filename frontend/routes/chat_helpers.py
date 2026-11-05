@@ -4274,10 +4274,29 @@ _COMP_STARTED_CUES = (
 )
 
 
+# N-16 DECISIVE cues (found in the live week-1 run): a statement that the competition IS LIVE / underway, or has RESOLVED / been WON, is conclusive on its own - production was holding it ("not due yet") and the narrator still
+# announced it, described it, and named a winner with no engine event. A denial ("isn't live yet") or a future mention ("when the competition is live") is not a claim and is exempted in the same clause.
+_COMP_DECISIVE_CUES = (
+    re.compile(r"\b(?:the\s+)?(?:first\s+|second\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way|happening|running)\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:competition|comp)\s+(?:resolves|has\s+resolved|ends|has\s+ended|is\s+over|wraps\s+up|finishes)\b", re.IGNORECASE),
+    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:wins|won|takes|claims)\s+(?:it|the\s+(?:competition|comp|head\s+of\s+household|hoh|crown|key))\b"),
+)
+_COMP_DECISIVE_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether)\b", re.IGNORECASE)
+
+
+def _comp_decisive_hit(text: str) -> bool:
+    for rx in _COMP_DECISIVE_CUES:
+        for m in rx.finditer(text):
+            clause = _N3_CLAUSE_SPLIT_RE.split(text[max(0, m.start() - 60):m.start()])[-1] + text[m.start():m.end()]
+            if not _COMP_DECISIVE_EXEMPT_RE.search(clause):
+                return True
+    return False
+
+
 def _comp_started_cue_hit(text: str) -> bool:
     """A74 - does `text` show >= 2 DISTINCT N-16 'the competition has begun' cue families? The scene-level gate admits such prose to the live-board read (the cheap closed-set gate cannot: this prose
     carries no outcome claim), where `_comp_started_before_due` then decides (comp phase + explicit not-due flag + nothing pending). Pure and cheap; a single stage direction never qualifies."""
-    return bool(text) and sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2
+    return bool(text) and (sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2 or _comp_decisive_hit(text))
 
 
 def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
