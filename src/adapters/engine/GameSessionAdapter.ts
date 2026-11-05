@@ -9170,13 +9170,13 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
-  private inflect(id: EntityId, event: EmotionalEvent): void {
+  private inflect(id: EntityId, event: EmotionalEvent, driftScale?: number): void {
     const soul = this.soulObj(id);
     if (!soul) return;
     const rng = new SeededRandom(hashSeed(
       `${this.gameSeed ?? this.house?.player.name ?? "season"}:arc:${id}:${event}:${soul.emotionalHistory.length}`,
     ));
-    evolveEmotion(soul, event, undefined, rng, { soulDepth: this.soulDepthEnabled });
+    evolveEmotion(soul, event, undefined, rng, { soulDepth: this.soulDepthEnabled, ...(this.driftFixEnabled ? { negativityBias: true, ...(driftScale !== undefined ? { driftScale } : {}) } : {}) });
     if (this.npcTellsEnabled) { const r = refreshTells(soul, this.week); soul.tells = r.tells; this.tellOnsetCount += r.onsets; } // B28: the tells follow the arc and keep their hysteresis (flag-off: untouched)
     const note = arcNote(event, this.week);
     soul.memory.push(note);                 // persisted arc (house snapshot, monotonic — 0007/0030)
@@ -11368,7 +11368,19 @@ export class GameSessionAdapter implements GameSession {
     const m = SCENE_MEMORY_SEVERITY[sceneKind];
     if (!m) return;
     for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
+    // B32 / #2017 15.7 E5 (ORWELL_DRIFT_FIX): the chat scene feeds the emotional arc too - a betrayal / conflict hardens the wronged NPC, kindness softens - weighted by severity and by how much the NPC TRUSTED the player (a friend's betrayal cuts deeper).
+    if (this.driftFixEnabled && this.soulDepthEnabled) {
+      for (const h of holders) {
+        if (h === PLAYER) continue;
+        const trust = this.rel.edge(h, PLAYER).trust;
+        const scale = (m.severity / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, trust)));
+        this.inflect(h, m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
+      }
+    }
   }
+  /** B32 (ORWELL_DRIFT_FIX, default OFF, never-flipped; needs soul depth): chat scenes feed the arc + a negativity bias on temperament drift, so hardening is reachable. */
+  private driftFixEnabled = process.env.ORWELL_DRIFT_FIX === "1";
+  setDriftFixEnabled(on: boolean): void { this.driftFixEnabled = on; }
 
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */
   private rememberFriendAct(holder: EntityId, subject: EntityId, kind: "nominated-by-friend" | "replaced-by-friend"): void {

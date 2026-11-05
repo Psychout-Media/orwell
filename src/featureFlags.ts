@@ -111,6 +111,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B31 / #2017 E4b: visible mood shifts NPC deal consent (protection accepted more when rattled) and campaign formation (a rattled NPC forms none). OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_MOOD_DEAL', key: 'moodDeal', parser: 'strict' },
   { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'strict' },
+  // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'strict' },
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'strict' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'strict' },
