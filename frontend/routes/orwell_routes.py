@@ -2072,6 +2072,8 @@ def setup_orwell_routes() -> APIRouter:
     # can't), and a misbehaving client gets silence, never an error to chase.
     _fe_report_limiter = RateLimiter(max_requests=30, window_seconds=60)
     _FE_REPORT_CAPS = {"surface": 80, "errorClass": 120, "detail": 300}
+    #: A42: the client fail-soft sites allowed to raise a RED health event (each is a real anomaly the client auto-corrects, or a refusal it degrades around).
+    _FE_RED_SURFACES = frozenset({"ws:resync-heal", "ws:resync-reconcile-failed", "ws:beat-backwards", "ws:reconnect-run-gone", "ws:chat-subscribe-refused"})
 
     @router.post("/fe-report")
     async def orwell_fe_report(request: Request):
@@ -2098,6 +2100,17 @@ def setup_orwell_routes() -> APIRouter:
         # confirmed engine contact, inside the boot grace window — see orwellReport.js).
         # Downgrade those to DEBUG so they don't spam the live ring at INFO; every genuine
         # (post-connect) failure is untagged and still logs at INFO, staying observable.
+        # A42 (#1599, no silent fail-soft): an ALLOWLISTED client fail-soft site (a real anomaly the client auto-corrected, or a subscribe refusal) raises the same RED-eligible health event the
+        # server-side swallows do. Allowlist only - a player-context beacon must never be able to light the God-Mode alarm with an arbitrary surface name.
+        if data.get("red") is True and fields["surface"] in _FE_RED_SURFACES:
+            try:
+                from src import log_rings as _lr
+                corrected = data.get("corrected")
+                _lr.record_soft_failure("client:" + fields["surface"], f'{fields["errorClass"]} - {fields["detail"]}',
+                                        corrected=(" ".join(corrected.split())[:80] if isinstance(corrected, str) and corrected.strip() else None),
+                                        user=_current_user(request))
+            except Exception:
+                pass
         level = logging.DEBUG if data.get("startup") is True else logging.INFO
         logger.log(level, "[fe-fail] %s: %s — %s",
                    fields["surface"], fields["errorClass"], fields["detail"])

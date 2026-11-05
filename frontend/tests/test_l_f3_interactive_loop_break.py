@@ -43,7 +43,10 @@ def test_loop_break_independent_of_lull_gate():
     # (an engaged, non-matching reply), while a genuine lull still routes through the existing gate.
     js = _read("src", "agent_loop.py")
     assert "_loop_stalled = _loop_break_streak_update(" in js
-    assert "or (_loop_stalled and not _runway_holding)" in js
+    import os as _os
+    gates = open(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "src", "agent_gates.py"), encoding="utf-8").read()  # A60
+    assert "or (loop_stalled and not runway_holding)" in gates
+    assert "loop_stalled=_loop_stalled" in js
     assert '"content": _nudge' in js
 
 
