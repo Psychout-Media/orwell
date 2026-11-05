@@ -256,3 +256,7 @@ the measurement this exists to create; the pinned gates are
 (the guarantee doing its job, invisible to the player) while the *reactive* counters
 (`advance-stall-nudge`, `forced-advance:*`, `casting-nudge`) trend toward zero. A playtest where
 the reactive counters stay hot is the signal to extend the force set — with numbers, not vibes.
+
+
+### Belt: `ceremony-unvoiced-reground` (live week 1, replay 4)
+Trigger: the engine pre-resolved the NPC nominations in this turn's framing (the turn is framed on the nominations moment) and the narration never names either nominee. What the model skipped: voicing the committed ceremony (it answered the player's unrelated question). Correction: a `RE-GROUND ON THE CEREMONY` directive is queued for the next turn quoting the engine's own beat line. Failure mode if broken: the player is never told who was nominated (only the HUD shows it). Pinned by `frontend/tests/test_n16_decisive_cues.py`.

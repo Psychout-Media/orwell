@@ -125,3 +125,29 @@ def test_a_hypothetical_or_recap_about_the_vote_is_not_held(monkeypatch):
         return dict(sig)
     monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
     assert ch._sentence_has_closed_set_claim("They talk about how nominations work and who might end up going to the block.") is False
+
+
+# ── a committed ceremony beat the narration never voiced (live replay 4: the nominations were pre-resolved in framing and the narrator answered an unrelated question) ──
+def test_an_unvoiced_nominations_ceremony_is_regrounded_into_the_next_turn(monkeypatch):
+    sig = {"week": 1, "phase": "veto-competition", "pending": None, "hoh": "npc:1", "noms": ["npc:5", "npc:6"], "vetoHolder": None, "vetoUsed": False, "evicted": 0, "finished": False}
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+
+    async def fake_capture(user=None):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    ch.note_ceremony_beat_for_voicing(_USER, "Isaac Okoro nominates Tristan Ballard and Denise Calloway", ["Tristan Ballard", "Denise Calloway"])
+    _run(ch.record_post_turn_desync_check(_USER, "Erin doesn't hesitate. 'Play it,' she says. 'Straight. No games.'"))
+    assert _USER in ch._DESYNC_REGROUND and "RE-GROUND ON THE CEREMONY" in ch._DESYNC_REGROUND[_USER]
+    assert "Tristan Ballard" in ch._DESYNC_REGROUND[_USER]
+
+
+def test_a_voiced_ceremony_queues_nothing(monkeypatch):
+    sig = {"week": 1, "phase": "veto-competition", "pending": None, "hoh": "npc:1", "noms": ["npc:5", "npc:6"], "vetoHolder": None, "vetoUsed": False, "evicted": 0, "finished": False}
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+
+    async def fake_capture(user=None):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    ch.note_ceremony_beat_for_voicing(_USER, "Isaac Okoro nominates Tristan Ballard and Denise Calloway", ["Tristan Ballard", "Denise Calloway"])
+    _run(ch.record_post_turn_desync_check(_USER, "The room goes still as Isaac reads two names: Tristan, and then Denise."))
+    assert _USER not in ch._DESYNC_REGROUND

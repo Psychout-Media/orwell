@@ -3016,6 +3016,30 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     )
 
 
+# Live week 1 (replay 4): the engine pre-resolved the NPC nominations in this turn's framing (nominees Tristan Ballard and Denise Calloway were committed) and framed the turn on the nominations moment, but the
+# narrator answered the player's unrelated question and NEVER voiced the ceremony - the player was not told who was nominated. A committed ceremony beat the reply did not voice at all is re-grounded into the next turn.
+_CEREMONY_UNVOICED: dict = {}
+
+
+def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
+    """Remember the ceremony beat the engine committed this turn, with the houseguest names its narration must mention. Never raises."""
+    try:
+        names = [str(n).strip() for n in (names or []) if str(n).strip()]
+        if names:
+            _CEREMONY_UNVOICED[_desync_key(user)] = {"label": str(label)[:160], "names": names}
+    except Exception:
+        pass
+
+
+def _ceremony_beat_unvoiced(narration: str, note: dict) -> bool:
+    text = (narration or "").lower()
+    for n in note.get("names", []):
+        parts = [p for p in re.split(r"\s+", n.lower()) if len(p) >= 3]
+        if n.lower() in text or any(p in text for p in parts):
+            return False
+    return True
+
+
 async def record_post_turn_desync_check(user, narration: str, this_turn_progressed: bool = True) -> None:
     """Post-turn layer of the desync spine: capture the AFTER signature, diff it against the
     BEFORE signature stored at the start of this turn, and when the narration asserted an outcome
@@ -3031,6 +3055,12 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
     narrated-but-uncommitted case (board unchanged, or this turn itself progressed) is untouched."""
     try:
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
+        _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
+        if _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine just committed this beat - " + _cnote["label"] + " - but your last turn never voiced it, so the player has not been told. Open your next turn by "
+                              "playing it for real (who is named, the room's reaction), using ONLY the names given here; do not invent anyone else.")
+            _note_belt(user, "ceremony-unvoiced-reground")
+            logger.warning("[orwell] committed ceremony beat %r was not voiced in the narration - re-grounding next turn for user=%s", _cnote["label"], user)
         after = await _capture_beat_signature(user)
         before = _LAST_BEAT_SIG.get(_dkey)
         if not before or not after:
@@ -5915,6 +5945,12 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         _beat_kind = str((_adv_event or {}).get("beat") or "") if isinstance(_adv_event, dict) else ""
         _beat = (_adv_event or {}).get("content") if isinstance(_adv_event, dict) else None
         logger.info("[orwell] pre-resolve advanced %s for user=%s -> beat=%r", phase, user, _beat)
+        if phase == "nominations" and _beat:
+            try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
+                note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
+                                               or re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+", str(_beat))[1:])
+            except Exception:
+                pass
         # gap #3 belt-fire telemetry (docs/design/undercall-seam-structural.md §5; never raises)
         _note_belt(user, "pre-resolve-npc-ceremony")
         refreshed = await _fetch_game_state(user, retry=retry)
