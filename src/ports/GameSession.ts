@@ -1741,6 +1741,8 @@ export interface HouseguestMoveResult {
  * stay out by construction.
  */
 export interface NpcVoiceView {
+  /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default OFF): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
+  tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   houseguest: NamedRef;
   /**
    * Their public seat (NARR-7 / #542): `active` (still playing, voiced from inside the house),

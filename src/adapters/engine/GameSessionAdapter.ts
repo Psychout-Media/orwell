@@ -28,6 +28,7 @@ import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint } from "../../engine/voice";
+import { tellsOf } from "../../engine/tells";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
@@ -2368,6 +2369,24 @@ export class GameSessionAdapter implements GameSession {
    * disposition — never a number). Everything any OTHER houseguest privately knows, the Vault,
    * and the souls stay out by construction — the model cannot voice what this NPC never learned.
    */
+  /** A49 - narrator-side observable tells (E1a). OFF unless exactly `ORWELL_NPC_TELLS=1`; never-flipped. */
+  private npcTellsEnabled = process.env.ORWELL_NPC_TELLS === "1";
+  setNpcTellsEnabled(on: boolean): void { this.npcTellsEnabled = on; }
+  /** Present in the player's room and awake - the only houseguests whose carriage the player can observe. */
+  private tellsVisibleFor(id: EntityId): boolean {
+    if (!this.house || !this.presence) return false;
+    const mine = this.presence.get(this.house.player.id);
+    const theirs = this.presence.get(id);
+    if (mine === undefined || theirs === undefined || mine !== theirs) return false;
+    const awake = this.awakeNow();
+    return !awake || awake.has(id);
+  }
+  private tellsFor(id: EntityId): { tells?: ReadonlyArray<{ kind: string; band: string; channel: string }> } {
+    const soul = this.soulObj(id);
+    if (!soul) return {};
+    const t = tellsOf(soul); // no persisted `previous` yet (B28): without hysteresis a tell may flicker at a band edge; the closed vocabulary and top-2 cap still hold
+    return t.length ? { tells: t.map((x) => ({ kind: x.kind, band: x.band, channel: x.channel })) } : {};
+  }
   npcVoice(idOrName: EntityId): NpcVoiceView | null {
     if (!this.house) return null;
     // Name-tolerant lookup (audit 2026-06-18): the narration model reliably calls this with a
@@ -2436,6 +2455,8 @@ export class GameSessionAdapter implements GameSession {
         const s = this.soulObj(id);
         return s ? { mood: moodWord(s.emotionalState, s.volatility, s.emotionalHistory) } : {};
       })() : {}),
+      // A49 (ORWELL_NPC_TELLS, default OFF): the observable carriage of a houseguest who is PRESENT in the player's room and awake - words only (kind / band / channel). Flag off => no key.
+      ...(this.npcTellsEnabled && isActive && this.tellsVisibleFor(id) ? this.tellsFor(id) : {}),
       whereabouts: room ? { room, present } : null,
       knows: (this.npcKnowledge?.known(id) ?? [])
         .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
@@ -12075,7 +12096,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
