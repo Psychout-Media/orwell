@@ -1,5 +1,7 @@
 # 0121 — Deal depth: active-obligation kinds + reliability rewards
 
+> **Current default (AMEND 2026-11-05):** `ORWELL_DEAL_DEPTH` is **default ON** in the engine (`DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn(...)`, #1996); `=0` turns it off. The "default OFF" / "deploy opts in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** ✅ **COMPLETE.** Both active-obligation kinds fire LIVE end-to-end (comp-throw at the comp
 > crown, veto-save at the veto ceremony) + all three reliability rewards — loyalty streak, reliable-ally
 > protection, and (R1) the diffusing "keeps their word" reputation. R2 (the FE chat-extraction of the new

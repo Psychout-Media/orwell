@@ -10247,7 +10247,7 @@ export class GameSessionAdapter implements GameSession {
     // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no
     // leverage/trade fold, no persist - and (when keyed) is remembered so a re-driven duplicate replays the same refusal. Flag OFF => this block does not exist.
     if (this.npcDealConsentEnabled) {
-      const refusal = this.dealConsentRefusal(target, req.kind);
+      const refusal = this.dealConsentRefusal(target, req.kind, isPositiveObligation(req.kind) ? (req.direction ?? "offer") : undefined);
       if (refusal) {
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
@@ -10270,7 +10270,9 @@ export class GameSessionAdapter implements GameSession {
           .map(([id]) => id);
       }
     }
-    const deal = this.deals.make([PLAYER, target], req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
+    const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
@@ -10291,7 +10293,7 @@ export class GameSessionAdapter implements GameSession {
    * store's `targets-me` claims when its flag is on) and draws ONE value from a dedicated per-moment rng keyed on (game seed, "deal-consent", npc, week, phase) - the same
    * pattern as `secretRng`/`confide`, never the shared season rng. Returns the Vault-free refusal, or `null` when the NPC agrees.
    */
-  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"]): DealRefusal | null {
+  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
@@ -10302,7 +10304,7 @@ export class GameSessionAdapter implements GameSession {
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:deal-consent:${npcId}:${live.week}:${this.phase}`));
     const jitter = (rng.next() * 2 - 1) * DEAL_CONSENT.jitter;
     const d = decideDealConsent({
-      kind,
+      kind, ...(direction ? { direction } : {}),
       trust: e.trust, affinity: e.affinity, threat: e.threat,
       grudge: memoryGrudge(entries, live.week, decay, carry),
       favor: memoryFavor(entries, live.week, decay, carry),

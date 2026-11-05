@@ -177,6 +177,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["with"])) refuse("with", "a houseguest id (string)");
       if (!isStr(args["kind"])) refuse("kind", "a deal kind (string)");
       if (!isStr(args["terms"])) refuse("terms", "a non-empty string");
+      // B55 - the optional direction of an ACTIVE-obligation deal (who promises): exactly "offer" or "ask" when present.
+      if (args["direction"] !== undefined && args["direction"] !== "offer" && args["direction"] !== "ask") refuse("direction", '"offer" or "ask" when present');
       // 0109 / #1993 — the optional negotiated term must be an object when present; the ENGINE bounds its
       // contents (a junk `weeks` is ignored there), so only the container shape is refused at the boundary.
       if (args["term"] !== undefined && (typeof args["term"] !== "object" || args["term"] === null || Array.isArray(args["term"]))) {

@@ -222,7 +222,10 @@ def test_auto_move_is_wired_into_the_finishing_block():
     # NPC belt), so a player relocation the narration describes precisely — but the player's own message
     # missed ("follow them", a typo) — still back-fills. The constrained extraction stays the gatekeeper.
     assert "_moved = bool(_tool_names & _MOVE_TOOLS)" in js
-    assert "_want_move = ((not _moved)" in js
+    # A60: the gate expression now lives in agent_gates.want_move (called by the loop); same conditions
+    assert "_want_move = _gates.want_move(" in js
+    _gates = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_gates.py"), encoding="utf-8").read()
+    assert "(not moved)" in _gates and "turn_move_nudges < max_move_nudges" in _gates
     assert "_MOVE_SIGNAL_RE.search(_last_user_for_move)" in js
     # CodeRabbit (finding 1 + the MAJOR refinement): the belt gates on the emitted PLAYER-VISIBLE
     # narration — `full_response` (post game-scrub + post scene/knowledge guards) — NOT raw round_texts,

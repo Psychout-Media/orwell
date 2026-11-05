@@ -53,7 +53,7 @@
   // no later failure is treated as a startup race (a mid-game outage stays at INFO).
   function markConnected() { connected = true; }
 
-  function fail(surface, errorClass, detail) {
+  function fail(surface, errorClass, detail, opts) {
     try {
       const now = Date.now();
       stamps = stamps.filter((t) => now - t < 60000);
@@ -67,6 +67,8 @@
         errorClass: clip(errorClass, 120),
         detail: clip(detail, 300),
         ...(startup ? { startup: true } : {}),
+        // A42 (#1599): `opts.red` raises the RED-eligible health event for an ALLOWLISTED surface (the server enforces the allowlist); `opts.corrected` names what auto-corrected it.
+        ...(opts && opts.red ? { red: true, corrected: clip(opts.corrected || '', 80) } : {}),
       });
       let sent = false;
       try {
