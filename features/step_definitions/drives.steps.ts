@@ -151,9 +151,14 @@ Given("a houseguest holds a low-intensity target lean", function (this: BbWorld)
 });
 
 When("that drive's intensity rises past the campaign threshold", function (this: BbWorld) {
-  // A high threat read feeds formCampaigns — the same promotion the live tick performs.
-  const actor: CampaignActor = { id: npc(1), persuasiveness: 0.8, threats: [{ toward: npc(2), threat: 0.85 }], allies: [] };
-  dw(this).dwCampaign = formCampaigns([actor], { rng: new SeededRandom(1), beat: 3 })[0];
+  // A92: the LIVE tick. The owner's read of the target climbs past the campaign threshold and the real campaign tick promotes it (the same path the live society runs).
+  const { session, rel, ids } = liveDriveHouse(2026);
+  const [owner, target] = [ids[0]!, ids[1]!];
+  for (const o of ids) if (o !== owner) { rel.edge(owner, o).threat = 0.1; rel.edge(owner, o).affinity = 0.2; }
+  rel.edge(owner, target).threat = 0.95;
+  session.campaignTick();
+  dw(this).dwSession = session; dw(this).dwSubject = owner; dw(this).dwTarget = target;
+  dw(this).dwCampaign = campsOf(session).find((c) => c.owners[0] === owner && c.target === target);
 });
 
 Then("it becomes an active campaign with lobbying", function (this: BbWorld) {
@@ -180,9 +185,13 @@ Then("that houseguest's own vote leans toward evicting the target", function (th
 });
 
 Then("a third houseguest's vote is unmoved by it", function (this: BbWorld) {
-  // A bystander votes off THEIR own drive — a lay-low one adds nothing against the same nominee.
-  const bystander: Drive = { owner: npc(3), motivation: "lay-low", intensity: 0.4 };
-  assert.equal(ownBallotLean(bystander, dw(this).dwTarget!), 0);
+  // A92: the LIVE path. The adapter's own vote tilt (the same term the eviction vote reads) carries the owner's quiet grudge for the OWNER alone; a third voter reads nothing from it.
+  const { session, ids } = liveDriveHouse(2027);
+  const [owner, target, bystander] = [ids[0]!, ids[1]!, ids[2]!];
+  drivesOf(session).set(owner, { owner, motivation: "target", target, intensity: 0.5 });
+  const tilt = (session as unknown as { campaignTiltFor(t: EntityId, v: EntityId): number }).campaignTiltFor.bind(session);
+  assert.ok(tilt(target, owner) > 0, "the owner's own ballot leans toward the target");
+  assert.equal(tilt(target, bystander), 0, "a third houseguest's ballot is unmoved by a quiet grudge");
 });
 
 Then("only a full campaign sways other voters", function () {
@@ -266,8 +275,11 @@ Given("the drive layer is disabled", function (this: BbWorld) {
 });
 
 Then("no drive is computed and no lean is applied", function (this: BbWorld) {
-  dw(this).dwSession!.campaignTick();
+  const before = JSON.stringify(dw(this).dwSession!.snapshot());
+  for (let i = 0; i < 5; i++) dw(this).dwSession!.campaignTick();
   assert.equal(drivesOf(dw(this).dwSession!).size, 0, "the off layer derives no drives");
+  // A92: and the whole persisted state is byte-identical across the ticks (a real trail comparison, not just an empty map)
+  assert.equal(JSON.stringify(dw(this).dwSession!.snapshot()), before, "ticking with the layer off changes nothing");
 });
 
 // "the seeded competition and jury calibration is unchanged" — REUSED from 0085 (campaigns.steps.ts).

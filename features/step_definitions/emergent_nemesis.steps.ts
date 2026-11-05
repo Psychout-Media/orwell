@@ -366,3 +366,24 @@ Then("the rivalry's accumulated history is recalled in full", function (this: Bb
   const streak = peek(nm(this).nmRevived!).nemesisTrack.streak;
   assert.ok((streak[nm(this).nmRival!] ?? 0) >= NEMESIS.sustainTicks);
 });
+
+
+// A93: the nomination side of the nemesis (#1966: the evict campaign's push reaches a decider who is AWARE of it, symmetric perspective).
+When("a houseguest who knows of that campaign weighs the player for nomination", function (this: BbWorld) {
+  const sess = nm(this).nmSession!;
+  const camp = peek(sess).campaigns.find((c) => c.owners[0] === nm(this).nmRival && c.status === "active")!;
+  const [aware, unaware] = nm(this).nmIds!.filter((i) => i !== nm(this).nmRival).slice(0, 2) as [EntityId, EntityId];
+  if (!camp.knownTo.includes(aware)) camp.knownTo.push(aware);
+  camp.knownTo = camp.knownTo.filter((k) => k !== unaware);
+  Object.assign(nm(this), { nmAware: aware, nmUnaware: unaware });
+});
+
+Then("the player's nomination push from that houseguest is positive", function (this: BbWorld) {
+  const push = (peek(nm(this).nmSession!) as unknown as { ctx(): { campaignPushFor?: (t: EntityId, d: EntityId) => number } }).ctx().campaignPushFor!;
+  assert.ok(push(PLAYER, (nm(this) as unknown as { nmAware: EntityId }).nmAware) > 0, "an aware decider is pushed toward naming the player");
+});
+
+Then("a houseguest who does not know of the campaign feels no push", function (this: BbWorld) {
+  const push = (peek(nm(this).nmSession!) as unknown as { ctx(): { campaignPushFor?: (t: EntityId, d: EntityId) => number } }).ctx().campaignPushFor!;
+  assert.equal(push(PLAYER, (nm(this) as unknown as { nmUnaware: EntityId }).nmUnaware), 0);
+});

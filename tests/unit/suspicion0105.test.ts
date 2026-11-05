@@ -80,6 +80,17 @@ describe("0105 npcVoice — drive-derived suspicion is live, gated, and Vault-se
     expect(suspectsOf(s, ids[0]!).some((x) => DRIVE_MARKERS.test(x))).toBe(false);
   });
 
+  it("A93: surfacing a hunch changes nothing in the mood (the claim the spec makes: the hunch is information, not a mood input)", () => {
+    const moodOf = (s: GameSessionAdapter, id: string): string | undefined => (s.npcVoice(id) as { mood?: string }).mood;
+    const on = house(2026, true), off = house(2026, false);
+    for (const h of [on, off]) h.rel.edge(h.ids[0]!, h.ids[1]!).threat = 0.85;
+    on.s.campaignTick(); off.s.campaignTick();
+    expect(suspectsOf(on.s, on.ids[0]!).some((x) => DRIVE_MARKERS.test(x)), "the hunch is present with the drive layer on").toBe(true);
+    expect(suspectsOf(off.s, off.ids[0]!).some((x) => DRIVE_MARKERS.test(x)), "and absent with it off").toBe(false);
+    expect(moodOf(on.s, on.ids[0]!)).toBe(moodOf(off.s, off.ids[0]!));
+    expect(moodOf(on.s, on.ids[0]!), "a live mood exists to compare").toBeTruthy();
+  });
+
   it("the suspicion never leaks the plan — no number, campaign, intensity, or stated motive", () => {
     const { s, rel, ids } = house(7, true);
     rel.edge(ids[0]!, ids[1]!).threat = 0.85;
