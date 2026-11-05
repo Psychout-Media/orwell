@@ -272,3 +272,35 @@ def _root_ops_route_defaults(monkeypatch) -> None:
         return
     monkeypatch.setattr(ops_watcher, "_systemctl_is_active", lambda unit: True)
     monkeypatch.setenv("ORWELL_ROOT_OPS_WITHOUT_AUTH", "1")
+
+
+# ── A41: the silent-skip guard (CI only: ORWELL_SKIP_GUARD=1; ORWELL_SKIP_LANE=unit|browser) ──────────────────────────────
+def pytest_sessionfinish(session, exitstatus):
+    import json
+    import os
+    if os.environ.get("ORWELL_SKIP_GUARD") != "1":
+        return
+    tr = session.config.pluginmanager.get_plugin("terminalreporter")
+    if tr is None:
+        return
+    lane = os.environ.get("ORWELL_SKIP_LANE", "unit")
+    skipped = []
+    for rep in tr.stats.get("skipped", []):
+        lr = getattr(rep, "longrepr", None)
+        reason = lr[2] if isinstance(lr, tuple) and len(lr) >= 3 else str(lr)
+        skipped.append((rep.nodeid, str(reason)))
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "skip_ceiling.json"), encoding="utf-8") as f:
+            ceiling = json.load(f).get(lane)
+    except Exception:
+        ceiling = None
+    browser_ids = {i.nodeid for i in session.items if i.get_closest_marker("browser")}
+    from _skip_guard import evaluate
+    problems = evaluate(skipped, lane=lane, ceiling=ceiling, browser_ids=browser_ids)
+    tr.write_sep("=", f"A41 skip guard (lane={lane}): {len(skipped)} skipped, ceiling={ceiling}")
+    for line in sorted({r for _, r in skipped}):
+        tr.write_line(f"  skip reason: {line}")
+    for p in problems:
+        tr.write_line(f"  VIOLATION: {p}", red=True)
+    if problems and session.exitstatus == 0:
+        session.exitstatus = 1

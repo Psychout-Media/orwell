@@ -95,3 +95,42 @@ def test_wiring_is_present_at_both_emit_sites():
     assert src.count("_cf_text, _cf_ops = await _confession_guard(") == 2, "stream site + final site"
     assert src.count("_guarded = _guarded._replace(text=_cf_text)") == 2, "downstream walls and their mirror see the post-confession text"
     assert src.count("round_response = _mirror_wall_drop(round_response, _guarded.text, _guarded_text)") == 2, "the wall-guard mirror calls stay unchanged (T0-5 pin)"
+
+
+# ── N-17 vs the 0092 drip: an ENGINE-side delivery (no tool call) exempts that turn only ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+CONFESSION = 'KV— "I\'ve never told anyone this. Before the show I did eighteen months in prison for fraud."'
+
+
+def test_a_new_engine_delivery_marker_exempts_the_turn():
+    u = _setup("n17-drip-1")
+    oe._DELIVERY_SEEN.pop(u, None)
+    assert oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}}) is True
+    text, ops = ch.screen_invented_confession(u, CONFESSION)
+    assert ops == [] and text == CONFESSION, "the drip delivered this secret engine-side: the true confession survives"
+
+
+def test_the_same_marker_next_turn_does_not_exempt_again():
+    u = _setup("n17-drip-2")
+    oe._DELIVERY_SEEN.pop(u, None)
+    oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}})
+    oe.clear_disclosure_turn(u)  # next turn's framing
+    assert oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}}) is False
+    text, ops = ch.screen_invented_confession(u, CONFESSION)
+    assert ops, "no new delivery this turn: an invented confession is still replaced"
+
+
+def test_no_marker_means_an_invented_confession_is_still_replaced():
+    u = _setup("n17-drip-3")
+    oe._DELIVERY_SEEN.pop(u, None)
+    assert oe.note_engine_delivery(u, {}) is False
+    text, ops = ch.screen_invented_confession(u, CONFESSION)
+    assert ops, "nothing was delivered: the guard still fires"
+
+
+def test_a_second_delivery_exempts_its_own_turn():
+    u = _setup("n17-drip-4")
+    oe._DELIVERY_SEEN.pop(u, None)
+    oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}})
+    oe.clear_disclosure_turn(u)
+    assert oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 2, "sourceId": "npc:5"}}) is True
