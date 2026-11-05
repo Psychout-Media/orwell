@@ -1505,8 +1505,8 @@ export class GameSessionAdapter implements GameSession {
   setDriveDecisionsEnabled(on: boolean): void { this.driveDecisionsEnabled = on; }
   drivePushForDecider(target: EntityId, decider: EntityId): number {
     if (!this.driveDecisionsEnabled || !this.campaignsEnabled || decider === PLAYER || target === decider) return 0;
-    const owns = this.campaigns.some((c) => c.status === "active" && c.owners[0] === decider && c.target === target);
-    return drivePushFor(this.drives.get(decider), target, owns);
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(decider) && c.target === target);
+    return drivePushFor(this.drives.get(decider), target, own ? { goal: own.goal, progress: own.progress } : undefined);
   }
   moodVetoFor(nominee: EntityId, holder: EntityId): number {
     if (!this.moodVetoEnabled || !this.npcTellsEnabled || holder === PLAYER) return 0;

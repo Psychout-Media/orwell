@@ -11,19 +11,28 @@ const d = (motivation: Drive["motivation"], target: EntityId | undefined, intens
 
 describe("drivePushFor", () => {
   it("target adds, build protects, scaled by intensity; other motivations / other candidates add nothing", () => {
-    expect(drivePushFor(d("target", npc(2), 1), npc(2), false)).toBe(DRIVE.decisionWeight);
-    expect(drivePushFor(d("target", npc(2), 0.5), npc(2), false)).toBeCloseTo(DRIVE.decisionWeight * 0.5, 9);
-    expect(drivePushFor(d("build", npc(2), 1), npc(2), false)).toBe(-DRIVE.decisionWeight);
-    expect(drivePushFor(d("lay-low", undefined, 1), npc(2), false)).toBe(0);
-    expect(drivePushFor(d("self-preserve", npc(2), 1), npc(2), false)).toBe(0);
-    expect(drivePushFor(d("target", npc(2), 1), npc(3), false)).toBe(0);
-    expect(drivePushFor(undefined, npc(2), false)).toBe(0);
+    expect(drivePushFor(d("target", npc(2), 1), npc(2))).toBe(DRIVE.decisionWeight);
+    expect(drivePushFor(d("target", npc(2), 0.5), npc(2))).toBeCloseTo(DRIVE.decisionWeight * 0.5, 9);
+    expect(drivePushFor(d("build", npc(2), 1), npc(2))).toBe(-DRIVE.decisionWeight);
+    expect(drivePushFor(d("lay-low", undefined, 1), npc(2))).toBe(0);
+    expect(drivePushFor(d("self-preserve", npc(2), 1), npc(2))).toBe(0);
+    expect(drivePushFor(d("target", npc(2), 1), npc(3))).toBe(0);
+    expect(drivePushFor(undefined, npc(2))).toBe(0);
   });
-  it("never double counts a drive already promoted to a campaign by the decider", () => {
-    expect(drivePushFor(d("target", npc(2), 1), npc(2), true)).toBe(0);
+  it("the decider's OWN active campaign counts in place of the bare drive (evict adds, protect and build-alliance protect, scaled by progress), once", () => {
+    const evict = { goal: "evict" as const, progress: 1 };
+    expect(drivePushFor(d("target", npc(2), 1), npc(2), evict)).toBe(DRIVE.ownCampaignWeight);
+    expect(drivePushFor(undefined, npc(2), evict)).toBe(DRIVE.ownCampaignWeight);
+    expect(drivePushFor(undefined, npc(2), { goal: "evict", progress: 0 })).toBeCloseTo(DRIVE.ownCampaignWeight * 0.5, 9);
+    expect(drivePushFor(undefined, npc(2), { goal: "protect", progress: 1 })).toBe(-DRIVE.ownCampaignWeight);
+    expect(drivePushFor(undefined, npc(2), { goal: "build-alliance", progress: 1 })).toBe(-DRIVE.ownCampaignWeight);
+    expect(drivePushFor(d("target", npc(2), 1), npc(2), { goal: "discredit", progress: 1 })).toBe(DRIVE.decisionWeight); // a goal that names no seat falls back to the drive
+    // the campaign replaces the drive, never adds to it
+    expect(Math.abs(drivePushFor(d("target", npc(2), 1), npc(2), evict))).toBeLessThanOrEqual(DRIVE.ownCampaignWeight);
   });
   it("bounded below the campaign base", () => {
     expect(DRIVE.decisionWeight).toBeLessThan(0.25);
+    expect(DRIVE.ownCampaignWeight).toBeLessThan(0.25);
   });
 });
 
@@ -43,7 +52,7 @@ describe("nomination moves", () => {
   });
 });
 
-type Internals = { setDriveDecisionsEnabled(on: boolean): void; drivePushForDecider(t: EntityId, d: EntityId): number; drives: Map<EntityId, Drive>; ctx(): { drivePushFor?: unknown } };
+type Internals = { campaigns: Array<Record<string, unknown>>; setDriveDecisionsEnabled(on: boolean): void; drivePushForDecider(t: EntityId, d: EntityId): number; drives: Map<EntityId, Drive>; ctx(): { drivePushFor?: unknown } };
 function game(on: boolean) {
   const sb = new GameSessionRegistry().sandboxFor(`b51-${Math.random()}`);
   sb.session.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
@@ -62,6 +71,8 @@ describe("adapter wiring", () => {
     expect(on.s.drivePushForDecider(on.t, on.h)).toBe(DRIVE.decisionWeight);
     expect(on.s.ctx().drivePushFor).toBeTypeOf("function");
     expect(on.s.drivePushForDecider(on.h, on.h)).toBe(0);
+    on.s.campaigns.push({ id: "c", owners: [on.h], goal: "protect", target: on.t, plan: [], progress: 1, horizon: "week", status: "active", knownTo: [], startedBeat: 0, deadlineBeat: 99 });
+    expect(on.s.drivePushForDecider(on.t, on.h), "own protect campaign replaces the evict-ward drive").toBe(-DRIVE.ownCampaignWeight);
   });
 });
 
