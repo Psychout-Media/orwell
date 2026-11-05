@@ -1639,8 +1639,8 @@ export interface WhereaboutsView {
    * room-wide; the zone only scopes earshot.
    */
   zone?: string;
-  /** Who else is in the player's room (names only). */
-  present: NamedRef[];
+  /** Who else is in the player's room (names only). A51: with the tells flag on, each may carry `tell` - the strongest closed-vocabulary tell kind (a word). */
+  present: Array<NamedRef & { tell?: string }>;
   /**
    * Each room the player has SIGHTLINE into (eyeshot — 0077 Phase 2) and who is in it (names only). The
    * open public core sees across itself + into the hallway mouth; a CLOSED door is opaque and never
