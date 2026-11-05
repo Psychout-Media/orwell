@@ -1219,6 +1219,22 @@ export class GameSessionAdapter implements GameSession {
   /** B22 - houseguests who merely HEARD a promise remember its keeping / breaking too, at `ASSURANCE.witnessFactor` of the assured's own weight (the assured and the assurer themselves are not witnesses). OFF unless exactly `ORWELL_MEMORY_PROMISES=1`; never-flipped. */
   private memoryPromisesEnabled = process.env.ORWELL_MEMORY_PROMISES === "1";
   setMemoryPromisesEnabled(on: boolean): void { this.memoryPromisesEnabled = on; }
+
+  /**
+   * B23 / #2017 14.5(3) - LIES CAUGHT. When a lie is exposed the houseguest it was told to holds a `lied-to-me` belief claim (engine-only, voiced only BY that holder), at the confidence of the evidence
+   * that exposed it; a bluff a houseguest BELIEVED is stored as a belief too (a low-confidence `heard-rumor`, nature "bluff") and marked refuted once caught. Writers: the passive lie-catch
+   * (`catchPlayerBluff`) and a landed `accuseTie`. No rng, no edge fold; absent a belief layer nothing is written. OFF unless exactly `ORWELL_LIES_CAUGHT=1`; never-flipped. OFF => byte-identical.
+   */
+  private liesCaughtEnabled = process.env.ORWELL_LIES_CAUGHT === "1";
+  setLiesCaughtEnabled(on: boolean): void { this.liesCaughtEnabled = on; }
+  private get liesCaughtWriting(): boolean { return this.liesCaughtEnabled && this.npcBeliefsEnabled && !!this.live; }
+  /** The believed-bluff belief id for (holder, subject): its own id (never the gossip rumor's) so catching it can refute exactly this claim. */
+  private bluffBeliefId(holder: EntityId, subject: EntityId, week: number): string { return `${holder}|heard-rumor|${subject}|bluff:${PLAYER}|${week}`; }
+  /** `holder` was lied to by `liar`, caught with evidence of the given confidence. Never for the player as holder (nothing acts on the player's hidden read). */
+  private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told"): void {
+    if (!this.liesCaughtWriting || holder === PLAYER) return;
+    recordClaim((this.live!.beliefs ??= {}), { holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
+  }
   private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
     if (!this.memoryPromisesEnabled) return;
     for (const w of new Set(witnesses)) if (w !== about && w !== assured) this.remember(w, about, kind, severity * ASSURANCE.witnessFactor);
@@ -7048,6 +7064,8 @@ export class GameSessionAdapter implements GameSession {
     for (const learner of learners) {
       for (const member of [aId, bId] as const) this.rel.applyImpactDirected(learner, member, impact, rng);
     }
+    // B23: a landed (public, witnessed) accusation catches the pair out - each houseguest who saw it holds that each member kept it from them (the tie's exposure confidence). Misses/capped returned above.
+    for (const learner of learners) for (const member of [aId, bId] as const) this.writeLieCaught(learner, member, TIE_REVEAL.directWitnessConfidence, "witnessed");
     // Record it as the PLAYER's own knowledge through the in-game pathway (0002) — the accusation
     // landing is the player's own confirmed read, not a Vault read (they made the accusation).
     this.onConfide?.(
@@ -10461,7 +10479,7 @@ export class GameSessionAdapter implements GameSession {
         // earlier bluff the player told THIS recipient about this subject.
         this.recordPlayerBluffBelief(recipient, resolved.subject);
       } else {
-        this.catchPlayerBluff(recipient, resolved.subject, rng); // a real truth contradicts a prior bluff
+        this.catchPlayerBluff(recipient, resolved.subject, rng, 0.8, "told"); // a real truth contradicts a prior bluff (evidence: the 0.8 told-by surfacing below)
         // The recipient now HOLDS the traded secret — a recorded `told-by:player` pathway (never a Vault read).
         const content = this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} shared a secret about ${this.nameOf(resolved.subject)}`;
         this.onSurfaceToHouseguest?.(recipient, content, resolved.subject, `told-by:${PLAYER}`, 0.8);
@@ -10512,6 +10530,11 @@ export class GameSessionAdapter implements GameSession {
   private recordPlayerBluffBelief(npc: EntityId, subject: EntityId): void {
     const subjects = (this.playerBluffBelief[npc] ??= []);
     if (!subjects.includes(subject)) subjects.push(subject);
+    // B23: a bluff the houseguest BELIEVED is a belief they hold (low confidence, from the player), refuted when caught.
+    if (this.liesCaughtWriting && npc !== PLAYER) {
+      const week = this.live!.week;
+      recordClaim((this.live!.beliefs ??= {}), { id: this.bluffBeliefId(npc, subject, week), holder: npc, kind: "heard-rumor", subject, value: true, origin: "told", nature: "bluff", source: PLAYER, confidence: 0.6, week });
+    }
   }
 
   /**
@@ -10520,9 +10543,14 @@ export class GameSessionAdapter implements GameSession {
    * CAUGHT — the bluffer takes a betrayal-grade, recoverable hit on the npc→player edge (0026
    * `IMPACT.betrayal`), and the caught bluff is cleared (it can't re-fire). The player never sees a number.
    */
-  private catchPlayerBluff(npc: EntityId, subject: EntityId, rng: SeededRandom): void {
+  private catchPlayerBluff(npc: EntityId, subject: EntityId, rng: SeededRandom, evidenceConfidence = 0.85, evidenceOrigin: "witnessed" | "told" = "witnessed"): void {
     const subjects = this.playerBluffBelief[npc];
     if (!subjects || !subjects.includes(subject)) return;
+    if (this.liesCaughtWriting) {
+      // B23: the npc now holds that the player lied to them, at the evidence's confidence; the bluff they had believed is refuted.
+      this.writeLieCaught(npc, PLAYER, evidenceConfidence, evidenceOrigin);
+      for (const c of claimsOf(this.live!.beliefs, npc)) if (c.kind === "heard-rumor" && c.nature === "bluff" && c.subject === subject && !c.refuted) c.refuted = true;
+    }
     this.rel.applyDirected(npc, PLAYER, "betrayal", rng); // the npc realizes the player lied to them
     this.playerBluffBelief[npc] = subjects.filter((s) => s !== subject);
     recordDealBetrayal(this.live!, npc, PLAYER); // a jury-management demerit too (they remember the lie)
@@ -10781,7 +10809,7 @@ export class GameSessionAdapter implements GameSession {
         this.recordPlayerBluffBelief(other.id, subject);
       } else {
         // A REAL expose DELIVERS the truth to the house — it CATCHES any earlier bluff about this subject.
-        this.catchPlayerBluff(other.id, subject, rng);
+        this.catchPlayerBluff(other.id, subject, rng, 0.85, "witnessed"); // evidence: the 0.85 public exposure
       }
     }
     // The exposer takes the betrayal-grade hit FROM the subject (the deepest wound — outing IS betrayal).
