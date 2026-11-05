@@ -53,8 +53,9 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
+import { applyForgiveness, forgivenessTraitOf } from "../../engine/forgiveness";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -10076,7 +10077,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
-    const entries = this.npcMemoryEnabled ? live.npcMemory?.[npcId]?.[PLAYER] : undefined;
+    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER]) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
     const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
     const decay = this.memoryDecayScale(npcId);
@@ -11362,11 +11363,21 @@ export class GameSessionAdapter implements GameSession {
     return RELATIONSHIP_CONSTANTS.dispositionFactors[this.dispositionReadOf(holder) ?? "neutral"].decayScale;
   }
 
+  /** B27 - the FORGIVENESS trait layer (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly `ORWELL_FORGIVENESS=1`; never-flipped. OFF => the ledger is read as it always was. */
+  private forgivenessEnabled = process.env.ORWELL_FORGIVENESS === "1";
+  setForgivenessEnabled(on: boolean): void { this.forgivenessEnabled = on; }
+  /** The memory entries `holder` actually reads: the ledger row, with the forgiveness trait applied when the layer is on. Pure; no rng stream is touched. */
+  private memoryEntriesSeenBy(holder: EntityId, entries: readonly MemoryEntry[] | undefined): readonly MemoryEntry[] | undefined {
+    if (!this.forgivenessEnabled || !this.live) return entries;
+    return applyForgiveness(entries, forgivenessTraitOf(hashSeed(`${this.gameSeed ?? 0}:forgive:${holder}`)), this.live.week);
+  }
+
   /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
   private memoryTiltFor(subject: EntityId, holder: EntityId): number {
     if (holder === PLAYER || !this.live) return 0;
-    const entries = this.live.npcMemory?.[holder]?.[subject];
-    if (!entries || entries.length === 0) return 0;
+    const raw = this.live.npcMemory?.[holder]?.[subject];
+    if (!raw || raw.length === 0) return 0;
+    const entries = this.memoryEntriesSeenBy(holder, raw);
     if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
     return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
   }
@@ -11374,8 +11385,9 @@ export class GameSessionAdapter implements GameSession {
   /** An NPC the player has wronged (a strong residual grudge) does not float a safety/alliance deal to them. */
   private memoryBlocksPlayerDeal(npcId: EntityId): boolean {
     if (!this.npcMemoryEnabled || !this.live) return false;
-    const entries = this.live.npcMemory?.[npcId]?.[PLAYER];
-    if (!entries || entries.length === 0) return false;
+    const raw = this.live.npcMemory?.[npcId]?.[PLAYER];
+    if (!raw || raw.length === 0) return false;
+    const entries = this.memoryEntriesSeenBy(npcId, raw);
     return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
   }
 
