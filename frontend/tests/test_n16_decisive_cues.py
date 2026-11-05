@@ -100,3 +100,28 @@ def test_a_competition_announced_as_about_to_begin_during_the_premiere_is_cut(mo
     _board(monkeypatch, _sig(phase="premiere", not_due=None))
     d = _run(ch.screen_streamed_scene_break(_USER, PREMIERE_ABOUT))
     assert d is not None and "no competition is running" in d, d
+
+
+# ── a phantom EVICTION fast-forwarded on the nominations morning (live replay 4), through the real entry point ──
+PHANTOM_EVICTION = ("The vote's read, the house has said its piece, and the evictee comes down the stairs with their bag already packed by production and that hollow look people get when the floor's just dropped out.")
+
+
+def test_a_fast_forwarded_eviction_in_the_nominations_phase_is_held(monkeypatch):
+    sig = {"week": 1, "phase": "nominations", "pending": None, "hoh": "npc:1", "noms": [], "vetoHolder": None, "vetoUsed": False, "evicted": 0, "finished": False}
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+
+    async def fake_capture(user=None):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    assert _run(ch.screen_streamed_outcome(_USER, PHANTOM_EVICTION)) is False
+    assert _USER in ch._DESYNC_REGROUND
+
+
+def test_a_hypothetical_or_recap_about_the_vote_is_not_held(monkeypatch):
+    sig = {"week": 1, "phase": "nominations", "pending": None, "hoh": "npc:1", "noms": [], "vetoHolder": None, "vetoUsed": False, "evicted": 0, "finished": False}
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+
+    async def fake_capture(user=None):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    assert ch._sentence_has_closed_set_claim("They talk about how nominations work and who might end up going to the block.") is False

@@ -2203,7 +2203,11 @@ _CLAIM_EVICTED_RE = re.compile(
     r"\bunanimous(?:ly)?\s+(?:vote\s+)?to\s+evict\b|"
     r"\b(?:is|are|was|were|has been|have been|been)\s+(?:being\s+)?voted\s+out\b|"
     r"\b(?:is|are|was|were|has been|have been)\s+(?:now\s+)?out\s+of\s+the\s+(?:house|game)\b|"
-    r"\b(?:is|are|has been|have been)\s+(?:being\s+)?(?:sent\s+home|going\s+home|leaving\s+the\s+house|departing\s+the\s+house)\b",
+    r"\b(?:is|are|has been|have been)\s+(?:being\s+)?(?:sent\s+home|going\s+home|leaving\s+the\s+house|departing\s+the\s+house)\b|"
+    # live week 1 (replay 4): on the nominations morning the narrator fast-forwarded a whole eviction - "The vote's read ... the evictee comes down the stairs with their bag already packed". Each is a
+    # COMMITTED eviction beat in the narrator's own voice, never a hypothetical.
+    r"\bthe\s+vote(?:'s|\u2019s|\s+is|\s+has\s+been)\s+(?:been\s+)?read\b|\bthe\s+evictee\s+(?:comes|came|walks|walked|steps|stepped|descends|heads|headed|stands|stood|leaves|left)\b|"
+    r"\bbags?\s+(?:already\s+)?packed\s+by\s+production\b",
     re.IGNORECASE,
 )
 # F16 (#1014): when an eviction RESULT/TALLY claim NAMES a houseguest, extract that name so the
