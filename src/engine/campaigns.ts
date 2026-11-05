@@ -438,9 +438,12 @@ export interface DriveConstants {
   nominatedIntensity: number;
   /** The lay-low simmer intensity — the quiet baseline everyone carries. */
   layLowIntensity: number;
+  /** B51 (ORWELL_DRIVE_DECISIONS): the HOH/veto-holder score weight of their OWN drive toward a candidate (target adds, build protects) = decisionWeight x intensity. */
+  decisionWeight: number;
 }
 
 export const DRIVE: DriveConstants = {
+  decisionWeight: 0.15, // bounded under CAMPAIGN.base (0.25): a held personal motive, not a campaign
   lowLeanWeight: 0.08, // bounded well under CAMPAIGN.base (0.25) — a quiet grudge, not a campaign
   hysteresis: 0.12,
   aggressionWeight: 0.25,
@@ -602,4 +605,15 @@ export function selectNemesis(
 
   const top = [...qualified].sort((a, b) => b.threatTowardPlayer - a.threatTowardPlayer)[0];
   return { current: top?.id, streak };
+}
+
+/**
+ * B51: the signed nomination/veto-save push of the decider's OWN drive toward `candidate` (positive = toward evicting, the same sign as `campaignPushFor`). A `target` drive on the candidate adds,
+ * a `build` drive (an ally they are courting) protects; every other motivation adds nothing. Bounded by `decisionWeight`. `ownsCampaignOn` suppresses it when the decider already runs an
+ * active campaign on the candidate, so a promoted drive is never counted twice.
+ */
+export function drivePushFor(drive: Drive | undefined, candidate: EntityId, ownsCampaignOn: boolean, c: DriveConstants = DRIVE): number {
+  if (!drive || drive.target !== candidate || ownsCampaignOn) return 0;
+  const w = c.decisionWeight * clamp01(drive.intensity);
+  return drive.motivation === "target" ? w : drive.motivation === "build" ? -w : 0;
 }

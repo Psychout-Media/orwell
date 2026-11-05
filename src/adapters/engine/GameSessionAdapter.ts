@@ -37,7 +37,7 @@ import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFel
 import { driveSuspicion } from "../../engine/suspicion";
 import {
   formCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
-  deriveDrive, ownBallotLean, ARCHETYPE_AGGRESSION,
+  deriveDrive, ownBallotLean, drivePushFor, ARCHETYPE_AGGRESSION,
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
@@ -1499,6 +1499,14 @@ export class GameSessionAdapter implements GameSession {
   moodSteady(npc: EntityId): boolean {
     if (!this.moodCampaignEnabled || !this.npcTellsEnabled) return true;
     return !moodUnsteady(this.soulObj(npc)?.tells);
+  }
+  /** B51 (ORWELL_DRIVE_DECISIONS, default OFF, never-flipped; needs campaigns on): the HOH's / veto holder's OWN drive feeds their nomination and veto-save scores. */
+  private driveDecisionsEnabled = process.env.ORWELL_DRIVE_DECISIONS === "1";
+  setDriveDecisionsEnabled(on: boolean): void { this.driveDecisionsEnabled = on; }
+  drivePushForDecider(target: EntityId, decider: EntityId): number {
+    if (!this.driveDecisionsEnabled || !this.campaignsEnabled || decider === PLAYER || target === decider) return 0;
+    const owns = this.campaigns.some((c) => c.status === "active" && c.owners[0] === decider && c.target === target);
+    return drivePushFor(this.drives.get(decider), target, owns);
   }
   moodVetoFor(nominee: EntityId, holder: EntityId): number {
     if (!this.moodVetoEnabled || !this.npcTellsEnabled || holder === PLAYER) return 0;
@@ -7721,6 +7729,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.driveDecisionsEnabled && this.campaignsEnabled ? { drivePushFor: (t: EntityId, d: EntityId) => this.drivePushForDecider(t, d) } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
