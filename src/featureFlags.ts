@@ -113,6 +113,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'defaultOn' },
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
+  // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'defaultOn' },
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },

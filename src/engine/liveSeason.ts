@@ -795,6 +795,8 @@ export interface SeasonCtx {
    * PLAYER as decider. ENGINE-ONLY — never crosses the wall.
    */
   campaignPushFor?: (target: EntityId, decider: EntityId) => number;
+  /** B51 (ORWELL_DRIVE_DECISIONS): the decider's OWN drive toward `target` as a nomination / veto-save push (positive = toward evicting). */
+  drivePushFor?: (target: EntityId, decider: EntityId) => number;
   /**
    * 0024 — the signed, bounded RESIDUAL memory tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`,
    * net of what the relationship edge still carries): a broken deal, a trusted friend who nominated/replaced them,
@@ -2745,6 +2747,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
         ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.dealNomPushFor ? { dealPush: (t: EntityId) => ctx.dealNomPushFor!(t, s.hoh!) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
@@ -2807,8 +2810,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         : ctx.rel.chooseVetoSave(
           s.vetoHolder!, nominees,
           // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor
-            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0)
+          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
+            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
             : undefined,
         );
       if (!saved) {
@@ -2976,6 +2979,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
     ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
