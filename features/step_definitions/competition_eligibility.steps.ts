@@ -93,7 +93,7 @@ Then('one chip may be "Houseguest\'s Choice"', function (this: BbWorld) {
   assert.ok(drawn, "the Houseguest's Choice chip can be drawn");
 });
 
-Then("the player cannot influence which chips are drawn", function (this: BbWorld) {
+Then("the chip draw is seeded: the same seed gives the same chips", function (this: BbWorld) {
   const a = vetoParticipants(this.week!, new SeededRandom(1), { houseguestsChoiceChip: true });
   const b = vetoParticipants(this.week!, new SeededRandom(1), { houseguestsChoiceChip: true });
   assert.deepEqual(a.participants, b.participants); // seed alone determines the draw — no player lever
@@ -160,6 +160,7 @@ Then("every houseguest except the HOH and the two nominees casts a vote", functi
   assert.deepEqual([...this.voters!].sort(), [...expected].sort());
 });
 
+// The live tie-break proof is tests/unit/tieBreak.test.ts (and the HC deferral is tests/unit/houseguestsChoice.test.ts); this step only pins the eligibility-side contract.
 Then("the HOH votes only to break a tie", function (this: BbWorld) {
   assert.equal(breaksTie(this.week!), this.week!.hoh);
   assert.ok(!this.voters!.includes(this.week!.hoh));

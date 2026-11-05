@@ -115,5 +115,7 @@ unprotected — reuse the 0006 calibration style), the Vault-free result carries
 NO stats/scores** (extend the 0001 canary to the enriched result), **0005 eligibility holds** under any drawn
 comp (six-player veto draw etc.), seed-deterministic.
 
+**Player-protection proof (S15):** the tight proof that the player is never favored is `tests/unit/competitionLibrary.test.ts` ("the player is never protected: with identical stats they win no more than their share"); the 0006 calibration style above is the broader check.
+
 **No open decisions.** The library is curated content + a deterministic draw; the winner is still the
 engine's (anti-sycophancy). Narrative scaffolds are Vault-free flavor the narrator (0018) dresses.

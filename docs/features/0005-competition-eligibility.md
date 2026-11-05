@@ -10,7 +10,7 @@ HOH; the **veto winner cannot be a replacement nominee**; the **veto field is `m
 — exactly six at a full house, **degrading** to everyone left once fewer than six remain (Final 5 ⇒ 5,
 Final 4 ⇒ 4; the Final-3 endgame skips the veto entirely — see **feature 0045**)
 (HOH + two nominees + three by chip draw incl. a "Houseguest's Choice" chip the holder uses to
-pick — the player cannot influence which chips are drawn); at eviction
+pick — the chip draw is seeded, so the player has no lever on it); at eviction
 **everyone except the HOH and the two nominees votes**, and the **HOH breaks ties**. These
 are pure-core rules that **temperature never overrides**. The format permits **one or two
 Vault-held reserve twists/specials** per season (rare, producer's judgment, never
