@@ -37,6 +37,8 @@ export interface EvictionManner {
   blindsided?: boolean;
   betrayed?: boolean;
   disrespected?: boolean;
+  /** A62 (ORWELL_JUROR_PROFILES): the grievance rests on a possibly-WRONG belief - the juror blames this finalist for a vote they did not cast (0110 deduction error). A `mend` appeal dissolves it. Absent => byte-identical. */
+  mistaken?: boolean;
   /**
    * SOC-NEW-1/5: the graded 0..1 SEVERITY of the categorical read above, read off the actual edge
    * numbers (how deeply they were trusted / how harmless they seemed / how feared a clean cut was).
