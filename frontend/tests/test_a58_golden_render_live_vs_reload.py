@@ -27,6 +27,12 @@ SNAP = """() => { const box = document.getElementById('chat-history'); const ai 
     thinking: !!think, thinkingText: think ? think.textContent.replace(/\\s+/g,' ').trim() : '',
     chips: Array.from(e.querySelectorAll('[class*=tool-beat],[class*=toolbeat],[class*=beat-chip]')).map(n => n.className.split(/\\s+/).sort().join(' ')) }; }"""
 
+OBSERVE = """() => { window.__a88 = []; const box = document.getElementById('chat-history'); const snap = (e) => ({ cls: e.className.split(/\\s+/).sort().join(' '),
+    role: ((e.querySelector('.role')||{}).textContent||'').replace(/\\s+/g,' ').trim().replace(/Week \\d+ . [A-Za-z ]+$/, '').replace(/\\d{1,2}:\\d{2}\\s?[AP]M$/i, '').trim(), t: performance.now() });
+  const seen = new WeakSet(); const rec = (e) => { if (e.matches && e.matches('.msg.msg-ai')) { window.__a88.push(snap(e)); seen.add(e); } };
+  new MutationObserver((ms) => { for (const m of ms) { if (m.type === 'childList') m.addedNodes.forEach(n => { if (n.nodeType === 1) { rec(n); n.querySelectorAll && n.querySelectorAll('.msg.msg-ai').forEach(rec); } });
+    else if (m.type === 'attributes' && m.target.matches && m.target.matches('.msg.msg-ai')) rec(m.target); } }).observe(box, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); }"""
+
 # (id, stub entries, text that MUST be in the bubble on both paths - proves the scripted turn reached the page, not a guard/scene-cut replacement)
 CASES = [
     ("plain-reply", [{"deltas": ["The kitchen hums. ", "Someone laughs. ", "A door opens. ", "Footsteps."], "delay": 0.4}], "Footsteps."),
@@ -54,6 +60,7 @@ def _send_and_snapshot(stack, entries, text):
         page = browser.new_context().new_page()
         page.goto(stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
+        page.evaluate(OBSERVE)
         before = page.evaluate(SNAP)
         base_n = before["n"] if before else 0
         for en in entries:
@@ -72,16 +79,17 @@ def _send_and_snapshot(stack, entries, text):
             if live and live["footer"]:
                 break
         assert live and live["footer"], "the live turn never settled (no footer)"
+        trace = page.evaluate("window.__a88 || []")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
         reloaded = page.evaluate(SNAP)
         browser.close()
-    return live, reloaded, mid
+    return live, reloaded, mid, trace
 
 
 @pytest.mark.parametrize("case_id,entries,expect", CASES, ids=[c[0] for c in CASES])
 def test_live_and_reload_render_the_same_bubble(_stack, case_id, entries, expect):  # noqa: F811
-    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"Golden render {case_id}")
+    live, reloaded, mid, _trace = _send_and_snapshot(_stack, [dict(e) for e in entries], f"Golden render {case_id}")
     assert reloaded is not None, "the reload rendered no assistant bubble"
     # not vacuous: the scripted turn really reached the page on BOTH paths (a guard's scene-cut line would also be 'equal')
     assert expect in live["body"], f"{case_id}: the scripted text never reached the live bubble: {live['body'][:160]!r}"
@@ -110,7 +118,17 @@ STREAMING_CASES = [
 
 @pytest.mark.parametrize("case_id,entries,expect", STREAMING_CASES)
 def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id, entries, expect):  # noqa: F811
-    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}")
+    live, reloaded, mid, _trace = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}")
     assert mid is not None, "the streaming bubble never painted before settle (the stub should be slow enough)"
     assert mid["cls"] == reloaded["cls"], f"{case_id}: wrapper classes at first paint differ from the reload: {mid['cls']!r} vs {reloaded['cls']!r}"
     assert mid["role"] == reloaded["role"], f"{case_id}: role label at first paint differs from the reload: {mid['role']!r} vs {reloaded['role']!r}"
+
+
+# ── A88 step 1: the TRUE first paint, from a MutationObserver (the 150ms poll above misses a short first paint) ─────────────────────────────────────────
+# Records every class/role state the new assistant bubble passes through. This is a DISCOVERY test: it prints the transitions per case so the real drift list can be written down; it asserts only that a
+# first paint was captured. The strict per-drift xfails (one per commit) are added from its output.
+@pytest.mark.parametrize("case_id,entries,expect", [pytest.param(*c, id=c[0]) for c in CASES if c[0] in ("plain-reply", "ooc-producer-aside", "ooc-complete-first-delta", "tool-beat-turn")])
+def test_a88_first_paint_trace(_stack, case_id, entries, expect):  # noqa: F811
+    live, reloaded, _mid, trace = _send_and_snapshot(_stack, [dict(e) for e in entries], f"A88 trace {case_id}")
+    print("A88-TRACE", case_id, json.dumps({"states": [{k: v for k, v in t.items() if k != "t"} for t in trace], "reload": {"cls": reloaded["cls"], "role": reloaded["role"]}}, sort_keys=True))
+    assert trace, "the observer captured no assistant bubble"
