@@ -1036,7 +1036,7 @@ export class GameSessionAdapter implements GameSession {
     const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
     return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
   }
-  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
+  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only; persisted in the snapshot since B20 - the old note said not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
   private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
   private copresenceTold = new ToldLedger();
   setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
@@ -3706,6 +3706,8 @@ export class GameSessionAdapter implements GameSession {
          : {}),
        // P0g: the noteMessage dedupe ring survives a restart (a retry then bills nothing). Absent until the first announcement ⇒ old saves round-trip byte-identical.
        ...(this.seenMessageIds.length > 0 ? { seenMessageIds: [...this.seenMessageIds] } : {}),
+       // B20: the co-presence told ledger survives a restart (a telling already decided is not re-rolled). Absent when empty => old saves round-trip byte-identical.
+       ...(this.copresenceTold.size > 0 ? { toldLedger: this.copresenceTold.snapshot() } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
@@ -4016,6 +4018,7 @@ export class GameSessionAdapter implements GameSession {
       : undefined;
     this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
+    this.copresenceTold = ToldLedger.restore(core.toldLedger);
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
@@ -7548,6 +7551,7 @@ export class GameSessionAdapter implements GameSession {
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
+      ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
@@ -11270,6 +11274,18 @@ export class GameSessionAdapter implements GameSession {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
     return bound ? -0.2 : 0;
+  }
+
+  /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
+  private hcMemoryEnabled = process.env.ORWELL_HC_MEMORY === "1";
+  setHcMemoryEnabled(on: boolean): void { this.hcMemoryEnabled = on; }
+  /** B7 M4b - how much more the `holder` wants `candidate` as the sixth veto player: the SAME combined memory / belief / owed-deal read the veto save uses (a favor or an owed promise raises, a grudge or a 'they target me' belief lowers). Deterministic, no rng, [-1, 1]. */
+  hcMemoryFor(candidate: EntityId, holder: EntityId): number {
+    if (!this.hcMemoryEnabled || holder === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(candidate, holder) : 0;
+    const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(candidate, holder) : 0;
+    const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(candidate) && candidate !== holder) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -(mem + bel) + owed));
   }
 
   /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
