@@ -6003,6 +6003,7 @@ async def apply_game_framing(
         game_active = True
         _GAME_WAS_ACTIVE.add(_gkey)
         orwell_engine.clear_disclosure_turn(user)  # N-17: a fresh turn - no engine disclosure lever has run yet
+        orwell_engine.note_engine_delivery(user, game_state)  # N-17 vs 0092: an engine-side delivery (drip) since last turn exempts THIS turn only
         # C-02: resolve an unresolved NPC-driven ceremony FOR REAL before building the moment prompt,
         # so the model voices the engine's actual nominees/outcome instead of inventing one. No-op
         # unless the game sits at such a beat with no player decision pending (best-effort). The
