@@ -1765,6 +1765,7 @@ def setup_chat_routes(
                         _max_rounds = _DEFAULT_ROUNDS
                     _max_rounds = max(1, min(_max_rounds, 200))
 
+                    _upstream_dropped = False  # A57c: set when the model connection dropped mid-reply (error_type stream_dropped) - the partial must never be saved as a complete turn
                     async for chunk in stream_agent_loop(
                         sess.endpoint_url,
                         sess.model,
@@ -1895,12 +1896,17 @@ def setup_chat_routes(
                             except json.JSONDecodeError:
                                 yield chunk
                         elif chunk.startswith("event: "):
+                            if chunk.startswith("event: error") and '"stream_dropped"' in chunk:
+                                _upstream_dropped = True
                             yield chunk
                         elif chunk == "data: [DONE]\n\n":
                             # E22: "narrated but never recorded" is enforced in CODE, not
                             # prompt wording — a completed game turn with non-trivial
                             # narration and zero engine writes gets a bounded fallback
                             # recordInteraction so the beat has consequence and memory.
+                            if _upstream_dropped:
+                                logger.warning("[orwell] upstream dropped mid-reply (stream_dropped): the partial narration is NOT saved as a complete turn and records no consequence fallback user=%s", ctx.user)
+                                full_response = ""  # A57c: an interrupted turn leaves no saved narrator message (the client shows the interruption + retry)
                             if ctx.game_active and full_response:
                                 # 0064 §B/D / ship-gate F5 (status/gadget half): when THIS turn already
                                 # committed a mutation (a game-engine write tool ran, or the beatSeq
