@@ -6,6 +6,7 @@ import { counts, isSuperset, countsNonDecreasing } from "../domain/saveState";
 import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
+import { spreadForScenes } from "../engine/copresenceSpread";
 import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
@@ -843,7 +844,26 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // confidence, and per-telling drift. The PLAYER is a node like anyone: a chain that terminates at
   // them lands the belief — a vague paraphrase with source+confidence, never the verbatim hidden
   // scene and never a number. Every retelling is a recorded, traceable event (0002).
-  if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
+  // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default OFF): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
+  // while on (so the OFF path, which never reaches this branch, is byte-identical). Dedicated rng per (holder, listener, tick); hidden layer only; the player is never a node (off-screen scenes exclude them).
+  if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
+    const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
+    const relm = sandbox.engine.relationships;
+    spreadForScenes(
+      scenes.filter((s) => s.initiator !== core.house!.player.id && s.partner !== core.house!.player.id).map((s) => [s.initiator, s.partner] as const),
+      {
+        knowledge: sandbox.engine.knowledge,
+        told: sandbox.session.copresenceToldLedger(),
+        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${before}`)),
+        trust: (a, b) => relm.edge(a, b).trust,
+        affinity: (a, b) => relm.edge(a, b).affinity,
+        threat: (a, b) => relm.edge(a, b).threat,
+        style: (id) => npcsById.get(id)?.character.strategyStyle,
+        volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
+        audienceOf: () => 0,
+      },
+    );
+  } else if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
     const scene = scenes[rng.int(scenes.length)]!;
     // The graph is the AWAKE house (ADR 0006), exactly like the off-screen society above: a
     // houseguest who has gone to bed neither retells nor receives a rumor at night (a pre-existing
