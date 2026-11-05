@@ -33,6 +33,13 @@ export const OPERATIONAL_ENV: Readonly<Record<string, string>> = {
   ORWELL_EMBED_WARMUP_MS: "embedding warm-up budget",
   ORWELL_MAX_RESIDENT_SANDBOXES: "resident sandbox cap",
   ORWELL_FLAGS_OFF: "diagnostic: restore every default-flipped flag to OFF",
+  // Raw `process.env` reads that are not behaviour flags on /health (found by the B45 gate on its first run): a default-ON toggle, a test seam and tuning/measurement knobs.
+  ORWELL_COMP_THEMES: "default-ON toggle (=0 turns the themed competition variety off); read raw, not on /health",
+  ORWELL_DISABLE_DIVERSITY: "TEST SEAM (#338 RNG-isolation golden test): =1 skips the diversity pass",
+  ORWELL_GEN_COMPETITIONS: "generative competitions (#1400): DEFAULT OFF, read raw; the God-Mode dial also sets it per sandbox",
+  ORWELL_HANGOUT_P_SCALE: "live-verification knob (A15): scales the hang-out stop chances; the deploy never sets it",
+  ORWELL_MEMORY_CALLBACKS: "memory callbacks (narrator lines): read through MEMORY_CALLBACKS_ENV, not on /health",
+  ORWELL_WANT_MOVEMENT_K: "calibration-measurement override for the want-movement strength; the deploy never sets it",
 };
 
 const walk = (dir: string, out: string[] = []): string[] => {
