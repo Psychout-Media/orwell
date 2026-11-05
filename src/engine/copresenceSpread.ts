@@ -29,6 +29,11 @@ export interface SpreadDeps {
   audienceOf: (holder: EntityId, listener: EntityId) => number;
   /** Max facts considered per holder per scene. */
   topK?: number;
+  /**
+   * B24/B36 - an OBSERVER of each one-hop receipt (the co-presence analogue of the graph path's `onReceipt`): told the listener, the (believed) subject, the nature and the transmitted
+   * confidence, so the caller can record a `heard-rumor` belief claim. Read-only: it fires AFTER the transmit, draws no randomness, and moves no edge. Only fired for a fact with a subject.
+   */
+  onTold?: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; slipped: boolean }) => void;
 }
 
 const CUNNING: Partial<Record<StrategyStyle, number>> = { strategic: 0.7, aggressive: 0.6, "under-the-radar": 0.55 };
@@ -69,6 +74,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
           distortion: src.distortion ?? 0, ...(src.subject !== undefined ? { subject: src.subject } : {}),
         }, `told-by:${holder}`);
         transmitted = true;
+        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip" });
       }
     }
     out.push({ holder, listener, factId: h.factId, decision: told, transmitted });
