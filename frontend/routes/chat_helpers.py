@@ -2298,9 +2298,10 @@ def _tally_claims_match_ballots(text: str, counts) -> bool:
 
 
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
+# A68: the separator stays on ONE line ([ \t], not \s) - "\n- one\n- two" in a markdown list is not a "one - two" vote tally.
 _CLAIM_TALLY_RE = re.compile(
-    r"\b\d+\s*(?:votes?|-)\s*(?:to|–|-)\s*\d+\b|"
-    r"\b" + _TALLY_NUM + r"\s+(?:votes?\s+)?(?:to|–|-)\s+(?:" + _TALLY_NUM + r"|evict\b)",
+    r"\b\d+[ \t]*(?:votes?|-)[ \t]*(?:to|–|-)[ \t]*\d+\b|"
+    r"\b" + _TALLY_NUM + r"[ \t]+(?:votes?[ \t]+)?(?:to|–|-)[ \t]+(?:" + _TALLY_NUM + r"|evict\b)",
     re.IGNORECASE,
 )
 # LIVE-7 (#540): the eviction RESULT narrated as a count/majority during the staged secret-ballot
@@ -6002,6 +6003,7 @@ async def apply_game_framing(
         game_active = True
         _GAME_WAS_ACTIVE.add(_gkey)
         orwell_engine.clear_disclosure_turn(user)  # N-17: a fresh turn - no engine disclosure lever has run yet
+        orwell_engine.note_engine_delivery(user, game_state)  # N-17 vs 0092: an engine-side delivery (drip) since last turn exempts THIS turn only
         # C-02: resolve an unresolved NPC-driven ceremony FOR REAL before building the moment prompt,
         # so the model voices the engine's actual nominees/outcome instead of inventing one. No-op
         # unless the game sits at such a beat with no player decision pending (best-effort). The

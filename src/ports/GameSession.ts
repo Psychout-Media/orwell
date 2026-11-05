@@ -402,6 +402,8 @@ export interface GameStateView {
    * not applied. Restart-safe (persisted in the snapshot, co-versioned with the save, 0007/0030).
    */
   beatSeq: number;
+  /** N-17 vs 0092 - present only after the engine has surfaced something to the player off the tool path (a confidant slip / gossip chain): a counter and the source's PUBLIC id, never content. The FE treats a change as "an engine delivery happened". */
+  surfacedToPlayer?: { n: number; sourceId: EntityId };
   week: number;
   phase: string;
   /**
@@ -422,6 +424,11 @@ export interface GameStateView {
    * Drives the time-of-day HUD and grounds narration in the real hour. Absent pre-game.
    */
   timeOfDay?: string;
+  /**
+   * P0 clock grounding - the engine's exact in-game clock as a plain label ("9:40am, Day 1"), present only while the clock is running (same gate as `timeOfDay`). Public, Vault-free; the narrator is
+   * told to name no other time. Absent pre-game / clock dormant => byte-identical.
+   */
+  clockLabel?: string;
   /**
    * ADR 0006 — the houseguests who've TURNED IN for the night (the complement of the awake set). Names
    * only; Vault-free and OBSERVABLE (the bedtime derivation stays hidden). Present only when the clock is
