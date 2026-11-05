@@ -88,6 +88,7 @@ const args = (name: string, seed: number): Record<string, unknown> => {
     case "runCompetition": return { type: "endurance" };
     case "surfaceInformationTo": return { entity: PLAYER, fact: { content: "x" }, pathway: "told-by:npc:1" };
     case "diaryRoom": return { entry: "my private read" };
+    case "noteMessage": return { messageId: "sentinel-msg-1" }; // per-message clock lever: a non-empty id
     case "makeDeal": return { with: npc(1), kind: "safety", terms: "we ride together" };
     case "formAlliance": return { name: "The Test Alliance", members: [npc(1), npc(2)] }; // 0107
     case "joinAlliance": return { allianceId: "alliance:nope" }; // 0107 Phase B (no such pitch ⇒ null, never throws)

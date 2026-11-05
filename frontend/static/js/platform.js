@@ -172,6 +172,8 @@ export const ORWELL_MUTATING_TOOLS = Object.freeze([
   'recordInteraction', 'runCompetition', 'surfaceInformationTo', 'diaryRoom', 'recordImageBeat',
   // Presence & movement (0049 / ADR 0009), premiere meet-everyone (#380), the bedtime lever (ADR 0006).
   'moveTo', 'moveHouseguest', 'markHouseguestMet', 'turnIn', 'hangOut',
+  // Per-message clock (P0a): announcing a player message steps the in-game clock the HUD reads.
+  'noteMessage',
   // Deals & alliances (0039 / 0107).
   'makeDeal', 'formAlliance', 'joinAlliance',
   // The jury house Q&A (0129): a juror's telling lands in the player's knowledge (Journal).
