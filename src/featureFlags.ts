@@ -126,6 +126,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HEARD_ABOUT_ME', key: 'heardAboutMe', parser: 'strict' },
   // B48 / #2017 14.5(3) READ side: decisions (votes, nominations, replacement, veto save, Houseguest's Choice, deal consent, approaches) read the belief store's `lied-to-me` / `assured-me` claims - each caught lie lowers belief in the liar (player or NPC), scaled by the holder's trust and disposition. Needs ORWELL_NPC_BELIEFS. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_CREDIBILITY_MEMORY', key: 'credibilityMemory', parser: 'strict' },
+  // B49 / PO ruling card 24: the hard per-season counts (NPC confide lies 2, player exposes 3, trades 5) stop being a design rule - ON leaves only a high safety valve and an escalating, recipient-scaled REPETITION COST on each further expose/trade/lie by the same actor. OFF unless exactly '1'; never-flipped until the PO bands are measured.
+  { envKey: 'ORWELL_NO_HARD_CAPS', key: 'noHardCaps', parser: 'strict' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'strict' },
   // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). OFF unless exactly '1'; never-flipped until the PO bands are measured.
