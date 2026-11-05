@@ -24,6 +24,8 @@ export interface DealConsentInputs {
   targetsMe: number;
   /** The per-decision seeded jitter in [-DEAL_CONSENT.jitter, +DEAL_CONSENT.jitter] (the adapter derives it from a dedicated rng; never the shared season rng). */
   jitter: number;
+  /** B55: who the PROMISOR is for an active kind (comp-throw / veto-save). `offer` = the player promises (to the NPC it is a favor, cheap); `ask` or absent = the NPC is asked to promise (priced as before). */
+  direction?: "offer" | "ask";
   /** B31 (ORWELL_MOOD_DEAL): a signed shift from the NPC's visible mood (tells). Absent/0 => byte-identical. */
   mood?: number;
 }
@@ -57,7 +59,8 @@ export function dealWillingness(i: DealConsentInputs): number {
  * (distrust / threat / targeted / grudge); and `cost` when nothing about the player is what sank it (the ask simply costs too much for where the two stand).
  */
 export function decideDealConsent(i: DealConsentInputs): DealConsentDecision {
-  const cost = DEAL_CONSENT.cost[i.kind] ?? DEAL_CONSENT.cost["veto-save"];
+  const active = i.kind === "comp-throw" || i.kind === "veto-save";
+  const cost = active && i.direction === "offer" ? DEAL_CONSENT.offerCost : (DEAL_CONSENT.cost[i.kind] ?? DEAL_CONSENT.cost["veto-save"]);
   const jitter = Math.max(-DEAL_CONSENT.jitter, Math.min(DEAL_CONSENT.jitter, num(i.jitter)));
   const score = dealWillingness(i) + jitter;
   if (score >= cost) return { accept: true };

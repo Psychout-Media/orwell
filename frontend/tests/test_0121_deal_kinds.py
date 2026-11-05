@@ -105,3 +105,40 @@ def test_do_make_deal_accepts_active_kind_when_flag_on(monkeypatch):
     res = _run(ti.do_make_deal(json.dumps({"with": "npc:1", "kind": "veto-save", "terms": "save me"}), owner="u"))
     assert res.get("exit_code") == 0
     assert "veto-save" in res.get("output", "")
+
+
+# ── B55: the proposer's DIRECTION (offer / ask) for the active kinds ──────────────────────────────────────────────
+def test_direction_property_exists_only_when_deal_depth_is_on():
+    """Off => the same list (byte-identical, no `direction`); on => makeDeal carries an offer/ask `direction`, and the shared base schema is never mutated."""
+    base = copy.deepcopy(FUNCTION_TOOL_SCHEMAS)
+    assert with_deal_depth_kinds(FUNCTION_TOOL_SCHEMAS) is FUNCTION_TOOL_SCHEMAS
+    assert "direction" not in _make_deal_schema(FUNCTION_TOOL_SCHEMAS)["function"]["parameters"]["properties"]
+    oe._ENGINE_FLAGS["dealDepth"] = True
+    on = _make_deal_schema(with_deal_depth_kinds(FUNCTION_TOOL_SCHEMAS))["function"]["parameters"]["properties"]
+    assert on["direction"]["enum"] == ["offer", "ask"]
+    assert FUNCTION_TOOL_SCHEMAS == base
+
+
+def test_do_make_deal_forwards_a_valid_direction_for_active_kinds_only(monkeypatch):
+    import json
+    from src import tool_implementations as ti
+    seen = {}
+
+    async def fake_make_deal(with_id, kind, terms, **kw):
+        seen.update(kw)
+        return {"id": "d1", "kind": kind}
+
+    async def no_guard(*a, **k):
+        return None, None
+
+    monkeypatch.setattr(oe, "make_deal", fake_make_deal)
+    monkeypatch.setattr(ti, "guard_make_deal", no_guard, raising=False)
+    oe._ENGINE_FLAGS["dealDepth"] = True
+    _run(ti.do_make_deal(json.dumps({"with": "npc:1", "kind": "comp-throw", "terms": "t", "direction": "ask"}), owner="u"))
+    assert seen.get("direction") == "ask"
+    seen.clear()
+    _run(ti.do_make_deal(json.dumps({"with": "npc:1", "kind": "comp-throw", "terms": "t", "direction": "sideways"}), owner="u"))
+    assert "direction" not in seen
+    seen.clear()
+    _run(ti.do_make_deal(json.dumps({"with": "npc:1", "kind": "safety", "terms": "t", "direction": "ask"}), owner="u"))
+    assert "direction" not in seen

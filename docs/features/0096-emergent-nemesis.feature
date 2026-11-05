@@ -77,6 +77,12 @@ Feature: 0096 — Emergent nemesis (a personal villain to outlast)
       Then the player's eviction danger is higher than a no-nemesis baseline
       And the vote effect is carried by the existing campaign and drive tilt with no new term
 
+    Scenario: A houseguest aware of the nemesis campaign weighs the player more heavily when naming nominees
+      Given a houseguest held as the player's nemesis
+      When a houseguest who knows of that campaign weighs the player for nomination
+      Then the player's nomination push from that houseguest is positive
+      And a houseguest who does not know of the campaign feels no push
+
     Scenario: With the campaign layer off, outcomes are byte-identical
       Given the campaign layer is disabled
       When the same seeded season is played

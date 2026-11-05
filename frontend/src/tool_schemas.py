@@ -2011,6 +2011,7 @@ def with_deal_depth_kinds(schemas: list) -> list:
             if isinstance(kind, dict) and isinstance(kind.get("enum"), list):
                 kind["enum"] = BASE_DEAL_KINDS + ACTIVE_DEAL_KINDS
                 kind["description"] = f"The deal's nature. {_ACTIVE_DEAL_KIND_DESC}."
+            props["direction"] = {"type": "string", "enum": ["offer", "ask"], "description": "comp-throw / veto-save only: 'offer' (default) = the player promises to do it for them; 'ask' = the player asks THEM to throw / save for the player."}
         out.append(s)
     return out
 
