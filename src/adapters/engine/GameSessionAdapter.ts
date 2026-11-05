@@ -1117,6 +1117,11 @@ export class GameSessionAdapter implements GameSession {
    */
   pitchTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
+    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)));
+  }
+  /** B6/B38 - the pitches `holder` (the HOH) faces, derived deterministically from the live edges (no rng, no stored state). Shared by the nomination tilt and the pitch-event recorder, so what is RECORDED is exactly what is WEIGHED. */
+  private derivePitches(holder: EntityId): Pitch[] {
+    if (!this.house) return [];
     const evicted = new Set(this.live?.evictionOrder ?? []);
     const awake = this.awakeNow();
     const pitches: Pitch[] = [];
@@ -1129,8 +1134,33 @@ export class GameSessionAdapter implements GameSession {
       const cunning = Math.max(0, Math.min(1, npc.character.stats.mental));
       pitches.push({ from: id, kind: chooseOffer({ loyalty, cunning, chaos: 1 - loyalty }), strength: threat, protects: id });
     }
-    return pitchTilt(subject, pitches, (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)));
+    return pitches;
   }
+  /**
+   * B38 (ORWELL_LOBBYING, slice 3) - make the pitches REAL EVENTS. Once per HOH crowning (the week), each pitch the new HOH faces is recorded as an event whose witness set is the pitcher, the HOH and
+   * whoever is genuinely co-present; it is HIDDEN (Vault-held) unless the player is in that set, so a pitch the player did not witness never reaches them except through a pathway (gossip, a confidant). A
+   * safety pitch from someone the HOH trusts enough also seals an NPC-NPC safety deal (the existing deal store; bounded, once per pair). No lobby log is ever projected; the content is a vague paraphrase. Idempotent per
+   * (week, HOH). Flag off => returns before anything.
+   */
+  private recordLobbyPitches(hoh: EntityId): void {
+    const s = this.live;
+    if (!this.lobbyingEnabled || !s || !this.house || !this.onPlayerEvent || hoh === PLAYER) return;
+    const key = `${s.week}:${hoh}`;
+    if (this.lobbyRecordedFor.has(key)) return;
+    this.lobbyRecordedFor.add(key);
+    for (const p of this.derivePitches(hoh)) {
+      const witnesses = [...new Set([p.from, hoh, ...this.coPresentWitnessesOf(p.from)])];
+      const verb = p.kind === "safety" ? "asks for safety" : p.kind === "info" ? "trades information" : p.kind === "threat" ? "makes a veiled threat" : "makes a pitch";
+      this.onPlayerEvent(`${this.nameOf(p.from)} ${verb} with ${this.nameOf(hoh)} before nominations`, witnesses, "lobbying");
+      const trust = this.rel.edge(hoh, p.from).trust;
+      if (p.kind === "safety" && trust >= DECISION.npcDeal.mutualTrustMin && !this.deals.open().some((d) => d.parties.includes(p.from) && d.parties.includes(hoh))) {
+        const evId = this.onPlayerEvent(`${this.nameOf(p.from)} and ${this.nameOf(hoh)} quietly seal a safety pact`, [p.from, hoh], "deal");
+        this.deals.make([p.from, hoh], "safety", "a quiet pact sealed away from the cameras", evId, s.week);
+      }
+    }
+  }
+  /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
+  private lobbyRecordedFor = new Set<string>();
 
   /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. OFF unless exactly `ORWELL_ASSURANCES=1`; never-flipped. OFF => no ledger on the live state => byte-identical. */
   private assurancesEnabled = process.env.ORWELL_ASSURANCES === "1";
@@ -8455,6 +8485,13 @@ export class GameSessionAdapter implements GameSession {
    * that voter's own threat/trust edges toward the target; the actor perceives it with a seeded personality `overconfidence` and a seeded per-(actor, week) noise stream (a DEDICATED sub-rng, never
    * the shared stream). Deterministic; the estimate is private to the actor and never projected.
    */
+  /** B37: a stable key of the public board the vote count is read from. Changes when a nominee, the veto holder or the replacement does. */
+  private voteInfoEpoch(): string {
+    return `${[...(this.ceremony.nominees ?? [])].sort().join(",")}|${this.ceremony.vetoHolder ?? ""}|${this.ceremony.vetoUsed ? 1 : 0}`;
+  }
+  /** B37 (ORWELL_VOTE_COUNT): campaigns the owner has stopped because their believed count says it is decided (monotonic; observability + tests). */
+  private voteCountStops = 0;
+  voteCountStopsNow(): number { return this.voteCountStops; }
   private voteStillInDoubt(actor: EntityId, target: EntityId): boolean {
     const voters = this.livingIds().filter((v) => v !== actor && v !== target);
     if (voters.length === 0) return true;
@@ -8463,7 +8500,8 @@ export class GameSessionAdapter implements GameSession {
       return Math.max(0, Math.min(1, 0.5 + 0.6 * (e.threat - 0.5 * e.trust)));
     });
     const oc = 0.2 + 0.6 * ((hashSeed(`${this.gameSeed ?? 0}:overconfidence:${actor}`) % 1000) / 1000);
-    const nrng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:votecount:${actor}:${this.live?.week ?? 0}`));
+    // B37: the noise stream is keyed on the PUBLIC board too (nominees, which already change with a replacement, the veto holder, whether the veto was used), so the estimate is recomputed - a fresh, still reproducible draw - the moment public information changes
+    const nrng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:votecount:${actor}:${this.live?.week ?? 0}:${this.voteInfoEpoch()}`));
     const noise = voters.map(() => nrng.next() * 2 - 1);
     return inDoubt(believedMargin(trueSupport, oc, noise), voters.length);
   }
@@ -8522,6 +8560,15 @@ export class GameSessionAdapter implements GameSession {
             targetSafe: this.ceremony.vetoHolder === c.target,
           })
         : c);
+    // B37 (ORWELL_VOTE_COUNT, slice 3): ADAPTATION - re-read the believed count for every NPC evict campaign each tick. An owner who now believes the count is decided stops (the campaign is dropped), so an
+    // overconfident NPC whose TRUE count differs quits early and is blindsided; if public information changes and the count is in doubt again, formation below re-opens it. Flag off => not entered.
+    if (this.voteCountEnabled) {
+      this.campaigns = this.campaigns.map((c) => {
+        if (c.status !== "active" || c.goal !== "evict" || c.owners[0] === PLAYER || this.voteStillInDoubt(c.owners[0]!, c.target)) return c;
+        this.voteCountStops += 1;
+        return { ...c, status: "abandoned" as const };
+      }).filter((c) => c.status === "active");
+    }
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
@@ -11093,6 +11140,7 @@ export class GameSessionAdapter implements GameSession {
     // their REAL engine-grounded read — Vault-only (witnessed by them alone), reaching no one.
     if (ev) this.recordCeremonyConfessionals(ev);
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
+    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
     if (ev && ev.beat === "nominations") this.mintNpcDeal();
     // 0041: the season changes a houseguest — fold the beat's emotional impact into the involved souls
     // (a comp win emboldens; a blindside rattles), evolving the hidden arc that bends their later play.
