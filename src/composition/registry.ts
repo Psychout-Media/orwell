@@ -86,7 +86,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setBoardProvider(() => session.gameStatus());
   // House presence (0049): recorded scenes are grounded in the live occupancy — co-present
   // houseguests witness them; occupants of adjacent rooms may overhear (both directions).
-  commands.setPresenceProvider(() => session.occupancy());
+  commands.setPresenceProvider(() => session.witnessOccupancy());
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
