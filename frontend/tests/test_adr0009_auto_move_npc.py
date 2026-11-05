@@ -180,7 +180,10 @@ def test_auto_move_npc_is_wired_into_the_finishing_block():
     # the VISIBLE narration (<think> reasoning stripped) so a "move X to the kitchen" inside reasoning
     # can't drive a persisted NPC relocation the player never saw.
     assert '_npc_moved = "moveHouseguest" in _tool_names' in js
-    assert "_want_npc_move = ((not _npc_moved)" in js
+    # A60: the gate expression now lives in agent_gates.want_npc_move (called by the loop); same conditions
+    assert "_want_npc_move = _gates.want_npc_move(" in js
+    _gates = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_gates.py"), encoding="utf-8").read()
+    assert "(not npc_moved)" in _gates and "turn_npc_move_nudges < max_npc_move_nudges" in _gates
     assert "_MOVE_SIGNAL_RE.search(_turn_narration_visible)" in js
     # the fetch-guard includes the NPC-move belt, and the call site fires inside it — VISIBLE narration
     assert "_want_move or _want_npc_move" in js
