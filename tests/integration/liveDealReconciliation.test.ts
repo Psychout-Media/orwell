@@ -4,6 +4,7 @@ import type { AdvanceView } from "../../src/ports/GameSession";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import type { DealView } from "../../src/ports/GameSession";
 
 /**
  * Audit T1 (the missing live gate for E42/E43) — deal reconciliation ON THE PRODUCTION PATH.
@@ -54,6 +55,7 @@ function gameWithPlayerOnTheBlock(): { sb: Sandbox; reg: GameSessionRegistry } {
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("deal-user");
     sb.session.createCharacter({ playerName: "P", seed });
+    sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
 
     // Resolve the opening HOH comp — 0006 staged-rounds: drive the elimination ladder to the crown
     // (the player declares a per-round approach each round they are in).
@@ -91,7 +93,7 @@ describe("T1/E42 — NPC binding votes reconcile deals on the live spine", () =>
     const onBlock = new Set(status.nominees.map((n) => n.id));
     const voter = session.livingIds().find((id) => id !== PLAYER && id !== status.hoh!.id && !onBlock.has(id))!;
     const voterName = session.getGameState().house.find((h) => h.id === voter)!.name;
-    const deal = session.makeDeal({ with: voter, kind: "safety", terms: "I keep you off my lips, you keep me off the block" });
+    const deal = session.makeDeal({ with: voter, kind: "safety", terms: "I keep you off my lips, you keep me off the block" }) as DealView | null;
     expect(deal!.status).toBe("open");
 
     const trustBefore = sb.engine.relationships.edge(PLAYER, voter).trust;
@@ -150,7 +152,7 @@ describe("T1/E42 — NPC binding votes reconcile deals on the live spine", () =>
     const onBlock = new Set(status.nominees.map((n) => n.id));
     const otherNominee = status.nominees.find((n) => n.id !== PLAYER)!.id;
     const voter = session.livingIds().find((id) => id !== PLAYER && id !== status.hoh!.id && !onBlock.has(id))!;
-    const deal = session.makeDeal({ with: voter, kind: "safety", terms: "vote to keep me" });
+    const deal = session.makeDeal({ with: voter, kind: "safety", terms: "vote to keep me" }) as DealView | null;
 
     // The honoring read: THIS voter sees the player as harmless and the other nominee as the threat.
     // EVERY voter reads it that way, so the PLAYER survives the block: an evicted player would (0110, vote deduction — now default ON)
@@ -184,6 +186,7 @@ describe("T1/E42 — NPC binding votes reconcile deals on the live spine", () =>
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("npc-deal-user");
     sb.session.createCharacter({ playerName: "P", seed: 5 });
+    sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const session = sb.session as GameSessionAdapter;
 
     // Play forward until a nomination ceremony mints the pact (seeded, bounded probability per week).

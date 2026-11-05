@@ -119,6 +119,7 @@ describe("0121 R1 — the registry seam is live end-to-end (a kept deal seeds th
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor(user);
     sb.session.createCharacter({ playerName: "The Player", seed: 9 });
+    sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     sb.session.setDealDepthEnabled(dealDepth);
     let other: string | undefined;
     for (let i = 0; i < 40; i++) {
