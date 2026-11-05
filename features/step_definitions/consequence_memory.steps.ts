@@ -241,6 +241,9 @@ Given("a multi-step game of conversations, a competition, and a vote", function 
   // A live season: real conversations through the command seam, then the live loop runs its own
   // competitions and votes (advanceGame) until the house has voted at least once.
   const l = startLive(this, 6);
+  // A11: a chat during the gathered champagne circle is now a real witnessed record (the witness grounding reads the same whole-house overlay the player sees), so the ten scenes below would
+  // all fold at once, before the house has settled. Close the circle first (a pure close earns no tick), as the real game does, so this scenario measures the settled loop it is about.
+  l.sb.session.advanceGame();
   const [ally, wronged] = l.mates;
   l.ally = ally!;
   this.npc = wronged!;

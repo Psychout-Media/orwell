@@ -59,3 +59,16 @@ def test_note_refreshes_the_last_seen_beat_seq(monkeypatch):
     asyncio.run(chat_helpers.note_player_message("cid-9", "u"))
     # the token the next progression call attaches matches the engine's post-note value (no self-409)
     assert chat_helpers._LAST_BEAT_SEQ.get(chat_helpers._beat_seq_key("u")) == 41
+
+
+def test_note_logs_one_info_line_with_ids_only(monkeypatch, caplog):
+    import logging
+
+    async def fake_note(message_id, user=None):
+        return {"accepted": False, "beatSeq": 7}
+
+    monkeypatch.setattr(orwell_engine, "note_message", fake_note)
+    with caplog.at_level(logging.INFO):
+        asyncio.run(chat_helpers.note_player_message("cid-log", "u"))
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("noteMessage ")]
+    assert lines == ["noteMessage id=cid-log accepted=False beatSeq=7"]

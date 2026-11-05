@@ -55,7 +55,7 @@ import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deal
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
-import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
+import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1026,6 +1026,16 @@ export class GameSessionAdapter implements GameSession {
   private campaignsEnabled = CAMPAIGNS_ENABLED_DEFAULT;
   /** B5 / #2017 - vote counting: an evict campaign forms only while the actor believes the count is IN DOUBT (`voteEstimate.ts`). OFF unless exactly `ORWELL_VOTE_COUNT=1`; never-flipped. OFF => no gate => byte-identical. */
   private voteCountEnabled = process.env.ORWELL_VOTE_COUNT === "1";
+  /** A22 - NPCs may APPROACH the player during the Day-1 social morning AFTER the toast (never during the entrances or the toast). OFF unless exactly `ORWELL_MORNING_APPROACH=1`; never-flipped. OFF => the approach gate is `started` only, byte-identical. */
+  private morningApproachEnabled = process.env.ORWELL_MORNING_APPROACH === "1";
+  setMorningApproachEnabled(on: boolean): void { this.morningApproachEnabled = on; }
+  /** A22 - the premiere is fully over (entrances done or never staged, the champagne toast released): the Day-1 social morning, where an NPC's own wants may bring them to the player. */
+  private premiereSocialOpen(): boolean {
+    const live = this.live;
+    if (!live) return false;
+    const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
+    return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
+  }
   /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
   private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
   private copresenceTold = new ToldLedger();
@@ -1175,7 +1185,14 @@ export class GameSessionAdapter implements GameSession {
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
     if (!this.assurancesEnabled || !this.live) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
-    ledger.add({ ...a, week: this.live.week });
+    // B4 slice 7: an NPC's sincerity is the ENGINE's call (loyalty + a dedicated seeded roll), never the model's proposal; the player's own stays as recorded.
+    let sincerity = a.sincerity;
+    if (a.source === "npc") {
+      const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(a.from), this.emotionalReadOf(a.from))));
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}`)).next();
+      sincerity = npcAssuranceSincerity(loyalty, roll);
+    }
+    ledger.add({ ...a, sincerity, week: this.live.week });
     this.live.assurances = ledger.toJSON();
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
@@ -3645,6 +3662,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.lastApproachStretch !== undefined
          ? { approachShown: { key: this.lastApproachStretch.key, initiators: [...this.lastApproachStretch.initiators] } }
          : {}),
+       // P0g: the noteMessage dedupe ring survives a restart (a retry then bills nothing). Absent until the first announcement ⇒ old saves round-trip byte-identical.
+       ...(this.seenMessageIds.length > 0 ? { seenMessageIds: [...this.seenMessageIds] } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
@@ -3953,6 +3972,8 @@ export class GameSessionAdapter implements GameSession {
     this.lastApproachStretch = core.approachShown
       ? { key: core.approachShown.key, initiators: [...core.approachShown.initiators] }
       : undefined;
+    this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
+    this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
@@ -4527,6 +4548,31 @@ export class GameSessionAdapter implements GameSession {
    */
   occupancy(): Occupancy | null {
     return this.presence;
+  }
+
+  /**
+   * The occupancy the WITNESS grounding reads (registry presence provider). `occupancy()` stays the raw open-set map (the ADR 0009 record contract: a recorded NPC move lands in it);
+   * this adds the premiere overlay on top, a read-only copy.
+   */
+  witnessOccupancy(): Occupancy | null {
+    // A11 (finding from #2088): while a WHOLE-HOUSE premiere event is on (the gathered champagne circle / toast, or the staged entrances) `whereabouts()` shows everyone convened in the
+    // player's room, but this base map still held the underlying wander positions - so a chat during the toast hit the phantom-witness check ("not in the room") and folded nothing. The
+    // witness grounding must read the SAME overlay the player sees. Only the two premiere events; every other path (and flag-off) returns the base map untouched.
+    const base = this.presence;
+    const live = this.live;
+    if (!base || !live || !this.house) return base;
+    const entrances = live.premiereEntrance?.stage === "entrances";
+    if (!entrances && live.champagneCircle !== "gathered") return base;
+    const me = this.house.player.id;
+    const room = base.get(me) ?? "living-room";
+    const inside = entrances ? new Set<EntityId>(live.premiereEntrance!.order.slice(0, live.premiereEntrance!.arrived)) : null;
+    const overlay = new Map(base) as Map<EntityId, Room>;
+    for (const n of this.house.npcs) {
+      if (this.seatOf(n.id) !== "active") continue;
+      if (inside && !inside.has(n.id)) overlay.delete(n.id); // not arrived yet: not in the house, so not a witness
+      else overlay.set(n.id, room);
+    }
+    return overlay;
   }
 
   /**
@@ -5643,6 +5689,8 @@ export class GameSessionAdapter implements GameSession {
     this.approachCooldown = new Map();
     this.approachStretchKey = undefined;
     this.lastApproachStretch = undefined;
+    this.seenMessageIds = []; // a fresh season forgets the prior season's message ids and returns to legacy billing until announced
+    this.messageMode = false;
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
@@ -9761,6 +9809,7 @@ export class GameSessionAdapter implements GameSession {
         return this.house!.npcs.map((x) => x.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       };
       const started = firstCeremonyBeatResolved(live);
+      const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         hoursUntilEvent: () => {
@@ -9779,12 +9828,12 @@ export class GameSessionAdapter implements GameSession {
         approach: (r) => {
           if (this.desireClockEnabled) {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
-            const hit = started ? this.desireApproach(awakeNpcs()) : null;
+            const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc);
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
-          if (!started || r.next() >= HANGOUT_APPROACH_P) return null;
+          if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
           const top = rankApproaches(PLAYER, ids, this.rel, r)[0];
