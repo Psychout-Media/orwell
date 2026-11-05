@@ -10037,6 +10037,8 @@ export class GameSessionAdapter implements GameSession {
    * `materializeDailyRecap` always returns one once the clock is running, so this is present on every
    * turn-in that actually fires; absent only when the whole call was a dormant no-op above).
    */
+  private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
+  setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }
   turnIn(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
     // 0065 Part B — replay an already-ended night verbatim (wins even if beatSeq has since moved), so a
     // retried/duplicate turnIn is REPLAYED, not re-executed: `playerTurnIn` never re-stamps `lastSleepDepth`
@@ -10055,6 +10057,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return remember(this.advanceView(null));
     if (!this.timeOfDayEnabled) return remember(this.advanceView(null)); // dormant unless the clock is running
     if (this.live.finished || playerHasLeft(this.live, PLAYER)) return remember(this.advanceView(null));
+    // Bedtime gate (found in a live run: the narrator called turnIn on "wake up in the morning" and the engine slept through a whole day). A bed in the morning or afternoon is not a night: refuse with a typed
+    // `held` (nothing commits, beatSeq unchanged) so the narrator is told it is not bedtime yet. From the evening on the player owns their bedtime exactly as before (ADR 0006).
+    if (this.bedtimeGateEnabled && (this.live.timeOfDay === "morning" || this.live.timeOfDay === "afternoon")) {
+      const hour = this.live.nightDepth ?? WAKE_HOUR;
+      return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.evening - hour) * 60)) } });
+    }
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       const recap = this.materializeDailyRecap();
