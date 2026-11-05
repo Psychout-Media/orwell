@@ -629,12 +629,12 @@ const HANGOUT_PULL_P = Math.min(0.9, 0.03 * HANGOUT_P_SCALE), HANGOUT_APPROACH_P
  * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
  * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
  */
-const DESIRE_CLOCK_ENABLED_DEFAULT = process.env.ORWELL_DESIRE_CLOCK === "1";
+const DESIRE_CLOCK_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DESIRE_CLOCK");
 /**
  * A10 - NPC MOVEMENT from one internal WANT (docs/design/npc-want-movement.md): an NPC's pull toward the person its current want points at (the HOH to campaign to / plead with,
  * the nominees to sound out) is scaled up by the want's urgency (the A8 desire clock). OFF unless `ORWELL_WANT_MOVEMENT=1`; off => `movementIntentFor` is untouched (byte-identical).
  */
-const WANT_MOVEMENT_ENABLED_DEFAULT = process.env.ORWELL_WANT_MOVEMENT === "1";
+const WANT_MOVEMENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_WANT_MOVEMENT");
 const HANGOUT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HANGOUT");
 
 /**
@@ -808,7 +808,7 @@ const PER_CONVERSATION_CLOCK_ENABLED_DEFAULT = process.env.ORWELL_TIME_PER_CONVE
 // toward negative consequence (owner ruling 2026-07-12). `=0` is the escape hatch. Self-gated on
 // `timeOfDayEnabled`, so the clock-off calibration sims stay byte-identical.
 const SOCIAL_FATIGUE_ENABLED_DEFAULT = process.env.ORWELL_SOCIAL_FATIGUE !== "0";
-const MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT = process.env.ORWELL_MULTI_NIGHT_FATIGUE === "1";
+const MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MULTI_NIGHT_FATIGUE");
 /**
  * #1793 — the Player Dossier grouping player diary-room reads per subject (houseguest).
  * ON unless `ORWELL_PLAYER_DOSSIER=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). OFF ⇒ byte-identical: no `playerDossier` field on the view.
@@ -1028,9 +1028,9 @@ export class GameSessionAdapter implements GameSession {
    */
   private campaignsEnabled = CAMPAIGNS_ENABLED_DEFAULT;
   /** B5 / #2017 - vote counting: an evict campaign forms only while the actor believes the count is IN DOUBT (`voteEstimate.ts`). OFF unless exactly `ORWELL_VOTE_COUNT=1`; never-flipped. OFF => no gate => byte-identical. */
-  private voteCountEnabled = process.env.ORWELL_VOTE_COUNT === "1";
+  private voteCountEnabled = flagDefaultOn("ORWELL_VOTE_COUNT");
   /** A22 - NPCs may APPROACH the player during the Day-1 social morning AFTER the toast (never during the entrances or the toast). OFF unless exactly `ORWELL_MORNING_APPROACH=1`; never-flipped. OFF => the approach gate is `started` only, byte-identical. */
-  private morningApproachEnabled = process.env.ORWELL_MORNING_APPROACH === "1";
+  private morningApproachEnabled = flagDefaultOn("ORWELL_MORNING_APPROACH");
   setMorningApproachEnabled(on: boolean): void { this.morningApproachEnabled = on; }
   /** A22 - the premiere is fully over (entrances done or never staged, the champagne toast released): the Day-1 social morning, where an NPC's own wants may bring them to the player. */
   private premiereSocialOpen(): boolean {
@@ -1108,7 +1108,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private npcBeliefNomsEnabled = flagDefaultOn("ORWELL_NPC_BELIEF_NOMS");
   /** B6 / #2017 - NPC-to-NPC lobbying of the HOH: a bounded pitch tilt in the nomination score. OFF unless exactly `ORWELL_LOBBYING=1`; never-flipped. OFF => no ctx provider => byte-identical. */
-  private lobbyingEnabled = process.env.ORWELL_LOBBYING === "1";
+  private lobbyingEnabled = flagDefaultOn("ORWELL_LOBBYING");
   setLobbyingEnabled(on: boolean): void { this.lobbyingEnabled = on; }
   /**
    * B6 slice 2 - the pitch tilt for `subject` in `holder`'s (the HOH's) nomination score. Pitches are derived ON DEMAND, deterministically, from the live edges (no rng, no stored state): every
@@ -1163,7 +1163,7 @@ export class GameSessionAdapter implements GameSession {
   private lobbyRecordedFor = new Set<string>();
 
   /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. OFF unless exactly `ORWELL_ASSURANCES=1`; never-flipped. OFF => no ledger on the live state => byte-identical. */
-  private assurancesEnabled = process.env.ORWELL_ASSURANCES === "1";
+  private assurancesEnabled = flagDefaultOn("ORWELL_ASSURANCES");
   setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
   /**
    * B4 slice 3 - does `holder` KEEP an open casual assurance (safe|loyal) made to `target`? Self-interested and personality-scaled (`decideKeep`): the benefit of breaking is how threatening
@@ -1217,7 +1217,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B22 - houseguests who merely HEARD a promise remember its keeping / breaking too, at `ASSURANCE.witnessFactor` of the assured's own weight (the assured and the assurer themselves are not witnesses). OFF unless exactly `ORWELL_MEMORY_PROMISES=1`; never-flipped. */
-  private memoryPromisesEnabled = process.env.ORWELL_MEMORY_PROMISES === "1";
+  private memoryPromisesEnabled = flagDefaultOn("ORWELL_MEMORY_PROMISES");
   setMemoryPromisesEnabled(on: boolean): void { this.memoryPromisesEnabled = on; }
   private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
     if (!this.memoryPromisesEnabled) return;
@@ -1510,17 +1510,17 @@ export class GameSessionAdapter implements GameSession {
   /** B28: monotonic count of tell onsets (persisted as `tellOnsetCount`). */
   private tellOnsetCount = 0;
   /** B29 (ORWELL_TELL_REACTIONS, default OFF, never-flipped): observers react to a visible tell (comfort / exploit / avoid). Engine-only state, persisted (`tellReactions`). */
-  private tellReactionsEnabled = process.env.ORWELL_TELL_REACTIONS === "1";
+  private tellReactionsEnabled = flagDefaultOn("ORWELL_TELL_REACTIONS");
   setTellReactionsEnabled(on: boolean): void { this.tellReactionsEnabled = on; }
   /** B30 (ORWELL_MOOD_VETO / ORWELL_MOOD_APPROACH, default OFF, never-flipped; each needs ORWELL_NPC_TELLS): emotion into the veto save and into who seeks the player out. */
-  private moodVetoEnabled = process.env.ORWELL_MOOD_VETO === "1";
+  private moodVetoEnabled = flagDefaultOn("ORWELL_MOOD_VETO");
   setMoodVetoEnabled(on: boolean): void { this.moodVetoEnabled = on; }
-  private moodApproachEnabled = process.env.ORWELL_MOOD_APPROACH === "1";
+  private moodApproachEnabled = flagDefaultOn("ORWELL_MOOD_APPROACH");
   setMoodApproachEnabled(on: boolean): void { this.moodApproachEnabled = on; }
   /** B31 (ORWELL_MOOD_DEAL / ORWELL_MOOD_CAMPAIGN, default OFF, never-flipped; each needs ORWELL_NPC_TELLS): visible mood into deal consent and campaign formation. */
-  private moodDealEnabled = process.env.ORWELL_MOOD_DEAL === "1";
+  private moodDealEnabled = flagDefaultOn("ORWELL_MOOD_DEAL");
   setMoodDealEnabled(on: boolean): void { this.moodDealEnabled = on; }
-  private moodCampaignEnabled = process.env.ORWELL_MOOD_CAMPAIGN === "1";
+  private moodCampaignEnabled = flagDefaultOn("ORWELL_MOOD_CAMPAIGN");
   setMoodCampaignEnabled(on: boolean): void { this.moodCampaignEnabled = on; }
   moodDealFor(npc: EntityId, kind: string): number {
     if (!this.moodDealEnabled || !this.npcTellsEnabled || npc === PLAYER) return 0;
@@ -1531,7 +1531,7 @@ export class GameSessionAdapter implements GameSession {
     return !moodUnsteady(this.soulObj(npc)?.tells);
   }
   /** B51 (ORWELL_DRIVE_DECISIONS, default OFF, never-flipped; needs campaigns on): the HOH's / veto holder's OWN drive feeds their nomination and veto-save scores. */
-  private driveDecisionsEnabled = process.env.ORWELL_DRIVE_DECISIONS === "1";
+  private driveDecisionsEnabled = flagDefaultOn("ORWELL_DRIVE_DECISIONS");
   setDriveDecisionsEnabled(on: boolean): void { this.driveDecisionsEnabled = on; }
   drivePushForDecider(target: EntityId, decider: EntityId): number {
     if (!this.driveDecisionsEnabled || !this.campaignsEnabled || decider === PLAYER || target === decider) return 0;
@@ -2549,9 +2549,9 @@ export class GameSessionAdapter implements GameSession {
    * and the souls stay out by construction — the model cannot voice what this NPC never learned.
    */
   /** A49 - narrator-side observable tells (E1a). OFF unless exactly `ORWELL_NPC_TELLS=1`; never-flipped. */
-  private npcTellsEnabled = process.env.ORWELL_NPC_TELLS === "1";
+  private npcTellsEnabled = flagDefaultOn("ORWELL_NPC_TELLS");
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
-  private npcMemorySpeechEnabled = process.env.ORWELL_NPC_MEMORY_SPEECH === "1";
+  private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
   /** In-game day of the last `bringUp` per houseguest (the once-per-day rate cap). Process-local: a restart may allow one extra mention, never a second leak. */
   private bringUpDay = new Map<EntityId, number>();
@@ -8478,7 +8478,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B7 M4 - campaign TARGETS read grudges and beliefs, not only the threat edge (approved tie-in #5). OFF unless exactly `ORWELL_CAMPAIGN_MEMORY=1`; never-flipped. OFF => the raw edge ranking, byte-identical. */
-  private campaignMemoryEnabled = process.env.ORWELL_CAMPAIGN_MEMORY === "1";
+  private campaignMemoryEnabled = flagDefaultOn("ORWELL_CAMPAIGN_MEMORY");
   setCampaignMemoryEnabled(on: boolean): void { this.campaignMemoryEnabled = on; }
   /**
    * B5 - does `actor` still believe the count against `target` is in doubt? Per OTHER living voter (not the actor, the target, or the player's hidden ballot): the true P(votes to evict) is read from
@@ -11494,7 +11494,7 @@ export class GameSessionAdapter implements GameSession {
     }
   }
   /** B32 (ORWELL_DRIFT_FIX, default OFF, never-flipped; needs soul depth): chat scenes feed the arc + a negativity bias on temperament drift, so hardening is reachable. */
-  private driftFixEnabled = process.env.ORWELL_DRIFT_FIX === "1";
+  private driftFixEnabled = flagDefaultOn("ORWELL_DRIFT_FIX");
   setDriftFixEnabled(on: boolean): void { this.driftFixEnabled = on; }
 
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */
@@ -11513,7 +11513,7 @@ export class GameSessionAdapter implements GameSession {
    * Never reads the relationship edge; never draws the shared rng; the PLAYER is never a holder here.
    */
   /** B7 M3 - open protective deals feed the HOH's nominations (approved tie-in #3). OFF unless exactly `ORWELL_DEAL_NOMS=1`; never-flipped. OFF => no ctx provider => byte-identical. */
-  private dealNomsEnabled = process.env.ORWELL_DEAL_NOMS === "1";
+  private dealNomsEnabled = flagDefaultOn("ORWELL_DEAL_NOMS");
   setDealNomsEnabled(on: boolean): void { this.dealNomsEnabled = on; }
   /** B7 M3 - the nomination-score push (<= 0) from the HOH's OPEN protective deals (safety / final-two) with `target` - a deal-keeping HOH mostly keeps their word. Bounded; deterministic; no rng. */
   dealNomPushFor(target: EntityId, holder: EntityId): number {
@@ -11523,7 +11523,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
-  private hcMemoryEnabled = process.env.ORWELL_HC_MEMORY === "1";
+  private hcMemoryEnabled = flagDefaultOn("ORWELL_HC_MEMORY");
   setHcMemoryEnabled(on: boolean): void { this.hcMemoryEnabled = on; }
   /** B7 M4b - how much more the `holder` wants `candidate` as the sixth veto player: the SAME combined memory / belief / owed-deal read the veto save uses (a favor or an owed promise raises, a grudge or a 'they target me' belief lowers). Deterministic, no rng, [-1, 1]. */
   hcMemoryFor(candidate: EntityId, holder: EntityId): number {
@@ -11535,7 +11535,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
-  private approachMemoryEnabled = process.env.ORWELL_APPROACH_MEMORY === "1";
+  private approachMemoryEnabled = flagDefaultOn("ORWELL_APPROACH_MEMORY");
   setApproachMemoryEnabled(on: boolean): void { this.approachMemoryEnabled = on; }
   /**
    * B7 M1b - how much more (+) or less (-) `npc` is drawn to seek the player out, from what they remember about the player (a favor raises it, a grudge lowers it: the 0024 ledger's standalone tilt,
@@ -11550,7 +11550,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B7 M1 - the NPC veto save reads memory too (approved tie-in #1). OFF unless exactly `ORWELL_VETO_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
-  private vetoMemoryEnabled = process.env.ORWELL_VETO_MEMORY === "1";
+  private vetoMemoryEnabled = flagDefaultOn("ORWELL_VETO_MEMORY");
   setVetoMemoryEnabled(on: boolean): void { this.vetoMemoryEnabled = on; }
   /**
    * B7 M1 - how much more WORTH SAVING `nominee` is to the veto `holder`, from what the holder remembers (a grudge lowers it, a favor raises it - the 0024 ledger's standalone tilt, sign-flipped),
@@ -11601,7 +11601,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B27 - the FORGIVENESS trait layer (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly `ORWELL_FORGIVENESS=1`; never-flipped. OFF => the ledger is read as it always was. */
-  private forgivenessEnabled = process.env.ORWELL_FORGIVENESS === "1";
+  private forgivenessEnabled = flagDefaultOn("ORWELL_FORGIVENESS");
   setForgivenessEnabled(on: boolean): void { this.forgivenessEnabled = on; }
   /** The memory entries `holder` actually reads: the ledger row, with the forgiveness trait applied when the layer is on. Pure; no rng stream is touched. */
   private memoryEntriesSeenBy(holder: EntityId, entries: readonly MemoryEntry[] | undefined): readonly MemoryEntry[] | undefined {
