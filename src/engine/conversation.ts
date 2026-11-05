@@ -47,6 +47,9 @@ export interface Approach {
  * gap — so the same seed reproduces the same approaches, and stronger ties
  * approach more.
  */
+/** The largest drive shift the memory bias may apply (a quarter of the unit agenda scale): enough to reorder close calls, never to override a clear relationship gap. */
+export const APPROACH_MEMORY_MAX = 0.15;
+
 export function rankApproaches(
   player: EntityId,
   npcs: EntityId[],
@@ -54,6 +57,11 @@ export function rankApproaches(
   rng: RandomnessSource,
   /** The 0028 per-variable INITIATIVE weight (audit E53): the bounded ordering-variance band. */
   initiativeWeight: number = TEMPERATURE_CONSTANTS.variableWeights.initiative,
+  /**
+   * B7 M1b (approved tie-in #2, ORWELL_APPROACH_MEMORY): an optional additive bias on an NPC's drive to seek the player, from what that NPC REMEMBERS about the player (favor/owed promise =>
+   * seeks them out; grudge => avoids them). Bounded to +-`APPROACH_MEMORY_MAX` here regardless of the provider. Absent => byte-identical (it adds no rng draw either way).
+   */
+  memoryBias?: (npc: EntityId) => number,
 ): Approach[] {
   return npcs
     .filter((n) => n !== player)
@@ -63,7 +71,8 @@ export function rankApproaches(
       const agenda = Math.max(bond, e.threat);
       // Bounded: 1 ± initiative/2 — modulates intensity, never flips a clear gap at the default.
       const temper = 1 + (rng.next() - 0.5) * initiativeWeight;
-      return { npc: n, drive: agenda * temper, motive: (bond >= e.threat ? "bond" : "probe") as ApproachMotive };
+      const bias = memoryBias ? Math.max(-APPROACH_MEMORY_MAX, Math.min(APPROACH_MEMORY_MAX, memoryBias(n))) : 0;
+      return { npc: n, drive: agenda * temper + bias, motive: (bond >= e.threat ? "bond" : "probe") as ApproachMotive };
     })
     .sort((a, b) => b.drive - a.drive);
 }

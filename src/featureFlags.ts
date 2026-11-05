@@ -101,6 +101,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'strict' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'strict' },
+  // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). OFF unless exactly '1'; never-flipped until the PO bands are measured.
+  { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'strict' },
   // B7 / #2017 M3: open protective deals also feed the HOH's nominations. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'strict' },
   // B7 / #2017 M4: campaign targets also read grudges and beliefs. OFF unless exactly '1'; never-flipped.

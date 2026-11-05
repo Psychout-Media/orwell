@@ -16,6 +16,7 @@ const ctxBody = (): string => {
 };
 const interfaceMembers = (): Set<string> => new Set([...ctxBody().matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]!));
 const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|dealNomPushFor|hcMemoryFor)$/;
+const SCANNED = (Object.keys(DECISION_SOURCES) as StrategicDecision[]).filter((d): d is Exclude<StrategicDecision, "approaches"> => d !== "approaches");
 
 function fnBody(startMarker: string, endMarker: string): string {
   const a = SRC.indexOf(startMarker);
@@ -24,7 +25,8 @@ function fnBody(startMarker: string, endMarker: string): string {
   if (b < 0) throw new Error(`end marker not found: ${endMarker}`);
   return SRC.slice(a, b);
 }
-const SLICES: Record<StrategicDecision, () => string> = {
+// `approaches` is not read in liveSeason (it is the adapter's player-facing approach ranking); it is held by approachMemory.test.ts, so the scan skips it.
+const SLICES: Record<Exclude<StrategicDecision, "approaches">, () => string> = {
   evictionVote: () => fnBody("export function voteChoice(", "\n/** Count the eviction votes"),
   hohNominations: () => fnBody("const plan = nominationPlan(s.hoh!, s.active, ctx.rel, {", "const nominees = plan.nominees;"),
   replacementNominee: () => fnBody("const replacement = replacementPick(s.hoh!", "s.replacement = replacement;"),
@@ -35,7 +37,7 @@ const readsOf = (body: string): Set<string> => new Set([...body.matchAll(/ctx\.(
 
 describe("decision x memory-source matrix (the drift gate)", () => {
   const members = interfaceMembers();
-  for (const d of Object.keys(DECISION_SOURCES) as StrategicDecision[]) {
+  for (const d of SCANNED) {
     it(`${d}: reads exactly the providers the table lists (among those that exist on this branch)`, () => {
       const found = readsOf(SLICES[d]());
       const listed = new Set<string>(DECISION_SOURCES[d]);
@@ -45,7 +47,7 @@ describe("decision x memory-source matrix (the drift gate)", () => {
   }
   it("no memory-like SeasonCtx provider is read by NO decision (the write-only source trap), unless allow-listed with a reason", () => {
     const readByAny = new Set<string>();
-    for (const d of Object.keys(DECISION_SOURCES) as StrategicDecision[]) for (const f of readsOf(SLICES[d]())) readByAny.add(f);
+    for (const d of SCANNED) for (const f of readsOf(SLICES[d]())) readByAny.add(f);
     for (const m of members) {
       if (!MEMORY_LIKE.test(m)) continue;
       const allowed = (UNREAD_PROVIDERS_ALLOWED as Record<string, string | undefined>)[m];
