@@ -5,7 +5,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { renderGameContext } from "../../src/engine/momentPrompts";
 import { producerPrompt, deriveNpcKnowledge, NO_NPC_PATHWAY } from "../../src/engine/diaryRoom";
 import type { Beat } from "../../src/engine/diaryRoom";
-import { resolvePending } from "../../tests/support/adr0003";
+import { resolvePending } from "../support/answerPending";
 import { PLAYER } from "../../src/domain/ids";
 
 // Feature 0115 — the strategic Diary Room: the player's DR intent grounds the GM's narration while the
@@ -21,7 +21,7 @@ function drGame(w: BbWorld, seed = 11): void {
 function reachLiveHouse(w: BbWorld): void {
   for (let i = 0; i < 60 && w.drSandbox!.session.snapshot().live?.hoh === undefined; i++) {
     const v = w.drSandbox!.session.advanceGame();
-    if (v.pending) resolvePending(w.drSandbox!.session, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => w.drSandbox!.session.submitDecision(req));
   }
 }
 
@@ -113,7 +113,7 @@ Given("a finished season where the player recorded Diary-Room confessionals", as
   const s = this.drSandbox!.session;
   for (let i = 0; i < 4000; i++) {
     const v = s.advanceGame();
-    if (v.pending) resolvePending(s, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
     if (v.finished || s.snapshot().live?.winner !== undefined) break;
   }
 });

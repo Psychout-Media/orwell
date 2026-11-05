@@ -6,7 +6,7 @@
 > dents the day, a competition eats a real chunk, an eviction sits in between — instead of every beat
 > advancing a flat +3h. So the day's shape is *lived*, not uniform.
 > **In-game time ONLY** — no wall clock. Gated so the seeded calibration spine is
-> byte-identical (the 0108 golden replay it also protected was decommissioned 2026-07-21).
+> byte-identical.
 > **Executable spec:** [`0119-per-event-felt-durations.feature`](./0119-per-event-felt-durations.feature)
 > **Multi-step events (owner ruling 2026-11-01, #1912):** eviction night and the finale cost about **two in-game hours in total**, not about 2h per step. `eventBeatHours` (`src/engine/liveSeason.ts`) charges the event's budget (`eventSpanHours("eviction")`) on its first presentation step (vote reveal batches, goodbye, the 0130 exit-interview stage, result) and 0 on every later step, tracked on `live.eventClock` (survives save and restart). The per-beat felt durations below apply to single-step beats (competition about 3h, ceremony about 1h).
 
@@ -43,8 +43,7 @@ is deliberately the **per-conversation clock**:
   `eventBeatHours` (the 2026-11-01 owner ruling, #1912), which is gated on the master time-of-day clock
   only, NOT on the per-conversation clock. With time-of-day on and the per-conversation clock off, an
   eviction/finale event therefore still charges its ~2h budget once on its first step and 0 on every later
-  step, instead of the flat `perBeatHours` per step. *(Historically this also kept the
-  0108 golden replay stable; decommissioned 2026-07-21.)*
+  step, instead of the flat `perBeatHours` per step.
 - **Seeded calibration spine:** time-of-day **off** ⇒ the whole per-beat clock block is skipped ⇒
   **byte-identical** (proven by `perConversationClockNeutral`).
 - The felt duration is **pure presentation** (a deterministic constant, no rng) — it changes *when in the
@@ -87,4 +86,4 @@ beatFeltHours(beat): number | null                  // a beat's felt in-game hou
 Threads the existing `EVENT_DURATION` / `eventSpanHours` (0066/#1125) library into the per-beat clock,
 builds on **0117** (the per-conversation clock it gates on) and **0118** (`daySchedule.ts`, where
 `beatFeltHours` lives), and preserves the seeded calibration spine by gating on
-the per-conversation clock (it also once preserved the 0108 golden replay, decommissioned 2026-07-21). Final phase of the in-game-time pivot (owner directive 2026-07-11).
+the per-conversation clock. Final phase of the in-game-time pivot (owner directive 2026-07-11).

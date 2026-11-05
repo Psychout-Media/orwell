@@ -665,7 +665,7 @@ export interface LiveSeasonState {
   firstMorningPassed?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
-   * major beat lands on its OWN in-fiction day (WEEKLY_CADENCE: Day 1 HOH → 2 noms → 3 veto → 4 veto
+   * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
    * ceremony → 5 eviction), never two ceremonies in one day. Each is set the first time its beat resolves
    * for the current reign and cleared per reign by `rollWeek`. Written ONLY under the clock-pacing
    * night-gate (`SeasonCtx.nightGate`) ⇒ a clock-off / calibration game never sets them ⇒ byte-identical.
@@ -2688,7 +2688,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // #1320 NIGHT-GATE: the HOH crown and the nominations must not resolve in the same in-fiction
       // moment. When the clock pacing is live, the FIRST advance into this beat crosses the night to the
       // next morning as its own diegetic `day-break` beat (one-shot per reign), and nominations resolve on
-      // the following advance — Day 1 HOH → Day 2 noms (WEEKLY_CADENCE), never a fast-forward. GATED, so a
+      // the following advance — Day 1 HOH → Day 2 noms (day order WEEKLY_CADENCE.dayOf; slots DAY_SCHEDULE), never a fast-forward. GATED, so a
       // clock-off / calibration game skips this entirely ⇒ byte-identical. (ADR 0006: a diegetic day
       // boundary, not a curfew — it never interrupts an engaged scene, it just seats the ceremony a day on.)
       // TWIST GUARD (all four cadence gates): a RUNNING double eviction is a single COMPRESSED night by

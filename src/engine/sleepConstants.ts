@@ -307,6 +307,8 @@ export const EVENT_DURATION: EventDurationConstants = {
 
 // --- The weekly 5-cycle cadence + period placement (#1125) ----------------------------------------
 //
+// The within-day PERIOD of each beat is NOT here: DAY_SCHEDULE (daySchedule.ts) is the one timetable.
+//
 // A "week" is one HOH reign (HOH → noms → veto comp → veto ceremony → eviction), STRICT order, no default
 // rest days, the daily-event invariant holds. The 24-hour model places each beat in a PERIOD so the HOH
 // crowns in the MORNING (maximizing the post-HOH playable window — the rest of Day 1), the veto comp runs
@@ -323,17 +325,10 @@ export interface WeeklyCadenceConstants {
   order: readonly WeekBeat[];
   /** Which day (1-indexed within the week) each beat falls on. */
   dayOf: Record<WeekBeat, number>;
-  /** Which time-of-day PERIOD each beat plays in (the 24-hour placement). */
-  periodOf: Record<WeekBeat, "morning" | "afternoon" | "evening" | "night" | "late-night">;
 }
 
 export const WEEKLY_CADENCE: WeeklyCadenceConstants = {
   order: ["hoh", "nominations", "veto-draw", "veto-competition", "veto-ceremony", "eviction"],
   // Day 1 HOH · Day 2 noms · Day 3 veto draw + veto comp · Day 4 veto ceremony · Day 5 eviction.
   dayOf: { hoh: 1, nominations: 2, "veto-draw": 3, "veto-competition": 3, "veto-ceremony": 4, eviction: 5 },
-  // HOH/noms/draw/ceremony in the MORNING; the veto COMP in the AFTERNOON; the EVICTION in the EVENING.
-  periodOf: {
-    hoh: "morning", nominations: "morning", "veto-draw": "morning",
-    "veto-competition": "afternoon", "veto-ceremony": "morning", eviction: "evening",
-  },
 };
