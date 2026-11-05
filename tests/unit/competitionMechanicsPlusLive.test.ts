@@ -50,7 +50,7 @@ const PLUS_IDS = new Set(COMPETITION_LIBRARY_PLUS.map((d) => d.id));
 describe("0126 — with the expanded pool ON, a season is repeat-free at the MECHANIC level", () => {
   it("a full season draws almost all-distinct HOH and veto mechanics, using the new pool", () => {
     const { hoh, veto } = playFull(newGame("mp-on", 31, true));
-    // ~14 HOH / ~13 veto comps drawn from a 15-deep pool ⇒ nearly every one distinct.
+    // ~14 HOH / ~13 veto comps drawn from a 15-deep pool ⇒ nearly every one distinct. NOTE (S16): the floors (>=13 HOH, >=12 veto distinct) are pinned to THIS seed (31) and season length; if the pool size or the season length changes, re-derive them from COMPETITION_LIBRARY_PLUS (pool size) and the comps drawn.
     expect(new Set(hoh).size).toBeGreaterThanOrEqual(13);
     expect(new Set(veto).size).toBeGreaterThanOrEqual(12);
     // And the new mechanics are actually in play (not just the base 12 reshuffled).
@@ -58,8 +58,8 @@ describe("0126 — with the expanded pool ON, a season is repeat-free at the MEC
   });
 });
 
-describe("0126 — with the pool OFF the seeded spine is byte-identical (the base 12 only)", () => {
-  it("the same seed evicts the same houseguests in the same order as a base-pool game", () => {
+describe("0126 — with the pool OFF the seeded spine is deterministic (the base 12 only)", () => {
+  it("two OFF games on the same seed evict the same houseguests in the same order (determinism) and never draw an expanded-only mechanic", () => {
     const off = playFull(newGame("mp-off-a", 77, false));
     const base = playFull(newGame("mp-off-b", 77, false));
     expect(off.evictionOrder).toEqual(base.evictionOrder);

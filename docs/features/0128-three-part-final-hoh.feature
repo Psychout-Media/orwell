@@ -1,4 +1,4 @@
-# Executable spec - IMPLEMENTED & green; BDD-gated in cucumber.cjs. (Built 2026-11-04 behind ORWELL_FINAL_HOH_THREE_PART, default OFF.)
+# Executable spec - IMPLEMENTED & green; BDD-gated in cucumber.cjs. (Built 2026-11-04 behind ORWELL_FINAL_HOH_THREE_PART; now default ON, #2066.)
 # Feature 0128 — Three-part Final HOH: the real BB finale competition. Expands 0045. Default-off flag
 # (ORWELL_FINAL_HOH_THREE_PART), calibration-safe. HARD rule: roles only (finalist, part-winner, Final HOH,
 # evictee, juror). BUILT 2026-11-04 (spec authored 2026-07-13 during the 0045 PO review); wired in cucumber.cjs.
@@ -49,8 +49,8 @@ Feature: Three-part Final HOH (the real Big Brother finale competition)
     And no score or number is shown for any part
     And the same seed reproduces the same three-part outcome, surviving an engine restart
 
-  Scenario: With the flag off the endgame is the single-competition path, byte-identical
+  Scenario: With the flag off the endgame is the single-competition path (the 0045 baseline)
     Given three finalists and the three-part Final HOH disabled
     When the endgame advances with the three-part flag off
     Then the Final HOH is decided by a single competition exactly as feature 0045
-    And the seeded endgame is byte-identical to the pre-feature model
+    And the seeded single-competition endgame is deterministic and emits no part events
