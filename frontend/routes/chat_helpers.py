@@ -2983,7 +2983,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # (12) N-15: the PLAYER's own card-gated choice narrated as made while its card is still open (never recorded).
     _n15 = None if desync else _uncommitted_player_choice(text, after)
     # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
-    _n16 = None if desync else _comp_started_before_due(text, after)
+    _n16 = None if desync else (_comp_started_before_due(text, after) or _comp_replayed_when_none_running(text, after))
     if _a9 or _f3 or _n1 or _n3 or _n15 or _n16:
         desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16) if x)
 
@@ -4293,6 +4293,41 @@ def _comp_decisive_hit(text: str) -> bool:
     return False
 
 
+# N-16b (found in the live week-1 run, nominations phase): with the HOH ALREADY crowned the narrator re-ran "The Head of Household competition begins now. Everyone to the backyard" and then kept the whole house
+# on a ghost wall for several turns. A competition that is announced as beginning / live when the engine's phase is NOT a competition phase (and the premiere is over) is a replay of finished history.
+# Only start/live cues count here (never "resolves"/"ends"/"wins it": recaps legitimately narrate a finished competition in the past tense).
+_COMP_LIVE_NOW_CUES = (
+    re.compile(r"\b(?:head\s+of\s+household|hoh|veto)\s+(?:competition|comp)\s+(?:begins|starts|kicks\s+off)\s+now\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way)\b", re.IGNORECASE),
+    re.compile(r"\bmid[\s-]+(?:competition|comp)\b|\bhow\s+you(?:'re|\u2019re|\s+are)\s+(?:playing|approaching)\s+(?:this|the)\s+(?:competition|comp)\b", re.IGNORECASE),
+)
+_COMP_LIVE_NOW_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether|was|were|had)\b", re.IGNORECASE)
+
+
+def _comp_live_now_hit(text: str) -> bool:
+    for rx in _COMP_LIVE_NOW_CUES:
+        for m in rx.finditer(text or ""):
+            clause = _N3_CLAUSE_SPLIT_RE.split(text[max(0, m.start() - 60):m.start()])[-1] + text[m.start():m.end()]
+            if not _COMP_LIVE_NOW_EXEMPT_RE.search(clause):
+                return True
+    return False
+
+
+# phases in which NO competition can be running (the board is past the HOH comp / between competitions): a "competition is live" claim here is a replay
+_NO_COMP_PHASES = ("nominations", "veto-ceremony", "eviction", "eviction-reveal", "final-eviction")
+
+
+def _comp_replayed_when_none_running(text: str, live: dict) -> Optional[str]:
+    """N-16b - the narration announces a competition as beginning / live while the engine's phase is a non-competition one (nominations, ceremony, eviction) and nothing is pending. Returns a LABEL or None."""
+    if not isinstance(live, dict) or not text or live.get("pending"):
+        return None
+    if str(live.get("phase") or "").lower() not in _NO_COMP_PHASES:
+        return None
+    if not _comp_live_now_hit(text):
+        return None
+    return ("a competition as BEGINNING / LIVE (the house on the wall, contestants called to the yard) - the engine's phase is " + str(live.get("phase")) + ": no competition is running now and the finished one is not replayed")
+
+
 def _comp_started_cue_hit(text: str) -> bool:
     """A74 - does `text` show >= 2 DISTINCT N-16 'the competition has begun' cue families? The scene-level gate admits such prose to the live-board read (the cheap closed-set gate cannot: this prose
     carries no outcome claim), where `_comp_started_before_due` then decides (comp phase + explicit not-due flag + nothing pending). Pure and cheap; a single stage direction never qualifies."""
@@ -4548,7 +4583,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
-        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)):
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text)):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
@@ -4781,7 +4816,7 @@ async def _detect_ungrounded_overclaim(user, text: str, tools: set) -> tuple:
             if not _live_p:
                 return (None, None)
             # else: board readable — fall through and verify each claim below (moved or not).
-        has_outcome = _sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)  # A89: N-16 "the competition has started" prose has no outcome claim but is a closed-set one (>= 2 cue families)
+        has_outcome = _sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text)  # A89: N-16 "the competition has started" prose has no outcome claim but is a closed-set one (>= 2 cue families)
         has_met = bool(_MET_EVERYONE_RE.search(text or ""))
         if not has_outcome and not has_met:
             return (None, None)  # no closed-set claim at all — open-set prose, never policed
