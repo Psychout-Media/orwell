@@ -57,23 +57,45 @@ describe("deception — the player can BLUFF (a fabricated claim), folded on bel
     expect(res.accepted).toBe(false);
   });
 
-  it("a bluff is capped per season (the player's bluffs are rare — owner build-tuning)", () => {
+  it("a bluff is capped per season: the (cap+1)th bluff is REFUSED and spends nothing (the player's bluffs are rare - owner build-tuning)", () => {
     const sb = startedSeason("dc-bluff-cap", 3);
     const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
-    // Make every recipient believe to actually spend bluffs.
+    // Make every recipient believe, so every bluff is a spend that the cap (not a disbelieving recipient) must stop.
     for (const id of npcs) { const e = edge(sb, id, PLAYER); e.trust = 0.95; e.affinity = 0.9; e.threat = 0.02; }
-    let spent = 0;
-    for (let i = 2; i < npcs.length && spent <= LEVERAGE.maxPlayerBluffsPerSeason + 2; i++) {
-      const subject = npcs[0]!;
-      const recipient = npcs[i]!;
+    const subject = npcs[0]!;
+    const cap = LEVERAGE.maxPlayerBluffsPerSeason;
+    const results: TradeResult[] = [];
+    for (let i = 0; i < cap + 2; i++) {
+      const recipient = npcs[2 + i]!;
+      const rs = edge(sb, recipient, subject); rs.threat = 0.9; rs.affinity = 0.05;
+      results.push(sb.session.tradeSecret({ bluff: true, subject, toNpcId: recipient }) as TradeResult);
+    }
+    // The first `cap` bluffs were attempted (not refused for the cap); every one past the cap is refused as capped.
+    for (let i = 0; i < cap; i++) expect(results[i]!.refused, `bluff ${i + 1} is within the cap`).not.toBe("capped");
+    for (let i = cap; i < results.length; i++) {
+      expect(results[i]!.accepted, `bluff ${i + 1} is over the cap`).toBe(false);
+      expect(results[i]!.refused, `bluff ${i + 1} is over the cap`).toBe("capped");
+    }
+    expect(sb.session.snapshot().secretPlayerBluffCount, "the counter stops AT the cap").toBe(cap);
+  });
+
+  it("a public bluff (exposeSecret) over the cap is refused too, and a refused bluff spends nothing", () => {
+    const sb = startedSeason("dc-bluff-cap-expose", 3);
+    const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
+    for (const id of npcs) { const e = edge(sb, id, PLAYER); e.trust = 0.95; e.affinity = 0.9; e.threat = 0.02; }
+    const cap = LEVERAGE.maxPlayerBluffsPerSeason;
+    // exposeSecret is itself capped per season (LEVERAGE.maxExposesPerSeason), so exhaust the BLUFF cap through the trade route first.
+    const subject = npcs[0]!;
+    for (let i = 0; i < cap; i++) {
+      const recipient = npcs[2 + i]!;
       const rs = edge(sb, recipient, subject); rs.threat = 0.9; rs.affinity = 0.05;
       sb.session.tradeSecret({ bluff: true, subject, toNpcId: recipient });
-      spent++;
     }
-    const core = sb.session.snapshot();
-    // The bluff count is tracked + persisted (the cap is enforced at the count, bounded at cap+1).
-    expect(core.secretPlayerBluffCount).toBeLessThanOrEqual(LEVERAGE.maxPlayerBluffsPerSeason + 1);
-    expect(core.secretPlayerBluffCount).toBeGreaterThan(0);
+    expect(sb.session.snapshot().secretPlayerBluffCount).toBe(cap);
+    const res = sb.session.exposeSecret({ bluff: true, subject }) as { exposed: boolean; refused?: string } | null;
+    expect(res?.exposed, "a bluff expose over the cap does not land").toBe(false);
+    expect(res?.refused).toBe("capped");
+    expect(sb.session.snapshot().secretPlayerBluffCount, "a refused bluff does not spend the counter").toBe(cap);
   });
 });
 

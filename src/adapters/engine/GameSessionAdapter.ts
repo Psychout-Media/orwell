@@ -9917,6 +9917,11 @@ export class GameSessionAdapter implements GameSession {
    * KIND for severity (never the sealed text). For a BLUFF it reads NOTHING from the Vault: severity is
    * the default and the subject is the claimed `subject`. Returns `null` when invalid (rejected).
    */
+  /** AMEND 3a - the player's bluffs are rare (LEVERAGE.maxPlayerBluffsPerSeason): a bluff over the cap is refused BEFORE it spends anything. Real secrets are never affected. */
+  private bluffCapReached(d: { bluff?: boolean }): boolean {
+    return !!d.bluff && this.playerBluffCount >= LEVERAGE.maxPlayerBluffsPerSeason;
+  }
+
   private resolveWieldedSecret(
     d: { factId?: string; bluff?: boolean; subject?: EntityId },
   ): { subject: EntityId; severity: number; factId?: string; bluff: boolean } | null {
@@ -9964,6 +9969,7 @@ export class GameSessionAdapter implements GameSession {
    * open — the secret is NOT marked spent here. The player never sees a number (anti-sycophancy).
    */
   private applyDealLeverage(d: SecretLeverDescriptor, partner: EntityId, _dealId: string): void {
+    if (this.bluffCapReached(d)) return; // AMEND 3a: a bluff over the season cap does nothing (the deal still forms, no fold, no spend)
     const resolved = this.resolveWieldedSecret({ ...d, subject: partner }); // leverage is ALWAYS about the partner
     // Leverage presses the PARTNER, so the secret must be about the partner (or a bluff claiming so).
     if (!resolved || (resolved.subject !== partner)) {
@@ -9972,7 +9978,7 @@ export class GameSessionAdapter implements GameSession {
     }
     const rng = this.secretRng("leverage", resolved.factId ?? `bluff:${partner}`);
     if (resolved.bluff) {
-      this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason + 1);
+      this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason);
       const e = this.rel.edge(partner, PLAYER);
       // Plausibility leans on the partner's own self-threat proxy — bluffing someone is dicey; if they
       // DON'T believe it, the squeeze bounces (no fold). If they do, it presses like a real leverage.
@@ -10022,6 +10028,7 @@ export class GameSessionAdapter implements GameSession {
   ): { accepted: boolean; refused?: TradeResult["refused"]; narratable?: string } | null {
     if (!this.isActiveNpc(recipient)) return { accepted: false, refused: "no-recipient" };
     if (this.tradeCount >= SECRET_TRADE.maxTradesPerSeason) return { accepted: false, refused: "capped" };
+    if (this.bluffCapReached(d)) return { accepted: false, refused: "capped" }; // AMEND 3a: the per-season bluff cap is ENFORCED (it was only counted)
     const resolved = this.resolveWieldedSecret(d);
     if (!resolved) return { accepted: false, refused: "not-learned" };
     if (resolved.subject === recipient) return { accepted: false, refused: "not-learned" }; // can't trade a secret TO its own subject
@@ -10033,7 +10040,7 @@ export class GameSessionAdapter implements GameSession {
     }
     const rng = this.secretRng("trade", `${resolved.factId ?? `bluff:${resolved.subject}`}:${recipient}`);
     if (resolved.bluff) {
-      this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason + 1);
+      this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason);
       const re = this.rel.edge(recipient, PLAYER);
       if (!bluffBelieved(re.trust, this.rel.edge(recipient, resolved.subject).threat, rng)) {
         return { accepted: false, refused: "declined" }; // they don't buy the fabricated secret
@@ -10337,12 +10344,13 @@ export class GameSessionAdapter implements GameSession {
     // resolver rejects a spent fact as un-wieldable, which would otherwise read as `not-learned`).
     if (req.factId && this.secretUsedAs[req.factId] === "exposed") return { exposed: false, refused: "already-spent" };
     if (this.exposeCount >= LEVERAGE.maxExposesPerSeason) return { exposed: false, refused: "capped" };
+    if (this.bluffCapReached({ bluff: req.bluff })) return { exposed: false, refused: "capped" }; // AMEND 3a: bluff cap enforced
     const resolved = this.resolveWieldedSecret({ factId: req.factId, bluff: req.bluff, subject: req.subject });
     if (!resolved) return { exposed: false, refused: req.bluff ? "no-subject" : "not-learned" };
     const subject = resolved.subject;
     const rng = this.secretRng("expose", resolved.factId ?? `bluff:${subject}`);
     if (resolved.bluff) {
-      this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason + 1);
+      this.playerBluffCount = Math.min(this.playerBluffCount + 1, LEVERAGE.maxPlayerBluffsPerSeason);
       // A public bluff lands by the HOUSE's average willingness to believe a claim about the subject —
       // plausibility on their collective threat read. If it bounces, the exposer just takes the recoil
       // (crying wolf), no subject hit. The engine never reveals whether it matched a real truth.
