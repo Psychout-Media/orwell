@@ -5780,6 +5780,9 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": _err, "exit_code": 1}
     try:
         _extra = {"term": term} if term is not None else {}  # absent ⇒ the call is byte-identical to pre-0109
+        _dir = (args.get("direction") or "").strip().lower()
+        if _dir in ("offer", "ask") and kind in ("comp-throw", "veto-save"):  # B55: only meaningful for the active kinds
+            _extra["direction"] = _dir
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal

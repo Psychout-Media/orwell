@@ -89,12 +89,13 @@ describe("makeDeal — the NPC decides whether they agree", () => {
     expect(isRefusal(s.makeDeal(req(npc)))).toBe(false);
   });
 
-  it("an expensive ask from a stranger is refused as 'cost'", () => {
+  it("an expensive ASK of a stranger (the NPC is to throw the comp) is refused as 'cost'; the player's own OFFER to throw is not (B55)", () => {
     const { s, npc, p } = setup();
     setEdge(p, npc, NEUTRAL_EDGE);
     (s as unknown as { setDealDepthEnabled(on: boolean): void }).setDealDepthEnabled(true);
-    const r = s.makeDeal(req(npc, "comp-throw"));
+    const r = s.makeDeal({ ...req(npc, "comp-throw"), direction: "ask" });
     expect(isRefusal(r) && r.reason).toBe("cost");
+    expect(isRefusal(s.makeDeal(req(npc, "comp-throw"))), "the default is the player's offer, which costs the NPC nothing").toBe(false);
   });
 
   it("is deterministic: the same state and seed give the same decision, across sessions, and a re-ask in the same beat re-reaches it", () => {
