@@ -1407,6 +1407,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => presentCues(e))
           ? ["  (a `now` line is how that houseguest is carrying themselves this moment — not knowledge)"]
           : []),
+        // A94 (PO ruling, card 26 / 0105): a `suspects` hunch is information, voiced as a POSSIBILITY. Present only when someone in the room carries a hunch => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.suspects.length)
+          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it like \"not my target yet, but could be\" - never as a confirmation, a plan, a number, or a campaign)"]
+          : []),
         ...(view.presentKnowledge ?? []).flatMap((e) => {
           // Route each knowledge string through `neutralizeForPrompt` (as the diary-room entries above
           // do): these are model-adjacent content the guest "knows", so a prompt-injection control
