@@ -37,7 +37,7 @@
 #   ORWELL_ASSURANCES / VOTE_COUNT / VETO_MEMORY / DEAL_NOMS / CAMPAIGN_MEMORY / APPROACH_MEMORY / HC_MEMORY / MEMORY_PROMISES / FORGIVENESS / LOBBYING / DESIRE_CLOCK / WANT_MOVEMENT / MULTI_NIGHT_FATIGUE / MORNING_APPROACH
 #       (PO ruling 2026-11-05, Ryne: "if it's built, turn it on") every finished #2017 strategy layer is ON in code AND here. ORWELL_GOSSIP_COPRESENCE stays OFF (breaks BDD 0122 under ON - see the flip PR).
 #   ORWELL_ASSURANCES VOTE_COUNT VETO_MEMORY DEAL_NOMS CAMPAIGN_MEMORY APPROACH_MEMORY HC_MEMORY MEMORY_PROMISES FORGIVENESS LOBBYING DESIRE_CLOCK WANT_MOVEMENT MULTI_NIGHT_FATIGUE MORNING_APPROACH NPC_TELLS TELL_REACTIONS MOOD_* DRIFT_FIX NPC_MEMORY_SPEECH
-#       (PO ruling 2026-11-05, Ryne: "if it's built, turn it on") every finished #2017 layer is ON in code AND here. ORWELL_GOSSIP_COPRESENCE stays OFF (breaks BDD 0122 under ON).
+#       (PO ruling 2026-11-05, Ryne: "if it's built, turn it on") every finished #2017 layer is ON in code AND here. ORWELL_GOSSIP_COPRESENCE is ON too (PO: make gossip work).
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -168,5 +168,6 @@ ORWELL_MOOD_CAMPAIGN=1
 ORWELL_DRIFT_FIX=1
 ORWELL_NPC_MEMORY_SPEECH=1
 ORWELL_DRIVE_DECISIONS=1
+ORWELL_GOSSIP_COPRESENCE=1
 EOF
 }
