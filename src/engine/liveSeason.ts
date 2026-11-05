@@ -4,6 +4,7 @@ import { SeededRandom } from "../adapters/random/SeededRandom";
 import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../domain/competitionOutcome";
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
+import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
 
 /** The competition intents the player may declare (Bible: compete / throw / play-safe), 0006/0034. */
@@ -2102,6 +2103,8 @@ function rollWeek(s: LiveSeasonState): void {
     s.twist = undefined;
   }
   s.week += 1; s.beat = "hoh-competition";
+  // B4 slice 5: an open casual assurance older than the horizon lapses (no longer binding) at the week roll. The ledger exists ONLY when ORWELL_ASSURANCES is on, so off => untouched.
+  lapseAssurancesAtRoll(s);
   if (s.twistPlan) {
     // 0025 REACTIVE: the standing pool watches the live house and arms the ONE twist the house
     // has now earned (if any). Evaluated once per roll ⇒ at most one arms per week (the cooldown).

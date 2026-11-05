@@ -202,6 +202,7 @@ import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
+import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -1035,7 +1036,39 @@ export class GameSessionAdapter implements GameSession {
     const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
     return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
   }
+  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
+  private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
+  private copresenceTold = new ToldLedger();
+  setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
+  copresenceEnabledNow(): boolean { return this.copresenceEnabled; }
+  copresenceToldLedger(): ToldLedger { return this.copresenceTold; }
   setVoteCountEnabled(on: boolean): void { this.voteCountEnabled = on; }
+  /**
+   * URGENT clock-per-message (Coordinator 2026-11-05): the clock bills ONE message-step per PLAYER MESSAGE, not per committed engine mutation. The front-end announces each player message once with
+   * `noteMessage({ messageId })` (idempotent per id); the announcement ITSELF steps the clock (a plain chat line commits nothing else, and an event must be able to come due mid-conversation).
+   * From the first announcement on (`messageMode`) a commit bills the clock NOTHING (`billClockForCommit`) - a message that makes any number of tool calls was already billed once. Before any
+   * announcement (BDD / UAT / legacy FE) billing is the old per-commit step, byte-identical. Memory-only: a restart falls back to legacy billing until the next announcement.
+   */
+  private messageMode = false;
+  private seenMessageIds: string[] = [];
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number } {
+    const id = String(req.messageId);
+    if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
+    this.seenMessageIds.push(id);
+    if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
+    this.messageMode = true;
+    this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
+    this.advanceClockPerConversation();
+    this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
+    return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
+  }
+  /** True once the front-end has announced a player message (clock billing is per message from then on). */
+  messageModeNow(): boolean { return this.messageMode; }
+  /** The orchestrator's single clock-billing seam for a committed player turn (see `noteMessage`): legacy per-commit step until messages are announced, then nothing. */
+  billClockForCommit(): void {
+    if (!this.messageMode) this.advanceClockPerConversation();
+    else this.hangOutSkipStepAt = undefined; // message mode: a hang-out must not leave a stale skip that makes the NEXT note bill 0
+  }
   /**
    * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
    * never enables it, so `ctx().compIntentOf` is absent and every NPC "compete"s ⇒ every seeded gate is
@@ -1139,6 +1172,13 @@ export class GameSessionAdapter implements GameSession {
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+    // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
+    // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
+    if (nominee !== PLAYER) {
+      const e = this.rel.edge(nominee, holder);
+      e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop);
+      if (this.npcBeliefsEnabled) recordClaim((this.live.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: 0.8, week: this.live.week });
+    }
   }
 
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
