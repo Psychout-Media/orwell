@@ -444,7 +444,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     });
     return id;
   });
-  const deps = { player: outward.player, admin: outward.admin, summary: outward.summary, commands, session };
+  const deps = { player: outward.player, admin: outward.admin, summary: outward.summary, commands, session, beatSeqNow: (): number => session.beatSeqNow() };
   // B58/audit E5: the admin's inspectable state mirrors the LIVE session's public facts (week,
   // phase, roles-only roster) — refreshed on every persisted mutation, never a never-updated stub.
   const syncAdmin = (): void => {

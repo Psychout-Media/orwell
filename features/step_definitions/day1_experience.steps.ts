@@ -329,7 +329,7 @@ When("the player enters the Diary Room on Day 1 through the live diaryRoom tool"
 Then("the Diary Room is available as a room before week-one nominations", function (this: BbWorld) {
   const w = bag(this);
   // Enterable on Day 1: the live tool accepted the entry while the premiere is running, before any HOH or nomination.
-  assert.deepEqual(w.drResult, { recorded: true }, "the live diaryRoom tool accepted the Day-1 entry");
+  assert.equal((w.drResult as { recorded?: boolean } | null)?.recorded, true, "the live diaryRoom tool accepted the Day-1 entry"); // A29: a committing tool also echoes the post-commit beatSeq
   const st = w.sandbox!.session.getGameState();
   assert.equal(st.moment, "premiere", "still the premiere moment");
   assert.equal(w.sandbox!.session.gameStatus().hoh, null, "no HOH yet");

@@ -37,7 +37,7 @@ import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFel
 import { driveSuspicion } from "../../engine/suspicion";
 import {
   formCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
-  deriveDrive, ownBallotLean, ARCHETYPE_AGGRESSION,
+  deriveDrive, ownBallotLean, drivePushFor, ARCHETYPE_AGGRESSION,
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
@@ -1530,6 +1530,14 @@ export class GameSessionAdapter implements GameSession {
     if (!this.moodCampaignEnabled || !this.npcTellsEnabled) return true;
     return !moodUnsteady(this.soulObj(npc)?.tells);
   }
+  /** B51 (ORWELL_DRIVE_DECISIONS, default OFF, never-flipped; needs campaigns on): the HOH's / veto holder's OWN drive feeds their nomination and veto-save scores. */
+  private driveDecisionsEnabled = process.env.ORWELL_DRIVE_DECISIONS === "1";
+  setDriveDecisionsEnabled(on: boolean): void { this.driveDecisionsEnabled = on; }
+  drivePushForDecider(target: EntityId, decider: EntityId): number {
+    if (!this.driveDecisionsEnabled || !this.campaignsEnabled || decider === PLAYER || target === decider) return 0;
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(decider) && c.target === target);
+    return drivePushFor(this.drives.get(decider), target, own ? { goal: own.goal, progress: own.progress } : undefined);
+  }
   moodVetoFor(nominee: EntityId, holder: EntityId): number {
     if (!this.moodVetoEnabled || !this.npcTellsEnabled || holder === PLAYER) return 0;
     const e = this.rel.edge(holder, nominee);
@@ -2554,6 +2562,7 @@ export class GameSessionAdapter implements GameSession {
     "veto-withheld": "you left them on the block when you held the veto", "deal-kept": "you kept a deal with them",
     "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
     "nominated-by-hoh": "you put them on the block",
+    "secret-exposed": "you exposed their secret to the house", "secret-given": "you traded them a secret they wanted",
   };
   /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
   private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
@@ -4775,7 +4784,7 @@ export class GameSessionAdapter implements GameSession {
     const myRoom = this.presence.get(this.house.player.id);
     if (myRoom) this.observeMoveIntoPrivate(id, here, dest, myRoom);
     this.persist();
-    return { status: "moved", whereabouts: this.whereabouts() };
+    return { status: "moved", whereabouts: this.whereabouts(), beatSeq: this.beatSeqNow() }; // A29: the post-commit token
   }
 
   /**
@@ -7751,6 +7760,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.driveDecisionsEnabled && this.campaignsEnabled ? { drivePushFor: (t: EntityId, d: EntityId) => this.drivePushForDecider(t, d) } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
@@ -10459,6 +10469,7 @@ export class GameSessionAdapter implements GameSession {
       // Mark the REAL secret traded (monotonic — it has been spent into the economy); a bluff is not a real fact.
       if (resolved.factId && this.secretUsedAs[resolved.factId] !== "exposed") this.secretUsedAs[resolved.factId] = "traded";
       this.tradeCount++;
+      if (this.npcMemoryWritersEnabled) this.remember(recipient, PLAYER, "secret-given", 0.3); // A24: the recipient remembers the player bought them something they wanted (a favor; bounded by the ledger)
       return { accepted: true, narratable: "they took the trade" };
     }
     // Refused — peddling a secret they don't want reads as untrustworthy (a bounded sour on their read).
@@ -10779,6 +10790,8 @@ export class GameSessionAdapter implements GameSession {
     this.foldHouseRecoilOnExposer(subject, rng);
     // The jury mark (0014): the subject's eventual jurors weigh the outing against the exposer.
     if (folds.juryMark) recordDealBetrayal(this.live, subject, PLAYER);
+    // A24: the subject REMEMBERS being outed (a deep grudge about the player; severity grows with the secret's, bounded by the ledger cap).
+    if (this.npcMemoryWritersEnabled) this.remember(subject, PLAYER, "secret-exposed", Math.min(1, 0.4 + 0.4 * resolved.severity));
     // Surface the exposure to the house as a WITNESSED pathway event — the house now KNOWS it (0002).
     const content = resolved.bluff ? `${this.nameOf(PLAYER)} outed something about ${this.nameOf(subject)} to the house`
       : this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} exposed a secret about ${this.nameOf(subject)}`;

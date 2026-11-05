@@ -1,4 +1,11 @@
 import { describe, it, expect } from "vitest";
+
+// B36: this test asserts the OLD graph-diffusion path (or its neutrality / a positive control that rides it). The co-presence layer (ORWELL_GOSSIP_COPRESENCE) REPLACES that path when on, so the
+// test pins the layer OFF explicitly instead of depending on the process env (the one-hop-by-scene equivalents live in copresenceSpread / copresenceScenes tests).
+import { beforeAll as _b36BeforeAll, afterAll as _b36AfterAll } from "vitest";
+const _b36Prev = process.env["ORWELL_GOSSIP_COPRESENCE"];
+_b36BeforeAll(() => { process.env["ORWELL_GOSSIP_COPRESENCE"] = "0"; });
+_b36AfterAll(() => { if (_b36Prev === undefined) delete process.env["ORWELL_GOSSIP_COPRESENCE"]; else process.env["ORWELL_GOSSIP_COPRESENCE"] = _b36Prev; });
 import { freshTmpDir } from "../support/freshTmpDir";
 import { makeSocialGraph, diffuseGossip, rumorFrom } from "../../src/engine/gossip";
 import { RelationshipModel } from "../../src/engine/relationships";

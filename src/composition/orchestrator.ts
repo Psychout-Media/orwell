@@ -852,6 +852,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
     const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
     const relm = sandbox.engine.relationships;
+    const beliefObs = sandbox.session.beliefReceiptObserver();
     spreadForScenes(
       scenes.filter((s) => s.initiator !== core.house!.player.id && s.partner !== core.house!.player.id).map((s) => [s.initiator, s.partner] as const),
       {
@@ -864,6 +865,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
         audienceOf: () => 0,
+        // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
+        ...(beliefObs ? { onTold: (r: { listener: EntityId; subject: EntityId; confidence: number }) => beliefObs({ listener: r.listener, subject: r.subject, type: "gossip", confidence: r.confidence, delta: {} }) } : {}),
       },
     );
   } else if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
