@@ -469,6 +469,9 @@ function sanitizeFlavor(s: string, max = 160): string {
  * 0085 B2 — whether the live campaign layer runs by DEFAULT. ON unless `ORWELL_CAMPAIGNS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) (since the 2026-11 default flip it is ON in code, so the seeded gates, the UAT and the deploy all play the same game; `ORWELL_FLAGS_OFF=1` restores the legacy all-off profile). Read once at
  * module load, like the watcher cadence; a test overrides per-session via `setCampaignsEnabled`.
  */
+/** Spell a week number in words (no digits in a recorded pitch line) - pitch events carry it so a hidden pitch is never a verbatim twin of a witnessed one from another week (the vault-leak checkpoint matches text). */
+const WEEK_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
+const weekWords = (n: number): string => (n >= 0 && n < WEEK_WORDS.length ? WEEK_WORDS[n]! : `no ${n.toString(36).replace(/[0-9]/g, (d) => "abcdefghij"[Number(d)]!)}`);
 const CAMPAIGNS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CAMPAIGNS");
 /** 0107 Phase B — the binding-action kinds that count as a betrayal of a named co-ally. */
 const ALLIANCE_ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
@@ -1150,10 +1153,10 @@ export class GameSessionAdapter implements GameSession {
     for (const p of this.derivePitches(hoh)) {
       const witnesses = [...new Set([p.from, hoh, ...this.coPresentWitnessesOf(p.from)])];
       const verb = p.kind === "safety" ? "asks for safety" : p.kind === "info" ? "trades information" : p.kind === "threat" ? "makes a veiled threat" : "makes a pitch";
-      this.onPlayerEvent(`${this.nameOf(p.from)} ${verb} with ${this.nameOf(hoh)} before nominations (week ${s.week})`, witnesses, "lobbying");
+      this.onPlayerEvent(`${this.nameOf(p.from)} ${verb} with ${this.nameOf(hoh)} before nominations (week ${weekWords(s.week)})`, witnesses, "lobbying");
       const trust = this.rel.edge(hoh, p.from).trust;
       if (p.kind === "safety" && trust >= DECISION.npcDeal.mutualTrustMin && !this.deals.open().some((d) => d.parties.includes(p.from) && d.parties.includes(hoh))) {
-        const evId = this.onPlayerEvent(`${this.nameOf(p.from)} and ${this.nameOf(hoh)} quietly seal a safety pact (week ${s.week})`, [p.from, hoh], "deal");
+        const evId = this.onPlayerEvent(`${this.nameOf(p.from)} and ${this.nameOf(hoh)} quietly seal a safety pact (week ${weekWords(s.week)})`, [p.from, hoh], "deal");
         this.deals.make([p.from, hoh], "safety", "a quiet pact sealed away from the cameras", evId, s.week);
       }
     }

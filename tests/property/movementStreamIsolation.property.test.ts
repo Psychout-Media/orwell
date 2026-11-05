@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it, expect } from "vitest";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
