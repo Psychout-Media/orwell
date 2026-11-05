@@ -9,7 +9,7 @@ import { ASSURANCE } from "../../src/engine/assurances";
  */
 type G = {
   recordAssurance(a: unknown): void; setAssurancesEnabled(on: boolean): void; setMemoryPromisesEnabled(on: boolean): void;
-  assuranceNominated(h: string, n: string): void; assuranceKeptAtNominations(h: string, ns: string[]): void;
+  assuranceNominated(h: string, n: string): void; assuranceKeptAtTally(fn: string[]): void;
 };
 function started(promises: boolean) {
   const sb = new GameSessionRegistry().sandboxFor(`asrwit-${Math.random()}`);
@@ -38,7 +38,7 @@ describe("witnesses remember a heard assurance (B22)", () => {
   it("a kept assurance: the witness remembers a favor about the keeper at half weight", () => {
     const { sb, g, holder, assured, witness, other } = started(true);
     g.recordAssurance({ from: holder, to: assured, kind: "safe", sincerity: 1, source: "npc", heardBy: [witness] });
-    g.assuranceKeptAtNominations(holder, [other, PLAYER]);
+    g.assuranceKeptAtTally([other, PLAYER]);
     expect(mem(sb, witness, holder).map((e) => e.kind)).toEqual(["deal-kept"]);
     expect(mem(sb, witness, holder)[0]!.severity).toBeCloseTo(ASSURANCE.keptMemorySeverity * ASSURANCE.witnessFactor, 9);
   });

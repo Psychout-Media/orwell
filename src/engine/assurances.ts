@@ -70,11 +70,11 @@ export class AssuranceLedger {
     for (const a of this.items) if (a.status === "open" && currentWeek - a.week > ASSURANCE.horizonWeeks) a.status = "lapsed";
   }
   get all(): readonly Assurance[] { return this.items; }
-  toJSON(): { seq: number; items: Assurance[] } { return { seq: this.seq, items: this.items.map((x) => ({ ...x })) }; }
+  toJSON(): { seq: number; items: Assurance[] } { return { seq: this.seq, items: this.items.map((x) => ({ ...x, ...(x.heardBy ? { heardBy: [...x.heardBy] } : {}) })) }; }
   static fromJSON(j: { seq: number; items: Assurance[] }): AssuranceLedger {
     const l = new AssuranceLedger();
     l.seq = j.seq;
-    l.items = j.items.map((x) => ({ ...x }));
+    l.items = j.items.map((x) => ({ ...x, ...(x.heardBy ? { heardBy: [...x.heardBy] } : {}) }));
     return l;
   }
 }

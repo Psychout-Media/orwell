@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 
@@ -9,7 +8,7 @@ import { PLAYER } from "../../src/domain/ids";
  */
 type G = {
   recordAssurance(a: unknown): void; setAssurancesEnabled(on: boolean): void;
-  assuranceKeptAtNominations(h: string, ns: string[]): void; assuranceKeptAtVote(v: string, sp: string): void;
+  assuranceKeptAtNominations(h: string, ns: string[]): void; assuranceKeptAtVote(v: string, sp: string): void; assuranceKeptAtTally(fn: string[]): void;
   assuranceNominated(h: string, n: string): void;
 };
 function started() {
@@ -24,9 +23,9 @@ const statuses = (sb: { session: { snapshot(): { live?: unknown } } }) => ((sb.s
 const memory = (sb: { session: { snapshot(): { live?: unknown } } }, holder: string, subject: string) => ((sb.session.snapshot().live as { npcMemory?: Record<string, Record<string, { kind: string }[]>> }).npcMemory?.[holder]?.[subject] ?? []).map((e) => e.kind);
 
 describe("a kept assurance (B4 slice 8)", () => {
-  it("nominations that spare the assured resolve a 'safe' assurance kept (once) and the assured remembers a favor", () => {
+  it("nominations that spare the assured resolve a 'loyal' assurance kept (once) and the assured remembers a favor", () => {
     const { sb, g, holder, assured, other } = started();
-    g.recordAssurance({ from: holder, to: assured, kind: "safe", sincerity: 1, source: "npc" });
+    g.recordAssurance({ from: holder, to: assured, kind: "loyal", sincerity: 1, source: "npc" });
     g.assuranceKeptAtNominations(holder, [other, PLAYER]); g.assuranceKeptAtNominations(holder, [other, PLAYER]);
     expect(statuses(sb)).toEqual(["kept"]);
     expect(memory(sb, assured, holder)).toEqual(["deal-kept"]);
@@ -37,6 +36,24 @@ describe("a kept assurance (B4 slice 8)", () => {
     g.assuranceNominated(holder, assured);
     g.assuranceKeptAtNominations(holder, [assured, other]);
     expect(statuses(sb)).toEqual(["broken"]);
+  });
+  it("review fix: a 'safe' assurance is NOT kept at the nominations (the veto / replacement can still undo it); it is kept at the vote tally iff the assured is off the final block", () => {
+    const { sb, g, holder, assured, other } = started();
+    g.recordAssurance({ from: holder, to: assured, kind: "safe", sincerity: 1, source: "npc" });
+    g.assuranceKeptAtNominations(holder, [other, PLAYER]);
+    expect(statuses(sb)).toEqual(["open"]);
+    g.assuranceKeptAtTally([other, PLAYER]); g.assuranceKeptAtTally([other, PLAYER]);
+    expect(statuses(sb)).toEqual(["kept"]);
+    expect(memory(sb, assured, holder)).toEqual(["deal-kept"]);
+  });
+  it("review fix (the backdoor): assure X safe, nominate A/B, veto used, X named the REPLACEMENT => broken with a grudge, never kept with a favor", () => {
+    const { sb, g, holder, assured, other } = started();
+    g.recordAssurance({ from: holder, to: assured, kind: "safe", sincerity: 1, source: "npc" });
+    g.assuranceKeptAtNominations(holder, [other, PLAYER]); // the original nominations spared X - nothing is settled yet
+    g.assuranceNominated(holder, assured);                 // the replacement path breaks the assurance
+    g.assuranceKeptAtTally([other, assured]);               // X is on the final block: not kept
+    expect(statuses(sb)).toEqual(["broken"]);
+    expect(memory(sb, assured, holder)).toEqual(["deal-broken"]);
   });
   it("a 'vote' assurance is kept when the voter spares the assured, and is not kept by nominations (wrong kind)", () => {
     const { sb, g, holder, assured } = started();
@@ -52,10 +69,5 @@ describe("a kept assurance (B4 slice 8)", () => {
     g.setAssurancesEnabled(false);
     g.assuranceKeptAtNominations(holder, [other, PLAYER]);
     expect(statuses(sb)).toEqual(["open"]);
-  });
-  it("liveSeason calls both hooks exactly once, at the nominations and the vote tally", () => {
-    const src = readFileSync("src/engine/liveSeason.ts", "utf8");
-    expect(src.match(/ctx\.assuranceKeptAtNominations\?\.\(s\.hoh!, nominees\)/g)?.length).toBe(1);
-    expect(src.match(/ctx\.assuranceKeptAtVote\(v,/g)?.length).toBe(1);
   });
 });

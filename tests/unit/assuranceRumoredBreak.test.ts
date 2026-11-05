@@ -17,7 +17,7 @@ describe("isRumoredBreak", () => {
   });
 });
 
-type G = { recordAssurance(a: unknown): void; setAssurancesEnabled(on: boolean): void; setNpcBeliefsEnabled(on: boolean): void; assuranceKeptAtNominations(h: string, ns: string[]): void };
+type G = { recordAssurance(a: unknown): void; setAssurancesEnabled(on: boolean): void; setNpcBeliefsEnabled(on: boolean): void; assuranceKeptAtTally(fn: string[]): void };
 function started(seed: number, beliefs: boolean) {
   const sb = new GameSessionRegistry().sandboxFor(`asrrum-${seed}-${beliefs}`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
@@ -35,7 +35,7 @@ function run(seed: number, beliefs: boolean) {
   const holder = npcs[0]!;
   const assureds = npcs.slice(1);
   for (const to of assureds) g.recordAssurance({ from: holder, to, kind: "safe", sincerity: 1, source: "npc" });
-  g.assuranceKeptAtNominations(holder, []);
+  g.assuranceKeptAtTally([]); // the nominees are final and the assured are not on the block: every 'safe' was kept
   const l = live(sb);
   const rumored = assureds.filter((to) => claimsOf(l.beliefs ?? {}, to).some((c) => c.kind === "lied-to-me" && c.subject === holder && c.nature === "rumored-break"));
   const favored = assureds.filter((to) => (l.npcMemory?.[to]?.[holder] ?? []).some((e) => e.kind === "deal-kept"));

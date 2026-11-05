@@ -824,6 +824,8 @@ export interface SeasonCtx {
   assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
   /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
   assuranceKeptAtVote?: (voter: EntityId, spared: EntityId) => void;
+  /** B4 slice 8: the eviction nominees are final (after the veto and any replacement) - every open 'safe' assurance whose assured is NOT on the block was kept. */
+  assuranceKeptAtTally?: (finalNominees: readonly EntityId[]) => void;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -1785,6 +1787,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
   const fn = s.finalNominees!;
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
   const blocs = currentBlocs(s, ctx); // one derived read for the whole vote — the bloc votes together
+  ctx.assuranceKeptAtTally?.(fn); // B4 slice 8: nominees are final here - settle the 'safe' assurances of everyone who stayed off the block
   const votes: Record<EntityId, number> = { [fn[0]]: 0, [fn[1]]: 0 };
   const voteOf = new Map<EntityId, EntityId>();
   for (const v of voters) {
@@ -2359,6 +2362,9 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
       else {
         if (s.hoh === ctx.player) { s.pending = { kind: "tie-break", by: ctx.player, nominees: e.nominees }; return null; }
         evictee = voteChoice(s.hoh!, e.nominees, ctx, currentBlocs(s, ctx));
+        // B4 review fix: the HOH's tie-break is a vote too - it breaks (evicts the assured) or keeps (spares) their assurances like any ballot.
+        ctx.assuranceVotedOut?.(s.hoh!, evictee);
+        ctx.assuranceKeptAtVote?.(s.hoh!, e.nominees[0] === evictee ? e.nominees[1] : e.nominees[0]);
       }
       return commitStagedEviction(s, ctx, evictee, rng);
     }
@@ -2965,6 +2971,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
+  ctx.assuranceNominated?.(s.hoh!, replacement); // B4 review fix: naming an assured houseguest the REPLACEMENT breaks the HOH's assurance to them too
   return {
     beat: "veto-ceremony",
     content: `${s.vetoHolder} uses the veto on ${s.vetoHolder === s.saved ? "themselves" : s.saved}; ${s.hoh} names ${replacement} as the replacement`,
