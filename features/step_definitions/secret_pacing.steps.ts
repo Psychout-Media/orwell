@@ -300,13 +300,11 @@ When("the player-facing surfaces and the admin surface are assembled", function 
 Then("the player gains a belief about that secret with a source and a confidence", function (this: BbWorld) {
   const sb = this.spSandbox!;
   const known = sb.engine.knowledge.knownTo(PLAYER);
-  const suspected = sb.engine.knowledge.suspicionsOf(PLAYER);
   const belief = known.find((k) => /^(told-by:|overheard:|gossip|surfaced)/.test(k.pathway));
-  assert.ok(belief || suspected.length > 0, "no belief/suspicion about the secret reached the player");
-  if (belief) {
-    assert.ok(typeof belief.pathway === "string" && belief.pathway.length > 0, "the belief carries no source pathway");
-    assert.ok(typeof belief.confidence === "number", "the belief carries no confidence");
-  }
+  // AMEND 3a #5: the scenario says "a belief with a source and a confidence" - a bare suspicion does not satisfy it.
+  assert.ok(belief, "no belief (with a source pathway) about the secret reached the player");
+  assert.ok(typeof belief.pathway === "string" && belief.pathway.length > 0, "the belief carries no source pathway");
+  assert.ok(typeof belief.confidence === "number", "the belief carries no confidence");
 });
 
 Then("the belief is a paraphrase, never the verbatim sealed premise", function (this: BbWorld) {
@@ -381,7 +379,8 @@ Then("a secret about the bystander is far less likely to ever drip", function (t
   const sb = this.spSandbox!;
   const internals = peek(sb);
   const bystander = (this as unknown as { spBystanderId?: EntityId }).spBystanderId;
-  if (bystander === undefined) return; // no bystander armed this seed — vacuously satisfied
+  // AMEND 3a #5: never pass vacuously - if no third source was armed the scenario proves nothing, so say so.
+  assert.ok(bystander !== undefined, "no bystander was armed (no third distinct source in this season) - the relevance-floor scenario cannot be judged");
   const dripped = internals.storyThreads.some((t) => t.sourceId === bystander && (t.id in internals.pacingLastDrippedWeek));
   assert.ok(!dripped, "the bystander's secret dripped — the relevance floor failed to suppress it");
 });

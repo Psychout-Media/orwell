@@ -278,7 +278,9 @@ Then("no Vault content beyond the overheard scene itself reaches the player", fu
   // The fragment never carries a hidden event's FULL content, and nothing else hidden crosses.
   const hidden = this.hpSandbox!.engine.events.queryAll().filter((e) => e.hidden).map((e) => e.content);
   for (const f of this.hpSandbox!.engine.knowledge.knownTo(PLAYER)) {
-    for (const h of hidden) assert.ok(!f.content.includes(h), "a verbatim hidden content crossed the wall");
+    // The hidden content must not appear verbatim - matched on an id BOUNDARY: "npc:10 clashed with npc:1" is a textual PREFIX of "npc:10 clashed with npc:13", which is a different scene
+    // (found by B36 with ORWELL_GOSSIP_COPRESENCE=1, where the draw order surfaces such a pair). A false positive, not a leak.
+    for (const h of hidden) assert.ok(!new RegExp(h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?!\\d)").test(f.content), "a verbatim hidden content crossed the wall");
   }
 });
 

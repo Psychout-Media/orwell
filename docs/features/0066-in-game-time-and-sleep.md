@@ -75,7 +75,7 @@ comp:    Competitor.restPenalty? (0..1) → score −= restPenalty·sleepPenalty
 ctx:     SeasonCtx.restOf?(id)   (player: last night; npc: bedtime habit; 0 unless clock running)
 lever:   GameSession.turnIn()    (player-only; rolls to morning, banks the bedtime)
 read:    GameStateView.timeOfDay, PublicGameStatus.timeOfDay, PlayerCard.restStatus  (Vault-free)
-flag:    ORWELL_TIME_OF_DAY (code default off; ON in the deploy profile) gates every clock mutation + restOf
+flag:    ORWELL_TIME_OF_DAY (code default ON; `=0` opts out) gates every clock mutation + restOf
 ```
 
 ## 6. Definition of Done

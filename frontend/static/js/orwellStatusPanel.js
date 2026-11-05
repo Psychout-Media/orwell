@@ -409,7 +409,9 @@ import { onNarrowChange } from './platform.js';
   const todLabel = (t) => TOD_LABELS[t] || "";
 
   // A3: announce only what CHANGED, in show terms — never a full re-read per poll.
-  let _last = { phase: null, hoh: null, noms: null, veto: null };
+  let _last = { phase: null, hoh: null, noms: null, veto: null, tod: null };
+  // A76: the PART of day, spoken plain (no emoji) - the clock is visible to a screen-reader player too. Announced only when it changes (morning -> afternoon ...), never per message.
+  const TOD_SPOKEN = { "morning": "Morning", "afternoon": "Afternoon", "evening": "Evening", "night": "Night", "late-night": "Late night" };
 
   // SG-14: the veto's aftermath (who was saved off the block, who was named in their place) is a
   // one-time diff between the pre-ceremony nominee pair and the post-ceremony pair — the engine's
@@ -445,8 +447,10 @@ import { onNarrowChange } from './platform.js';
     const cur = {
       phase: phaseLabel(st.phase),
       hoh: names.hoh, noms: names.noms, veto: names.veto,
+      tod: TOD_SPOKEN[st.timeOfDay] || null,
     };
     if (_last.phase !== null) {
+      if (cur.tod && _last.tod && cur.tod !== _last.tod) { msgs.push(cur.tod + "."); flashRow(el, "#os-tod"); }
       if (cur.phase !== _last.phase) { msgs.push(cur.phase + "."); flashRow(el, "#os-phase"); }
       if (cur.hoh !== _last.hoh && cur.hoh !== "—") { msgs.push("Head of Household: " + cur.hoh + "."); flashRow(el, "#os-hoh"); }
       if (cur.noms !== _last.noms && cur.noms !== "—") { msgs.push("On the block: " + cur.noms + "."); flashRow(el, "#os-noms"); }
@@ -513,7 +517,7 @@ import { onNarrowChange } from './platform.js';
 
     setText(el.querySelector("#os-week"), "Week " + st.week);
     setText(el.querySelector("#os-phase"), phaseLabel(st.phase));
-    // ADR 0006: the in-game clock (opt-in engine side; absent ⇒ the chip simply stays hidden).
+    // ADR 0006: the in-game clock (ORWELL_TIME_OF_DAY is default-ON engine side and the FE setting time_of_day_enabled is True; absent timeOfDay ⇒ the chip simply stays hidden).
     { const todEl = el.querySelector("#os-tod"); const tod = todLabel(st.timeOfDay);
       if (todEl) { if (tod) { setText(todEl, tod); todEl.hidden = false; } else todEl.hidden = true; } }
     setText(el.querySelector("#os-hoh"), name(st.hoh));

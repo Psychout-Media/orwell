@@ -223,6 +223,10 @@ export interface SessionCore {
    * the deterministic sequence). The counter advances ONCE per `presenceTick`.
    */
   presenceTickCount?: number;
+  /** B28: the monotonic count of tell ONSETS (a new tell kind beginning on any houseguest) - persists even after a tell fades, so the checkpoint can prove the tells layer never loses history. */
+  tellOnsetCount?: number;
+  /** B29 (ORWELL_TELL_REACTIONS): the observer-reaction state - decaying exploit tilts, the per-pair last-reacted week, monotonic counts by kind. Absent when nothing has reacted (byte-identical). */
+  tellReactions?: { exploit: Record<string, number>; reactedWeek: Record<string, number>; counts: Record<string, number>; ticks: number };
   /**
    * SEATED sub-zones (issue #792 — the PO ruling: sub-zones SEATED into `assignRooms`, not computed
    * on-read). Each houseguest in a zoned big room (backyard/lounge) holds a per-id sub-zone (the
@@ -527,6 +531,12 @@ export interface SessionCore {
    * (no Vault content). Absent on a pre-feature save OR before any announcement - byte-identical load (and legacy per-commit billing until the first announcement).
    */
   seenMessageIds?: string[];
+  /**
+   * B20 - the B10/B11 co-presence TOLD ledger (who already decided to share/slip/hold which fact to which listener), so a restart does not re-decide (and re-roll) a telling the house already saw.
+   * Ids + a closed outcome only (no Vault content). Absent on a pre-feature save OR when nothing was ever decided => an empty ledger (byte-identical load). Not a monotonic accumulator: a superseded
+   * fact can `reopen` (delete) its entries by design, so it is exempt from the superset/count guards.
+   */
+  toldLedger?: import("./heldFacts").ToldSnapshot;
 }
 
 /** The full durable unit: the session core plus the engine detail (for non-degradation). */
@@ -765,6 +775,7 @@ export interface SessionCoreCounts {
   showrunnerNoteCount: number;
   showrunnerReweightCount: number;
   presenceTickCount: number;
+  tellOnsetCount: number;
   lastConfessionalSweepDay: number;
 }
 
@@ -797,6 +808,7 @@ export function sessionCoreCounts(snap: SessionSnapshot): SessionCoreCounts {
     showrunnerNoteCount: snap.showrunnerNoteCount ?? 0,
     showrunnerReweightCount: snap.showrunnerReweightCount ?? 0,
     presenceTickCount: snap.presenceTickCount ?? 0,
+    tellOnsetCount: snap.tellOnsetCount ?? 0,
     lastConfessionalSweepDay: snap.lastConfessionalSweepDay ?? 0,
   };
 }

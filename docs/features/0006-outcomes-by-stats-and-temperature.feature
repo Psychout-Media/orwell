@@ -70,7 +70,7 @@ Feature: Outcomes by stats and temperature — earned results, never story conve
   #        Then the favorite wins more often than not
   #        And the favorite loses often enough that upsets are a regular occurrence
   #
-  #  (2) EVERY NPC CARRIES A COMPETITION INTENT — BUILT (opt-in `ORWELL_COMP_INTENT`;
+  #  (2) EVERY NPC CARRIES A COMPETITION INTENT — BUILT (default-ON `ORWELL_COMP_INTENT`;
   #      byte-identical when off). A nominee fights; a lay-low houseguest with a strongly-trusted
   #      ally in the field throws to hand them the power; a cautious houseguest a rival reads as a
   #      real threat plays safe; otherwise competes. The intent reaches the same seeded roll the
