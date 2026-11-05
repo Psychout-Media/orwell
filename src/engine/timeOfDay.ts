@@ -56,7 +56,6 @@ export interface BedtimeStats {
   social: number;
 }
 
-const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
 
 /** Position of a phase in the day (0 = morning … 4 = late-night). */
 export function phaseIndex(phase: TimeOfDay): number {
@@ -327,6 +326,7 @@ export { CLOCK, SCENE, EVENT_DURATION };
 // Legacy-name aliases for the few call/test sites that referenced the flat constants by name (kept so this
 // refactor is byte-neutral to importers; the values now live in `sleepConstants`).
 import { SOCIAL_FATIGUE, FATIGUE } from "./sleepConstants";
+import { clamp } from "../domain/num";
 export const SOCIAL_SWAY_DAMP = SOCIAL_FATIGUE.swayDamp;
 export const SOCIAL_SWAY_FLOOR = SOCIAL_FATIGUE.swayFloor;
 export const CONFLICT_BEDTIME_DRAIN = SOCIAL_FATIGUE.conflictBedtimeDrainHours;

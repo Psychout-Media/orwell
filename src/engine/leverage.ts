@@ -18,8 +18,7 @@ import type { HiddenElementKind } from "./characterFactory";
 import type { EdgeSignals } from "./relationshipConstants";
 import { scaleImpact } from "./relationshipConstants";
 import { LEVERAGE, SECRET_TRADE } from "./leverageConstants";
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /** A signed, bounded per-moment jitter in [−band, +band] — one rng draw (the temperature seam). */
 function jitter(rng: RandomnessSource, band: number): number {

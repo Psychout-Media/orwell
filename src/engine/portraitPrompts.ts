@@ -12,6 +12,7 @@
 
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import { genderPresentationPhrase } from "../domain/gender";
+import { fnv1a } from "../domain/num";
 
 export { genderPresentationPhrase };
 
@@ -135,20 +136,8 @@ export interface PortraitPromptResult {
   prompt: string;
 }
 
-/**
- * FNV-1a 32-bit over a string — the stable per-subject shot key (G24). Pure and
- * dependency-free: the same (houseguestId, season anchor) pair always yields the
- * same hash, so a houseguest re-renders as the same shot across restarts and
- * backfills, while different houseguests land on different picks.
- */
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
+// The per-subject shot key (G24) is `fnv1a` from src/domain/num.ts (FNV-1a 32-bit): the same (houseguestId, season anchor) pair always yields the same hash, so a houseguest re-renders as the same
+// shot across restarts and backfills, while different houseguests land on different picks.
 
 /**
  * Build a photorealistic portrait prompt for one houseguest using ONLY their

@@ -1,3 +1,4 @@
+import { clamp } from "../domain/num";
 /**
  * 0066 — the single tunable home for the in-game-time / sleep economy (ADR 0006), the accepted 24-hour
  * model (#1125). One module per layer (the B59 convention — siblings: `trajectoryConstants`,
@@ -24,7 +25,6 @@
  */
 
 /** Clamp helper — shared by the pure sleep math (kept local so this module imports no logic). */
-const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
 
 // --- The 24-hour clock ----------------------------------------------------------------------------
 
