@@ -306,6 +306,14 @@ def finish_game():
         if sub.get("finished"):
             finished = True
             break
+    if not finished:
+        # A48: say WHY the season did not finish (the CI log used to say only "endgame not reached"), so a stuck driver is diagnosable from the log alone.
+        try:
+            st = _engine_tool("getGameState") or {}
+            print(f"== finish_game: season NOT finished after the driver loop; phase={st.get('phase')} pending={(st.get('pending') or {}).get('kind')} "
+                  f"status={st.get('status')} schedule={st.get('daySchedule')} consec_fail={consec_fail}", flush=True)
+        except Exception as e:  # diagnostics only - never perturb the run
+            print(f"== finish_game: season NOT finished (and the diagnostic read failed: {e})", flush=True)
     return finished, endgame_pending
 
 
