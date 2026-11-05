@@ -818,6 +818,10 @@ export interface SeasonCtx {
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
+  /** B4 slice 8: the HOH's nominations are final and did NOT include the houseguests they had assured 'safe'/'loyal' - those assurances were KEPT (resolved + the assured remembers a favor, by the adapter). */
+  assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
+  /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
+  assuranceKeptAtVote?: (voter: EntityId, spared: EntityId) => void;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -1786,6 +1790,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
     votes[target]++;
     voteOf.set(v, target);
     if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target); // B4 slice 4: voting the assured out breaks the assurance
+    if (ctx.assuranceKeptAtVote) ctx.assuranceKeptAtVote(v, fn[0] === target ? fn[1] : fn[0]); // B4 slice 8: voting the OTHER nominee out spares this one => kept
   }
   return { fn, votes, voteOf };
 }
@@ -2732,6 +2737,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       });
       const nominees = plan.nominees;
       if (ctx.assuranceNominated) for (const n of nominees) ctx.assuranceNominated(s.hoh!, n);
+      ctx.assuranceKeptAtNominations?.(s.hoh!, nominees); // B4 slice 8: whoever the HOH had assured and did NOT nominate was spared => kept
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
       s.nominees = nominees; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${nominees[0]} and ${nominees[1]}`, participants: [s.hoh!, ...nominees] };

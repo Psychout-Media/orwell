@@ -31,6 +31,8 @@ export const ASSURANCE = {
   brokenTrustDrop: 0.12,
   /** The memory severity the assured keeps of a broken assurance (a smaller grudge than a broken deal's). */
   brokenMemorySeverity: 0.3,
+  /** The favor the assured keeps of an assurance that was KEPT (B4 slice 8) - weaker than a broken one's grudge, on purpose (negativity bias). */
+  keptMemorySeverity: 0.2,
   /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
   liarSincerity: 0.1,
 } as const;

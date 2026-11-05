@@ -1181,6 +1181,28 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** B4 slice 8 - resolve the holder's OPEN assurances of `kinds` to `spared` as KEPT (once each) and the assured remembers a (weaker-than-a-grudge) favor. Flag off / none open => nothing. */
+  private keepAssurances(holder: EntityId, kinds: readonly ("safe" | "vote" | "loyal")[], isSpared: (to: EntityId) => boolean): void {
+    if (!this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    const kept: EntityId[] = [];
+    for (const a of ledger.openFor(holder)) {
+      if (!kinds.includes(a.kind) || !isSpared(a.to)) continue;
+      if (ledger.resolve(a.id, "kept")) kept.push(a.to);
+    }
+    if (kept.length === 0) return;
+    this.live.assurances = ledger.toJSON();
+    for (const to of kept) this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+  }
+  /** B4 slice 8 - the HOH finalized nominations without the houseguests they had assured 'safe'/'loyal': those assurances were KEPT. */
+  assuranceKeptAtNominations(holder: EntityId, nominees: readonly EntityId[]): void {
+    this.keepAssurances(holder, ["safe", "loyal"], (to) => !nominees.includes(to));
+  }
+  /** B4 slice 8 - `voter` voted the other nominee out and so spared `spared`: an open 'vote'/'safe' assurance to them was KEPT. */
+  assuranceKeptAtVote(voter: EntityId, spared: EntityId): void {
+    this.keepAssurances(voter, ["vote", "safe"], (to) => to === spared);
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
     if (!this.assurancesEnabled || !this.live) return;
@@ -7485,6 +7507,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
+      ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId) => this.assuranceKeptAtVote(v, sp) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
