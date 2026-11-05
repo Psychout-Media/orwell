@@ -70,6 +70,10 @@ def open_settings_deterministically(page, deadline_s: float = 30.0):
     except Exception:
         pass
 
+    # (1b) A84: neutralise the holding card's re-mount seam up front (the shared recipe, tests/_no_engine_page.py), so a card dismissed below can not come back on the next orwell:models-changed.
+    from _no_engine_page import stub_mount_seam
+    stub_mount_seam(page)
+
     # (2) Atomic dismiss-and-open, retried until the modal is actually up.
     atomic_open = """() => {
       // Dismiss any onboarding card via its own SYNCHRONOUS teardown (win.destroy),

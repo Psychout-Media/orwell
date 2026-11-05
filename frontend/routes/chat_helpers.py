@@ -4706,7 +4706,7 @@ async def _detect_ungrounded_overclaim(user, text: str, tools: set) -> tuple:
             if not _live_p:
                 return (None, None)
             # else: board readable — fall through and verify each claim below (moved or not).
-        has_outcome = _sentence_has_closed_set_claim(text)
+        has_outcome = _sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)  # A89: N-16 "the competition has started" prose has no outcome claim but is a closed-set one (>= 2 cue families)
         has_met = bool(_MET_EVERYONE_RE.search(text or ""))
         if not has_outcome and not has_met:
             return (None, None)  # no closed-set claim at all — open-set prose, never policed

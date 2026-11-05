@@ -156,15 +156,18 @@ export class LlmNarrativePort implements StreamingNarrativePort {
       const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
       try {
         for await (const delta of this.transport.stream(req, controller.signal)) {
+          if (delta.length === 0) continue; // A86: an empty delta is not a narration - never count it as "voiced" (it used to make a blank reply look like success)
           everYielded = true;
           yield delta;
         }
-        clearTimeout(timer);
-        return; // clean completion
+        if (everYielded) return; // clean completion with something voiced
+        // A86: the provider answered but said NOTHING: treat it as a failed attempt (bounded retry, then the safe fallback), not a silent blank narration.
+        if (attempt < this.cfg.maxRetries) await delay(backoffMs(attempt));
       } catch {
-        clearTimeout(timer);
         if (everYielded) return; // mid-stream failure: keep what was voiced, stop
         if (attempt < this.cfg.maxRetries) await delay(backoffMs(attempt));
+      } finally {
+        clearTimeout(timer); // A86: also when the consumer stops early (iterator.return()) - no leaked abort timer
       }
     }
     // Hard failure, nothing voiced → safe fallback (the engine already settled the beat).
