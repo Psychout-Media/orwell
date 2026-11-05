@@ -28,7 +28,7 @@ import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint } from "../../engine/voice";
-import { tellsOf } from "../../engine/tells";
+import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
@@ -1432,6 +1432,8 @@ export class GameSessionAdapter implements GameSession {
    * the movement trajectory stays reproducible across a restart. Advances ONCE per `presenceTick`.
    */
   private presenceTickCount = 0;
+  /** B28: monotonic count of tell onsets (persisted as `tellOnsetCount`). */
+  private tellOnsetCount = 0;
   /**
    * SEATED sub-zones (issue #792 — the PO ruling: sub-zones are SEATED into `assignRooms`, not computed
    * on-read). Each houseguest in a zoned big room (backyard/lounge) holds a per-id sub-zone here — the
@@ -2416,7 +2418,8 @@ export class GameSessionAdapter implements GameSession {
   private tellsFor(id: EntityId): { tells?: ReadonlyArray<{ kind: string; band: string; channel: string }> } {
     const soul = this.soulObj(id);
     if (!soul) return {};
-    const t = tellsOf(soul); // no persisted `previous` yet (B28): without hysteresis a tell may flicker at a band edge; the closed vocabulary and top-2 cap still hold
+    // B28: the persisted record (hysteresis against the previous tells) when the arc has refreshed it; a houseguest the arc has not touched yet falls back to a fresh read of the soul.
+    const t = soul.tells ? soul.tells.map((x) => ({ kind: x.kind, band: x.band, channel: tellChannel(x.kind) })) : tellsOf(soul);
     return t.length ? { tells: t.map((x) => ({ kind: x.kind, band: x.band, channel: x.channel })) } : {};
   }
   npcVoice(idOrName: EntityId): NpcVoiceView | null {
@@ -3692,6 +3695,7 @@ export class GameSessionAdapter implements GameSession {
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
+      ...(this.tellOnsetCount > 0 ? { tellOnsetCount: this.tellOnsetCount } : {}),
       // issue #792: the SEATED sub-zones (player-facing view) — persisted tenure-style so drift/cluster
       // history survives a restart (0007, only-forward) and never reseeds from scratch. Absent/empty ⇒
       // omitted (byte-identical to a pre-feature save; the next tick seats fresh). Vault-free position.
@@ -4008,6 +4012,7 @@ export class GameSessionAdapter implements GameSession {
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
+    this.tellOnsetCount = core.tellOnsetCount ?? 0;
     // issue #792: restore the SEATED sub-zones (acquired drift/cluster history survives a restart). A
     // pre-feature save carries none ⇒ null ⇒ the next tick seats everyone fresh from `zoneFor`, NO error.
     this.presenceZone = core.presenceZone ? new Map(Object.entries(core.presenceZone) as [EntityId, Zone][]) : null;
@@ -9076,6 +9081,7 @@ export class GameSessionAdapter implements GameSession {
       `${this.gameSeed ?? this.house?.player.name ?? "season"}:arc:${id}:${event}:${soul.emotionalHistory.length}`,
     ));
     evolveEmotion(soul, event, undefined, rng, { soulDepth: this.soulDepthEnabled });
+    if (this.npcTellsEnabled) { const r = refreshTells(soul, this.week); soul.tells = r.tells; this.tellOnsetCount += r.onsets; } // B28: the tells follow the arc and keep their hysteresis (flag-off: untouched)
     const note = arcNote(event, this.week);
     soul.memory.push(note);                 // persisted arc (house snapshot, monotonic — 0007/0030)
     this.soul?.recordToSoul(id, note);       // vector recall index (0024), when wired into the sandbox
