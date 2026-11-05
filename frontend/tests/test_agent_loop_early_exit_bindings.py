@@ -12,7 +12,7 @@ def test_turn_init_binds_the_post_loop_hook_names():
     assert re.search(r"^\s+_want_record = False$", window, re.M)
     assert re.search(r"^\s+_phase = None$", window, re.M)
     # …and strictly before the first in-loop assignment of either name.
-    first_assign = min(SRC.index("                _want_record = ("), SRC.index("_phase, _house, _moment = None, [], None"))
+    first_assign = min(SRC.index("                _want_record = _gates.want_record("), SRC.index("_phase, _house, _moment = None, [], None"))
     assert init < first_assign
 
 

@@ -434,7 +434,7 @@ def test_first_week_pacing_is_no_scripted_rails():
     assert 'PACING ONLY' in src
     # the lull gate itself is unchanged — engaging play still never nudges
     assert "_player_turn_is_lull" in src
-    assert "and _stale" in src
+    assert "stale=_stale" in src or "and _stale" in src  # A60: the lull+stale conjunction is agent_gates.want_advance(stale=...)
 
 
 def test_premiere_tutorial_still_frames_the_first_week_lightly():

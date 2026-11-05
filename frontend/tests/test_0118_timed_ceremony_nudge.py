@@ -87,11 +87,14 @@ def test_agent_loop_reads_due_under_belt_key_and_wires_it_into_want_advance():
     assert "_LAST_MILESTONE_DUE.get(_belt_key(owner))" in src
     # The bypass fires the forced advance on a due milestone even off a lull, but never on a turn that
     # already progressed and never while a social runway is deliberately held (never-fast-forward guard).
-    assert "_milestone_due and (not _progressed) and not _runway_holding" in src
+    gates = _read_src("src", "agent_gates.py")  # A60: the gate expressions live in agent_gates.py now (verbatim)
+    assert "milestone_due and (not progressed) and not runway_holding" in gates
+    assert "milestone_due=_milestone_due" in src  # ...and the loop still feeds it
 
 
 def test_due_bypass_is_bounded_by_the_per_turn_advance_cap():
     # The timed interrupt is still ONE advance per turn (it lives inside the same _MAX cap), never a
     # runaway force-march.
     src = _read_src("src", "agent_loop.py")
-    assert "_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN and (" in src
+    assert "turn_advance_nudges < max_advance_nudges and (" in _read_src("src", "agent_gates.py")  # A60
+    assert "max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN" in src
