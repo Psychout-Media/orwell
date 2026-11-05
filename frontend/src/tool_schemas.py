@@ -1557,7 +1557,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "makeDeal",
-            "description": "Record a promise the player strikes WITH a houseguest. The engine tracks it as a first-class deal and adjudicates it against later binding actions: keeping it builds trust, breaking it deals a betrayal blow the house and jury remember. Call when a handshake actually happens in the scene. Features 0093/0099 — for a STANDING deal sweetened by a secret, add 'leverage' (a secret about the PARTNER, pressed as pressure) or 'tradedSecret' (a secret about a third party, handed over as a chip). Both are optional; the ENGINE owns whether the pressure lands or the recipient bites.",
+            "description": "Propose a deal to a houseguest. The ENGINE decides whether THEY agree (from their own trust, wariness and memory of the player) - never assume yes. It returns the recorded deal, or a refusal {refused, reason, narratable}: then NO deal exists, so voice the houseguest declining in character and do not narrate a handshake. An agreed deal is a first-class promise adjudicated against later binding actions: keeping it builds trust, breaking it deals a betrayal blow the house and jury remember. Features 0093/0099 — for a STANDING deal sweetened by a secret, add 'leverage' (a secret about the PARTNER, pressed as pressure) or 'tradedSecret' (a secret about a third party, handed over as a chip). Both are optional; the ENGINE owns whether the pressure lands or the recipient bites.",
             "parameters": {
                 "type": "object",
                 "properties": {

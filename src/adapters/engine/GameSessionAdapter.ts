@@ -3,7 +3,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealView, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
   DailyRecapView,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -53,7 +53,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
@@ -68,6 +68,8 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
+import { decideDealConsent } from "../../engine/dealConsent";
+import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -200,6 +202,7 @@ import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
+import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -818,6 +821,12 @@ const PLAYER_DOSSIER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PLAYER_DOSSIER");
 const BOOTH_RECEIPTS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BOOTH_RECEIPTS");
 
 /**
+ * NPC deal CONSENT (anti-sycophancy) - before a player-proposed deal is recorded the ENGINE decides whether the NPC agrees, from the NPC's own reads (`dealConsent.ts`).
+ * ON unless `ORWELL_NPC_DEAL_CONSENT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). OFF => `makeDeal` records every valid deal exactly as before (byte-identical).
+ */
+const NPC_DEAL_CONSENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_DEAL_CONSENT");
+
+/**
  * T0-2 ("beats terminate themselves", moonshot P1 stage 1 / #27a) — the CLOSED-SET ceremony/comp
  * pending kinds whose resolution deterministically implies further server-side progress, so
  * `submitDecision` auto-advances ONE more beat step in the SAME committed transaction instead of
@@ -1017,7 +1026,49 @@ export class GameSessionAdapter implements GameSession {
   private campaignsEnabled = CAMPAIGNS_ENABLED_DEFAULT;
   /** B5 / #2017 - vote counting: an evict campaign forms only while the actor believes the count is IN DOUBT (`voteEstimate.ts`). OFF unless exactly `ORWELL_VOTE_COUNT=1`; never-flipped. OFF => no gate => byte-identical. */
   private voteCountEnabled = process.env.ORWELL_VOTE_COUNT === "1";
+  /** A22 - NPCs may APPROACH the player during the Day-1 social morning AFTER the toast (never during the entrances or the toast). OFF unless exactly `ORWELL_MORNING_APPROACH=1`; never-flipped. OFF => the approach gate is `started` only, byte-identical. */
+  private morningApproachEnabled = process.env.ORWELL_MORNING_APPROACH === "1";
+  setMorningApproachEnabled(on: boolean): void { this.morningApproachEnabled = on; }
+  /** A22 - the premiere is fully over (entrances done or never staged, the champagne toast released): the Day-1 social morning, where an NPC's own wants may bring them to the player. */
+  private premiereSocialOpen(): boolean {
+    const live = this.live;
+    if (!live) return false;
+    const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
+    return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
+  }
+  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
+  private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
+  private copresenceTold = new ToldLedger();
+  setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
+  copresenceEnabledNow(): boolean { return this.copresenceEnabled; }
+  copresenceToldLedger(): ToldLedger { return this.copresenceTold; }
   setVoteCountEnabled(on: boolean): void { this.voteCountEnabled = on; }
+  /**
+   * URGENT clock-per-message (Coordinator 2026-11-05): the clock bills ONE message-step per PLAYER MESSAGE, not per committed engine mutation. The front-end announces each player message once with
+   * `noteMessage({ messageId })` (idempotent per id); the announcement ITSELF steps the clock (a plain chat line commits nothing else, and an event must be able to come due mid-conversation).
+   * From the first announcement on (`messageMode`) a commit bills the clock NOTHING (`billClockForCommit`) - a message that makes any number of tool calls was already billed once. Before any
+   * announcement (BDD / UAT / legacy FE) billing is the old per-commit step, byte-identical. Memory-only: a restart falls back to legacy billing until the next announcement.
+   */
+  private messageMode = false;
+  private seenMessageIds: string[] = [];
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number } {
+    const id = String(req.messageId);
+    if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
+    this.seenMessageIds.push(id);
+    if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
+    this.messageMode = true;
+    this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
+    this.advanceClockPerConversation();
+    this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
+    return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
+  }
+  /** True once the front-end has announced a player message (clock billing is per message from then on). */
+  messageModeNow(): boolean { return this.messageMode; }
+  /** The orchestrator's single clock-billing seam for a committed player turn (see `noteMessage`): legacy per-commit step until messages are announced, then nothing. */
+  billClockForCommit(): void {
+    if (!this.messageMode) this.advanceClockPerConversation();
+    else this.hangOutSkipStepAt = undefined; // message mode: a hang-out must not leave a stale skip that makes the NEXT note bill 0
+  }
   /**
    * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
    * never enables it, so `ctx().compIntentOf` is absent and every NPC "compete"s ⇒ every seeded gate is
@@ -1121,6 +1172,13 @@ export class GameSessionAdapter implements GameSession {
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+    // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
+    // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
+    if (nominee !== PLAYER) {
+      const e = this.rel.edge(nominee, holder);
+      e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop);
+      if (this.npcBeliefsEnabled) recordClaim((this.live.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: 0.8, week: this.live.week });
+    }
   }
 
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
@@ -1282,6 +1340,7 @@ export class GameSessionAdapter implements GameSession {
   private dealsWitnessesEnabled = DEALS_WITNESSES_ENABLED_DEFAULT;
   /** #1800 — whether the Booth Has Receipts runs (deterministic player-contradiction extraction). OFF by default. */
   private boothReceiptsEnabled = BOOTH_RECEIPTS_ENABLED_DEFAULT;
+  private npcDealConsentEnabled = NPC_DEAL_CONSENT_ENABLED_DEFAULT;
   /** #1793 — the Player Dossier read (ORWELL_PLAYER_DOSSIER); per-instance so the prompt + tool follow it. */
   private playerDossierEnabled = PLAYER_DOSSIER_ENABLED_DEFAULT;
   private compMechanicsPlusEnabled = COMP_MECHANICS_PLUS_ENABLED_DEFAULT;
@@ -3596,6 +3655,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.lastApproachStretch !== undefined
          ? { approachShown: { key: this.lastApproachStretch.key, initiators: [...this.lastApproachStretch.initiators] } }
          : {}),
+       // P0g: the noteMessage dedupe ring survives a restart (a retry then bills nothing). Absent until the first announcement ⇒ old saves round-trip byte-identical.
+       ...(this.seenMessageIds.length > 0 ? { seenMessageIds: [...this.seenMessageIds] } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
@@ -3904,6 +3965,8 @@ export class GameSessionAdapter implements GameSession {
     this.lastApproachStretch = core.approachShown
       ? { key: core.approachShown.key, initiators: [...core.approachShown.initiators] }
       : undefined;
+    this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
+    this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
@@ -5594,6 +5657,8 @@ export class GameSessionAdapter implements GameSession {
     this.approachCooldown = new Map();
     this.approachStretchKey = undefined;
     this.lastApproachStretch = undefined;
+    this.seenMessageIds = []; // a fresh season forgets the prior season's message ids and returns to legacy billing until announced
+    this.messageMode = false;
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
@@ -8525,6 +8590,10 @@ export class GameSessionAdapter implements GameSession {
 
   /** Whether Booth Has Receipts is live (#1800) — exposed for tests. */
   boothReceiptsEnabledNow(): boolean { return this.boothReceiptsEnabled; }
+
+  /** Turn NPC deal consent on/off (ON by default). OFF => every valid player deal is recorded as before. */
+  setNpcDealConsentEnabled(on: boolean): void { this.npcDealConsentEnabled = on; }
+  npcDealConsentEnabledNow(): boolean { return this.npcDealConsentEnabled; }
   /**
    * 0101 — NPC MYTH-MAKING: at most once per off-screen tick, mint a LEGEND about a rare, notable player
    * act and let it diffuse NPC-to-NPC exactly like an ordinary rumor (0002/B27b) — see
@@ -9708,6 +9777,7 @@ export class GameSessionAdapter implements GameSession {
         return this.house!.npcs.map((x) => x.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       };
       const started = firstCeremonyBeatResolved(live);
+      const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         hoursUntilEvent: () => {
@@ -9726,12 +9796,12 @@ export class GameSessionAdapter implements GameSession {
         approach: (r) => {
           if (this.desireClockEnabled) {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
-            const hit = started ? this.desireApproach(awakeNpcs()) : null;
+            const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc);
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
-          if (!started || r.next() >= HANGOUT_APPROACH_P) return null;
+          if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
           const top = rankApproaches(PLAYER, ids, this.rel, r)[0];
@@ -9846,14 +9916,14 @@ export class GameSessionAdapter implements GameSession {
    * knowledge); the engine reconciles it against later binding actions. Player↔NPC only — NPC↔NPC
    * deals are made off-screen and held in the Vault (never crosses this outward seam).
    */
-  makeDeal(req: MakeDealReq): DealView | null {
+  makeDeal(req: MakeDealReq): DealView | DealRefusal | null {
     // A10/#591/R1c — AT-MOST-ONCE: a REPEAT key returns the prior deal WITHOUT re-creating it or re-folding
     // the leverage/trade squeeze. Checked BEFORE guardBeatSeq so a re-driven duplicate is a clean no-op even
     // against a moved board (the double-apply case CAS cannot close). Synchronous ⇒ Node serializes callers.
     // The key is NAMESPACED by lever (`foldLedgerKey`) so the SAME idempotencyKey reused across two
     // different levers can't collide (returning one lever's cached result under another's type + skip).
     const idemKey = this.foldLedgerKey("makeDeal", req.idempotencyKey);
-    const replay = this.foldReplay<DealView | null>(idemKey);
+    const replay = this.foldReplay<DealView | DealRefusal | null>(idemKey);
     if (replay.hit) {
       return replay.value;
     }
@@ -9868,6 +9938,15 @@ export class GameSessionAdapter implements GameSession {
     const isActiveOther = target !== PLAYER
       && this.house.npcs.some((n) => n.id === target) && !evicted.has(target);
     if (!isActiveOther) return null;
+    // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no
+    // leverage/trade fold, no persist - and (when keyed) is remembered so a re-driven duplicate replays the same refusal. Flag OFF => this block does not exist.
+    if (this.npcDealConsentEnabled) {
+      const refusal = this.dealConsentRefusal(target, req.kind);
+      if (refusal) {
+        if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
+        return refusal;
+      }
+    }
     const terms = (req.terms ?? "").slice(0, 200);
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
@@ -9899,6 +9978,32 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /**
+   * NPC deal CONSENT - the NPC's own decision on a player-proposed deal. Reads EXISTING engine state only (the NPC->player edge, the NPC memory grudge/favor, the belief
+   * store's `targets-me` claims when its flag is on) and draws ONE value from a dedicated per-moment rng keyed on (game seed, "deal-consent", npc, week, phase) - the same
+   * pattern as `secretRng`/`confide`, never the shared season rng. Returns the Vault-free refusal, or `null` when the NPC agrees.
+   */
+  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"]): DealRefusal | null {
+    const live = this.live;
+    if (!live) return null;
+    const e = this.rel.edge(npcId, PLAYER);
+    const entries = this.npcMemoryEnabled ? live.npcMemory?.[npcId]?.[PLAYER] : undefined;
+    // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
+    const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
+    const decay = this.memoryDecayScale(npcId);
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:deal-consent:${npcId}:${live.week}:${this.phase}`));
+    const jitter = (rng.next() * 2 - 1) * DEAL_CONSENT.jitter;
+    const d = decideDealConsent({
+      kind,
+      trust: e.trust, affinity: e.affinity, threat: e.threat,
+      grudge: memoryGrudge(entries, live.week, decay, carry),
+      favor: memoryFavor(entries, live.week, decay, carry),
+      targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
+      jitter,
+    });
+    return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
 
   /**

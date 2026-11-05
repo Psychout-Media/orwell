@@ -8,6 +8,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { PLAYER } from "../../src/domain/ids";
 import type { BindingAction } from "../../src/engine/deals";
 import { resolvePending } from "../support/answerPending";
+import type { DealView } from "../../src/ports/GameSession";
 
 // HARD rule: roles only — promisor, partner, the wronged party. No names; all fixtures synthesized.
 const PROMISOR = "promisor";
@@ -57,6 +58,7 @@ Then("the betrayal-shock folded is exactly the unscaled 0039 magnitude", functio
 function liveGame(seed = 7): { s: GameSessionAdapter; npc: string } {
   const s = new GameSessionAdapter();
   s.createCharacter({ playerName: "The Player", seed });
+  s.setNpcDealConsentEnabled(false); // these scenarios exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
   return { s, npc: s.getGameState().house[0]!.id };
 }
 const weekOf = (s: GameSessionAdapter) => s.snapshot().live!.week;
@@ -78,8 +80,8 @@ const dealIds = new WeakMap<BbWorld, { id: string; openId?: string }>();
 
 Given("a season-horizon deal with an explicit two-week term", function (this: BbWorld) {
   const a = liveGame();
-  const d = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "two weeks, then free", term: { weeks: 2 } })!;
-  const open = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "forever" })!;
+  const d = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "two weeks, then free", term: { weeks: 2 } }) as DealView;
+  const open = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "forever" }) as DealView;
   live.set(this, { a, b: a, t0a: 0, t0b: 0, trust0a: 0 });
   dealIds.set(this, { id: d.id, openId: open.id });
   assert.equal(d.term?.expiresWeek, weekOf(a.s) + 1, "the engine recorded the two-week term from the live makeDeal");

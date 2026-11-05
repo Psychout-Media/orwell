@@ -53,6 +53,8 @@
 #   ORWELL_DEAL_DEPTH           Deal depth (0121) — comp-throw / veto-save deals + reliability rewards.
 #   ORWELL_REACTIVE_TWISTS      Reactive twists (0025) — double eviction / secret veto / battle-back, earned by the live house (PO ruling
 #       2026-11-03: on for the playtest). The jury of 9 never changes under any twist (reactiveTwistsGuard gate). `=0` restores the legacy path.
+#   ORWELL_NPC_DEAL_CONSENT     NPC deal consent - the ENGINE decides whether an NPC agrees to a player's proposed deal (from the NPC's own trust/threat/grudge/belief
+#       read and the ask's cost); a refusal records nothing and the narrator voices it. Anti-sycophancy. `=0` restores record-every-deal.
 #   ORWELL_NPC_DEAL_OFFERS      NPC-initiated deal offers (0123) — a motivated NPC floats a deal at a lull.
 #   ORWELL_SOUL_DEPTH           Deeper character evolution (0124) — hidden layer; CHARACTER byte-stable.
 #   ORWELL_COMP_MECHANICS_PLUS  Expanded competition mechanics (0126) — 12 => 30 no-repeat pool.
@@ -138,5 +140,6 @@ ORWELL_DEAL_WITNESSES=1
 ORWELL_BOOTH_RECEIPTS=1
 ORWELL_TIME_OF_DAY=1
 ORWELL_REACTIVE_TWISTS=1
+ORWELL_NPC_DEAL_CONSENT=1
 EOF
 }

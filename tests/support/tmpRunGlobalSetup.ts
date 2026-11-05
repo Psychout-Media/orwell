@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,14 @@ import { join } from "node:path";
  */
 export default function setup(): () => void {
   const realTmp = tmpdir();
+  // A killed run (OOM, ctrl-C, a remote SSH drop) skips its teardown and strands its `orwell-run-*`; sweep ones older than 6h so they cannot pile up.
+  try {
+    for (const n of readdirSync(realTmp)) {
+      if (!n.startsWith("orwell-run-")) continue;
+      const p = join(realTmp, n);
+      if (Date.now() - statSync(p).mtimeMs > 6 * 3600_000) rmSync(p, { recursive: true, force: true });
+    }
+  } catch { /* best effort */ }
   const run = mkdtempSync(join(realTmp, "orwell-run-"));
   process.env["TMPDIR"] = run;
   process.env["TMP"] = run;

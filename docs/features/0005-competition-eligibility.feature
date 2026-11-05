@@ -29,7 +29,7 @@ Feature: Competition eligibility & legality — the hard rules of the weekly loo
     And it includes the HOH and both nominees
     And the remaining three come from the chip draw of the eligible pool
     And one chip may be "Houseguest's Choice"
-    And the player cannot influence which chips are drawn
+    And the chip draw is seeded: the same seed gives the same chips
 
   Scenario: A drawn "Houseguest's Choice" lets its holder pick the sixth player
     Given the veto chips are drawn for the current week

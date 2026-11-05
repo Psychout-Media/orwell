@@ -188,6 +188,16 @@ export interface DealView {
   term?: { expiresWeek?: number; vague?: boolean };
 }
 
+/**
+ * NPC deal CONSENT: the houseguest DECLINED the player's proposed deal (the ENGINE decided, from the NPC's own read of the player; the narrator only voices it). No deal was
+ * recorded and nothing was folded. `reason` is a coarse, Vault-free category; `narratable` is an in-fiction line (no numbers). Distinct from `null`, which stays "invalid request".
+ */
+export interface DealRefusal {
+  refused: true;
+  reason: "distrust" | "threat" | "targeted" | "grudge" | "cost";
+  narratable: string;
+}
+
 /** A portrait prompt for one houseguest (0051) — returned at season start for the FE to call the image API. */
 export interface PortraitPromptEntry {
   houseguestId: string;
@@ -2482,6 +2492,11 @@ export interface GameSession {
    * byte-identical to the pre-0065 path.
    */
   advanceGame(req?: AdvanceGameReq): AdvanceView;
+  /**
+   * Clock-per-message (2026-11-05): the front-end announces ONE player message ({messageId}, its stable id); the announcement steps the in-game clock one message-step (~5 minutes), idempotent per id
+   * (`accepted: false` for a repeat). From the first announcement on, commits bill the clock nothing - the clock is paid per PLAYER MESSAGE, not per engine mutation. FE clock infra, not a model lever.
+   */
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number };
   /** Resolve the current pending decision and continue the loop (validated; 0011). `req` may carry the
    *  optional 0065 `expectedBeatSeq` / `idempotencyKey` (absent ⇒ byte-identical to today). */
   submitDecision(req: SubmitDecisionReq): AdvanceView;
@@ -2528,9 +2543,9 @@ export interface GameSession {
   /**
    * The player makes a deal with a houseguest (0039) — a first-class tracked promise. Recorded as
    * a player-witnessed event (their knowledge); the engine reconciles it against later binding
-   * actions and makes a broken promise hurt. Returns the new deal's Vault-free projection.
+   * actions and makes a broken promise hurt. Returns the new deal's Vault-free projection, or a `DealRefusal` when the NPC declines (the engine decides, not the narrator).
    */
-  makeDeal(req: MakeDealReq): DealView | null;
+  makeDeal(req: MakeDealReq): DealView | DealRefusal | null;
   /** 0107 — the player names an alliance (bond-gated membership); null if nobody close enough joins. */
   formAlliance(req: FormAllianceReq): AllianceView | null;
   /** 0107 Phase B — the player accepts an NPC's pitch and joins their alliance; null if not a live pitch. */

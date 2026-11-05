@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { freshTmpDir } from "../support/freshTmpDir";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolvePending } from "../../features/support/answerPending";
 
@@ -36,7 +35,7 @@ function playSeason(seed: number, integrity = false): SeasonResult {
   const user = `tw${n++}`;
   // production = every commit goes through the orchestrator's fail-closed non-degradation checkpoint (slow: it persists each commit), so only the
   // `integrity` phase pays for it; the wide 50-seed phase drives the bare session
-  const runtime = integrity ? composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-twist-guard-"))) }) : null;
+  const runtime = integrity ? composeRuntime({ saveStore: new FileSaveStore(freshTmpDir("orwell-twist-guard-")) }) : null;
   const s = (runtime ? runtime.registry : new GameSessionRegistry()).sandboxFor(user).session;
   s.createCharacter({ playerName: "P", seed });
   let lastHoh: string | undefined;
