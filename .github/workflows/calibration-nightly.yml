@@ -1,5 +1,9 @@
 name: calibration-nightly
 
+# CADENCE (AMEND Round-2 card 21, Ryne 2026-11-05): the balance gate need not run daily. It runs WEEKLY (Monday 03:17 UTC), on demand (workflow_dispatch), and on PULL REQUESTS that
+# FLIP a default flag or touch tuning constants (the `paths` below, incl. relationshipConstants -> COMP_WON_IMPACT; adding the `balance` label re-runs it on such a PR). It is never a required
+# check and nobody should spend pre-playtest time on it - but it is on the pre-playtest/release checklist (docs/ROAD-TO-MARKET.md). The PO bands live ONLY in tests/calibration/poTargetBands.ts.
+
 # The PO-target calibration gate (tests/calibration/calibrationPoTarget.test.ts): passive / solid / reckless over 300 seeds on the DEFAULT flag
 # profile (the game that ships), asserting Ryne's ruled bands (tests/calibration/poTargetBands.ts; PO log 2026-11-02 "Difficulty").
 # ADDITIVE and NOT a required PR check: it runs nightly and on demand, shows the measured rates in the job summary, and on a failing night
@@ -7,15 +11,26 @@ name: calibration-nightly
 # its own matrix leg that plays 4 slices in parallel; an aggregate job recombines them (it requires exactly seeds 1..300 once per arm).
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * 1"
   workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - "src/domain/temperatureConstants.ts"
+      - "src/engine/relationshipConstants.ts"
+      - "src/engine/decisionConstants.ts"
+      - "src/engine/juryConstants.ts"
+      - "src/domain/flagDefaults.ts"
+      - "src/featureFlags.ts"
+      - "deploy/orwell-env-defaults.sh"
+      - "tests/calibration/poTargetBands.ts"
 
 permissions:
   contents: read
 
 # Serialize runs WITHOUT cancelling: a scheduled and a manual run can't both see "no open issue" and each create one.
 concurrency:
-  group: calibration-nightly
+  group: calibration-${{ github.event_name == 'pull_request' && github.ref || 'scheduled' }}
   cancel-in-progress: false
 
 jobs:
@@ -89,8 +104,9 @@ jobs:
             const p=(k,n)=>n?(100*k/n).toFixed(1)+"%":"n/a";
             let md="### PO-target calibration (default profile)\n\n| arm | seasons | reach F2 | win | reach jury |\n|---|---|---|---|---|\n";
             for(const a of ["passive","solid","reckless"]){const x=out[a]??{n:0,f2:0,win:0,jury:0};md+=`| ${a} | ${x.n} | ${p(x.f2,x.n)} | ${p(x.win,x.n)} | ${p(x.jury,x.n)} |\n`;}
-            md+="\nTargets: passive F2 <= 15%, win < 5%; solid F2 12-20%, win 8-12%; reckless no better than passive.\n";
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,md);'
+          NODE_OPTIONS="--import tsx" node -e '
+            import("./tests/calibration/poTargetBands.ts").then((m)=>require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY,"\n"+m.poBandsFooter()+"\n"));'
       - name: assert the PO bands over all 300 seeds
         id: gate
         env:
@@ -98,7 +114,7 @@ jobs:
           ORWELL_PO_AGG_DIR: po-shards
         run: npx vitest run tests/calibration/calibrationPoTarget.test.ts 2>&1 | tee gate.log; exit "${PIPESTATUS[0]}"
       - name: open or update the ONE tracking issue on failure
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
