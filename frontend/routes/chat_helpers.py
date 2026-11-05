@@ -1675,9 +1675,12 @@ def _is_stale_beat_error(exc) -> bool:
     # message. The thin client now surfaces the structured 409 body (`code`/`beatSeq`); the message
     # marker is only a FALLBACK for an older engine / a test stub. So a wording drift in
     # StaleBeatError.message can no longer silently turn reconcile fail-closed.
-    if getattr(exc, "code", None) == "stale-beat":
+    _code = getattr(exc, "code", None)
+    if _code == "stale-beat":
         return True
-    return _STALE_BEAT_MARKER in (str(exc) or "").lower()
+    if isinstance(_code, str) and _code.strip():
+        return False  # A55: an explicit NON-stale machine code (e.g. a turn-refused integrity 409) wins over any prose that happens to mention the marker
+    return _STALE_BEAT_MARKER in (str(exc) or "").lower()  # fallback ONLY for an engine/stub that sends no code
 
 
 async def _handle_stale_beat(user, exc) -> None:
@@ -2298,9 +2301,10 @@ def _tally_claims_match_ballots(text: str, counts) -> bool:
 
 
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
+# A68: the separator stays on ONE line ([ \t], not \s) - "\n- one\n- two" in a markdown list is not a "one - two" vote tally.
 _CLAIM_TALLY_RE = re.compile(
-    r"\b\d+\s*(?:votes?|-)\s*(?:to|–|-)\s*\d+\b|"
-    r"\b" + _TALLY_NUM + r"\s+(?:votes?\s+)?(?:to|–|-)\s+(?:" + _TALLY_NUM + r"|evict\b)",
+    r"\b\d+[ \t]*(?:votes?|-)[ \t]*(?:to|–|-)[ \t]*\d+\b|"
+    r"\b" + _TALLY_NUM + r"[ \t]+(?:votes?[ \t]+)?(?:to|–|-)[ \t]+(?:" + _TALLY_NUM + r"|evict\b)",
     re.IGNORECASE,
 )
 # LIVE-7 (#540): the eviction RESULT narrated as a count/majority during the staged secret-ballot
@@ -2751,6 +2755,36 @@ def _strip_anonymized_ballots(text: str, live: dict) -> str:
     return _BALLOT_COUNT_RE.sub(_repl_count, _BALLOT_PHRASE_RE.sub(_repl, text))
 
 
+# A77 - WHICH guard fired. The two log lines that say a closed-set guard fired ("beat-signature desync detected", "pre-emission guard HELD a phantom closed-set outcome") used to print no class, so the
+# live-triage runbook and the post-session analyzer could not tell N-1 / N-3 / N-15 / N-16 / A-9 apart. The directive text is already Vault-free (public board labels only), so a short tag plus its first
+# 120 chars is safe to log. Markers are distinctive substrings of each detector's label; several can match one directive (merged labels).
+_GUARD_CLASS_MARKERS = (
+    ("N-16", "competition as already STARTED"),
+    ("N-15", "player's choice as already MADE"),
+    ("A-9", "COMPETITION RESULT or its aftermath"),
+    ("F-3", "the PLAYER competing in the veto competition"),
+    ("N-1", "WRONG houseguest as the veto winner"),
+    ("N-3", "is not decided yet"),
+    ("N-3", "nominations have not been made yet"),
+    ("N-3", "Power of Veto has not been played"),
+    ("expulsion", "REMOVAL / EXPULSION"),
+)
+
+
+def _guard_class_tag(directive) -> str:
+    """Short class tag(s) for a re-ground directive, e.g. 'N-16' or 'A-9+F-3'; 'closed-set' when no marker matches (a plain outcome claim: eviction, crown, tally, HOH, nominations, veto)."""
+    d = str(directive or "")
+    tags = []
+    for tag, marker in _GUARD_CLASS_MARKERS:
+        if marker in d and tag not in tags:
+            tags.append(tag)
+    return "+".join(tags) or "closed-set"
+
+
+def _guard_snippet(directive) -> str:
+    return " ".join(str(directive or "").split())[:120]
+
+
 def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict) -> Optional[str]:
     """Compare the turn's narration against the before→after board delta. Return a SPECIFIC
     re-ground directive when the narration asserts an outcome the engine did NOT commit; else
@@ -3009,7 +3043,8 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
         if directive:
             _reground_enqueue(_dkey, directive)  # BL-004: append (never clobber a prior distinct one)
             logger.warning(
-                "[orwell] beat-signature desync detected for user=%s — re-grounding next turn", user,
+                "[orwell] beat-signature desync detected for user=%s — re-grounding next turn (class=%s; %s)",
+                user, _guard_class_tag(directive), _guard_snippet(directive),
             )
     except Exception as e:
         logger.warning("[orwell] post-turn desync check skipped for user=%s: %s", user, e)
@@ -3859,6 +3894,62 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
         return text, []
 
 
+# A50 (#2017 E1b): tells faithfulness. A present NPC's narrated carriage must not be the OPPOSITE pole of the engine's tell, and a calm NPC (tells fetched, none) must not be given a strong one.
+# Closed lexicon, whole-word, ONE named NPC per line, ENGINE tells on one pole only - anything ambiguous is left alone (zero false positives is the bar).
+_TELL_LOW = frozenset({"withdrawn", "tearful"})
+_TELL_HIGH = frozenset({"giddy", "warm-open"})
+_CUES_LOW = re.compile(r"\b(?:withdrawn|tearful|in tears|sobbing|sobs|crying|teary|slumped)\b", re.I)
+_CUES_HIGH = re.compile(r"\b(?:giddy|beaming|bubbly|grinning|radiant|bouncing)\b", re.I)
+_CUES_STRONG = re.compile(r"\b(?:sobbing|in tears|giddy|bursting with joy)\b", re.I)
+_TELL_NEUTRAL = "{name} keeps a level expression, giving little away."
+
+
+def _tell_line_violation(ln: str, tells: dict):
+    named = [n for n in tells if re.search(r"\b" + re.escape(n) + r"\b", ln)]
+    if len(named) != 1:
+        return None
+    name, kinds = named[0], set(tells[named[0]])
+    low, high = bool(_CUES_LOW.search(ln)), bool(_CUES_HIGH.search(ln))
+    if not kinds:
+        return name if _CUES_STRONG.search(ln) else None
+    if kinds <= _TELL_LOW and high and not low:
+        return name
+    if kinds <= _TELL_HIGH and low and not high:
+        return name
+    return None
+
+
+def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
+    """A50 - replace each LINE that contradicts the engine's tell for the single houseguest it names with a neutral in-voice line. (new_text, [(old, new)]) so the caller mirrors it into the raw buffer. Counts the belt only on an APPLIED replacement. Fail-open."""
+    if not text or not text.strip():
+        return text, []
+    try:
+        from src import orwell_engine as _oe
+        tells = _oe.tells_this_turn(user)
+        if not tells:
+            return text, []
+        ops, out = [], []
+        for ln in text.split("\n"):
+            who = _tell_line_violation(ln, tells)
+            if who:
+                new = _TELL_NEUTRAL.format(name=who)
+                ops.append((ln, new))
+                out.append(new)
+            else:
+                out.append(ln)
+        if not ops:
+            return text, []
+        try:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "tell_faithfulness", len(ops))
+        except Exception:
+            pass
+        logger.warning("[orwell] A50: replaced %d tell-contradicting line(s) (user=%s)", len(ops), user)
+        return "\n".join(out), ops
+    except Exception:
+        return text, []
+
+
 async def screen_knowledge_wall(user, text: str) -> str:
     """A0 post-hoc knowledge-wall scan. Returns `text` with any sentence that puts SEALED content in a
     houseguest's mouth DROPPED (delimiters preserved for the rest). Cheap hot path: no sealed facts, or
@@ -4183,6 +4274,12 @@ _COMP_STARTED_CUES = (
 )
 
 
+def _comp_started_cue_hit(text: str) -> bool:
+    """A74 - does `text` show >= 2 DISTINCT N-16 'the competition has begun' cue families? The scene-level gate admits such prose to the live-board read (the cheap closed-set gate cannot: this prose
+    carries no outcome claim), where `_comp_started_before_due` then decides (comp phase + explicit not-due flag + nothing pending). Pure and cheap; a single stage direction never qualifies."""
+    return bool(text) and sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2
+
+
 def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
     """N-16 - the narration shows the scheduled competition STARTING while the engine says it is not due (clock live, `daySchedule.due` False) and nothing is pending. Production owns the
     schedule (#2051): the player's / narrator's momentum cannot start it. Returns a LABEL or None. Conservative: only the HOH / veto competition phases, only with an explicit
@@ -4192,7 +4289,7 @@ def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
     phase = str(live.get("phase") or "").lower()
     if not phase.endswith("-competition") or live.get("compNotDue") is not True or live.get("pending"):
         return None
-    if sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) < 2:
+    if not _comp_started_cue_hit(text):
         return None
     return ("the competition as already STARTED (contestants called to their stations / playing) - the engine shows it is NOT due yet and nothing has begun; "
             "production has not called it")
@@ -4389,7 +4486,7 @@ async def screen_streamed_outcome(user, sentence: str) -> bool:
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (never clobber a prior distinct one)
         logger.warning(
             "[orwell] pre-emission guard HELD a phantom closed-set outcome for user=%s — "
-            "dropped before emission, re-grounding next turn", user,
+            "dropped before emission, re-grounding next turn (class=%s; %s)", user, _guard_class_tag(directive), _guard_snippet(directive),
         )
         return False
     except Exception as e:
@@ -4431,7 +4528,8 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         if not text or not text.strip():
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
-        if not _sentence_has_closed_set_claim(text):
+        # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
@@ -4664,7 +4762,7 @@ async def _detect_ungrounded_overclaim(user, text: str, tools: set) -> tuple:
             if not _live_p:
                 return (None, None)
             # else: board readable — fall through and verify each claim below (moved or not).
-        has_outcome = _sentence_has_closed_set_claim(text)
+        has_outcome = _sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)  # A89: N-16 "the competition has started" prose has no outcome claim but is a closed-set one (>= 2 cue families)
         has_met = bool(_MET_EVERYONE_RE.search(text or ""))
         if not has_outcome and not has_met:
             return (None, None)  # no closed-set claim at all — open-set prose, never policed
@@ -6002,6 +6100,7 @@ async def apply_game_framing(
         game_active = True
         _GAME_WAS_ACTIVE.add(_gkey)
         orwell_engine.clear_disclosure_turn(user)  # N-17: a fresh turn - no engine disclosure lever has run yet
+        orwell_engine.note_engine_delivery(user, game_state)  # N-17 vs 0092: an engine-side delivery (drip) since last turn exempts THIS turn only
         # C-02: resolve an unresolved NPC-driven ceremony FOR REAL before building the moment prompt,
         # so the model voices the engine's actual nominees/outcome instead of inventing one. No-op
         # unless the game sits at such a beat with no player decision pending (best-effort). The

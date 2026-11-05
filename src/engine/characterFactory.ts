@@ -242,6 +242,8 @@ export interface Soul {
   confidence?: number;
   temperamentDrift?: number;
   settleScale?: number;
+  /** B28 (flag ORWELL_NPC_TELLS): the persisted observable tells `{kind, since, band}` (top 2, hysteresis against the previous record). Absent => a pre-change save is byte-identical. Hidden, words only. */
+  tells?: Array<{ kind: import("./tells").TellKind; since: number; band: import("./tells").TellBand }>;
 }
 
 export interface Houseguest {

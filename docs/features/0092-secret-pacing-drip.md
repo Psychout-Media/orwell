@@ -4,7 +4,7 @@
 > pure pacing core + the `SECRET_PACING` tunable), `GameSessionAdapter.pacingDrip` (the pass, run before
 > 0060's surface decision in the bounded tick; routes a ripe top candidate into 0060's existing anchored
 > `surfaceThread` via the new `force` channel), the per-week drip counter + per-thread `lastDrippedWeek`
-> persisted in the snapshot, the dedicated `ORWELL_SECRET_PACING` flag (default-off, calibration-neutral).
+> persisted in the snapshot, the dedicated `ORWELL_SECRET_PACING` flag (default ON, `=0` opts out, calibration-neutral).
 > Gated by `tests/unit/secretPacing.test.ts` (ripeness/budget/routing/Vault-sentinel) +
 > `tests/unit/secretPacingNeutral.test.ts` (the load-bearing recording-rng byte-identity gate) + BDD
 > `0092-secret-pacing-drip.feature` (wired in `cucumber.cjs`).

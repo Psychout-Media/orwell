@@ -428,7 +428,7 @@ export interface LiveSeasonState {
    */
   champagneCircle?: "gathered" | "done";
   /**
-   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default OFF) - the premiere staged as sixteen INDIVIDUAL entrances then the toast.
+   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default ON; `=0` opts out) - the premiere staged as sixteen INDIVIDUAL entrances then the toast.
    * `order` is a seeded side-stream permutation of all 16 ids; `arrived` counts those entered (incl. the player); `spoke`
    * the toast speakers released ("host" or an id). Persisted (0030); ABSENT when the flag is off (byte-identical).
    * Premiere-scoped: cleared the instant the phase leaves "premiere".
@@ -795,6 +795,8 @@ export interface SeasonCtx {
    * PLAYER as decider. ENGINE-ONLY — never crosses the wall.
    */
   campaignPushFor?: (target: EntityId, decider: EntityId) => number;
+  /** B51 (ORWELL_DRIVE_DECISIONS): the decider's OWN drive toward `target` as a nomination / veto-save push (positive = toward evicting). */
+  drivePushFor?: (target: EntityId, decider: EntityId) => number;
   /**
    * 0024 — the signed, bounded RESIDUAL memory tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`,
    * net of what the relationship edge still carries): a broken deal, a trusted friend who nominated/replaced them,
@@ -802,7 +804,9 @@ export interface SeasonCtx {
    * flags-off stays BYTE-IDENTICAL. 0 for the PLAYER as holder. ENGINE-ONLY — never crosses the wall.
    */
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
-  /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default OFF). Absent ⇒ byte-identical. */
+  /** B29 (ORWELL_TELL_REACTIONS): the holder's small, decaying exploit tilt toward `subject`, whom they saw visibly rattled. Absent => 0, byte-identical. */
+  moodTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default ON; `=0` opts out). Absent ⇒ byte-identical. */
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
   pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
@@ -810,6 +814,10 @@ export interface SeasonCtx {
   assuranceProtects?: (target: EntityId, holder: EntityId) => boolean;
   /** B7 M1 (ORWELL_VETO_MEMORY): how much MORE worth saving `nominee` is to the veto `holder` from what the holder remembers / believes / owes (signed: grudge or 'they target me' lowers, favor or an owed deal raises). Absent => +0, byte-identical. */
   vetoMemoryFor?: (nominee: EntityId, holder: EntityId) => number;
+  /** B30 (ORWELL_MOOD_VETO): how the veto holder's visible emotional state shifts how worth saving `nominee` is (a rattled holder rescues the people they are close to; a snapping one is less forgiving). Absent => 0, byte-identical. */
+  moodVetoFor?: (nominee: EntityId, holder: EntityId) => number;
+  /** B7 M4b (ORWELL_HC_MEMORY, approved tie-in #6): how much more (+) or less (-) an NPC Houseguest's-Choice holder wants `candidate` as the sixth veto player, from what they remember / believe / owe. Absent => +0, byte-identical. */
+  hcMemoryFor?: (candidate: EntityId, holder: EntityId) => number;
   /** B7 M3 (ORWELL_DEAL_NOMS): the nomination-score push from the HOH's open protective deals with `target` (<= 0). Absent => byte-identical. */
   dealNomPushFor?: (target: EntityId, holder: EntityId) => number;
   /** B4 slice 4 (ORWELL_ASSURANCES): the bounded shield a KEPT 'vote'/'safe' assurance `voter` made to nominee `n` adds against evicting `n`. Absent => 0, byte-identical. */
@@ -818,6 +826,12 @@ export interface SeasonCtx {
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
+  /** B4 slice 8: the HOH's nominations are final and did NOT include the houseguests they had assured 'safe'/'loyal' - those assurances were KEPT (resolved + the assured remembers a favor, by the adapter). */
+  assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
+  /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
+  assuranceKeptAtVote?: (voter: EntityId, spared: EntityId) => void;
+  /** B4 slice 8: the eviction nominees are final (after the veto and any replacement) - every open 'safe' assurance whose assured is NOT on the block was kept. */
+  assuranceKeptAtTally?: (finalNominees: readonly EntityId[]) => void;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -836,7 +850,7 @@ export interface SeasonCtx {
    * `ORWELL_VOTE_DEDUCTION`; the calibration/UAT harness leaves it off.
    */
   voteDeduction?: boolean;
-  /** #2017 S0a — record belief claims (data model + plumbing only; nothing reads them). Default OFF (`ORWELL_NPC_BELIEFS`, pinned never-flipped). */
+  /** #2017 S0a — record belief claims (data model + plumbing only; nothing reads them). Default ON (`ORWELL_NPC_BELIEFS`; `=0` opts out). */
   npcBeliefs?: boolean;
   /**
    * 0126 — fold the expanded mechanic pool (9 HOH + 9 veto extra) into the competition draw. Absent/false
@@ -854,7 +868,7 @@ export interface SeasonCtx {
   /**
    * 0128 - the Final 3 HOH is the real show's THREE-PART tournament (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz
    * between the two part-winners) instead of ONE competition. Absent/false => the single-comp 0045 path, byte-identical (the seeded spine is unmoved). Wired
-   * live behind `ORWELL_FINAL_HOH_THREE_PART` (default OFF); the calibration/UAT harness leaves it off.
+   * live behind `ORWELL_FINAL_HOH_THREE_PART` (default ON; `=0` opts out); the calibration/UAT harness leaves it off.
    */
   finalHohThreePart?: boolean;
   /**
@@ -1368,7 +1382,7 @@ function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
   s.vetoComp = def.id;
   const draw = vetoParticipants(weekState(s, ctx), rng, {
     houseguestsChoiceChip: true,
-    choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng),
+    choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, ctx.hcMemoryFor ? (c) => ctx.hcMemoryFor!(c, holder) : undefined),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
   s.vetoField = draw.participants;
@@ -1761,6 +1775,8 @@ export function voteChoice(
     (ctx.campaignTiltFor?.(n, voter) ?? 0) +
     // 0024: this voter's own residual memory of `n` (a grudge raises the odds they evict `n`, a favor lowers them).
     (ctx.memoryTiltFor?.(n, voter) ?? 0) +
+    // B29: this voter's exploit tilt toward a visibly rattled `n` (decaying; absent provider => 0 => byte-identical).
+    (ctx.moodTiltFor?.(n, voter) ?? 0) +
     // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
     (ctx.beliefTiltFor?.(n, voter) ?? 0) -
     // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
@@ -1779,6 +1795,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
   const fn = s.finalNominees!;
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
   const blocs = currentBlocs(s, ctx); // one derived read for the whole vote — the bloc votes together
+  ctx.assuranceKeptAtTally?.(fn); // B4 slice 8: nominees are final here - settle the 'safe' assurances of everyone who stayed off the block
   const votes: Record<EntityId, number> = { [fn[0]]: 0, [fn[1]]: 0 };
   const voteOf = new Map<EntityId, EntityId>();
   for (const v of voters) {
@@ -1786,6 +1803,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
     votes[target]++;
     voteOf.set(v, target);
     if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target); // B4 slice 4: voting the assured out breaks the assurance
+    if (ctx.assuranceKeptAtVote) ctx.assuranceKeptAtVote(v, fn[0] === target ? fn[1] : fn[0]); // B4 slice 8: voting the OTHER nominee out spares this one => kept
   }
   return { fn, votes, voteOf };
 }
@@ -2352,6 +2370,9 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
       else {
         if (s.hoh === ctx.player) { s.pending = { kind: "tie-break", by: ctx.player, nominees: e.nominees }; return null; }
         evictee = voteChoice(s.hoh!, e.nominees, ctx, currentBlocs(s, ctx));
+        // B4 review fix: the HOH's tie-break is a vote too - it breaks (evicts the assured) or keeps (spares) their assurances like any ballot.
+        ctx.assuranceVotedOut?.(s.hoh!, evictee);
+        ctx.assuranceKeptAtVote?.(s.hoh!, e.nominees[0] === evictee ? e.nominees[1] : e.nominees[0]);
       }
       return commitStagedEviction(s, ctx, evictee, rng);
     }
@@ -2725,6 +2746,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         style: ctx.nominationStyleOf?.(s.hoh!),
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
         ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.dealNomPushFor ? { dealPush: (t: EntityId) => ctx.dealNomPushFor!(t, s.hoh!) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
@@ -2732,6 +2755,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       });
       const nominees = plan.nominees;
       if (ctx.assuranceNominated) for (const n of nominees) ctx.assuranceNominated(s.hoh!, n);
+      ctx.assuranceKeptAtNominations?.(s.hoh!, nominees); // B4 slice 8: whoever the HOH had assured and did NOT nominate was spared => kept
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
       s.nominees = nominees; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${nominees[0]} and ${nominees[1]}`, participants: [s.hoh!, ...nominees] };
@@ -2786,8 +2810,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         : ctx.rel.chooseVetoSave(
           s.vetoHolder!, nominees,
           // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor || ctx.vetoMemoryFor
-            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0)
+          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
+            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
             : undefined,
         );
       if (!saved) {
@@ -2954,9 +2978,12 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     target: s.nominationTarget,
     ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
     ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
+  ctx.assuranceNominated?.(s.hoh!, replacement); // B4 review fix: naming an assured houseguest the REPLACEMENT breaks the HOH's assurance to them too
   return {
     beat: "veto-ceremony",
     content: `${s.vetoHolder} uses the veto on ${s.vetoHolder === s.saved ? "themselves" : s.saved}; ${s.hoh} names ${replacement} as the replacement`,

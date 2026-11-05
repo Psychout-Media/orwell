@@ -7,8 +7,7 @@ Feature: 0060 — Story-thread trigger/resolution scheduler (0058 Phase 2)
   surfacing to the player, and what reaches the player is a belief with confidence — never a fact on a
   projection, never a premise, never a number. Roles only — no names.
   #
-  # SPEC ONLY — this skeleton is NOT YET wired into cucumber.cjs; it is added when the feature is
-  # built to green (priority order), exactly as Phase 1's 0058 feature was.
+  # BUILT and wired into cucumber.cjs (AMEND 3a #6: this header used to say SPEC ONLY / not yet wired).
 
   # §10(a) — the lifecycle actually runs end to end over a seeded season
   Scenario: over a seeded multi-week sim a measurable share of threads activate and then resolve or expire
