@@ -31,6 +31,8 @@ export const ASSURANCE = {
   brokenTrustDrop: 0.12,
   /** The memory severity the assured keeps of a broken assurance (a smaller grudge than a broken deal's). */
   brokenMemorySeverity: 0.3,
+  /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
+  liarSincerity: 0.1,
 } as const;
 
 const clamp = (x: number, lo: number, hi: number): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
@@ -88,4 +90,13 @@ export function lapseAssurancesAtRoll(s: { week: number; assurances?: { seq: num
   const l = AssuranceLedger.fromJSON(s.assurances);
   l.lapse(s.week);
   s.assurances = l.toJSON();
+}
+
+/**
+ * B4 slice 7 - the ENGINE decides whether an NPC's assurance is sincere (the model never does): a loyal houseguest usually means it, a disloyal one often does not. `roll` is a draw in [0,1) from a
+ * dedicated seeded stream (never the shared one). Sincere => 1; a strategic lie => `ASSURANCE.liarSincerity` (low, so `decideKeep` breaks it whenever breaking pays). Monotone in loyalty.
+ */
+export function npcAssuranceSincerity(loyalty: number, roll: number): number {
+  const pSincere = clamp(0.2 + 0.8 * clamp(loyalty, 0, 1), 0.2, 1);
+  return clamp(roll, 0, 1) < pSincere ? 1 : ASSURANCE.liarSincerity;
 }
