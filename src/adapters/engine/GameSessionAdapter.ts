@@ -2524,6 +2524,7 @@ export class GameSessionAdapter implements GameSession {
     "veto-withheld": "you left them on the block when you held the veto", "deal-kept": "you kept a deal with them",
     "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
     "nominated-by-hoh": "you put them on the block",
+    "secret-exposed": "you exposed their secret to the house", "secret-given": "you traded them a secret they wanted",
   };
   /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
   private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
