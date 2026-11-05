@@ -2371,6 +2371,38 @@ export class GameSessionAdapter implements GameSession {
    */
   /** A49 - narrator-side observable tells (E1a). OFF unless exactly `ORWELL_NPC_TELLS=1`; never-flipped. */
   private npcTellsEnabled = process.env.ORWELL_NPC_TELLS === "1";
+  /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
+  private npcMemorySpeechEnabled = process.env.ORWELL_NPC_MEMORY_SPEECH === "1";
+  setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
+  /** In-game day of the last `bringUp` per houseguest (the once-per-day rate cap). Process-local: a restart may allow one extra mention, never a second leak. */
+  private bringUpDay = new Map<EntityId, number>();
+  private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8 } as const; // ASSUMED, pending Ryne (design 14.10)
+  private static readonly MEMORY_ABOUT_YOU: Readonly<Record<MemoryKind, string>> = {
+    "deal-broken": "you broke a deal with them", "nominated-by-friend": "you put them on the block while they trusted you",
+    "replaced-by-friend": "you named them the replacement while they trusted you", "veto-saved": "you saved them with the veto",
+    "veto-withheld": "you left them on the block when you held the veto", "deal-kept": "you kept a deal with them",
+    "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
+    "nominated-by-hoh": "you put them on the block",
+  };
+  /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
+  private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
+    const live = this.live;
+    const entries = live?.npcMemory?.[id]?.[PLAYER];
+    if (!live || !entries || entries.length === 0) return {};
+    const half = NPC_MEMORY.halfLifeWeeks;
+    const scored = entries.map((e) => ({ e, w: e.severity * Math.pow(0.5, Math.max(0, live.week - e.week) / half) }))
+      .filter((x) => x.w >= GameSessionAdapter.MEMORY_SPEECH.floor).sort((a, b) => b.w - a.w).slice(0, GameSessionAdapter.MEMORY_SPEECH.top);
+    if (scored.length === 0) return {};
+    const when = (age: number): string => (age <= 0 ? "this week" : age <= 2 ? "recently" : "a while back");
+    const facts = scored.map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
+    const day = live.dayNumber ?? live.week;
+    let bring = false;
+    if (scored[0]!.w >= GameSessionAdapter.MEMORY_SPEECH.bar && this.bringUpDay.get(id) !== day) {
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bring-up:${id}:${day}`)).next();
+      if (roll < Math.min(1, scored[0]!.w * GameSessionAdapter.MEMORY_SPEECH.chanceScale)) { bring = true; this.bringUpDay.set(id, day); }
+    }
+    return { rememberedAboutYou: facts, ...(bring ? { bringUp: true as const } : {}) };
+  }
   setNpcTellsEnabled(on: boolean): void { this.npcTellsEnabled = on; }
   /** Present in the player's room and awake - the only houseguests whose carriage the player can observe. */
   private tellsVisibleFor(id: EntityId): boolean {
@@ -2457,6 +2489,8 @@ export class GameSessionAdapter implements GameSession {
       })() : {}),
       // A49 (ORWELL_NPC_TELLS, default OFF): the observable carriage of a houseguest who is PRESENT in the player's room and awake - words only (kind / band / channel). Flag off => no key.
       ...(this.npcTellsEnabled && isActive && this.tellsVisibleFor(id) ? this.tellsFor(id) : {}),
+      // A54 (ORWELL_NPC_MEMORY_SPEECH + the memory ledger, default OFF): what an ACTIVE houseguest remembers about the player. Flag off => no key.
+      ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memorySpeechFor(id) : {}),
       whereabouts: room ? { room, present } : null,
       knows: (this.npcKnowledge?.known(id) ?? [])
         .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
@@ -12100,7 +12134,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

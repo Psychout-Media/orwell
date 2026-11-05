@@ -1747,6 +1747,16 @@ export interface GatedLeverFlags {
   boothReceipts?: boolean;
   /** A49 (ORWELL_NPC_TELLS): add the instruction to voice the given `tells`. Absent/false => the prompt is byte-identical to before. */
   npcTells?: boolean;
+  /** A54 (ORWELL_NPC_MEMORY_SPEECH): add the instruction to use `rememberedAboutYou` / `bringUp`. Absent/false => byte-identical. */
+  npcMemorySpeech?: boolean;
+}
+
+/** A54 - when npcVoice carries `rememberedAboutYou`, tell the narrator these are the ONLY things this houseguest holds about the player and that `bringUp` is the engine's decision. Appended only while the flag is on. */
+function withMemorySpeechInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice carries `rememberedAboutYou`, those are the ONLY things this houseguest remembers about the player: let them colour how they speak, never invent another past between them. Raise one aloud, unprompted,\n" +
+    "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.");
 }
 
 /** A49 - when npcVoice carries `tells`, tell the narrator how to use them (voice the observable facts, never invent a mood). Appended only while the flag is on. */
@@ -1864,6 +1874,7 @@ export function buildSystemPrompt(
   if (levers?.boothReceipts === false) base = withoutLeverBullet(base, "playerReceipts");
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
   if (levers?.npcTells === true) base = withTellsInstruction(base);
+  if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   return [
     base,
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)

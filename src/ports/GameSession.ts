@@ -1743,6 +1743,10 @@ export interface HouseguestMoveResult {
 export interface NpcVoiceView {
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default OFF): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
+  /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
+  rememberedAboutYou?: string[];
+  /** A54: the engine decided this houseguest may raise the past unprompted THIS beat (seeded, salience-barred, at most once per in-game day). The model only words it. */
+  bringUp?: true;
   houseguest: NamedRef;
   /**
    * Their public seat (NARR-7 / #542): `active` (still playing, voiced from inside the house),
