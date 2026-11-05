@@ -106,3 +106,21 @@ Feature: 0085 — NPC campaigns & the scramble
       Then the player's own campaign accrues progress exactly as an NPC's campaign would
       And the pitched houseguest's vote is tilted toward the target, bounded to the same ceiling an NPC's campaign uses
       And a houseguest the player never pitched is unmoved
+
+  Rule: A campaign's push reaches the decisions it is aware of (#1937)
+
+    Scenario: An evict campaign a decider knows of pushes their nominations and replacement pick
+      Given a live evict campaign against the target that the decider knows of
+      Then the decider is pushed toward the target through the live provider
+      And on an exact tie the push decides the nomination and the replacement
+      And a decider who does not know of the campaign feels nothing
+
+    Scenario: A campaign pushes the veto holder's save, and a protect campaign nets against an evict one at the vote
+      Given a live evict campaign against the target that the decider knows of
+      Then the veto holder is steered away from saving the target
+      And a protect campaign on the same target lowers the evict tilt a voter feels
+
+    Scenario: A campaign the player owns pushes an aware decider like any other
+      Given a live campaign owned by the player against the target that the decider knows of
+      Then the decider is pushed toward the target, bounded by the same ceiling
+
