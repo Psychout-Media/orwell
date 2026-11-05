@@ -219,7 +219,7 @@ def test_reload_path_reconstructs_collapsed_accordion_in_the_game_build():
     renderer = _read("static", "js", "chatRenderer.js")
     assert "metadata?.thinking && !isGameBuild()" not in renderer  # the old game-build skip is gone
     assert "role === 'assistant' && metadata?.thinking" in renderer
-    assert "'<think' + (thinkTime ? ` time=\"${thinkTime}\"` : '') + '>' + metadata.thinking" in renderer
+    assert "markdownModule.composeThinkSource(metadata.thinking, text, thinkTime, true)" in renderer  # A59: the shared helper builds the <think> source
 
 
 def test_non_game_build_still_renders_the_collapsible_thinking():
@@ -232,7 +232,7 @@ def test_non_game_build_still_renders_the_collapsible_thinking():
     # the reload reconstruction preserves its full <think>-reconstruction form
     renderer = _read("static", "js", "chatRenderer.js")
     assert "markdownModule.processWithThinking(" in renderer
-    assert "'<think' + (thinkTime ? ` time=\"${thinkTime}\"` : '') + '>' + metadata.thinking" in renderer
+    assert "markdownModule.composeThinkSource(metadata.thinking, text, thinkTime, true)" in renderer  # A59: the shared helper builds the <think> source
 
 
 def test_streaming_tts_flag_is_function_scoped():
