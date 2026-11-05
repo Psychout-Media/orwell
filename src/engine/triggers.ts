@@ -23,13 +23,12 @@
  */
 import type { EventStore } from "../ports/EventStore";
 import type { RandomnessSource } from "../ports/RandomnessSource";
+import { clamp01Raw as clamp01 } from "../domain/num";
 import {
   TRIGGER,
   type TriggerConstants,
   type EruptionKind,
 } from "./triggerConstants";
-
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
  * The live STRAIN on a houseguest ∈ [0,1] — where the season has them (sealed, live soul, 0041). High

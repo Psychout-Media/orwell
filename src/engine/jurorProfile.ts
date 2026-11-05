@@ -1,6 +1,7 @@
 import type { EntityId } from "../domain/ids";
 import { JURY_WEIGHTS, type JuryWeights } from "./juryConstants";
 import { mannerLeanOf, type EvictionManner, type JuryRel } from "./jury";
+import { fnv1a as fnv } from "../domain/num";
 
 /**
  * A2 (design §13, behind `ORWELL_JUROR_PROFILES`, default OFF) - PER-JUROR vote profiles. One GLOBAL weight vector is the defect the jury-conversion diagnosis found:
@@ -34,12 +35,6 @@ export const ARCHETYPES: ReadonlyArray<readonly [JurorArchetype, number, number,
   ["pragmatist",    0.90, 1.00, 0.80, 0.80, 1.30, 0.30],
 ];
 
-/** FNV-1a over a string -> unsigned 32-bit. */
-function fnv(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-  return h >>> 0;
-}
 
 /** The juror's static profile: archetype from the id hash (uniform over the five), no rng. */
 export function jurorProfile(juror: EntityId, salt: string | number = 0): JurorProfile {

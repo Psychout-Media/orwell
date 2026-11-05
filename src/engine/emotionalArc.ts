@@ -3,6 +3,7 @@ import type { InteractionType } from "./relationships";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { TEMPERATURE_CONSTANTS, emotionalModifier, temperatureRoll } from "../domain/temperatureConstants";
 import type { TemperatureConstants } from "../domain/temperatureConstants";
+import { clamp01 } from "../domain/num";
 
 /**
  * Character evolution & season arc (feature 0041) — the LIVE emotional layer.
@@ -82,7 +83,6 @@ export function offscreenEmotion(type: InteractionType, role: SceneRole = "initi
 
 // PERSIST-2/BE-101: guard NaN → 0 before it reaches `soul.emotionalState`/`soul.volatility` — a
 // persisted layer that must never degrade (I5). Finite inputs clamp exactly as before.
-const clamp01 = (v: number): number => (Number.isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
 
 /**
  * 0124 — the DEEPER-evolution tunables (all magnitudes for the default-ON `ORWELL_SOUL_DEPTH` layer (`=0` opts out) live here).

@@ -18,8 +18,8 @@
 import type { Archetype } from "./characterFactory";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { NOTORIETY } from "./notorietyConstants";
+import { clamp } from "../domain/num";
 
-const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 const signed = (x: number): number => clamp(x, -1, 1);
 
 /**

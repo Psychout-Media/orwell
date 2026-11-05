@@ -17,6 +17,7 @@
  */
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { VoiceProfile } from "../domain/voiceProfile";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 export type { VoiceProfile } from "../domain/voiceProfile";
 
@@ -160,7 +161,6 @@ export function voiceFingerprint(voice: VoiceProfile): string {
   return `talks in a ${voice.register}, ${voice.rhythm}, ${voice.directness} voice — ${voice.energy}, ${voice.humor} humor; under pressure ${voice.stressTell}`;
 }
 
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const mean = (xs: readonly number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0.5);
 
 /**
