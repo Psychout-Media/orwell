@@ -808,8 +808,6 @@ export interface SeasonCtx {
   moodTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default ON; `=0` opts out). Absent ⇒ byte-identical. */
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
-  /** B48 (ORWELL_CREDIBILITY_MEMORY): how much LESS `holder` believes `subject` for the lies they caught them in (`lied-to-me` claims; + = act against the subject, a believed `assured-me` pulls back a little). Bounded, deterministic. Absent => 0, byte-identical. */
-  credibilityTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
   pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): does `holder` hold a casual assurance toward `target` that they decided to KEEP? Absent => no protection (byte-identical). */
@@ -1371,16 +1369,6 @@ function crownCompetition(s: LiveSeasonState): BeatEvent {
 }
 
 /**
- * B48 - the additive bias on an NPC Houseguest's-Choice holder's sixth-player pick: the memory/belief/owed-deal read (`hcMemoryFor`, B7 M4b) MINUS the credibility tilt against the candidate
- * (`credibilityTiltFor`: a houseguest who lied to the holder, and was caught, is not the one they pick). Both absent => no bias at all (byte-identical); either alone is just that read.
- */
-export function hcPickBias(
-  hcMemoryFor: SeasonCtx["hcMemoryFor"], credibilityTiltFor: SeasonCtx["credibilityTiltFor"], holder: EntityId,
-): ((candidate: EntityId) => number) | undefined {
-  return hcMemoryFor || credibilityTiltFor ? (c) => (hcMemoryFor?.(c, holder) ?? 0) - (credibilityTiltFor?.(c, holder) ?? 0) : undefined;
-}
-
-/**
  * Stage A of the veto beat (E35): the chip draw is a WITNESSED ceremony of its own — the player
  * experiences who plays and who held Houseguest's Choice, before any winner exists. Stores the
  * drawn comp + the field; the competition itself resolves on a later advance (`resolveVetoComp`),
@@ -1394,7 +1382,7 @@ function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
   s.vetoComp = def.id;
   const draw = vetoParticipants(weekState(s, ctx), rng, {
     houseguestsChoiceChip: true,
-    choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcPickBias(ctx.hcMemoryFor, ctx.credibilityTiltFor, holder)),
+    choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, ctx.hcMemoryFor ? (c) => ctx.hcMemoryFor!(c, holder) : undefined),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
   s.vetoField = draw.participants;
@@ -1790,9 +1778,7 @@ export function voteChoice(
     // B29: this voter's exploit tilt toward a visibly rattled `n` (decaying; absent provider => 0 => byte-identical).
     (ctx.moodTiltFor?.(n, voter) ?? 0) +
     // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
-    (ctx.beliefTiltFor?.(n, voter) ?? 0) +
-    // B48: this voter's CREDIBILITY memory of `n` — a houseguest who lied to them (and was caught) is easier to send home. Absent provider ⇒ 0 ⇒ byte-identical.
-    (ctx.credibilityTiltFor?.(n, voter) ?? 0) -
+    (ctx.beliefTiltFor?.(n, voter) ?? 0) -
     // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
     (ctx.assuranceVoteFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
@@ -2767,7 +2753,6 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
-        ...(ctx.credibilityTiltFor ? { credibilityPush: (t: EntityId) => ctx.credibilityTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.dealNomPushFor ? { dealPush: (t: EntityId) => ctx.dealNomPushFor!(t, s.hoh!) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
@@ -2829,8 +2814,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         : ctx.rel.chooseVetoSave(
           s.vetoHolder!, nominees,
           // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor || ctx.credibilityTiltFor
-            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0) - (ctx.credibilityTiltFor?.(n, s.vetoHolder!) ?? 0)
+          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
+            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
             : undefined,
         );
       if (!saved) {
@@ -3000,7 +2985,6 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
         ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
-    ...(ctx.credibilityTiltFor ? { credibilityPush: (t: EntityId) => ctx.credibilityTiltFor!(t, s.hoh!) } : {}),
   });
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   ctx.assuranceNominated?.(s.hoh!, replacement); // B4 review fix: naming an assured houseguest the REPLACEMENT breaks the HOH's assurance to them too

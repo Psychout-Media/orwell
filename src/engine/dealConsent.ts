@@ -28,8 +28,6 @@ export interface DealConsentInputs {
   direction?: "offer" | "ask";
   /** B31 (ORWELL_MOOD_DEAL): a signed shift from the NPC's visible mood (tells). Absent/0 => byte-identical. */
   mood?: number;
-  /** B48 (ORWELL_CREDIBILITY_MEMORY): the NPC's credibility tilt AGAINST the player (>= 0 only: lies the NPC caught the player in). A bounded drag on willingness; named `distrust` on a refusal. Absent/0 => byte-identical. */
-  credibility?: number;
 }
 
 export interface DealConsentDecision { accept: boolean; reason?: DealRefusalReason }
@@ -41,7 +39,7 @@ const clamp01 = (x: number): number => Math.max(0, Math.min(1, num(x)));
 function drags(i: DealConsentInputs): Record<"distrust" | "threat" | "targeted" | "grudge", number> {
   const { weight: w, reference: r } = DEAL_CONSENT;
   return {
-    distrust: w.trust * Math.max(0, r.trust - clamp01(i.trust)) + w.affinity * Math.max(0, r.affinity - clamp01(i.affinity)) + w.credibility * Math.max(0, num(i.credibility ?? 0)),
+    distrust: w.trust * Math.max(0, r.trust - clamp01(i.trust)) + w.affinity * Math.max(0, r.affinity - clamp01(i.affinity)),
     threat: w.threat * Math.max(0, clamp01(i.threat) - r.threat),
     targeted: w.targetsMe * Math.max(0, num(i.targetsMe)),
     grudge: w.grudge * Math.max(0, num(i.grudge)),
@@ -53,7 +51,7 @@ export function dealWillingness(i: DealConsentInputs): number {
   const { weight: w, reference: r } = DEAL_CONSENT;
   const favor = Math.min(DEAL_CONSENT.favorCeiling, w.favor * Math.max(0, num(i.favor)));
   return w.trust * (clamp01(i.trust) - r.trust) + w.affinity * (clamp01(i.affinity) - r.affinity) - w.threat * (clamp01(i.threat) - r.threat)
-    - w.grudge * Math.max(0, num(i.grudge)) - w.targetsMe * Math.max(0, num(i.targetsMe)) - w.credibility * Math.max(0, num(i.credibility ?? 0)) + favor + num(i.mood ?? 0);
+    - w.grudge * Math.max(0, num(i.grudge)) - w.targetsMe * Math.max(0, num(i.targetsMe)) + favor + num(i.mood ?? 0);
 }
 
 /**
