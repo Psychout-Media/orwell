@@ -1026,6 +1026,16 @@ export class GameSessionAdapter implements GameSession {
   private campaignsEnabled = CAMPAIGNS_ENABLED_DEFAULT;
   /** B5 / #2017 - vote counting: an evict campaign forms only while the actor believes the count is IN DOUBT (`voteEstimate.ts`). OFF unless exactly `ORWELL_VOTE_COUNT=1`; never-flipped. OFF => no gate => byte-identical. */
   private voteCountEnabled = process.env.ORWELL_VOTE_COUNT === "1";
+  /** A22 - NPCs may APPROACH the player during the Day-1 social morning AFTER the toast (never during the entrances or the toast). OFF unless exactly `ORWELL_MORNING_APPROACH=1`; never-flipped. OFF => the approach gate is `started` only, byte-identical. */
+  private morningApproachEnabled = process.env.ORWELL_MORNING_APPROACH === "1";
+  setMorningApproachEnabled(on: boolean): void { this.morningApproachEnabled = on; }
+  /** A22 - the premiere is fully over (entrances done or never staged, the champagne toast released): the Day-1 social morning, where an NPC's own wants may bring them to the player. */
+  private premiereSocialOpen(): boolean {
+    const live = this.live;
+    if (!live) return false;
+    const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
+    return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
+  }
   /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
   private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
   private copresenceTold = new ToldLedger();
@@ -9767,6 +9777,7 @@ export class GameSessionAdapter implements GameSession {
         return this.house!.npcs.map((x) => x.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       };
       const started = firstCeremonyBeatResolved(live);
+      const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         hoursUntilEvent: () => {
@@ -9785,12 +9796,12 @@ export class GameSessionAdapter implements GameSession {
         approach: (r) => {
           if (this.desireClockEnabled) {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
-            const hit = started ? this.desireApproach(awakeNpcs()) : null;
+            const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc);
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
-          if (!started || r.next() >= HANGOUT_APPROACH_P) return null;
+          if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
           const top = rankApproaches(PLAYER, ids, this.rel, r)[0];
