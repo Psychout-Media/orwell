@@ -15,6 +15,8 @@
 > 0.9-vs-0.5 favorite to a measured **~66%**. The spec + the calibration gate are re-centred on that
 > reality: the win-rate band is **0.60–0.80** (floor widened from 0.65 for headroom), the **≥10% upset**
 > and **no-player-protection** invariants unchanged. Retune the number, not the shape — this and 0006 move together.
+>
+> **Guard for the outcome-moving values (S15, Ryne 2026-11-05):** two retuned constants move outcomes without a band of their own here: the rest/sleep penalty (**0.20**, #1419) and `COMP_WON_IMPACT.threat` (**0.3**, pinned by `tests/unit/compWonImpactPin.test.ts`). The real guard for both is the weekly PO balance gate (`calibration-nightly`, bands in `tests/calibration/poTargetBands.ts`); a deliberate retune updates the pin and re-runs that gate.
 
 ## 1. Summary
 

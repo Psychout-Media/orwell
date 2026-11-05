@@ -18,8 +18,9 @@ Feature: Temperature & emotional-modifier constants — the sim's swing, calibra
   Scenario: Temperature is bounded and never breaks a hard rule
     When temperature is rolled for any moment
     Then the outcome stays within bounds
-    And no illegal outcome is produced
-    And no Vault content is exposed
+    # The legality rules themselves are proven in 0005 and 0006; the Vault Wall is proven in 0001.
+    And the winner is an eligible competitor
+    And the result carries only ids and numbers
 
   Scenario: The emotional modifier mean-reverts after a spike
     Given a houseguest whose emotional modifier spiked from an adverse moment
