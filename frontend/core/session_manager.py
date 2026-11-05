@@ -216,6 +216,8 @@ class SessionManager:
             message: ChatMessage to add
         """
         session = self.get_session(session_id)
+        if session.find_user_by_client_msg_id(message) is not None:
+            return  # a same-clientMsgId retry adopts the recorded line (see Session.add_message)
         session.history.append(message)
         session.message_count = len(session.history)
 

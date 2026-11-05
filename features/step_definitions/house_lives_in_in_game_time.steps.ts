@@ -132,6 +132,6 @@ Then("the reads return only the clock, never any Vault content", function (this:
   // P0 clock grounding: `clockLabel` is the ONE deliberate addition - the engine's exact in-game clock as plain text for the narrator prompt ("9:40am, Day 1"). Pinned to that exact shape below so nothing else can ride in it.
   assert.deepEqual(clockKeys(sb.session.getGameState()), ["asleep", "clockLabel", "daySchedule", "timeOfDay"], "getGameState carries no clock key beyond the allowed clock fields");
   const label = (sb.session.getGameState() as { clockLabel?: string }).clockLabel;
-  assert.match(String(label), /^\d{1,2}:\d{2}(am|pm), Day \d+$/, "clockLabel is exactly an in-game time and a day number - no other content");
+  assert.match(String(label), /^\d{1,2}:\d{2}(am|pm)$/, "clockLabel is exactly an in-game time of day - no other content (no day number: A69)");
   assert.ok(!JSON.stringify(sb.session.gameStatus()).includes("VAULT_117_SENTINEL"), "no Vault content in the public status");
 });

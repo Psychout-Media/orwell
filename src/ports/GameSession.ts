@@ -402,6 +402,8 @@ export interface GameStateView {
    * not applied. Restart-safe (persisted in the snapshot, co-versioned with the save, 0007/0030).
    */
   beatSeq: number;
+  /** N-17 vs 0092 - present only after the engine has surfaced something to the player off the tool path (a confidant slip / gossip chain): a counter and the source's PUBLIC id, never content. The FE treats a change as "an engine delivery happened". */
+  surfacedToPlayer?: { n: number; sourceId: EntityId };
   week: number;
   phase: string;
   /**

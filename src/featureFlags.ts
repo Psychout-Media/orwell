@@ -114,6 +114,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'strict' },
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'strict' },
+  // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
+  { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'strict' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'strict' },
   // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). OFF unless exactly '1'; never-flipped until the PO bands are measured.
