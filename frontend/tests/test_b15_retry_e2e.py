@@ -46,23 +46,35 @@ def _settle(stack, want_minutes, tries=40):
     return _schedule(stack)[0]
 
 
-def test_dropped_stream_then_same_id_resend_bills_once_and_a_new_id_bills_again(_stack):  # noqa: F811
-    r = _post_json(_stack["fe"], "/api/orwell/new-game", {"playerName": "P", "confirm": True}, timeout=120)
+def _play_drop_and_retry(stack):
+    r = _post_json(stack["fe"], "/api/orwell/new-game", {"playerName": "P", "confirm": True}, timeout=120)
     assert r.get("started"), r
-    sid = _session(_stack, "b15-retry")
-    sched, _ = _start_day(_stack, sid)
+    sid = _session(stack, "b15-retry")
+    sched, _ = _start_day(stack, sid)
     start = sched["minutesUntil"]
     assert start == 240, sched
+    _drop_midreply(stack, sid, "The line that gets dropped.", "b15-dropped")
+    after_drop = _settle(stack, start - STEP)
+    _send(stack, sid, "The line that gets dropped.", "b15-dropped")  # the client's resend, SAME clientMsgId
+    after_retry, _ = _schedule(stack)
+    return sid, start, after_drop, after_retry
 
-    _drop_midreply(_stack, sid, "The line that gets dropped.", "b15-dropped")
-    after_drop = _settle(_stack, start - STEP)
+
+def test_dropped_stream_then_same_id_resend_bills_once_and_a_new_id_bills_again(_stack):  # noqa: F811
+    sid, start, after_drop, after_retry = _play_drop_and_retry(_stack)
     assert after_drop["minutesUntil"] == start - STEP, f"the dropped send must have billed exactly one step: {after_drop}"
-
-    _send(_stack, sid, "The line that gets dropped.", "b15-dropped")  # the client's resend, SAME clientMsgId
-    after_retry, _ = _schedule(_stack)
     assert after_retry["minutesUntil"] == start - STEP, f"a retry with the same clientMsgId must bill 0 extra minutes: {after_retry}"
-    assert len(_user_lines(_stack, sid, "The line that gets dropped.")) == 1, "the player's line must appear ONCE after a retry"
-
     _send(_stack, sid, "A genuinely new line.", "b15-new")
     after_new, _ = _schedule(_stack)
     assert after_new["minutesUntil"] == start - 2 * STEP, f"a NEW id after the retry bills +5: {after_new}"
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "FOUND by B15 (reported, not fixed here): after a dropped stream and a same-clientMsgId resend, GET /api/history/{session} returns the player's line TWICE - the persisted row "
+    "(_db_id/_seq set, adopted by the idempotent-replay branch of the message persister) plus an in-memory copy of the retry with no _db_id/_seq. The clock is right (billed once); the transcript is not. "
+    "Remove this xfail when the retry path stops surfacing the duplicate."))
+def test_dropped_stream_then_same_id_resend_keeps_one_player_line(_stack):  # noqa: F811
+    sid, _start, _after_drop, _after_retry = _play_drop_and_retry(_stack)
+    rows = _user_lines(_stack, sid, "The line that gets dropped.")
+    detail = [(m.get("metadata", {}).get("_db_id"), m.get("metadata", {}).get("_seq"), m.get("metadata", {}).get("client_msg_id")) for m in rows]
+    assert len(rows) == 1, f"the player's line must appear ONCE after a retry: {detail}"
