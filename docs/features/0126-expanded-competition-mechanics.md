@@ -1,5 +1,7 @@
 # 0126 — Expanded competition mechanics (a repeat-free season of distinct comps)
 
+> **Current default (AMEND 2026-11-04):** `ORWELL_COMP_MECHANICS_PLUS` is now **default ON** in the engine (`COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn(...)`) and in `deploy/orwell-env-defaults.sh`; `=0` turns it off. The "default-off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** Built. **Expands 0042 (and completes 0125).** 0125's theme layer reskins the *same* ~12
 > mechanics, so a season still repeats each **mechanic** ~2× (a BB fan clocks "that's the wall comp
 > again, reskinned"). 0126 grows the mechanic pool from **12 → 30** (15 HOH + 15 veto) and widens the

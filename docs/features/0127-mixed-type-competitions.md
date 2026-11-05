@@ -1,5 +1,7 @@
 # 0127 — Mixed-type competitions (hybrid comps that reward the well-rounded)
 
+> **Current default (AMEND 2026-11-04):** `ORWELL_COMP_MIXED` is now **default ON** in the engine (`COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn(...)`) and in `deploy/orwell-env-defaults.sh`; `=0` turns it off. The "default-off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** Built. **Expands 0042 (and completes 0125/0126).** Every competition resolved on a SINGLE
 > stat — a puzzle was pure Mental, an endurance pure Physical. But real _BB_ comps are usually hybrids:
 > "crawl through mud, then solve a puzzle," a social read that also rewards a sharp memory. 0127 turns the

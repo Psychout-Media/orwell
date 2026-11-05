@@ -1,5 +1,7 @@
 # 0128 — Three-part Final HOH (the real _Big Brother_ finale competition)
 
+> **Current default (AMEND 2026-11-04):** `ORWELL_FINAL_HOH_THREE_PART` is now **default ON** in the engine (`FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn(...)`) and in `deploy/orwell-env-defaults.sh`; `=0` turns it off. The "default-off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** ✅ **Built 2026-11-04** behind `ORWELL_FINAL_HOH_THREE_PART` (default OFF; issue #2045) — authored during the 0045 PO review (2026-07-13). See the README row for the built shape and the calibration result. **Expands 0045** (endgame
 > structure). Today Final 3 crowns the final HOH with a **single** competition; the real show runs a **3-part**
 > tournament. This spec replaces that single comp with the canonical three parts, behind a default-off,
