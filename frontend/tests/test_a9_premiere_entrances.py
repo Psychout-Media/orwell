@@ -67,7 +67,7 @@ def test_a_production_cue_is_never_a_player_cue():
 def test_nudge_reuses_the_existing_ladder_not_a_second_mechanism():
     src = (Path(al.__file__)).read_text()
     # the entrance hook only rewrites the existing _is_lull/_stale inputs of the one _want_advance expression
-    assert src.count("_want_advance = (") == 1
+    assert src.count("_want_advance = _gates.want_advance(") == 1  # A60: still exactly one expression (now a call)
     assert "_entrance_pacing(" in src and "premiere_entrance_active(owner)" in src
 
 
