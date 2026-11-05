@@ -122,10 +122,8 @@ XFAIL = {
     # Liquid-Glass legibility batch — REMOVE it when the shared glass/token contrast fix lands and the
     # whole surface ratchets clean.
     "#1418-finale-contrast": "contrast:orwell-finale:",
-    # #1916: the reasoning body's pinned dark ink (#16191f) read 3.48:1 over a teal backdrop in one
-    # local pass once the sweep began sampling a VISIBLE line (not the clipped midpoint). Tracked for
-    # investigation (light glass not behind the expanded body in some variant?) — drop with the fix.
-    "#1916-think-contrast": "contrast:page:div.thinking-content-inner",
+    # #1916-think-contrast REMOVED (A47, 2026-11-05): the engine-staged matrix (8 audit passes, game + endgame card staged) never fires it, and the reasoning body ("Here is my reasoning ...")
+    # measures 13.10-15.73:1 over its textured backdrop (INDETERMINATE band, far above AA 4.5). The one-off 3.48:1 (dark ink over teal) was not reproducible in any staged pass.
     # #1418 / S4-2: the finale body (#orwell-finale > .ow-body) is a scrollable region without keyboard
     # access (axe scrollable-region-focusable) — a KIT-level gap (the shared OrwellWindow `.ow-body`
     # scroll container is not tabbable) that only surfaces now that the finale renders on a finished
