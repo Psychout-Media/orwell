@@ -927,9 +927,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
 
   // 0091 — TRIGGER ERUPTIONS: AFTER the society/confessional folds, a plausibly-strained, co-present
   // houseguest whose volatile sealed trigger meets a fresh SPARK this tick (a conflict/betrayal scene that
-  // just named them) can DETONATE into a Vault-safe PUBLIC house event the player witnesses. STRICTLY
-  // OPT-IN (default-OFF `ORWELL_TRIGGERS`): when off — the default, and the state the seeded juryReach/
-  // gradient/UAT sims run in — the call is skipped entirely (no precipitant map built, no draw, no event,
+  // just named them) can DETONATE into a Vault-safe PUBLIC house event the player witnesses. Default-ON
+  // (`ORWELL_TRIGGERS=0` turns it off; AMEND 3a #7 - this comment used to say default-OFF): when off — and in the seeded juryReach/
+  // gradient/UAT sims, which run it off — the call is skipped entirely (no precipitant map built, no draw, no event,
   // no fold), so this tick is byte-identical to the pre-feature build and the seeded competition/vote spine
   // is untouched. When on, the fire check runs on a DEDICATED rng INSIDE the session (never this shared
   // stream above) — the load-bearing calibration-neutrality guarantee. The precipitant is THIS tick's fresh
