@@ -142,6 +142,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
   // B50: accusing a pre-show tie has consequences (a miss sours a friend; a hit draws reactions). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ACCUSE_COST', key: 'accuseCost', parser: 'defaultOn' },
+  // B48: credibility memory - how far an observer believes a speaker falls with each lie they caught. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

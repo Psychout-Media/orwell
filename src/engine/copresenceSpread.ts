@@ -34,6 +34,11 @@ export interface SpreadDeps {
   /** Override a holder's cunning (0..1). Absent => the style table. Used to prove the lie path; the live wiring leaves it unset. */
   cunning?: (id: EntityId) => number;
   /**
+   * B48 (ORWELL_CREDIBILITY): how far `listener` believes `holder`'s word, 0..1 (see `credibility.ts`; the caller derives it from the listener's own caught-lie evidence), given `repeatsToListener` = the
+   * lies this holder already told this listener. When present it REPLACES the B34 `LIE_COST` stand-in for a lie's arriving confidence; absent => the stand-in (byte-identical to B34).
+   */
+  credibilityOf?: (holder: EntityId, listener: EntityId, repeatsToListener: number) => number;
+  /**
    * B24/B36 - an OBSERVER of each one-hop receipt (the co-presence analogue of the graph path's `onReceipt`): told the listener, the (believed) subject, the nature and the transmitted
    * confidence, so the caller can record a `heard-rumor` belief claim. Read-only: it fires AFTER the transmit, draws no randomness, and moves no edge. Only fired for a fact with a subject.
    */
@@ -102,7 +107,8 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
     // B34: no hard cap - a repeat liar's lies simply land weaker (LIE_COST); only a technical safety valve demotes a lie to a spin.
     const priorLies = d.told.count(holder, "lied");
     const spin = rawSpin === "lie" && priorLies >= LIE_COST.safetyValve ? "spun" : rawSpin;
-    const lieCredibility = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
+    const standIn = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
+    const lieCredibility = d.credibilityOf ? d.credibilityOf(holder, listener, d.told.countTo(holder, listener, "lied")) : standIn;
     const told: Told = decision === "share" ? (spin === "lie" ? "lied" : "shared") : decision === "slip" ? "slipped" : "held";
     d.told.record(holder, h.factId, listener, told);
     let transmitted = false;

@@ -230,6 +230,7 @@ import { SeededRandom } from "../random/SeededRandom";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
+import { credibility, type CaughtLie } from "../../engine/credibility";
 import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
@@ -1047,6 +1048,23 @@ export class GameSessionAdapter implements GameSession {
   setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
   copresenceEnabledNow(): boolean { return this.copresenceEnabled; }
   copresenceToldLedger(): ToldLedger { return this.copresenceTold; }
+  /** B48 - credibility memory (`credibility.ts`): how far houseguests believe a speaker's word, from the lies THEY caught. ON unless `ORWELL_CREDIBILITY=0`. */
+  private credibilityEnabled = flagDefaultOn("ORWELL_CREDIBILITY");
+  setCredibilityEnabled(on: boolean): void { this.credibilityEnabled = on; }
+  credibilityEnabledNow(): boolean { return this.credibilityEnabled && this.npcBeliefsEnabled; }
+  /**
+   * B48 - how far `observer` believes `speaker` (0..1; 1 with no caught lies). Reads ONLY the observer's own `lied-to-me` claims about the speaker (a lie the observer caught: a broken assurance, a
+   * refuted rumor) - never the Vault, never another holder's claims. `repeatsToListener` = lies the speaker already told this ear. Pure read: no rng, no writes.
+   */
+  credibilityOf(observer: EntityId, speaker: EntityId, repeatsToListener = 0): number {
+    const week = this.live?.week ?? 0;
+    const evidence: CaughtLie[] = [];
+    for (const c of claimsOf(this.live?.beliefs, observer)) {
+      if (c.kind !== "lied-to-me" || c.subject !== speaker || c.refuted || !c.value) continue;
+      evidence.push({ speaker, week: c.week, severity: Math.max(0, Math.min(1, c.confidence)) });
+    }
+    return credibility(evidence, repeatsToListener, week);
+  }
   setVoteCountEnabled(on: boolean): void { this.voteCountEnabled = on; }
   /**
    * URGENT clock-per-message (Coordinator 2026-11-05): the clock bills ONE message-step per PLAYER MESSAGE, not per committed engine mutation. The front-end announces each player message once with
