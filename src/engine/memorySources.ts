@@ -9,24 +9,24 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "hcMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor" | "credibilityTiltFor" | "credibilityApproachFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "hcMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
 
 export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "approaches";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
-  evictionVote: ["dealsOf", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor", "credibilityTiltFor"],
+  evictionVote: ["dealsOf", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
-  hohNominations: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor", "credibilityTiltFor"],
+  hohNominations: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor"],
   // The NPC HOH's replacement pick (`replacementPick(...)`).
-  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "credibilityTiltFor"],
+  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
-  vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor", "credibilityTiltFor"],
+  vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor"],
   // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.
-  houseguestsChoice: ["hcMemoryFor", "credibilityTiltFor"],
+  houseguestsChoice: ["hcMemoryFor"],
   // Who approaches the player (`rankApproaches` in conversation.ts, called by the adapter's `socialInitiatives`): edges + (B7 M1b, ORWELL_APPROACH_MEMORY) one memory/owed bias passed as the `memoryBias` hook,
   // NOT a SeasonCtx provider - held by tests/unit/approachMemory.test.ts instead of the liveSeason scan.
-  approaches: ["approachMemoryFor", "moodApproachFor", "credibilityApproachFor"],
+  approaches: ["approachMemoryFor", "moodApproachFor"],
 };
 
 /** Providers deliberately read by NO strategic decision yet (a write-only / not-yet-wired source). Empty today; an entry needs a reason. */
@@ -45,7 +45,7 @@ export const OTHER_DECISION_READS: Readonly<Record<OtherDecision, readonly strin
   jury: ["edgeAsJuryRel", "gameRespectTerm", "appealPerf", "jurorProfile"], // A62: the recorded manner (and a juror's possibly mistaken blame) now arrives inside edgeAsJuryRel, no separate mannerFor read
   final3Eviction: ["byThreat"],
   secretVetoReplacement: ["nominationScore"],
-  dealConsent: ["memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor", "credibilityTiltFor"],
+  dealConsent: ["memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor"],
   movement: ["bondStrength", "applyWantToPulls"],
 };
 
@@ -54,6 +54,6 @@ export const OTHER_DECISION_GAPS: Readonly<Record<OtherDecision, string>> = {
   jury: "reads the edge, the recorded manner (the grudge book), the game-respect resume, the juror profile and the Q&A appeal; not the NPC memory ledger, beliefs, mood or tells (the jury has its own grievance model)",
   final3Eviction: "threat only (byThreat); no memory, belief, bond, mood or drive - the weakest decision in the table",
   secretVetoReplacement: "the plain nomination score on edges and mood; no campaign, memory, belief, deal, mood-tilt or drive push (the main nomination read has them all)",
-  dealConsent: "edges + grudge/favor + the targets-me belief + (B31) mood + (B48) caught lies; not an NPC's own drive or an open campaign against the proposer",
+  dealConsent: "edges + grudge/favor + the targets-me belief + (B31) mood; not an NPC's own drive or an open campaign against the proposer",
   movement: "edges (bond/threat) + the want; not memory, belief, mood or the NPC's drive",
 };

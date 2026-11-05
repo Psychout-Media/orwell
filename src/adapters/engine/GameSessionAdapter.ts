@@ -228,7 +228,6 @@ import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
-import { credibilityTilt } from "../../engine/credibility";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -1266,23 +1265,6 @@ export class GameSessionAdapter implements GameSession {
         recordClaim(store, { id: `${listener}|heard-rumor|${subject}|told:${h.teller}|${live.week}`, holder: listener, kind: "heard-rumor", subject, value: true, origin: "told", nature: "betrayal", source: h.teller, confidence, week: live.week });
       }
     }
-  }
-  /**
-   * B48 / #2017 14.5(3) READ side - CREDIBILITY MEMORY. The decisions read the belief store's `lied-to-me` / `assured-me` claims: each caught lie lowers how much an NPC holder believes the liar (the player
-   * OR an NPC), scaled by the holder's trust in them (the sting) and their disposition (a grudge-holder forgets slower), stacked with diminishing returns and bounded (`src/engine/credibility.ts`). A signed
-   * tilt, + = act against the subject. Pure read: no rng, no write, no edge fold, engine-only (never voiced, never projected). Needs the belief layer. OFF unless exactly `ORWELL_CREDIBILITY_MEMORY=1`;
-   * never-flipped. OFF => no ctx provider, no deal-consent term, no approach term => byte-identical.
-   */
-  private credibilityMemoryEnabled = process.env.ORWELL_CREDIBILITY_MEMORY === "1";
-  setCredibilityMemoryEnabled(on: boolean): void { this.credibilityMemoryEnabled = on; }
-  credibilityTiltFor(subject: EntityId, holder: EntityId): number {
-    if (!this.credibilityMemoryEnabled || !this.npcBeliefsEnabled || !this.live?.beliefs || holder === PLAYER || subject === holder) return 0;
-    return credibilityTilt(this.live.beliefs, holder, subject, this.live.week, { trust: this.rel.edge(holder, subject).trust, decayScale: this.memoryDecayScale(holder) });
-  }
-  /** B48 - how much more (+) or less (-) `npc` is drawn to seek the player out given the lies they caught the player in (never positive: a believed assurance does not draw them in). */
-  credibilityApproachFor(npc: EntityId): number {
-    const t = this.credibilityTiltFor(PLAYER, npc);
-    return t > 0 ? -t : 0;
   }
   private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
     if (!this.memoryPromisesEnabled) return;
@@ -5354,7 +5336,7 @@ export class GameSessionAdapter implements GameSession {
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
     const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined,
-      this.approachMemoryEnabled || this.moodApproachEnabled || this.credibilityMemoryEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) + this.credibilityApproachFor(n) : undefined);
+      this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined);
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -7848,7 +7830,6 @@ export class GameSessionAdapter implements GameSession {
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId) => this.assuranceKeptAtVote(v, sp), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
-      ...(this.credibilityMemoryEnabled && this.npcBeliefsEnabled ? { credibilityTiltFor: (subject: EntityId, holder: EntityId) => this.credibilityTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
@@ -10408,7 +10389,6 @@ export class GameSessionAdapter implements GameSession {
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
-      ...(this.credibilityMemoryEnabled ? { credibility: Math.max(0, this.credibilityTiltFor(PLAYER, npcId)) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
