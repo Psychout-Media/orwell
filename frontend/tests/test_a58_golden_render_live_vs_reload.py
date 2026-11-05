@@ -35,6 +35,10 @@ CASES = [
     ("paragraphs", [{"deltas": ["First paragraph.\n\n", "Second paragraph.\n\n", "Third."], "delay": 0}], "Second paragraph."),
     ("ooc-producer-aside", [{"deltas": ["((Production: ", "the house ", "is settling ", "in.))"], "delay": 0.4}], "settling in"),
     ("ooc-complete-first-delta", [{"deltas": ["((Production: the house is settling in.)) "], "delay": 1.5}], "settling in"),
+    # A72 - the clock's three narrated surfaces: a production cut-in mid-reply, a hang-out stop line (the model calls hangOut, then voices where it stopped), the premiere champagne toast.
+    ("clock-production-cutin", [{"deltas": ["You trade a few words by the sink. ", "((Production: it is noon - the Head of Household competition is about to begin.)) ", "Everyone drifts toward the backyard."], "delay": 0.2}], "about to begin"),
+    ("clock-hangout-stop", [{"tool_calls": [{"name": "hangOut", "args": {}}]}, {"deltas": ["You lose track of the hours on the couch, until a houseguest sits down beside you and says they need a word."], "delay": 0}], "need a word"),
+    ("clock-premiere-toast", [{"deltas": ["Glasses clink as the whole house gathers for the toast.\n\n", "*To the first night,* someone says, and the room cheers."], "delay": 0.2}], "first night"),
     ("tool-beat-turn", [{"tool_calls": [{"name": "whereabouts", "args": {}}]}, {"deltas": ["You glance around the room."], "delay": 0}], "glance around"),
 ]
 
