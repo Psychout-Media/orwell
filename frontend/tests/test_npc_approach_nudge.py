@@ -42,8 +42,10 @@ def test_approach_nudge_is_wired_into_the_lingering_window():
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "src", "agent_loop.py"), encoding="utf-8").read()
     # Fires only in the lingering window: a lull that is NOT progressed and NOT yet stale.
-    assert "_want_approach = (_is_lull and (not _progressed) and (not _stale)" in js
-    assert "_turn_approach_nudges < _MAX_APPROACH_NUDGES_PER_TURN" in js
+    gates = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_gates.py"), encoding="utf-8").read()  # A60: the gate lives in agent_gates.py now
+    assert "is_lull and (not progressed) and (not stale)" in gates
+    assert "turn_approach_nudges < max_approach_nudges" in gates
+    assert "_want_approach = _gates.want_approach(" in js
     # Folded into the same fetch gate, and only on an advance-eligible (social) phase — but NOT the
     # staged finale (#670 added "finale" to _ADVANCE_PHASES for the backstop only; the finale is a
     # one-beat-per-turn reveal, not a lingering window, so an approach there is excluded).
@@ -64,12 +66,13 @@ def test_approach_nudge_honors_one_narration_per_turn():
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "src", "agent_loop.py"), encoding="utf-8").read()
     # The gate excludes a turn that already showed a scene (mirrors the advance nudge's guard).
-    assert "and (not _emitted_visible)" in js, \
+    gates = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_gates.py"), encoding="utf-8").read()  # A60
+    assert "and (not emitted_visible)" in gates, \
         "_want_approach must suppress when a scene was already shown this turn"
     # It is folded into the SAME _want_approach gate (not a separate, bypassable check).
-    gate_start = js.index("_want_approach = (_is_lull")
-    gate_block = js[gate_start:gate_start + 300]
-    assert "(not _emitted_visible)" in gate_block, \
+    gate_start = gates.index("def want_approach(")
+    gate_block = gates[gate_start:gate_start + 400]
+    assert "(not emitted_visible)" in gate_block, \
         "the _emitted_visible guard must live inside the _want_approach gate"
 
 

@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from src.llm_core import stream_llm, stream_llm_with_fallback, _is_ollama_native_url
 from src.model_context import estimate_tokens
 from src.settings import get_setting
+from src import agent_gates as _gates  # A60: the nudge gates as pure functions (verbatim extraction)
 from src.prompt_security import untrusted_context_message
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
 from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
@@ -8085,21 +8086,19 @@ async def _stream_agent_loop_impl(
                     logger.info(
                         f"[orwell] L-F3 loop-break armed (streak={_LOOP_STREAK.get(_belt_key(owner), 0)}, "
                         f"framed={_fk}) round {round_num} user={owner}")
-                _want_advance = (_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN and (
-                    _previewed_uncommitted
-                    or _decision_undelivered
-                    or _want_drain_eviction
-                    or (_milestone_due and (not _progressed) and not _runway_holding)
-                    or (_loop_stalled and not _runway_holding)
-                    or ((not _progressed) and _is_lull and _stale and not _runway_holding)))
+                _want_advance = _gates.want_advance(
+                    turn_advance_nudges=_turn_advance_nudges, max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN, previewed_uncommitted=_previewed_uncommitted,
+                    decision_undelivered=_decision_undelivered, want_drain_eviction=_want_drain_eviction, milestone_due=_milestone_due, progressed=_progressed,
+                    runway_holding=_runway_holding, loop_stalled=_loop_stalled, is_lull=_is_lull, stale=_stale)
                 # PO ruling (Ryne 2026-11-04): "if you have a real talk and say 'let's move on' in the same
                 # message, the talk STILL COUNTS" - so a turn that ALSO advanced (the model called
                 # advanceGame/submitDecision) is banked like any other. NOT gated on `_progressed`: the
                 # constrained extraction returns {"withIds":[]} for a beat with no genuine houseguest
                 # engagement (comp players are not a scene), and `_bank_scene_consequences` is idempotent
                 # (`_recorded` / the per-turn nudge cap), so a model-recorded scene is never double-folded.
-                _want_record = ((not _recorded) and ((not _is_lull) or _lull_message_carries_talk(messages))
-                                and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN)
+                _want_record = _gates.want_record(
+                    recorded=_recorded, is_lull=_is_lull, lull_message_carries_talk=lambda: _lull_message_carries_talk(messages),
+                    turn_record_nudges=_turn_record_nudges, max_record_nudges=_MAX_RECORD_NUDGES_PER_TURN)
                 # 0039 deal back-fill: the turn narrated a struck deal but never called makeDeal. Gated
                 # on a cheap deal-language pre-filter over the WHOLE turn's narration (a deal struck in
                 # an early round of a turn that also advanced a ceremony still counts) and the per-turn
@@ -8163,10 +8162,9 @@ async def _stream_agent_loop_impl(
                 # corrective pathway. Gate on the player's message OR the narration (mirroring the NPC
                 # belt); the constrained `_auto_move_player` extraction — which already reads BOTH and
                 # returns room:null when the PLAYER did not move — stays the gatekeeper.
-                _want_move = ((not _moved)
-                              and _turn_move_nudges < _MAX_MOVE_NUDGES_PER_TURN
-                              and bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)
-                                       or _MOVE_SIGNAL_RE.search(_turn_narration_visible)))
+                _want_move = _gates.want_move(
+                    moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
+                    signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)), signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
                 # room but the model never called moveHouseguest, so the engine's open presence still has
                 # them in their seeded room and the whereabouts gadget snaps them back. Gated on a cheap
@@ -8174,9 +8172,9 @@ async def _stream_agent_loop_impl(
                 # per-turn cap. NOT gated on `_progressed`/`_is_lull` (a houseguest can drift off on any
                 # turn). The constrained extraction (moves:[] when none moved) is the real gatekeeper.
                 # Model-driven moveHouseguest always wins (`_npc_moved` short-circuits).
-                _want_npc_move = ((not _npc_moved)
-                                  and _turn_npc_move_nudges < _MAX_NPC_MOVE_NUDGES_PER_TURN
-                                  and bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
+                _want_npc_move = _gates.want_npc_move(
+                    npc_moved=_npc_moved, turn_npc_move_nudges=_turn_npc_move_nudges, max_npc_move_nudges=_MAX_NPC_MOVE_NUDGES_PER_TURN,
+                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
                 # NPC-approach nudge (0036/0049): the house lives between the player's beats — NPCs play
                 # THEIR game and come to the player, not only the other way around. With the "Wants a
                 # word" notification panel removed (owner ruling 2026-06-18 — that intent must never reach
@@ -8196,9 +8194,9 @@ async def _stream_agent_loop_impl(
                 # NPC who wants the player re-surfaces on the player's NEXT turn (socialInitiatives is
                 # re-read every finishing turn). Only re-prompt for an approach when nothing visible was
                 # shown yet — exactly where a single fresh "NPC drifts over" scene is what's wanted.
-                _want_approach = (_is_lull and (not _progressed) and (not _stale)
-                                  and (not _emitted_visible)
-                                  and _turn_approach_nudges < _MAX_APPROACH_NUDGES_PER_TURN)
+                _want_approach = _gates.want_approach(
+                    is_lull=_is_lull, progressed=_progressed, stale=_stale, emitted_visible=_emitted_visible,
+                    turn_approach_nudges=_turn_approach_nudges, max_approach_nudges=_MAX_APPROACH_NUDGES_PER_TURN)
                 # The re-approach can fire on ANY finishing live turn (it watches the post-season
                 # state, not a tool gap), so we always need the game state to know if the season is
                 # over — fetch it whenever any nudge MIGHT fire.

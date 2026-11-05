@@ -72,14 +72,17 @@ def test_nudge_only_seizes_a_lull_not_substantive_play():
     assert "_LULL_SHORT_CHARS" not in js  # the char-count lull heuristic was removed
     # the advance-nudge fires on a lull, OR a previewed-but-uncommitted outcome (#1), OR an
     # undelivered decision result (1b) — the latter two bypass the lull gate.
-    assert "_want_advance = (_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN and (" in js
-    assert "(not _progressed) and _is_lull and _stale" in js
+    gates = _read("src", "agent_gates.py")  # A60: the gate expressions live in agent_gates.py now (verbatim)
+    assert "turn_advance_nudges < max_advance_nudges and (" in gates
+    assert "(not progressed) and is_lull and stale" in gates
+    assert "_want_advance = _gates.want_advance(" in js
     assert "if _want_advance and _phase in _ADVANCE_PHASES" in js
     # …and only once the beat has gone STALE (owner ruling 2026-06-18): a lull alone is not enough,
     # so good engaging play and a just-started beat are never shoved.
     assert "_ADVANCE_GRACE_TURNS" in js
     assert "_TURNS_SINCE_PROGRESS" in js
-    assert "and _stale" in js
+    assert "and stale" in gates  # A60: the staleness clause lives in agent_gates.want_advance
+    assert "stale=_stale" in js
 
 
 def test_previewed_but_uncommitted_ceremony_is_a_hard_stall(self_check=None):
@@ -156,7 +159,8 @@ def test_consequence_loop_auto_records_engaged_scenes():
     assert "_oe.record_interaction" in js
     # gated on engagement (not a lull, OR a lull message that still carries a real talk - Ryne 2026-11-04 "the talk still counts") + a houseguest scene + nothing recorded;
     # deliberately NOT gated on `_progressed` any more (a talk plus a model advance in one turn is still banked - test_bank_scene_on_progressed_turn.py)
-    assert "(not _recorded) and ((not _is_lull) or _lull_message_carries_talk(messages))" in js
+    assert "(not recorded) and ((not is_lull) or lull_message_carries_talk())" in _read("src", "agent_gates.py")  # A60
+    assert "lull_message_carries_talk=lambda: _lull_message_carries_talk(messages)" in js
     assert "(not _progressed)\n                                and _turn_record_nudges" not in js
     assert "_scene_touched_houseguest(" in js
     assert "_want_record and _touched" in js
