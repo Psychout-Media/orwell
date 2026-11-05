@@ -131,6 +131,7 @@ describe("B36/B24 - the production runtime under ORWELL_GOSSIP_COPRESENCE writes
     expect(rumors.length, "co-presence scenes produced heard rumors").toBeGreaterThan(0);
     expect(rumors.every((c) => c.origin === "gossip" && c.confidence > 0 && c.confidence <= 1)).toBe(true);
     const { beliefs: _b, ...onRest } = on as LiveSeasonState & { beliefs?: unknown };
-    expect(JSON.stringify(onRest)).toBe(JSON.stringify(off));
+    const diff = Object.keys({ ...onRest, ...off }).filter((k) => JSON.stringify((onRest as Record<string, unknown>)[k]) !== JSON.stringify((off as unknown as Record<string, unknown>)[k]));
+    expect(diff, "top-level season-state keys that differ between beliefs ON and OFF").toEqual([]);
   }, 300_000);
 });
