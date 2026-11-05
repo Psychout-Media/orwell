@@ -8,7 +8,8 @@ import type { NominationStyle } from "./decisionConstants";
 export type GamePhilosophy = "shark" | "chaos-agent" | "loyal-soldier" | "protector" | "social-climber";
 export const PHILOSOPHIES: readonly GamePhilosophy[] = ["shark", "chaos-agent", "loyal-soldier", "protector", "social-climber"];
 
-/** Which nomination style a philosophy plays (the existing four styles; the table the default mapping must reproduce). */
+/** NOTE (review): `protector` and `loyal-soldier` both play the `loyalist` style - that keeps the byte-identical table, but the distinction is INERT until something else reads the philosophy (3 of the 12 archetypes - flirt, social-butterfly, peacemaker - default to `protector`).
+ * Which nomination style a philosophy plays (the existing four styles; the table the default mapping must reproduce). */
 export const STYLE_OF_PHILOSOPHY: Readonly<Record<GamePhilosophy, NominationStyle>> = {
   shark: "threat-hunter",
   "chaos-agent": "duo-breaker",

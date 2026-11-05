@@ -38,6 +38,16 @@ describe("the seeded draw", () => {
       expect(seen.size, `${arch}: every other philosophy occurs`).toBe(PHILOSOPHIES.length - 1);
     }
   });
+  it("two archetypes drawn with the SAME seed are independent (they do not all keep, or all deviate, together)", () => {
+    let agree = 0, both = 0;
+    for (let s = 1; s <= 3000; s++) {
+      const a = drawPhilosophy("mastermind", s) === defaultPhilosophyOf("mastermind"), b = drawPhilosophy("comp-beast", s) === defaultPhilosophyOf("comp-beast");
+      if (a === b) agree++; if (!a && !b) both++;
+    }
+    // independent keep-default draws agree ~ p^2 + (1-p)^2 = 0.625; fully correlated would be 1.0
+    expect(agree / 3000).toBeLessThan(0.7);
+    expect(both).toBeGreaterThan(0);
+  });
   it("different archetypes with the same seed can differ (it is not a constant)", () => {
     let differ = 0;
     for (let s = 1; s <= 100; s++) if (drawPhilosophy("mastermind", s) !== drawPhilosophy("comp-beast", s)) differ++;
@@ -47,8 +57,12 @@ describe("the seeded draw", () => {
 
 describe("pure only: nothing in src calls it yet", () => {
   const files = (d: string, out: string[] = []): string[] => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (p.endsWith(".ts")) out.push(p); } return out; };
-  it("no src file other than the philosophy modules imports them", () => {
-    const users = files("src").filter((f) => !/\/philosophy(Constants)?\.ts$/.test(f)).filter((f) => /from ["'][./]*\/?(?:\.\/)?philosophy(Constants)?["']/.test(readFileSync(f, "utf8")));
-    expect(users).toEqual([]);
+  // Any import/export-from or dynamic import whose specifier ENDS in /philosophy or /philosophyConstants (any depth: ./x, ../engine/x, ../../engine/x).
+  const IMPORT = /(?:from|import)\s*\(?\s*["'][^"']*\/philosophy(?:Constants)?["']/;
+  const users = (): string[] => files("src").filter((f) => !/\/philosophy(Constants)?\.ts$/.test(f)).filter((f) => IMPORT.test(readFileSync(f, "utf8")));
+  it("no src file other than the philosophy modules imports them", () => { expect(users()).toEqual([]); });
+  it("the pin recognises every import shape (a mutant that wires it from an adapter would be caught)", () => {
+    for (const line of ['import { x } from "../engine/philosophy";', "import { x } from '../../engine/philosophyConstants';", 'import { x } from "./philosophy";', 'import("../engine/philosophy");', 'export * from "../engine/philosophy";']) expect(IMPORT.test(line), line).toBe(true);
+    for (const line of ['import { x } from "../engine/philosophyOther";', 'import { x } from "../engine/notphilosophy2";']) expect(IMPORT.test(line), line).toBe(false);
   });
 });
