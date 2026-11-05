@@ -160,6 +160,8 @@ const _BEAT_ICON = {
   'veto-ceremony': '💎', 'eviction': '🗳️', 'eviction-result': '🗳️', 'eviction-reveal': '🗳️',
   'eviction-goodbye': '💌', 'exit-interview': '🎤', 'spectator-choice': '🍿', 'finale-interview': '🎙️', 'final-eviction': '🗳️', 'finale': '👑', 'finale-reveal': '👑',
   'finale-result': '👑', 'twist-reveal': '🌀',
+  // A75: the engine beat kinds that used to fall back to a bare bullet (contract: tests/test_a75_beat_icon_contract.py parses the engine's Beat union)
+  'comp-elimination': '🧗', 'battle-back': '⚔️', 'self-eviction': '🚪', 'final-hoh-part': '🏆', 'day-break': '🌅',
 };
 
 export function orwellBeatOutcome(tool, output) {
