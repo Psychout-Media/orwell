@@ -781,6 +781,10 @@ export interface MakeDealReq {
   kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
   terms: string;
   /**
+   * B55 - for the ACTIVE kinds only (comp-throw / veto-save): who promises. `offer` (the default - "I'll throw it for you") binds the PLAYER; `ask` ("will you throw it for me?") binds the NPC. Ignored for the defensive kinds.
+   */
+  direction?: "offer" | "ask";
+  /**
    * 0109 — OPTIONAL negotiated term, PROPOSED by the narrator from what was said in the scene. `weeks` =
    * how many weeks the promise runs counting the current one ("this week only" = 1, "for two weeks" = 2);
    * `vague` = the term was left unspoken. The ENGINE validates and bounds it (`DEAL_DURATION.maxTermWeeks`; a
