@@ -22,6 +22,7 @@ export const DEAL_CONSENT = {
     grudge: 2.0,       // a remembered betrayal (npcMemory grudge, max 0.15) - a drag
     favor: 2.0,        // a remembered favor (npcMemory favor, max 0.06) - a bonus
     targetsMe: 2.0,    // the NPC's BELIEF that the player is targeting them (belief store, max 0.18) - a drag
+    credibility: 1.5,  // B48: lies the NPC caught the player in (credibility tilt, max 0.25) - a drag, named `distrust` (ORWELL_CREDIBILITY_MEMORY)
   },
   /** Cap on the favor bonus so a remembered kindness can tip a marginal NPC but never buy an ask on its own. */
   favorCeiling: 0.12,

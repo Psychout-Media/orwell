@@ -7,7 +7,7 @@ const LS = readFileSync("src/engine/liveSeason.ts", "utf8");
 const GA = readFileSync("src/adapters/engine/GameSessionAdapter.ts", "utf8");
 const WATCH = [
   "voteChoice", "memoryTiltFor", "beliefTiltFor", "campaignPushFor", "campaignTiltFor", "drivePushFor", "moodTiltFor", "moodVetoFor", "dealsOf", "assuranceVoteFor", "assuranceProtects", "pitchTiltFor",
-  "memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor", "moodApproachFor", "desireFor", "applyWantToPulls", "ownBallotLean", "tellsOf", "drives.get",
+  "memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor", "credibilityTiltFor", "moodApproachFor", "desireFor", "applyWantToPulls", "ownBallotLean", "tellsOf", "drives.get",
   "byThreat", "nominationScore", "bondStrength", "edgeAsJuryRel", "mannerFor", "gameRespectTerm", "appealPerf", "jurorProfile",
 ];
 function slice(src: string, a: string, b: string): string {
