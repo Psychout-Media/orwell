@@ -67,6 +67,12 @@ export class ToldLedger {
     for (const [k, t] of this.m) if (t === outcome && k.startsWith(`${holder}\u0001`)) n++;
     return n;
   }
+  /** How many decisions of `outcome` this holder has recorded toward ONE listener (the repetition-to-the-same-ear term of a lie's cost). */
+  countTo(holder: EntityId, listener: EntityId, outcome: Told): number {
+    let n = 0;
+    for (const [k, t] of this.m) if (t === outcome && k.startsWith(`${holder}\u0001`) && k.endsWith(`\u0001${listener}`)) n++;
+    return n;
+  }
   snapshot(): ToldSnapshot {
     const entries: ToldSnapshot["entries"] = [];
     for (const [k, t] of [...this.m.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {

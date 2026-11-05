@@ -12,8 +12,8 @@ import type { StrategyStyle } from "./characterFactory";
  * or `slip` moves the fact exactly ONE hop through `KnowledgeService.transmitGossip` (recorded as an event with the telling pair as witnesses - the same receipt path the graph diffusion used).
  * No network hops, no cross-room spread. Replaces the automatic graph rumor ONLY while `ORWELL_GOSSIP_COPRESENCE` is on (default OFF, so off is byte-identical: this is never called).
  * B34: SPIN is applied to the TRANSMISSION, never to authored text (ASSUMED, pending Ryne - the engine holds structured facts, not scripts, so it cannot write a falsehood): a `spun` share arrives with a
- * little distortion and less confidence; a `lie` (a share by a houseguest whose cunning reaches `DISCLOSURE.lieAt`) is recorded as `lied` in the told ledger - the engine's decision of WHO lied, bounded by
- * `SPREAD_LIES_PER_HOLDER` per season and counted from that persisted ledger - and arrives with strong distortion and low confidence; content falsification waits for the narrator-facing slice.
+ * little distortion and less confidence; a `lie` (a share by a houseguest whose cunning reaches `DISCLOSURE.lieAt`) is recorded as `lied` in the told ledger - the engine's decision of WHO lied, limited not by a cap but by
+ * `LIE_COST` (each lie told makes the next believed less) - and arrives with strong distortion and low confidence; content falsification waits for the narrator-facing slice.
  * Hidden layer only: never reads/writes a player projection; the player is not a holder or listener here (off-screen scenes exclude them); each pair rolls on its OWN dedicated rng.
  */
 export interface SpreadDeps {
@@ -33,12 +33,15 @@ export interface SpreadDeps {
   topK?: number;
   /** Override a holder's cunning (0..1). Absent => the style table. Used to prove the lie path; the live wiring leaves it unset. */
   cunning?: (id: EntityId) => number;
-  /** Max lies one holder may tell per season (counted from the told ledger). Default `SPREAD_LIES_PER_HOLDER`. */
-  liesPerHolder?: number;
 }
 
-/** B34 (ASSUMED, pending Ryne): the most lies one houseguest tells another in a season through the spread - a lie is rare and costly, never a habit. */
-export const SPREAD_LIES_PER_HOLDER = 2;
+/**
+ * B34 (card 24 ruling: NO arbitrary hard cap on lying, for the player or NPCs - limits come from CONSEQUENCES). A lie is always allowed; what limits a habitual liar is that each lie told
+ * makes the next one believed less (a stand-in for B48's credibility memory, ASSUMED pending Ryne): the lie's arriving confidence is multiplied by `LIE_COST.perPriorLie ^ (lies this holder has
+ * told) x LIE_COST.perRepeatToListener ^ (lies already told to THIS listener)`, floored at `LIE_COST.floor`. `LIE_COST.safetyValve` is a purely technical backstop against a runaway ledger, not a
+ * gameplay limit (far above anything a season produces).
+ */
+export const LIE_COST = { perPriorLie: 0.85, perRepeatToListener: 0.6, floor: 0.05, safetyValve: 500 } as const;
 /** B34: how a spun / lied share arrives (transmit-side only). */
 export const SPIN = { spunConfidence: 0.85, spunDistortion: 0.15, lieConfidence: 0.5, lieDistortion: 0.5 } as const;
 
@@ -67,8 +70,10 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
       cunning: d.cunning ? d.cunning(holder) : style ? CUNNING[style] ?? 0.3 : 0.3, rattled: Math.max(0, d.volatility(holder) - 0.5) * 2, pressure: 0, roll: rng.next(),
     };
     const { decision, spin: rawSpin } = disclosureDecision(input);
-    // B34: a lie is bounded per holder per season (counted from the persisted told ledger); over the cap it is only a spin.
-    const spin = rawSpin === "lie" && d.told.count(holder, "lied") >= (d.liesPerHolder ?? SPREAD_LIES_PER_HOLDER) ? "spun" : rawSpin;
+    // B34: no hard cap - a repeat liar's lies simply land weaker (LIE_COST); only a technical safety valve demotes a lie to a spin.
+    const priorLies = d.told.count(holder, "lied");
+    const spin = rawSpin === "lie" && priorLies >= LIE_COST.safetyValve ? "spun" : rawSpin;
+    const lieCredibility = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
     const told: Told = decision === "share" ? (spin === "lie" ? "lied" : "shared") : decision === "slip" ? "slipped" : "held";
     d.told.record(holder, h.factId, listener, told);
     let transmitted = false;
@@ -76,7 +81,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
       const src = d.knowledge.knownTo(holder).find((f) => (f.factId ?? f.id) === h.factId);
       if (src) {
         const hops = (src.hops ?? 0) + 1;
-        const spinConf = decision !== "share" ? 1 : spin === "lie" ? SPIN.lieConfidence : spin === "spun" ? SPIN.spunConfidence : 1;
+        const spinConf = decision !== "share" ? 1 : spin === "lie" ? SPIN.lieConfidence * lieCredibility : spin === "spun" ? SPIN.spunConfidence : 1;
         const spinDist = decision !== "share" ? 0 : spin === "lie" ? SPIN.lieDistortion : spin === "spun" ? SPIN.spunDistortion : 0;
         const base = (src.confidence ?? 1) * GOSSIP.decay * (decision === "slip" ? 0.8 : 1) * spinConf;
         d.knowledge.transmitGossip(holder, listener, {
