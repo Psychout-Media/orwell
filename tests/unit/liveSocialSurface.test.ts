@@ -97,7 +97,7 @@ describe("0036 — diaryRoom (the player's OOC channel, walled from NPCs)", () =
   it("records the entry as the player's own knowledge", async () => {
     const sb = sandboxWithGame();
     const res = await sb.mcp.player.callTool("diaryRoom", { entry: "I am quietly targeting the HOH" });
-    expect(res).toEqual({ recorded: true });
+    expect(res).toMatchObject({ recorded: true }); // A29: a committing tool also echoes the post-commit beatSeq
 
     const known = sb.player.getVisibleState().knowledge.map((k) => k.content);
     expect(known).toContain("I am quietly targeting the HOH");

@@ -89,3 +89,18 @@ describe("adapter gate (slice 2, flag ORWELL_VOTE_COUNT)", () => {
     expect(g.voteStillInDoubt(ids[0]!, ids[1]!)).toBe(true);
   });
 });
+
+describe("S19 - branch coverage: clamps and defaults", () => {
+  it("NaN probability / overconfidence clamp to 0 and a noise draw beyond [-1,1] is clamped", () => {
+    expect(perceivedSupport(Number.NaN, 0, 0)).toBe(0);
+    expect(perceivedSupport(0.5, Number.NaN, 0)).toBe(perceivedSupport(0.5, 0, 0));
+    expect(perceivedSupport(0.5, 0, 5)).toBe(perceivedSupport(0.5, 0, 1));
+    expect(perceivedSupport(0.5, 0, -5)).toBe(perceivedSupport(0.5, 0, -1));
+  });
+  it("a missing noise draw counts as 0 and inDoubt defaults to zero voters", () => {
+    expect(believedMargin([0.5, 0.5], 0, [])).toBeCloseTo(believedMargin([0.5, 0.5], 0, [0, 0]), 12);
+    expect(inDoubt(VOTE_ESTIMATE.doubtBand)).toBe(true);
+    expect(inDoubt(VOTE_ESTIMATE.doubtBand + 0.01)).toBe(false);
+    expect(inDoubt(1.5, -3)).toBe(false); // a negative voter count never widens the band
+  });
+});

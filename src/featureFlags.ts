@@ -99,6 +99,21 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
+  // A49 / #2017 E1a: npcVoice hands the narrator each PRESENT houseguest's observable tells (top 2, words only). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_NPC_TELLS', key: 'npcTells', parser: 'defaultOn' },
+  // A54 / #2017 M5: npcVoice hands the narrator what the NPC remembers about the player (top 3 plain facts) + an engine-decided, rate-limited bringUp. OFF unless exactly '1'; never-flipped.
+  // B29 / #2017 E3: observers react to a visible tell (comfort / exploit / avoid; needs ORWELL_NPC_TELLS). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_TELL_REACTIONS', key: 'tellReactions', parser: 'defaultOn' },
+  // B30 / #2017 E4a: a visibly rattled veto holder rescues the nominee they are close to (needs ORWELL_NPC_TELLS). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_MOOD_VETO', key: 'moodVeto', parser: 'defaultOn' },
+  // B30 / #2017 E4a: who seeks the player out reads the NPC's visible emotional state (needs ORWELL_NPC_TELLS). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_MOOD_APPROACH', key: 'moodApproach', parser: 'defaultOn' },
+  // B31 / #2017 E4b: visible mood shifts NPC deal consent (protection accepted more when rattled) and campaign formation (a rattled NPC forms none). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_MOOD_DEAL', key: 'moodDeal', parser: 'defaultOn' },
+  { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'defaultOn' },
+  // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
+  { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
