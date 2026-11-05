@@ -99,6 +99,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'strict' },
+  // B26: a juror's finale lean also reads their memory of the finalist (a grudge lowers, a favor raises; bounded). OFF unless exactly '1'; never-flipped until the jury bands are measured.
+  { envKey: 'ORWELL_JURY_MEMORY', key: 'juryMemory', parser: 'strict' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'strict' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
