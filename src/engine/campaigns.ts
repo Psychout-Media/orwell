@@ -213,6 +213,8 @@ export interface FormCampaignDeps {
    * (a decided count is not worked); absent => always forms (byte-identical). Alliance-building is never gated by it.
    */
   worthWorking?: (actor: EntityId, target: EntityId) => boolean;
+  /** B31 (ORWELL_MOOD_CAMPAIGN): false => this actor is too rattled to hold a campaign steady, so none forms. Absent => byte-identical. */
+  steady?: (actor: EntityId) => boolean;
 }
 
 export const PLAN_FOR: Record<CampaignGoal, CampaignMove[]> = {
@@ -236,6 +238,7 @@ export function formCampaigns(actors: readonly CampaignActor[], deps: FormCampai
   const out: Campaign[] = [];
   for (const a of ordered) {
     if (out.length >= c.maxConcurrent) break;
+    if (deps.steady && !deps.steady(a.id)) continue;
     const topThreat = [...a.threats].sort((x, y) => y.threat - x.threat)[0];
     const topAlly = [...a.allies].sort((x, y) => y.affinity - x.affinity)[0];
     let goal: CampaignGoal | null = null;

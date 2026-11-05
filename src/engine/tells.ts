@@ -84,6 +84,28 @@ export function tellsOf(soul: Soul, previous: readonly Tell[] = []): Tell[] {
   return out.slice(0, TELLS.maxTells).map(({ kind, band, channel }) => ({ kind, band, channel }));
 }
 
+/**
+ * B28 (#2017 15.2 E0b) - PERSISTED tells. A small additive record per houseguest `{ kind, since, band }` kept on the soul so the same houseguest is still brittle tomorrow: the hysteresis in `tellsOf` needs
+ * the PREVIOUS tells, which used to be thrown away between reads. `since` is the in-game week the kind first appeared and stays put while the kind persists (a band change keeps `since`). Words and
+ * weeks only - never a number or a cause. Pure: `refreshTells` returns the next record and how many NEW kinds began (the monotonic onset count the session persists).
+ */
+export interface PersistedTell { kind: TellKind; since: number; band: TellBand }
+
+/** The channel a tell kind is voiced through (body / voice / behaviour): a fixed mapping, not stored. */
+export const tellChannel = (kind: TellKind): TellChannel => CHANNEL[kind];
+
+export function refreshTells(soul: Soul, now: number): { tells: PersistedTell[]; onsets: number } {
+  const prev = soul.tells ?? [];
+  const next = tellsOf(soul, prev.map((t) => ({ kind: t.kind, band: t.band, channel: CHANNEL[t.kind] })));
+  const sinceOf = new Map(prev.map((t) => [t.kind, t.since] as const));
+  let onsets = 0;
+  const tells = next.map((t) => {
+    if (!sinceOf.has(t.kind)) onsets++;
+    return { kind: t.kind, since: sinceOf.get(t.kind) ?? now, band: t.band };
+  });
+  return { tells, onsets };
+}
+
 /** A coarse closed-set faithfulness check (design 15.5): the narrated kind must not be the OPPOSITE of an engine tell. */
 export const OPPOSITE: Readonly<Record<TellKind, readonly TellKind[]>> = {
   withdrawn: ["giddy", "warm-open", "snapping"], tearful: ["giddy", "warm-open"], snapping: ["withdrawn", "warm-open"],
