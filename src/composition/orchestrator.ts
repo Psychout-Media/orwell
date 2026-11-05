@@ -444,11 +444,19 @@ export class Orchestrator {
     if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
+    const session = this.registry.sandboxFor(user).session;
+    // Once the FE announces player messages (`noteMessage`), the announcement itself steps the in-game clock INSIDE the tool - so a clock-only change must not make this commit look like a
+    // beat commit (which would earn an un-debounced society tick every message). Strip ONLY the clock fields from the comparison in that mode.
+    const clockFree = (l: SessionSnapshot["live"] | undefined): string => {
+      if (!l || !session.messageModeNow()) return JSON.stringify(l ?? null);
+      const { nightDepth: _n, timeOfDay: _t, ...rest } = l as unknown as Record<string, unknown>;
+      void _n; void _t;
+      return JSON.stringify(rest);
+    };
     const progressed = !baseline || !baseline.started
       || baseline.week !== candidate.week
       || baseline.phase !== candidate.phase
-      || JSON.stringify(baseline.live ?? null) !== JSON.stringify(candidate.live ?? null);
-    const session = this.registry.sandboxFor(user).session;
+      || clockFree(baseline.live) !== clockFree(candidate.live);
 
     if (!progressed) {
       // A social (aux) turn — the live loop didn't move. Whether the house lives now turns on the clock.
@@ -464,7 +472,7 @@ export class Orchestrator {
         // night without the player's own turnIn — ADR 0003 / the lull rule — so it can't rush an engaged
         // scene). Then let the house scheme, but debounced ON ELAPSED IN-GAME HOURS (SOCIETY_TICK_HOURS),
         // NOT once per tool call: the society lives "with the clock", roughly every couple of social turns.
-        session.advanceClockPerConversation();
+        session.billClockForCommit();
         const hour = session.inGameHour();
         const lastHour = this.lastSocietyTickHour.get(user);
         if (hour !== undefined && lastHour !== undefined && hour - lastHour < SOCIETY_TICK_HOURS) return; // not enough time yet
@@ -479,7 +487,7 @@ export class Orchestrator {
       const last = this.lastTurnTickAt.get(user);
       if (last !== undefined && now - last < this.auxTickDebounceMs) return; // E57/R5
       this.lastTurnTickAt.set(user, now);
-      session.advanceClockPerConversation();
+      session.billClockForCommit();
       this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
       return;
     }
@@ -489,8 +497,8 @@ export class Orchestrator {
     // step too (unchanged from before), and anchor the social-play pacing to the beat's new in-game hour so
     // the between-ceremony ticks (0117) measure from here.
     this.lastTurnTickAt.set(user, this.clock.now());
-    // Then press the per-conversation clock one message-step as before.
-    session.advanceClockPerConversation();
+    // Then press the per-conversation clock one message-step as before (billed once per announced player message once the FE announces them - `billClockForCommit`).
+    session.billClockForCommit();
     const beatHour = session.inGameHour();
     if (beatHour !== undefined) this.lastSocietyTickHour.set(user, beatHour);
     // R3: the commit just exported this. A9: a supplementary tick — an empty society this tick is

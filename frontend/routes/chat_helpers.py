@@ -5878,6 +5878,18 @@ def _deal_offer_directive(offer) -> Optional[str]:
     return line + (f" {how}" if how else "")
 
 
+async def note_player_message(client_msg_id, user) -> None:
+    """Tell the engine a player message arrived (``noteMessage``): one in-game message-step per
+    message id. Best-effort — no engine / no game / any failure ⇒ nothing (the engine keeps its
+    legacy per-commit billing until it first hears a message)."""
+    try:
+        import uuid
+        from src import orwell_engine
+        await orwell_engine.note_message(client_msg_id or f"srv-{uuid.uuid4().hex}", user=user)
+    except Exception:
+        logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
+
+
 async def apply_game_framing(
     preface: list,
     user,
@@ -7100,6 +7112,11 @@ async def build_chat_context(
     from src.auth_helpers import effective_user
     user = effective_user(request)
     uprefs = load_prefs_for_user(user)
+
+    # Per-message pacing: announce this player message to the engine clock ONCE, before the model
+    # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
+    if not incognito:
+        await note_player_message(client_msg_id, user)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no
