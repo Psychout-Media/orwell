@@ -211,7 +211,8 @@ def test_reporter_module_exists_with_its_contract():
     assert re.search(r"\.slice\(0,\s*n\)|slice\(0,\s*300\)", js), "detail clipped client-side"
     # NEVER throws: the entire fail() body is inside try { … } catch.
     body = js.split("function fail", 1)[1]
-    assert body.lstrip().startswith("(surface, errorClass, detail) {\n    try {"), \
+    # A42: the optional 4th param carries {red, corrected}
+    assert body.lstrip().startswith("(surface, errorClass, detail, opts) {\n    try {"), \
         "fail() must open with try — reporting a failure can never become one"
 
 
