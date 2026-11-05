@@ -1436,6 +1436,10 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.timeOfDay
       ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
       : []),
+    // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
+    ...(view.clockLabel
+      ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
+      : []),
     `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
     "  do your own arithmetic about how many are left, on podiums, etc.).",
     ...ceremonyLines,
