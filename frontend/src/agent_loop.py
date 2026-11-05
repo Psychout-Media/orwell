@@ -3059,6 +3059,13 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 # are legitimate (already there / not a legal move) and simply don't count.
                 if isinstance(res, dict) and res.get("status") == "moved":
                     recorded += 1
+                    # A29: an applied move COMMITS in the engine (bumps beatSeq) - adopt the post-commit token it returns, or the next compare-and-swap call
+                    # (e.g. the deferred scene-fold settle) carries a stale expectedBeatSeq and 409s for nothing.
+                    if _ch is not None:
+                        try:
+                            _ch._refresh_beat_seq(owner, res)
+                        except Exception:
+                            pass
                     # ADR 0009 (D1): fold this engine-confirmed move into the per-turn occupancy freeze
                     # so the gadget shows the move the player just read (preserves D2). Best-effort.
                     if _ch is not None:

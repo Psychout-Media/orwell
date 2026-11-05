@@ -1721,6 +1721,8 @@ export interface WhereaboutsView {
 export interface HouseguestMoveResult {
   status: "moved" | "noop" | "illegal";
   whereabouts: WhereaboutsView | null;
+  /** A29 - on "moved" only: the closed-set beatSeq AFTER the commit this move made, so the front-end adopts it and its next compare-and-swap call is not a self-inflicted stale-beat 409. */
+  beatSeq?: number;
 }
 
 /**
