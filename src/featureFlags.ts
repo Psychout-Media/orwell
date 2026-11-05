@@ -118,8 +118,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'strict' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly '1'; never-flipped until measured.
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. OFF unless exactly '1'; never-flipped until the FE honours `held` everywhere.
-  // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits) - a live run showed the narrator calling turnIn on 'wake up in the morning', which slept through a whole day (Day 2 -> Day 3). ON by default (PO: built is on); `=0` opts out.
-  { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
+  // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits) - a live run showed the narrator calling turnIn on 'wake up in the morning', which slept through a whole day (Day 2 -> Day 3). OFF unless exactly '1'; never-flipped here (Overseer B's flip turns it on).
+  { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'strict' },
   { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'strict' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
