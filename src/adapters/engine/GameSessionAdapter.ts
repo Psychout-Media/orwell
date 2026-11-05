@@ -29,6 +29,7 @@ import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
+import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
@@ -1434,6 +1435,66 @@ export class GameSessionAdapter implements GameSession {
   private presenceTickCount = 0;
   /** B28: monotonic count of tell onsets (persisted as `tellOnsetCount`). */
   private tellOnsetCount = 0;
+  /** B29 (ORWELL_TELL_REACTIONS, default OFF, never-flipped): observers react to a visible tell (comfort / exploit / avoid). Engine-only state, persisted (`tellReactions`). */
+  private tellReactionsEnabled = process.env.ORWELL_TELL_REACTIONS === "1";
+  setTellReactionsEnabled(on: boolean): void { this.tellReactionsEnabled = on; }
+  /** "holder|subject" -> the holder's decaying exploit tilt toward the visibly rattled subject. */
+  private tellExploit: Record<string, number> = {};
+  /** "observer|target" -> the week the observer last reacted to that target (the per-pair cooldown). */
+  private tellReactedWeek: Record<string, number> = {};
+  /** Reaction counts by kind (observability + tests; monotonic). */
+  private tellReactionCounts: Record<string, number> = {};
+  /** Monotonic count of observer-reaction passes: keys the dedicated stream so each pass draws fresh, reproducibly (persisted). */
+  private tellReactionTicks = 0;
+  tellReactionCountsNow(): Readonly<Record<string, number>> { return { ...this.tellReactionCounts }; }
+  /** B29: the exploit tilt `holder` carries toward `subject` (0 when none / flag off). Bounded by `TELL_REACTION.exploitCap`. */
+  private moodTiltFor(subject: EntityId, holder: EntityId): number {
+    return this.tellExploit[`${holder}|${subject}`] ?? 0;
+  }
+  /**
+   * B29 - one observer-reaction pass, driven by the orchestrator's per-turn off-screen tick. For every houseguest who is VISIBLY rattled (a persisted tell from B28) and shares a room with an awake NPC
+   * observer, the observer may react (comfort / exploit / avoid) - chosen by the observer's strategy style, disposition and bond to the target, drawn from a DEDICATED stream, once per pair per week.
+   * Comfort lowers the target's distress a little and builds their trust in the observer; exploit adds a small decaying tilt read by the nomination/vote providers; avoid is recorded (no effect yet).
+   * Observability gate = the existing co-presence (ADR 0019): only the same room. Flag off => returns before anything (zero draws, nothing written).
+   */
+  tellReactionsTick(): void {
+    if (!this.tellReactionsEnabled || !this.npcTellsEnabled || !this.house || !this.presence) return;
+    for (const k of Object.keys(this.tellExploit)) { const v = decayExploit(this.tellExploit[k]!); if (v > 0) this.tellExploit[k] = v; else delete this.tellExploit[k]; }
+    const awake = this.awakeNow();
+    const week = this.week;
+    this.tellReactionTicks += 1;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:tell-react:${this.tellReactionTicks}:${week}`));
+    const npcs = this.house.npcs.map((n) => n.id).filter((id) => this.livingIds().includes(id) && (!awake || awake.has(id)));
+    for (const target of npcs) {
+      const so = this.soulObj(target);
+      const tell = so?.tells?.find((t) => TELL_REACTION.rattled.includes(t.kind)); // the first VISIBLY RATTLED tell (a restless or giddy one invites no reaction)
+      if (!so || !tell) continue;
+      const room = this.presence.get(target);
+      if (room === undefined) continue;
+      for (const observer of npcs) {
+        if (observer === target || this.presence.get(observer) !== room) continue;
+        const key = `${observer}|${target}`;
+        const roll = rng.next(); // one draw per (target, observer) pair in a fixed order => reproducible regardless of the cooldown
+        if ((this.tellReactedWeek[key] ?? -99) > week - TELL_REACTION.cooldownWeeks) continue;
+        const e = this.rel.edge(observer, target);
+        const hg = this.house.npcs.find((n) => n.id === observer);
+        const reaction = chooseTellReaction({
+          tell: { kind: tell.kind, band: tell.band }, bond: (e.trust + e.affinity) / 2,
+          style: hg?.character.strategyStyle, disposition: this.baselineDispositionOf(observer), roll,
+        });
+        if (!reaction) continue;
+        this.tellReactedWeek[key] = week;
+        this.tellReactionCounts[reaction] = (this.tellReactionCounts[reaction] ?? 0) + 1;
+        if (reaction === "comfort") {
+          if (typeof so.distress === "number") so.distress = Math.max(0, so.distress - TELL_REACTION.comfortDistress);
+          this.rel.applyImpactDirected(target, observer, { trust: TELL_REACTION.comfortTrust }, rng);
+        } else if (reaction === "exploit") {
+          const k = `${observer}|${target}`;
+          this.tellExploit[k] = addExploit(this.tellExploit[k] ?? 0);
+        }
+      }
+    }
+  }
   /**
    * SEATED sub-zones (issue #792 — the PO ruling: sub-zones are SEATED into `assignRooms`, not computed
    * on-read). Each houseguest in a zoned big room (backyard/lounge) holds a per-id sub-zone here — the
@@ -3696,6 +3757,7 @@ export class GameSessionAdapter implements GameSession {
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
       ...(this.tellOnsetCount > 0 ? { tellOnsetCount: this.tellOnsetCount } : {}),
+      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks } } : {}),
       // issue #792: the SEATED sub-zones (player-facing view) — persisted tenure-style so drift/cluster
       // history survives a restart (0007, only-forward) and never reseeds from scratch. Absent/empty ⇒
       // omitted (byte-identical to a pre-feature save; the next tick seats fresh). Vault-free position.
@@ -4013,6 +4075,10 @@ export class GameSessionAdapter implements GameSession {
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
     this.tellOnsetCount = core.tellOnsetCount ?? 0;
+    this.tellExploit = { ...(core.tellReactions?.exploit ?? {}) };
+    this.tellReactedWeek = { ...(core.tellReactions?.reactedWeek ?? {}) };
+    this.tellReactionCounts = { ...(core.tellReactions?.counts ?? {}) };
+    this.tellReactionTicks = core.tellReactions?.ticks ?? 0;
     // issue #792: restore the SEATED sub-zones (acquired drift/cluster history survives a restart). A
     // pre-feature save carries none ⇒ null ⇒ the next tick seats everyone fresh from `zoneFor`, NO error.
     this.presenceZone = core.presenceZone ? new Map(Object.entries(core.presenceZone) as [EntityId, Zone][]) : null;
@@ -7575,6 +7641,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
