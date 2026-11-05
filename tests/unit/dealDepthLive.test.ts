@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
-import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
+import type { AdvanceView, DealView, GameSession } from "../../src/ports/GameSession";
 
 /**
  * Feature 0121 (Part 2) — the ACTIVE-obligation kinds fire LIVE. Drives a real season through the engine
@@ -27,6 +27,7 @@ describe("0121 — comp-throw resolves live at the HOH crown (broken iff the pro
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("dd-live");
     sb.session.createCharacter({ playerName: "The Player", seed: 9 });
+    sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     sb.session.setDealDepthEnabled(true);
 
     // Advance until the first HOH competition is the live pending decision (the player can deal now).
@@ -37,7 +38,7 @@ describe("0121 — comp-throw resolves live at the HOH crown (broken iff the pro
       if (madeId === undefined && snap.live && snap.live.hoh === undefined) {
         const npcId = sb.session.livingIds().find((id) => id !== PLAYER);
         if (npcId) {
-          const deal = sb.session.makeDeal({ with: npcId, kind: "comp-throw", terms: "I'll throw the HOH for you" });
+          const deal = sb.session.makeDeal({ with: npcId, kind: "comp-throw", terms: "I'll throw the HOH for you" }) as DealView | null;
           if (deal) madeId = deal.id;
         }
       }
@@ -63,6 +64,7 @@ describe("0121 — comp-throw resolves live at the HOH crown (broken iff the pro
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("dd-off-live");
     sb.session.createCharacter({ playerName: "The Player", seed: 9 });
+    sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     sb.session.setDealDepthEnabled(false);
     for (let i = 0; i < 20 && sb.session.snapshot().live?.hoh === undefined; i++) {
       const v = sb.session.advanceGame();

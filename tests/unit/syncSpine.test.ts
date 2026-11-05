@@ -28,6 +28,7 @@ function startedRuntime(seed = 2): { reg: GameSessionRegistry; sb: UserSandbox; 
   const runtime = composeRuntime({ saveStore: new FileSaveStore(dir), clock: new FakeClock() });
   const sb = runtime.registry.sandboxFor("u");
   sb.session.createCharacter({ playerName: "P", seed });
+  sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
   return { reg: runtime.registry, sb, session: sb.session, dir };
 }
 

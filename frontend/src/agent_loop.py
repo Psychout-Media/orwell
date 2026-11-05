@@ -4192,9 +4192,15 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
             logger.info(f"[orwell] deal back-fill refused by the N-4 guard: {_g_err} user={owner}")
             return False
         _term_kw = {"term": _g_term} if _g_term else {}
-        if await _backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,
-                                    user=owner, defer_fold=True,
-                                    idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw) is None:
+        _deal_res = await _backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,
+                                             user=owner, defer_fold=True,
+                                             idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw)
+        if _deal_res is None:
+            return False
+        from src.tool_implementations import is_deal_refusal as _is_deal_refusal
+        if _is_deal_refusal(_deal_res):
+            # The ENGINE decided the NPC declines (consent, anti-sycophancy): NO deal exists. The belt never overrules it - no retry, no re-ask.
+            logger.info(f"[orwell] deal back-fill: {with_id} declined ({_deal_res.get('reason')}) - no deal recorded user={owner}")
             return False
         logger.info(f"[orwell] auto-recorded deal (kind={kind}, with={with_id}) user={owner}")
         return True

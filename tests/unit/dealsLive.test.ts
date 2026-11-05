@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import type { DealView } from "../../src/ports/GameSession";
 
 // Roles only. Exercises the LIVE wiring of deals into the session adapter (0039): make → view →
 // witnessed-event record → persistence. The kept/broken adjudication math is covered by deals.test.ts.
@@ -13,6 +14,7 @@ function newGame(seed = 7) {
   });
   s.setOnPersist(() => { persists++; });
   s.createCharacter({ playerName: "The Player", seed });
+  s.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
   const npc = s.getGameState().house[0]!.id;
   return { s, events, npc, persists: () => persists };
 }
@@ -20,7 +22,7 @@ function newGame(seed = 7) {
 describe("0039 — deals wired into the live session", () => {
   it("makeDeal creates a tracked OPEN deal the player can see (fact + status, no numbers)", () => {
     const { s, npc } = newGame();
-    const view = s.makeDeal({ with: npc, kind: "safety", terms: "I won't put you up" });
+    const view = s.makeDeal({ with: npc, kind: "safety", terms: "I won't put you up" }) as DealView | null;
     expect(view).not.toBeNull();
     expect(view!.status).toBe("open");
     expect(view!.kind).toBe("safety");
