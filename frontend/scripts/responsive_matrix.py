@@ -307,6 +307,18 @@ def finish_game():
         if sub.get("finished"):
             finished = True
             break
+    if finished:
+        # A pre-jury-evicted player is offered the 0133 finale-interview AFTER the crown (the season is already decided), and it stays the engine's live `pending`
+        # for the rest of the run. Whether that happens depends on the (random) staged seed, so a base-pass sweep would see a REAL decision card beside the
+        # post-season retro on some seeds and not on others - a seed-dependent red on unrelated PRs. Capture it for the isolated endgame-card sub-pass (it is mounted
+        # synthetically from this dict, exactly as before), then answer it so the engine state - and so the base sweep - is the same on every seed.
+        st = _engine_tool("getGameState") or {}
+        fp = st.get("pending") if isinstance(st, dict) else None
+        if isinstance(fp, dict) and fp.get("kind") == "finale-interview":
+            endgame_pending = endgame_pending or fp
+            decision = _auto_resolve(fp)
+            if decision is not None:
+                _engine_tool("submitDecision", decision)
     if not finished:
         # A48: say WHY the season did not finish (the CI log used to say only "endgame not reached"), so a stuck driver is diagnosable from the log alone.
         try:
