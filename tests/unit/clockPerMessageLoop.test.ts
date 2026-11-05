@@ -128,6 +128,39 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
     await expect(g.call("advanceGame", { expectedBeatSeq: r.beatSeq })).resolves.toBeDefined();
   });
 
+  it("P0g: the dedupe ring survives a restart - a retry of an already-billed message id bills nothing, and a new id still bills", async () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const dir = mkdtempSync(join(tmpdir(), "cpm-ring-"));
+    try {
+      const user = `cpm-ring-${n++}`;
+      const rt1 = composeRuntime({ clock: new FakeClock(), seed: 1, saveStore: new FileSaveStore(dir) });
+      const mcp1 = rt1.registry.resolver()("player", user);
+      await mcp1.callTool("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
+      rt1.registry.sandboxFor(user).session.setPerConversationClockEnabled(true);
+      await mcp1.callTool("advanceGame", {});
+      await mcp1.callTool("advanceGame", {});
+      await mcp1.callTool("noteMessage", { messageId: "m-ring-1" });
+      const rt2 = composeRuntime({ clock: new FakeClock(), seed: 1, saveStore: new FileSaveStore(dir) });
+      const mcp2 = rt2.registry.resolver()("player", user);
+      const s2 = rt2.registry.sandboxFor(user).session;
+      s2.setPerConversationClockEnabled(true);
+      const hour = (): number => s2.snapshot().live?.nightDepth ?? 0;
+      const h0 = hour();
+      const retry = (await mcp2.callTool("noteMessage", { messageId: "m-ring-1" })) as { accepted: boolean };
+      expect(retry.accepted, "a retry after a restart").toBe(false);
+      expect(hour()).toBeCloseTo(h0, 5);
+      await mcp2.callTool("noteMessage", { messageId: "m-ring-2" });
+      expect((hour() - h0) * 60).toBeCloseTo(MINUTES_PER_MESSAGE, 5);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("P0g: a save with no announcement carries no seenMessageIds key (old saves round-trip byte-identical)", async () => {
+    const g = await startedDay();
+    expect(JSON.stringify(g.live())).not.toContain("seenMessageIds");
+  });
+
   it("without any noteMessage the engine keeps the legacy per-commit billing (BDD / UAT / tests that never announce a message are unchanged)", async () => {
     const g = await startedDay();
     const start = g.hour();
