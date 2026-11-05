@@ -90,11 +90,8 @@ _PORT = int(os.environ.get("ORWELL_925_PORT", "8796"))
 
 
 def _chromium_path():
-    for base in ("/opt/pw-browsers/chromium/chrome-linux/chrome",
-                 "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"):
-        if os.path.exists(base):
-            return base
-    return None
+    from _chromium import chromium_path  # shared locator: sandbox paths, then Playwright's own install dir (CI)
+    return chromium_path()
 
 
 @pytest.fixture(scope="module")

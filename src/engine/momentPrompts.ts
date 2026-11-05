@@ -1742,7 +1742,20 @@ export function renderSurfacedFacts(facts: ReadonlyArray<{ content: string; hops
  * a flag OFF means the engine returns an empty result — a DEAD tool — so the glossary must not advertise it. An omitted
  * or `true` entry keeps today's bullet (default ON ⇒ the base prompt is byte-identical).
  */
-export interface GatedLeverFlags { playerDossier?: boolean; boothReceipts?: boolean }
+export interface GatedLeverFlags {
+  playerDossier?: boolean;
+  boothReceipts?: boolean;
+  /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
+  confrontMisfire?: boolean;
+}
+
+/** AMEND 3a #1 - with the 0094 divergence OFF, `confront` always resolves landed:true and folds nothing; drop the "a distorted belief can misfire" promise and keep the lever. */
+function withoutConfrontMisfire(base: string): string {
+  return base.replace(
+    /^    you never invent the outcome\. On \{ landed: true \} play the confrontation as the player expects; on\n    \{ landed: false \} it misfired[\s\S]*?one they witnessed themselves will not\.$/m,
+    "    you never invent the outcome — play the confrontation as the player expects and voice the confronted houseguest's genuine reaction.",
+  );
+}
 
 /** Remove one `  • <lever> — …` glossary bullet (through the line before the next bullet) from the base prompt. */
 function withoutLeverBullet(base: string, lever: string): string {
@@ -1850,6 +1863,7 @@ export function buildSystemPrompt(
   let base = BASE_GAME_MASTER_PROMPT;
   if (levers?.boothReceipts === false) base = withoutLeverBullet(base, "playerReceipts");
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
+  if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   return [
     base,
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)
