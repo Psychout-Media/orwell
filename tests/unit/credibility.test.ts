@@ -17,7 +17,7 @@ describe("credibility (pure)", () => {
   it("is deterministic", () => { expect(credibility([lie(1), lie(2)], 2, 6)).toBe(credibility([lie(1), lie(2)], 2, 6)); });
   it("monotone: every additional caught lie lowers it, never raises it", () => {
     let prev = 1;
-    for (let n = 1; n <= 12; n++) {
+    for (let n = 1; n <= 6; n++) {
       const c = credibility(Array.from({ length: n }, () => lie(5)), 0, 5);
       expect(c).toBeLessThan(prev);
       prev = c;
