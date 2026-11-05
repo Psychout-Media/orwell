@@ -12,8 +12,9 @@
 > full `.feature` is wired into `cucumber.cjs` (9 scenarios, `features/step_definitions/confidence.steps.ts`);
 > (b) the **passive lie-catch** — a later truthful pathway flips the player's belief to the truth and folds
 > a betrayal-grade blow on the player→liar edge in place of the warm bond bump (spec open-Q #4), gated by
-> `confideBoundary.test.ts` + the BDD scenarios. **Fast-follow still owed:** the **FE agent-loop guardrail**
-> that error-corrects a `confide` under-call (0055 sibling, pytest-gated).
+> `confideBoundary.test.ts` + the BDD scenarios. **The FE agent-loop guardrail shipped** and error-corrects a `confide`
+> under-call (0055 sibling): `frontend/tests/test_0075_confide_guardrail.py` (13 tests). **Engine-enforced scene gate (AMEND 2026-11-04):**
+> `confide()` refuses when the player is not in the same room as that houseguest (`tests/unit/confideCoPresence.test.ts`) - "never a cold pop-up" no longer rests on the prompt/FE.
 > **Depends on:** 0001 (Vault Wall), 0002
 > (event visibility & pathway propagation / `surfaceInformationTo`), 0017/0026 (relationship math),
 > 0023 (consequence & memory fold), 0039 (deals — the favor/goodwill ledger), 0041 (soul / emotional

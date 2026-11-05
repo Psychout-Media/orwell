@@ -150,8 +150,8 @@ When("the endgame advances with the three-part flag off", function (this: BbWorl
 Then("the Final HOH is decided by a single competition exactly as feature 0045", function (this: BbWorld) {
   for (const r of this.fh!.runs) { assert.equal(parts(r).length, 0); assert.equal(r.events.filter((e) => e.beat === "hoh-competition").length, 1); }
 });
-Then("the seeded endgame is byte-identical to the pre-feature model", function (this: BbWorld) {
-  // flag absent vs explicitly false => the same engine path; the standing trajectory-neutrality gates (stagedTrajectoryNeutral, juryReach) pin the pre-feature baseline.
+Then("the seeded single-competition endgame is deterministic and emits no part events", function (this: BbWorld) {
+  // NOTE (S16): this compares flag-off with flag-off (determinism), not against the pre-feature model; the anchor for the pre-feature baseline is the standing trajectory-neutrality gates (stagedTrajectoryNeutral, juryReach) pin the pre-feature baseline.
   for (const r of this.fh!.runs.slice(0, 8)) {
     const s = newLiveSeason(NPCS); s.week = 11; s.beat = "hoh-competition";
     const ctx: SeasonCtx = { player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel: new RelationshipModel(0.5), finalHohThreePart: false };

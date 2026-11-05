@@ -44,6 +44,20 @@ describe("0006 staged-rounds — a declared throw measurably lowers the player's
     expect(throwWins).toBeLessThan(competeWins);     // throwing measurably lowers the win rate (0028 penalty)
   });
 
+  it("play-safe never beats compete: the approach levers are negative-only (A18), paired by seed", () => {
+    let competeWins = 0, safeWins = 0, safeOnly = 0;
+    for (let seed = 1; seed <= 150; seed++) {
+      const c = playerWinsOpeningHoh(seed, "compete");
+      const sf = playerWinsOpeningHoh(seed, "play-safe");
+      if (c) competeWins++;
+      if (sf) safeWins++;
+      if (sf && !c) safeOnly++;
+    }
+    expect(competeWins).toBeGreaterThan(0);
+    expect(safeWins).toBeLessThanOrEqual(competeWins); // no approach but compete helps the player
+    expect(safeOnly).toBeLessThanOrEqual(Math.ceil(0.05 * 150)); // a seed where play-safe wins and compete loses is rng-path noise at most, never a bonus
+  });
+
   it("the comp-round decision offers compete / throw / play-safe (compete first = the default) + the still-in field", () => {
     const s = new GameSessionAdapter();
     s.createCharacter({ playerName: "P", seed: 2 });

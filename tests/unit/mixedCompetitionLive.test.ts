@@ -43,8 +43,8 @@ function playFull(sb: UserSandbox): readonly string[] {
   return s.snapshot().live?.evictionOrder ?? [];
 }
 
-describe("0127 — with hybrid resolution OFF the seeded spine is byte-identical", () => {
-  it("the same seed evicts the same houseguests in the same order as a pure-resolution game", () => {
+describe("0127 — with hybrid resolution OFF the seeded spine is deterministic (the anchor that absent secondary == the old call is mixedCompetition.test.ts)", () => {
+  it("two OFF games on the same seed evict in the same order", () => {
     const off = playFull(newGame("mx-off-a", 77, false));
     const base = playFull(newGame("mx-off-b", 77, false));
     expect(off).toEqual(base);

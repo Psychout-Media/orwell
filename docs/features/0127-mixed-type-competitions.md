@@ -1,5 +1,7 @@
 # 0127 — Mixed-type competitions (hybrid comps that reward the well-rounded)
 
+> **Current default (AMEND 2026-11-04):** `ORWELL_COMP_MIXED` is now **default ON** in the engine (`COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn(...)`) and in `deploy/orwell-env-defaults.sh`; `=0` turns it off. The "default-off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** Built. **Expands 0042 (and completes 0125/0126).** Every competition resolved on a SINGLE
 > stat — a puzzle was pure Mental, an endurance pure Physical. But real _BB_ comps are usually hybrids:
 > "crawl through mud, then solve a puzzle," a social read that also rewards a sharp memory. 0127 turns the
@@ -16,7 +18,7 @@ For a comp def carrying a `secondary` aptitude, the score's stat base becomes
 The **primary still dominates** (0.65), so the winner is mostly the primary favorite — the blend *tilts*,
 it never *inverts*. This is the single most calibration-sensitive change in the competition series (it
 edits `competitionOutcome.ts`, which holds the "favorite wins ~X%, player never protected" invariants), so
-it is **OPT-IN, default-off** (`ORWELL_COMP_MIXED`): with the flag off every comp resolves on its pure
+it is **a flag** (`ORWELL_COMP_MIXED`, now default ON - see the header): with the flag OFF every comp resolves on its pure
 single stat and every seeded gate is **byte-identical**; the deploy turns it on and the band is re-confirmed.
 
 ## 2. What exists today (the gap this closes)
@@ -32,7 +34,7 @@ single stat and every seeded gate is **byte-identical**; the deploy turns it on 
 from the tunable 0028 module); `secondary` aptitudes authored onto ~13 naturally-hybrid comps (skill /
 crapshoot / social / maze comps — pure endurance / pure-strength / pure-puzzle stay single-stat);
 `SeasonCtx.mixedComps` threaded from the adapter flag; the live `resolveComp` passing the secondary only
-when the flag is on. Default-**OFF** (`ORWELL_COMP_MIXED`); deploy opt-in (it was also pinned off in the since-decommissioned golden driver).
+when the flag is on. Now default-**ON** (`ORWELL_COMP_MIXED`, #1996; `=0` opts out), as in the deploy defaults (it was also pinned off in the since-decommissioned golden driver).
 
 **Out:** the temperature / emotion / intent / rest terms (unchanged — the blend touches only the stat
 base); a per-comp custom weight (one tunable global weight for now); the theme/pool layers (0125/0126 —

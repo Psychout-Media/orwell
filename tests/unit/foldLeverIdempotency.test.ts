@@ -66,6 +66,7 @@ function openDeals(session: GameSessionAdapter): number {
  * left with HEADROOM so a single fold is measurable (a saturated edge would clamp and mask the double-apply).
  */
 function earnFullConfidence(session: GameSessionAdapter, npcId: EntityId): void {
+  (session as unknown as { presence: Map<string, string> }).presence = new Map([[PLAYER, "kitchen"], [npcId, "kitchen"]]); // S13: confide needs co-presence
   const r = rel(session);
   const gate = r.edge(npcId, PLAYER); gate.trust = 0.95; gate.affinity = 0.95; gate.threat = 0.05;
   const moved = r.edge(PLAYER, npcId); moved.trust = 0.55; moved.affinity = 0.55; moved.threat = 0.2;
@@ -75,6 +76,7 @@ function earnFullConfidence(session: GameSessionAdapter, npcId: EntityId): void 
 /** Set a houseguest up as a manipulator (high threat, no warmth) so `confide` fabricates a LIE (mirror
  *  confideBoundary.setupLiar; seed 1 fires the lie roll). */
 function setupLiar(session: GameSessionAdapter, npcId: EntityId): void {
+  (session as unknown as { presence: Map<string, string> }).presence = new Map([[PLAYER, "kitchen"], [npcId, "kitchen"]]); // S13: confide needs co-presence
   const house = (session as unknown as { house: { npcs: Array<{ id: EntityId; character: { archetype: string } }> } }).house;
   house.npcs.find((n) => n.id === npcId)!.character.archetype = "mastermind";
   const r = rel(session);
