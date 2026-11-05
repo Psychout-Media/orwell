@@ -1675,9 +1675,12 @@ def _is_stale_beat_error(exc) -> bool:
     # message. The thin client now surfaces the structured 409 body (`code`/`beatSeq`); the message
     # marker is only a FALLBACK for an older engine / a test stub. So a wording drift in
     # StaleBeatError.message can no longer silently turn reconcile fail-closed.
-    if getattr(exc, "code", None) == "stale-beat":
+    _code = getattr(exc, "code", None)
+    if _code == "stale-beat":
         return True
-    return _STALE_BEAT_MARKER in (str(exc) or "").lower()
+    if isinstance(_code, str) and _code.strip():
+        return False  # A55: an explicit NON-stale machine code (e.g. a turn-refused integrity 409) wins over any prose that happens to mention the marker
+    return _STALE_BEAT_MARKER in (str(exc) or "").lower()  # fallback ONLY for an engine/stub that sends no code
 
 
 async def _handle_stale_beat(user, exc) -> None:
@@ -4184,6 +4187,12 @@ _COMP_STARTED_CUES = (
 )
 
 
+def _comp_started_cue_hit(text: str) -> bool:
+    """A74 - does `text` show >= 2 DISTINCT N-16 'the competition has begun' cue families? The scene-level gate admits such prose to the live-board read (the cheap closed-set gate cannot: this prose
+    carries no outcome claim), where `_comp_started_before_due` then decides (comp phase + explicit not-due flag + nothing pending). Pure and cheap; a single stage direction never qualifies."""
+    return bool(text) and sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2
+
+
 def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
     """N-16 - the narration shows the scheduled competition STARTING while the engine says it is not due (clock live, `daySchedule.due` False) and nothing is pending. Production owns the
     schedule (#2051): the player's / narrator's momentum cannot start it. Returns a LABEL or None. Conservative: only the HOH / veto competition phases, only with an explicit
@@ -4193,7 +4202,7 @@ def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
     phase = str(live.get("phase") or "").lower()
     if not phase.endswith("-competition") or live.get("compNotDue") is not True or live.get("pending"):
         return None
-    if sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) < 2:
+    if not _comp_started_cue_hit(text):
         return None
     return ("the competition as already STARTED (contestants called to their stations / playing) - the engine shows it is NOT due yet and nothing has begun; "
             "production has not called it")
@@ -4432,7 +4441,8 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         if not text or not text.strip():
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
-        if not _sentence_has_closed_set_claim(text):
+        # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
