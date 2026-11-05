@@ -14,6 +14,13 @@ import type { ArmSummary } from "./calibrationArms";
  * Pure (no I/O) so the band logic itself is unit-tested (tests/unit/poTargetBands.test.ts); the heavy play lives in
  * calibrationPoTarget.test.ts. Roles only.
  */
+/** The ONE home of the bands (S15 / AMEND card 21): nothing else - no doc, test or workflow text - may restate the numbers; `poBandsFooter()` renders them for the CI summary. */
+export const PO_BANDS_STAMP = {
+  ruledBy: "Ryne (PO)",
+  date: "2026-11-03",
+  source: "docs/decisions/PO-DECISIONS-LOG.md 2026-11-02 'Difficulty' (passive F2 5-10%, win <5%; reckless not above passive; solid above passive) + 2026-11-03 win-band ruling (solid win 8-12%, #2073)",
+} as const;
+
 export const PO_BANDS = {
   passive: { f2Max: 0.15, winBelow: 0.05 },
   solid: { f2Min: 0.12, f2Max: 0.2, winMin: 0.08, winMax: 0.12 },
@@ -65,4 +72,11 @@ export function poViolations(s: PoSummary, z: number = PO_Z): string[] {
   if (beatsBeyondNoise(s.reckless.reachedF2, s.reckless.seasons, s.passive.reachedF2, s.passive.seasons, z)) out.push(`reckless reach-F2 ${pc(re.f2)} beats passive ${pc(p.f2)}`);
   if (beatsBeyondNoise(s.reckless.wins, s.reckless.seasons, s.passive.wins, s.passive.seasons, z)) out.push(`reckless win ${pc(re.win)} beats passive ${pc(p.win)}`);
   return out;
+}
+
+const pctOf = (x: number): string => String(Math.round(x * 100));
+/** The CI summary footer, generated from PO_BANDS so a stale band can never be restated in prose. */
+export function poBandsFooter(): string {
+  const { passive, solid } = PO_BANDS;
+  return `Targets (${PO_BANDS_STAMP.ruledBy}, ${PO_BANDS_STAMP.date}): passive F2 <= ${pctOf(passive.f2Max)}%, win < ${pctOf(passive.winBelow)}%; solid F2 ${pctOf(solid.f2Min)}-${pctOf(solid.f2Max)}%, win ${pctOf(solid.winMin)}-${pctOf(solid.winMax)}%; reckless no better than passive. Source: ${PO_BANDS_STAMP.source}`;
 }
