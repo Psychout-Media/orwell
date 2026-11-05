@@ -2153,7 +2153,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private notoriety: NotorietySummary | null = null;
   /**
-   * 0091 — whether the TRIGGER-ERUPTION layer RUNS. DEFAULT OFF (the dedicated `ORWELL_TRIGGERS` flag):
+   * 0091 — whether the TRIGGER-ERUPTION layer RUNS. DEFAULT ON (the dedicated `ORWELL_TRIGGERS` flag; `=0` opts out):
    * when off, the orchestrator never calls `runTriggerEruptions` ⇒ ZERO draws on any rng ⇒ every seeded
    * gate is byte-identical (the calibration-neutrality guarantee). Per instance; a test flips it via
    * `setTriggersEnabled`.

@@ -428,7 +428,7 @@ export interface LiveSeasonState {
    */
   champagneCircle?: "gathered" | "done";
   /**
-   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default OFF) - the premiere staged as sixteen INDIVIDUAL entrances then the toast.
+   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default ON; `=0` opts out) - the premiere staged as sixteen INDIVIDUAL entrances then the toast.
    * `order` is a seeded side-stream permutation of all 16 ids; `arrived` counts those entered (incl. the player); `spoke`
    * the toast speakers released ("host" or an id). Persisted (0030); ABSENT when the flag is off (byte-identical).
    * Premiere-scoped: cleared the instant the phase leaves "premiere".
@@ -802,7 +802,7 @@ export interface SeasonCtx {
    * flags-off stays BYTE-IDENTICAL. 0 for the PLAYER as holder. ENGINE-ONLY — never crosses the wall.
    */
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
-  /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default OFF). Absent ⇒ byte-identical. */
+  /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default ON; `=0` opts out). Absent ⇒ byte-identical. */
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
   pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
@@ -856,7 +856,7 @@ export interface SeasonCtx {
   /**
    * 0128 - the Final 3 HOH is the real show's THREE-PART tournament (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz
    * between the two part-winners) instead of ONE competition. Absent/false => the single-comp 0045 path, byte-identical (the seeded spine is unmoved). Wired
-   * live behind `ORWELL_FINAL_HOH_THREE_PART` (default OFF); the calibration/UAT harness leaves it off.
+   * live behind `ORWELL_FINAL_HOH_THREE_PART` (default ON; `=0` opts out); the calibration/UAT harness leaves it off.
    */
   finalHohThreePart?: boolean;
   /**

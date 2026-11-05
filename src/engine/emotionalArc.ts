@@ -85,7 +85,7 @@ export function offscreenEmotion(type: InteractionType, role: SceneRole = "initi
 const clamp01 = (v: number): number => (Number.isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
 
 /**
- * 0124 — the DEEPER-evolution tunables (all magnitudes for the opt-in `ORWELL_SOUL_DEPTH` layer live here).
+ * 0124 — the DEEPER-evolution tunables (all magnitudes for the default-ON `ORWELL_SOUL_DEPTH` layer (`=0` opts out) live here).
  * Untouched unless the layer is on, so the 0041 single-scalar path stays byte-identical.
  */
 const SOUL_DEPTH = {

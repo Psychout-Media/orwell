@@ -1593,7 +1593,7 @@ export interface PremiereIntrosView {
    */
   champagneCircle?: "gathered" | "done";
   /**
-   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default OFF) - present ONLY while the staged premiere entrances/toast run
+   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default ON; `=0` opts out) - present ONLY while the staged premiere entrances/toast run
    * (and until the premiere ends). Public names only (Vault-free). `index` = houseguests entered so far (the
    * player counts once they have walked in); `total` = 16; `playerPosition` is 1-based. `arrivedNames` is the
    * whole NPC inside-list (never invent who else is present). `justArrived` is the latest NPC to enter
