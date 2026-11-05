@@ -11291,7 +11291,7 @@ export class GameSessionAdapter implements GameSession {
   /** B26 - the juror's signed lean toward `finalist` from what the juror remembers of them: a favor raises it, a grudge lowers it (the 0024 ledger's tilt, sign-flipped), bounded to +-JURY_MEMORY.max. No rng. */
   juryMemoryFor(juror: EntityId, finalist: EntityId): number {
     if (!this.juryMemoryEnabled || juror === PLAYER || !this.npcMemoryEnabled) return 0;
-    return Math.max(-JURY_MEMORY.max, Math.min(JURY_MEMORY.max, -this.memoryTiltFor(finalist, juror) * JURY_MEMORY.scale));
+    return Math.max(-JURY_MEMORY.max, Math.min(JURY_MEMORY.max, (0 - this.memoryTiltFor(finalist, juror)) * JURY_MEMORY.scale));
   }
 
   /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
