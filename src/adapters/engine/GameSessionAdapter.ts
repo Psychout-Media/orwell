@@ -72,6 +72,7 @@ import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
+import { SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
@@ -4578,7 +4579,27 @@ export class GameSessionAdapter implements GameSession {
       pulls.push({ target: other, weight: charge, avoid });
     }
     if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
+    if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     return pulls.length ? pulls : null;
+  }
+
+  /** B35 - reads the holder's undelivered high-motive facts (wired by the registry; absent => no seeking). */
+  private heldSeeker?: (holder: EntityId, listeners: readonly EntityId[]) => Array<{ listener: EntityId; motive: number }>;
+  setHeldFactSeeker(fn: (holder: EntityId, listeners: readonly EntityId[]) => Array<{ listener: EntityId; motive: number }>): void { this.heldSeeker = fn; }
+  /**
+   * B35 - SEEKING (design B10 S4): a houseguest holding a high-motive fact they have not yet decided to tell someone leans their movement toward that listener, through the same pull channel as the A10
+   * want, so the right audience is likelier to be in the room when the spread runs. Never lowers a pull; no rng; the player is never a listener (off-screen spreads exclude them). Only while the
+   * co-presence layer is ON (the told ledger is empty and nothing is decided otherwise). Pure read of knowledge + the told ledger.
+   */
+  private applyHeldFactsToPulls(id: EntityId, pulls: MovementPull[]): void {
+    const listeners = this.presenceActive().filter((o) => o !== id && o !== PLAYER);
+    for (const t of this.heldSeeker!(id, listeners)) {
+      if (t.motive < SEEK.minMotive) continue;
+      const scale = 1 + SEEK.k * t.motive;
+      const existing = pulls.find((p) => p.target === t.listener);
+      if (existing) existing.weight *= scale;
+      else pulls.push({ target: t.listener, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false });
+    }
   }
 
   /**
