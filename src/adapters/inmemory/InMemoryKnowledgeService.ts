@@ -3,6 +3,7 @@ import type { EventStore } from "../../ports/EventStore";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import type { KnowledgeFact, Suspicion, KnowledgeSnapshot } from "../../domain/knowledge";
+import { clamp01 } from "../../domain/num";
 
 /**
  * C14: confidence is a [0,1] certainty — clamp at every write seam (a caller-supplied 50 or −3 must
@@ -10,7 +11,6 @@ import type { KnowledgeFact, Suspicion, KnowledgeSnapshot } from "../../domain/k
  * confidence would otherwise persist as NaN into a knowledge fact; guard NaN → 0. Finite inputs
  * (in range or out) clamp exactly as before.
  */
-const clamp01 = (v: number): number => (Number.isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
 
 /**
  * A suspicion is a hunch, never near-certainty (audit C2): any confidence it carries is capped

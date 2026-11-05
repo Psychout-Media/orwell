@@ -20,6 +20,7 @@
  * stays in phase (the calibration-neutrality constraint; `tests/unit/trajectoryOutcomeNeutral.test.ts`).
  */
 import type { InteractionType } from "./relationshipConstants";
+import { clamp01 } from "../domain/num";
 import {
   TRAJECTORY_CONSTANTS,
   type TrajectoryConstants,
@@ -55,7 +56,6 @@ export interface FoldSignal {
 
 // PERSIST-2/BE-101: guard NaN → 0 — this clamp gates the persisted `Trajectory.momentum` (kept beside
 // the relationship edges, recalled across restarts). Finite inputs clamp exactly as before.
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
  * Derive a directed relationship's TRAJECTORY (PURE, no rng) from its recent folded history + its prior

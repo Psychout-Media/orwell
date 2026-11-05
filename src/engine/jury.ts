@@ -2,6 +2,7 @@ import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { tallyJury } from "./season";
 import { JURY_WEIGHTS, MANNER_LEAN, MANNER_GRADING, APPEAL, type JuryWeights } from "./juryConstants";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 // Re-export the tunables so existing importers keep reading them from `jury` (the math lives here).
 export { JURY_WEIGHTS, type JuryWeights };
@@ -125,8 +126,6 @@ export function finalePerformance(parts: ReadonlyArray<{ quality: number }>): nu
 export type FinaleAppeal = "own-game" | "mend" | "connect" | "discredit-rival";
 
 export const FINALE_APPEALS: readonly FinaleAppeal[] = ["own-game", "mend", "connect", "discredit-rival"];
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 
 /**
  * Engine-scored quality in [0,1] of `appeal` made to a juror with this read/manner of the finalist:
