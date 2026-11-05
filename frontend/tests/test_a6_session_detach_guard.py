@@ -35,6 +35,8 @@ import urllib.request
 
 import pytest
 
+from _settle import frames as _frames
+
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -236,7 +238,10 @@ _PREGAME_STATE = {"started": False}
 
 
 def _stub_state(page, body):
+    page._a6_state_hits = 0  # A83: how many times the stubbed /api/orwell/state was answered (a condition to wait on instead of a sleep)
+
     def handler(route):
+        page._a6_state_hits += 1
         route.fulfill(status=200, content_type="application/json", body=__import__("json").dumps(body))
     page.route("**/api/orwell/state", handler)
 
@@ -248,8 +253,12 @@ def _new_page(pw, app, state_body):
         pytest.skip(f"chromium unavailable: {e}")
     page = browser.new_page()
     _stub_state(page, state_body)
-    page.goto(app + "/", wait_until="load", timeout=30000)
-    page.wait_for_timeout(3500)  # module graph + async init
+    with page.expect_response(lambda r: "/api/orwell/state" in r.url, timeout=30000):
+        page.goto(app + "/", wait_until="load", timeout=30000)
+    # A83: boot is a CONDITION, not a 3.5s sleep: the module graph exposed what the spies wrap and the rail/sidebar entries are wired, then the page is quiet (the HUD pollers have settled).
+    page.wait_for_function(
+        "() => !!(window.sessionModule && window.sessionModule.setCurrentSessionId && window.sessionModule.createDirectChat && document.getElementById('message') && document.getElementById('rail-new-session'))",
+        timeout=30000)
     return browser, page
 
 
@@ -358,7 +367,7 @@ def test_sidebar_new_chat_row_double_wire_still_shows_one_dialog(_app):
         _reset_spies(page, False)
         page.evaluate("() => document.getElementById('sidebar-new-chat-btn').click()")
         _wait_until(page, "window.__a6_confirmCalls.length >= 1")
-        page.wait_for_timeout(300)  # give a stray second dialog a chance to show up if it exists
+        _frames(page)  # A83: 30 page frames for a stray second dialog to show up if it exists (was a fixed 300ms)
         calls = page.evaluate("window.__a6_confirmCalls.length")
         browser.close()
     assert calls == 1, f"expected exactly one collapsed dialog, got {calls}"
@@ -371,10 +380,14 @@ def test_pregame_no_live_game_never_shows_a_dialog(_app, entry_id):
     with sync_playwright() as pw:
         browser, page = _new_page(pw, _app, _PREGAME_STATE)
         _install_spies(page)
+        hits_before = page._a6_state_hits
         page.evaluate("(id) => document.getElementById(id).click()", entry_id)
-        # Give the guard's fetch a generous window to settle (it always resolves fast when
-        # there's no live game — no dialog to wait for), then confirm nothing showed up.
-        page.wait_for_timeout(3000)
+        # A83: the guard's own /api/orwell/state fetch is the only async step; wait for it to be answered, then 30 page frames, only then confirm nothing showed up (was a fixed 3s sleep).
+        for _ in range(100):  # wait (bounded, 100 x 50ms) for the guard's own state fetch to be answered after the click, then 30 page frames
+            if page._a6_state_hits > hits_before:
+                break
+            page.wait_for_timeout(50)
+        _frames(page)
         calls = page.evaluate("window.__a6_confirmCalls.length")
         browser.close()
     assert calls == 0, f"{entry_id}: no live game must never raise a confirm dialog, got {calls}"
@@ -389,7 +402,7 @@ def test_empty_composer_send_is_a_no_op_under_live_game_never_a_silent_detach(_a
         page.evaluate("() => window._updateSendBtnIcon && window._updateSendBtnIcon()")
         mode = page.evaluate("() => document.querySelector('.send-btn')?.dataset.mode")
         page.evaluate("() => document.querySelector('.send-btn')?.click()")
-        page.wait_for_timeout(1500)
+        _frames(page)  # A83 (was a fixed 1.5s)
         calls = page.evaluate("window.__a6_confirmCalls.length")
         detach_calls = _detach_calls(page)
         browser.close()
@@ -406,7 +419,7 @@ def test_empty_composer_enter_is_a_no_op_under_live_game(_app):
         page.evaluate("() => { document.getElementById('message').value = ''; }")
         page.evaluate("() => window._updateSendBtnIcon && window._updateSendBtnIcon()")
         page.locator("#message").first.press("Enter")
-        page.wait_for_timeout(1500)
+        _frames(page)  # A83 (was a fixed 1.5s)
         calls = page.evaluate("window.__a6_confirmCalls.length")
         detach_calls = _detach_calls(page)
         browser.close()

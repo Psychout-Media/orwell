@@ -53,9 +53,10 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
-import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity } from "../../engine/assurances";
+import { applyForgiveness, forgivenessTraitOf } from "../../engine/forgiveness";
+import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1168,10 +1169,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
-    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) broke = true; }
+    const witnesses: EntityId[] = [];
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+    this.rememberAsWitnesses(witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
     // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
     // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
     if (nominee !== PLAYER) {
@@ -1181,8 +1184,48 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** B22 - houseguests who merely HEARD a promise remember its keeping / breaking too, at `ASSURANCE.witnessFactor` of the assured's own weight (the assured and the assurer themselves are not witnesses). OFF unless exactly `ORWELL_MEMORY_PROMISES=1`; never-flipped. */
+  private memoryPromisesEnabled = process.env.ORWELL_MEMORY_PROMISES === "1";
+  setMemoryPromisesEnabled(on: boolean): void { this.memoryPromisesEnabled = on; }
+  private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
+    if (!this.memoryPromisesEnabled) return;
+    for (const w of new Set(witnesses)) if (w !== about && w !== assured) this.remember(w, about, kind, severity * ASSURANCE.witnessFactor);
+  }
+  /** B4 slice 8 - resolve every OPEN assurance matching `match` as KEPT (once each) and the assured remembers a (weaker-than-a-grudge) favor. Flag off / none open => nothing. */
+  private keepAssurances(match: (a: Assurance) => boolean): void {
+    if (!this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    const kept: Assurance[] = [];
+    for (const a of ledger.all.filter((x) => x.status === "open" && match(x))) if (ledger.resolve(a.id, "kept")) kept.push(a);
+    if (kept.length === 0) return;
+    this.live.assurances = ledger.toJSON();
+    for (const a of kept) {
+      const holder = a.from, to = a.to;
+      // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
+      // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
+      if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live.week}:${holder}:${to}`)).next())) {
+        recordClaim((this.live.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live.week });
+        continue;
+      }
+      this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+      this.rememberAsWitnesses(a.heardBy ?? [], holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
+    }
+  }
+  /** B4 slice 8 - the HOH finalized nominations without the houseguests they had assured 'loyal': kept. ('safe' is NOT resolved here: the veto and the replacement can still put the assured on the block, so it is settled at the vote tally.) */
+  assuranceKeptAtNominations(holder: EntityId, nominees: readonly EntityId[]): void {
+    this.keepAssurances((a) => a.from === holder && a.kind === "loyal" && !nominees.includes(a.to));
+  }
+  /** B4 slice 8 - `voter` voted the other nominee out and so spared `spared`: an open 'vote'/'safe' assurance to them was KEPT. */
+  assuranceKeptAtVote(voter: EntityId, spared: EntityId): void {
+    this.keepAssurances((a) => a.from === voter && (a.kind === "vote" || a.kind === "safe") && a.to === spared);
+  }
+  /** B4 slice 8 - the eviction nominees are FINAL (after the veto and any replacement): every open 'safe' assurance whose assured is not on the block was kept. */
+  assuranceKeptAtTally(finalNominees: readonly EntityId[]): void {
+    this.keepAssurances((a) => a.kind === "safe" && !finalNominees.includes(a.to));
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
-  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
+  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }): void {
     if (!this.assurancesEnabled || !this.live) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
     // B4 slice 7: an NPC's sincerity is the ENGINE's call (loyalty + a dedicated seeded roll), never the model's proposal; the player's own stays as recorded.
@@ -1192,7 +1235,8 @@ export class GameSessionAdapter implements GameSession {
       const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}`)).next();
       sincerity = npcAssuranceSincerity(loyalty, roll);
     }
-    ledger.add({ ...a, sincerity, week: this.live.week });
+    const { heardBy, ...rest } = a;
+    ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
     this.live.assurances = ledger.toJSON();
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
@@ -7521,6 +7565,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
+      ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId) => this.assuranceKeptAtVote(v, sp), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
@@ -10032,7 +10077,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
-    const entries = this.npcMemoryEnabled ? live.npcMemory?.[npcId]?.[PLAYER] : undefined;
+    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER]) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
     const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
     const decay = this.memoryDecayScale(npcId);
@@ -11318,11 +11363,21 @@ export class GameSessionAdapter implements GameSession {
     return RELATIONSHIP_CONSTANTS.dispositionFactors[this.dispositionReadOf(holder) ?? "neutral"].decayScale;
   }
 
+  /** B27 - the FORGIVENESS trait layer (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly `ORWELL_FORGIVENESS=1`; never-flipped. OFF => the ledger is read as it always was. */
+  private forgivenessEnabled = process.env.ORWELL_FORGIVENESS === "1";
+  setForgivenessEnabled(on: boolean): void { this.forgivenessEnabled = on; }
+  /** The memory entries `holder` actually reads: the ledger row, with the forgiveness trait applied when the layer is on. Pure; no rng stream is touched. */
+  private memoryEntriesSeenBy(holder: EntityId, entries: readonly MemoryEntry[] | undefined): readonly MemoryEntry[] | undefined {
+    if (!this.forgivenessEnabled || !this.live) return entries;
+    return applyForgiveness(entries, forgivenessTraitOf(hashSeed(`${this.gameSeed ?? 0}:forgive:${holder}`)), this.live.week);
+  }
+
   /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
   private memoryTiltFor(subject: EntityId, holder: EntityId): number {
     if (holder === PLAYER || !this.live) return 0;
-    const entries = this.live.npcMemory?.[holder]?.[subject];
-    if (!entries || entries.length === 0) return 0;
+    const raw = this.live.npcMemory?.[holder]?.[subject];
+    if (!raw || raw.length === 0) return 0;
+    const entries = this.memoryEntriesSeenBy(holder, raw);
     if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
     return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
   }
@@ -11330,8 +11385,9 @@ export class GameSessionAdapter implements GameSession {
   /** An NPC the player has wronged (a strong residual grudge) does not float a safety/alliance deal to them. */
   private memoryBlocksPlayerDeal(npcId: EntityId): boolean {
     if (!this.npcMemoryEnabled || !this.live) return false;
-    const entries = this.live.npcMemory?.[npcId]?.[PLAYER];
-    if (!entries || entries.length === 0) return false;
+    const raw = this.live.npcMemory?.[npcId]?.[PLAYER];
+    if (!raw || raw.length === 0) return false;
+    const entries = this.memoryEntriesSeenBy(npcId, raw);
     return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
   }
 
@@ -12082,7 +12138,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, confrontMisfire: this.gossipConsequenceEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

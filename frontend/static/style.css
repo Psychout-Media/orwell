@@ -3711,6 +3711,7 @@ body.bg-pattern-perlin-flow {
     .model-picker-list .mp-fav-dot:focus-visible {
       outline: none;
       color: color-mix(in srgb, var(--fg) 68%, transparent);
+      box-shadow: 0 0 0 2px var(--ow-focus-ring, #0a84ff); /* A87: a visible keyboard ring (a colour shift alone is not one) */
     }
     .model-picker-list .mp-fav-dot.active {
       color: var(--accent, var(--red));
@@ -10701,6 +10702,8 @@ textarea.memory-add-input {
 
 .memory-edit-cat-select:focus {
   outline: none;
+  border-color: var(--ow-focus-ring, #0a84ff);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ow-focus-ring, #0a84ff) 45%, transparent); /* A87 */
 }
 
 .memory-item-editing {
@@ -11134,6 +11137,7 @@ textarea.memory-add-input {
 .skip-link:focus-visible {
   left: 0;
   outline: none;
+  box-shadow: 0 0 0 3px var(--ow-focus-ring, #0a84ff); /* A87: visible ring on the focused skip link */
 }.doc-langpicker-item.is-selected {
   background: color-mix(in srgb, var(--accent-primary, var(--red)) 14%, transparent);
   color: var(--accent-primary, var(--red));
