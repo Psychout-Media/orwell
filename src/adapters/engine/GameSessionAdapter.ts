@@ -10057,6 +10057,7 @@ export class GameSessionAdapter implements GameSession {
       // Mark the REAL secret traded (monotonic — it has been spent into the economy); a bluff is not a real fact.
       if (resolved.factId && this.secretUsedAs[resolved.factId] !== "exposed") this.secretUsedAs[resolved.factId] = "traded";
       this.tradeCount++;
+      if (this.npcMemoryWritersEnabled) this.remember(recipient, PLAYER, "secret-given", 0.3); // A24: the recipient remembers the player bought them something they wanted (a favor; bounded by the ledger)
       return { accepted: true, narratable: "they took the trade" };
     }
     // Refused — peddling a secret they don't want reads as untrustworthy (a bounded sour on their read).
@@ -10377,6 +10378,8 @@ export class GameSessionAdapter implements GameSession {
     this.foldHouseRecoilOnExposer(subject, rng);
     // The jury mark (0014): the subject's eventual jurors weigh the outing against the exposer.
     if (folds.juryMark) recordDealBetrayal(this.live, subject, PLAYER);
+    // A24: the subject REMEMBERS being outed (a deep grudge about the player; severity grows with the secret's, bounded by the ledger cap).
+    if (this.npcMemoryWritersEnabled) this.remember(subject, PLAYER, "secret-exposed", Math.min(1, 0.4 + 0.4 * resolved.severity));
     // Surface the exposure to the house as a WITNESSED pathway event — the house now KNOWS it (0002).
     const content = resolved.bluff ? `${this.nameOf(PLAYER)} outed something about ${this.nameOf(subject)} to the house`
       : this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} exposed a secret about ${this.nameOf(subject)}`;
