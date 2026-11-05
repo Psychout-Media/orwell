@@ -324,9 +324,12 @@ Then("the staged eviction reveal is anonymized", function (this: BbWorld) {
 });
 
 Then("per-voter attribution unseals only in the post-season retrospective", function (this: BbWorld) {
-  // The retrospective seam exists and is the only place attribution is unsealed (0048) — assert the
-  // live game surfaces never carry it (structural: the campaign progress/target is never projected).
-  assert.ok(typeof (cw(this).cwSession as unknown as { retrospective?: unknown }) === "object");
+  // The retrospective is the ONLY place per-voter attribution is unsealed (0048, E12). A season still in progress has no retrospective at all, and neither the player-facing game state nor the public
+  // status carries any voter attribution (A91: this used to assert `typeof session === "object"`, true of any object).
+  const s = cw(this).cwSession!;
+  assert.equal(s.seasonRetrospective(), null, "mid-season there is no retrospective to unseal anything");
+  const blob = JSON.stringify({ state: s.getGameState(), status: s.gameStatus() });
+  assert.ok(!/"(?:voters?|voterId|castBy|ballots?ByVoter|unsealed\w*)"\s*:/i.test(blob), "no per-voter attribution on any live surface");
 });
 
 // --- Rule: player campaigns ---
