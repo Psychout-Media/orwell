@@ -107,21 +107,9 @@ XFAIL = {
     # #1375-e / -f / -i REMOVED (A5, 2026-11-04): the sidebar "New Chat" label, the "Orwell" brand title and the user-bar name (under the settings scrim) did not fire in the engine-staged
     # matrix - locally AND in CI (8 audit passes incl. both +settings readings, same xpass list both times) - so they ratchet to hard assertions. (#1375-h / #1418-finale-contrast below
     # stay: CI reports "endgame not reached", so the retro/finale surfaces are NOT audited there and "never fired" proves nothing; #1916 stays: its element now reads INDETERMINATE.)
-    # The post-season retro window (#orwell-retro) is a SYSTEMIC low-contrast surface: dark text +
-    # dark window-kit controls (× – ⇲), the "The Season, Watched Back" title, the winner headline,
-    # and the eviction list all render at ~3.6:1 on its light-ish glass. Its body is filled by a
-    # background poll (nondeterministic element set), so this is deliberately a SURFACE-LEVEL entry —
-    # the lead files ONE issue ("the retro window has systemic dark-on-glass contrast"). REMOVE this
-    # one entry when the retro window's glass/token is fixed and the whole surface ratchets clean.
-    "#1375-h": "contrast:orwell-retro:",
-    # #1418 / S4-2: the finale panel (#orwell-finale) now SURVIVES the flip to `finished` (S4-2 makes
-    # finaleView return the completed reveal + crowned winner post-season), so it RENDERS on a finished
-    # season and is audited here for the first time. It is the SAME systemic dark-on-glass surface as
-    # the retro (#1375-h): the finalist/reveal names + the vote tally all read var(--fg) at ~3.66:1 on
-    # the mid-tone glass. Deliberately a SURFACE-LEVEL entry (mirrors #1375-h) tracked with the #738
-    # Liquid-Glass legibility batch — REMOVE it when the shared glass/token contrast fix lands and the
-    # whole surface ratchets clean.
-    "#1418-finale-contrast": "contrast:orwell-finale:",
+    # #1375-h (retro) and #1418-finale-contrast REMOVED (A48, 2026-11-05): the matrix driver answered the exit-interview card with the wrong fields (stance/message instead of vote/statement), so the
+    # season never finished in CI and the retro/finale surfaces were never audited ("never fired" proved nothing). With the driver fixed the engine-staged matrix reports 'endgame FINISHED' and both ids
+    # still never fire (8 audit passes, 0 FAIL), so they ratchet to hard assertions.
     # #1916-think-contrast REMOVED (A47, 2026-11-05): the engine-staged matrix (8 audit passes, game + endgame card staged) never fires it, and the reasoning body ("Here is my reasoning ...")
     # measures 13.10-15.73:1 over its textured backdrop (INDETERMINATE band, far above AA 4.5). The one-off 3.48:1 (dark ink over teal) was not reproducible in any staged pass.
     # #1418 / S4-2: the finale body (#orwell-finale > .ow-body) is a scrollable region without keyboard
