@@ -8,7 +8,7 @@ import type { KnowledgeFact } from "../domain/knowledge";
  * after `reopen`, e.g. when the fact is superseded). Pure state (plain JSON round-trip), no rng, no I/O, no Vault: the ledger holds ids only. Unwired - a later slice runs the decision at scene time
  * behind `ORWELL_GOSSIP_COPRESENCE` (default OFF).
  */
-export type Told = "shared" | "slipped" | "held";
+export type Told = "shared" | "slipped" | "held" | "lied";
 
 export interface HeldCandidate { factId: string; content: string; firstHand: boolean; confidence: number; subject?: EntityId }
 
@@ -61,6 +61,12 @@ export class ToldLedger {
     return candidates.filter((c) => !this.decided(holder, c.factId, listener));
   }
   get size(): number { return this.m.size; }
+  /** How many decisions of `outcome` this holder has recorded (the per-holder lie budget counts "lied"). */
+  count(holder: EntityId, outcome: Told): number {
+    let n = 0;
+    for (const [k, t] of this.m) if (t === outcome && k.startsWith(`${holder}\u0001`)) n++;
+    return n;
+  }
   snapshot(): ToldSnapshot {
     const entries: ToldSnapshot["entries"] = [];
     for (const [k, t] of [...this.m.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
