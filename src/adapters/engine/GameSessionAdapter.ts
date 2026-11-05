@@ -53,7 +53,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
@@ -11257,7 +11257,23 @@ export class GameSessionAdapter implements GameSession {
     const m = SCENE_MEMORY_SEVERITY[sceneKind];
     if (!m) return;
     for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
+    // B25: the touched houseguests' closest ties remember the player's treatment of their friend too - smaller, bond-weighted, once per friend (the strongest tie to any touched houseguest).
+    if (this.memoryFriendsEnabled) {
+      const touched = new Set(holders);
+      const best = new Map<EntityId, number>();
+      for (const h of holders) {
+        for (const f of this.livingIds()) {
+          if (f === PLAYER || f === h || touched.has(f)) continue;
+          const bond = this.rel.bondStrength(f, h);
+          if (bond > (best.get(f) ?? -1)) best.set(f, bond);
+        }
+      }
+      for (const [f, bond] of best) { const sev = friendSeverity(m.severity, bond); if (sev > 0) this.remember(f, PLAYER, m.kind, sev); }
+    }
   }
+  /** B25 - the treatment-of-friends writer. OFF unless exactly `ORWELL_MEMORY_FRIENDS=1`; never-flipped. OFF => nothing extra is written (byte-identical). */
+  private memoryFriendsEnabled = process.env.ORWELL_MEMORY_FRIENDS === "1";
+  setMemoryFriendsEnabled(on: boolean): void { this.memoryFriendsEnabled = on; }
 
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */
   private rememberFriendAct(holder: EntityId, subject: EntityId, kind: "nominated-by-friend" | "replaced-by-friend"): void {

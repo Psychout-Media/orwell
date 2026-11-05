@@ -171,3 +171,15 @@ export function vetoWithheldSeverity(priorTrust: number): number {
   const t = Number.isNaN(priorTrust) ? 0 : Math.max(0, Math.min(1, priorTrust));
   return 0.15 + 0.25 * t;
 }
+
+/**
+ * B25 (flag ORWELL_MEMORY_FRIENDS, off by default) - TREATMENT OF FRIENDS: when a recorded player scene touches a houseguest, that houseguest's CLOSEST TIES remember it too, smaller and bond-weighted.
+ * `minBond` is the closeness a friend needs; the entry's severity is `severity x factor x bond` (so a closer friend remembers more), well under the touched houseguest's own. ASSUMED, pending Ryne.
+ */
+export const FRIEND_MEMORY = { minBond: 0.55, factor: 0.5 } as const;
+
+/** The severity a friend with this bond to the touched houseguest records (0 when below the closeness bar). Pure; monotone in bond. */
+export function friendSeverity(sceneSeverity: number, bond: number): number {
+  if (bond < FRIEND_MEMORY.minBond) return 0;
+  return clamp01(sceneSeverity * FRIEND_MEMORY.factor * clamp01(bond));
+}
