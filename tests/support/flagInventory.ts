@@ -33,13 +33,16 @@ export const OPERATIONAL_ENV: Readonly<Record<string, string>> = {
   ORWELL_EMBED_WARMUP_MS: "embedding warm-up budget",
   ORWELL_MAX_RESIDENT_SANDBOXES: "resident sandbox cap",
   ORWELL_FLAGS_OFF: "diagnostic: restore every default-flipped flag to OFF",
-  // Raw `process.env` reads that are not behaviour flags on /health (found by the B45 gate on its first run): a default-ON toggle, a test seam and tuning/measurement knobs.
-  ORWELL_COMP_THEMES: "default-ON toggle (=0 turns the themed competition variety off); read raw, not on /health",
-  ORWELL_DISABLE_DIVERSITY: "TEST SEAM (#338 RNG-isolation golden test): =1 skips the diversity pass",
-  ORWELL_GEN_COMPETITIONS: "generative competitions (#1400): DEFAULT OFF, read raw; the God-Mode dial also sets it per sandbox",
-  ORWELL_HANGOUT_P_SCALE: "live-verification knob (A15): scales the hang-out stop chances; the deploy never sets it",
-  ORWELL_MEMORY_CALLBACKS: "memory callbacks (narrator lines): read through MEMORY_CALLBACKS_ENV, not on /health",
-  ORWELL_WANT_MOVEMENT_K: "calibration-measurement override for the want-movement strength; the deploy never sets it",
+};
+
+/** Raw `process.env` BEHAVIOUR reads that are not on /health (found by the gate): the doc lists them under their own heading, with kind, default and reason - they are NOT operational config. */
+export const RAW_BEHAVIOUR: Readonly<Record<string, { kind: "toggle" | "seam" | "knob"; default: string; reason: string }>> = {
+  ORWELL_COMP_THEMES: { kind: "toggle", default: "ON", reason: "themed competition variety; =0 turns it off" },
+  ORWELL_GEN_COMPETITIONS: { kind: "toggle", default: "off", reason: "generative competitions (#1400); the God-Mode dial also sets it per sandbox" },
+  ORWELL_MEMORY_CALLBACKS: { kind: "toggle", default: "see memoryCallbackConstants", reason: "memory callbacks (narrator lines), read through MEMORY_CALLBACKS_ENV" },
+  ORWELL_DISABLE_DIVERSITY: { kind: "seam", default: "off", reason: "TEST SEAM (#338 RNG-isolation golden test): =1 skips the diversity pass" },
+  ORWELL_HANGOUT_P_SCALE: { kind: "knob", default: "1", reason: "live-verification knob (A15): scales the hang-out stop chances; the deploy never sets it" },
+  ORWELL_WANT_MOVEMENT_K: { kind: "knob", default: "1", reason: "calibration-measurement override of the want-movement strength; the deploy never sets it" },
 };
 
 const walk = (dir: string, out: string[] = []): string[] => {
@@ -50,10 +53,15 @@ const walk = (dir: string, out: string[] = []): string[] => {
   return out;
 };
 
-/** Every distinct ORWELL_<NAME> token in src/ (a bare `ORWELL_` prefix in a template is not a name). */
+/** Drop `/* ... *\/` and `// ...` comments so a name only MENTIONED in prose (a design flag, a spec reference) is not counted as a read. Strings are kept (a read is `process.env.X` / `"ORWELL_X"`). */
+export function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+}
+
+/** Every distinct ORWELL_<NAME> token in src/ code (comments stripped) (a bare `ORWELL_` prefix in a template is not a name). */
 export function envNamesReadInSrc(): string[] {
   const names = new Set<string>();
-  for (const f of walk(join(ROOT, "src"))) for (const m of readFileSync(f, "utf8").matchAll(/ORWELL_[A-Z0-9]+(?:_[A-Z0-9]+)*/g)) names.add(m[0]);
+  for (const f of walk(join(ROOT, "src"))) for (const m of stripComments(readFileSync(f, "utf8")).matchAll(/ORWELL_[A-Z0-9]+(?:_[A-Z0-9]+)*/g)) names.add(m[0]);
   return [...names].sort();
 }
 
@@ -74,7 +82,7 @@ const neverFlipped = (): Set<string> => {
 
 /** The names the codebase DECLARES somewhere (registry, deploy defaults, the never-flipped pin, the operational allow-list). */
 export function declaredNames(): Set<string> {
-  return new Set([...FEATURE_FLAGS.map((f) => f.envKey), ...deployDefaults().keys(), ...neverFlipped(), ...Object.keys(OPERATIONAL_ENV)]);
+  return new Set([...FEATURE_FLAGS.map((f) => f.envKey), ...deployDefaults().keys(), ...neverFlipped(), ...Object.keys(OPERATIONAL_ENV), ...Object.keys(RAW_BEHAVIOUR)]);
 }
 export function undeclaredReads(): string[] {
   const declared = declaredNames();
@@ -101,7 +109,7 @@ export function renderInventory(): string {
     "",
     "## Behaviour flags on `/health` (the registry)",
     "",
-    "| Env var | /health key | Parser | Code default | Deploy writes | Pinned opt-in (never flipped) |",
+    "| Env var | /health key | Parser | Registry default | Deploy writes | Pinned opt-in (never flipped) |",
     "|---|---|---|---|---|---|",
   ];
   for (const f of FEATURE_FLAGS) {
@@ -109,8 +117,8 @@ export function renderInventory(): string {
   }
   const registry = new Set(FEATURE_FLAGS.map((f) => f.envKey));
   const rawFlags = envNamesReadInSrc().filter((n) => !registry.has(n) && !(n in OPERATIONAL_ENV));
-  rows.push("", "## Flags read raw by the engine (not on `/health`)", "", "| Env var | Deploy writes | Pinned opt-in (never flipped) |", "|---|---|---|");
-  for (const n of rawFlags) rows.push(`| \`${n}\` | ${dep.has(n) ? `\`${dep.get(n)}\`` : "-"} | ${pinned.has(n) ? "yes" : "-"} |`);
+  rows.push("", "## Behaviour flags read raw by the engine (not on `/health`)", "", "| Env var | Kind | Default | Deploy writes | Pinned opt-in (never flipped) | Note |", "|---|---|---|---|---|---|");
+  for (const n of rawFlags) { const r = RAW_BEHAVIOUR[n]; rows.push(`| \`${n}\` | ${r?.kind ?? "flag"} | ${r?.default ?? (pinned.has(n) ? "off" : "-")} | ${dep.has(n) ? `\`${dep.get(n)}\`` : "-"} | ${pinned.has(n) ? "yes" : "-"} | ${r?.reason ?? ""} |`); }
   rows.push("", "## Operational config (not behaviour flags)", "", "| Env var | Purpose |", "|---|---|");
   for (const [n, why] of Object.entries(OPERATIONAL_ENV)) rows.push(`| \`${n}\` | ${why} |`);
   return rows.join("\n") + "\n";
