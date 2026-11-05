@@ -132,3 +132,4 @@ def test_a88_first_paint_trace(_stack, case_id, entries, expect):  # noqa: F811
     live, reloaded, _mid, trace = _send_and_snapshot(_stack, [dict(e) for e in entries], f"A88 trace {case_id}")
     print("A88-TRACE", case_id, json.dumps({"states": [{k: v for k, v in t.items() if k != "t"} for t in trace], "reload": {"cls": reloaded["cls"], "role": reloaded["role"]}}, sort_keys=True))
     assert trace, "the observer captured no assistant bubble"
+    pytest.fail("A88-TRACE-REPORT " + case_id + " " + json.dumps({"states": [{k: v for k, v in t.items() if k != "t"} for t in trace], "reload": {"cls": reloaded["cls"], "role": reloaded["role"]}}, sort_keys=True))  # CI-only discovery: surfaces the trace in the failure log
