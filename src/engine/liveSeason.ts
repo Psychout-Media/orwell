@@ -838,7 +838,7 @@ export interface SeasonCtx {
    * `ORWELL_VOTE_DEDUCTION`; the calibration/UAT harness leaves it off.
    */
   voteDeduction?: boolean;
-  /** #2017 S0a — record belief claims (data model + plumbing only; nothing reads them). Default OFF (`ORWELL_NPC_BELIEFS`, pinned never-flipped). */
+  /** #2017 S0a — record belief claims (data model + plumbing only; nothing reads them). Default ON (`ORWELL_NPC_BELIEFS`; `=0` opts out). */
   npcBeliefs?: boolean;
   /**
    * 0126 — fold the expanded mechanic pool (9 HOH + 9 veto extra) into the competition draw. Absent/false
