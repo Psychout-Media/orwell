@@ -1162,6 +1162,13 @@ export class GameSessionAdapter implements GameSession {
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+    // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
+    // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
+    if (nominee !== PLAYER) {
+      const e = this.rel.edge(nominee, holder);
+      e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop);
+      if (this.npcBeliefsEnabled) recordClaim((this.live.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: 0.8, week: this.live.week });
+    }
   }
 
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
