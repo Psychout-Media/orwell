@@ -137,6 +137,10 @@ class _StubHandler(BaseHTTPRequestHandler):
                 emit({"content": piece})
                 if entry["delay"]:
                     time.sleep(entry["delay"])
+            if entry.get("drop"):  # A57b: the upstream connection silently DROPS - no finish_reason, no [DONE]
+                self.wfile.flush()
+                self.close_connection = True
+                return
         emit({}, finish="stop")
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()

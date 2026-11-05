@@ -124,3 +124,18 @@ Feature: 0085 — NPC campaigns & the scramble
       Given a live campaign owned by the player against the target that the decider knows of
       Then the decider is pushed toward the target, bounded by the same ceiling
 
+  Rule: Vote counting adapts, and lobbying pitches are real events (B37 / B38, flag-gated, default off)
+
+    Scenario: An overconfident NPC is blindsided
+      Given a close eviction count and an overconfident campaigner
+      When the campaigner reads the count
+      Then the campaigner believes it is decided and stops campaigning
+      And the true count was still in doubt
+
+    Scenario: A pitch to the new Head of Household is a hidden event unless the player witnessed it
+      Given a new Head of Household who faces pitches from trusted houseguests
+      When the pitches are made
+      Then each pitch is recorded with the Head of Household as a witness
+      And a pitch the player did not witness is hidden from the player's knowledge
+      And a trusted safety pitch seals a quiet pact between the two
+
