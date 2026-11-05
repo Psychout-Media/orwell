@@ -3631,6 +3631,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.lastApproachStretch !== undefined
          ? { approachShown: { key: this.lastApproachStretch.key, initiators: [...this.lastApproachStretch.initiators] } }
          : {}),
+       // P0g: the noteMessage dedupe ring survives a restart (a retry then bills nothing). Absent until the first announcement ⇒ old saves round-trip byte-identical.
+       ...(this.seenMessageIds.length > 0 ? { seenMessageIds: [...this.seenMessageIds] } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
@@ -3939,6 +3941,8 @@ export class GameSessionAdapter implements GameSession {
     this.lastApproachStretch = core.approachShown
       ? { key: core.approachShown.key, initiators: [...core.approachShown.initiators] }
       : undefined;
+    this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
+    this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
@@ -5629,6 +5633,8 @@ export class GameSessionAdapter implements GameSession {
     this.approachCooldown = new Map();
     this.approachStretchKey = undefined;
     this.lastApproachStretch = undefined;
+    this.seenMessageIds = []; // a fresh season forgets the prior season's message ids and returns to legacy billing until announced
+    this.messageMode = false;
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,

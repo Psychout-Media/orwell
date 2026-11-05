@@ -522,6 +522,11 @@ export interface SessionCore {
    * shown). Public ids + a week:phase key only — no Vault content.
    */
   approachShown?: { key: string; initiators: EntityId[] };
+  /**
+   * P0g - the bounded ring (<=256, oldest dropped) of player-message ids `noteMessage` has already billed, so a retry after an engine restart does not bill the clock twice. Opaque client ids only
+   * (no Vault content). Absent on a pre-feature save OR before any announcement - byte-identical load (and legacy per-commit billing until the first announcement).
+   */
+  seenMessageIds?: string[];
 }
 
 /** The full durable unit: the session core plus the engine detail (for non-degradation). */
@@ -725,6 +730,7 @@ export function toGameState(snap: SessionSnapshot): GameState {
  *     `readAnchors` — current-position / per-week snapshot state, overwritten by design every tick/week
  *     (like `ceremony`/`live`, already outside the checkpoint).
  *   - `pacingDripCount` (resets every new week by design; `pacingDripWeek` moves with it).
+ *   - `seenMessageIds` (P0g) - a bounded ring: once full it drops the oldest id for each new one (count holds at the cap, content rolls) - not a monotonic accumulator.
  *   - `approachCooldown` / `approachShown` (issue #1322) — the per-NPC remaining-stretches counter
  *     legitimately counts back DOWN to 0 and drops out of the map as the cooldown lapses, and the
  *     shown-initiators record is fully replaced each stretch, by design (like `presence` above) —
