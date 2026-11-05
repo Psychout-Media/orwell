@@ -73,7 +73,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_TIME_PER_CONVERSATION',  key: 'timePerConversation',    parser: 'inverted' },
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },
-  { envKey: 'ORWELL_MULTI_NIGHT_FATIGUE',    key: 'multiNightFatigue',      parser: 'strict' },
+  { envKey: 'ORWELL_MULTI_NIGHT_FATIGUE',    key: 'multiNightFatigue',      parser: 'defaultOn' },
   // 0025 reactive twists: default-ON (PO ruling 2026-11-03, "I want to know if this breaks the game"; the FE `secret-veto` card is built, #2015). `=0`/`false`/`off`
   // opts out and `ORWELL_FLAGS_OFF=1` forces it off, like every default-on flag. There is deliberately no God-Mode dial entry: the sealed twist plan is fixed at
   // `createCharacter`, so a mid-season dial would do nothing.
@@ -94,27 +94,27 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B3 / #2017 (+B3b vote term): the HOH nominates / the house votes from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). Default-ON with it (PO 2026-11-04).
   { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). OFF unless exactly '1'; never-flipped.
-  { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'strict' },
+  { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).
-  { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
+  { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. OFF unless exactly '1'; never-flipped.
-  { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'strict' },
+  { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly '1'; never-flipped until measured.
-  { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'strict' },
+  { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
-  { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'strict' },
+  { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'defaultOn' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. OFF unless exactly '1'; never-flipped until measured.
-  { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'strict' },
+  { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'defaultOn' },
   // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). OFF unless exactly '1'; never-flipped until the PO bands are measured.
-  { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'strict' },
+  { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'defaultOn' },
   // B7 / #2017 M3: open protective deals also feed the HOH's nominations. OFF unless exactly '1'; never-flipped.
-  { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'strict' },
+  { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'defaultOn' },
   // B7 / #2017 M4: campaign targets also read grudges and beliefs. OFF unless exactly '1'; never-flipped.
-  { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'strict' },
+  { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'defaultOn' },
   // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. OFF unless exactly '1'; never-flipped.
-  { envKey: 'ORWELL_VOTE_COUNT', key: 'voteCount', parser: 'strict' },
+  { envKey: 'ORWELL_VOTE_COUNT', key: 'voteCount', parser: 'defaultOn' },
   // A22: NPC approaches during the Day-1 social morning after the toast. OFF unless exactly '1'; never-flipped until measured.
-  { envKey: 'ORWELL_MORNING_APPROACH', key: 'morningApproach', parser: 'strict' },
+  { envKey: 'ORWELL_MORNING_APPROACH', key: 'morningApproach', parser: 'defaultOn' },
   // B10 / B11 / #2017: information spreads only by co-presence, by the holder's choice (share / slip / hold) instead of automatic graph diffusion. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_GOSSIP_COPRESENCE', key: 'gossipCopresence', parser: 'strict' },
   // Anti-sycophancy: the ENGINE decides whether an NPC agrees to a player's proposed deal (from the NPC's own read of the player); a refusal records nothing. Default-ON; `=0` restores today's record-every-deal behaviour.

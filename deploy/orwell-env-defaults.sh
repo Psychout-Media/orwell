@@ -34,6 +34,8 @@
 #       on its own, so a remembered grudge/favor visibly sways nominations and votes (PO: "memories should be turned on"). 3-arm PO bands held (no violations, 100 seeds/arm).
 #   ORWELL_NPC_BELIEFS / ORWELL_NPC_BELIEF_NOMS   (B3/B3b #2017, 2026-11-04) NPCs hold falsifiable beliefs (who is targeting me; sometimes wrong) that tilt the HOH's nominations and the eviction vote
 #       (PO: Ryne, "turn it on"). PO bands re-measured ON in the PR body.
+#   ORWELL_ASSURANCES / VOTE_COUNT / VETO_MEMORY / DEAL_NOMS / CAMPAIGN_MEMORY / APPROACH_MEMORY / HC_MEMORY / MEMORY_PROMISES / FORGIVENESS / LOBBYING / DESIRE_CLOCK / WANT_MOVEMENT / MULTI_NIGHT_FATIGUE / MORNING_APPROACH
+#       (PO ruling 2026-11-05, Ryne: "if it's built, turn it on") every finished #2017 strategy layer is ON in code AND here. ORWELL_GOSSIP_COPRESENCE stays OFF (breaks BDD 0122 under ON - see the flip PR).
 #   ORWELL_CAMPAIGNS            NPC strategic-campaign layer (0085) — hidden agendas tilting noms/votes.
 #   ORWELL_TRAJECTORIES         Relationship arcs curdling (0087).
 #   ORWELL_TRIGGERS             Trigger secrets erupting (0091).
@@ -141,5 +143,19 @@ ORWELL_BOOTH_RECEIPTS=1
 ORWELL_TIME_OF_DAY=1
 ORWELL_REACTIVE_TWISTS=1
 ORWELL_NPC_DEAL_CONSENT=1
+ORWELL_ASSURANCES=1
+ORWELL_VOTE_COUNT=1
+ORWELL_VETO_MEMORY=1
+ORWELL_DEAL_NOMS=1
+ORWELL_CAMPAIGN_MEMORY=1
+ORWELL_APPROACH_MEMORY=1
+ORWELL_HC_MEMORY=1
+ORWELL_MEMORY_PROMISES=1
+ORWELL_FORGIVENESS=1
+ORWELL_LOBBYING=1
+ORWELL_DESIRE_CLOCK=1
+ORWELL_WANT_MOVEMENT=1
+ORWELL_MULTI_NIGHT_FATIGUE=1
+ORWELL_MORNING_APPROACH=1
 EOF
 }
