@@ -8445,6 +8445,13 @@ export class GameSessionAdapter implements GameSession {
    * that voter's own threat/trust edges toward the target; the actor perceives it with a seeded personality `overconfidence` and a seeded per-(actor, week) noise stream (a DEDICATED sub-rng, never
    * the shared stream). Deterministic; the estimate is private to the actor and never projected.
    */
+  /** B37: a stable key of the public board the vote count is read from. Changes when a nominee, the veto holder or the replacement does. */
+  private voteInfoEpoch(): string {
+    return `${[...(this.ceremony.nominees ?? [])].sort().join(",")}|${this.ceremony.vetoHolder ?? ""}|${this.ceremony.vetoUsed ? 1 : 0}`;
+  }
+  /** B37 (ORWELL_VOTE_COUNT): campaigns the owner has stopped because their believed count says it is decided (monotonic; observability + tests). */
+  private voteCountStops = 0;
+  voteCountStopsNow(): number { return this.voteCountStops; }
   private voteStillInDoubt(actor: EntityId, target: EntityId): boolean {
     const voters = this.livingIds().filter((v) => v !== actor && v !== target);
     if (voters.length === 0) return true;
@@ -8453,7 +8460,8 @@ export class GameSessionAdapter implements GameSession {
       return Math.max(0, Math.min(1, 0.5 + 0.6 * (e.threat - 0.5 * e.trust)));
     });
     const oc = 0.2 + 0.6 * ((hashSeed(`${this.gameSeed ?? 0}:overconfidence:${actor}`) % 1000) / 1000);
-    const nrng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:votecount:${actor}:${this.live?.week ?? 0}`));
+    // B37: the noise stream is keyed on the PUBLIC board too (nominees, which already change with a replacement, the veto holder, whether the veto was used), so the estimate is recomputed - a fresh, still reproducible draw - the moment public information changes
+    const nrng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:votecount:${actor}:${this.live?.week ?? 0}:${this.voteInfoEpoch()}`));
     const noise = voters.map(() => nrng.next() * 2 - 1);
     return inDoubt(believedMargin(trueSupport, oc, noise), voters.length);
   }
@@ -8512,6 +8520,15 @@ export class GameSessionAdapter implements GameSession {
             targetSafe: this.ceremony.vetoHolder === c.target,
           })
         : c);
+    // B37 (ORWELL_VOTE_COUNT, slice 3): ADAPTATION - re-read the believed count for every NPC evict campaign each tick. An owner who now believes the count is decided stops (the campaign is dropped), so an
+    // overconfident NPC whose TRUE count differs quits early and is blindsided; if public information changes and the count is in doubt again, formation below re-opens it. Flag off => not entered.
+    if (this.voteCountEnabled) {
+      this.campaigns = this.campaigns.map((c) => {
+        if (c.status !== "active" || c.goal !== "evict" || c.owners[0] === PLAYER || this.voteStillInDoubt(c.owners[0]!, c.target)) return c;
+        this.voteCountStops += 1;
+        return { ...c, status: "abandoned" as const };
+      }).filter((c) => c.status === "active");
+    }
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
