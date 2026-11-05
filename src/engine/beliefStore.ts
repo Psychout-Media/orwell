@@ -1,7 +1,7 @@
 import type { EntityId } from "../domain/ids";
 
 /**
- * #2017 slice S0a — the NPC belief store: DATA MODEL + PLUMBING ONLY. Behind `ORWELL_NPC_BELIEFS` (default OFF, pinned never-flipped).
+ * #2017 slice S0a — the NPC belief store: DATA MODEL + PLUMBING ONLY. Behind `ORWELL_NPC_BELIEFS` (default ON; `=0` opts out).
  *
  * A `BeliefClaim` is one thing a houseguest (the `holder`) believes about the house — who moved against them, who is allied with whom, who holds
  * power — with where the belief came from and how sure the holder is. It is the typed index over what the knowledge layer already records

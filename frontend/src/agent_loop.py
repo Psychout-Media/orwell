@@ -4911,7 +4911,9 @@ async def _confession_guard(text: str, owner) -> "tuple[str, list]":
         return text, []
     try:
         from routes import chat_helpers
-        return chat_helpers.screen_invented_confession(owner, text)
+        _t, _ops = chat_helpers.screen_invented_confession(owner, text)
+        _t2, _ops2 = chat_helpers.screen_tell_faithfulness(owner, _t)  # A50
+        return _t2, list(_ops) + list(_ops2)
     except Exception:
         return text, []
 

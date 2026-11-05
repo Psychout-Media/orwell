@@ -69,7 +69,7 @@ a positive you can play toward, three ways (all hidden, engine-computed, **no nu
   the new kinds.
 - **FE:** the deal-extraction belt learns the two new kinds so a player striking one in chat gets it tracked.
 - **The gate:** every fold/gossip/NPC-read change and the making/reconciling of the new kinds is behind
-  `ORWELL_DEAL_DEPTH` (default OFF). Off ⇒ no new kind is made, the honored/broken folds are exactly 0039/0109,
+  `ORWELL_DEAL_DEPTH` (default ON; `=0` opts out). Off ⇒ no new kind is made, the honored/broken folds are exactly 0039/0109,
   no reputation is seeded ⇒ **byte-identical** (juryReach/gradient/UAT unmoved). Enabled in the deploy.
 
 ## 3. Scope

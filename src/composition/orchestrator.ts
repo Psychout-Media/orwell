@@ -806,6 +806,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // harness — which never enables them — is byte-identical. Uses its own dedicated rng, never this tick's.
   sandbox.session.campaignTick();
 
+  // B29 - observers react to a visible tell (comfort / exploit / avoid). SELF-GATED: a no-op (zero draws) unless ORWELL_TELL_REACTIONS and ORWELL_NPC_TELLS are on.
+  sandbox.session.tellReactionsTick();
+
   // 0100 — advance the sequestered JURY HOUSE one bounded stretch: the last-nine evictees keep living
   // (hidden juror↔juror scenes) and a grievance one juror carried out DIFFUSES to others, hardening the
   // room's read of the responsible houseguest before the finale. SELF-GATED: a no-op (ZERO draws, no
@@ -955,9 +958,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
 
   // 0091 — TRIGGER ERUPTIONS: AFTER the society/confessional folds, a plausibly-strained, co-present
   // houseguest whose volatile sealed trigger meets a fresh SPARK this tick (a conflict/betrayal scene that
-  // just named them) can DETONATE into a Vault-safe PUBLIC house event the player witnesses. Default-ON
-  // (`ORWELL_TRIGGERS=0` turns it off; AMEND 3a #7 - this comment used to say default-OFF): when off — and in the seeded juryReach/
-  // gradient/UAT sims, which run it off — the call is skipped entirely (no precipitant map built, no draw, no event,
+  // just named them) can DETONATE into a Vault-safe PUBLIC house event the player witnesses. STRICTLY
+  // OPT-OUT (default-ON `ORWELL_TRIGGERS`; `=0` disables): when off — the state the seeded juryReach/
+  // gradient/UAT sims run in — the call is skipped entirely (no precipitant map built, no draw, no event,
   // no fold), so this tick is byte-identical to the pre-feature build and the seeded competition/vote spine
   // is untouched. When on, the fire check runs on a DEDICATED rng INSIDE the session (never this shared
   // stream above) — the load-bearing calibration-neutrality guarantee. The precipitant is THIS tick's fresh
@@ -1054,7 +1057,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // scheduler runs, so the scheduler can consult it. It scores the simmering hidden threads (tension /
   // staleness / board salience) on a PURE pass (no rng) and stores a note proposing which threads to
   // EMPHASIZE — a clamped, boost-only re-weight of 0060's OPEN-SET surfacing selection, never an outcome
-  // (ADR 0005). SELF-GATED (default-OFF `ORWELL_SHOWRUNNER`): off ⇒ no note composed ⇒ the scheduler below
+  // (ADR 0005). SELF-GATED (default-ON `ORWELL_SHOWRUNNER`; `=0` disables): off ⇒ no note composed ⇒ the scheduler below
   // is byte-identical, and the note-composition pass draws ZERO from this shared `rng` either way, so the
   // seeded competition/vote/jury spine is untouched ON or OFF (the load-bearing calibration guarantee).
   sandbox.session.showrunnerTick();

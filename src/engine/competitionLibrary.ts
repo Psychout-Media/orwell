@@ -158,7 +158,7 @@ export const COMPETITION_LIBRARY: CompetitionDef[] = [
  * new defs preserve the base pool's governing-stat MIX per phase (physical ~33% / mental ~53% / social
  * ~13%) so the competition balance — and thus the seeded calibration distribution — stays stable.
  *
- * OPT-IN, default-off (`ORWELL_COMP_MECHANICS_PLUS`, threaded via `SeasonCtx.expandedComps`): adding
+ * default ON (`ORWELL_COMP_MECHANICS_PLUS`; `=0` opts out, threaded via `SeasonCtx.expandedComps`): adding
  * mechanics changes WHICH def a fixed seed draws each week, and the def's `type` selects the resolution
  * stat, so it changes seeded winners (the documented COMP-4 cost). With the flag off the draw pool is the
  * bare base 12 ⇒ every seeded gate (juryReach / gradient / UAT / golden / the fixed-seed 0043 BDD) is

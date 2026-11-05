@@ -28,6 +28,8 @@ import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint } from "../../engine/voice";
+import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
+import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
@@ -1475,6 +1477,95 @@ export class GameSessionAdapter implements GameSession {
    * the movement trajectory stays reproducible across a restart. Advances ONCE per `presenceTick`.
    */
   private presenceTickCount = 0;
+  /** B28: monotonic count of tell onsets (persisted as `tellOnsetCount`). */
+  private tellOnsetCount = 0;
+  /** B29 (ORWELL_TELL_REACTIONS, default OFF, never-flipped): observers react to a visible tell (comfort / exploit / avoid). Engine-only state, persisted (`tellReactions`). */
+  private tellReactionsEnabled = process.env.ORWELL_TELL_REACTIONS === "1";
+  setTellReactionsEnabled(on: boolean): void { this.tellReactionsEnabled = on; }
+  /** B30 (ORWELL_MOOD_VETO / ORWELL_MOOD_APPROACH, default OFF, never-flipped; each needs ORWELL_NPC_TELLS): emotion into the veto save and into who seeks the player out. */
+  private moodVetoEnabled = process.env.ORWELL_MOOD_VETO === "1";
+  setMoodVetoEnabled(on: boolean): void { this.moodVetoEnabled = on; }
+  private moodApproachEnabled = process.env.ORWELL_MOOD_APPROACH === "1";
+  setMoodApproachEnabled(on: boolean): void { this.moodApproachEnabled = on; }
+  /** B31 (ORWELL_MOOD_DEAL / ORWELL_MOOD_CAMPAIGN, default OFF, never-flipped; each needs ORWELL_NPC_TELLS): visible mood into deal consent and campaign formation. */
+  private moodDealEnabled = process.env.ORWELL_MOOD_DEAL === "1";
+  setMoodDealEnabled(on: boolean): void { this.moodDealEnabled = on; }
+  private moodCampaignEnabled = process.env.ORWELL_MOOD_CAMPAIGN === "1";
+  setMoodCampaignEnabled(on: boolean): void { this.moodCampaignEnabled = on; }
+  moodDealFor(npc: EntityId, kind: string): number {
+    if (!this.moodDealEnabled || !this.npcTellsEnabled || npc === PLAYER) return 0;
+    return moodDealTerm(this.soulObj(npc)?.tells, kind);
+  }
+  moodSteady(npc: EntityId): boolean {
+    if (!this.moodCampaignEnabled || !this.npcTellsEnabled) return true;
+    return !moodUnsteady(this.soulObj(npc)?.tells);
+  }
+  moodVetoFor(nominee: EntityId, holder: EntityId): number {
+    if (!this.moodVetoEnabled || !this.npcTellsEnabled || holder === PLAYER) return 0;
+    const e = this.rel.edge(holder, nominee);
+    return moodVetoTerm(this.soulObj(holder)?.tells, (e.trust + e.affinity) / 2);
+  }
+  moodApproachFor(npc: EntityId): number {
+    if (!this.moodApproachEnabled || !this.npcTellsEnabled || npc === PLAYER) return 0;
+    return moodApproachTerm(this.soulObj(npc)?.tells);
+  }
+  /** "holder|subject" -> the holder's decaying exploit tilt toward the visibly rattled subject. */
+  private tellExploit: Record<string, number> = {};
+  /** "observer|target" -> the week the observer last reacted to that target (the per-pair cooldown). */
+  private tellReactedWeek: Record<string, number> = {};
+  /** Reaction counts by kind (observability + tests; monotonic). */
+  private tellReactionCounts: Record<string, number> = {};
+  /** Monotonic count of observer-reaction passes: keys the dedicated stream so each pass draws fresh, reproducibly (persisted). */
+  private tellReactionTicks = 0;
+  tellReactionCountsNow(): Readonly<Record<string, number>> { return { ...this.tellReactionCounts }; }
+  /** B29: the exploit tilt `holder` carries toward `subject` (0 when none / flag off). Bounded by `TELL_REACTION.exploitCap`. */
+  private moodTiltFor(subject: EntityId, holder: EntityId): number {
+    return this.tellExploit[`${holder}|${subject}`] ?? 0;
+  }
+  /**
+   * B29 - one observer-reaction pass, driven by the orchestrator's per-turn off-screen tick. For every houseguest who is VISIBLY rattled (a persisted tell from B28) and shares a room with an awake NPC
+   * observer, the observer may react (comfort / exploit / avoid) - chosen by the observer's strategy style, disposition and bond to the target, drawn from a DEDICATED stream, once per pair per week.
+   * Comfort lowers the target's distress a little and builds their trust in the observer; exploit adds a small decaying tilt read by the nomination/vote providers; avoid is recorded (no effect yet).
+   * Observability gate = the existing co-presence (ADR 0019): only the same room. Flag off => returns before anything (zero draws, nothing written).
+   */
+  tellReactionsTick(): void {
+    if (!this.tellReactionsEnabled || !this.npcTellsEnabled || !this.house || !this.presence) return;
+    for (const k of Object.keys(this.tellExploit)) { const v = decayExploit(this.tellExploit[k]!); if (v > 0) this.tellExploit[k] = v; else delete this.tellExploit[k]; }
+    const awake = this.awakeNow();
+    const week = this.week;
+    this.tellReactionTicks += 1;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:tell-react:${this.tellReactionTicks}:${week}`));
+    const npcs = this.house.npcs.map((n) => n.id).filter((id) => this.livingIds().includes(id) && (!awake || awake.has(id)));
+    for (const target of npcs) {
+      const so = this.soulObj(target);
+      const tell = so?.tells?.find((t) => TELL_REACTION.rattled.includes(t.kind)); // the first VISIBLY RATTLED tell (a restless or giddy one invites no reaction)
+      if (!so || !tell) continue;
+      const room = this.presence.get(target);
+      if (room === undefined) continue;
+      for (const observer of npcs) {
+        if (observer === target || this.presence.get(observer) !== room) continue;
+        const key = `${observer}|${target}`;
+        const roll = rng.next(); // one draw per (target, observer) pair in a fixed order => reproducible regardless of the cooldown
+        if ((this.tellReactedWeek[key] ?? -99) > week - TELL_REACTION.cooldownWeeks) continue;
+        const e = this.rel.edge(observer, target);
+        const hg = this.house.npcs.find((n) => n.id === observer);
+        const reaction = chooseTellReaction({
+          tell: { kind: tell.kind, band: tell.band }, bond: (e.trust + e.affinity) / 2,
+          style: hg?.character.strategyStyle, disposition: this.baselineDispositionOf(observer), roll,
+        });
+        if (!reaction) continue;
+        this.tellReactedWeek[key] = week;
+        this.tellReactionCounts[reaction] = (this.tellReactionCounts[reaction] ?? 0) + 1;
+        if (reaction === "comfort") {
+          if (typeof so.distress === "number") so.distress = Math.max(0, so.distress - TELL_REACTION.comfortDistress);
+          this.rel.applyImpactDirected(target, observer, { trust: TELL_REACTION.comfortTrust }, rng);
+        } else if (reaction === "exploit") {
+          const k = `${observer}|${target}`;
+          this.tellExploit[k] = addExploit(this.tellExploit[k] ?? 0);
+        }
+      }
+    }
+  }
   /**
    * SEATED sub-zones (issue #792 — the PO ruling: sub-zones are SEATED into `assignRooms`, not computed
    * on-read). Each houseguest in a zoned big room (backyard/lounge) holds a per-id sub-zone here — the
@@ -2203,7 +2294,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private notoriety: NotorietySummary | null = null;
   /**
-   * 0091 — whether the TRIGGER-ERUPTION layer RUNS. Default ON (the dedicated `ORWELL_TRIGGERS` flag; `=0` turns it off):
+   * 0091 — whether the TRIGGER-ERUPTION layer RUNS. DEFAULT ON (the dedicated `ORWELL_TRIGGERS` flag; `=0` opts out):
    * when off, the orchestrator never calls `runTriggerEruptions` ⇒ ZERO draws on any rng ⇒ every seeded
    * gate is byte-identical (the calibration-neutrality guarantee). Per instance; a test flips it via
    * `setTriggersEnabled`.
@@ -2419,6 +2510,57 @@ export class GameSessionAdapter implements GameSession {
    * disposition — never a number). Everything any OTHER houseguest privately knows, the Vault,
    * and the souls stay out by construction — the model cannot voice what this NPC never learned.
    */
+  /** A49 - narrator-side observable tells (E1a). OFF unless exactly `ORWELL_NPC_TELLS=1`; never-flipped. */
+  private npcTellsEnabled = process.env.ORWELL_NPC_TELLS === "1";
+  /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
+  private npcMemorySpeechEnabled = process.env.ORWELL_NPC_MEMORY_SPEECH === "1";
+  setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
+  /** In-game day of the last `bringUp` per houseguest (the once-per-day rate cap). Process-local: a restart may allow one extra mention, never a second leak. */
+  private bringUpDay = new Map<EntityId, number>();
+  private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8 } as const; // ASSUMED, pending Ryne (design 14.10)
+  private static readonly MEMORY_ABOUT_YOU: Readonly<Record<MemoryKind, string>> = {
+    "deal-broken": "you broke a deal with them", "nominated-by-friend": "you put them on the block while they trusted you",
+    "replaced-by-friend": "you named them the replacement while they trusted you", "veto-saved": "you saved them with the veto",
+    "veto-withheld": "you left them on the block when you held the veto", "deal-kept": "you kept a deal with them",
+    "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
+    "nominated-by-hoh": "you put them on the block",
+  };
+  /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
+  private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
+    const live = this.live;
+    const entries = live?.npcMemory?.[id]?.[PLAYER];
+    if (!live || !entries || entries.length === 0) return {};
+    const half = NPC_MEMORY.halfLifeWeeks;
+    const scored = entries.map((e) => ({ e, w: e.severity * Math.pow(0.5, Math.max(0, live.week - e.week) / half) }))
+      .filter((x) => x.w >= GameSessionAdapter.MEMORY_SPEECH.floor).sort((a, b) => b.w - a.w).slice(0, GameSessionAdapter.MEMORY_SPEECH.top);
+    if (scored.length === 0) return {};
+    const when = (age: number): string => (age <= 0 ? "this week" : age <= 2 ? "recently" : "a while back");
+    const facts = scored.map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
+    const day = live.dayNumber ?? live.week;
+    let bring = false;
+    if (scored[0]!.w >= GameSessionAdapter.MEMORY_SPEECH.bar && this.bringUpDay.get(id) !== day) {
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bring-up:${id}:${day}`)).next();
+      if (roll < Math.min(1, scored[0]!.w * GameSessionAdapter.MEMORY_SPEECH.chanceScale)) { bring = true; this.bringUpDay.set(id, day); }
+    }
+    return { rememberedAboutYou: facts, ...(bring ? { bringUp: true as const } : {}) };
+  }
+  setNpcTellsEnabled(on: boolean): void { this.npcTellsEnabled = on; }
+  /** Present in the player's room and awake - the only houseguests whose carriage the player can observe. */
+  private tellsVisibleFor(id: EntityId): boolean {
+    if (!this.house || !this.presence) return false;
+    const mine = this.presence.get(this.house.player.id);
+    const theirs = this.presence.get(id);
+    if (mine === undefined || theirs === undefined || mine !== theirs) return false;
+    const awake = this.awakeNow();
+    return !awake || awake.has(id);
+  }
+  private tellsFor(id: EntityId): { tells?: ReadonlyArray<{ kind: string; band: string; channel: string }> } {
+    const soul = this.soulObj(id);
+    if (!soul) return {};
+    // B28: the persisted record (hysteresis against the previous tells) when the arc has refreshed it; a houseguest the arc has not touched yet falls back to a fresh read of the soul.
+    const t = soul.tells ? soul.tells.map((x) => ({ kind: x.kind, band: x.band, channel: tellChannel(x.kind) })) : tellsOf(soul);
+    return t.length ? { tells: t.map((x) => ({ kind: x.kind, band: x.band, channel: x.channel })) } : {};
+  }
   npcVoice(idOrName: EntityId): NpcVoiceView | null {
     if (!this.house) return null;
     // Name-tolerant lookup (audit 2026-06-18): the narration model reliably calls this with a
@@ -2487,6 +2629,10 @@ export class GameSessionAdapter implements GameSession {
         const s = this.soulObj(id);
         return s ? { mood: moodWord(s.emotionalState, s.volatility, s.emotionalHistory) } : {};
       })() : {}),
+      // A49 (ORWELL_NPC_TELLS, default OFF): the observable carriage of a houseguest who is PRESENT in the player's room and awake - words only (kind / band / channel). Flag off => no key.
+      ...(this.npcTellsEnabled && isActive && this.tellsVisibleFor(id) ? this.tellsFor(id) : {}),
+      // A54 (ORWELL_NPC_MEMORY_SPEECH + the memory ledger, default OFF): what an ACTIVE houseguest remembers about the player. Flag off => no key.
+      ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memorySpeechFor(id) : {}),
       whereabouts: room ? { room, present } : null,
       knows: (this.npcKnowledge?.known(id) ?? [])
         .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
@@ -3688,6 +3834,8 @@ export class GameSessionAdapter implements GameSession {
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
+      ...(this.tellOnsetCount > 0 ? { tellOnsetCount: this.tellOnsetCount } : {}),
+      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks } } : {}),
       // issue #792: the SEATED sub-zones (player-facing view) — persisted tenure-style so drift/cluster
       // history survives a restart (0007, only-forward) and never reseeds from scratch. Absent/empty ⇒
       // omitted (byte-identical to a pre-feature save; the next tick seats fresh). Vault-free position.
@@ -4004,6 +4152,11 @@ export class GameSessionAdapter implements GameSession {
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
+    this.tellOnsetCount = core.tellOnsetCount ?? 0;
+    this.tellExploit = { ...(core.tellReactions?.exploit ?? {}) };
+    this.tellReactedWeek = { ...(core.tellReactions?.reactedWeek ?? {}) };
+    this.tellReactionCounts = { ...(core.tellReactions?.counts ?? {}) };
+    this.tellReactionTicks = core.tellReactions?.ticks ?? 0;
     // issue #792: restore the SEATED sub-zones (acquired drift/cluster history survives a restart). A
     // pre-feature save carries none ⇒ null ⇒ the next tick seats everyone fresh from `zoneFor`, NO error.
     this.presenceZone = core.presenceZone ? new Map(Object.entries(core.presenceZone) as [EntityId, Zone][]) : null;
@@ -4895,7 +5048,11 @@ export class GameSessionAdapter implements GameSession {
     // adjacency): the open public core sees across itself + into the hallway mouth, but a CLOSED door
     // (a bedroom, the bathroom/lounge, the HOH/storage/diary) is opaque — standing one room over no
     // longer leaks who is behind it. Who is behind a closed door is earned by watching, never ambient.
-    const present = inRoom(room);
+    const presentPlain = inRoom(room);
+    // A51 (#2017 E2, flag ORWELL_NPC_TELLS, default OFF): the strongest observable tell KIND (a closed word, no band/number/cause) rides on each in-room houseguest so the FE can show one chip. In-room + awake only (tellsVisibleFor); absent flag => byte-identical.
+    const present = this.npcTellsEnabled
+      ? presentPlain.map((p) => { const t = this.tellsVisibleFor(p.id) ? this.tellsFor(p.id).tells?.[0] : undefined; return t ? { ...p, tell: t.kind } : p; })
+      : presentPlain;
     // 0077: the TRACKED layer — who the player BELIEVES is behind a closed door (acquired by watching a
     // doorway), with age + a Vault-safe `stale` flag. NEVER the live map — the bedrooms stay blanks in
     // `nearby` (sightline). The player's own sub-zone rides along as flavor ("over by the pool").
@@ -4921,7 +5078,7 @@ export class GameSessionAdapter implements GameSession {
       // L21/L24: duration — the player's tenure in this room + each companion's, so the narrator
       // voices continuity (who has lingered with you vs. who just walked in) instead of resetting.
       turnsHere: this.presenceTenure?.get(me) ?? 0,
-      companions: present.map((p) => ({ ...p, turnsHere: this.presenceTenure?.get(p.id) ?? 0 })),
+      companions: presentPlain.map((p) => ({ ...p, turnsHere: this.presenceTenure?.get(p.id) ?? 0 })),
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
     };
@@ -5078,7 +5235,8 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachMemoryEnabled ? (n) => this.approachMemoryFor(n, player) : undefined);
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined,
+      this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined);
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -7560,8 +7718,10 @@ export class GameSessionAdapter implements GameSession {
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
+      ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
+      ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
@@ -8355,7 +8515,7 @@ export class GameSessionAdapter implements GameSession {
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
-      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
+      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
         if (activeCount() >= CAMPAIGN.maxConcurrent) break;
         if (!this.campaigns.some((c) => c.status === "active" && c.owners[0] === f.owners[0])) this.campaigns.push(f);
       }
@@ -9062,13 +9222,14 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
-  private inflect(id: EntityId, event: EmotionalEvent): void {
+  private inflect(id: EntityId, event: EmotionalEvent, driftScale?: number): void {
     const soul = this.soulObj(id);
     if (!soul) return;
     const rng = new SeededRandom(hashSeed(
       `${this.gameSeed ?? this.house?.player.name ?? "season"}:arc:${id}:${event}:${soul.emotionalHistory.length}`,
     ));
-    evolveEmotion(soul, event, undefined, rng, { soulDepth: this.soulDepthEnabled });
+    evolveEmotion(soul, event, undefined, rng, { soulDepth: this.soulDepthEnabled, ...(this.driftFixEnabled ? { negativityBias: true, ...(driftScale !== undefined ? { driftScale } : {}) } : {}) });
+    if (this.npcTellsEnabled) { const r = refreshTells(soul, this.week); soul.tells = r.tells; this.tellOnsetCount += r.onsets; } // B28: the tells follow the arc and keep their hysteresis (flag-off: untouched)
     const note = arcNote(event, this.week);
     soul.memory.push(note);                 // persisted arc (house snapshot, monotonic — 0007/0030)
     this.soul?.recordToSoul(id, note);       // vector recall index (0024), when wired into the sandbox
@@ -10090,6 +10251,7 @@ export class GameSessionAdapter implements GameSession {
       favor: memoryFavor(entries, live.week, decay, carry),
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
+      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
@@ -11261,7 +11423,19 @@ export class GameSessionAdapter implements GameSession {
     const m = SCENE_MEMORY_SEVERITY[sceneKind];
     if (!m) return;
     for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
+    // B32 / #2017 15.7 E5 (ORWELL_DRIFT_FIX): the chat scene feeds the emotional arc too - a betrayal / conflict hardens the wronged NPC, kindness softens - weighted by severity and by how much the NPC TRUSTED the player (a friend's betrayal cuts deeper).
+    if (this.driftFixEnabled && this.soulDepthEnabled) {
+      for (const h of holders) {
+        if (h === PLAYER) continue;
+        const trust = this.rel.edge(h, PLAYER).trust;
+        const scale = (m.severity / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, trust)));
+        this.inflect(h, m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
+      }
+    }
   }
+  /** B32 (ORWELL_DRIFT_FIX, default OFF, never-flipped; needs soul depth): chat scenes feed the arc + a negativity bias on temperament drift, so hardening is reachable. */
+  private driftFixEnabled = process.env.ORWELL_DRIFT_FIX === "1";
+  setDriftFixEnabled(on: boolean): void { this.driftFixEnabled = on; }
 
   /** A "friend" act (nominated / replaced by someone the holder TRUSTED) — only above the trust bar, read pre-fold. */
   private rememberFriendAct(holder: EntityId, subject: EntityId, kind: "nominated-by-friend" | "replaced-by-friend"): void {
@@ -12141,7 +12315,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, confrontMisfire: this.gossipConsequenceEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, confrontMisfire: this.gossipConsequenceEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
