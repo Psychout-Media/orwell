@@ -55,7 +55,7 @@ import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deal
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
-import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
+import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1175,7 +1175,14 @@ export class GameSessionAdapter implements GameSession {
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
     if (!this.assurancesEnabled || !this.live) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
-    ledger.add({ ...a, week: this.live.week });
+    // B4 slice 7: an NPC's sincerity is the ENGINE's call (loyalty + a dedicated seeded roll), never the model's proposal; the player's own stays as recorded.
+    let sincerity = a.sincerity;
+    if (a.source === "npc") {
+      const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(a.from), this.emotionalReadOf(a.from))));
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}`)).next();
+      sincerity = npcAssuranceSincerity(loyalty, roll);
+    }
+    ledger.add({ ...a, sincerity, week: this.live.week });
     this.live.assurances = ledger.toJSON();
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
