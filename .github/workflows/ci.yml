@@ -298,7 +298,10 @@ jobs:
       - name: install front-end deps
         run: pip install -r frontend/requirements.lock.txt
       - name: pytest — non-browser suite, parallel (app-admin 0029, game build 0032)
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q
+        env:
+          ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
+          ORWELL_SKIP_LANE: unit
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -323,7 +326,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -345,8 +348,20 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
       - name: install playwright chromium
         run: python3 -m playwright install --with-deps chromium
+      # The real-stack browser tests (test_m0_3_midgen_join, test_p0h_day1_clock_e2e, test_b13_interrupt_e2e, test_first_message_double_render, test_f3_drop_after_saved_no_recovery, ...) boot the
+      # BUILT engine (`dist/main.js`) and skipped with "engine bundle missing" because this job never built it. The A41 skip guard surfaced that 23 browser tests were silently not running.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: build the engine bundle (dist/main.js) for the real-stack browser tests
+        run: npm run build
       - name: pytest — headless-browser suite, serial + retry-once
-        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q
+        env:
+          ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
+          ORWELL_SKIP_LANE: browser
+        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs
 
   fe-browser:
     needs: changes

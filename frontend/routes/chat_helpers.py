@@ -1675,9 +1675,12 @@ def _is_stale_beat_error(exc) -> bool:
     # message. The thin client now surfaces the structured 409 body (`code`/`beatSeq`); the message
     # marker is only a FALLBACK for an older engine / a test stub. So a wording drift in
     # StaleBeatError.message can no longer silently turn reconcile fail-closed.
-    if getattr(exc, "code", None) == "stale-beat":
+    _code = getattr(exc, "code", None)
+    if _code == "stale-beat":
         return True
-    return _STALE_BEAT_MARKER in (str(exc) or "").lower()
+    if isinstance(_code, str) and _code.strip():
+        return False  # A55: an explicit NON-stale machine code (e.g. a turn-refused integrity 409) wins over any prose that happens to mention the marker
+    return _STALE_BEAT_MARKER in (str(exc) or "").lower()  # fallback ONLY for an engine/stub that sends no code
 
 
 async def _handle_stale_beat(user, exc) -> None:
