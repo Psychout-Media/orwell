@@ -5,7 +5,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
-import { resolvePending } from "../../tests/support/adr0003";
+import { resolvePending } from "../support/answerPending";
 import { PLAYER } from "../../src/domain/ids";
 import type { UserSandbox } from "../../src/composition/registry";
 
@@ -26,7 +26,7 @@ function buildLiveHouse(w: BbWorld, clockOn: boolean, seed = 7): void {
   reg.setOnReset((u) => orch.forgetUser(u));
   for (let i = 0; i < 120 && sb.session.snapshot().live?.hoh === undefined; i++) {
     const v = sb.session.advanceGame();
-    if (v.pending) resolvePending(sb.session, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
     if (v.finished) break;
   }
   w.igtSandbox = sb;
@@ -124,4 +124,11 @@ Then("the reads return only the clock, never any Vault content", function (this:
   assert.equal(typeof hour, "number", "inGameHour returns the clock hour");
   assert.ok(!JSON.stringify(hour).includes("VAULT_117_SENTINEL"), "no Vault content in the hour read");
   assert.ok(!JSON.stringify(sb.session.perConversationClockLive()).includes("VAULT_117_SENTINEL"), "no Vault content in the live read");
+  // An explicit ALLOWLIST (deepEqual on the key set), not "no forbidden key": the player-facing reads may carry ONLY these
+  // clock-bearing fields — a stray raw-hour / depth / rest key fails here instead of slipping through.
+  const CLOCK_KEY = /time|clock|hour|asleep|rest|night|schedule|depth/i;
+  const clockKeys = (o: object): string[] => Object.keys(o).filter((k) => CLOCK_KEY.test(k)).sort();
+  assert.deepEqual(clockKeys(sb.session.gameStatus()), ["asleep", "timeOfDay"], "gameStatus carries no clock key beyond the allowed clock fields");
+  assert.deepEqual(clockKeys(sb.session.getGameState()), ["asleep", "daySchedule", "timeOfDay"], "getGameState carries no clock key beyond the allowed clock fields");
+  assert.ok(!JSON.stringify(sb.session.gameStatus()).includes("VAULT_117_SENTINEL"), "no Vault content in the public status");
 });

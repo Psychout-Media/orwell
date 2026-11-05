@@ -44,11 +44,32 @@ describe("anti-sycophancy on the live loop (C3)", () => {
     const playerShare = playerReigns / totalReigns;
     const fairShare = 1 / 16; // exchangeability: each of 16 identical houseguests reigns equally often
     expect(playerShare, `player HOH share ${playerShare.toFixed(4)} vs fair ${fairShare.toFixed(4)}`)
-      .toBeGreaterThan(fairShare * 0.6);
-    expect(playerShare).toBeLessThan(fairShare * 1.6);
+      .toBeGreaterThan(fairShare * 0.7);
+    expect(playerShare).toBeLessThan(fairShare * 1.3); // A18: tightened from 0.6-1.6x (measured 1.02x on seeds 1-150; a few-point hidden bonus now fails)
     // Season wins: ~1/16 of 150 ≈ 9.4 (sd ≈ 3) — a generous band that still catches protection.
     expect(playerSeasonWins).toBeGreaterThanOrEqual(2);
     expect(playerSeasonWins).toBeLessThanOrEqual(22);
+  });
+
+  it("A18: at identical stats + souls the player wins the VETO exactly as often as anyone (the no-favor proof is not HOH-only)", () => {
+    const roster: SeasonHouseguest[] = [
+      { id: PLAYER, stats: flat(0.5) },
+      ...Array.from({ length: 15 }, (_, i) => ({ id: npc(i + 1), stats: flat(0.5) })),
+    ];
+    let playerVetoes = 0;
+    let totalVetoes = 0;
+    for (let seed = 1; seed <= 150; seed++) {
+      for (const w of playSeason({ seed, houseguests: roster }).weeks) {
+        if (w.vetoHolder === undefined) continue; // the Final-3 week has no veto
+        totalVetoes += 1;
+        if (w.vetoHolder === PLAYER) playerVetoes += 1;
+      }
+    }
+    const share = playerVetoes / totalVetoes;
+    const fair = 1 / 16; // exchangeable houseguests; measured 1.03x on seeds 1-150 (n=1950)
+    expect(totalVetoes).toBeGreaterThan(1500);
+    expect(share, `player veto share ${share.toFixed(4)} vs fair ${fair.toFixed(4)}`).toBeGreaterThan(fair * 0.7);
+    expect(share).toBeLessThan(fair * 1.3);
   });
 
   it("the LIVE emotional modifier has the right sign for the player too (rattled hurts, never helps)", () => {

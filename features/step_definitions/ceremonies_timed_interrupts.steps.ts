@@ -7,7 +7,7 @@ import { Orchestrator } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { renderGameContext } from "../../src/engine/momentPrompts";
 import { nextMilestone, MILESTONE_LABEL, DAY_SCHEDULE } from "../../src/engine/daySchedule";
-import { resolvePending } from "../../tests/support/adr0003";
+import { resolvePending } from "../support/answerPending";
 import { PLAYER } from "../../src/domain/ids";
 import type { UserSandbox } from "../../src/composition/registry";
 
@@ -30,7 +30,7 @@ function buildScheduledHouse(w: BbWorld, clockOn: boolean, seed = 7): void {
     if (sb.session.perConversationClockLive() && sb.session.snapshot().live?.hoh !== undefined) break;
     if (clockOn ? false : sb.session.snapshot().live?.hoh !== undefined) break;
     const v = sb.session.advanceGame();
-    if (v.pending) resolvePending(sb.session, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => sb.session.submitDecision(req));
     if (v.finished) break;
   }
   w.dscSandbox = sb;

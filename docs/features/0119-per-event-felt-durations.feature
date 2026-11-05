@@ -2,13 +2,13 @@
 # only, no cast names. In-game time ONLY — never the real-world clock.
 #
 # Each event costs its own felt slice of the in-game day (a quick ceremony vs a long competition) instead
-# of a flat +3h, while the seeded outcome and the golden-replay path stay byte-identical.
+# of a flat +3h, while the seeded outcome and the clock-off path stay byte-identical.
 
 Feature: Different events cost different amounts of the in-game day
 
   A resolved beat advances the in-game clock by its OWN felt duration — a nomination or veto ceremony is
   quick, a competition is long, an eviction sits in between — so the day fills up at a lived rate. This is
-  pure presentation: it never changes who wins, and when the per-conversation clock is off (golden replay)
+  pure presentation: it never changes who wins, and when the per-conversation clock is off (the calibration path)
   every beat keeps the flat default.
 
   Scenario: A quick ceremony costs less of the day than a competition

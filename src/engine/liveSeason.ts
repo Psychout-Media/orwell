@@ -665,7 +665,7 @@ export interface LiveSeasonState {
   firstMorningPassed?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
-   * major beat lands on its OWN in-fiction day (WEEKLY_CADENCE: Day 1 HOH → 2 noms → 3 veto → 4 veto
+   * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
    * ceremony → 5 eviction), never two ceremonies in one day. Each is set the first time its beat resolves
    * for the current reign and cleared per reign by `rollWeek`. Written ONLY under the clock-pacing
    * night-gate (`SeasonCtx.nightGate`) ⇒ a clock-off / calibration game never sets them ⇒ byte-identical.
@@ -803,8 +803,18 @@ export interface SeasonCtx {
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default OFF). Absent ⇒ byte-identical. */
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
+  pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): does `holder` hold a casual assurance toward `target` that they decided to KEEP? Absent => no protection (byte-identical). */
   assuranceProtects?: (target: EntityId, holder: EntityId) => boolean;
+  /** B7 M1 (ORWELL_VETO_MEMORY): how much MORE worth saving `nominee` is to the veto `holder` from what the holder remembers / believes / owes (signed: grudge or 'they target me' lowers, favor or an owed deal raises). Absent => +0, byte-identical. */
+  vetoMemoryFor?: (nominee: EntityId, holder: EntityId) => number;
+  /** B7 M3 (ORWELL_DEAL_NOMS): the nomination-score push from the HOH's open protective deals with `target` (<= 0). Absent => byte-identical. */
+  dealNomPushFor?: (target: EntityId, holder: EntityId) => number;
+  /** B4 slice 4 (ORWELL_ASSURANCES): the bounded shield a KEPT 'vote'/'safe' assurance `voter` made to nominee `n` adds against evicting `n`. Absent => 0, byte-identical. */
+  assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
+  /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
+  assuranceVotedOut?: (voter: EntityId, nominee: EntityId) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /**
@@ -1752,6 +1762,8 @@ export function voteChoice(
     (ctx.memoryTiltFor?.(n, voter) ?? 0) +
     // B3b / #2017: this voter's BELIEF that `n` is targeting them (`targets-me` claims, sometimes wrong) — read from claims, never the edge. Absent provider ⇒ 0 ⇒ byte-identical.
     (ctx.beliefTiltFor?.(n, voter) ?? 0) -
+    // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
+    (ctx.assuranceVoteFor?.(n, voter) ?? 0) -
     (dealBound(n) ? V.dealHonorWeight : 0) -
     V.juryManagementWeight * ctx.rel.edge(n, voter).trust -
     V.bondKeepWeight * ctx.rel.bondStrength(voter, n) +
@@ -1772,6 +1784,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
     const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined);
     votes[target]++;
     voteOf.set(v, target);
+    if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target); // B4 slice 4: voting the assured out breaks the assurance
   }
   return { fn, votes, voteOf };
 }
@@ -2679,7 +2692,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // #1320 NIGHT-GATE: the HOH crown and the nominations must not resolve in the same in-fiction
       // moment. When the clock pacing is live, the FIRST advance into this beat crosses the night to the
       // next morning as its own diegetic `day-break` beat (one-shot per reign), and nominations resolve on
-      // the following advance — Day 1 HOH → Day 2 noms (WEEKLY_CADENCE), never a fast-forward. GATED, so a
+      // the following advance — Day 1 HOH → Day 2 noms (day order WEEKLY_CADENCE.dayOf; slots DAY_SCHEDULE), never a fast-forward. GATED, so a
       // clock-off / calibration game skips this entirely ⇒ byte-identical. (ADR 0006: a diegetic day
       // boundary, not a curfew — it never interrupts an engaged scene, it just seats the ceremony a day on.)
       // TWIST GUARD (all four cadence gates): a RUNNING double eviction is a single COMPRESSED night by
@@ -2710,6 +2723,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
         ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.dealNomPushFor ? { dealPush: (t: EntityId) => ctx.dealNomPushFor!(t, s.hoh!) } : {}),
+        ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;
@@ -2768,7 +2783,9 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         : ctx.rel.chooseVetoSave(
           s.vetoHolder!, nominees,
           // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor ? (n: EntityId) => -ctx.campaignPushFor!(n, s.vetoHolder!) : undefined,
+          ctx.campaignPushFor || ctx.vetoMemoryFor
+            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0)
+            : undefined,
         );
       if (!saved) {
         s.vetoUsed = false; s.finalNominees = [nominees[0], nominees[1]]; s.beat = "eviction";

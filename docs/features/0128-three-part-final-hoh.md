@@ -1,6 +1,8 @@
 # 0128 — Three-part Final HOH (the real _Big Brother_ finale competition)
 
-> **Status:** ✅ **Built 2026-11-04** behind `ORWELL_FINAL_HOH_THREE_PART` (default OFF; issue #2045) — authored during the 0045 PO review (2026-07-13). See the README row for the built shape and the calibration result. **Expands 0045** (endgame
+> **Current default (AMEND 2026-11-04):** `ORWELL_FINAL_HOH_THREE_PART` is now **default ON** in the engine (`FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn(...)`) and in `deploy/orwell-env-defaults.sh`; `=0` turns it off. The "default-off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
+> **Status:** ✅ **Built 2026-11-04** behind `ORWELL_FINAL_HOH_THREE_PART` (issue #2045; now default ON, #2066) — authored during the 0045 PO review (2026-07-13). See the README row for the built shape and the calibration result. **Expands 0045** (endgame
 > structure). Today Final 3 crowns the final HOH with a **single** competition; the real show runs a **3-part**
 > tournament. This spec replaces that single comp with the canonical three parts, behind a default-off,
 > calibration-safe flag.
@@ -51,7 +53,7 @@ calibration harness* (that is a full calibration re-baseline — a separate, lar
 ## 4. Design
 
 - **Flag-gated, calibration-safe.** Three stat-typed comps instead of one **changes which finalist becomes
-  Final HOH for a given seed**, so the flag is **default-OFF**: off ⇒ the single-comp 0045 path runs unchanged
+  Final HOH for a given seed**, so it is a **flag** (now default ON, #2066): OFF ⇒ the single-comp 0045 path runs unchanged
   and every seeded gate (`juryReach` / gradient / UAT / the endgame BDD) is **byte-identical**; the deploy
   turns it on. `juryReach` must be re-confirmed **on** (band holds) before shipping — the same bar as 0126/0127.
 - **Engine-decided (anti-sycophancy).** Every part is resolved by `resolveCompetition` (stats + temperature +
@@ -116,3 +118,7 @@ dependency), feeds **0045**'s `final-eviction` (unchanged) → **0037** (finale)
 **Open decision (deferred to build time):** the exact governing stat for Part 2 (pure `mental`, or the
 `physical`+`mental` hybrid blend as specced here). Spec picks the hybrid to honor "a physical and mental comp";
 revisit if calibration prefers a single stat.
+
+
+## Jury resume credit (PO ruling, Ryne 2026-11-05)
+Winning parts of the three-part Final HOH **count toward the jury's respect for the competition record** ("the jury would respect that"): `crownCompetition` credits the winner's resume once per part win (Part 1, Part 2, and the Part 3 crown - three credits in all, the crown never double-credited), the same small bounded `gameRespect` read as any broadcast win. Pinned by `tests/unit/finalHohResumeCredit.test.ts` (ON: exactly +3 resume credits across the tournament; OFF/single comp: +1).

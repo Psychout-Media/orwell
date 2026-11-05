@@ -89,6 +89,37 @@ describe("a real season — eviction nights and the finale each move the clock o
   });
 });
 
+describe("an eviction night costs exactly its 2 in-game hours, once (not twice)", () => {
+  it("the clock moves by exactly eventSpanHours('eviction') across each whole eviction night", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("event-clock-hours");
+    const s = sb.session as GameSession & { snapshot(): { live?: LiveSeasonState } };
+    s.createCharacter({ playerName: "The Player", seed: 108 });
+    expect(eventSpanHours("eviction")).toBe(2); // the constants say 2 hours (EVENT_DURATION.hoursByBeat.eviction)
+
+    const hoursByNight = new Map<string, number>(); // eviction night → total clock hours charged across ALL its steps
+    for (let i = 0; i < 4000; i++) {
+      const before = s.snapshot().live;
+      const depthBefore = before?.nightDepth;
+      const weekBefore = before?.week ?? 0;
+      const v = s.advanceGame();
+      const beat = v.event?.beat;
+      const after = s.snapshot().live;
+      if (beat && beat !== "final-eviction" && EVICTION.has(beat) && depthBefore !== undefined && after?.nightDepth !== undefined) {
+        let d = after.nightDepth - depthBefore;
+        if (d < 0) d += 24; // the 8am wrap
+        const key = `eviction:w${weekBefore}`;
+        hoursByNight.set(key, (hoursByNight.get(key) ?? 0) + d);
+      }
+      if (v.pending) resolveLegally(s, v.pending);
+      if (v.finished) break;
+    }
+    expect(hoursByNight.size).toBeGreaterThan(3);
+    for (const [key, h] of hoursByNight) expect(h, `${key} charged ${h}h`).toBeCloseTo(eventSpanHours("eviction"), 6);
+  });
+});
+
 describe("a night is counted once, even when an event's later steps sit at 8am", () => {
   it("an eviction night that rolls past 8am accrues the night's fatigue exactly once", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);

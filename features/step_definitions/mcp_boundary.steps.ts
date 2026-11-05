@@ -11,6 +11,7 @@ import { assertNoSentinels } from "../../tests/support/assertions";
 import { vaultBoundaryViolations } from "../../tests/support/architecture";
 import { PLAYER, npc } from "../../src/domain/ids";
 import { SummaryService } from "../../src/services/SummaryService";
+import { startLiveSweep, setLive, sentinelsFor } from "../support/liveSweep";
 
 function sampleArgs(name: string): Record<string, unknown> {
   switch (name) {
@@ -28,6 +29,11 @@ function sampleArgs(name: string): Record<string, unknown> {
     case "inspectNonVaultState": return { query: "all" };
     case "overrideMechanic": return { mechanic: "pace", value: 1 };
     case "npcVoice": return { id: npc(1) };
+    // AMEND secrets wall item 3: sample args for the newer tools (a missing shape would just be a typed refusal, not a real call).
+    case "askJuror": return { jurorId: npc(1) };
+    case "hangOut": return { maxBeats: 1 };
+    case "playerDossier": return {};
+    case "playerReceipts": return {};
     default: return {};
   }
 }
@@ -88,11 +94,17 @@ Given("a client on the {string} channel", function (this: BbWorld, channel: stri
 });
 
 When("it calls every tool that channel exposes", async function (this: BbWorld) {
-  this.lastOutput = await callEveryTool(this.server!);
+  // AMEND secrets wall item 3: sweep a STARTED LIVE game (its own session, commands and surfaces, sentinels planted in ITS hidden state), on the same channel. The canary-sandbox server above
+  // wraps a fresh never-started session, so most session tools only threw "no game" there, which a sweep counts as a pass; the canary server still backs the structural scenarios.
+  const live = startLiveSweep({ seed: 1, user: "mcp-boundary-live" });
+  setLive(this, live);
+  const channel: OutwardChannel = this.server === this.mcpAdmin ? "admin/God Mode" : "player";
+  const liveServer = channel === "player" ? live.sb.mcp.player : live.sb.mcp.admin;
+  this.lastOutput = await callEveryTool(liveServer);
 });
 
 Then("no result contains a Vault sentinel value", function (this: BbWorld) {
-  assertNoSentinels(this.lastOutput, this.sandbox!.sentinels);
+  assertNoSentinels(this.lastOutput, sentinelsFor(this)); // the canary's sentinels AND the live game's
 });
 
 // --- getVisibleStateFor -------------------------------------------------------

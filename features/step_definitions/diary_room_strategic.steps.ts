@@ -5,7 +5,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { renderGameContext } from "../../src/engine/momentPrompts";
 import { producerPrompt, deriveNpcKnowledge, NO_NPC_PATHWAY } from "../../src/engine/diaryRoom";
 import type { Beat } from "../../src/engine/diaryRoom";
-import { resolvePending } from "../../tests/support/adr0003";
+import { resolvePending } from "../support/answerPending";
 import { PLAYER } from "../../src/domain/ids";
 
 // Feature 0115 — the strategic Diary Room: the player's DR intent grounds the GM's narration while the
@@ -21,7 +21,7 @@ function drGame(w: BbWorld, seed = 11): void {
 function reachLiveHouse(w: BbWorld): void {
   for (let i = 0; i < 60 && w.drSandbox!.session.snapshot().live?.hoh === undefined; i++) {
     const v = w.drSandbox!.session.advanceGame();
-    if (v.pending) resolvePending(w.drSandbox!.session, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => w.drSandbox!.session.submitDecision(req));
   }
 }
 
@@ -42,11 +42,11 @@ Then("it carries the player's Diary-Room strategy as a private steer", function 
 });
 
 Then("that steer is marked as known to the GM but not to the houseguests", function (this: BbWorld) {
-  assert.match(
-    this.drContext!.toLowerCase(),
-    /you know it; the house does not|never voice it|do not|not to the houseguests/,
-    "the steer is fenced GM-only / do-not-voice",
-  );
+  // AMEND secrets wall item 4: the ACTUAL fence sentence, both halves (was an alternation including a bare "do not", which any prompt line matches). The fence is
+  // "(you know it; the house does NOT - narrate the irony, but NEVER voice it to a houseguest and never let anyone act on it)".
+  const ctx = this.drContext!.toLowerCase().replace(/\s+/g, " ");
+  assert.match(ctx, /you know it; the house does not/, "the steer says the GM knows it and the house does not");
+  assert.match(ctx, /never voice it to a houseguest and never let anyone act on it/, "the steer forbids voicing it to a houseguest or letting anyone act on it");
 });
 
 // --- The structural wall ------------------------------------------------------
@@ -113,7 +113,7 @@ Given("a finished season where the player recorded Diary-Room confessionals", as
   const s = this.drSandbox!.session;
   for (let i = 0; i < 4000; i++) {
     const v = s.advanceGame();
-    if (v.pending) resolvePending(s, v.pending);
+    if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
     if (v.finished || s.snapshot().live?.winner !== undefined) break;
   }
 });
