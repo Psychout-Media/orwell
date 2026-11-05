@@ -206,14 +206,21 @@ Three independent, low-risk fixes to the FE↔engine sync spine (audit A-S5 / A-
 - **A-settingsModule:** already dead-code-removed earlier (FEJS-2) — `orwellOnboarding.js` `openSettings()`
   drops the never-assigned `window.settingsModule.open()` fallback; no `window.settingsModule` remains.
 
-## R6 — Failure-mode UX **[POST-LAUNCH · Wave 4]**
-- *Requirement:* failures degrade *honestly* (the brief). The probe proved **no engine desync / crash /
-  stuck spinner** — the gaps are presentational. *Current:* **F-S4-C** an upstream error renders as a
-  "Big Brother" GM message; **F-S4-D** a truncated stream stops silently mid-sentence with no
-  interrupted/reconnect affordance. *Target:* a distinct **system/error notice** (not a GM bubble) +
-  detect an incomplete stream (no `[DONE]`) and surface a **reconnect/retry** affordance. *Risk:* low.
-  *Effort:* small. *Verify:* re-run `fault_probe.mjs` (the harness exists) and assert a system-error
-  element + a retry control, no GM-voiced error.
+## R6 — Failure-mode UX **[MOSTLY DONE - client side shipped; server-side leg open as A57c]**
+*Inventory written 2026-11-05 (A57 DoR), from the code and tests on main; this replaces the original "current" text, which predates the fixes.*
+
+| Failure state | UX today | Evidence | Gap |
+|---|---|---|---|
+| Upstream model error mid-stream (typed `data: {"error": ...}` / `event: error`) | A system-styled notice (`--color-error`, italic) with the canonical interruption line in the game build, the raw text outside it; not voiced as the narrator | `chat.js` error branch (B11 / FEPY-1, the I9 fix); `test_fault_probe_no_done.py::test_stream_error_notice_is_system_channel_with_no_gm_attribution` | none client-side |
+| Stream closed with no `[DONE]` (truncation) | `_streamSawDone` latch throws "Stream closed before completion"; the failure routes to `_renderStreamDropRetry` (a labelled **Retry** control), not a GM bubble | `test_fault_probe_no_done.py` (latch, throw, routing to the retry control) | none client-side |
+| Empty turn after a drop (nothing visible) | The hidden holder is shown again with the Retry control (BUG 2) | `_renderStreamDropRetry` | none |
+| Auto-recover / self-resume of a recoverable drop | `_tryAutoRecover` / `_trySelfResume` | `chat.js` ~L4664-L4890 | none |
+| Offline send | Straight to the durable outbox, drained in order on reconnect (#891) | outbox pins in `test_885*`/`test_891*` family | none |
+| Stale-beat 409 | Reconciled silently through the desync mechanism (no error shown) | `_handle_stale_beat`, `test_a55_stale_beat_structured.py` | a player never learns a write was rejected; acceptable (the board is re-read) |
+| **Upstream ends cleanly after real text, no tool call, no `[DONE]` semantics (a silent drop saved as a complete turn)** | The server saved the partial reply as a complete message | found by the A58/A57 exploration | **OPEN: A57c** (`overseer-a/a57b-drop-dom-proof`): `llm_core` emits `stream_dropped` and `chat_routes` saves nothing; lands after the playtest because it changes the error path |
+| Engine unreachable / blank turn | The game-build interruption line; admin RED list | `docs/audits`, `/admin/status` | no distinct Retry on the engine-down banner (low) |
+
+**Verify (original wording kept):** re-run `fault_probe.mjs`; assert a system-error element + a retry control and no GM-voiced error. The pytest half already exists (`test_fault_probe_no_done.py`); A57c adds the server-side half (`test_a57c_upstream_drop_not_a_complete_turn.py`).
 
 ## R7 — Polish bundle **[POST-LAUNCH · Wave 4]**
 Contained, independent, mostly one-file (full list + evidence in `AUDIT-LOG.md`). **Issue #1418 pass
