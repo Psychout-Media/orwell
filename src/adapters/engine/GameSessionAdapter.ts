@@ -10037,7 +10037,7 @@ export class GameSessionAdapter implements GameSession {
    * `materializeDailyRecap` always returns one once the clock is running, so this is present on every
    * turn-in that actually fires; absent only when the whole call was a dormant no-op above).
    */
-  private bedtimeGateEnabled = process.env.ORWELL_BEDTIME_GATE === "1";
+  private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
   setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }
   turnIn(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
     // 0065 Part B — replay an already-ended night verbatim (wins even if beatSeq has since moved), so a
