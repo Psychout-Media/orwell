@@ -297,6 +297,8 @@ import {
 } from "../../engine/leverage";
 import { SECRET_BARTER } from "../../engine/secretBarterConstants";
 import { LEVERAGE, SECRET_TRADE } from "../../engine/leverageConstants";
+import { NO_HARD_CAPS } from "../../engine/noHardCapsConstants";
+import { repetitionImpact, lieProbScale } from "../../engine/repetitionCost";
 import {
   rankPlayerBoundThreads, dripBudget, recencyFromAge, relationshipReads,
   type PlayerBoundThread, type RankedThread,
@@ -2441,6 +2443,11 @@ export class GameSessionAdapter implements GameSession {
   private jurorTold = new Set<string>();
   /** 0075 — the per-season count of lies told TO the player (the hard `CONFIDENCE.maxLiesPerSeason` cap). */
   private lieCount = 0;
+  /** B49 - per NPC, the confide lies it has told this season (only populated with `ORWELL_NO_HARD_CAPS`; shrinks that NPC's next lie roll). Persisted when non-empty. */
+  private confideLiesBy: Record<EntityId, number> = {};
+  /** B49 / PO ruling card 24 - NO HARD PER-SEASON COUNTS: the confide-lie (2), expose (3) and trade (5) caps become a high safety valve plus an escalating repetition cost. OFF unless exactly `ORWELL_NO_HARD_CAPS=1`. */
+  private noHardCapsEnabled = process.env.ORWELL_NO_HARD_CAPS === "1";
+  setNoHardCapsEnabled(on: boolean): void { this.noHardCapsEnabled = on; }
   /**
    * 0075 — the in-game pathway that records a confidence as the player's knowledge (set by the
    * composition root, like `onThreadSurfaceToPlayer`). The houseguest is the teller (`told-by:<id>`):
@@ -4035,6 +4042,7 @@ export class GameSessionAdapter implements GameSession {
       ...(Object.keys(this.confideState).length ? { confideState: cloneSession(this.confideState) } : {}),
       ...(this.jurorTold.size ? { jurorTold: [...this.jurorTold] } : {}),
       ...(this.lieCount > 0 ? { confideLieCount: this.lieCount } : {}),
+      ...(Object.keys(this.confideLiesBy).length ? { confideLiesBy: { ...this.confideLiesBy } } : {}),
       // 0093/0099 — secrets as power: which learned secrets the player has SPENT (`usedAs`) + the per-
       // season expose/trade/bluff counts. Persisted so a restored game remembers a spent secret can't be
       // re-wielded and the season caps don't reopen (non-degradation, 0007/0030). Engine-only.
@@ -4375,6 +4383,7 @@ export class GameSessionAdapter implements GameSession {
     this.confideState = core.confideState ? cloneSession(core.confideState) : {};
     this.jurorTold = new Set(core.jurorTold ?? []);
     this.lieCount = core.confideLieCount ?? 0;
+    this.confideLiesBy = core.confideLiesBy ? { ...core.confideLiesBy } : {};
     // 0093/0099 — restore the secrets-as-power ledger (absent on pre-0093 saves ⇒ empty/zero): which
     // secrets the player has spent + the per-season caps, so a spent secret stays spent across a restart.
     this.secretUsedAs = core.secretUsedAs ? cloneSession(core.secretUsedAs) : {};
@@ -6055,7 +6064,7 @@ export class GameSessionAdapter implements GameSession {
       this.triggerTickCount = 0;
       this.confideState = {};
     this.jurorTold = new Set();
-      this.lieCount = 0;
+      this.lieCount = 0; this.confideLiesBy = {};
       this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets and an unspent cap
       this.resetTieSurfacing(); // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent
       this.resetSecretPacing(); // 0092 — a fresh season: the weekly drip cadence + anti-spam start clean
@@ -6359,7 +6368,7 @@ export class GameSessionAdapter implements GameSession {
     this.triggerTickCount = 0;
     this.confideState = {};
     this.jurorTold = new Set();
-    this.lieCount = 0;
+    this.lieCount = 0; this.confideLiesBy = {};
     this.resetSecretPower(); // 0093/0099 — a warmed/fresh cast has spent no secrets, the caps unspent
     this.resetTieSurfacing(); // 0059 §5 — a warmed/fresh cast carries no tie-surfacing history
     this.resetSecretPacing(); // 0092 — a warmed/fresh cast carries no secret-pacing drip history
@@ -6730,7 +6739,7 @@ export class GameSessionAdapter implements GameSession {
     // 0075 — a fresh season has heard no confidences and spent no lies.
     this.confideState = {};
     this.jurorTold = new Set();
-    this.lieCount = 0;
+    this.lieCount = 0; this.confideLiesBy = {};
     this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets, the caps unspent
     // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent, the stream at 0.
     this.resetTieSurfacing();
@@ -10502,7 +10511,7 @@ export class GameSessionAdapter implements GameSession {
     d: SecretLeverDescriptor, recipient: EntityId, _via: "deal" | "swap",
   ): { accepted: boolean; refused?: TradeResult["refused"]; narratable?: string } | null {
     if (!this.isActiveNpc(recipient)) return { accepted: false, refused: "no-recipient" };
-    if (this.tradeCount >= SECRET_TRADE.maxTradesPerSeason) return { accepted: false, refused: "capped" };
+    if (this.tradeCount >= (this.noHardCapsEnabled ? NO_HARD_CAPS.safetyValve : SECRET_TRADE.maxTradesPerSeason)) return { accepted: false, refused: "capped" };
     const resolved = this.resolveWieldedSecret(d);
     if (!resolved) return { accepted: false, refused: "not-learned" };
     if (resolved.subject === recipient) return { accepted: false, refused: "not-learned" }; // can't trade a secret TO its own subject
@@ -10537,6 +10546,10 @@ export class GameSessionAdapter implements GameSession {
       }
       // Mark the REAL secret traded (monotonic — it has been spent into the economy); a bluff is not a real fact.
       if (resolved.factId && this.secretUsedAs[resolved.factId] !== "exposed") this.secretUsedAs[resolved.factId] = "traded";
+      if (this.noHardCapsEnabled) {
+        // B49: a habitual dealer is felt - each further trade costs THIS recipient's read of the player more (scaled by how much they trusted the player). Own rng: the base fold's stream is untouched.
+        this.rel.applyImpactDirected(recipient, PLAYER, repetitionImpact(SECRET_TRADE.traderBacklash, this.tradeCount, this.rel.edge(recipient, PLAYER).trust), this.secretRng("trade-rep", `${recipient}:${this.tradeCount}`));
+      }
       this.tradeCount++;
       if (this.npcMemoryWritersEnabled) this.remember(recipient, PLAYER, "secret-given", 0.3); // A24: the recipient remembers the player bought them something they wanted (a favor; bounded by the ledger)
       return { accepted: true, narratable: "they took the trade" };
@@ -10764,7 +10777,9 @@ export class GameSessionAdapter implements GameSession {
     // Deterministic, seeded per (npc, beat): repeated presses inside one beat reach the same decision;
     // a later press (bond grown, a new week) re-rolls. No raw rng leaks the outcome (anti-sycophancy).
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:confide:${npcId}:${this.week}:${this.phase}`));
-    const decision = decideConfidence(signals, rng, { liesRemaining: CONFIDENCE.maxLiesPerSeason - this.lieCount });
+    const decision = this.noHardCapsEnabled
+      ? decideConfidence(signals, rng, { liesRemaining: NO_HARD_CAPS.safetyValve - this.lieCount, lieProbScale: lieProbScale(this.confideLiesBy[npcId] ?? 0) })
+      : decideConfidence(signals, rng, { liesRemaining: CONFIDENCE.maxLiesPerSeason - this.lieCount });
     if (!decision.disclosed) return none;
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
@@ -10795,7 +10810,7 @@ export class GameSessionAdapter implements GameSession {
       // Fold the vulnerability bond bump (0023): opening up DEEPENS the bond toward the player.
       foldHiddenImpact(this.rel, rng, npcId, [npcId, PLAYER], CONFIDENCE.bondNature, [PLAYER]);
     }
-    if (!decision.truthful) this.lieCount++;
+    if (!decision.truthful) { this.lieCount++; if (this.noHardCapsEnabled) this.confideLiesBy[npcId] = (this.confideLiesBy[npcId] ?? 0) + 1; }
     this.confideState[npcId] = { tier: decision.tier, truthful: decision.truthful };
     this.persist();
     const result: ConfideResult = { disclosed: true, tier: decision.tier, truthful: decision.truthful, content };
@@ -10828,7 +10843,7 @@ export class GameSessionAdapter implements GameSession {
     // A real secret already exposed (public) can't be exposed again — checked BEFORE resolution (the
     // resolver rejects a spent fact as un-wieldable, which would otherwise read as `not-learned`).
     if (req.factId && this.secretUsedAs[req.factId] === "exposed") return { exposed: false, refused: "already-spent" };
-    if (this.exposeCount >= LEVERAGE.maxExposesPerSeason) return { exposed: false, refused: "capped" };
+    if (this.exposeCount >= (this.noHardCapsEnabled ? NO_HARD_CAPS.safetyValve : LEVERAGE.maxExposesPerSeason)) return { exposed: false, refused: "capped" };
     const resolved = this.resolveWieldedSecret({ factId: req.factId, bluff: req.bluff, subject: req.subject });
     if (!resolved) return { exposed: false, refused: req.bluff ? "no-subject" : "not-learned" };
     const subject = resolved.subject;
@@ -10842,6 +10857,7 @@ export class GameSessionAdapter implements GameSession {
       if (!bluffBelieved(this.avgHouseTrustOfPlayer(), houseThreat, rng)) {
         // Disbelieved — only the exposer recoil (a thin ruthlessness/credibility cost), no standing hit.
         this.foldHouseRecoilOnExposer(subject, rng);
+        this.foldRepetitionOnExposer(subject);
         this.exposeCount++;
         this.persist();
         const bounced: ExposeResult = { exposed: true, subjectImpactNarratable: "the house didn't seem to buy it" };
@@ -10867,6 +10883,7 @@ export class GameSessionAdapter implements GameSession {
     this.rel.applyImpactDirected(subject, PLAYER, folds.exposerBacklashFromSubject, rng);
     // The rest of the house recoils a little from the exposer (ruthlessness read).
     this.foldHouseRecoilOnExposer(subject, rng);
+    this.foldRepetitionOnExposer(subject);
     // The jury mark (0014): the subject's eventual jurors weigh the outing against the exposer.
     if (folds.juryMark) recordDealBetrayal(this.live, subject, PLAYER);
     // A24: the subject REMEMBERS being outed (a deep grudge about the player; severity grows with the secret's, bounded by the ledger cap).
@@ -10918,6 +10935,19 @@ export class GameSessionAdapter implements GameSession {
     for (const other of this.house.npcs) {
       if (other.id === subject || evicted.has(other.id)) continue;
       this.rel.applyImpactDirected(other.id, PLAYER, LEVERAGE.exposerBacklashFromHouse, rng);
+    }
+  }
+
+  /**
+   * B49 - the REPETITION COST of a further expose (flag-on only; a no-op otherwise). Every other active houseguest re-reads the exposer a little worse for each expose the player already made this
+   * season, scaled by how much THAT houseguest had trusted the player: the limit is felt in the house's read, never announced as a count. Own rng so the base folds' stream is untouched.
+   */
+  private foldRepetitionOnExposer(subject: EntityId): void {
+    if (!this.noHardCapsEnabled || !this.house || !this.live || this.exposeCount <= 0) return;
+    const evicted = new Set(this.live.evictionOrder);
+    for (const other of this.house.npcs) {
+      if (other.id === subject || evicted.has(other.id)) continue;
+      this.rel.applyImpactDirected(other.id, PLAYER, repetitionImpact(LEVERAGE.exposerBacklashFromHouse, this.exposeCount, this.rel.edge(other.id, PLAYER).trust), this.secretRng("expose-rep", `${other.id}:${this.exposeCount}`));
     }
   }
 
