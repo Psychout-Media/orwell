@@ -3133,7 +3133,12 @@ async def _auto_mark_premiere_intros(narration, owner) -> int:
                 # asymmetric first-power gate. Otherwise a move-in narration that merely names two people
                 # flipped powerReachable and the first HOH fired before the toast/bedroom beats ran. Real
                 # engagement (a recorded player↔NPC scene) is what forms hot reads now (engine-side).
-                await _oe.mark_houseguest_met(hid, user=owner, via="belt")
+                _met = await _oe.mark_houseguest_met(hid, user=owner, via="belt")
+                try:  # A29: adopt the post-commit beatSeq the engine echoes (the belt used to discard the result)
+                    from routes import chat_helpers as _chm
+                    _chm._refresh_beat_seq(owner, _met if isinstance(_met, dict) else {})
+                except Exception:
+                    pass
                 marked += 1
             except Exception as e:
                 logger.warning(f"[orwell] auto markHouseguestMet failed for {hid}: "

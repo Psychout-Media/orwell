@@ -5563,6 +5563,7 @@ async def do_mark_houseguest_met(content: str, owner: Optional[str] = None) -> D
         return {"error": "id is required", "exit_code": 1}
     try:
         res = await orwell_engine.mark_houseguest_met(hg_id, user=owner)
+        await _refresh_after_model_progression(owner, res)  # A29: adopt the post-commit beatSeq the engine echoes
         if res is None:
             return {"output": "Not in the premiere — there is nobody left to meet.", "exit_code": 0}
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
@@ -5581,6 +5582,7 @@ async def do_diary_room(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "entry is required", "exit_code": 1}
     try:
         res = await orwell_engine.diary_room(entry, user=owner)
+        await _refresh_after_model_progression(owner, res)  # A29: adopt the post-commit beatSeq the engine echoes
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
