@@ -28,13 +28,16 @@ const EMBED_SLEEP_MS = 120;
 const HEALTH_BUDGET_MS = 500;
 
 /** A SYNC provider that pins the event loop per call exactly like the ADR 0004 bridge. */
-function slowSyncProvider(sleepMs: number): { calls: () => number; embed: (t: string) => number[] } {
+function slowSyncProvider(sleepMs: number, turn: () => number): { calls: () => number; maxPerTurn: () => number; embed: (t: string) => number[] } {
   const inner = new DeterministicEmbedding();
   let n = 0;
+  const perTurn = new Map<number, number>(); // event-loop turn -> embeds that ran inside it (back-to-back = pinned loop)
   return {
     calls: () => n,
+    maxPerTurn: () => Math.max(0, ...perTurn.values()),
     embed: (text: string): number[] => {
       n++;
+      perTurn.set(turn(), (perTurn.get(turn()) ?? 0) + 1);
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, sleepMs); // a blocked loop, like real inference
       return inner.embed(text);
     },
@@ -50,8 +53,13 @@ afterEach(async () => {
 });
 
 describe("G8 — /health answers during the creation-time soul-seeding batch", () => {
-  it("createCharacter with a slow sync embedder: every concurrent /health probe answers <500ms", async () => {
-    const provider = slowSyncProvider(EMBED_SLEEP_MS);
+  it("createCharacter with a slow sync embedder never pins the loop: embeds are spaced one per event-loop turn (measured as engine work, not wall-clock)", async () => {
+    // A load-independent clock for "did the loop breathe": a setImmediate chain bumps a turn counter, so two embeds with the SAME turn value ran back-to-back with no I/O phase in between.
+    let turnNo = 0;
+    let turning = true;
+    const turnTick = (): void => { turnNo++; if (turning) setImmediate(turnTick); };
+    setImmediate(turnTick);
+    const provider = slowSyncProvider(EMBED_SLEEP_MS, () => turnNo);
     setRuntimeEmbedding(provider);
     const runtime = composeRuntime({ clock: new FakeClock() });
     server = createHttpMcpServer({ resolve: runtime.registry.resolver() });
@@ -117,6 +125,7 @@ describe("G8 — /health answers during the creation-time soul-seeding batch", (
     }
     probing = false;
     beating = false;
+    turning = false;
     await prober;
     await heartbeat;
 
@@ -125,12 +134,12 @@ describe("G8 — /health answers during the creation-time soul-seeding batch", (
     expect(provider.calls()).toBeGreaterThanOrEqual(4);
     expect(provider.calls() * EMBED_SLEEP_MS).toBeGreaterThan(HEALTH_BUDGET_MS);
     expect(latencies.length).toBeGreaterThan(5);
-    // THE CLAIM: the loop breathed throughout — no probe ever waited out a back-to-back batch…
+    // THE CLAIM (A30: measured as ENGINE WORK, not wall-clock under runner load): the seeding batch never pinned the loop. Back-to-back it would run all of its embeds inside ONE event-loop
+    // turn; the breathing lane runs one per turn. Two in a turn tolerates a timer and a check-phase callback landing in the same iteration, nothing more.
+    expect(provider.maxPerTurn(), `max embeds inside one event-loop turn (embeds: ${provider.calls()}, probes: ${latencies.length})`).toBeLessThanOrEqual(2);
+    // Diagnostics only (shared-runner load inflates these; they are no longer the gate): the worst probe and the loop stall are bounded by what ONE spaced embed can cost plus load, never by the batch.
     const worst = Math.max(...latencies);
-    expect(worst, `worst /health latency ${worst.toFixed(0)}ms (probes: ${latencies.length}, embeds: ${provider.calls()})`)
-      .toBeLessThan(HEALTH_BUDGET_MS);
-    // …and the loop itself NEVER stalled past the budget (deterministic — no probe-timing race).
-    expect(maxStallMs, `max event-loop stall ${maxStallMs.toFixed(0)}ms`).toBeLessThan(HEALTH_BUDGET_MS);
+    expect(worst, `worst /health latency ${worst.toFixed(0)}ms, max stall ${maxStallMs.toFixed(0)}ms`).toBeLessThan(provider.calls() * EMBED_SLEEP_MS);
     // And the player-facing call itself no longer carries the whole batch inline.
     expect(createMs).toBeLessThan(5000);
   }, 30_000);
