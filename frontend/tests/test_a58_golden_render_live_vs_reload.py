@@ -8,6 +8,7 @@ the loop): the decision card and the beat-outcome line. Needs the built engine b
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -43,6 +44,11 @@ CASES = [
 ]
 
 
+# A88: the live turn bubble first shows a WAIT label (the spinner copy: "Responding", or the orwellToolBeats _WAIT_COPY lines), not reply text. A poll that takes that for the "first paint of the reply" compares a
+# placeholder shell (always a plain `msg msg-ai streaming`) with the reload - the source of the old "ooc class lands a state late" xfails (A88 drift 3), which was a HARNESS artifact, not a render drift.
+_WAIT_LABEL = re.compile(r"^(Responding|The (house is in motion|producers are)|The feeds are rolling|Cameras are still rolling)")
+
+
 def _send_and_snapshot(stack, entries, text):
     from playwright.sync_api import sync_playwright
     sid = _session(stack, "a58-" + text[:6])
@@ -67,7 +73,7 @@ def _send_and_snapshot(stack, entries, text):
             live = page.evaluate(SNAP)
             if live and live["n"] <= base_n:
                 continue  # the previous turn's bubble is still the last one - wait for THIS turn's
-            if live and not live["footer"] and live["body"] and not live["body"].startswith("Responding") and mid is None:
+            if live and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
                 mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
             if live and live["footer"]:
                 break
@@ -100,13 +106,11 @@ def test_live_and_reload_render_the_same_bubble(_stack, case_id, entries, expect
 # WHILE streaming. Compare what must already hold at first paint: the wrapper classes and the role label. (The footer and the full text legitimately arrive only at settle.)
 STREAMING_CASES = [
     pytest.param(*[c for c in CASES if c[0] == "plain-reply"][0], id="plain-reply"),
-    # A88 drift 3 (named): even a producer aside COMPLETE in the first delta is painted as a normal `msg msg-ai` shell for one state; the ooc class lands a state later (the text is held behind the spinner and painted whole, so the user rarely sees it).
-    pytest.param(*[c for c in CASES if c[0] == "ooc-complete-first-delta"][0], id="ooc-complete-first-delta",
-                 marks=pytest.mark.xfail(strict=False, reason="the msg-ooc class lands one state after the first paint of a complete aside (A88 drift 3)")),
-    # KNOWN DRIFT (inherent, named): a producer aside is classed `msg-ooc msg-ooc-producer` only once its closing '))' has streamed - a partial '((Production: ...' cannot be told from ordinary text, so the
-    # first paint of a slowly streamed aside is a normal bubble and the class lands when the aside closes. Strict: it XPASSes (red) the day the live path can classify on the opening marker.
-    pytest.param(*[c for c in CASES if c[0] == "ooc-producer-aside"][0], id="ooc-producer-aside",
-                 marks=pytest.mark.xfail(strict=True, reason="a partial '((Production: ...' is not classed msg-ooc until its closing '))' streams")),
+    # A88 drift 3 was a HARNESS artifact (see _WAIT_LABEL): the old poll took the spinner's wait-label shell for the reply's first paint. Measured on the real reply paint, the producer aside's class and text land in the SAME
+    # synchronous step (chat.js `_renderStream` calls applyOocClass before the first renderer.update, and a still-open `((` aside is HELD behind the spinner and painted whole + classed at once) - for both a complete-in-first-delta
+    # aside and a slowly streamed one. Plain passing tests now; if the live path ever paints aside text before the class, these go red.
+    pytest.param(*[c for c in CASES if c[0] == "ooc-complete-first-delta"][0], id="ooc-complete-first-delta"),
+    pytest.param(*[c for c in CASES if c[0] == "ooc-producer-aside"][0], id="ooc-producer-aside"),
 ]
 
 
