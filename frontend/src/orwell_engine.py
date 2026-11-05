@@ -769,7 +769,7 @@ async def run_competition(comp_type: str | None = None, participant_ids: list | 
     return await _call("runCompetition", args, user=user)
 
 
-async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, user: str | None = None) -> dict:
+async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, user: str | None = None) -> dict:
     """Record a player-present scene as an engine event (player-witnessed → the player's
     knowledge, never the Vault). An optional `kind` folds the hidden relationship impact (0023);
     an optional Vault-free `consequence` descriptor (ADR 0005) lets the caller PROPOSE which
@@ -806,6 +806,10 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     # forwarding `inf` would crash the engine JSON encode / clamp, silently dropping the scene fold.
     if isinstance(felt_minutes, (int, float)) and not isinstance(felt_minutes, bool) and 0 < felt_minutes < 1_000_000:
         req["feltMinutes"] = felt_minutes
+    # B4 slice 6: a casual assurance the scene carried ({kind: safe|vote|loyal, from?: npc id}). Threaded ONLY when well-formed; the engine ignores it unless ORWELL_ASSURANCES is on
+    # (so absent / flag off => byte-identical). Never a number: the engine owns the sincerity.
+    if isinstance(assurance, dict) and assurance.get("kind") in ("safe", "vote", "loyal"):
+        req["assurance"] = {k: v for k, v in assurance.items() if k in ("kind", "from")}
     return await _call("recordInteraction", req, user=user)
 
 
