@@ -117,6 +117,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'strict' },
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'strict' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly '1'; never-flipped until measured.
+  // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. OFF unless exactly '1'; never-flipped until the FE honours `held` everywhere.
+  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'strict' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'strict' },
