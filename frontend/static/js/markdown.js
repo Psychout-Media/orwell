@@ -1778,6 +1778,17 @@ export function renderMermaid(container) {
   }
 }
 
+/**
+ * A59 (R2 slice, no behaviour change): the ONE place that merges a reply/reasoning pair back into the canonical `<think>`-wrapped source that `processWithThinking` renders into the
+ * Thinking accordion + clean body. Three call sites used to build this string by hand (the live primary stream, the observer/mirror stream, the history reload); they must stay identical
+ * or live-vs-reload render drift returns. `timeMs` adds the persisted `time="N"` attribute (reload path). `always` keeps a whitespace-only reasoning block (the reload path's old behaviour).
+ */
+export function composeThinkSource(reasoning, reply, timeMs, always) {
+  const r = reasoning == null ? '' : String(reasoning);
+  if (!(always ? r : r.trim())) return reply;
+  return '<think' + (timeMs ? ` time="${timeMs}"` : '') + '>' + r + '</think>\n\n' + reply;
+}
+
 const markdownModule = {
   escapeHtml,
   mdToHtml,
@@ -1795,6 +1806,7 @@ const markdownModule = {
   redactRawIds,
   scrubMachineryAsides,
   scrubMachineryForPersistence,
+  composeThinkSource,
   extractSpeakerTags,
   restoreSpeakerChips,
   renderMermaid

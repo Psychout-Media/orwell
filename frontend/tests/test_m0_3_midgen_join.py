@@ -142,6 +142,8 @@ class _StubHandler(BaseHTTPRequestHandler):
         if entry is None:
             emit({"content": "Understood."})
         else:
+            for piece in entry.get("reasoning") or []:  # A58: optional reasoning-channel deltas (delta.reasoning_content), streamed BEFORE the reply
+                emit({"reasoning_content": piece})
             for piece in entry["deltas"]:
                 emit({"content": piece})
                 if entry["delay"]:
