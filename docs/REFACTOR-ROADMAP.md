@@ -129,6 +129,43 @@ Three independent, low-risk fixes to the FE↔engine sync spine (audit A-S5 / A-
   unit harnesses green + no behavior change (golden transcripts). *(settings.js 290KB / slashCommands.js
   270KB are workspace-inherited outliers — split only if game-build-relevant.)*
 
+### R3 decomposition plan (A61, written 2026-11-05 from a line-level read of `frontend/static/js/chat.js`, 6186 lines on main)
+
+**Where the weight is.** One exported function, `handleChatSubmit` (L627-L4399, ~3.8k lines), holds the whole turn. Everything else in the file is helpers and three resume/recover siblings (`_trySelfResume` L4664, `_tryAutoRecover` L4800, `_renderLiveStream` L4984) plus the second and third copies of the SSE event switch (L4725 mirror/resume, L5241 background stream).
+
+**Responsibilities inside `handleChatSubmit`** (line anchors are today's):
+
+| # | Responsibility | Anchor | Pure enough to extract? |
+|---|---|---|---|
+| 1 | Submit gate: re-click guard, setup-mode, slash commands, OOBE image gate, API-key guard | L637-L1060 | Yes (decisions are pure on (text, state)); DOM calls stay |
+| 2 | Outbox: queue-while-streaming, offline-to-outbox, FIFO across reload, drain | L637-L700, L6050-L6152 (+ sessionStorage keys) | Yes, already conceptually a queue; only `sessionStorage` + `dispatch` are effects |
+| 3 | Optimistic bubble (BUG 1: never eat a message) | L930-L1060 | DOM-only; stays |
+| 4 | Request build + fetch of `/api/chat_stream` | L1718 | Thin |
+| 5 | **SSE state machine**: line parsing, per-round buffers (`roundReplyText` / `roundReasoningText`), the ~35-way `json.type` switch | L1802-L3720 | **First extraction** (see below) |
+| 6 | Tool-result seam (tool_start/progress/output; `orwellGameChanged` dispatch; doc-fence) | L2945-L3400 | Mixed: the mutation-tool -> `orwellGameChanged` rule is pure (a table) |
+| 7 | Doc fence / doc_stream_* | L1876, L3361-L3400 | Pure parser + DOM |
+| 8 | Research/web-sources/rag panels | L2502-L2860 | DOM-only; independent, can stay or move later |
+| 9 | Stall/idle guard, auto-recover, self-resume, retry bubbles | L169, L4664-L4890 | Mostly pure decisions (`_isRecoverableStreamErr`) |
+| 10 | Settle: persistence of `dataset.raw`, TTS hand-off, background-stream bookkeeping, error bubbles | L4150-L4460 | Mixed |
+| 11 | History editing (edit / regenerate / delete) | L6109 region | Separate from the turn; later |
+
+**The duplication is the real risk, not the size.** The same `json.type` switch exists three times (live L2190-L3720, resume/mirror L4725, background L5241) with different subsets. ADR 0015 already collapsed the render paths; the event *dispatch* is the remaining divergence, and it is where every mirror-parity bug (F5, S17, A57) has lived.
+
+**First extractable module: `chatStreamMachine.js`** (pure, no DOM): `reduce(state, event) -> { state, effects[] }` where `state` = the per-round buffers + flags (`sawDone`, `usedTools`, `cancelled`, `roundText`, `roundReplyText`, `roundReasoningText`, pending run id) and `effects` = a closed list the shell interprets (`paintDelta`, `paintReasoning`, `toolBeat`, `docOpen`, `gameChanged(reason)`, `settle`, `error`). The shell keeps all DOM/IO. Why this one first: (a) it is the unit that decides what reaches the body vs the Thinking accordion, which the render contract pins; (b) all three switches can call the same reducer, removing the divergence; (c) it is testable under node exactly the way `_displayNames` and the A51 chip helper already are (extract + run), no browser.
+
+**Order (each step ships alone, behavior-neutral, behind the equivalence check):**
+1. Extract the *table* of mutation tools -> `orwellGameChanged` reason (responsibility 6). Smallest; also the natural home for A56 (derive from mutation metadata).
+2. Extract `chatStreamMachine.reduce` for the reply/reasoning split only (responsibility 5, buffers + `thinking` falsy/truthy). This is A59's helper too (`splitReplyReasoning`), so A59 is step 2a.
+3. Move the rest of the switch cases one family at a time (tools, docs, research, truncation/fallback), each with its recorded stream.
+4. Point the resume (L4725) and background (L5241) loops at the same reducer.
+5. Outbox as its own module (responsibility 2); then the submit gate (1).
+
+**Before/after equivalence check (the golden stream).** Record a corpus of raw SSE bodies (the stub narrator in `test_m0_3_midgen_join.py` can script every event type; `test_a58_golden_render_live_vs_reload.py` already pins the rendered DOM live vs reload). The equivalence test replays each recorded stream through (a) the old inline path and (b) the extracted reducer + shell, and asserts: identical final `dataset.raw`, identical rendered body HTML, identical Thinking-accordion HTML, identical ordered list of `orwellGameChanged` calls, identical persisted message. The A58 golden render test is the DOM half; the reducer's effect list is the new half. A step is done only when both halves are green on every recorded stream and the full FE suite (including the source-pinned g15 / reasoning-scrub / render-contract gates, which will need their anchors moved with the code) passes.
+
+**Do-not-do list.** Do not re-enable the stall watchdog (`_startStallWatchdog`, deliberately disabled). Do not merge the reply and reasoning buffers into one and re-split by regex. Do not add a second `orwell:gamechanged` dispatcher (g15). Do not change event semantics while moving them: the extraction PRs must show a zero diff in the golden outputs.
+
+**Gate to start step 2:** A58 (golden render) and A60 (gating lattice) merged, A57c landed (it changes the error path the reducer must model). Status of the extraction itself: **not started; plan only** (the DoR for R3).
+
 ## R4 — Location/movement source-of-truth (ADR 0009) **[DONE — #1415]**
 - *Requirement:* "people make sense — one place at a time"; narration must ground to engine whereabouts.
   *Was:* movement grounding documented as imperfect (the L21/L24 family; ADR 0009 root-causes it + records
