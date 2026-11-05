@@ -7,6 +7,7 @@ import { campaignTilt, type Campaign } from "../../src/engine/campaigns";
 import { voteChoice, type SeasonCtx } from "../../src/engine/liveSeason";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
+import { pinLayersOff } from "../support/pinLayersOff";
 
 /**
  * Feature 0085 — NPC campaigns & the scramble. Role-only (a schemer, the target, an ally, the
@@ -33,6 +34,7 @@ function liveCampaignHouse(seed: number): { session: GameSessionAdapter; rel: Re
   const rel = new RelationshipModel(0.5);
   const session = new GameSessionAdapter(rel);
   session.createCharacter({ playerName: "The Player", seed });
+  pinLayersOff(session); // the 0085 premise is the layer in isolation (hand-set threat edges drive the campaign)
   session.setCampaignsEnabled(true);
   const ids = (session.snapshot().house?.npcs ?? []).map((n) => n.id);
   return { session, rel, ids };
