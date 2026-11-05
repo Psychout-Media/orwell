@@ -102,6 +102,7 @@ describe("A10/#591 — makeDeal is at-most-once per idempotencyKey", () => {
   it("a REPEAT key returns the prior deal and creates it exactly ONCE (no duplicate, no double-fold)", async () => {
     const { server, session } = playerServer(1);
     session.createCharacter({ playerName: "The Player", seed: 1 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const target = session.livingIds().find((id) => id !== PLAYER)!;
 
     const first = (await server.callTool("makeDeal", { with: target, kind: "safety", terms: "keep me safe", idempotencyKey: "D1" })) as DealView;
@@ -116,6 +117,7 @@ describe("A10/#591 — makeDeal is at-most-once per idempotencyKey", () => {
   it("WITHOUT a key the same second call DOES create a second deal — proving the key is what prevents it", async () => {
     const { server, session } = playerServer(2);
     session.createCharacter({ playerName: "The Player", seed: 2 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const target = session.livingIds().find((id) => id !== PLAYER)!;
     await server.callTool("makeDeal", { with: target, kind: "safety", terms: "keep me safe" });
     const afterOne = openDeals(session);
@@ -128,6 +130,7 @@ describe("A10/#591 — confide is at-most-once per idempotencyKey", () => {
   it("a REPEAT key returns the prior disclosure and folds the bond bump exactly ONCE", async () => {
     const { server, session } = playerServer(14);
     session.createCharacter({ playerName: "The Player", seed: 14 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
     const before = edge(session, PLAYER, npcId);
@@ -145,6 +148,7 @@ describe("A10/#591 — confide is at-most-once per idempotencyKey", () => {
   it("WITHOUT a key the second confide re-folds — proving the key is what prevents it", async () => {
     const { server, session } = playerServer(14);
     session.createCharacter({ playerName: "The Player", seed: 14 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
     await server.callTool("confide", { npcId });
@@ -156,6 +160,7 @@ describe("A10/#591 — confide is at-most-once per idempotencyKey", () => {
   it("the repeat short-circuits BEFORE the CAS guard — a stale re-drive returns cleanly, never a 409", async () => {
     const { server, session } = playerServer(14);
     session.createCharacter({ playerName: "The Player", seed: 14 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
     const beat = session.gameStatus().beatSeq ?? 0;
@@ -173,6 +178,7 @@ describe("A10/#591 — confide is at-most-once per idempotencyKey", () => {
   it("a FIRST call with a fresh key against a stale board still 409s (the CAS guard is intact)", async () => {
     const { server, session } = playerServer(14);
     session.createCharacter({ playerName: "The Player", seed: 14 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
     // A brand-new key the ledger has never seen must NOT bypass the CAS guard.
@@ -184,6 +190,7 @@ describe("A10/#591 — exposeSecret is at-most-once per idempotencyKey", () => {
   it("a REPEAT key exposes exactly ONCE — the subject's house-wide standing hit folds once", async () => {
     const { server, session, sb } = playerServer(1);
     session.createCharacter({ playerName: "The Player", seed: 1 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const subject = session.livingIds().find((id) => id !== PLAYER)!;
     const other = session.livingIds().find((id) => id !== PLAYER && id !== subject)!;
     const factId = learnSecretAbout(session, sb, subject);
@@ -204,6 +211,7 @@ describe("A10/#591 — the shared ledger is NAMESPACED by lever (no cross-lever 
   it("the SAME idempotencyKey on two DIFFERENT levers ⇒ BOTH mutate (the second is not skipped / not the first's result)", async () => {
     const { server, session } = playerServer(14);
     session.createCharacter({ playerName: "The Player", seed: 14 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
     const dealsBefore = openDeals(session);
@@ -225,6 +233,7 @@ describe("A10/#591 — the shared ledger is NAMESPACED by lever (no cross-lever 
   it("a same-lever repeat under a key another lever also used still de-dupes (at-most-once preserved)", async () => {
     const { server, session } = playerServer(14);
     session.createCharacter({ playerName: "The Player", seed: 14 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
 
@@ -241,6 +250,7 @@ describe("A10/#591 — tradeSecret is at-most-once per idempotencyKey", () => {
   it("a REPEAT key trades exactly ONCE — the recipient's read of the player folds once", async () => {
     const { server, session, sb } = playerServer(2);
     session.createCharacter({ playerName: "The Player", seed: 2 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const subject = session.livingIds().find((id) => id !== PLAYER)!;
     const recipient = session.livingIds().find((id) => id !== PLAYER && id !== subject)!;
     const factId = learnSecretAbout(session, sb, subject);
@@ -260,6 +270,7 @@ describe("A10/#591 — the REAL relationship fold (not just record-creation) is 
   it("makeDeal WITH leverage folds the squeeze on the partner exactly ONCE per key", async () => {
     const { server, session, sb } = playerServer(1);
     session.createCharacter({ playerName: "The Player", seed: 1 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const partner = session.livingIds().find((id) => id !== PLAYER)!;
     const factId = learnSecretAbout(session, sb, partner); // leverage is about the deal PARTNER
     const before = edge(session, partner, PLAYER);         // the leverage fold moves the partner's read of the player
@@ -279,6 +290,7 @@ describe("A10/#591 — the REAL relationship fold (not just record-creation) is 
   it("a forced-LIE confide increments the lie ledger + folds exactly ONCE per key (the lie path, not just the bond bump)", async () => {
     const { server, session } = playerServer(1);
     session.createCharacter({ playerName: "The Player", seed: 1 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     setupLiar(session, npcId);
     const liesBefore = lieCount(session);
@@ -298,6 +310,7 @@ describe("A10/#591 — an EMPTY idempotencyKey is rejected (it identifies no ope
   it("the MCP arg-guard refuses an empty key with a field error (never a false de-dup token)", async () => {
     const { server, session } = playerServer(1);
     session.createCharacter({ playerName: "The Player", seed: 1 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     await expect(server.callTool("makeDeal", { with: npcId, kind: "safety", terms: "x", idempotencyKey: "" })).rejects.toThrow(/idempotencyKey/);
     await expect(server.callTool("confide", { npcId, idempotencyKey: "" })).rejects.toThrow(/idempotencyKey/);
@@ -307,6 +320,7 @@ describe("A10/#591 — an EMPTY idempotencyKey is rejected (it identifies no ope
     // Belt-and-suspenders below the boundary: a direct port call with "" must fold each time, not de-dup.
     const { session } = playerServer(2);
     session.createCharacter({ playerName: "The Player", seed: 2 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const target = session.livingIds().find((id) => id !== PLAYER)!;
     const before = openDeals(session);
     session.makeDeal({ with: target, kind: "safety", terms: "a", idempotencyKey: "" });

@@ -8,6 +8,7 @@ import { boundDealTerm } from "../../src/engine/deals";
 import type { BindingAction } from "../../src/engine/deals";
 import { DEAL_DURATION } from "../../src/engine/relationshipConstants";
 import { resolvePending } from "../../features/support/answerPending";
+import type { DealView } from "../../src/ports/GameSession";
 
 /**
  * 0109 / #1993 — the deal-duration PRODUCER. The narrator proposes `term` on `makeDeal`; the ENGINE
@@ -18,6 +19,7 @@ import { resolvePending } from "../../features/support/answerPending";
 function game(seed = 7) {
   const s = new GameSessionAdapter();
   s.createCharacter({ playerName: "The Player", seed });
+  s.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
   const npc = s.getGameState().house[0]!.id;
   return { s, npc };
 }
@@ -57,7 +59,7 @@ describe("0109 — makeDeal carries a negotiated term in live play", () => {
   it("records the bounded term and shows it (and nothing derived) on the player's deal", () => {
     const { s, npc } = game();
     const w = week(s);
-    const v = s.makeDeal({ with: npc, kind: "final-two", terms: "two weeks", term: { weeks: 2 } })!;
+    const v = s.makeDeal({ with: npc, kind: "final-two", terms: "two weeks", term: { weeks: 2 } }) as DealView;
     expect(v.term).toEqual({ expiresWeek: w + 1 });
     const blob = JSON.stringify(s.getGameState().deals);
     for (const banned of ["severity", "scale", "vagueSoften", "perWeekRemaining", "maxScale", "trust", "threat"]) {
@@ -66,8 +68,8 @@ describe("0109 — makeDeal carries a negotiated term in live play", () => {
   });
   it("no term / junk term ⇒ no term key at all (the default is unchanged)", () => {
     const { s, npc } = game();
-    const a = s.makeDeal({ with: npc, kind: "safety", terms: "plain" })!;
-    const b = s.makeDeal({ with: npc, kind: "vote", terms: "junk", term: { weeks: -3 } })!;
+    const a = s.makeDeal({ with: npc, kind: "safety", terms: "plain" }) as DealView;
+    const b = s.makeDeal({ with: npc, kind: "vote", terms: "junk", term: { weeks: -3 } }) as DealView;
     expect("term" in a).toBe(false);
     expect("term" in b).toBe(false);
   });
@@ -103,8 +105,8 @@ describe("0109 — makeDeal carries a negotiated term in live play", () => {
   it("a negotiated term that passes un-broken resolves KEPT as the weeks roll; a termless season deal stays open", () => {
     const { s, npc } = game();
     const w = week(s);
-    const termed = s.makeDeal({ with: npc, kind: "final-two", terms: "one week", term: { weeks: 1 } })!;
-    const open = s.makeDeal({ with: npc, kind: "final-two", terms: "forever" })!;
+    const termed = s.makeDeal({ with: npc, kind: "final-two", terms: "one week", term: { weeks: 1 } }) as DealView;
+    const open = s.makeDeal({ with: npc, kind: "final-two", terms: "forever" }) as DealView;
     for (let i = 0; i < 400 && week(s) <= w; i++) {
       const v = s.advanceGame();
       if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
@@ -124,6 +126,7 @@ describe("0109 — the makeDeal MCP boundary accepts / refuses `term`", () => {
     const commands = new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge);
     const srv = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session });
     session.createCharacter({ playerName: "The Player", seed: 7 });
+    session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     return { srv, session, npc: session.getGameState().house[0]!.id };
   }
   it("dispatches a well-formed term through callTool and the deal carries it", async () => {
@@ -142,8 +145,8 @@ describe("0109 — an explicit term governs a week-scoped kind (#1993 review)", 
   it("a `safety` deal promised for 3 weeks does not lapse at the first eviction", () => {
     const { s, npc } = game();
     const w = week(s);
-    const d = s.makeDeal({ with: npc, kind: "safety", terms: "three weeks", term: { weeks: 3 } })!;
-    const plain = s.makeDeal({ with: npc, kind: "safety", terms: "this week" })!;
+    const d = s.makeDeal({ with: npc, kind: "safety", terms: "three weeks", term: { weeks: 3 } }) as DealView;
+    const plain = s.makeDeal({ with: npc, kind: "safety", terms: "this week" }) as DealView;
     for (let i = 0; i < 400 && week(s) <= w; i++) {
       const v = s.advanceGame();
       if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));

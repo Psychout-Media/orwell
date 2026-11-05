@@ -42,6 +42,7 @@ function runSeason(withDeal: "none" | "plain"): { hash: string; finished: boolea
   const user = "neutral";
   const sb = reg.sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", seed: SEED });
+  sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
   const orch = new Orchestrator(reg, new FakeClock(), { seed: SEED });
 
   let finished = false;
@@ -97,6 +98,7 @@ describe("0093/0099 — secrets-as-power is calibration-neutral to the seeded sp
       const reg = new GameSessionRegistry();
       const sb = reg.sandboxFor("neutral-deal");
       sb.session.createCharacter({ playerName: "The Player", seed: SEED });
+      sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
       const target = sb.session.livingIds().find((id) => id !== PLAYER)!;
       if (deal) sb.session.makeDeal({ with: target, kind: "final-two", terms: "ride or die" });
       // Every hidden edge NOT involving the player or the deal partner: a descriptor-free deal has no business folding these.
@@ -131,6 +133,7 @@ describe("0093/0099 — secrets-as-power is calibration-neutral to the seeded sp
     const user = "neutral-nv";
     const sb = reg.sandboxFor(user);
     sb.session.createCharacter({ playerName: "The Player", seed: SEED });
+    sb.session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     // Plant a learned secret about a partner, then make a LEVERAGED deal — the new branch fires + folds.
     const partner = sb.session.livingIds().find((id) => id !== PLAYER)!;
     sb.engine.knowledge.seedBelief(partner, { content: "a learned secret", originalContent: "a learned secret", factId: `seed:${partner}`, confidence: 0.9, hops: 0, distortion: 0, source: partner }, "origin");
