@@ -3,7 +3,7 @@
 > **Status:** ✅ **BUILT 2026-07-05.** Tracks issue **#883**.
 > **Gate:** engine (`tests/unit/legends0101.test.ts` — the pure selector + adapter/calibration-neutrality
 > gate; `test:arch`'s dependency-cruiser Vault boundary; BDD `0101-npc-myth-making.feature`, wired into
-> `cucumber.cjs`, step defs `npc_myth_making.steps.ts`). Opt-in behind `ORWELL_MYTH_MAKING=1` (also a
+> `cucumber.cjs`, step defs `npc_myth_making.steps.ts`). Default ON behind `ORWELL_MYTH_MAKING` (`=0` opts out) (also a
 > `setBehavioralFlags({ mythMaking })` God-Mode runtime dial) — default OFF, byte-identical to the
 > pre-feature build when off. The front-end voicing path (the model repeating "people are saying you…"
 > from the existing surfaced belief) rides the SAME rumor-surfacing pathway 0002/B27b already uses —

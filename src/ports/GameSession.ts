@@ -1595,7 +1595,7 @@ export interface PremiereIntrosView {
    */
   champagneCircle?: "gathered" | "done";
   /**
-   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default OFF) - present ONLY while the staged premiere entrances/toast run
+   * A9 (`ORWELL_PREMIERE_ENTRANCES`, default ON; `=0` opts out) - present ONLY while the staged premiere entrances/toast run
    * (and until the premiere ends). Public names only (Vault-free). `index` = houseguests entered so far (the
    * player counts once they have walked in); `total` = 16; `playerPosition` is 1-based. `arrivedNames` is the
    * whole NPC inside-list (never invent who else is present). `justArrived` is the latest NPC to enter
@@ -1641,8 +1641,8 @@ export interface WhereaboutsView {
    * room-wide; the zone only scopes earshot.
    */
   zone?: string;
-  /** Who else is in the player's room (names only). */
-  present: NamedRef[];
+  /** Who else is in the player's room (names only). A51: with the tells flag on, each may carry `tell` - the strongest closed-vocabulary tell kind (a word). */
+  present: Array<NamedRef & { tell?: string }>;
   /**
    * Each room the player has SIGHTLINE into (eyeshot — 0077 Phase 2) and who is in it (names only). The
    * open public core sees across itself + into the hallway mouth; a CLOSED door is opaque and never
@@ -1728,6 +1728,8 @@ export interface WhereaboutsView {
 export interface HouseguestMoveResult {
   status: "moved" | "noop" | "illegal";
   whereabouts: WhereaboutsView | null;
+  /** A29 - on "moved" only: the closed-set beatSeq AFTER the commit this move made, so the front-end adopts it and its next compare-and-swap call is not a self-inflicted stale-beat 409. */
+  beatSeq?: number;
 }
 
 /**
@@ -1743,6 +1745,12 @@ export interface HouseguestMoveResult {
  * stay out by construction.
  */
 export interface NpcVoiceView {
+  /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default OFF): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
+  tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
+  /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
+  rememberedAboutYou?: string[];
+  /** A54: the engine decided this houseguest may raise the past unprompted THIS beat (seeded, salience-barred, at most once per in-game day). The model only words it. */
+  bringUp?: true;
   houseguest: NamedRef;
   /**
    * Their public seat (NARR-7 / #542): `active` (still playing, voiced from inside the house),

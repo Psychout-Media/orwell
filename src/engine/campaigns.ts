@@ -213,6 +213,8 @@ export interface FormCampaignDeps {
    * (a decided count is not worked); absent => always forms (byte-identical). Alliance-building is never gated by it.
    */
   worthWorking?: (actor: EntityId, target: EntityId) => boolean;
+  /** B31 (ORWELL_MOOD_CAMPAIGN): false => this actor is too rattled to hold a campaign steady, so none forms. Absent => byte-identical. */
+  steady?: (actor: EntityId) => boolean;
 }
 
 export const PLAN_FOR: Record<CampaignGoal, CampaignMove[]> = {
@@ -236,6 +238,7 @@ export function formCampaigns(actors: readonly CampaignActor[], deps: FormCampai
   const out: Campaign[] = [];
   for (const a of ordered) {
     if (out.length >= c.maxConcurrent) break;
+    if (deps.steady && !deps.steady(a.id)) continue;
     const topThreat = [...a.threats].sort((x, y) => y.threat - x.threat)[0];
     const topAlly = [...a.allies].sort((x, y) => y.affinity - x.affinity)[0];
     let goal: CampaignGoal | null = null;
@@ -435,9 +438,15 @@ export interface DriveConstants {
   nominatedIntensity: number;
   /** The lay-low simmer intensity — the quiet baseline everyone carries. */
   layLowIntensity: number;
+  /** B51 (ORWELL_DRIVE_DECISIONS): the HOH/veto-holder score weight of their OWN drive toward a candidate (target adds, build protects) = decisionWeight x intensity. */
+  decisionWeight: number;
+  /** B51: the weight of the decider's OWN active campaign on a candidate (x (0.5 + progress/2)); replaces the bare drive for that candidate. */
+  ownCampaignWeight: number;
 }
 
 export const DRIVE: DriveConstants = {
+  ownCampaignWeight: 0.2, // a committed plan weighs more than a held motive, still under CAMPAIGN.base (0.25)
+  decisionWeight: 0.15, // bounded under CAMPAIGN.base (0.25): a held personal motive, not a campaign
   lowLeanWeight: 0.08, // bounded well under CAMPAIGN.base (0.25) — a quiet grudge, not a campaign
   hysteresis: 0.12,
   aggressionWeight: 0.25,
@@ -599,4 +608,19 @@ export function selectNemesis(
 
   const top = [...qualified].sort((a, b) => b.threatTowardPlayer - a.threatTowardPlayer)[0];
   return { current: top?.id, streak };
+}
+
+/**
+ * B51: the signed nomination/veto-save push of the decider's OWN plan toward `candidate` (positive = toward evicting, the same sign as `campaignPushFor`). `campaignPushFor` skips campaigns the
+ * decider owns (assuming they are in the decider's own read - they are not: `NominationRead` carries no drive or campaign), so this is where the HOH's / veto holder's own plan enters. An own
+ * ACTIVE campaign on the candidate wins (evict adds; protect / build-alliance protect), scaled by progress; otherwise a held `target` drive adds and a `build` drive protects. Never both.
+ */
+export function drivePushFor(
+  drive: Drive | undefined, candidate: EntityId, ownCampaign?: { goal: CampaignGoal; progress: number }, c: DriveConstants = DRIVE,
+): number {
+  const sign = ownCampaign?.goal === "evict" ? 1 : ownCampaign?.goal === "protect" || ownCampaign?.goal === "build-alliance" ? -1 : 0; // win-power / discredit point at no one's seat
+  if (ownCampaign && sign) return sign * c.ownCampaignWeight * (0.5 + 0.5 * clamp01(ownCampaign.progress));
+  if (!drive || drive.target !== candidate) return 0;
+  const w = c.decisionWeight * clamp01(drive.intensity);
+  return drive.motivation === "target" ? w : drive.motivation === "build" ? -w : 0;
 }

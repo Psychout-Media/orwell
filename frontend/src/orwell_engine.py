@@ -365,6 +365,28 @@ def disclosure_this_turn(user) -> bool:
 
 def clear_disclosure_turn(user) -> None:
     _DISCLOSURE_TURN.pop(_disclosure_key(user), None)
+    _TELLS_TURN.pop(_disclosure_key(user), None)
+
+
+# A50: the engine's tells per houseguest NAME, captured from this turn's `npcVoice` results (only when the tells layer is on, i.e. the result carries a `tells` key; [] = calm).
+# Per-user, cleared each turn with the disclosure bookkeeping. The faithfulness guard reads it; fail-soft bookkeeping only.
+_TELLS_TURN: dict = {}
+
+
+def tells_this_turn(user) -> dict:
+    """{houseguest name -> [tell kinds]} for the NPCs voiced this turn with the tells layer on."""
+    return dict(_TELLS_TURN.get(_disclosure_key(user)) or {})
+
+
+def _note_tells(user, res) -> None:
+    try:
+        if isinstance(res, dict) and isinstance(res.get("tells"), list):
+            name = ((res.get("houseguest") or {}).get("name") or "").strip()
+            if name:
+                kinds = [str(t.get("kind")) for t in res["tells"] if isinstance(t, dict) and t.get("kind")]
+                _TELLS_TURN.setdefault(_disclosure_key(user), {})[name] = kinds
+    except Exception:
+        pass
 
 
 # N-17 vs 0092: the engine can surface a secret to the player OFF the tool path (a confidant slip / gossip chain, inside the orchestrator tick), so no disclosure LEVER ran this turn yet the
@@ -1210,7 +1232,9 @@ async def world_snapshot_view(user: str | None = None):
 async def npc_voice(npc_id: str, user: str | None = None):
     """The knowledge-bounded voicing projection for one active houseguest (B65) — persona,
     room/co-presence, what THEY know/suspect, organic stances. ``None`` for unknown/departed."""
-    return await _call("npcVoice", {"id": npc_id}, user=user)
+    res = await _call("npcVoice", {"id": npc_id}, user=user)
+    _note_tells(user, res)
+    return res
 
 
 async def sealed_from_house(user: str | None = None):

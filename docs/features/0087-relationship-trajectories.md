@@ -5,7 +5,7 @@
 > `decayTrajectory` / `tiltNatureWeights`) + `src/engine/trajectoryConstants.ts` (the single tunable);
 > the optional `trajectoryOf` dep on `richOffscreenStretch` (`src/engine/offscreen.ts`); the momentum
 > store + per-pair fold ring buffers + persistence on `GameSessionAdapter`; and the off-screen-tick wiring
-> in `src/composition/orchestrator.ts`. Opt-in behind the **dedicated `ORWELL_TRAJECTORIES` flag**
+> in `src/composition/orchestrator.ts`. Default ON behind the **dedicated `ORWELL_TRAJECTORIES` flag** (`=0` opts out)
 > (default OFF) so neutrality is provable in isolation. Gates: `tests/unit/trajectoryOutcomeNeutral.test.ts`
 > (the byte-identity / draw-stream battery), `tests/unit/trajectory0087.test.ts` (the pure derivation +
 > tilt), `tests/unit/trajectoryWiring0087.test.ts` (wiring + persistence + the Vault-wall byte-identity

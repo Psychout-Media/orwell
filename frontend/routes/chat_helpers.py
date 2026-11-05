@@ -3894,6 +3894,62 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
         return text, []
 
 
+# A50 (#2017 E1b): tells faithfulness. A present NPC's narrated carriage must not be the OPPOSITE pole of the engine's tell, and a calm NPC (tells fetched, none) must not be given a strong one.
+# Closed lexicon, whole-word, ONE named NPC per line, ENGINE tells on one pole only - anything ambiguous is left alone (zero false positives is the bar).
+_TELL_LOW = frozenset({"withdrawn", "tearful"})
+_TELL_HIGH = frozenset({"giddy", "warm-open"})
+_CUES_LOW = re.compile(r"\b(?:withdrawn|tearful|in tears|sobbing|sobs|crying|teary|slumped)\b", re.I)
+_CUES_HIGH = re.compile(r"\b(?:giddy|beaming|bubbly|grinning|radiant|bouncing)\b", re.I)
+_CUES_STRONG = re.compile(r"\b(?:sobbing|in tears|giddy|bursting with joy)\b", re.I)
+_TELL_NEUTRAL = "{name} keeps a level expression, giving little away."
+
+
+def _tell_line_violation(ln: str, tells: dict):
+    named = [n for n in tells if re.search(r"\b" + re.escape(n) + r"\b", ln)]
+    if len(named) != 1:
+        return None
+    name, kinds = named[0], set(tells[named[0]])
+    low, high = bool(_CUES_LOW.search(ln)), bool(_CUES_HIGH.search(ln))
+    if not kinds:
+        return name if _CUES_STRONG.search(ln) else None
+    if kinds <= _TELL_LOW and high and not low:
+        return name
+    if kinds <= _TELL_HIGH and low and not high:
+        return name
+    return None
+
+
+def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
+    """A50 - replace each LINE that contradicts the engine's tell for the single houseguest it names with a neutral in-voice line. (new_text, [(old, new)]) so the caller mirrors it into the raw buffer. Counts the belt only on an APPLIED replacement. Fail-open."""
+    if not text or not text.strip():
+        return text, []
+    try:
+        from src import orwell_engine as _oe
+        tells = _oe.tells_this_turn(user)
+        if not tells:
+            return text, []
+        ops, out = [], []
+        for ln in text.split("\n"):
+            who = _tell_line_violation(ln, tells)
+            if who:
+                new = _TELL_NEUTRAL.format(name=who)
+                ops.append((ln, new))
+                out.append(new)
+            else:
+                out.append(ln)
+        if not ops:
+            return text, []
+        try:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "tell_faithfulness", len(ops))
+        except Exception:
+            pass
+        logger.warning("[orwell] A50: replaced %d tell-contradicting line(s) (user=%s)", len(ops), user)
+        return "\n".join(out), ops
+    except Exception:
+        return text, []
+
+
 async def screen_knowledge_wall(user, text: str) -> str:
     """A0 post-hoc knowledge-wall scan. Returns `text` with any sentence that puts SEALED content in a
     houseguest's mouth DROPPED (delimiters preserved for the rest). Cheap hot path: no sealed facts, or
