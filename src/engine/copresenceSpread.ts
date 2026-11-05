@@ -78,7 +78,8 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
     // B34: no hard cap - a repeat liar's lies simply land weaker (LIE_COST); only a technical safety valve demotes a lie to a spin.
     const priorLies = d.told.count(holder, "lied");
     const spin = rawSpin === "lie" && priorLies >= LIE_COST.safetyValve ? "spun" : rawSpin;
-    const lieCredibility = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
+    const standIn = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
+    const lieCredibility = d.credibilityOf ? d.credibilityOf(holder, listener, d.told.countTo(holder, listener, "lied")) : standIn;
     const told: Told = decision === "share" ? (spin === "lie" ? "lied" : "shared") : decision === "slip" ? "slipped" : "held";
     d.told.record(holder, h.factId, listener, told);
     let transmitted = false;
