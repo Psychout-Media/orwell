@@ -55,7 +55,7 @@ import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deal
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
-import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity } from "../../engine/assurances";
+import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1203,6 +1203,12 @@ export class GameSessionAdapter implements GameSession {
     if (kept.length === 0) return;
     this.live.assurances = ledger.toJSON();
     for (const to of kept) {
+      // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
+      // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
+      if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live.week}:${holder}:${to}`)).next())) {
+        recordClaim((this.live.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live.week });
+        continue;
+      }
       this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
       this.rememberAsWitnesses(witnessesOf.get(to) ?? [], holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
     }

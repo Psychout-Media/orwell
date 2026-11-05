@@ -37,6 +37,10 @@ export const ASSURANCE = {
   keptMemorySeverity: 0.2,
   /** B22: a witness remembers a kept/broken assurance they merely HEARD at this fraction of the assured's own weight. */
   witnessFactor: 0.5,
+  /** B39: the chance (from a dedicated seeded roll) that the assured WRONGLY comes to believe a KEPT assurance was broken - a rumor, sometimes wrong by construction. */
+  rumoredBreakP: 0.2,
+  /** B39: how sure the assured is of the rumored break (a rumor, not a witnessed betrayal). */
+  rumoredBreakConfidence: 0.4,
   /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
   liarSincerity: 0.1,
 } as const;
@@ -105,4 +109,9 @@ export function lapseAssurancesAtRoll(s: { week: number; assurances?: { seq: num
 export function npcAssuranceSincerity(loyalty: number, roll: number): number {
   const pSincere = clamp(0.2 + 0.8 * clamp(loyalty, 0, 1), 0.2, 1);
   return clamp(roll, 0, 1) < pSincere ? 1 : ASSURANCE.liarSincerity;
+}
+
+/** B39 - does the assured wrongly come to believe a KEPT assurance was broken? `roll` is a draw in [0,1) from a dedicated seeded stream (never the shared one). Pure, monotone in the roll. */
+export function isRumoredBreak(roll: number): boolean {
+  return clamp(roll, 0, 1) < ASSURANCE.rumoredBreakP;
 }
