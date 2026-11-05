@@ -81,6 +81,9 @@ describe("E57/R5 — one bounded off-screen tick per player TURN, not per tool c
     const { clock, reg, count } = tickCounter();
     const sb = reg.sandboxFor("debounce");
     sb.session.createCharacter({ playerName: "The Player", seed: 4 });
+    // A11: a chat during the gathered champagne circle is now a REAL witnessed record (the witness grounding reads the same whole-house overlay the player sees), so it is a normal first
+    // turn that earns its own tick. Close the circle first (a pure close earns no tick) so this test measures what it is about: debounce between two ordinary social turns.
+    sb.session.advanceGame();
 
     const before = count();
     sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc(1)], content: "chat a", kind: "bonding" });
