@@ -59,6 +59,7 @@ import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTilt
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitOf } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
+import { confideToDisclosure, dripToDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -1060,6 +1061,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
+    this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
     this.messageMode = true;
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
@@ -2277,13 +2279,24 @@ export class GameSessionAdapter implements GameSession {
     this.onThreadGossip = fn;
   }
 
+  /** B33 - the latest closed-set disclosure event per NPC, valid for the beat it happened in (memory only; cleared when the board moves). A52 reads it to hand the narrator only what the engine rolled. */
+  private beatDisclosures = new Map<EntityId, { epoch: number; event: DisclosureEvent }>();
+  /** The disclosure window: bumped on every announced player message and every advance, so an event lives for the player turn / beat it happened in (a commit's beatSeq bump does not end it). */
+  private disclosureEpoch = 0;
+  private noteDisclosure(npc: EntityId, event: DisclosureEvent): void { this.beatDisclosures.set(npc, { epoch: this.disclosureEpoch, event }); }
+  /** What `npc` did about telling the player something THIS beat (confirm / slip / deflect), or undefined when the engine rolled nothing for them. */
+  disclosureThisBeat(npc: EntityId): DisclosureEvent | undefined {
+    const e = this.beatDisclosures.get(npc);
+    return e && e.epoch === this.disclosureEpoch ? e.event : undefined;
+  }
+
   /** N-17 vs 0092 - the delivery MARKER: a Vault-free counter + the source's PUBLIC id, set whenever a thread surfaces to the player OFF the tool path (the confidant slip / gossip chain run inside the orchestrator tick). Memory only (a restart resets it; the front-end reads a change, not an order). Never content. */
   private playerSurfaceN = 0;
   private playerSurfaceSource?: EntityId;
   setOnThreadSurfaceToPlayer(fn: (subject: EntityId, rumor: string) => boolean): void {
     this.onThreadSurfaceToPlayer = (subject, rumor) => {
       const told = fn(subject, rumor);
-      if (told) { this.playerSurfaceN += 1; this.playerSurfaceSource = subject; }
+      if (told) { this.playerSurfaceN += 1; this.playerSurfaceSource = subject; this.noteDisclosure(subject, dripToDisclosure()); }
       return told;
     };
   }
@@ -9596,6 +9609,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
+    this.disclosureEpoch++; // B33: an advance ends the previous beat's disclosure events
     // 0065 Part B — an at-most-once replay returns the ORIGINAL view (its beatSeq included) WITHOUT
     // advancing again; it WINS even if beatSeq has since moved (the cache is the authority on the
     // already-applied result). Checked before the CAS guard so a retry of a now-stale key still
@@ -10729,6 +10743,7 @@ export class GameSessionAdapter implements GameSession {
     // a later press (bond grown, a new week) re-rolls. No raw rng leaks the outcome (anti-sycophancy).
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:confide:${npcId}:${this.week}:${this.phase}`));
     const decision = decideConfidence(signals, rng, { liesRemaining: CONFIDENCE.maxLiesPerSeason - this.lieCount });
+    this.noteDisclosure(npcId, confideToDisclosure(decision)); // B33: the closed-set record of what the engine just rolled (the decision itself is untouched)
     if (!decision.disclosed) return none;
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
