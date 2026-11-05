@@ -1436,6 +1436,10 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.timeOfDay
       ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
       : []),
+    // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
+    ...(view.clockLabel
+      ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
+      : []),
     `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
     "  do your own arithmetic about how many are left, on podiums, etc.).",
     ...ceremonyLines,
@@ -1738,7 +1742,20 @@ export function renderSurfacedFacts(facts: ReadonlyArray<{ content: string; hops
  * a flag OFF means the engine returns an empty result — a DEAD tool — so the glossary must not advertise it. An omitted
  * or `true` entry keeps today's bullet (default ON ⇒ the base prompt is byte-identical).
  */
-export interface GatedLeverFlags { playerDossier?: boolean; boothReceipts?: boolean }
+export interface GatedLeverFlags {
+  playerDossier?: boolean;
+  boothReceipts?: boolean;
+  /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
+  confrontMisfire?: boolean;
+}
+
+/** AMEND 3a #1 - with the 0094 divergence OFF, `confront` always resolves landed:true and folds nothing; drop the "a distorted belief can misfire" promise and keep the lever. */
+function withoutConfrontMisfire(base: string): string {
+  return base.replace(
+    /^    you never invent the outcome\. On \{ landed: true \} play the confrontation as the player expects; on\n    \{ landed: false \} it misfired[\s\S]*?one they witnessed themselves will not\.$/m,
+    "    you never invent the outcome — play the confrontation as the player expects and voice the confronted houseguest's genuine reaction.",
+  );
+}
 
 /** Remove one `  • <lever> — …` glossary bullet (through the line before the next bullet) from the base prompt. */
 function withoutLeverBullet(base: string, lever: string): string {
@@ -1846,6 +1863,7 @@ export function buildSystemPrompt(
   let base = BASE_GAME_MASTER_PROMPT;
   if (levers?.boothReceipts === false) base = withoutLeverBullet(base, "playerReceipts");
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
+  if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   return [
     base,
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)

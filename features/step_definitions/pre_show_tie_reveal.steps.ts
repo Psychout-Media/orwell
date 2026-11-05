@@ -66,7 +66,9 @@ function readsOfPair(sb: ReturnType<GameSessionRegistry["sandboxFor"]>, tie: Pre
   return JSON.stringify(ids.filter((id) => id !== tie.a && id !== tie.b).map((id) => [id, relOf(sb.session).edge(id, tie.a), relOf(sb.session).edge(id, tie.b)]));
 }
 
-const tieRegex = /casting-callback|mutual-friend|shared-hometown|old-acquaintance|pre-game-tie/;
+// AMEND 3a #2: ALL eleven TieNature values (src/engine/seededRelationships.ts), not just the original five. The single-word natures (family / ex / rival) are common English words, so they are matched
+// only as a serialized `"nature":"<value>"` field - a bare /ex/ would flag "exposed".
+const tieRegex = /casting-callback|mutual-friend|shared-hometown|old-acquaintance|pre-game-tie|prior-romance|old-friend|former-teammate|online-acquaintance|"nature"\s*:\s*"(?:family|ex|rival)"/;
 
 // ── Background ───────────────────────────────────────────────────────────────────────────────────
 
