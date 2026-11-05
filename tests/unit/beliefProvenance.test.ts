@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { freshTmpDir } from "../support/freshTmpDir";
 import { makeSocialGraph, diffuseGossip, rumorFrom } from "../../src/engine/gossip";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { buildEngineCore } from "../../src/composition/engineRoot";
@@ -137,8 +138,6 @@ describe("refuting a claim", () => {
 // ── S0b-2: wired through the PRODUCTION runtime's off-screen gossip (the orchestrator tick) ──
 import { vi, afterEach } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
@@ -150,7 +149,7 @@ afterEach(() => vi.unstubAllEnvs());
 function playThroughRuntime(on: boolean, seed: number): LiveSeasonState {
   vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
   vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0"); // the claim OBSERVER must be read-only; the nomination/vote TERM (default ON since P4f) legitimately moves outcomes and is covered by beliefNoms/beliefVoteTilt
-  const rt = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-s0b2-"))) });
+  const rt = composeRuntime({ saveStore: new FileSaveStore(freshTmpDir("orwell-s0b2-")) });
   const s = rt.registry.sandboxFor(`s0b2-${seed}`).session;
   s.createCharacter({ playerName: "P", seed });
   for (let i = 0; i < 9000; i++) {

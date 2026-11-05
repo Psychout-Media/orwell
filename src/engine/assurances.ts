@@ -81,3 +81,11 @@ export function decideKeep(i: { keepWeight: number; sincerity: number; breakBene
   const cost = clamp(i.keepWeight, 0, 1) * clamp(i.sincerity, 0, 1);
   return clamp(i.breakBenefit, 0, 1) <= cost && cost > 0;
 }
+
+/** B4 slice 5: lapse the live season's open assurances at the week roll (no-op when the ledger was never created, i.e. the flag is off). Mutates `s.assurances` in place. */
+export function lapseAssurancesAtRoll(s: { week: number; assurances?: { seq: number; items: Assurance[] } }): void {
+  if (!s.assurances) return;
+  const l = AssuranceLedger.fromJSON(s.assurances);
+  l.lapse(s.week);
+  s.assurances = l.toJSON();
+}

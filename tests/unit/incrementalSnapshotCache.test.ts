@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { freshTmpDir } from "../support/freshTmpDir";
 import { join } from "node:path";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
@@ -31,7 +30,7 @@ import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
  * HARD rule: roles only — generic ids (player / npc:N), never names.
  */
 
-const freshDir = (): string => mkdtempSync(join(tmpdir(), "orwell-r3cache-"));
+const freshDir = (): string => freshTmpDir("orwell-r3cache-");
 
 function liveRig(seed: number) {
   const reg = new GameSessionRegistry(new FileSaveStore(freshDir()));

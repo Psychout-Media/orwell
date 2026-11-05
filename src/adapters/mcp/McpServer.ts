@@ -162,6 +162,9 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "moveTo":
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       return;
+    case "noteMessage":
+      if (!isStr(args["messageId"])) refuse("messageId", "a non-empty string (the player message's stable id)");
+      return;
     case "moveHouseguest":
       // ADR 0009 — record a narrated NPC relocation: a houseguest id + a room name (both strings).
       if (!isStr(args["id"])) refuse("id", "a houseguest id (string)");
@@ -508,6 +511,9 @@ export class McpServer {
         return this.deps.session.turnIn(args as { expectedBeatSeq?: number; idempotencyKey?: string });
       case "hangOut":
         return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number });
+      case "noteMessage":
+        // Clock-per-message (Coordinator 2026-11-05): the FE announces each PLAYER MESSAGE once (idempotent per messageId); the announcement steps the in-game clock one message-step.
+        return this.deps.session.noteMessage({ messageId: String(args["messageId"]) });
       case "makeDeal":
         return this.deps.session.makeDeal(args as unknown as MakeDealReq);
       case "formAlliance": // 0107

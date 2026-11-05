@@ -58,6 +58,7 @@ function freshSession(seed: number): { session: GameSessionAdapter; sb: ReturnTy
     return id;
   });
   session.createCharacter({ playerName: "The Player", seed });
+  session.setNpcDealConsentEnabled(false); // these scenarios exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
   return { session, sb };
 }
 

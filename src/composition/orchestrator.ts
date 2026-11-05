@@ -6,6 +6,7 @@ import { counts, isSuperset, countsNonDecreasing } from "../domain/saveState";
 import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
+import { spreadForScenes } from "../engine/copresenceSpread";
 import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
@@ -444,11 +445,19 @@ export class Orchestrator {
     if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
+    const session = this.registry.sandboxFor(user).session;
+    // Once the FE announces player messages (`noteMessage`), the announcement itself steps the in-game clock INSIDE the tool - so a clock-only change must not make this commit look like a
+    // beat commit (which would earn an un-debounced society tick every message). Strip ONLY the clock fields from the comparison in that mode.
+    const clockFree = (l: SessionSnapshot["live"] | undefined): string => {
+      if (!l || !session.messageModeNow()) return JSON.stringify(l ?? null);
+      const { nightDepth: _n, timeOfDay: _t, ...rest } = l as unknown as Record<string, unknown>;
+      void _n; void _t;
+      return JSON.stringify(rest);
+    };
     const progressed = !baseline || !baseline.started
       || baseline.week !== candidate.week
       || baseline.phase !== candidate.phase
-      || JSON.stringify(baseline.live ?? null) !== JSON.stringify(candidate.live ?? null);
-    const session = this.registry.sandboxFor(user).session;
+      || clockFree(baseline.live) !== clockFree(candidate.live);
 
     if (!progressed) {
       // A social (aux) turn — the live loop didn't move. Whether the house lives now turns on the clock.
@@ -464,7 +473,7 @@ export class Orchestrator {
         // night without the player's own turnIn — ADR 0003 / the lull rule — so it can't rush an engaged
         // scene). Then let the house scheme, but debounced ON ELAPSED IN-GAME HOURS (SOCIETY_TICK_HOURS),
         // NOT once per tool call: the society lives "with the clock", roughly every couple of social turns.
-        session.advanceClockPerConversation();
+        session.billClockForCommit();
         const hour = session.inGameHour();
         const lastHour = this.lastSocietyTickHour.get(user);
         if (hour !== undefined && lastHour !== undefined && hour - lastHour < SOCIETY_TICK_HOURS) return; // not enough time yet
@@ -479,7 +488,7 @@ export class Orchestrator {
       const last = this.lastTurnTickAt.get(user);
       if (last !== undefined && now - last < this.auxTickDebounceMs) return; // E57/R5
       this.lastTurnTickAt.set(user, now);
-      session.advanceClockPerConversation();
+      session.billClockForCommit();
       this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
       return;
     }
@@ -489,8 +498,8 @@ export class Orchestrator {
     // step too (unchanged from before), and anchor the social-play pacing to the beat's new in-game hour so
     // the between-ceremony ticks (0117) measure from here.
     this.lastTurnTickAt.set(user, this.clock.now());
-    // Then press the per-conversation clock one message-step as before.
-    session.advanceClockPerConversation();
+    // Then press the per-conversation clock one message-step as before (billed once per announced player message once the FE announces them - `billClockForCommit`).
+    session.billClockForCommit();
     const beatHour = session.inGameHour();
     if (beatHour !== undefined) this.lastSocietyTickHour.set(user, beatHour);
     // R3: the commit just exported this. A9: a supplementary tick — an empty society this tick is
@@ -835,7 +844,26 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // confidence, and per-telling drift. The PLAYER is a node like anyone: a chain that terminates at
   // them lands the belief — a vague paraphrase with source+confidence, never the verbatim hidden
   // scene and never a number. Every retelling is a recorded, traceable event (0002).
-  if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
+  // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default OFF): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
+  // while on (so the OFF path, which never reaches this branch, is byte-identical). Dedicated rng per (holder, listener, tick); hidden layer only; the player is never a node (off-screen scenes exclude them).
+  if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
+    const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
+    const relm = sandbox.engine.relationships;
+    spreadForScenes(
+      scenes.filter((s) => s.initiator !== core.house!.player.id && s.partner !== core.house!.player.id).map((s) => [s.initiator, s.partner] as const),
+      {
+        knowledge: sandbox.engine.knowledge,
+        told: sandbox.session.copresenceToldLedger(),
+        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${before}`)),
+        trust: (a, b) => relm.edge(a, b).trust,
+        affinity: (a, b) => relm.edge(a, b).affinity,
+        threat: (a, b) => relm.edge(a, b).threat,
+        style: (id) => npcsById.get(id)?.character.strategyStyle,
+        volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
+        audienceOf: () => 0,
+      },
+    );
+  } else if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
     const scene = scenes[rng.int(scenes.length)]!;
     // The graph is the AWAKE house (ADR 0006), exactly like the off-screen society above: a
     // houseguest who has gone to bed neither retells nor receives a rumor at night (a pre-existing

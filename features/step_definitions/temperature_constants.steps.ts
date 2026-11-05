@@ -66,12 +66,12 @@ Then("the outcome stays within bounds", function (this: BbWorld) {
   for (const v of Object.values(this.compResultObj!.temperature)) assert.ok(withinTemperatureBounds(v));
 });
 
-Then("no illegal outcome is produced", function (this: BbWorld) {
+Then("the winner is an eligible competitor", function (this: BbWorld) {
   const ids = favoriteField().map((c) => c.id);
   assert.ok(ids.includes(this.compResultObj!.winner)); // the winner is always an eligible competitor
 });
 
-Then("no Vault content is exposed", function (this: BbWorld) {
+Then("the result carries only ids and numbers", function (this: BbWorld) {
   // The result is purely {winner, scores, temperature} — ids + numbers, no hidden/narrative content.
   assert.deepEqual(Object.keys(this.compResultObj!).sort(), ["scores", "temperature", "winner"]);
   for (const v of Object.values(this.compResultObj!.scores)) assert.equal(typeof v, "number");
