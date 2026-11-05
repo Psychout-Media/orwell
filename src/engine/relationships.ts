@@ -351,11 +351,13 @@ export class RelationshipModel {
     candidates: EntityId[],
     rng: RandomnessSource,
     temperature = TEMPERATURE_CONSTANTS.variableWeights.allianceShift,
+    /** B7 M4b (ORWELL_HC_MEMORY): an optional additive memory bias per candidate (favor / owed promise raise, grudge lowers). Absent => byte-identical; draws no rng. */
+    memoryBias?: (candidate: EntityId) => number,
   ): EntityId {
     let best = candidates[0]!;
     let bestScore = -Infinity;
     for (const c of candidates) {
-      const score = this.bondStrength(holder, c) + (rng.next() - 0.5) * temperature;
+      const score = this.bondStrength(holder, c) + (rng.next() - 0.5) * temperature + (memoryBias ? memoryBias(c) : 0);
       if (score > bestScore) { bestScore = score; best = c; }
     }
     return best;

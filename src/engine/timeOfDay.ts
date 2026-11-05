@@ -333,3 +333,18 @@ export const CONFLICT_BEDTIME_DRAIN = SOCIAL_FATIGUE.conflictBedtimeDrainHours;
 export const BEDTIME_DEPTH_FLOOR = SOCIAL_FATIGUE.bedtimeHourFloor;
 export const FATIGUE_RECOVERY = FATIGUE.recovery;
 export const FATIGUE_WEIGHT = FATIGUE.weight;
+
+/**
+ * P0 clock grounding - the engine's exact in-game clock as a short plain label, e.g. "9:40am". `hour` is the engine's clock hour (`live.nightDepth`: 8 = 8:00am, 12 = noon, 24 = midnight,
+ * 27.08 = 3:05am the next night); minutes are rounded to the nearest whole minute. Pure. Day is the in-game day number (1-based). Never a wall-clock; the narrator is told to use THIS and no other time.
+ */
+export function formatClockLabel(hour: number, _day?: number): string {
+  const total = Math.round(hour * 60);
+  const mins = ((total % 1440) + 1440) % 1440;
+  const h24 = Math.floor(mins / 60);
+  const mm = mins % 60;
+  const suffix = h24 >= 12 ? "pm" : "am";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  // A69/P0: NO day number - `dayNumber` only advances when the player turns in, so it read "Day 1" all week while the clock rolled to a fresh 8:00am (and ran backwards). Time of day only until the day accounting is fixed (A69).
+  return `${h12}:${String(mm).padStart(2, "0")}${suffix}`;
+}

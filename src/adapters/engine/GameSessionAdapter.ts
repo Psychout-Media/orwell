@@ -53,9 +53,10 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
-import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
+import { applyForgiveness, forgivenessTraitOf } from "../../engine/forgiveness";
+import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -240,7 +241,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -1036,7 +1037,7 @@ export class GameSessionAdapter implements GameSession {
     const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
     return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
   }
-  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
+  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only; persisted in the snapshot since B20 - the old note said not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
   private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
   private copresenceTold = new ToldLedger();
   setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
@@ -1168,10 +1169,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
-    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) broke = true; }
+    const witnesses: EntityId[] = [];
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+    this.rememberAsWitnesses(witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
     // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
     // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
     if (nominee !== PLAYER) {
@@ -1181,11 +1184,59 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** B22 - houseguests who merely HEARD a promise remember its keeping / breaking too, at `ASSURANCE.witnessFactor` of the assured's own weight (the assured and the assurer themselves are not witnesses). OFF unless exactly `ORWELL_MEMORY_PROMISES=1`; never-flipped. */
+  private memoryPromisesEnabled = process.env.ORWELL_MEMORY_PROMISES === "1";
+  setMemoryPromisesEnabled(on: boolean): void { this.memoryPromisesEnabled = on; }
+  private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
+    if (!this.memoryPromisesEnabled) return;
+    for (const w of new Set(witnesses)) if (w !== about && w !== assured) this.remember(w, about, kind, severity * ASSURANCE.witnessFactor);
+  }
+  /** B4 slice 8 - resolve every OPEN assurance matching `match` as KEPT (once each) and the assured remembers a (weaker-than-a-grudge) favor. Flag off / none open => nothing. */
+  private keepAssurances(match: (a: Assurance) => boolean): void {
+    if (!this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    const kept: Assurance[] = [];
+    for (const a of ledger.all.filter((x) => x.status === "open" && match(x))) if (ledger.resolve(a.id, "kept")) kept.push(a);
+    if (kept.length === 0) return;
+    this.live.assurances = ledger.toJSON();
+    for (const a of kept) {
+      const holder = a.from, to = a.to;
+      // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
+      // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
+      if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live.week}:${holder}:${to}`)).next())) {
+        recordClaim((this.live.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live.week });
+        continue;
+      }
+      this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+      this.rememberAsWitnesses(a.heardBy ?? [], holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
+    }
+  }
+  /** B4 slice 8 - the HOH finalized nominations without the houseguests they had assured 'loyal': kept. ('safe' is NOT resolved here: the veto and the replacement can still put the assured on the block, so it is settled at the vote tally.) */
+  assuranceKeptAtNominations(holder: EntityId, nominees: readonly EntityId[]): void {
+    this.keepAssurances((a) => a.from === holder && a.kind === "loyal" && !nominees.includes(a.to));
+  }
+  /** B4 slice 8 - `voter` voted the other nominee out and so spared `spared`: an open 'vote'/'safe' assurance to them was KEPT. */
+  assuranceKeptAtVote(voter: EntityId, spared: EntityId): void {
+    this.keepAssurances((a) => a.from === voter && (a.kind === "vote" || a.kind === "safe") && a.to === spared);
+  }
+  /** B4 slice 8 - the eviction nominees are FINAL (after the veto and any replacement): every open 'safe' assurance whose assured is not on the block was kept. */
+  assuranceKeptAtTally(finalNominees: readonly EntityId[]): void {
+    this.keepAssurances((a) => a.kind === "safe" && !finalNominees.includes(a.to));
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
-  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
+  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }): void {
     if (!this.assurancesEnabled || !this.live) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
-    ledger.add({ ...a, week: this.live.week });
+    // B4 slice 7: an NPC's sincerity is the ENGINE's call (loyalty + a dedicated seeded roll), never the model's proposal; the player's own stays as recorded.
+    let sincerity = a.sincerity;
+    if (a.source === "npc") {
+      const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(a.from), this.emotionalReadOf(a.from))));
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}`)).next();
+      sincerity = npcAssuranceSincerity(loyalty, roll);
+    }
+    const { heardBy, ...rest } = a;
+    ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
     this.live.assurances = ledger.toJSON();
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
@@ -2096,8 +2147,15 @@ export class GameSessionAdapter implements GameSession {
     this.onThreadGossip = fn;
   }
 
+  /** N-17 vs 0092 - the delivery MARKER: a Vault-free counter + the source's PUBLIC id, set whenever a thread surfaces to the player OFF the tool path (the confidant slip / gossip chain run inside the orchestrator tick). Memory only (a restart resets it; the front-end reads a change, not an order). Never content. */
+  private playerSurfaceN = 0;
+  private playerSurfaceSource?: EntityId;
   setOnThreadSurfaceToPlayer(fn: (subject: EntityId, rumor: string) => boolean): void {
-    this.onThreadSurfaceToPlayer = fn;
+    this.onThreadSurfaceToPlayer = (subject, rumor) => {
+      const told = fn(subject, rumor);
+      if (told) { this.playerSurfaceN += 1; this.playerSurfaceSource = subject; }
+      return told;
+    };
   }
 
   /** 0075 — wire the confidence-recording pathway (the composition root owns the KnowledgeService). */
@@ -3657,6 +3715,8 @@ export class GameSessionAdapter implements GameSession {
          : {}),
        // P0g: the noteMessage dedupe ring survives a restart (a retry then bills nothing). Absent until the first announcement ⇒ old saves round-trip byte-identical.
        ...(this.seenMessageIds.length > 0 ? { seenMessageIds: [...this.seenMessageIds] } : {}),
+       // B20: the co-presence told ledger survives a restart (a telling already decided is not re-rolled). Absent when empty => old saves round-trip byte-identical.
+       ...(this.copresenceTold.size > 0 ? { toldLedger: this.copresenceTold.snapshot() } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
@@ -3967,6 +4027,7 @@ export class GameSessionAdapter implements GameSession {
       : undefined;
     this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
+    this.copresenceTold = ToldLedger.restore(core.toldLedger);
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
@@ -4544,6 +4605,31 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * The occupancy the WITNESS grounding reads (registry presence provider). `occupancy()` stays the raw open-set map (the ADR 0009 record contract: a recorded NPC move lands in it);
+   * this adds the premiere overlay on top, a read-only copy.
+   */
+  witnessOccupancy(): Occupancy | null {
+    // A11 (finding from #2088): while a WHOLE-HOUSE premiere event is on (the gathered champagne circle / toast, or the staged entrances) `whereabouts()` shows everyone convened in the
+    // player's room, but this base map still held the underlying wander positions - so a chat during the toast hit the phantom-witness check ("not in the room") and folded nothing. The
+    // witness grounding must read the SAME overlay the player sees. Only the two premiere events; every other path (and flag-off) returns the base map untouched.
+    const base = this.presence;
+    const live = this.live;
+    if (!base || !live || !this.house) return base;
+    const entrances = live.premiereEntrance?.stage === "entrances";
+    if (!entrances && live.champagneCircle !== "gathered") return base;
+    const me = this.house.player.id;
+    const room = base.get(me) ?? "living-room";
+    const inside = entrances ? new Set<EntityId>(live.premiereEntrance!.order.slice(0, live.premiereEntrance!.arrived)) : null;
+    const overlay = new Map(base) as Map<EntityId, Room>;
+    for (const n of this.house.npcs) {
+      if (this.seatOf(n.id) !== "active") continue;
+      if (inside && !inside.has(n.id)) overlay.delete(n.id); // not arrived yet: not in the house, so not a witness
+      else overlay.set(n.id, room);
+    }
+    return overlay;
+  }
+
+  /**
    * The houseguests still AWAKE right now (ADR 0006 — the diegetic bound, the SOCIAL half of the sleep
    * economy). When the clock is running, anyone past their character-driven bedtime has turned in for
    * the night and drops out of the living house; as the night thins the set shrinks toward the player +
@@ -4992,7 +5078,7 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng);
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachMemoryEnabled ? (n) => this.approachMemoryFor(n, player) : undefined);
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -7474,10 +7560,12 @@ export class GameSessionAdapter implements GameSession {
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
+      ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
+      ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId) => this.assuranceKeptAtVote(v, sp), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
@@ -9989,7 +10077,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
-    const entries = this.npcMemoryEnabled ? live.npcMemory?.[npcId]?.[PLAYER] : undefined;
+    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER]) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
     const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
     const decay = this.memoryDecayScale(npcId);
@@ -11200,6 +11288,33 @@ export class GameSessionAdapter implements GameSession {
     return bound ? -0.2 : 0;
   }
 
+  /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
+  private hcMemoryEnabled = process.env.ORWELL_HC_MEMORY === "1";
+  setHcMemoryEnabled(on: boolean): void { this.hcMemoryEnabled = on; }
+  /** B7 M4b - how much more the `holder` wants `candidate` as the sixth veto player: the SAME combined memory / belief / owed-deal read the veto save uses (a favor or an owed promise raises, a grudge or a 'they target me' belief lowers). Deterministic, no rng, [-1, 1]. */
+  hcMemoryFor(candidate: EntityId, holder: EntityId): number {
+    if (!this.hcMemoryEnabled || holder === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(candidate, holder) : 0;
+    const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(candidate, holder) : 0;
+    const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(candidate) && candidate !== holder) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -(mem + bel) + owed));
+  }
+
+  /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
+  private approachMemoryEnabled = process.env.ORWELL_APPROACH_MEMORY === "1";
+  setApproachMemoryEnabled(on: boolean): void { this.approachMemoryEnabled = on; }
+  /**
+   * B7 M1b - how much more (+) or less (-) `npc` is drawn to seek the player out, from what they remember about the player (a favor raises it, a grudge lowers it: the 0024 ledger's standalone tilt,
+   * sign-flipped, i.e. the same read the veto save uses) and owe (an open deal or kept-able assurance the NPC made to the player raises it). Deterministic, no rng, bounded to [-1, 1] (the ranker clamps further).
+   */
+  approachMemoryFor(npc: EntityId, player: EntityId): number {
+    if (!this.approachMemoryEnabled || npc === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(player, npc) : 0;
+    const owedDeal = this.deals.open().some((d) => d.condition.promisors.includes(npc) && d.parties.includes(player)) ? 0.1 : 0;
+    const owedAssurance = this.assurancesEnabled && this.live?.assurances && AssuranceLedger.fromJSON(this.live.assurances).openFor(npc).some((a) => a.to === player) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -mem + owedDeal + owedAssurance));
+  }
+
   /** B7 M1 - the NPC veto save reads memory too (approved tie-in #1). OFF unless exactly `ORWELL_VETO_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
   private vetoMemoryEnabled = process.env.ORWELL_VETO_MEMORY === "1";
   setVetoMemoryEnabled(on: boolean): void { this.vetoMemoryEnabled = on; }
@@ -11251,11 +11366,21 @@ export class GameSessionAdapter implements GameSession {
     return RELATIONSHIP_CONSTANTS.dispositionFactors[this.dispositionReadOf(holder) ?? "neutral"].decayScale;
   }
 
+  /** B27 - the FORGIVENESS trait layer (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly `ORWELL_FORGIVENESS=1`; never-flipped. OFF => the ledger is read as it always was. */
+  private forgivenessEnabled = process.env.ORWELL_FORGIVENESS === "1";
+  setForgivenessEnabled(on: boolean): void { this.forgivenessEnabled = on; }
+  /** The memory entries `holder` actually reads: the ledger row, with the forgiveness trait applied when the layer is on. Pure; no rng stream is touched. */
+  private memoryEntriesSeenBy(holder: EntityId, entries: readonly MemoryEntry[] | undefined): readonly MemoryEntry[] | undefined {
+    if (!this.forgivenessEnabled || !this.live) return entries;
+    return applyForgiveness(entries, forgivenessTraitOf(hashSeed(`${this.gameSeed ?? 0}:forgive:${holder}`)), this.live.week);
+  }
+
   /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
   private memoryTiltFor(subject: EntityId, holder: EntityId): number {
     if (holder === PLAYER || !this.live) return 0;
-    const entries = this.live.npcMemory?.[holder]?.[subject];
-    if (!entries || entries.length === 0) return 0;
+    const raw = this.live.npcMemory?.[holder]?.[subject];
+    if (!raw || raw.length === 0) return 0;
+    const entries = this.memoryEntriesSeenBy(holder, raw);
     if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
     return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
   }
@@ -11263,8 +11388,9 @@ export class GameSessionAdapter implements GameSession {
   /** An NPC the player has wronged (a strong residual grudge) does not float a safety/alliance deal to them. */
   private memoryBlocksPlayerDeal(npcId: EntityId): boolean {
     if (!this.npcMemoryEnabled || !this.live) return false;
-    const entries = this.live.npcMemory?.[npcId]?.[PLAYER];
-    if (!entries || entries.length === 0) return false;
+    const raw = this.live.npcMemory?.[npcId]?.[PLAYER];
+    if (!raw || raw.length === 0) return false;
+    const entries = this.memoryEntriesSeenBy(npcId, raw);
     return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
   }
 
@@ -12015,7 +12141,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, confrontMisfire: this.gossipConsequenceEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
@@ -12567,6 +12693,7 @@ export class GameSessionAdapter implements GameSession {
     return {
       started: true,
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token surfaced on every read
+      ...(this.playerSurfaceN > 0 && this.playerSurfaceSource ? { surfacedToPlayer: { n: this.playerSurfaceN, sourceId: this.playerSurfaceSource } } : {}), // N-17: the delivery marker (ids + a counter, never content)
       // M0-7: the SAME pendingView gameStatus/advance expose — the two closed-set
       // projections of one sandbox must never disagree about the live pending (the
       // eviction-vote ballot surfaced only on gameStatus and state-keyed consumers
@@ -12592,6 +12719,7 @@ export class GameSessionAdapter implements GameSession {
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1) } : {}), // P0: the exact clock the narrator must use
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
       ...(this.weekDigestViews() ? { weekDigests: this.weekDigestViews() } : {}),

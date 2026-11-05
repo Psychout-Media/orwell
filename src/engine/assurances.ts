@@ -20,6 +20,8 @@ export interface Assurance {
   sincerity: number;
   source: "player" | "npc";
   status: AssuranceStatus;
+  /** B22 (ORWELL_MEMORY_PROMISES): the houseguests who HEARD it (the scene's other named, awake witnesses). They remember its keeping or breaking too, at a lower weight. Absent => no witnesses (byte-identical). */
+  heardBy?: EntityId[];
 }
 
 export const ASSURANCE = {
@@ -31,6 +33,16 @@ export const ASSURANCE = {
   brokenTrustDrop: 0.12,
   /** The memory severity the assured keeps of a broken assurance (a smaller grudge than a broken deal's). */
   brokenMemorySeverity: 0.3,
+  /** The favor the assured keeps of an assurance that was KEPT (B4 slice 8) - weaker than a broken one's grudge, on purpose (negativity bias). */
+  keptMemorySeverity: 0.2,
+  /** B22: a witness remembers a kept/broken assurance they merely HEARD at this fraction of the assured's own weight. */
+  witnessFactor: 0.5,
+  /** B39: the chance (from a dedicated seeded roll) that the assured WRONGLY comes to believe a KEPT assurance was broken - a rumor, sometimes wrong by construction. */
+  rumoredBreakP: 0.2,
+  /** B39: how sure the assured is of the rumored break (a rumor, not a witnessed betrayal). */
+  rumoredBreakConfidence: 0.4,
+  /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
+  liarSincerity: 0.1,
 } as const;
 
 const clamp = (x: number, lo: number, hi: number): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
@@ -58,11 +70,11 @@ export class AssuranceLedger {
     for (const a of this.items) if (a.status === "open" && currentWeek - a.week > ASSURANCE.horizonWeeks) a.status = "lapsed";
   }
   get all(): readonly Assurance[] { return this.items; }
-  toJSON(): { seq: number; items: Assurance[] } { return { seq: this.seq, items: this.items.map((x) => ({ ...x })) }; }
+  toJSON(): { seq: number; items: Assurance[] } { return { seq: this.seq, items: this.items.map((x) => ({ ...x, ...(x.heardBy ? { heardBy: [...x.heardBy] } : {}) })) }; }
   static fromJSON(j: { seq: number; items: Assurance[] }): AssuranceLedger {
     const l = new AssuranceLedger();
     l.seq = j.seq;
-    l.items = j.items.map((x) => ({ ...x }));
+    l.items = j.items.map((x) => ({ ...x, ...(x.heardBy ? { heardBy: [...x.heardBy] } : {}) }));
     return l;
   }
 }
@@ -88,4 +100,18 @@ export function lapseAssurancesAtRoll(s: { week: number; assurances?: { seq: num
   const l = AssuranceLedger.fromJSON(s.assurances);
   l.lapse(s.week);
   s.assurances = l.toJSON();
+}
+
+/**
+ * B4 slice 7 - the ENGINE decides whether an NPC's assurance is sincere (the model never does): a loyal houseguest usually means it, a disloyal one often does not. `roll` is a draw in [0,1) from a
+ * dedicated seeded stream (never the shared one). Sincere => 1; a strategic lie => `ASSURANCE.liarSincerity` (low, so `decideKeep` breaks it whenever breaking pays). Monotone in loyalty.
+ */
+export function npcAssuranceSincerity(loyalty: number, roll: number): number {
+  const pSincere = clamp(0.2 + 0.8 * clamp(loyalty, 0, 1), 0.2, 1);
+  return clamp(roll, 0, 1) < pSincere ? 1 : ASSURANCE.liarSincerity;
+}
+
+/** B39 - does the assured wrongly come to believe a KEPT assurance was broken? `roll` is a draw in [0,1) from a dedicated seeded stream (never the shared one). Pure, monotone in the roll. */
+export function isRumoredBreak(roll: number): boolean {
+  return clamp(roll, 0, 1) < ASSURANCE.rumoredBreakP;
 }

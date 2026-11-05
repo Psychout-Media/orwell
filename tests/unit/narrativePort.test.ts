@@ -133,3 +133,98 @@ describe("0027 — NarrativePort LLM adapter (voices, never decides)", () => {
     expect(typeof text).toBe("string"); // a string — no handle to game state exists on the port
   });
 });
+
+// ── A86: LlmNarrativePort edge cases (empty reply, mid-stream failure, timeout/retry, maxRetries=0, early consumer stop). ───────────────────────────────────────────────────────────────────
+import { vi } from "vitest";
+import type { ProviderRequest } from "../../src/adapters/narrative/LlmNarrativePort";
+
+const baseCfg = loadNarratorConfig({ ORWELL_NARRATOR_PROVIDER: "openai", ORWELL_NARRATOR_ENDPOINT: "https://example.test", ORWELL_NARRATOR_MODEL: "m" });
+const portWith = (over: { maxRetries?: number; timeoutMs?: number }, transport: NarratorTransport) =>
+  new LlmNarrativePort({ ...baseCfg, maxRetries: over.maxRetries ?? 0, timeoutMs: over.timeoutMs ?? 1000 }, transport);
+const scripted = (attempts: Array<() => AsyncGenerator<string>>): NarratorTransport & { calls: number } => {
+  const t = { calls: 0, stream(_r: ProviderRequest, _s: AbortSignal) { return attempts[Math.min(t.calls++, attempts.length - 1)]!(); } };
+  return t;
+};
+
+describe("A86 - the narrator adapter's resilience edges", () => {
+  it("an upstream reply with EMPTY text is not a narration: it falls back to the safe line (it used to yield \"\" and silently narrate nothing)", async () => {
+    const t = scripted([async function* () { yield ""; }]);
+    const port = portWith({ maxRetries: 0 }, t);
+    const chunks = await collect(port.narrateStream(ctx));
+    expect(chunks).toEqual([safeFallbackLine(ctx)]);
+    expect(await port.narrate(ctx)).toBe(safeFallbackLine(ctx));
+  });
+
+  it("an empty reply is retried (bounded) and a later real reply is voiced", async () => {
+    const t = scripted([async function* () { yield ""; }, async function* () { yield "Voiced."; }]);
+    const port = portWith({ maxRetries: 2 }, t);
+    expect(await collect(port.narrateStream(ctx))).toEqual(["Voiced."]);
+    expect(t.calls).toBe(2);
+  });
+
+  it("an empty delta BEFORE a real one is not voiced, and the stream still equals narrate()", async () => {
+    const t = scripted([async function* () { yield ""; yield "Real"; yield ""; yield " text"; }]);
+    const port = portWith({ maxRetries: 0 }, t);
+    const chunks = await collect(port.narrateStream(ctx));
+    expect(chunks).toEqual(["Real", " text"]);
+    expect(await portWith({ maxRetries: 0 }, scripted([async function* () { yield ""; yield "Real"; yield ""; yield " text"; }])).narrate(ctx)).toBe(chunks.join(""));
+  });
+
+  it("a mid-stream failure keeps what was voiced and does NOT retry or append the fallback", async () => {
+    const t = scripted([async function* () { yield "Half a "; throw new Error("socket reset"); }, async function* () { yield "SHOULD NOT APPEAR"; }]);
+    const port = portWith({ maxRetries: 3 }, t);
+    const chunks = await collect(port.narrateStream(ctx));
+    expect(chunks).toEqual(["Half a "]);
+    expect(t.calls).toBe(1);
+    expect(await portWith({ maxRetries: 3 }, scripted([async function* () { yield "Half a "; throw new Error("x"); }])).narrate(ctx)).toBe("Half a ");
+  });
+
+  it("maxRetries = 0 goes straight to the fallback on the first failure (one attempt)", async () => {
+    const t = scripted([async function* () { throw new Error("HTTP 500"); }]);
+    const port = portWith({ maxRetries: 0 }, t);
+    expect(await collect(port.narrateStream(ctx))).toEqual([safeFallbackLine(ctx)]);
+    expect(t.calls).toBe(1);
+  });
+
+  it("failures retry up to maxRetries (attempts = maxRetries + 1), then the fallback; a success on the last attempt wins", async () => {
+    const fail = async function* (): AsyncGenerator<string> { throw new Error("HTTP 503"); };
+    const all = scripted([fail]);
+    expect(await collect(portWith({ maxRetries: 2 }, all).narrateStream(ctx))).toEqual([safeFallbackLine(ctx)]);
+    expect(all.calls).toBe(3);
+    const last = scripted([fail, fail, async function* () { yield "Third time."; }]);
+    expect(await collect(portWith({ maxRetries: 2 }, last).narrateStream(ctx))).toEqual(["Third time."]);
+    expect(last.calls).toBe(3);
+  });
+
+  it("the timeout aborts via the signal and counts as a failed attempt (retried up to maxRetries, then the fallback)", async () => {
+    let aborted = 0;
+    const hang: NarratorTransport & { calls: number } = {
+      calls: 0,
+      stream(_r, signal) {
+        hang.calls++;
+        return (async function* () {
+          await new Promise<void>((_res, rej) => signal.addEventListener("abort", () => { aborted++; rej(new Error("aborted")); }));
+          yield "never";
+        })();
+      },
+    };
+    const out = await collect(portWith({ maxRetries: 1, timeoutMs: 20 }, hang).narrateStream(ctx));
+    expect(out).toEqual([safeFallbackLine(ctx)]);
+    expect(hang.calls).toBe(2);
+    expect(aborted).toBe(2);
+  });
+
+  it("the abort timer is cleared when the consumer stops early (no leaked timer)", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = scripted([async function* () { yield "one"; yield "two"; }]);
+      const it = portWith({ maxRetries: 0, timeoutMs: 60_000 }, t).narrateStream(ctx)[Symbol.asyncIterator]();
+      expect((await it.next()).value).toBe("one");
+      expect(vi.getTimerCount(), "the abort timer is pending while streaming").toBe(1);
+      await it.return?.();
+      expect(vi.getTimerCount(), "stopping early must clear the abort timer").toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
