@@ -109,8 +109,13 @@ describe("B36/B24 - the production runtime under ORWELL_GOSSIP_COPRESENCE writes
     vi.stubEnv("ORWELL_NPC_BELIEFS", beliefs ? "1" : "0");
     vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0");
     const rt = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-b36-"))) });
-    const s = rt.registry.sandboxFor(`b36-${beliefs ? "on" : "off"}`).session;
+    const sb = rt.registry.sandboxFor(`b36-${beliefs ? "on" : "off"}`);
+    const s = sb.session;
     s.createCharacter({ playerName: "P", seed: 7 });
+    // The off-screen society mints few subject-bearing facts on its own under co-presence (the graph rise that used to mint them is replaced), so give each houseguest ONE fact about the next
+    // houseguest (identically in both runs) - the scenes then have real, subject-bearing things to spread and the claim writer has something to record.
+    const npcs = s.snapshot().house!.npcs;
+    npcs.forEach((n, i) => sb.engine.knowledge.seedBelief(n.id, { content: `fact ${i}`, originalContent: `fact ${i}`, factId: `b36:${i}`, confidence: 1, hops: 0, distortion: 0, source: n.id, subject: npcs[(i + 1) % npcs.length]!.id }, "origin"));
     for (let i = 0; i < 9000; i++) {
       const v = s.advanceGame();
       if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
