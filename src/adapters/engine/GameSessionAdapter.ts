@@ -240,7 +240,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -4593,6 +4593,31 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * The occupancy the WITNESS grounding reads (registry presence provider). `occupancy()` stays the raw open-set map (the ADR 0009 record contract: a recorded NPC move lands in it);
+   * this adds the premiere overlay on top, a read-only copy.
+   */
+  witnessOccupancy(): Occupancy | null {
+    // A11 (finding from #2088): while a WHOLE-HOUSE premiere event is on (the gathered champagne circle / toast, or the staged entrances) `whereabouts()` shows everyone convened in the
+    // player's room, but this base map still held the underlying wander positions - so a chat during the toast hit the phantom-witness check ("not in the room") and folded nothing. The
+    // witness grounding must read the SAME overlay the player sees. Only the two premiere events; every other path (and flag-off) returns the base map untouched.
+    const base = this.presence;
+    const live = this.live;
+    if (!base || !live || !this.house) return base;
+    const entrances = live.premiereEntrance?.stage === "entrances";
+    if (!entrances && live.champagneCircle !== "gathered") return base;
+    const me = this.house.player.id;
+    const room = base.get(me) ?? "living-room";
+    const inside = entrances ? new Set<EntityId>(live.premiereEntrance!.order.slice(0, live.premiereEntrance!.arrived)) : null;
+    const overlay = new Map(base) as Map<EntityId, Room>;
+    for (const n of this.house.npcs) {
+      if (this.seatOf(n.id) !== "active") continue;
+      if (inside && !inside.has(n.id)) overlay.delete(n.id); // not arrived yet: not in the house, so not a witness
+      else overlay.set(n.id, room);
+    }
+    return overlay;
+  }
+
+  /**
    * The houseguests still AWAKE right now (ADR 0006 — the diegetic bound, the SOCIAL half of the sleep
    * economy). When the clock is running, anyone past their character-driven bedtime has turned in for
    * the night and drops out of the living house; as the night thins the set shrinks toward the player +
@@ -5041,7 +5066,7 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng);
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachMemoryEnabled ? (n) => this.approachMemoryFor(n, player) : undefined);
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -11247,6 +11272,21 @@ export class GameSessionAdapter implements GameSession {
     return bound ? -0.2 : 0;
   }
 
+  /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
+  private approachMemoryEnabled = process.env.ORWELL_APPROACH_MEMORY === "1";
+  setApproachMemoryEnabled(on: boolean): void { this.approachMemoryEnabled = on; }
+  /**
+   * B7 M1b - how much more (+) or less (-) `npc` is drawn to seek the player out, from what they remember about the player (a favor raises it, a grudge lowers it: the 0024 ledger's standalone tilt,
+   * sign-flipped, i.e. the same read the veto save uses) and owe (an open deal or kept-able assurance the NPC made to the player raises it). Deterministic, no rng, bounded to [-1, 1] (the ranker clamps further).
+   */
+  approachMemoryFor(npc: EntityId, player: EntityId): number {
+    if (!this.approachMemoryEnabled || npc === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(player, npc) : 0;
+    const owedDeal = this.deals.open().some((d) => d.condition.promisors.includes(npc) && d.parties.includes(player)) ? 0.1 : 0;
+    const owedAssurance = this.assurancesEnabled && this.live?.assurances && AssuranceLedger.fromJSON(this.live.assurances).openFor(npc).some((a) => a.to === player) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -mem + owedDeal + owedAssurance));
+  }
+
   /** B7 M1 - the NPC veto save reads memory too (approved tie-in #1). OFF unless exactly `ORWELL_VETO_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
   private vetoMemoryEnabled = process.env.ORWELL_VETO_MEMORY === "1";
   setVetoMemoryEnabled(on: boolean): void { this.vetoMemoryEnabled = on; }
@@ -12639,6 +12679,7 @@ export class GameSessionAdapter implements GameSession {
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1) } : {}), // P0: the exact clock the narrator must use
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
       ...(this.weekDigestViews() ? { weekDigests: this.weekDigestViews() } : {}),
