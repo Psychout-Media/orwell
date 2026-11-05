@@ -69,12 +69,15 @@ def test_dropped_stream_then_same_id_resend_bills_once_and_a_new_id_bills_again(
     assert after_new["minutesUntil"] == start - 2 * STEP, f"a NEW id after the retry bills +5: {after_new}"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "FOUND by B15 (reported, not fixed here): after a dropped stream and a same-clientMsgId resend, GET /api/history/{session} returns the player's line TWICE - the persisted row "
-    "(_db_id/_seq set, adopted by the idempotent-replay branch of the message persister) plus an in-memory copy of the retry with no _db_id/_seq. The clock is right (billed once); the transcript is not. "
-    "Remove this xfail when the retry path stops surfacing the duplicate."))
 def test_dropped_stream_then_same_id_resend_keeps_one_player_line(_stack):  # noqa: F811
+    """The fix: the retry adopts the recorded line - /api/history carries it ONCE and the narrator's context does too."""
+    from test_m0_3_midgen_join import STUB
     sid, _start, _after_drop, _after_retry = _play_drop_and_retry(_stack)
     rows = _user_lines(_stack, sid, "The line that gets dropped.")
     detail = [(m.get("metadata", {}).get("_db_id"), m.get("metadata", {}).get("_seq"), m.get("metadata", {}).get("client_msg_id")) for m in rows]
     assert len(rows) == 1, f"the player's line must appear ONCE after a retry: {detail}"
+    with STUB.lock:
+        game_turns = [r for r in STUB.requests if r.get("stream") and r.get("tools")]
+    last = game_turns[-1]  # the retry's narrator call
+    seen = sum(1 for m in (last.get("messages") or []) if m.get("role") == "user" and "The line that gets dropped." in str(m.get("content", "")))
+    assert seen == 1, f"the narrator must see the player's line once, saw {seen}"
