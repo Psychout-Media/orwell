@@ -1036,7 +1036,7 @@ export class GameSessionAdapter implements GameSession {
     const entrancesOver = !live.premiereEntrance || live.premiereEntrance.stage === "done";
     return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
   }
-  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only, not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
+  /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only; persisted in the snapshot since B20 - the old note said not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
   private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
   private copresenceTold = new ToldLedger();
   setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
@@ -3664,6 +3664,8 @@ export class GameSessionAdapter implements GameSession {
          : {}),
        // P0g: the noteMessage dedupe ring survives a restart (a retry then bills nothing). Absent until the first announcement ⇒ old saves round-trip byte-identical.
        ...(this.seenMessageIds.length > 0 ? { seenMessageIds: [...this.seenMessageIds] } : {}),
+       // B20: the co-presence told ledger survives a restart (a telling already decided is not re-rolled). Absent when empty => old saves round-trip byte-identical.
+       ...(this.copresenceTold.size > 0 ? { toldLedger: this.copresenceTold.snapshot() } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
@@ -3974,6 +3976,7 @@ export class GameSessionAdapter implements GameSession {
       : undefined;
     this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
+    this.copresenceTold = ToldLedger.restore(core.toldLedger);
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
