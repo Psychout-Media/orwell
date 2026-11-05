@@ -1598,12 +1598,24 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
           !_serverClientIds.has(el.dataset.clientMsgId))
       : [];
 
+    // S17: a LIVE in-flight reply holder (a mid-generation join / resumeStream attach for THIS session) is not a persisted row, so the history snapshot cannot re-create it. Wiping it
+    // below cuts the reply off: the stream keeps painting only the deltas that arrive AFTER the wipe (the settled bubble then starts mid-sentence). Keep the live holder(s) and put them
+    // back after the repaint - the same discipline as the pending optimistic sends above, and as softReloadHistory (which DEFERS past a live stream).
+    // Computed AFTER the fade-out wait, immediately before the wipe: a live holder mounted DURING the 120ms fade (the websocket round's holder is created by the first replayed delta) must be kept too.
+    let _liveHoldersToKeep = [];
+    const _collectLiveHolders = () => (!isOC && chatHistory && window.chatModule && typeof window.chatModule.hasActiveStream === 'function' && window.chatModule.hasActiveStream(id))
+      ? Array.from(chatHistory.children).filter(el =>
+          el.classList && el.classList.contains('msg') && el.classList.contains('msg-ai') &&
+          el.dataset && !el.dataset.dbId && !el.dataset.fromHistory)
+      : [];
+
     // Fade out old content, swap, fade in
     if (chatHistory) {
       chatHistory.style.transition = 'opacity 0.12s ease-out';
       chatHistory.style.opacity = '0';
       await new Promise(r => setTimeout(r, 120));
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
+      _liveHoldersToKeep = _collectLiveHolders();
       chatHistory.innerHTML = '';
     }
 
@@ -1659,6 +1671,9 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     // /api/history carries their persisted row.
     if (_pendingToPreserve.length && chatHistory) {
       for (const el of _pendingToPreserve) chatHistory.appendChild(el);
+    }
+    if (_liveHoldersToKeep.length && chatHistory) {
+      for (const el of _liveHoldersToKeep) { el.dataset.keptLive = '1'; chatHistory.appendChild(el); } // chatReconcile rebuilds a kept live holder at settle (it is never finalized in place)
     }
     uiModule.scrollHistoryInstant();
 
