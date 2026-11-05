@@ -18,6 +18,7 @@ type G = { setCampaignMemoryEnabled(on: boolean): void; threatReadsOf(owner: str
 describe("threatReadsOf with the campaign memory bend (ORWELL_CAMPAIGN_MEMORY)", () => {
   it("flag off (default): identical to the raw edge ranking", () => {
     const { sb, owner, a } = started(); const g = sb.session as unknown as G;
+    g.setCampaignMemoryEnabled(false); // explicit OFF (the layer now defaults ON)
     const before = JSON.stringify(g.threatReadsOf(owner));
     g.remember(owner, a, "deal-broken", 0.9);
     expect(JSON.stringify(g.threatReadsOf(owner))).toBe(before);

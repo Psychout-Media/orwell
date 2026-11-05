@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it } from "vitest";
 import { composeRuntime } from "../../src/composition/runtime";
 import { runJurySequesterScenario } from "../support/jurySequesterScenario";
