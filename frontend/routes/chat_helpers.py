@@ -2298,9 +2298,10 @@ def _tally_claims_match_ballots(text: str, counts) -> bool:
 
 
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
+# A68: the separator stays on ONE line ([ \t], not \s) - "\n- one\n- two" in a markdown list is not a "one - two" vote tally.
 _CLAIM_TALLY_RE = re.compile(
-    r"\b\d+\s*(?:votes?|-)\s*(?:to|–|-)\s*\d+\b|"
-    r"\b" + _TALLY_NUM + r"\s+(?:votes?\s+)?(?:to|–|-)\s+(?:" + _TALLY_NUM + r"|evict\b)",
+    r"\b\d+[ \t]*(?:votes?|-)[ \t]*(?:to|–|-)[ \t]*\d+\b|"
+    r"\b" + _TALLY_NUM + r"[ \t]+(?:votes?[ \t]+)?(?:to|–|-)[ \t]+(?:" + _TALLY_NUM + r"|evict\b)",
     re.IGNORECASE,
 )
 # LIVE-7 (#540): the eviction RESULT narrated as a count/majority during the staged secret-ballot

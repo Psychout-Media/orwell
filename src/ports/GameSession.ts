@@ -425,6 +425,11 @@ export interface GameStateView {
    */
   timeOfDay?: string;
   /**
+   * P0 clock grounding - the engine's exact in-game clock as a plain label ("9:40am, Day 1"), present only while the clock is running (same gate as `timeOfDay`). Public, Vault-free; the narrator is
+   * told to name no other time. Absent pre-game / clock dormant => byte-identical.
+   */
+  clockLabel?: string;
+  /**
    * ADR 0006 — the houseguests who've TURNED IN for the night (the complement of the awake set). Names
    * only; Vault-free and OBSERVABLE (the bedtime derivation stays hidden). Present only when the clock is
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).

@@ -527,6 +527,12 @@ export interface SessionCore {
    * (no Vault content). Absent on a pre-feature save OR before any announcement - byte-identical load (and legacy per-commit billing until the first announcement).
    */
   seenMessageIds?: string[];
+  /**
+   * B20 - the B10/B11 co-presence TOLD ledger (who already decided to share/slip/hold which fact to which listener), so a restart does not re-decide (and re-roll) a telling the house already saw.
+   * Ids + a closed outcome only (no Vault content). Absent on a pre-feature save OR when nothing was ever decided => an empty ledger (byte-identical load). Not a monotonic accumulator: a superseded
+   * fact can `reopen` (delete) its entries by design, so it is exempt from the superset/count guards.
+   */
+  toldLedger?: import("./heldFacts").ToldSnapshot;
 }
 
 /** The full durable unit: the session core plus the engine detail (for non-degradation). */
