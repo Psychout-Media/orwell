@@ -31,3 +31,29 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
 
 /** Providers deliberately read by NO strategic decision yet (a write-only / not-yet-wired source). Empty today; an entry needs a reason. */
 export const UNREAD_PROVIDERS_ALLOWED: Readonly<Partial<Record<MemoryProvider, string>>> = {};
+
+/**
+ * B52 / AMEND 3b - the SAME gate extended to the decisions that are not a `ctx.<provider>` read in the pure loop (their reads are other named calls, or live in the adapter): the HOH tie-break,
+ * the jury vote, the Final-3 eviction, the secret-veto replacement, NPC deal consent, and where an NPC chooses to go. Each lists the memory-like TOKENS its source actually reads today
+ * (`tests/unit/memoryDecisionMatrixAll.test.ts` holds the code to it, both ways). `voteChoice` means "delegates to the eviction vote, so it reads every evictionVote provider".
+ * `OTHER_DECISION_GAPS` is the honest list of what each one does NOT yet read, as input to a deliberate wiring decision (never to be wired silently).
+ */
+export type OtherDecision = "tieBreak" | "jury" | "final3Eviction" | "secretVetoReplacement" | "dealConsent" | "movement";
+
+export const OTHER_DECISION_READS: Readonly<Record<OtherDecision, readonly string[]>> = {
+  tieBreak: ["voteChoice"],
+  jury: ["edgeAsJuryRel", "mannerFor", "gameRespectTerm", "appealPerf", "jurorProfile"],
+  final3Eviction: ["byThreat"],
+  secretVetoReplacement: ["nominationScore"],
+  dealConsent: ["memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor"],
+  movement: ["bondStrength", "applyWantToPulls"],
+};
+
+export const OTHER_DECISION_GAPS: Readonly<Record<OtherDecision, string>> = {
+  tieBreak: "none - it is the eviction vote, so it inherits every evictionVote provider",
+  jury: "reads the edge, the recorded manner (the grudge book), the game-respect resume, the juror profile and the Q&A appeal; not the NPC memory ledger, beliefs, mood or tells (the jury has its own grievance model)",
+  final3Eviction: "threat only (byThreat); no memory, belief, bond, mood or drive - the weakest decision in the table",
+  secretVetoReplacement: "the plain nomination score on edges and mood; no campaign, memory, belief, deal, mood-tilt or drive push (the main nomination read has them all)",
+  dealConsent: "edges + grudge/favor + the targets-me belief + (B31) mood; not an NPC's own drive or an open campaign against the proposer",
+  movement: "edges (bond/threat) + the want; not memory, belief, mood or the NPC's drive",
+};
