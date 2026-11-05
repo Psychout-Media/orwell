@@ -491,7 +491,12 @@ export function _setReconcileDeps(deps) {
     // A mismatch means a genuine orphan (or a missing bubble) is present → NOT converged → rebuild to
     // the authoritative log, which collapses the orphan with ZERO net churn on the already-correct case.
     const orphanFree = _visibleMsgCount(box) === _expectedVisibleBubbleCount(visible);
-    const converged = orphanFree &&
+    // S17: a live holder that selectSession KEPT across a history repaint (marked `data-kept-live`) is id-converged once adopted by dbId but was never FINALIZED (no footer, live-path header), so a
+    // window that joined a run mid-generation settled on a different transcript than a fresh window. Such a bubble is not converged: rebuild it from the authoritative log. Only marked
+    // bubbles count, so every other adopted bubble keeps the zero-churn contract (#873 / #985).
+    const liveUnfinalized = Array.from(box.querySelectorAll('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder]')).some((el) =>
+      !(el.style && el.style.display === 'none') && !el.querySelector('.msg-footer'));
+    const converged = orphanFree && !liveUnfinalized &&
       renderedIds.length === serverIds.length &&
       renderedIds.every((v, i) => v === serverIds[i]);
     if (converged && !_forced) { chatState._pendingReconcile.delete(sessionId); return; }

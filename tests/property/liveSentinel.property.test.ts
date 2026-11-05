@@ -26,6 +26,15 @@ function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed: number
   sb.session.setNpcMemoryWritersEnabled(true);
   sb.session.setNpcBeliefsEnabled(true);
   sb.session.setNpcBeliefNomsEnabled(true);
+  // B44: the OPT-IN #2017 layers are turned ON as well, so the engine genuinely reads (and rewrites) the planted assurance ledger and told ledger while the sweep plays - a hidden store that
+  // is planted but never consulted proves nothing. Each is a flag-off feature today; the canary has to be ready BEFORE any of them is flipped.
+  sb.session.setAssurancesEnabled(true);
+  sb.session.setLobbyingEnabled(true);
+  sb.session.setVoteCountEnabled(true);
+  sb.session.setVetoMemoryEnabled(true);
+  sb.session.setDealNomsEnabled(true);
+  sb.session.setCampaignMemoryEnabled(true);
+  sb.session.setCopresenceEnabled(true);
   let n = 0;
   const sentinels: string[] = [];
   const mk = (tag: string): string => { const s = `SENTINEL-B42-${tag}-${seed}-${++n}`; sentinels.push(s); return s; };
@@ -67,13 +76,30 @@ function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed: number
       { id: `${hg.id}|heard-rumor|${PLAYER}||${rumorTag}`, holder: hg.id, kind: "heard-rumor", subject: PLAYER, value: true, origin: "gossip", nature: "betrayal", source: other, confidence: 1, week: live.week },
     );
   });
+  // (1c) B44 - the casual-assurance LEDGER (`live.assurances`, ENGINE-ONLY): its only free-text field is the row `id`, so the sentinel rides it (the engine resolves rows by id, so it is consumed
+  // for real). One open 'safe' row per planted-memory holder, beside a normal row.
+  const assuranceTag = mk("assurance");
+  const asr = (live.assurances ??= { seq: 0, items: [] });
+  npcs.forEach((hg, i) => {
+    if (i % 2 === 1) return;
+    const to = npcs[(i + 1) % npcs.length]!.id;
+    asr.items.push({ id: i === 0 ? assuranceTag : `asr:planted-${i}`, from: hg.id, to, kind: "safe", week: live.week, sincerity: 1, source: "npc", status: "open" });
+  });
+  asr.seq = asr.items.length;
   sb.session.restore(core); // also rebuilds the soul recall index from the (now sentinel-bearing) memory
+  // (1d) B44 - the B10/B11 co-presence TOLD ledger (engine-private; the fact id is the only free text). Planted AFTER the restore so a restore that rebuilds the ledger from the snapshot cannot wipe it.
+  const toldTag = mk("told");
+  sb.session.copresenceToldLedger().record(npcs[0]!.id, toldTag, PLAYER, "held");
+  sb.session.copresenceToldLedger().record(npcs[0]!.id, toldTag, npcs[1]!.id, "held");
 
   // (2) The engine's hidden layer the player/admin projections must never surface.
   sb.engine.events.record({ id: `b42:hidden:${seed}`, ts: 9_000_000, type: "conversation", initiator: npc(1), witnessSet: [npc(1), npc(2)], hidden: true, content: `off-screen ${mk("event")}` });
   sb.engine.soul.recordToSoul(npc(1), mk("soulstore"));
   sb.engine.vault.writeHidden({ id: `b42:vault:${seed}`, kind: "confessional", content: mk("vault") });
   sb.engine.knowledge.seedBelief(npc(2), { content: mk("npcknow"), factId: `b42k:${seed}` }, "witnessed"); // another NPC's private knowledge
+  // B44: with the co-presence layer ON, a houseguest's private fact may be told to the player by a legitimate scene pathway (that is the feature). The canary's claim is that a fact the holder DECIDED
+  // TO HOLD never crosses, so record that decision in the told ledger for every possible listener: npc(2) holds `b42k` for the player and every NPC, and the sentinel must still never surface.
+  for (const listener of [PLAYER, ...npcs.map((h) => h.id)]) if (listener !== npc(2)) sb.session.copresenceToldLedger().record(npc(2), `b42k:${seed}`, listener, "held");
   return sentinels;
 }
 
@@ -175,12 +201,17 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         + JSON.stringify(reg.sandboxFor(user).engine.events.queryAll())
         + JSON.stringify(reg.sandboxFor(user).engine.soul.soulOf(npc(1)))
         + JSON.stringify(reg.sandboxFor(user).engine.knowledge.knownTo(npc(2)))
-        + JSON.stringify(reg.sandboxFor(user).engine.vault.readHidden());
+        + JSON.stringify(reg.sandboxFor(user).engine.vault.readHidden())
+        + JSON.stringify(reg.sandboxFor(user).session.copresenceToldLedger().snapshot()); // B44: the told ledger is engine-private state outside the snapshot on this branch
       for (const s of sentinels) expect(engineSide.includes(s), `seed ${seed}: ${s} was not actually planted`).toBe(true);
       // …and the memory ledger + belief store are planted AND the layers that read them are ON (the shipped config), so the game really consumes them.
       expect(sentinels.filter((s) => s.includes("-memory-")).length, "memory-ledger sentinels were planted").toBeGreaterThan(0);
       expect(sentinels.filter((s) => s.includes("-belief-") || s.includes("-rumor-")).length, "belief-store sentinels were planted").toBeGreaterThan(0);
       expect(reg.sandboxFor(user).session.npcMemoryEnabledNow(), "the NPC memory layer is ON").toBe(true);
+      // B44: the assurance ledger + the told ledger are planted and the opt-in layers that read them are ON.
+      expect(sentinels.filter((s) => s.includes("-assurance-")).length, "assurance-ledger sentinel was planted").toBeGreaterThan(0);
+      expect(sentinels.filter((s) => s.includes("-told-")).length, "told-ledger sentinel was planted").toBeGreaterThan(0);
+      expect(reg.sandboxFor(user).session.copresenceEnabledNow(), "the co-presence layer is ON").toBe(true);
 
       // ADR 0019 Layer 2 — the moment prompt now carries each PRESENT houseguest's OWN knowledge under a
       // labelled per-NPC block ("WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS"). That is a
@@ -225,6 +256,8 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
       // ride it, exactly as it rides `npcVoice(npc:2)`. Every OTHER sentinel class — soul, hidden element,
       // hidden event, Vault confessional — is planted OUTSIDE the knowledge layer and must still NEVER cross.
       const KNOWLEDGE_LAYER_TAG = "-npcknow-";
+      const playerHoldsThroughPathway = (sentinel: string): boolean =>
+        reg.sandboxFor(user).engine.knowledge.knownTo(PLAYER).some((f) => f.content.includes(sentinel) && /^(told-by:|overheard)/.test(f.pathway));
       const sentinelsFor = (name: string): string[] =>
         name === "knowledgeScopeManifest" ? sentinels.filter((s) => !s.includes(KNOWLEDGE_LAYER_TAG)) : sentinels;
       // askJuror may legitimately relay the JUROR's own knowledge layer (same as npcVoice) — the npcknow sentinel is exempt.
@@ -340,7 +373,12 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
           payload = String(err instanceof Error ? err.message : err); // the refusal text is the outward surface
         }
         expect(payload, `seed ${seed}: post-finish ${name} returned undefined (no JSON) — unscannable`).toBeTypeOf("string");
-        for (const s of sentinelsFor(name)) expect(payload.includes(s), `seed ${seed}: post-finish ${name} leaked ${s}`).toBe(false);
+        for (const s of sentinelsFor(name)) {
+          // B44: an NPC's private fact may legitimately reach the player through a RECORDED in-game pathway (a juror relays their knowledge through askJuror, a houseguest tells the player): then the
+          // player's knowledge layer holds it with a told/overheard pathway, and any surface that voices "what the player already holds" may carry it. Anything WITHOUT such a recorded pathway is a leak.
+          if (s.includes(KNOWLEDGE_LAYER_TAG) && playerHoldsThroughPathway(s)) continue;
+          expect(payload.includes(s), `seed ${seed}: post-finish ${name} leaked ${s} ... ${payload.slice(Math.max(0, payload.indexOf(s) - 400), payload.indexOf(s) + 150)}`).toBe(false);
+        }
       };
       for (const t of toolsFor("player")) if (!POST_FINISH_EXCLUDED.has(t.name)) await sweepOrRefuse(player, t.name);
       for (const t of toolsFor("admin/God Mode")) await sweepOrRefuse(admin, t.name);

@@ -36,7 +36,7 @@ it colors the texture without letting one archetype dominate.
 - `richOffscreenStretch` takes an optional `initiatorDriveOf`; when supplied it draws the initiator with a
   single-draw `weightedPick` instead of the uniform `rng.pick`.
 - The orchestrator passes `initiatorDriveOf` **only when `strategicCadenceEnabledNow()`**
-  (`ORWELL_STRATEGIC_CADENCE`, default OFF).
+  (`ORWELL_STRATEGIC_CADENCE`, default ON; `=0` opts out).
 
 ### Why it is calibration-safe (the guarantee)
 

@@ -84,40 +84,9 @@ def _app():
 
 
 def _clear_onboarding(page):
-    """Clear the two pre-game full-screen overlays (the #app-loader boot spinner + the
-    no-engine onboarding holding card + its [data-ow-scrim]) that otherwise intercept the
-    hit-tested click — the known #925/#1148/#930 scrim flake. Dismiss the card via its own
-    synchronous [data-ob-dismiss] way-out (never a force-remove).
-
-    Root cause of the residual flake (documented in tests/_settings_open.py, and why the
-    --reruns 1 retry fails identically): this suite boots the FE with NO engine, so route()'s
-    fetchState() throws and mounts the F5 "dark house" holding card — a modal whose
-    [data-ow-scrim] covers the page. route() RE-MOUNTS it on every async orwell:models-changed
-    (fired by the model scan settling), so a card cleared here re-appears — and re-covers the
-    target — in the window between this helper and the first hit-tested page.click() below
-    (which waits for the point to actually receive the event). Dismissing once is therefore not
-    enough. Neutralize the re-mount SEAM up front: the holding card's ONLY mount path is
-    window._orwellOnboardingMount (route()'s catch and the models-changed re-route both call it),
-    so stubbing it to a no-op means no NEW card can appear after we dismiss the current one. This
-    is a TEST-ONLY neutralization of an engine-down artifact irrelevant to the sort menu under
-    test — it changes no product behavior (the real onboarding lifecycle is covered by
-    test_925_orphan_scrim_sweep.py / test_j4_no_trap.py)."""
-    try:
-        page.wait_for_selector("#app-loader", state="detached", timeout=8000)
-    except Exception:
-        page.evaluate("() => { const l = document.getElementById('app-loader'); if (l) l.remove(); }")
-    page.evaluate("() => { try { window._orwellOnboardingMount = function () {}; } catch (_) {} }")
-    deadline = time.time() + 15
-    while time.time() < deadline:
-        state = page.evaluate("""() => {
-          const ob = document.getElementById('orwell-onboarding');
-          if (ob) { const out = ob.querySelector('[data-ob-dismiss]'); if (out) out.click(); }
-          return { ob: !!document.getElementById('orwell-onboarding'),
-                   scrims: document.querySelectorAll('[data-ow-scrim]').length };
-        }""")
-        if not state["ob"] and state["scrims"] == 0:
-            return
-        page.wait_for_timeout(200)
+    """Clear the no-engine pre-game overlays (A84: the shared recipe in tests/_no_engine_page.py; the root cause is documented there and in tests/_settings_open.py)."""
+    from _no_engine_page import ready
+    ready(page)
 
 
 def test_session_sort_menu_mounts_and_toggles(_app):

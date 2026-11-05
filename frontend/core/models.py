@@ -70,12 +70,29 @@ class Session:
         Delegates to SessionManager for persistence if available,
         otherwise just appends to history.
         """
+        # A client RETRY (a dropped stream, then a resend with the SAME clientMsgId) must adopt the line that is already recorded, never append a second copy: the duplicate would show twice in
+        # /api/history AND reach the narrator's context as a repeated player line. The persisted row was already adopted by the idempotent-replay branch of the persister.
+        existing = self.find_user_by_client_msg_id(message)
+        if existing is not None:
+            if existing.metadata:
+                message.metadata = {**(message.metadata or {}), **{k: v for k, v in existing.metadata.items() if k in ("_db_id", "_seq")}}
+            return
         self.history.append(message)
         self.message_count = len(self.history)
 
         # Delegate to session manager for persistence
         if _session_manager:
             _session_manager._persist_message(self.id, message)
+
+    def find_user_by_client_msg_id(self, message: "ChatMessage") -> "Optional[ChatMessage]":
+        """The already-recorded USER line with this message's clientMsgId, or None (a different id, no id, or a non-user role always appends)."""
+        cid = message.client_msg_id or (message.metadata or {}).get("client_msg_id")
+        if not cid or message.role != "user":
+            return None
+        for m in reversed(self.history):
+            if m.role == "user" and (m.client_msg_id == cid or (m.metadata or {}).get("client_msg_id") == cid):
+                return m
+        return None
 
     def get_context_messages(
         self, exclude_phases: Optional[set] = None,

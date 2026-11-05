@@ -11,7 +11,7 @@
  * new value math — it only DRIVES the existing core on a bounded off-screen tick. So the only knobs here
  * are how much of the knowledge economy one tick may churn.
  *
- * Calibration (mandate #3 / ADR 0005): the whole layer is gated OFF by default (`ORWELL_SECRET_BARTER`),
+ * Calibration (mandate #3 / ADR 0005): the whole layer is gated by a default-ON flag (`ORWELL_SECRET_BARTER=0` opts out),
  * runs on a DEDICATED, isolated side-rng, and — exactly like `legendTick` — folds NO relationship edge
  * (only the hidden KNOWLEDGE layer changes). So with the flag off NOTHING runs (zero draws ⇒ the seeded
  * competition/vote/jury spine is byte-identical), and even ON the shared stream is never advanced

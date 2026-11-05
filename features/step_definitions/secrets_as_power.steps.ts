@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { buildSandbox } from "../../tests/support/sandbox";
+import { learn } from "../support/secretLearn";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { LEVERAGE, SECRET_TRADE } from "../../src/engine/leverageConstants";
@@ -89,12 +90,6 @@ function bindLegacy(w: BbWorld, subject: EntityId): void {
 }
 
 /** Plant a learned secret about `subject` into the player's knowledge; return the wieldable factId. */
-function learn(sb: ReturnType<typeof buildSandbox>, subject: EntityId): string {
-  sb.engine.knowledge.seedBelief(subject, { content: `a learned secret about ${subject}`, originalContent: "x", factId: `seed:${subject}`, confidence: 0.9, hops: 0, distortion: 0, source: subject }, "origin");
-  sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: `a learned secret about ${subject}`, subject, confidence: 0.85 }, `told-by:${subject}`);
-  const fact = sb.engine.knowledge.knownTo(PLAYER).find((f) => f.subject === subject)!;
-  return fact.factId ?? fact.id;
-}
 
 const otherNpc = (s: GameSessionAdapter, not: EntityId[]): EntityId => s.livingIds().find((id) => id !== PLAYER && !not.includes(id))!;
 const setEdge = (s: GameSessionAdapter, a: EntityId, b: EntityId, v: { trust: number; affinity: number; threat: number }): void => {

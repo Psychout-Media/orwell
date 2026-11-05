@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { buildSandbox } from "../../tests/support/sandbox";
+import { learn } from "../support/secretLearn";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SECRET_TRADE } from "../../src/engine/leverageConstants";
@@ -54,12 +55,6 @@ function ensure(w: BbWorld): TCState {
   return st;
 }
 
-function learn(sb: ReturnType<typeof buildSandbox>, subject: EntityId): string {
-  sb.engine.knowledge.seedBelief(subject, { content: `a learned secret about ${subject}`, originalContent: "x", factId: `seed:${subject}`, confidence: 0.9, hops: 0, distortion: 0, source: subject }, "origin");
-  sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: `a learned secret about ${subject}`, subject, confidence: 0.85 }, `told-by:${subject}`);
-  const fact = sb.engine.knowledge.knownTo(PLAYER).find((f) => f.subject === subject)!;
-  return fact.factId ?? fact.id;
-}
 
 const setEdge = (s: GameSessionAdapter, a: EntityId, b: EntityId, v: { trust: number; affinity: number; threat: number }): void => {
   const e = relOf(s).edge(a, b); e.trust = v.trust; e.affinity = v.affinity; e.threat = v.threat;
@@ -440,7 +435,7 @@ Given("a houseguest who holds a juicy secret about a rival", function (this: BbW
   st.tcSubject = npcs[0]!; // the rival
   st.tcRecipient = npcs[1]!; // the holder/ally
   // Seed the holder with the secret in the HIDDEN layer only (NPC↔NPC; the player has no pathway).
-  st.tcSb!.engine.knowledge.seedBelief(st.tcRecipient, { content: `npc-held secret about ${st.tcSubject}`, originalContent: "x", factId: `npc:${st.tcSubject}`, confidence: 0.8, hops: 0, distortion: 0, source: st.tcRecipient }, "origin");
+  st.tcSb!.engine.knowledge.seedBelief(st.tcRecipient, { content: `npc-held secret about ${st.tcSubject}`, originalContent: "x", factId: `npc:${st.tcSubject}`, subject: st.tcSubject, confidence: 0.8, hops: 0, distortion: 0, source: st.tcRecipient }, "origin");
 });
 
 Given("an ally of that houseguest who would value it", function (this: BbWorld) {
@@ -450,9 +445,20 @@ Given("an ally of that houseguest who would value it", function (this: BbWorld) 
 });
 
 When("the holder barters the secret to the ally off-screen to firm their bond", function (this: BbWorld) {
-  const st = tc(this) as unknown as { tcSb: ReturnType<typeof buildSandbox>; tcRecipient: EntityId; tcAlly: EntityId; tcSubject: EntityId };
-  // The barter transfers the fact NPC↔NPC in the HIDDEN layer (gossip transmit) — never to the player.
-  st.tcSb.engine.knowledge.transmitGossip(st.tcRecipient, st.tcAlly, { content: `npc-held secret about ${st.tcSubject}`, factId: `npc:${st.tcSubject}`, source: st.tcRecipient }, `told-by:${st.tcRecipient}`);
+  const st = tc(this) as unknown as { tcSb: ReturnType<typeof buildSandbox>; tcSession: GameSessionAdapter; tcRecipient: EntityId; tcAlly: EntityId; tcSubject: EntityId };
+  // AMEND 3a #4: drive the REAL off-screen barter tick (secretBarterTick) - this scenario used to call transmitGossip itself, so it would have passed with the barter deleted.
+  // Craft the edges so the ALLY is the one valuing recipient (fears the subject, trusts the holder) and everyone else does not (likes the subject, distrusts the holder).
+  const rel = relOf(st.tcSession);
+  const holder = st.tcRecipient, ally = st.tcAlly, subject = st.tcSubject;
+  for (const n of st.tcSession.livingIds().filter((id) => id !== PLAYER)) {
+    if (n === holder || n === subject) continue;
+    const toSubject = rel.edge(n, subject);
+    const toHolder = rel.edge(n, holder);
+    if (n === ally) { toSubject.threat = 0.9; toSubject.affinity = 0.05; toHolder.trust = 0.7; }
+    else { toSubject.threat = 0; toSubject.affinity = 0.9; toHolder.trust = 0; }
+  }
+  st.tcSession.setSecretBarterEnabled(true);
+  for (let t = 0; t < 30; t++) st.tcSession.secretBarterTick(st.tcSb.engine.events, st.tcSb.engine.knowledge);
 });
 
 Then("the trade and its price are recorded only in the hidden layer", function (this: BbWorld) {

@@ -55,6 +55,8 @@ import urllib.request
 
 import pytest
 
+from _settle import frames as _frames
+
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -478,7 +480,7 @@ def test_offline_queue_reload_reconnect_exactly_once_in_order(_app):
             pytest.fail(f"the reconnect drain never delivered both queued sends: {spy!r} — {e}")
         # Exactly-once: an extra flush + settle window must not re-dispatch anything.
         page.evaluate("() => window.chatModule._flushSendOutbox()")
-        page.wait_for_timeout(400)
+        _frames(page, 6)  # A83: 6 page frames (the bounded settle window), was a fixed 400ms
         final = page.evaluate(r"""
           () => {
             const chat = window.chatModule;
@@ -574,7 +576,7 @@ def test_restored_item_already_on_server_never_double_sends(_app):
             state = page.evaluate("() => ({ n: window.chatModule._sendOutbox.length, spy: window.__durableSpy })")
             browser.close()
             pytest.fail(f"the dedupe pass never resolved the queued duplicate: {state!r} — {e}")
-        page.wait_for_timeout(300)
+        _frames(page, 6)  # A83: 6 page frames (the bounded settle window), was a fixed 300ms
         result = page.evaluate(r"""
           () => ({
             dispatched: (window.__durableSpy || []).length,
@@ -706,7 +708,7 @@ def test_restored_item_never_bleeds_into_another_session(_app):
             "() => window.sessionModule.getCurrentSessionId() === 'sess-b-891'",
             timeout=15000,
         )
-        page.wait_for_timeout(400)  # let selectSession's finally (incl. its drain nudge) settle
+        _frames(page, 6)  # A83: 6 page frames (the bounded settle window), was a fixed 400ms - let selectSession's finally (incl. its drain nudge) settle
 
         # Isolated flush window: spy installed, hit counters snapshotted, hold released.
         page.evaluate(_INSTALL_SPY)
@@ -721,7 +723,7 @@ def test_restored_item_never_bleeds_into_another_session(_app):
             state = page.evaluate("() => ({ n: window.chatModule._sendOutbox.length, spy: window.__durableSpy })")
             browser.close()
             pytest.fail(f"the dedupe pass never settled the seeded queue under session B: {state!r} — {e}")
-        page.wait_for_timeout(400)
+        _frames(page, 6)  # A83: 6 page frames (the bounded settle window), was a fixed 400ms
         under_b = page.evaluate(r"""
           () => ({
             dispatched: (window.__durableSpy || []).map(s => ({ text: s.text, id: s.clientMsgId })),
@@ -753,7 +755,7 @@ def test_restored_item_never_bleeds_into_another_session(_app):
             browser.close()
             pytest.fail(f"the held item never drained after its session was selected: {state!r} — {e}")
         page.evaluate("() => window.chatModule._flushSendOutbox()")
-        page.wait_for_timeout(400)
+        _frames(page, 6)  # A83: 6 page frames (the bounded settle window), was a fixed 400ms
         final = page.evaluate(r"""
           () => ({
             dispatched: (window.__durableSpy || []).map(s => ({ text: s.text, id: s.clientMsgId })),
@@ -829,7 +831,7 @@ def test_drain_self_continues_both_items_in_one_recovery_cycle(_app):
             )
         # Exactly-once: settle window + a redundant flush must not re-dispatch anything.
         page.evaluate("() => window.chatModule._flushSendOutbox()")
-        page.wait_for_timeout(400)
+        _frames(page, 6)  # A83: 6 page frames (the bounded settle window), was a fixed 400ms
         result = page.evaluate(r"""
           () => {
             const chat = window.chatModule;

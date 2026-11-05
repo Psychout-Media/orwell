@@ -5122,6 +5122,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
     const holder = document.createElement('div');
     holder.className = 'msg msg-ai';
+    holder.dataset.liveHolder = '1'; // S17: see chatWsSplice._wsEnsureRound - an unfinalized observer holder is rebuilt at settle
     const meta = sessionModule.getSessions().find(s => s.id === sessionId);
     const roleLabel = _senderLabel(_shortModel(meta && meta.model));
     // ADR 0012 §2.2: the live bubble is created with a placeholder time, then RE-STAMPED from the

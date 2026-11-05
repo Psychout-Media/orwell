@@ -33,6 +33,8 @@ export interface McpDeps {
   summary: SummaryService;
   commands: EngineCommands;
   session: GameSession;
+  /** A29 - the closed-set beatSeq now (optional: test harnesses that never wire it get no token echo). */
+  beatSeqNow?: () => number;
 }
 
 /**
@@ -411,7 +413,24 @@ export class McpServer {
     return this.channel === "player" && INFRA_TOOL_NAMES.has(name);
   }
 
+  /**
+   * A29 - the post-commit beatSeq echo. A tool that COMMITS (persists) bumps the closed-set beatSeq, but many returned no token, so the front-end's last-seen token went stale and its next
+   * compare-and-swap call got a self-inflicted stale-beat 409 (markHouseguestMet, diaryRoom, moveHouseguest, ...). Here, for ANY tool whose call moved the counter, a plain-object result
+   * that does not already carry a `beatSeq` gets the post-commit one. A read / a no-op leaves the counter alone, so its result is byte-identical; a result that already carries a token
+   * (advanceGame, noteMessage, ...) is untouched; arrays / null / scalars are left as they are. Numeric, Vault-free.
+   */
   async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    const seq = this.deps.beatSeqNow;
+    const before = seq ? seq() : undefined;
+    const result = await this.dispatchTool(name, args);
+    if (seq && before !== undefined && result !== null && typeof result === "object" && !Array.isArray(result) && Object.getPrototypeOf(result) === Object.prototype && !("beatSeq" in (result as Record<string, unknown>))) {
+      const after = seq();
+      if (after !== before) return { ...(result as Record<string, unknown>), beatSeq: after };
+    }
+    return result;
+  }
+
+  private async dispatchTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.allows(name)) {
       throw new Error(`tool "${name}" is not available on channel "${this.channel}"`);
     }
