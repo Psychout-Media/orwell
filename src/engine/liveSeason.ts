@@ -875,6 +875,8 @@ export interface SeasonCtx {
    * A2 (design §13, `ORWELL_JUROR_PROFILES`, default OFF) - each juror votes by their OWN profile (archetype weights + friend-forgives) instead of the one global weight
    * vector. Absent/false => the global ballot, byte-identical (the seeded spine is unmoved). `jurorProfileSalt` (the game seed) keeps profiles stable per game.
    */
+  /** B26 (ORWELL_JURY_MEMORY): a juror's signed MEMORY lean toward a finalist (+ favors them, - holds a grudge), bounded. Absent => +0, byte-identical. */
+  juryMemoryFor?: (juror: EntityId, finalist: EntityId) => number;
   jurorProfiles?: boolean;
   jurorProfileSalt?: string | number;
   /**
@@ -2579,13 +2581,15 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     const leanFor = prof
       ? (fin: EntityId): number =>
           profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerFor(s, juror, fin), prof) +
-          profiledWeights(prof).gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0)
+          profiledWeights(prof).gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
+          (ctx.juryMemoryFor?.(juror, fin) ?? 0)
       : (fin: EntityId): number =>
       juryLean(edgeAsJuryRel(s, juror, fin, ctx), mannerFor(s, juror, fin)) +
       // GAME RESPECT (ruling 2026-06-11): jurors weigh who actually PLAYED — the public resume
       // (comp wins) splits the two finalists; a goat with no game starts every juror down a
       // bounded notch. Grievance (manner) can still outvote it: bitter juries stay possible.
-      JURY_WEIGHTS.gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0);
+      JURY_WEIGHTS.gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
+      (ctx.juryMemoryFor?.(juror, fin) ?? 0); // B26: the juror's memory of the finalist (flag-gated provider)
     // Each juror questioned BOTH finalists (18-Q&A), so each has a recorded appeal here — scored
     // symmetrically by the same `appealEffect`; the player's own answers are exactly as weighted as the NPC's.
     const perfFor = (fin: EntityId): number => appealPerf(f, fin, juror, ctx, s);

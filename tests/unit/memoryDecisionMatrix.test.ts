@@ -15,7 +15,7 @@ const ctxBody = (): string => {
   return SRC.slice(a, b);
 };
 const interfaceMembers = (): Set<string> => new Set([...ctxBody().matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]!));
-const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor)$/;
+const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor|juryMemoryFor)$/;
 const SCANNED = (Object.keys(DECISION_SOURCES) as StrategicDecision[]).filter((d): d is Exclude<StrategicDecision, "approaches"> => d !== "approaches");
 
 function fnBody(startMarker: string, endMarker: string): string {
@@ -32,6 +32,7 @@ const SLICES: Record<Exclude<StrategicDecision, "approaches">, () => string> = {
   replacementNominee: () => fnBody("const replacement = replacementPick(s.hoh!", "s.replacement = replacement;"),
   vetoSave: () => fnBody("// NPC veto holder: save self if nominated", "if (!saved) {"),
   houseguestsChoice: () => fnBody("function resolveVetoDraw(", "const hc = draw.houseguestsChoice;"),
+  juryVote: () => fnBody("function precomputeVotes(", "return votes;"),
 };
 const readsOf = (body: string): Set<string> => new Set([...body.matchAll(/ctx\.(\w+)/g)].map((m) => m[1]!).filter((n) => MEMORY_LIKE.test(n)));
 
