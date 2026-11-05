@@ -7481,6 +7481,7 @@ export class GameSessionAdapter implements GameSession {
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
+      ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
@@ -11202,6 +11203,18 @@ export class GameSessionAdapter implements GameSession {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
     return bound ? -0.2 : 0;
+  }
+
+  /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
+  private hcMemoryEnabled = process.env.ORWELL_HC_MEMORY === "1";
+  setHcMemoryEnabled(on: boolean): void { this.hcMemoryEnabled = on; }
+  /** B7 M4b - how much more the `holder` wants `candidate` as the sixth veto player: the SAME combined memory / belief / owed-deal read the veto save uses (a favor or an owed promise raises, a grudge or a 'they target me' belief lowers). Deterministic, no rng, [-1, 1]. */
+  hcMemoryFor(candidate: EntityId, holder: EntityId): number {
+    if (!this.hcMemoryEnabled || holder === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(candidate, holder) : 0;
+    const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(candidate, holder) : 0;
+    const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(candidate) && candidate !== holder) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -(mem + bel) + owed));
   }
 
   /** B7 M1 - the NPC veto save reads memory too (approved tie-in #1). OFF unless exactly `ORWELL_VETO_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */

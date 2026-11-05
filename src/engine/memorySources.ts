@@ -9,9 +9,9 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "hcMemoryFor";
 
-export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave";
+export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
@@ -22,6 +22,8 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
   vetoSave: ["campaignPushFor", "vetoMemoryFor"],
+  // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.
+  houseguestsChoice: ["hcMemoryFor"],
 };
 
 /** Providers deliberately read by NO strategic decision yet (a write-only / not-yet-wired source). Empty today; an entry needs a reason. */
