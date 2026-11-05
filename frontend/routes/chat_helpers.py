@@ -5885,7 +5885,9 @@ async def note_player_message(client_msg_id, user) -> None:
     try:
         import uuid
         from src import orwell_engine
-        await orwell_engine.note_message(client_msg_id or f"srv-{uuid.uuid4().hex}", user=user)
+        res = await orwell_engine.note_message(client_msg_id or f"srv-{uuid.uuid4().hex}", user=user)
+        # noteMessage persists (bumps beatSeq): track the new token so the next progression call is not stale-409.
+        _refresh_beat_seq(user, res if isinstance(res, dict) else {})
     except Exception:
         logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
 

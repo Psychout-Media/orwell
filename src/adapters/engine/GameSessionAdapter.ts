@@ -1026,21 +1026,23 @@ export class GameSessionAdapter implements GameSession {
    */
   private messageMode = false;
   private seenMessageIds: string[] = [];
-  noteMessage(req: { messageId: string }): { accepted: boolean } {
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number } {
     const id = String(req.messageId);
-    if (this.seenMessageIds.includes(id)) return { accepted: false };
+    if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.messageMode = true;
+    this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
-    return { accepted: true };
+    return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
   }
   /** True once the front-end has announced a player message (clock billing is per message from then on). */
   messageModeNow(): boolean { return this.messageMode; }
   /** The orchestrator's single clock-billing seam for a committed player turn (see `noteMessage`): legacy per-commit step until messages are announced, then nothing. */
   billClockForCommit(): void {
     if (!this.messageMode) this.advanceClockPerConversation();
+    else this.hangOutSkipStepAt = undefined; // message mode: a hang-out must not leave a stale skip that makes the NEXT note bill 0
   }
   /**
    * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness

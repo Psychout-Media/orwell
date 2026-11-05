@@ -111,6 +111,23 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
     }
   });
 
+  it("a hang-out between two notes leaves no stale skip: the NEXT note still bills a full step (no free message after a hang-out)", async () => {
+    const g = await startedDay();
+    await g.call("noteMessage", { messageId: "m-h-1" });
+    await g.call("hangOut", {});
+    const afterHang = g.hour();
+    await g.call("noteMessage", { messageId: "m-h-2" });
+    expect((g.hour() - afterHang) * 60).toBeCloseTo(MINUTES_PER_MESSAGE, 5);
+  });
+
+  it("noteMessage returns the post-commit beatSeq, so the next progression call carrying it is not stale", async () => {
+    const g = await startedDay();
+    const r = (await g.call("noteMessage", { messageId: "m-bs-1" })) as { accepted: boolean; beatSeq: number };
+    expect(r.accepted).toBe(true);
+    expect(typeof r.beatSeq).toBe("number");
+    await expect(g.call("advanceGame", { expectedBeatSeq: r.beatSeq })).resolves.toBeDefined();
+  });
+
   it("without any noteMessage the engine keeps the legacy per-commit billing (BDD / UAT / tests that never announce a message are unchanged)", async () => {
     const g = await startedDay();
     const start = g.hour();
