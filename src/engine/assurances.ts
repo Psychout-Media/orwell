@@ -20,6 +20,8 @@ export interface Assurance {
   sincerity: number;
   source: "player" | "npc";
   status: AssuranceStatus;
+  /** B22 (ORWELL_MEMORY_PROMISES): the houseguests who HEARD it (the scene's other named, awake witnesses). They remember its keeping or breaking too, at a lower weight. Absent => no witnesses (byte-identical). */
+  heardBy?: EntityId[];
 }
 
 export const ASSURANCE = {
@@ -33,6 +35,8 @@ export const ASSURANCE = {
   brokenMemorySeverity: 0.3,
   /** The favor the assured keeps of an assurance that was KEPT (B4 slice 8) - weaker than a broken one's grudge, on purpose (negativity bias). */
   keptMemorySeverity: 0.2,
+  /** B22: a witness remembers a kept/broken assurance they merely HEARD at this fraction of the assured's own weight. */
+  witnessFactor: 0.5,
   /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
   liarSincerity: 0.1,
 } as const;

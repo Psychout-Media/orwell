@@ -1168,10 +1168,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
-    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) broke = true; }
+    const witnesses: EntityId[] = [];
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
+    this.rememberAsWitnesses(witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
     // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
     // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
     if (nominee !== PLAYER) {
@@ -1181,18 +1183,29 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** B22 - houseguests who merely HEARD a promise remember its keeping / breaking too, at `ASSURANCE.witnessFactor` of the assured's own weight (the assured and the assurer themselves are not witnesses). OFF unless exactly `ORWELL_MEMORY_PROMISES=1`; never-flipped. */
+  private memoryPromisesEnabled = process.env.ORWELL_MEMORY_PROMISES === "1";
+  setMemoryPromisesEnabled(on: boolean): void { this.memoryPromisesEnabled = on; }
+  private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
+    if (!this.memoryPromisesEnabled) return;
+    for (const w of new Set(witnesses)) if (w !== about && w !== assured) this.remember(w, about, kind, severity * ASSURANCE.witnessFactor);
+  }
   /** B4 slice 8 - resolve the holder's OPEN assurances of `kinds` to `spared` as KEPT (once each) and the assured remembers a (weaker-than-a-grudge) favor. Flag off / none open => nothing. */
   private keepAssurances(holder: EntityId, kinds: readonly ("safe" | "vote" | "loyal")[], isSpared: (to: EntityId) => boolean): void {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     const kept: EntityId[] = [];
+    const witnessesOf = new Map<EntityId, readonly EntityId[]>();
     for (const a of ledger.openFor(holder)) {
       if (!kinds.includes(a.kind) || !isSpared(a.to)) continue;
-      if (ledger.resolve(a.id, "kept")) kept.push(a.to);
+      if (ledger.resolve(a.id, "kept")) { kept.push(a.to); witnessesOf.set(a.to, a.heardBy ?? []); }
     }
     if (kept.length === 0) return;
     this.live.assurances = ledger.toJSON();
-    for (const to of kept) this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+    for (const to of kept) {
+      this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+      this.rememberAsWitnesses(witnessesOf.get(to) ?? [], holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
+    }
   }
   /** B4 slice 8 - the HOH finalized nominations without the houseguests they had assured 'safe'/'loyal': those assurances were KEPT. */
   assuranceKeptAtNominations(holder: EntityId, nominees: readonly EntityId[]): void {
@@ -1204,7 +1217,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
-  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc" }): void {
+  recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }): void {
     if (!this.assurancesEnabled || !this.live) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances ?? { seq: 0, items: [] });
     // B4 slice 7: an NPC's sincerity is the ENGINE's call (loyalty + a dedicated seeded roll), never the model's proposal; the player's own stays as recorded.
@@ -1214,7 +1227,8 @@ export class GameSessionAdapter implements GameSession {
       const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}`)).next();
       sincerity = npcAssuranceSincerity(loyalty, roll);
     }
-    ledger.add({ ...a, sincerity, week: this.live.week });
+    const { heardBy, ...rest } = a;
+    ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
     this.live.assurances = ledger.toJSON();
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
