@@ -4184,6 +4184,12 @@ _COMP_STARTED_CUES = (
 )
 
 
+def _comp_started_cue_hit(text: str) -> bool:
+    """A74 - does `text` show >= 2 DISTINCT N-16 'the competition has begun' cue families? The scene-level gate admits such prose to the live-board read (the cheap closed-set gate cannot: this prose
+    carries no outcome claim), where `_comp_started_before_due` then decides (comp phase + explicit not-due flag + nothing pending). Pure and cheap; a single stage direction never qualifies."""
+    return bool(text) and sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2
+
+
 def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
     """N-16 - the narration shows the scheduled competition STARTING while the engine says it is not due (clock live, `daySchedule.due` False) and nothing is pending. Production owns the
     schedule (#2051): the player's / narrator's momentum cannot start it. Returns a LABEL or None. Conservative: only the HOH / veto competition phases, only with an explicit
@@ -4193,7 +4199,7 @@ def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
     phase = str(live.get("phase") or "").lower()
     if not phase.endswith("-competition") or live.get("compNotDue") is not True or live.get("pending"):
         return None
-    if sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) < 2:
+    if not _comp_started_cue_hit(text):
         return None
     return ("the competition as already STARTED (contestants called to their stations / playing) - the engine shows it is NOT due yet and nothing has begun; "
             "production has not called it")
@@ -4432,7 +4438,8 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         if not text or not text.strip():
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
-        if not _sentence_has_closed_set_claim(text):
+        # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
