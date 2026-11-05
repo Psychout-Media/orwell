@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { buildSandbox } from "../../tests/support/sandbox";
+import { learn } from "../support/secretLearn";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { SECRET_TRADE } from "../../src/engine/leverageConstants";
@@ -54,12 +55,6 @@ function ensure(w: BbWorld): TCState {
   return st;
 }
 
-function learn(sb: ReturnType<typeof buildSandbox>, subject: EntityId): string {
-  sb.engine.knowledge.seedBelief(subject, { content: `a learned secret about ${subject}`, originalContent: "x", factId: `seed:${subject}`, confidence: 0.9, hops: 0, distortion: 0, source: subject }, "origin");
-  sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: `a learned secret about ${subject}`, subject, confidence: 0.85 }, `told-by:${subject}`);
-  const fact = sb.engine.knowledge.knownTo(PLAYER).find((f) => f.subject === subject)!;
-  return fact.factId ?? fact.id;
-}
 
 const setEdge = (s: GameSessionAdapter, a: EntityId, b: EntityId, v: { trust: number; affinity: number; threat: number }): void => {
   const e = relOf(s).edge(a, b); e.trust = v.trust; e.affinity = v.affinity; e.threat = v.threat;

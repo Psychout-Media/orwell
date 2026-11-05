@@ -24,6 +24,8 @@ export interface DealConsentInputs {
   targetsMe: number;
   /** The per-decision seeded jitter in [-DEAL_CONSENT.jitter, +DEAL_CONSENT.jitter] (the adapter derives it from a dedicated rng; never the shared season rng). */
   jitter: number;
+  /** B31 (ORWELL_MOOD_DEAL): a signed shift from the NPC's visible mood (tells). Absent/0 => byte-identical. */
+  mood?: number;
 }
 
 export interface DealConsentDecision { accept: boolean; reason?: DealRefusalReason }
@@ -47,7 +49,7 @@ export function dealWillingness(i: DealConsentInputs): number {
   const { weight: w, reference: r } = DEAL_CONSENT;
   const favor = Math.min(DEAL_CONSENT.favorCeiling, w.favor * Math.max(0, num(i.favor)));
   return w.trust * (clamp01(i.trust) - r.trust) + w.affinity * (clamp01(i.affinity) - r.affinity) - w.threat * (clamp01(i.threat) - r.threat)
-    - w.grudge * Math.max(0, num(i.grudge)) - w.targetsMe * Math.max(0, num(i.targetsMe)) + favor;
+    - w.grudge * Math.max(0, num(i.grudge)) - w.targetsMe * Math.max(0, num(i.targetsMe)) + favor + num(i.mood ?? 0);
 }
 
 /**

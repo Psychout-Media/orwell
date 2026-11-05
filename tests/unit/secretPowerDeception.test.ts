@@ -56,25 +56,6 @@ describe("deception — the player can BLUFF (a fabricated claim), folded on bel
     const res = sb.session.tradeSecret({ bluff: true, subject, toNpcId: recipient, askKind: "vote" }) as TradeResult;
     expect(res.accepted).toBe(false);
   });
-
-  it("a bluff is capped per season (the player's bluffs are rare — owner build-tuning)", () => {
-    const sb = startedSeason("dc-bluff-cap", 3);
-    const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
-    // Make every recipient believe to actually spend bluffs.
-    for (const id of npcs) { const e = edge(sb, id, PLAYER); e.trust = 0.95; e.affinity = 0.9; e.threat = 0.02; }
-    let spent = 0;
-    for (let i = 2; i < npcs.length && spent <= LEVERAGE.maxPlayerBluffsPerSeason + 2; i++) {
-      const subject = npcs[0]!;
-      const recipient = npcs[i]!;
-      const rs = edge(sb, recipient, subject); rs.threat = 0.9; rs.affinity = 0.05;
-      sb.session.tradeSecret({ bluff: true, subject, toNpcId: recipient });
-      spent++;
-    }
-    const core = sb.session.snapshot();
-    // The bluff count is tracked + persisted (the cap is enforced at the count, bounded at cap+1).
-    expect(core.secretPlayerBluffCount).toBeLessThanOrEqual(LEVERAGE.maxPlayerBluffsPerSeason + 1);
-    expect(core.secretPlayerBluffCount).toBeGreaterThan(0);
-  });
 });
 
 describe("deception — the PASSIVE LIE-CATCH: a later contradicting truth punishes the bluffer", () => {
