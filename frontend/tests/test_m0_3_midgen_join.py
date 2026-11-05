@@ -68,6 +68,7 @@ class _StubState:
     def __init__(self):
         self.lock = threading.Lock()
         self.script: list[dict] = []  # {"text": str, "delay": float}
+        self.requests: list[dict] = []  # B13: every parsed request the stub saw (for pins that read what the narrator was handed)
 
     def pop(self):
         with self.lock:
@@ -100,6 +101,8 @@ class _StubHandler(BaseHTTPRequestHandler):
             req = json.loads(self.rfile.read(n) or b"{}")
         except Exception:
             req = {}
+        with STUB.lock:
+            STUB.requests.append(req)
         stream = bool(req.get("stream"))
         entry = STUB.pop() if (stream and req.get("tools")) else None
         if not stream:
