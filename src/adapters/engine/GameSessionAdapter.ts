@@ -4999,7 +4999,7 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng);
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachMemoryEnabled ? (n) => this.approachMemoryFor(n, player) : undefined);
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -11202,6 +11202,21 @@ export class GameSessionAdapter implements GameSession {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
     return bound ? -0.2 : 0;
+  }
+
+  /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
+  private approachMemoryEnabled = process.env.ORWELL_APPROACH_MEMORY === "1";
+  setApproachMemoryEnabled(on: boolean): void { this.approachMemoryEnabled = on; }
+  /**
+   * B7 M1b - how much more (+) or less (-) `npc` is drawn to seek the player out, from what they remember about the player (a favor raises it, a grudge lowers it: the 0024 ledger's standalone tilt,
+   * sign-flipped, i.e. the same read the veto save uses) and owe (an open deal or kept-able assurance the NPC made to the player raises it). Deterministic, no rng, bounded to [-1, 1] (the ranker clamps further).
+   */
+  approachMemoryFor(npc: EntityId, player: EntityId): number {
+    if (!this.approachMemoryEnabled || npc === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(player, npc) : 0;
+    const owedDeal = this.deals.open().some((d) => d.condition.promisors.includes(npc) && d.parties.includes(player)) ? 0.1 : 0;
+    const owedAssurance = this.assurancesEnabled && this.live?.assurances && AssuranceLedger.fromJSON(this.live.assurances).openFor(npc).some((a) => a.to === player) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -mem + owedDeal + owedAssurance));
   }
 
   /** B7 M1 - the NPC veto save reads memory too (approved tie-in #1). OFF unless exactly `ORWELL_VETO_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
