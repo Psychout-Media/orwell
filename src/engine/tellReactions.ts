@@ -62,7 +62,7 @@ export const decayExploit = (cur: number): number => (cur * TELL_REACTION.exploi
  *  - veto save (ORWELL_MOOD_VETO): a visibly rattled veto holder (withdrawn / tearful / brittle-calm) rescues the nominee they are close to (+ `vetoRescue` x bond); a snapping holder is less forgiving (- `vetoSnap`).
  *  - approaches (ORWELL_MOOD_APPROACH): a withdrawn / tearful NPC seeks the player out less, a snapping one a little less, a giddy / warm-open one more.
  */
-export const MOOD_TERMS = { vetoRescue: 0.08, vetoSnap: 0.05, approachWithdrawn: -0.12, approachSnapping: -0.06, approachUp: 0.08 } as const;
+export const MOOD_TERMS = { vetoRescue: 0.08, vetoSnap: 0.05, approachWithdrawn: -0.12, approachSnapping: -0.06, approachUp: 0.08, dealProtect: 0.08, dealSnap: -0.05 } as const;
 const LOW = new Set<TellKind>(["withdrawn", "tearful", "brittle-calm"]);
 const UP = new Set<TellKind>(["giddy", "warm-open"]);
 
@@ -79,4 +79,17 @@ export function moodApproachTerm(tells: ReadonlyArray<{ kind: TellKind }> | unde
   if (tells.some((t) => t.kind === "snapping")) return MOOD_TERMS.approachSnapping;
   if (tells.some((t) => UP.has(t.kind))) return MOOD_TERMS.approachUp;
   return 0;
+}
+
+/** B31 / #2017 E4b: a visibly rattled NPC is likelier to accept PROTECTION (safety / veto-save), a snapping one is less willing to commit to anything. Signed shift on the consent willingness score; no player wording enters. */
+export function moodDealTerm(tells: ReadonlyArray<{ kind: TellKind }> | undefined, kind: string): number {
+  if (!tells?.length) return 0;
+  if (tells.some((t) => LOW.has(t.kind))) return kind === "safety" || kind === "veto-save" ? MOOD_TERMS.dealProtect : 0;
+  if (tells.some((t) => t.kind === "snapping")) return MOOD_TERMS.dealSnap;
+  return 0;
+}
+
+/** B31: a visibly rattled or snapping NPC cannot hold a campaign steady, so none forms from them this tick. */
+export function moodUnsteady(tells: ReadonlyArray<{ kind: TellKind }> | undefined): boolean {
+  return !!tells?.some((t) => LOW.has(t.kind) || t.kind === "snapping");
 }

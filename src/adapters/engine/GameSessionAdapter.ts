@@ -29,7 +29,7 @@ import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
-import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm } from "../../engine/tellReactions";
+import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
@@ -1443,6 +1443,19 @@ export class GameSessionAdapter implements GameSession {
   setMoodVetoEnabled(on: boolean): void { this.moodVetoEnabled = on; }
   private moodApproachEnabled = process.env.ORWELL_MOOD_APPROACH === "1";
   setMoodApproachEnabled(on: boolean): void { this.moodApproachEnabled = on; }
+  /** B31 (ORWELL_MOOD_DEAL / ORWELL_MOOD_CAMPAIGN, default OFF, never-flipped; each needs ORWELL_NPC_TELLS): visible mood into deal consent and campaign formation. */
+  private moodDealEnabled = process.env.ORWELL_MOOD_DEAL === "1";
+  setMoodDealEnabled(on: boolean): void { this.moodDealEnabled = on; }
+  private moodCampaignEnabled = process.env.ORWELL_MOOD_CAMPAIGN === "1";
+  setMoodCampaignEnabled(on: boolean): void { this.moodCampaignEnabled = on; }
+  moodDealFor(npc: EntityId, kind: string): number {
+    if (!this.moodDealEnabled || !this.npcTellsEnabled || npc === PLAYER) return 0;
+    return moodDealTerm(this.soulObj(npc)?.tells, kind);
+  }
+  moodSteady(npc: EntityId): boolean {
+    if (!this.moodCampaignEnabled || !this.npcTellsEnabled) return true;
+    return !moodUnsteady(this.soulObj(npc)?.tells);
+  }
   moodVetoFor(nominee: EntityId, holder: EntityId): number {
     if (!this.moodVetoEnabled || !this.npcTellsEnabled || holder === PLAYER) return 0;
     const e = this.rel.edge(holder, nominee);
@@ -8450,7 +8463,7 @@ export class GameSessionAdapter implements GameSession {
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
-      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
+      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
         if (activeCount() >= CAMPAIGN.maxConcurrent) break;
         if (!this.campaigns.some((c) => c.status === "active" && c.owners[0] === f.owners[0])) this.campaigns.push(f);
       }
@@ -10186,6 +10199,7 @@ export class GameSessionAdapter implements GameSession {
       favor: memoryFavor(entries, live.week, decay, carry),
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
+      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
