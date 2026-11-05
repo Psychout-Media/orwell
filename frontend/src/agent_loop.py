@@ -2562,6 +2562,19 @@ def _last_json_object_with_key(raw: str, key: str):
     return found
 
 
+def _validate_assurance(raw, scene_ids) -> dict | None:
+    """B4 slice 6: validate the extraction's optional casual-assurance proposal. Only `kind` (closed set) and WHO made it come from the model: "player" (the default), or an NPC id that was actually in
+    the scene (`scene_ids`) - anything else is dropped (never coerced). No number ever crosses: the engine owns sincerity, and ignores the whole field unless ORWELL_ASSURANCES is on."""
+    if not isinstance(raw, dict) or raw.get("kind") not in ("safe", "vote", "loyal"):
+        return None
+    by = raw.get("by")
+    if by in (None, "", "player"):
+        return {"kind": raw["kind"]}
+    if isinstance(by, str) and by in (scene_ids or []):
+        return {"kind": raw["kind"], "from": by}
+    return None
+
+
 def _validate_consequence(raw, valid_ids) -> dict | None:
     """ADR 0005 — defensively validate a model-proposed consequence descriptor against the active
     roster. Keep only edges whose `toward` is a living houseguest id AND whose `direction` is one of
@@ -2770,7 +2783,8 @@ async def _settle_pending_fold(owner, session_id) -> bool:
                 owner, _oe.record_interaction, entry["content"],
                 with_ids=entry["with_ids"], kind=entry["kind"], consequence=entry["consequence"],
                 felt_minutes=entry["felt_minutes"], user=owner, defer_fold=False,
-                idempotency_key=entry["idempotency_key"])
+                idempotency_key=entry["idempotency_key"],
+                **({"assurance": entry["assurance"]} if entry.get("assurance") else {}))
         except Exception as _e:
             logger.warning(f"[orwell] settle deferred fold failed, re-queuing at front for retry: {_e}")
             _fl.requeue_pending_fold_front(owner, session_id, entry)
@@ -3060,6 +3074,13 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 # are legitimate (already there / not a legal move) and simply don't count.
                 if isinstance(res, dict) and res.get("status") == "moved":
                     recorded += 1
+                    # A29: an applied move COMMITS in the engine (bumps beatSeq) - adopt the post-commit token it returns, or the next compare-and-swap call
+                    # (e.g. the deferred scene-fold settle) carries a stale expectedBeatSeq and 409s for nothing.
+                    if _ch is not None:
+                        try:
+                            _ch._refresh_beat_seq(owner, res)
+                        except Exception:
+                            pass
                     # ADR 0009 (D1): fold this engine-confirmed move into the per-turn occupancy freeze
                     # so the gadget shows the move the player just read (preserves D2). Best-effort.
                     if _ch is not None:
@@ -3127,7 +3148,12 @@ async def _auto_mark_premiere_intros(narration, owner) -> int:
                 # asymmetric first-power gate. Otherwise a move-in narration that merely names two people
                 # flipped powerReachable and the first HOH fired before the toast/bedroom beats ran. Real
                 # engagement (a recorded player↔NPC scene) is what forms hot reads now (engine-side).
-                await _oe.mark_houseguest_met(hid, user=owner, via="belt")
+                _met = await _oe.mark_houseguest_met(hid, user=owner, via="belt")
+                try:  # A29: adopt the post-commit beatSeq the engine echoes (the belt used to discard the result)
+                    from routes import chat_helpers as _chm
+                    _chm._refresh_beat_seq(owner, _met if isinstance(_met, dict) else {})
+                except Exception:
+                    pass
                 marked += 1
             except Exception as e:
                 logger.warning(f"[orwell] auto markHouseguestMet failed for {hid}: "
@@ -3296,6 +3322,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 '"content":"<one concise past-tense sentence of what passed between them>",'
                 '"feltMinutes":<how long the scene took IN-FICTION, in minutes: a quick word ~15-30, an '
                 'ordinary chat ~45-90, a long strategy summit ~120-240>,'
+                '"assurance":{"kind":"<safe|vote|loyal>","by":"<player, or the houseguest id who made it>"},'
                 '"consequence":{"edges":[{"toward":"<houseguest id>",'
                 '"direction":"<one of: warmer, cooler, more-trust, less-trust, more-threatened, '
                 'less-threatened, more-aligned, less-aligned>","emphasis":"<slight|notable|strong>"}],'
@@ -3303,7 +3330,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 '"about":"<a DIFFERENT third houseguest, never the player>",'
                 '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
                 '"rationale":"<why, grounded in the scene>"}}\n'
-                "Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+                "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
                 "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
                 "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
                 "emotional/strategic direction. Add `consequence` ONLY when "
@@ -3402,6 +3429,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # ADR 0005: validate the proposed descriptor against the SAME roster id-set used for withIds;
         # a None result (nothing valid) means we forward NOTHING — exactly the kind-only path.
         consequence = _validate_consequence(obj.get("consequence"), valid)
+        assurance = _validate_assurance(obj.get("assurance"), ids)
         # 0065 Part A: attach the CAS token + refresh last-seen from the response. A single stale 409
         # (the board moved under us mid-turn) is reconciled-and-RETRIED (#591); a SECOND consecutive one
         # is DEFERRED (CON-11, `defer_fold=True`) rather than dropped — this is frequently the scene's
@@ -3425,7 +3453,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             from src import fold_ledger as _fl
             _fl.stage_pending_fold(owner, session_id, content=content[:400], with_ids=ids,
                                    kind=kind, consequence=consequence, felt_minutes=felt_minutes,
-                                   idempotency_key=_scene_idem_key)
+                                   idempotency_key=_scene_idem_key, assurance=assurance)
             logger.info(f"[orwell] staged scene fold for deferred settle (kind={kind}, with={ids}, "
                         f"edges={n_edges}, aboutEdges={n_about}, feltMinutes={felt_minutes}) user={owner}")
         else:
@@ -3435,7 +3463,8 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                                         with_ids=ids, kind=kind, consequence=consequence,
                                         felt_minutes=felt_minutes,
                                         user=owner, defer_fold=True,
-                                        idempotency_key=_scene_idem_key) is None:
+                                        idempotency_key=_scene_idem_key,
+                                        **({"assurance": assurance} if assurance else {})) is None:
                 return False
             logger.info(f"[orwell] auto-recorded scene (kind={kind}, with={ids}, "
                         f"edges={n_edges}, aboutEdges={n_about}, feltMinutes={felt_minutes}) user={owner}")
@@ -4912,7 +4941,9 @@ async def _confession_guard(text: str, owner) -> "tuple[str, list]":
         return text, []
     try:
         from routes import chat_helpers
-        return chat_helpers.screen_invented_confession(owner, text)
+        _t, _ops = chat_helpers.screen_invented_confession(owner, text)
+        _t2, _ops2 = chat_helpers.screen_tell_faithfulness(owner, _t)  # A50
+        return _t2, list(_ops) + list(_ops2)
     except Exception:
         return text, []
 

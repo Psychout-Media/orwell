@@ -2672,6 +2672,13 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             if tc_event:
                 yield tc_event
             _log_stream_completion()
+            # A57c: the connection closed with NO [DONE] and NO finish_reason, after real output and with no tool call in flight: the upstream DROPPED mid-sentence. Reporting that as a complete turn
+            # persisted the half sentence as the narrator's whole message and hid the failure from the player. Surface it exactly like an in-band provider error (typed, mid-stream) so the turn is an
+            # honest interruption (the client's error notice + retry), never a saved "complete" reply. A stream that ends with a finish_reason, or after a tool call, is unchanged.
+            if _finish_reason is None and not tc_event and (_diag["content_chars"] > 0 or _diag["reasoning_chars"] > 0):
+                logger.warning(
+                    f"LLM stream to {target_url} ended with NO [DONE] and NO finish_reason after {_diag['content_chars']} content chars — upstream dropped mid-stream; surfacing as an interruption")
+                yield f'event: error\ndata: {json.dumps({"error": "The connection to the narrator dropped mid-reply", "status": 502, "error_type": "stream_dropped", "mid_stream": True})}\n\n'
             yield "data: [DONE]\n\n"
 
     except (httpx.ConnectError, httpx.ConnectTimeout) as e:

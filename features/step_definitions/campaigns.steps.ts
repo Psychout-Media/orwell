@@ -384,3 +384,56 @@ Then("a houseguest the player never pitched is unmoved", function (this: BbWorld
   const bystander = ids![4]!, target = ids![1]!;
   assert.equal(tiltOf(s!, target, bystander), 0);
 });
+
+
+// ── B37 / B38 (flag-gated, default off) ───────────────────────────────────────────────────────────────────────
+import { believedMargin, inDoubt } from "../../src/engine/voteEstimate";
+import { GameSessionRegistry } from "../../src/composition/registry";
+type VW = { b37?: { truth: number[]; zero: number[]; voters: number }; b38?: { sb: ReturnType<GameSessionRegistry["sandboxFor"]>; hoh: EntityId } };
+const vw = (w: BbWorld): VW => w as unknown as VW;
+
+Given("a close eviction count and an overconfident campaigner", function (this: BbWorld) {
+  const voters = 12;
+  vw(this).b37 = { truth: Array.from({ length: voters }, () => 0.6), zero: Array.from({ length: voters }, () => 0), voters };
+});
+When("the campaigner reads the count", function (this: BbWorld) { assert.ok(vw(this).b37); });
+Then("the campaigner believes it is decided and stops campaigning", function (this: BbWorld) {
+  const c = vw(this).b37!;
+  assert.equal(inDoubt(believedMargin(c.truth, 1, c.zero), c.voters), false);
+  assert.equal(inDoubt(believedMargin(c.truth, 0.2, c.zero), c.voters), true, "a cautious campaigner keeps working the same count");
+});
+Then("the true count was still in doubt", function (this: BbWorld) {
+  const c = vw(this).b37!;
+  assert.equal(inDoubt(believedMargin(c.truth, 0, c.zero), c.voters), true);
+});
+
+type PitchInternals = { rel: { edge(a: EntityId, b: EntityId): { threat: number; trust: number } }; setLobbyingEnabled(on: boolean): void; recordLobbyPitches(h: EntityId): void };
+Given("a new Head of Household who faces pitches from trusted houseguests", function (this: BbWorld) {
+  const sb = new GameSessionRegistry().sandboxFor(`bdd-b38-${Math.random()}`);
+  sb.session.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
+  const s = sb.session as unknown as PitchInternals;
+  s.setLobbyingEnabled(true);
+  const npcs = sb.session.livingIds().filter((i) => i !== PLAYER) as EntityId[];
+  const hoh = npcs[0]!;
+  for (const n of npcs) if (n !== hoh) { s.rel.edge(hoh, n).threat = 0.6; s.rel.edge(hoh, n).trust = 0.9; }
+  vw(this).b38 = { sb, hoh };
+});
+When("the pitches are made", function (this: BbWorld) {
+  const b = vw(this).b38!;
+  (b.sb.session as unknown as PitchInternals).recordLobbyPitches(b.hoh);
+});
+const lobbyEvents = (w: BbWorld) => vw(w).b38!.sb.engine.events.queryAll().filter((e) => e.type === "lobbying");
+Then("each pitch is recorded with the Head of Household as a witness", function (this: BbWorld) {
+  const evs = lobbyEvents(this);
+  assert.ok(evs.length > 0);
+  for (const e of evs) assert.ok(e.witnessSet.includes(vw(this).b38!.hoh));
+});
+Then("a pitch the player did not witness is hidden from the player's knowledge", function (this: BbWorld) {
+  const evs = lobbyEvents(this);
+  for (const e of evs.filter((x) => !x.witnessSet.includes(PLAYER))) assert.equal(e.hidden, true);
+  const seen = vw(this).b38!.sb.engine.events.query({ witnessedBy: PLAYER }).filter((e) => e.type === "lobbying").map((e) => e.id).sort();
+  assert.deepEqual(seen, evs.filter((x) => x.witnessSet.includes(PLAYER)).map((x) => x.id).sort());
+});
+Then("a trusted safety pitch seals a quiet pact between the two", function (this: BbWorld) {
+  assert.ok(vw(this).b38!.sb.engine.events.queryAll().some((e) => e.type === "deal"));
+});

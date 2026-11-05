@@ -1,6 +1,6 @@
 # Executable spec — SPEC (drafted failing-first), now IMPLEMENTED & green. The NPC->player counterpart of
 # makeDeal: a motivated houseguest floats the player a deal at a lull; accept makes a real deal, decline
-# rebuffs them. Grounded, Vault-safe, bounded, calibration-safe (default-off ORWELL_NPC_DEAL_OFFERS).
+# rebuffs them. Grounded, Vault-safe, bounded, calibration-safe (default-ON ORWELL_NPC_DEAL_OFFERS).
 # HARD rule: roles only (NPC, HOH, houseguest, player) — no names. Added to cucumber.cjs when green.
 
 Feature: NPC-initiated deal offers

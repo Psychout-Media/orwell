@@ -85,7 +85,7 @@ export function offscreenEmotion(type: InteractionType, role: SceneRole = "initi
 const clamp01 = (v: number): number => (Number.isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
 
 /**
- * 0124 — the DEEPER-evolution tunables (all magnitudes for the opt-in `ORWELL_SOUL_DEPTH` layer live here).
+ * 0124 — the DEEPER-evolution tunables (all magnitudes for the default-ON `ORWELL_SOUL_DEPTH` layer (`=0` opts out) live here).
  * Untouched unless the layer is on, so the 0041 single-scalar path stays byte-identical.
  */
 const SOUL_DEPTH = {
@@ -101,6 +101,9 @@ const SOUL_DEPTH = {
   distressDrag: 1.5,
   /** Per-event temperament-drift magnitude (a betrayal nudges the effective disposition this far toward clash). */
   driftGain: 0.28,
+  /** B32 (ORWELL_DRIFT_FIX): the negativity bias on the temperament accumulator - a hardening event gains x1.5, a softening one x0.75 (matches the memory ledger's grudgeMax > favorMax). */
+  negativityClashMul: 1.5,
+  negativityBondMul: 0.75,
   /** Fraction the temperament drift reverts toward 0 (the true baseline) on a `calm` beat (× settleScale). */
   driftSettle: 0.2,
   /** Effective-disposition bands: |base+drift| past these reads clash/bond, else neutral (hysteresis). */
@@ -172,7 +175,7 @@ export function evolveEmotion(
   event: EmotionalEvent,
   c: TemperatureConstants = TEMPERATURE_CONSTANTS,
   rng?: RandomnessSource,
-  opts: { soulDepth?: boolean } = {},
+  opts: { soulDepth?: boolean; negativityBias?: boolean; driftScale?: number } = {},
 ): void {
   const { valence, arousal } = IMPACT[event];
   const k = c.emotional.volatilityScale;
@@ -210,7 +213,9 @@ export function evolveEmotion(
       // distress rises on negative-valence events; confidence on positive — INDEPENDENTLY (both can climb).
       soul.distress = clamp01(soul.distress + Math.max(0, -valence) * SOUL_DEPTH.distressGain);
       soul.confidence = clamp01(soul.confidence + Math.max(0, valence) * SOUL_DEPTH.confidenceGain);
-      soul.temperamentDrift = clampSigned(soul.temperamentDrift + driftOf(event), 1);
+      let d = driftOf(event) * (opts.driftScale ?? 1);
+      if (opts.negativityBias) d *= d > 0 ? SOUL_DEPTH.negativityClashMul : SOUL_DEPTH.negativityBondMul;
+      soul.temperamentDrift = clampSigned(soul.temperamentDrift + d, 1);
     }
   }
 

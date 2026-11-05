@@ -1742,7 +1742,40 @@ export function renderSurfacedFacts(facts: ReadonlyArray<{ content: string; hops
  * a flag OFF means the engine returns an empty result — a DEAD tool — so the glossary must not advertise it. An omitted
  * or `true` entry keeps today's bullet (default ON ⇒ the base prompt is byte-identical).
  */
-export interface GatedLeverFlags { playerDossier?: boolean; boothReceipts?: boolean }
+export interface GatedLeverFlags {
+  playerDossier?: boolean;
+  boothReceipts?: boolean;
+  /** A49 (ORWELL_NPC_TELLS): add the instruction to voice the given `tells`. Absent/false => the prompt is byte-identical to before. */
+  npcTells?: boolean;
+  /** A54 (ORWELL_NPC_MEMORY_SPEECH): add the instruction to use `rememberedAboutYou` / `bringUp`. Absent/false => byte-identical. */
+  npcMemorySpeech?: boolean;
+  /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
+  confrontMisfire?: boolean;
+}
+
+/** A54 - when npcVoice carries `rememberedAboutYou`, tell the narrator these are the ONLY things this houseguest holds about the player and that `bringUp` is the engine's decision. Appended only while the flag is on. */
+function withMemorySpeechInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice carries `rememberedAboutYou`, those are the ONLY things this houseguest remembers about the player: let them colour how they speak, never invent another past between them. Raise one aloud, unprompted,\n" +
+    "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.");
+}
+
+/** A49 - when npcVoice carries `tells`, tell the narrator how to use them (voice the observable facts, never invent a mood). Appended only while the flag is on. */
+function withTellsInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice carries `tells` (the houseguest's observable carriage right now): show EXACTLY those, each as conduct through its `channel` (body / voice / behaviour) at its `band` (a faint tell is easy to miss, a strong one\n" +
+    "    is plain), with `mood` as the coarse backdrop. NEVER invent a mood, tell or reaction that is not given, and never name the tell, a number, or its cause.");
+}
+
+/** AMEND 3a #1 - with the 0094 divergence OFF, `confront` always resolves landed:true and folds nothing; drop the "a distorted belief can misfire" promise and keep the lever. */
+function withoutConfrontMisfire(base: string): string {
+  return base.replace(
+    /^    you never invent the outcome\. On \{ landed: true \} play the confrontation as the player expects; on\n    \{ landed: false \} it misfired[\s\S]*?one they witnessed themselves will not\.$/m,
+    "    you never invent the outcome — play the confrontation as the player expects and voice the confronted houseguest's genuine reaction.",
+  );
+}
 
 /** Remove one `  • <lever> — …` glossary bullet (through the line before the next bullet) from the base prompt. */
 function withoutLeverBullet(base: string, lever: string): string {
@@ -1850,6 +1883,9 @@ export function buildSystemPrompt(
   let base = BASE_GAME_MASTER_PROMPT;
   if (levers?.boothReceipts === false) base = withoutLeverBullet(base, "playerReceipts");
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
+  if (levers?.npcTells === true) base = withTellsInstruction(base);
+  if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
+  if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   return [
     base,
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)

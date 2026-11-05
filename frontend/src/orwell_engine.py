@@ -365,6 +365,51 @@ def disclosure_this_turn(user) -> bool:
 
 def clear_disclosure_turn(user) -> None:
     _DISCLOSURE_TURN.pop(_disclosure_key(user), None)
+    _TELLS_TURN.pop(_disclosure_key(user), None)
+
+
+# A50: the engine's tells per houseguest NAME, captured from this turn's `npcVoice` results (only when the tells layer is on, i.e. the result carries a `tells` key; [] = calm).
+# Per-user, cleared each turn with the disclosure bookkeeping. The faithfulness guard reads it; fail-soft bookkeeping only.
+_TELLS_TURN: dict = {}
+
+
+def tells_this_turn(user) -> dict:
+    """{houseguest name -> [tell kinds]} for the NPCs voiced this turn with the tells layer on."""
+    return dict(_TELLS_TURN.get(_disclosure_key(user)) or {})
+
+
+def _note_tells(user, res) -> None:
+    try:
+        if isinstance(res, dict) and isinstance(res.get("tells"), list):
+            name = ((res.get("houseguest") or {}).get("name") or "").strip()
+            if name:
+                kinds = [str(t.get("kind")) for t in res["tells"] if isinstance(t, dict) and t.get("kind")]
+                _TELLS_TURN.setdefault(_disclosure_key(user), {})[name] = kinds
+    except Exception:
+        pass
+
+
+# N-17 vs 0092: the engine can surface a secret to the player OFF the tool path (a confidant slip / gossip chain, inside the orchestrator tick), so no disclosure LEVER ran this turn yet the
+# line the narrator voices is engine-backed. The engine leaves a Vault-free delivery marker on the state read (`surfacedToPlayer: {n, sourceId}` - a counter and a public id, never content);
+# a CHANGE in it since the last turn exempts THIS turn only. Unseen user + a marker present ⇒ treated as new (permissive: a true confession is never dropped for want of a baseline).
+_DELIVERY_SEEN: dict = {}
+
+
+def note_engine_delivery(user, game_state) -> bool:
+    """Call once per turn after `clear_disclosure_turn` with the turn's state read. True (and marks the turn as engine-backed) iff the delivery marker moved."""
+    try:
+        marker = game_state.get("surfacedToPlayer") if isinstance(game_state, dict) else None
+        key = _disclosure_key(user)
+        if not isinstance(marker, dict) or not isinstance(marker.get("n"), int):
+            return False
+        seen = _DELIVERY_SEEN.get(key, 0)
+        _DELIVERY_SEEN[key] = marker["n"]
+        if marker["n"] != seen:
+            _DISCLOSURE_TURN[key] = True
+            return True
+    except Exception:
+        pass
+    return False
 
 
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
@@ -769,7 +814,7 @@ async def run_competition(comp_type: str | None = None, participant_ids: list | 
     return await _call("runCompetition", args, user=user)
 
 
-async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, user: str | None = None) -> dict:
+async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, user: str | None = None) -> dict:
     """Record a player-present scene as an engine event (player-witnessed → the player's
     knowledge, never the Vault). An optional `kind` folds the hidden relationship impact (0023);
     an optional Vault-free `consequence` descriptor (ADR 0005) lets the caller PROPOSE which
@@ -806,6 +851,10 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     # forwarding `inf` would crash the engine JSON encode / clamp, silently dropping the scene fold.
     if isinstance(felt_minutes, (int, float)) and not isinstance(felt_minutes, bool) and 0 < felt_minutes < 1_000_000:
         req["feltMinutes"] = felt_minutes
+    # B4 slice 6: a casual assurance the scene carried ({kind: safe|vote|loyal, from?: npc id}). Threaded ONLY when well-formed; the engine ignores it unless ORWELL_ASSURANCES is on
+    # (so absent / flag off => byte-identical). Never a number: the engine owns the sincerity.
+    if isinstance(assurance, dict) and assurance.get("kind") in ("safe", "vote", "loyal"):
+        req["assurance"] = {k: v for k, v in assurance.items() if k in ("kind", "from")}
     return await _call("recordInteraction", req, user=user)
 
 
@@ -1187,7 +1236,9 @@ async def world_snapshot_view(user: str | None = None):
 async def npc_voice(npc_id: str, user: str | None = None):
     """The knowledge-bounded voicing projection for one active houseguest (B65) — persona,
     room/co-presence, what THEY know/suspect, organic stances. ``None`` for unknown/departed."""
-    return await _call("npcVoice", {"id": npc_id}, user=user)
+    res = await _call("npcVoice", {"id": npc_id}, user=user)
+    _note_tells(user, res)
+    return res
 
 
 async def sealed_from_house(user: str | None = None):

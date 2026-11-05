@@ -128,6 +128,7 @@ export function _wsEnsureRound() {
   if (!box) return null;
   const holder = document.createElement('div');
   holder.className = 'msg msg-ai';
+  holder.dataset.liveHolder = '1'; // S17: an observer's streamed holder is never finalized in place - chatReconcile rebuilds it from history at settle
   const roleLabel = _senderLabel(_shortModel(sessionModule.getCurrentModel && sessionModule.getCurrentModel()));
   const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
