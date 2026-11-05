@@ -97,6 +97,12 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'strict' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
+  // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'strict' },
+  // B7 / #2017 M3: open protective deals also feed the HOH's nominations. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'strict' },
+  // B7 / #2017 M4: campaign targets also read grudges and beliefs. OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'strict' },
   // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_VOTE_COUNT', key: 'voteCount', parser: 'strict' },
   // B10 / B11 / #2017: information spreads only by co-presence, by the holder's choice (share / slip / hold) instead of automatic graph diffusion. OFF unless exactly '1'; never-flipped.

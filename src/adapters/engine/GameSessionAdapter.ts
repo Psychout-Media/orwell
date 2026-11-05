@@ -7414,6 +7414,8 @@ export class GameSessionAdapter implements GameSession {
       // trust × progress (the engine tallies; narration only voices). Bounded; never crosses the wall.
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
+      ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
+      ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId) => this.assuranceVotedOut(v, n) } : {}),
@@ -8129,6 +8131,9 @@ export class GameSessionAdapter implements GameSession {
     return sum;
   }
 
+  /** B7 M4 - campaign TARGETS read grudges and beliefs, not only the threat edge (approved tie-in #5). OFF unless exactly `ORWELL_CAMPAIGN_MEMORY=1`; never-flipped. OFF => the raw edge ranking, byte-identical. */
+  private campaignMemoryEnabled = process.env.ORWELL_CAMPAIGN_MEMORY === "1";
+  setCampaignMemoryEnabled(on: boolean): void { this.campaignMemoryEnabled = on; }
   /**
    * B5 - does `actor` still believe the count against `target` is in doubt? Per OTHER living voter (not the actor, the target, or the player's hidden ballot): the true P(votes to evict) is read from
    * that voter's own threat/trust edges toward the target; the actor perceives it with a seeded personality `overconfidence` and a seeded per-(actor, week) noise stream (a DEDICATED sub-rng, never
@@ -8148,8 +8153,14 @@ export class GameSessionAdapter implements GameSession {
   }
 
   private threatReadsOf(owner: EntityId): Array<{ toward: EntityId; threat: number }> {
+    const bend = (id: EntityId): number => {
+      if (!this.campaignMemoryEnabled || owner === PLAYER) return 0;
+      const mem = this.npcMemoryEnabled ? this.memoryTiltFor(id, owner) : 0;   // + grudge / - favor (the ledger's signed tilt toward acting against `id`)
+      const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(id, owner) : 0; // + they are targeting me
+      return mem + bel;
+    };
     return this.livingIds().filter((id) => id !== owner)
-      .map((id) => ({ toward: id, threat: this.rel.edge(owner, id).threat }))
+      .map((id) => ({ toward: id, threat: Math.max(0, Math.min(1, this.rel.edge(owner, id).threat + bend(id))) }))
       .sort((a, b) => b.threat - a.threat);
   }
 
@@ -11078,6 +11089,31 @@ export class GameSessionAdapter implements GameSession {
    *   (2) a `betrayal` rumor they heard about someone ⇒ "they may turn on me" (confidence = the rumor's confidence x 0.5; usually not about the HOH at all).
    * Never reads the relationship edge; never draws the shared rng; the PLAYER is never a holder here.
    */
+  /** B7 M3 - open protective deals feed the HOH's nominations (approved tie-in #3). OFF unless exactly `ORWELL_DEAL_NOMS=1`; never-flipped. OFF => no ctx provider => byte-identical. */
+  private dealNomsEnabled = process.env.ORWELL_DEAL_NOMS === "1";
+  setDealNomsEnabled(on: boolean): void { this.dealNomsEnabled = on; }
+  /** B7 M3 - the nomination-score push (<= 0) from the HOH's OPEN protective deals (safety / final-two) with `target` - a deal-keeping HOH mostly keeps their word. Bounded; deterministic; no rng. */
+  dealNomPushFor(target: EntityId, holder: EntityId): number {
+    if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
+    const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
+    return bound ? -0.2 : 0;
+  }
+
+  /** B7 M1 - the NPC veto save reads memory too (approved tie-in #1). OFF unless exactly `ORWELL_VETO_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
+  private vetoMemoryEnabled = process.env.ORWELL_VETO_MEMORY === "1";
+  setVetoMemoryEnabled(on: boolean): void { this.vetoMemoryEnabled = on; }
+  /**
+   * B7 M1 - how much more WORTH SAVING `nominee` is to the veto `holder`, from what the holder remembers (a grudge lowers it, a favor raises it - the 0024 ledger's standalone tilt, sign-flipped),
+   * believes (a belief that the nominee is targeting the holder lowers it) and owes (an open deal the holder is promisor of, with the nominee a party, raises it). Deterministic, no rng, bounded to [-1, 1].
+   */
+  vetoMemoryFor(nominee: EntityId, holder: EntityId): number {
+    if (!this.vetoMemoryEnabled || holder === PLAYER) return 0;
+    const mem = this.npcMemoryEnabled ? this.memoryTiltFor(nominee, holder) : 0;
+    const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(nominee, holder) : 0;
+    const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(nominee) && nominee !== holder) ? 0.1 : 0;
+    return Math.max(-1, Math.min(1, -(mem + bel) + owed));
+  }
+
   private beliefNomTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.live || holder === PLAYER || !this.npcBeliefsEnabled) return 0;
     const live = this.live;

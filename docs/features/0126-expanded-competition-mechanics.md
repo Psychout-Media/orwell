@@ -20,7 +20,7 @@ new mechanics **preserve the base pool's governing-stat mix per phase** (~physic
 social 13%) so competition balance — and thus the seeded calibration distribution — stays stable. Unlike
 the 0125 theme layer (a pure projection, default-on), growing the pool **changes which mechanic a fixed
 seed draws** — and the def's `type` selects the resolution stat — so it **changes seeded winners**. It is
-therefore **OPT-IN, default-off** (`ORWELL_COMP_MECHANICS_PLUS`): with the flag off the draw is the bare
+therefore **a flag** (`ORWELL_COMP_MECHANICS_PLUS`, now default ON - see the header): with the flag OFF the draw is the bare
 base 12 and every seeded gate is byte-identical; the deploy turns it on for real play.
 
 ## 2. What exists today (the gap this closes)
@@ -36,7 +36,7 @@ base 12 and every seeded gate is byte-identical; the deploy turns it on for real
 formats/flavor); a pool-aware draw (`drawCompetition(..., expanded)`) that, when expanded, widens the
 no-repeat window to the whole pool minus one — a **rolling shuffle** so no mechanic repeats until all are
 used; `competitionById` searching both pools (deferred-veto resume); `SeasonCtx.expandedComps` threaded
-from the adapter flag. Default-**OFF** (`ORWELL_COMP_MECHANICS_PLUS`); deploy opt-in; pinned off in the
+from the adapter flag. Now default-**ON** (`ORWELL_COMP_MECHANICS_PLUS`, #1996; `=0` opts out), as in the deploy defaults; pinned off in the
 golden driver.
 
 **Out:** the **resolution math** (reused unchanged — 0006/0028); the **theme layer** (0125 — composes

@@ -1,5 +1,10 @@
 # 0120 — Strategic-drive off-screen cadence (sharper players scheme a touch more often)
 
+> **Current default (AMEND 2026-11-04):** `ORWELL_STRATEGIC_CADENCE` is now **default ON** — the code default
+> (`src/featureFlags.ts`, `defaultOn`) and the deploy profile (`deploy/orwell-env-defaults.sh`) both enable it. Setting
+> it to off/0/false still restores the byte-identical uniform draw (and the calibration harness pins it off). The
+> "default OFF" wording below is the original rollout history, kept as written.
+
 > **Status:** Built (BDD/TDD-first). **PO expansion of the 0038 review** (2026-07-12): the off-screen
 > society (0038) already varies *who* pairs up (by relationship) and *what* the scene is (by the initiator's
 > read), but every houseguest initiates at the **same rate**. This adds a **slight** personality/intelligence
