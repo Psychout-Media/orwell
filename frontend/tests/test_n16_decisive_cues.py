@@ -51,7 +51,7 @@ def test_a_live_or_resolved_competition_is_cut_while_production_holds_it(monkeyp
 @pytest.mark.parametrize("text", [LIVE_ANNOUNCE, RESOLVED])
 def test_it_stands_down_when_the_competition_is_due_or_open(monkeypatch, text):
     ch._LAST_BEAT_SIG[_USER] = _sig()
-    for sig in (_sig(not_due=False), _sig(pending="comp-round"), _sig(not_due=None), _sig(phase="premiere", not_due=None)):  # a non-competition BOARD phase is N-16b, tested below
+    for sig in (_sig(not_due=False), _sig(pending="comp-round"), _sig(not_due=None)):  # a non-competition BOARD phase (premiere, nominations...) is N-16b, tested below
         _board(monkeypatch, sig)
         assert _run(ch.screen_streamed_scene_break(_USER, text)) is None
 
@@ -67,6 +67,8 @@ def test_a_denial_a_future_mention_or_social_prose_is_never_cut(monkeypatch, tex
 REPLAY_ANNOUNCE = 'Then the speakers crackle.\n\n**"Houseguests. The Head of Household competition begins now. Everyone to the backyard."**\n\nThe kitchen erupts.'
 REPLAY_ASIDE = ("((The house is mid-competition - everyone's on the wall in the backyard, so there's no room to step into. The live moment is the ledge under your hands: the wall's tilting, "
                 "and production needs to know how you're playing it.))")
+PREMIERE_ABOUT = ("The sixteen of you shuffle into place on the grass as the speakers crackle: Houseguests - the competition is about to begin. Nobody goes back inside until we have a Head of Household. "
+                  "The first piece of the competition gets wheeled out.")
 PAST_RECAP = "Yesterday's Head of Household competition was won by Olive, who came down off the wall with chalk on her hands. Nominations are this afternoon."
 
 
@@ -87,6 +89,14 @@ def test_a_past_tense_recap_of_the_finished_competition_is_never_cut(monkeypatch
 
 def test_the_replay_cut_stands_down_in_a_competition_phase_with_a_card_open_or_in_the_premiere(monkeypatch):
     ch._LAST_BEAT_SIG[_USER] = _sig()
-    for sig in (_sig(phase="premiere", not_due=None), _sig(phase="nominations", not_due=None, pending="nominations")):
+    for sig in (_sig(phase="nominations", not_due=None, pending="nominations"), _sig(phase="hoh-competition", not_due=False)):
         _board(monkeypatch, sig)
         assert _run(ch.screen_streamed_scene_break(_USER, REPLAY_ANNOUNCE)) is None
+
+
+def test_a_competition_announced_as_about_to_begin_during_the_premiere_is_cut(monkeypatch):
+    """Live week 1 (replay 3): at 11am on premiere morning the narrator trapped the player on the lawn ('Nobody goes back inside until we have a Head of Household') while the engine had the competition due in the afternoon."""
+    ch._LAST_BEAT_SIG[_USER] = _sig(phase="premiere", not_due=None)
+    _board(monkeypatch, _sig(phase="premiere", not_due=None))
+    d = _run(ch.screen_streamed_scene_break(_USER, PREMIERE_ABOUT))
+    assert d is not None and "no competition is running" in d, d

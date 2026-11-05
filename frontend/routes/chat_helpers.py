@@ -4299,6 +4299,7 @@ def _comp_decisive_hit(text: str) -> bool:
 _COMP_LIVE_NOW_CUES = (
     re.compile(r"\b(?:head\s+of\s+household|hoh|veto)\s+(?:competition|comp)\s+(?:begins|starts|kicks\s+off)\s+now\b", re.IGNORECASE),
     re.compile(r"\b(?:the\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way)\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:first\s+|head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is\s+)?about\s+to\s+(?:begin|start)\b", re.IGNORECASE),
     re.compile(r"\bmid[\s-]+(?:competition|comp)\b|\bhow\s+you(?:'re|\u2019re|\s+are)\s+(?:playing|approaching)\s+(?:this|the)\s+(?:competition|comp)\b", re.IGNORECASE),
 )
 _COMP_LIVE_NOW_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether|was|were|had)\b", re.IGNORECASE)
@@ -4314,7 +4315,7 @@ def _comp_live_now_hit(text: str) -> bool:
 
 
 # phases in which NO competition can be running (the board is past the HOH comp / between competitions): a "competition is live" claim here is a replay
-_NO_COMP_PHASES = ("nominations", "veto-ceremony", "eviction", "eviction-reveal", "final-eviction")
+_NO_COMP_PHASES = ("premiere", "nominations", "veto-ceremony", "eviction", "eviction-reveal", "final-eviction")
 
 
 def _comp_replayed_when_none_running(text: str, live: dict) -> Optional[str]:
