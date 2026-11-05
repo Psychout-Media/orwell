@@ -803,6 +803,8 @@ export interface SeasonCtx {
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default OFF). Absent ⇒ byte-identical. */
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
+  pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): does `holder` hold a casual assurance toward `target` that they decided to KEEP? Absent => no protection (byte-identical). */
   assuranceProtects?: (target: EntityId, holder: EntityId) => boolean;
   /** B7 M1 (ORWELL_VETO_MEMORY): how much MORE worth saving `nominee` is to the veto `holder` from what the holder remembers / believes / owes (signed: grudge or 'they target me' lowers, favor or an owed deal raises). Absent => +0, byte-identical. */
@@ -2722,6 +2724,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.dealNomPushFor ? { dealPush: (t: EntityId) => ctx.dealNomPushFor!(t, s.hoh!) } : {}),
+        ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;

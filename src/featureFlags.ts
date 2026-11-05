@@ -93,6 +93,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
   // B3 / #2017 (+B3b vote term): the HOH nominates / the house votes from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). Default-ON with it (PO 2026-11-04).
   { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'defaultOn' },
+  // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). OFF unless exactly '1'; never-flipped.
+  { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'strict' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. OFF unless exactly '1'; never-flipped (needs Ryne's walkthrough).
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'strict' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. OFF unless exactly '1'; never-flipped.

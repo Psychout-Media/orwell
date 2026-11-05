@@ -147,6 +147,8 @@ export interface NominationRead {
   beliefPush?: (target: EntityId) => number;
   /** B7 M3 (ORWELL_DEAL_NOMS): the HOH's open PROTECTIVE deal (safety / final-two) with `target` lowers their nomination score (a bounded, negative push). Absent => +0, byte-identical. */
   dealPush?: (target: EntityId) => number;
+  /** B6 slice 2 (ORWELL_LOBBYING): the bounded, credibility-weighted tilt from the pitches NPCs made to this HOH (`lobbying.ts`). Absent => +0, byte-identical. */
+  pitchPush?: (target: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): the HOH holds a KEPT casual assurance toward `target` ("you're safe with me") - kept off the block while two legal others remain. Absent => byte-identical. */
   protectedByAssurance?: (target: EntityId) => boolean;
 }
@@ -187,7 +189,7 @@ export function nominationPlan(
   const N = DECISION.nomination;
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + W.floaterWeight * floaterRead(t, active, rel) +
-    W.duoWeight * duoRead(t, hoh, active, rel) + (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0) + (read.beliefPush?.(t) ?? 0) + (read.dealPush?.(t) ?? 0);
+    W.duoWeight * duoRead(t, hoh, active, rel) + (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0) + (read.beliefPush?.(t) ?? 0) + (read.dealPush?.(t) ?? 0) + (read.pitchPush?.(t) ?? 0);
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
   const tactic: NominationTactic = politicalTemperature(active, rel).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
@@ -228,7 +230,7 @@ export function replacementPick(
   const score = (t: EntityId): number =>
     nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) +
     S.floaterWeight * P * floaterRead(t, active, rel) + S.duoWeight * P * duoRead(t, hoh, active, rel) +
-    (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0) + (read.beliefPush?.(t) ?? 0) + (read.dealPush?.(t) ?? 0);
+    (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0) + (read.beliefPush?.(t) ?? 0) + (read.dealPush?.(t) ?? 0) + (read.pitchPush?.(t) ?? 0);
   const ranked = [...options].sort((a, b) => score(b) - score(a));
   // #1948: branch on the HOH's stored target when we have it; otherwise infer it from the scores (legacy).
   const targetStillUp = target !== undefined ? remaining === target : score(remaining) >= score(ranked[0]!);
@@ -237,7 +239,7 @@ export function replacementPick(
     // #1971: the HOH is naming the REAL target again, so rank by the target-oriented read (threat + bloc + mood + the
     // campaign/memory pushes) WITHOUT the pawn-seat floater/duo pull — a pawn or duo partner must not outrank the HOH's top read.
     const targetScore = (t: EntityId): number =>
-      nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0) + (read.beliefPush?.(t) ?? 0) + (read.dealPush?.(t) ?? 0);
+      nominationScore(hoh, t, rel, mood) + blocTerm(blocs, hoh, t) + (read.campaignPush?.(t) ?? 0) + (read.memoryPush?.(t) ?? 0) + (read.beliefPush?.(t) ?? 0) + (read.dealPush?.(t) ?? 0) + (read.pitchPush?.(t) ?? 0);
     return [...options].reduce((best, c) => (targetScore(c) > targetScore(best) ? c : best), options[0]!);
   }
   const partner = duoPartner(remaining, hoh, active, rel);
