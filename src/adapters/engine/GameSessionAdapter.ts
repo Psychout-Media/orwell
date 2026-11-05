@@ -4745,7 +4745,7 @@ export class GameSessionAdapter implements GameSession {
     const myRoom = this.presence.get(this.house.player.id);
     if (myRoom) this.observeMoveIntoPrivate(id, here, dest, myRoom);
     this.persist();
-    return { status: "moved", whereabouts: this.whereabouts() };
+    return { status: "moved", whereabouts: this.whereabouts(), beatSeq: this.beatSeqNow() }; // A29: the post-commit token
   }
 
   /**
