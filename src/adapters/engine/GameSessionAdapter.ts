@@ -3,7 +3,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealView, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
   DailyRecapView,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -53,7 +53,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, type MemoryKind } from "../../engine/npcMemory";
+import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, type MemoryKind } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { AssuranceLedger, assuranceKeepWeight, decideKeep, ASSURANCE } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
@@ -68,6 +68,8 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
+import { decideDealConsent } from "../../engine/dealConsent";
+import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -819,6 +821,12 @@ const PLAYER_DOSSIER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PLAYER_DOSSIER");
 const BOOTH_RECEIPTS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BOOTH_RECEIPTS");
 
 /**
+ * NPC deal CONSENT (anti-sycophancy) - before a player-proposed deal is recorded the ENGINE decides whether the NPC agrees, from the NPC's own reads (`dealConsent.ts`).
+ * ON unless `ORWELL_NPC_DEAL_CONSENT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). OFF => `makeDeal` records every valid deal exactly as before (byte-identical).
+ */
+const NPC_DEAL_CONSENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_DEAL_CONSENT");
+
+/**
  * T0-2 ("beats terminate themselves", moonshot P1 stage 1 / #27a) — the CLOSED-SET ceremony/comp
  * pending kinds whose resolution deterministically implies further server-side progress, so
  * `submitDecision` auto-advances ONE more beat step in the SAME committed transaction instead of
@@ -1289,6 +1297,7 @@ export class GameSessionAdapter implements GameSession {
   private dealsWitnessesEnabled = DEALS_WITNESSES_ENABLED_DEFAULT;
   /** #1800 — whether the Booth Has Receipts runs (deterministic player-contradiction extraction). OFF by default. */
   private boothReceiptsEnabled = BOOTH_RECEIPTS_ENABLED_DEFAULT;
+  private npcDealConsentEnabled = NPC_DEAL_CONSENT_ENABLED_DEFAULT;
   /** #1793 — the Player Dossier read (ORWELL_PLAYER_DOSSIER); per-instance so the prompt + tool follow it. */
   private playerDossierEnabled = PLAYER_DOSSIER_ENABLED_DEFAULT;
   private compMechanicsPlusEnabled = COMP_MECHANICS_PLUS_ENABLED_DEFAULT;
@@ -8532,6 +8541,10 @@ export class GameSessionAdapter implements GameSession {
 
   /** Whether Booth Has Receipts is live (#1800) — exposed for tests. */
   boothReceiptsEnabledNow(): boolean { return this.boothReceiptsEnabled; }
+
+  /** Turn NPC deal consent on/off (ON by default). OFF => every valid player deal is recorded as before. */
+  setNpcDealConsentEnabled(on: boolean): void { this.npcDealConsentEnabled = on; }
+  npcDealConsentEnabledNow(): boolean { return this.npcDealConsentEnabled; }
   /**
    * 0101 — NPC MYTH-MAKING: at most once per off-screen tick, mint a LEGEND about a rare, notable player
    * act and let it diffuse NPC-to-NPC exactly like an ordinary rumor (0002/B27b) — see
@@ -9853,14 +9866,14 @@ export class GameSessionAdapter implements GameSession {
    * knowledge); the engine reconciles it against later binding actions. Player↔NPC only — NPC↔NPC
    * deals are made off-screen and held in the Vault (never crosses this outward seam).
    */
-  makeDeal(req: MakeDealReq): DealView | null {
+  makeDeal(req: MakeDealReq): DealView | DealRefusal | null {
     // A10/#591/R1c — AT-MOST-ONCE: a REPEAT key returns the prior deal WITHOUT re-creating it or re-folding
     // the leverage/trade squeeze. Checked BEFORE guardBeatSeq so a re-driven duplicate is a clean no-op even
     // against a moved board (the double-apply case CAS cannot close). Synchronous ⇒ Node serializes callers.
     // The key is NAMESPACED by lever (`foldLedgerKey`) so the SAME idempotencyKey reused across two
     // different levers can't collide (returning one lever's cached result under another's type + skip).
     const idemKey = this.foldLedgerKey("makeDeal", req.idempotencyKey);
-    const replay = this.foldReplay<DealView | null>(idemKey);
+    const replay = this.foldReplay<DealView | DealRefusal | null>(idemKey);
     if (replay.hit) {
       return replay.value;
     }
@@ -9875,6 +9888,15 @@ export class GameSessionAdapter implements GameSession {
     const isActiveOther = target !== PLAYER
       && this.house.npcs.some((n) => n.id === target) && !evicted.has(target);
     if (!isActiveOther) return null;
+    // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no
+    // leverage/trade fold, no persist - and (when keyed) is remembered so a re-driven duplicate replays the same refusal. Flag OFF => this block does not exist.
+    if (this.npcDealConsentEnabled) {
+      const refusal = this.dealConsentRefusal(target, req.kind);
+      if (refusal) {
+        if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
+        return refusal;
+      }
+    }
     const terms = (req.terms ?? "").slice(0, 200);
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
@@ -9906,6 +9928,32 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /**
+   * NPC deal CONSENT - the NPC's own decision on a player-proposed deal. Reads EXISTING engine state only (the NPC->player edge, the NPC memory grudge/favor, the belief
+   * store's `targets-me` claims when its flag is on) and draws ONE value from a dedicated per-moment rng keyed on (game seed, "deal-consent", npc, week, phase) - the same
+   * pattern as `secretRng`/`confide`, never the shared season rng. Returns the Vault-free refusal, or `null` when the NPC agrees.
+   */
+  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"]): DealRefusal | null {
+    const live = this.live;
+    if (!live) return null;
+    const e = this.rel.edge(npcId, PLAYER);
+    const entries = this.npcMemoryEnabled ? live.npcMemory?.[npcId]?.[PLAYER] : undefined;
+    // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
+    const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
+    const decay = this.memoryDecayScale(npcId);
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:deal-consent:${npcId}:${live.week}:${this.phase}`));
+    const jitter = (rng.next() * 2 - 1) * DEAL_CONSENT.jitter;
+    const d = decideDealConsent({
+      kind,
+      trust: e.trust, affinity: e.affinity, threat: e.threat,
+      grudge: memoryGrudge(entries, live.week, decay, carry),
+      favor: memoryFavor(entries, live.week, decay, carry),
+      targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
+      jitter,
+    });
+    return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
 
   /**

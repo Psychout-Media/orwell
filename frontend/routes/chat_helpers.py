@@ -2126,6 +2126,7 @@ def _beat_signature(status: dict, state: dict) -> dict:
         # A-9: the competition's own round-aware identity (the pending's still-in set), so "the competition did
         # not progress this turn" is checkable without the raw beat counter (which unrelated mutations bump).
         "compSig": _comp_pending_signature(status, state),
+        "finalHohPart": _final_hoh_part(status, state),  # A17
         # F-3: the veto competition's actual FIELD (public {id,name} the House Status gadget shows) + the player's id,
         # so narration that seats the player in a field the engine excluded them from is checkable structurally.
         "vetoFieldIds": sorted(str(p.get("id")) for p in (veto.get("players") or []) if isinstance(p, dict) and p.get("id")),
@@ -3975,6 +3976,27 @@ _COMP_HYPOTHETICAL_RE = re.compile(
 _COMP_CLAUSE_SPLIT_RE = re.compile(r";|—|–|\bbut\b|\bthough\b|\byet\b|\bhowever\b", re.IGNORECASE)
 
 
+def _final_hoh_part(status: dict, state: dict):
+    """A17 - the live Part (1..3) of the three-part Final HOH from the open competition pending, or None.
+    Parts BELOW this number are already committed in the engine (their results are TRUE and may be recapped)."""
+    for src in (state, status):
+        pend = src.get("pending") if isinstance(src, dict) else None
+        if isinstance(pend, dict) and pend.get("finalHohPart") in (1, 2, 3):
+            return pend["finalHohPart"]
+    return None
+
+
+# A17: a sentence that cites an already-committed Final HOH part ("Part 1", "the first part", "Part Two").
+_COMMITTED_PART_RES = {
+    1: re.compile(r"\b(?:part\s*(?:1|one)|(?:the\s+)?first\s+part)\b", re.IGNORECASE),
+    2: re.compile(r"\b(?:part\s*(?:2|two)|(?:the\s+)?second\s+part)\b", re.IGNORECASE),
+}
+
+
+def _cites_committed_hoh_part(sent: str, part) -> bool:
+    return bool(part) and any(rx.search(sent) for n, rx in _COMMITTED_PART_RES.items() if n < part)
+
+
 def _comp_pending_signature(status: dict, state: dict):
     """The competition pending's round-aware identity (its still-in set), so a staged round advance is visible
     even though the pending `kind` stays `comp-round`. None when no competition pending / no stillIn."""
@@ -4058,7 +4080,8 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         if before.get(k) != live.get(k):
             return None  # the competition moved (resolved, or a staged round advanced) — the engine produced events
     for sent in re.split(r"(?<=[.!?\n])", text or ""):
-        if not sent.strip() or _COMP_PAST_RE.search(sent):
+        if (not sent.strip() or _COMP_PAST_RE.search(sent)
+                or _cites_committed_hoh_part(sent, live.get("finalHohPart"))):  # A17: a committed part's TRUE result
             continue
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):

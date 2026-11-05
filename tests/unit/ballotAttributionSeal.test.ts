@@ -4,6 +4,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { BindingAction } from "../../src/domain/deal";
+import type { DealView } from "../../src/ports/GameSession";
 
 /**
  * Ship-blocker A7 — eviction votes are SECRET BALLOTS (E12): the staged reveal only ever carries
@@ -40,7 +41,7 @@ describe("A7 — the sealed eviction ballot must not deanonymize through a deal-
   it("an NPC's SEALED vote breaking a deal never names them to the player pre-retrospective", () => {
     const { sb, session, npc, npcName } = newGame("a7-deal-user", 3);
 
-    const deal = session.makeDeal({ with: npc, kind: "safety", terms: "keep me off the block" });
+    const deal = session.makeDeal({ with: npc, kind: "safety", terms: "keep me off the block" }) as DealView | null;
     expect(deal!.status).toBe("open");
 
     // The NPC's SECRET eviction vote breaks the deal — a binding vote-evict action against the player,
@@ -88,7 +89,7 @@ describe("A7 — the sealed eviction ballot must not deanonymize through a deal-
 
   it("the retrospective (0048) STILL unseals the full attribution once the season finishes", () => {
     const { sb, session, npc, npcName } = newGame("a7-deal-retro-user", 3);
-    const deal = session.makeDeal({ with: npc, kind: "safety", terms: "keep me off the block" });
+    const deal = session.makeDeal({ with: npc, kind: "safety", terms: "keep me off the block" }) as DealView | null;
     const action: BindingAction = { actor: npc, kind: "vote-evict", targets: [PLAYER], alternatives: [PLAYER, "npc:other"] };
     poke(session).reconcileDeals(action);
 
@@ -125,7 +126,7 @@ describe("A7 — the sealed eviction ballot must not deanonymize through a deal-
 
   it("a break triggered by a PUBLIC action (a nomination) is never sealed — nominations are never secret", () => {
     const { session, npc } = newGame("a7-deal-public-user", 3);
-    const deal = session.makeDeal({ with: npc, kind: "safety", terms: "keep me off the block" });
+    const deal = session.makeDeal({ with: npc, kind: "safety", terms: "keep me off the block" }) as DealView | null;
     poke(session).reconcileDeals({ actor: npc, kind: "nominate", targets: [PLAYER, "npc:other"] });
     const view = session.getGameState().deals!.find((d) => d.id === deal!.id)!;
     expect(view.status).toBe("broken"); // public ceremony action ⇒ reveals normally, no seal

@@ -111,7 +111,7 @@ def test_backfill_is_wired_into_the_finishing_block():
                            "src", "agent_loop.py"), encoding="utf-8").read()
     assert "async def _auto_record_deal" in js
     # 0065: routed through the CAS helper so the back-fill carries the compare-and-swap beatSeq token.
-    assert "_backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,\n                                    user=owner, defer_fold=True,\n                                    idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw)" in js
+    assert "_backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,\n                                             user=owner, defer_fold=True,\n                                             idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw)" in js
     # 0109 — the back-fill forwards a duration the scene named (shape-filtered; the engine bounds it).
     assert '"termWeeks"' in js and '_term_kw = {"term": {"weeks": _tw}}' in js
     # gated on the per-turn cap + the cheap deal-language pre-filter over the WHOLE turn's narration
