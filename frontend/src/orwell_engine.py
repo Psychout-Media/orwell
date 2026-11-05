@@ -367,6 +367,29 @@ def clear_disclosure_turn(user) -> None:
     _DISCLOSURE_TURN.pop(_disclosure_key(user), None)
 
 
+# N-17 vs 0092: the engine can surface a secret to the player OFF the tool path (a confidant slip / gossip chain, inside the orchestrator tick), so no disclosure LEVER ran this turn yet the
+# line the narrator voices is engine-backed. The engine leaves a Vault-free delivery marker on the state read (`surfacedToPlayer: {n, sourceId}` - a counter and a public id, never content);
+# a CHANGE in it since the last turn exempts THIS turn only. Unseen user + a marker present ⇒ treated as new (permissive: a true confession is never dropped for want of a baseline).
+_DELIVERY_SEEN: dict = {}
+
+
+def note_engine_delivery(user, game_state) -> bool:
+    """Call once per turn after `clear_disclosure_turn` with the turn's state read. True (and marks the turn as engine-backed) iff the delivery marker moved."""
+    try:
+        marker = game_state.get("surfacedToPlayer") if isinstance(game_state, dict) else None
+        key = _disclosure_key(user)
+        if not isinstance(marker, dict) or not isinstance(marker.get("n"), int):
+            return False
+        seen = _DELIVERY_SEEN.get(key, 0)
+        _DELIVERY_SEEN[key] = marker["n"]
+        if marker["n"] != seen:
+            _DISCLOSURE_TURN[key] = True
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.

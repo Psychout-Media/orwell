@@ -138,7 +138,8 @@
       "  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s; }" +
       "#" + BTN_ID + ".osb-show { opacity: .92; transform: translateY(0); pointer-events: auto;" +
       "  visibility: visible; transition-delay: 0s; }" +
-      "#" + BTN_ID + ":hover, #" + BTN_ID + ":focus-visible { opacity: 1; outline: none; }" +
+      "#" + BTN_ID + ":hover { opacity: 1; }" +
+      "#" + BTN_ID + ":focus-visible { opacity: 1; outline: none; box-shadow: 0 0 0 2px var(--ow-ios-blue, #0a84ff); }" + // A87: a visible keyboard ring
       "#" + BTN_ID + " svg { width: 18px; height: 18px; }" +
       "#" + BTN_ID + " .osb-badge {" +
       "  position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px;" +
