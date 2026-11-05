@@ -3,6 +3,7 @@ import type { EngineCore } from "./engineRoot";
 import { buildOutwardChannels } from "./outwardRoot";
 import { InMemoryGameStateRepository } from "../adapters/inmemory/InMemoryGameStateRepository";
 import { EngineCommandsAdapter } from "../adapters/engine/EngineCommandsAdapter";
+import { seekTargets } from "../engine/copresenceSpread";
 import { GameSessionAdapter } from "../adapters/engine/GameSessionAdapter";
 import { McpServer } from "../adapters/mcp/McpServer";
 import { PLAYER } from "../domain/ids";
@@ -69,6 +70,11 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // Wire the engine-only soul store (0024) into the live session so consequential beats + off-screen
   // scenes deepen each NPC's arc and ground their later voice (the 0041 linchpin).
   session.setSoul(engine.soul);
+  // B35: seeking - a holder's undelivered high-motive facts lean their movement toward the right listener (flag-gated by the co-presence layer; pure read).
+  session.setHeldFactSeeker((holder, listeners) => seekTargets(holder, listeners, {
+    knowledge: engine.knowledge, told: session.copresenceToldLedger(),
+    affinity: (a, b) => engine.relationships.edge(a, b).affinity, threat: (a, b) => engine.relationships.edge(a, b).threat,
+  }));
   // Name resolution for outward prose (non-Vault: names are public): the player surface uses this
   // so socialRead names the houseguest instead of echoing a raw `npc:N` id into the read.
   outward.player.setNameResolver((id) => session.publicName(id));
