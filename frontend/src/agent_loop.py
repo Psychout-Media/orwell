@@ -8619,6 +8619,12 @@ async def _stream_agent_loop_impl(
                                         _silent_advance_reconciled[0] = True
                                         return False  # board moved twice — reconciled, S1b picks it up
                                 _ch3._refresh_beat_seq(owner, _adv)  # track the new beatSeq
+                                # A65 / ORW-97: the engine's advance gate REFUSED (typed `held`, nothing committed). Not progress: arm the production hold (so the stall-nudge / forced-advance
+                                # ladder stops re-forcing it), credit no counters, and end a visible-scene turn rather than narrating a second scene.
+                                if _ch3.note_engine_held(owner, _adv):
+                                    _silent_advance_unconfirmed[0] = True
+                                    logger.info(f"[orwell] silent advanceGame HELD by the engine gate ({_why}, phase={_phase}) round {round_num} user={owner}")
+                                    return False
                                 # E-1 follow-up: this FE-issued advance may have committed a beat the player must SEE (the production chyron — incl. their OWN eviction result);
                                 # nothing owed it before, so it reached the client only if the model happened to voice/advance it itself (seen in 1 of 2 live runs).
                                 # De-duplicated by announcement id, fail-open.

@@ -1459,7 +1459,7 @@ export interface EvictionView {
 /** The Vault-free result of advancing the game or resolving a decision. */
 export interface AdvanceView {
   started: boolean;
-  /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
+  /** A65 (ORWELL_ADVANCE_GATE, default ON; =0 or ORWELL_FLAGS_OFF=1 opts out): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
   held?: { next: string; minutesUntil: number };
   /**
    * The monotonic per-sandbox beat counter (0065 Part A) AFTER this advance/decision committed — see

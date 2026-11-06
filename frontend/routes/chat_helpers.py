@@ -770,6 +770,31 @@ def scheduled_event_is_held(user) -> bool:
         return False
 
 
+def _engine_held_steer(nxt: str, minutes) -> str:
+    """The narration cue when the ENGINE's advance gate (A65) refused a beat because the schedule says it is not due. In-fiction, words and minutes only."""
+    label = _MOMENT_PHASE_LABELS.get(nxt) or str(nxt or "the next event").replace("-", " ")
+    when = f"about {minutes} minutes away" if isinstance(minutes, int) and not isinstance(minutes, bool) and minutes > 0 else "not yet due"
+    return (f"PRODUCTION HASN'T CALLED IT YET - the {label} is {when} and the engine did not advance. The player cannot start, skip to or move it. "
+            "Keep this scene social; do NOT narrate the event starting, a result, or anyone being called to it.")
+
+
+def note_engine_held(user, res) -> bool:
+    """A65 / ORW-97 - the engine's advance gate answered `advanceGame` with a typed `held` (nothing committed, beatSeq unchanged). Arm the SAME production hold the FE's own
+    daySchedule hold uses, so the stall-nudge / forced-advance ladder (which reads `production_is_holding`) does not re-force an advance the engine is refusing, and hand the
+    narrator the wait. Returns True iff `res` was a held. The pre-resolve pops the hold the moment the clock says the event is due."""
+    try:
+        h = res.get("held") if isinstance(res, dict) else None
+        if not isinstance(h, dict):
+            return False
+        key = _runway_key(user)
+        _PRODUCTION_HOLD[key] = ("engine-held", 1)
+        _SCHEDULE_STEER[key] = _engine_held_steer(str(h.get("next") or ""), h.get("minutesUntil"))
+        logger.info("[orwell] engine advance gate HELD %r (%s min) for user=%s - no advance; the house stays social", h.get("next"), h.get("minutesUntil"), user)
+        return True
+    except Exception:
+        return False
+
+
 def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
@@ -5862,6 +5887,9 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         # hang the game; B's P2b review). Due (or released) => fall through and resolve it even mid-run-up. No `daySchedule` (clock off) => the runway logic below, unchanged.
         # A staged eviction already under way (goodbyes, exit interview) rides the night that has started.
         _ds = game_state.get("daySchedule") if isinstance(game_state, dict) else None
+        _ehk = _runway_key(user)
+        if _PRODUCTION_HOLD.get(_ehk, (None, 0))[0] == "engine-held" and not (isinstance(_ds, dict) and _ds.get("due") is False and not game_state.get("eviction")):
+            _PRODUCTION_HOLD.pop(_ehk, None)  # A65: an engine-armed hold lives only while the board itself says not-due; otherwise re-test the gate (one cheap call) so it can never stick
         if isinstance(_ds, dict) and "due" in _ds and not game_state.get("eviction"):
             _hkey = _runway_key(user)
             _hsig, _hn = _PRODUCTION_HOLD.get(_hkey, (None, 0))
@@ -5992,6 +6020,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     logger.debug("[orwell] double-stale live-state refetch skipped: %s", _refetch_err)
                 return game_state  # reconciled — the S1b force picks it up next round
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
+        if note_engine_held(user, adv):  # A65: the engine refused (not due) - nothing advanced; stay social, never count it as a pre-resolved beat
+            return _hold_for_social(game_state)
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
         stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says
         # comp-intent (player in the field — engine pauses, never auto-decides), or resolve an NPC beat.

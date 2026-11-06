@@ -1482,8 +1482,8 @@ export class GameSessionAdapter implements GameSession {
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
-  /** A65 (ORWELL_ADVANCE_GATE, default OFF): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
-  private advanceGateEnabled = process.env.ORWELL_ADVANCE_GATE === "1";
+  /** A65 (ORWELL_ADVANCE_GATE, default ON; =0 or ORWELL_FLAGS_OFF=1 opts out): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
+  private advanceGateEnabled = flagDefaultOn("ORWELL_ADVANCE_GATE");
   setAdvanceGateEnabled(on: boolean): void { this.advanceGateEnabled = on; }
   private scheduleGateBypass = false;
   private desireClockEnabled = DESIRE_CLOCK_ENABLED_DEFAULT;

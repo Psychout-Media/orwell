@@ -120,7 +120,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. OFF unless exactly '1'; never-flipped until the FE honours `held` everywhere.
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits) - a live run showed the narrator calling turnIn on 'wake up in the morning', which slept through a whole day (Day 2 -> Day 3). ON by default (a whole day lost to a narrator bedtime is a bug, Coordinator 2026-11-05); `=0` opts out.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
-  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
+  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'defaultOn' },
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'strict' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. OFF unless exactly '1'; never-flipped until measured.
   { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'strict' },

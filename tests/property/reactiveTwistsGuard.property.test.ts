@@ -17,6 +17,8 @@ const profile = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_def
   .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
 if (profile.length < 20) throw new Error(`the deployed flag profile did not load (${profile.length} flags)`);
 for (const line of profile) { const i = line.indexOf("="); process.env[line.slice(0, i)] = line.slice(i + 1); }
+// A65/ORW-97: this driver plays the season with raw advanceGame loops, which the (default-ON, deployed) engine advance gate refuses by design - the profile's gate is pinned off here; advanceScheduleGate.test.ts covers it.
+process.env.ORWELL_ADVANCE_GATE = "0";
 process.env.ORWELL_REACTIVE_TWISTS = "1";
 const { GameSessionRegistry } = await import("../../src/composition/registry");
 const { composeRuntime } = await import("../../src/composition/runtime");

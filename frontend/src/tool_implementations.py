@@ -5227,6 +5227,20 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                 orwell_engine.remember_pending(_cur, user=owner)
                 return {"output": json.dumps(_cur, indent=2), "exit_code": 0}
             # else: the retry LANDED — fall through to the shared post-advance handling below.
+        # A65 / ORW-97: the ENGINE's advance gate refused (the schedule says the next event is not due). Nothing committed - never a silent no-op: hand the model the
+        # wait (the beat + minutes) and arm the production hold so no nudge re-forces it.
+        try:
+            from routes import chat_helpers as _ch_held
+            if _ch_held.note_engine_held(owner, res):
+                _h = res["held"]
+                _mins = _h.get("minutesUntil")
+                _when = f"about {_mins} minutes from now" if isinstance(_mins, int) and not isinstance(_mins, bool) and _mins > 0 else "later"
+                return {"output": json.dumps({"held": True, "next": _h.get("next"), "minutesUntil": _mins,
+                                              "note": f"The engine did NOT advance: the next scheduled event ({_h.get('next')}) is not due yet - it is {_when}. Stay in the scene and "
+                                                      "keep the houseguests talking; do NOT narrate it starting, and do not call advanceGame again until production calls the house in."}),
+                        "exit_code": 0}
+        except Exception:
+            pass
         await _refresh_after_model_progression(owner, res)  # CON-3
         orwell_engine.remember_pending(res, user=owner)  # D3/E66: the card survives a reload
         # 0070: an advance runs the bounded off-screen tick, which may record new HIDDEN NPC-to-NPC

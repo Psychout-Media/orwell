@@ -269,6 +269,8 @@ async def _advance_through_eviction_night(res: dict, user: Optional[str], dec_ik
         except Exception as _adv_e:
             logger.warning(f"[orwell] post-goodbye follow-up advance skipped: {_adv_e}")
             return res
+        if isinstance(nxt, dict) and nxt.get("held"):  # A65: the engine is holding the next beat - stop, never spin
+            return res
         res = nxt
         if _eviction_night_over(res):
             break

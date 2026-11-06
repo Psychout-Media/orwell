@@ -12,3 +12,6 @@ if (/[\\/]tests[\\/](property|uat|calibration)[\\/]/.test(path)) delete process.
 else process.env.ORWELL_PREMIERE_ENTRANCES = "0";
 // Bedtime gate (turnIn refused in the morning/afternoon): the unit lane drives days by turning in at 8am; the gate has its own test that opts IN through setBedtimeGateEnabled(true).
 if (!/[\\/]tests[\\/](property|uat|calibration)[\\/]/.test(path)) process.env.ORWELL_BEDTIME_GATE = "0"; else delete process.env.ORWELL_BEDTIME_GATE;
+// A65 / ORW-97 flip: the engine advance gate (typed `held` before the schedule says an event is due) is DEFAULT ON, but every lane here drives seasons with raw `advanceGame` loops on a live
+// clock, which the gate refuses by design. Pin it OFF for ALL lanes (it is a closed-set pacing guard, not an outcome path); `advanceScheduleGate.test.ts` opts in explicitly and covers the default.
+process.env.ORWELL_ADVANCE_GATE = "0";

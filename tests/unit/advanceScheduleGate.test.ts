@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 
-/** A65 - defense in depth: the ENGINE's advanceGame refuses an ordinary beat before the next milestone is due (ORWELL_ADVANCE_GATE, default OFF). Roles only. */
+/** A65 - defense in depth: the ENGINE's advanceGame refuses an ordinary beat before the next milestone is due (ORWELL_ADVANCE_GATE, default ON as of ORW-97). Roles only. */
 function runningDay(gate: boolean) {
   GameSessionAdapter.setTimeOfDayEnabled(true);
   const s = new GameSessionRegistry().sandboxFor(`gate-${gate}-${Math.random()}`).session as GameSessionAdapter;
@@ -18,7 +18,7 @@ const sched = (s: GameSessionAdapter) => (s.getGameState() as { daySchedule?: { 
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
 
 describe("A65 - the engine schedule gate", () => {
-  it("OFF (default): an explicit advance at 8am stages the competition early - today's behavior, pinned", () => {
+  it("OFF (explicit opt-out, ORWELL_ADVANCE_GATE=0): an explicit advance at 8am stages the competition early - today's behavior, pinned", () => {
     const s = runningDay(false);
     expect(sched(s).due).toBe(false);
     const v = s.advanceGame();
@@ -38,6 +38,20 @@ describe("A65 - the engine schedule gate", () => {
     s.advanceGame(); s.advanceGame();
     expect(s.getGameState().beatSeq).toBe(before.beatSeq);
   });
+  it("default ON (ORWELL_ADVANCE_GATE unset): a fresh session holds with no explicit toggle", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const prior = process.env.ORWELL_ADVANCE_GATE;
+    delete process.env.ORWELL_ADVANCE_GATE; // the lanes pin it off (premiereTestDefault); this test reads the shipped default
+    const s = new GameSessionRegistry().sandboxFor(`gate-default-${Math.random()}`).session as GameSessionAdapter;
+    if (prior !== undefined) process.env.ORWELL_ADVANCE_GATE = prior;
+    s.createCharacter({ playerName: "P", seed: 7 });
+    s.setPerConversationClockEnabled(true);
+    const live = () => s.snapshot().live as unknown as { timeOfDay?: string };
+    for (let i = 0; i < 80 && live().timeOfDay === undefined; i++) s.advanceGame();
+    expect(sched(s).due).toBe(false);
+    expect(s.advanceGame().held, "the default holds").toBeDefined();
+  });
+
   it("ON: once the milestone is due the same advance goes through", () => {
     const s = runningDay(true);
     for (let i = 0; i < 60 && !sched(s).due; i++) s.advanceClockPerConversation();
