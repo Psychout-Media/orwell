@@ -75,7 +75,12 @@ When("the entrances and the toast are played through", function (this: BbWorld) 
   w.gateAlwaysTrue = true; w.hohDuringEntrances = false;
   for (let i = 0; i < 80 && entranceState(s)!.stage !== "done"; i++) {
     const pr = s.premiereIntros();
-    if (pr && !(pr.complete && pr.powerReachable)) w.gateAlwaysTrue = false;
+    // ORW-196: the roll-call gate is "raised" only if `complete`/`powerReachable` DISAGREE with the entrance stage: while arrivals are still staged ("entrances") the tally honestly
+    // reads incomplete (nothing is gated on it - the first power waits for the toast), and from the toast on it must read complete + reachable.
+    if (pr) {
+      const staging = pr.entrance?.stage === "entrances";
+      if (pr.complete === staging || (!staging && !pr.powerReachable)) w.gateAlwaysTrue = false;
+    }
     if (s.gameStatus().hoh) w.hohDuringEntrances = true;
     const v = s.advanceGame();
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
@@ -131,7 +136,7 @@ Then("nothing hidden appears in any entrance or toast output", function (this: B
 });
 
 Then("the meet-everyone gate is never raised", function (this: BbWorld) {
-  assert.equal(bag(this).gateAlwaysTrue, true, "complete/powerReachable stay true through the whole premiere - no roll-call gate");
+  assert.equal(bag(this).gateAlwaysTrue, true, "complete/powerReachable agree with the entrance stage (incomplete only while arrivals are staged, complete from the toast on) - no roll-call gate");
 });
 
 Then("the first power does not start until the toast is done", function (this: BbWorld) {
