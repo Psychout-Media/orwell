@@ -165,12 +165,12 @@
     // J2-12: announce on insert without stealing focus (the kit already sets aria-live=polite for
     // the guide kind — non-intrusive note per ADR 0003).
     // 0111 (Pillar 3, owner ruling 2026-07-14 — THE CHAMPAGNE CIRCLE): the producers gather the whole
-    // house for a champagne toast, so you meet all fifteen houseguests at once — then the first HOH is a
+    // house for a champagne toast, so you meet the houseguests as they arrive (ORW-148: one at a time, then the toast) — then the first HOH is a
     // breath away. And (Pillar 5, #907) the Diary Room is introduced as an enterable room from day one.
     body.innerHTML =
-      '<div>The producers gather the whole house for a champagne toast — you\'ll meet all fifteen ' +
-      'houseguests right there. Then talk to anyone and wander any room; the house keeps playing around ' +
-      'you, and the first HOH is a breath away.</div>' +
+      '<div>The houseguests arrive one at a time — you\'ll meet all fifteen houseguests as they walk in, ' +
+      'and the producers cap the night with a champagne toast. Then talk to anyone and wander any room; ' +
+      'the house keeps playing around you, and the first HOH is a breath away.</div>' +
       '<div>The <strong>Diary Room</strong> is open from day one — step in whenever you want to vent. ' +
       'Nobody in the house hears it.</div>' +
       '<div class="opt-rhythm">' +
@@ -181,7 +181,7 @@
       '</div>' +
       // J2-13: an affordance to DO the first move (close the gulf-of-execution).
       '<div class="opt-actions">' +
-        '<button type="button" class="ow-btn ow-btn-secondary opt-go" aria-label="Join the toast — fills the message box with an opener">Join the toast \u{2192}</button>' +
+        '<button type="button" class="ow-btn ow-btn-secondary opt-go" aria-label="Say hello — fills the message box with an opener">Say hello \u{2192}</button>' +
       '</div>';
     _mounted = true;
     var go = body.querySelector(".opt-go");
@@ -196,7 +196,7 @@
     if (!input) return;
     // Only seed an EMPTY composer — never clobber a draft the player has already started.
     if (!input.value || !input.value.trim()) {
-      input.value = "I step into the champagne circle and start taking in the whole house.";
+      input.value = "I look around as the first houseguests arrive and start taking in the house.";
       // Let the composer's own autosize / draft-save seams react to the change.
       try { input.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
     }

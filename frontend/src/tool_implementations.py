@@ -4497,6 +4497,18 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
         args = _parse_tool_args(content) if content and content.strip() else {}
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
+    # ORW-220: PRODUCTION OWNS THE SCHEDULE on this lever too. The engine's runCompetition PREVIEWS the current competition (type, name, winner); while the pre-resolve is
+    # holding a not-yet-due scheduled event the narrator must not learn it early (live 11-06 07:29:58 it got the first HOH comp's name and winner in the same batch where advanceGame
+    # returned held). Same `held` shape as do_advance_game; the engine is not called and no outcome is returned.
+    try:
+        from routes import chat_helpers as _ch_gate
+        if _ch_gate.scheduled_event_is_held(owner):
+            return {"output": json.dumps({"held": True, "note": "Production hasn't called the house in yet - the competition is set for later today and has not been "
+                                          "drawn for the house. There is no result to report. Stay in the scene and keep the houseguests talking; do NOT narrate the "
+                                          "competition or name a winner, and do not call runCompetition again until the production calls the house in."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
     try:
         res = await orwell_engine.run_competition(args.get("type"), args.get("participantIds"), user=owner)
         if not res.get("started"):
@@ -4543,6 +4555,9 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
             **({"assurance": _assurance} if _assurance else {}),
             **({"heard_about_me": _heard} if _heard else {}),
         )
+        # ORW-188: a recorded scene commits (bumps beatSeq) and the engine echoes the post-commit token. Adopt it (the belt path already does) so a later mutating
+        # call this turn (advanceGame) does not carry a stale token and 409.
+        await _refresh_after_model_progression(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -4560,6 +4575,7 @@ async def do_surface_information(content: str, owner: Optional[str] = None) -> D
         return {"error": "information and pathway are both required", "exit_code": 1}
     try:
         res = await orwell_engine.surface_information(info, pathway, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5156,6 +5172,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
         res = await orwell_engine.update_casting(args, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5215,6 +5232,16 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                     "exit_code": 0}
     except Exception:
         pass
+    # ORW-148 B: ONE staged-entrance arrival per player turn on the model's lever. Live 11-06 the narrator called advanceGame 3x in one reply
+    # (each call releases another arrival), so the premiere fast-forwarded past what it voiced. Same `held` shape as above; the engine is not called.
+    try:
+        from routes import chat_helpers as _ch_ent
+        if _ch_ent.premiere_release_already_this_turn(owner):
+            return {"output": json.dumps({"held": True, "note": "One arrival per reply. An arrival was already released this turn — voice that arrival (who walked in, how the house "
+                                          "reacts) FIRST, then wait for the player. Do not call advanceGame again this turn; the next arrival comes on the next beat."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
     try:
         _ebs, _ik = _model_progression_cas(owner, "advanceGame")
         try:
@@ -5241,6 +5268,11 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                 return {"output": json.dumps(_cur, indent=2), "exit_code": 0}
             # else: the retry LANDED — fall through to the shared post-advance handling below.
         await _refresh_after_model_progression(owner, res)  # CON-3
+        try:
+            from routes import chat_helpers as _ch_mark
+            _ch_mark.mark_premiere_release(owner)  # ORW-148 B: this turn's one staged-entrance release is spent
+        except Exception:
+            pass
         orwell_engine.remember_pending(res, user=owner)  # D3/E66: the card survives a reload
         # 0070: an advance runs the bounded off-screen tick, which may record new HIDDEN NPC-to-NPC
         # scenes. Fire-and-forget their FE-driven prose enrichment — best-effort, never blocks the
@@ -5552,9 +5584,16 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.move_to(str(room), user=owner)
         if res is None:
             return {"output": "No game is running yet.", "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+PREMIERE_INTROS_ENTRANCES_NOTE = (
+    "\n\nNOTE: the houseguest entrances are STILL IN PROGRESS — arrivals are released one at a time, so this list does not mean everyone has arrived. "
+    "The champagne toast has NOT happened yet; do not narrate or stage it until the engine reaches it."
+)
 
 
 async def do_premiere_intros(content: str, owner: Optional[str] = None) -> Dict:
@@ -5564,7 +5603,16 @@ async def do_premiere_intros(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.premiere_intros(user=owner)
         if res is None:
             return {"output": "Not in the premiere — everyone has already been met.", "exit_code": 0}
-        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+        out = json.dumps(res, indent=2)
+        # ORW-148 C: the engine reports complete/remaining:[] while arrivals are still being staged (GameSessionAdapter.ts), which made the
+        # narrator jump to the champagne toast. While the entrance stage is live, say so plainly. (Engine-side fix is a follow-up.)
+        try:
+            from routes import chat_helpers as _ch_pi
+            if _ch_pi.premiere_entrance_active(owner):
+                out += PREMIERE_INTROS_ENTRANCES_NOTE
+        except Exception:
+            pass
+        return {"output": out, "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
@@ -5805,6 +5853,7 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal
             return deal_refusal_for_narrator(res)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5824,6 +5873,7 @@ async def do_confide(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "npcId (the houseguest the player is pressing to open up) is required", "exit_code": 1}
     try:
         res = await orwell_engine.confide(npc_id, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5910,6 +5960,7 @@ async def do_expose_secret(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "factId (a secret the player has actually learned) is required, or set bluff:true with a subject", "exit_code": 1}
     try:
         res = await orwell_engine.expose_secret(fact_id=fact_id, bluff=bluff, subject=subject, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5940,6 +5991,7 @@ async def do_trade_secret(content: str, owner: Optional[str] = None) -> Dict:
     try:
         res = await orwell_engine.trade_secret(to_npc_id, fact_id=fact_id, bluff=bluff, subject=subject,
                                                ask_kind=ask_kind, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5963,6 +6015,7 @@ async def do_confront(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "factId (a fact the player has actually learned) is required", "exit_code": 1}
     try:
         res = await orwell_engine.confront(npc_id, fact_id, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

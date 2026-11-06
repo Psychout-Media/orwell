@@ -302,8 +302,8 @@ PREMIERE_IDENTITY_ON_FILE_NOTE = (
     "GAME CONTEXT). This premiere is a WELCOME, not a fresh intake. Do NOT have production or any "
     "houseguest interrogate the player for their name, hometown, or job again, and do NOT ask them to "
     "\"introduce themselves\" from scratch as if you don't know who they are — GREET them by name. The "
-    "houseguests still introduce THEMSELVES around the champagne circle (they are strangers to the player "
-    "and to each other); only the player's own basics are already known to production. The player may of "
+    "houseguests still introduce THEMSELVES as they arrive, one at a time (they are strangers to the player "
+    "and to each other; do not describe or stage a champagne toast until the engine reaches it); only the player's own basics are already known to production. The player may of "
     "course volunteer more about themselves, but never re-demand the basics they gave in casting."
 )
 
@@ -683,6 +683,32 @@ def _entrance_stage_of(game_state) -> Optional[str]:
         return None
 
 
+# ORW-148 part B: runway keys where the MODEL already released a staged-entrance arrival in the CURRENT player turn.
+# Per-turn signal = the one hook that already runs exactly once per framed turn (`note_premiere_turn`, called from the
+# turn framing right after the state read); it clears this set, so a new player message resets the allowance. In-process
+# like its sibling premiere dicts; a restart clears it (fail-open = the old behaviour for one turn).
+_PREMIERE_RELEASED_THIS_TURN: set = set()
+
+
+def premiere_release_already_this_turn(user) -> bool:
+    """ORW-148 B - True when a staged premiere arrival was already released in this player turn (entrance stage live only)."""
+    try:
+        key = _runway_key(user)
+        return key in _PREMIERE_ENTRANCE_STAGE and key in _PREMIERE_RELEASED_THIS_TURN
+    except Exception:
+        return False
+
+
+def mark_premiere_release(user) -> None:
+    """ORW-148 B - record that this turn's one staged-entrance release happened (no-op unless the entrance stage is live)."""
+    try:
+        key = _runway_key(user)
+        if key in _PREMIERE_ENTRANCE_STAGE:
+            _PREMIERE_RELEASED_THIS_TURN.add(key)
+    except Exception:
+        pass
+
+
 def premiere_entrance_active(user) -> bool:
     """A9 - True while the premiere is in its entrances/toast stage (flag-on only). Reads the stash `note_premiere_turn` wrote."""
     try:
@@ -696,6 +722,7 @@ def note_premiere_turn(user, game_state) -> None:
     A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
     try:
         key = _runway_key(user)
+        _PREMIERE_RELEASED_THIS_TURN.discard(key)  # ORW-148 B: a new framed turn resets the one-release-per-turn allowance
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
         if stage in ("entrances", "toast"):
@@ -3423,6 +3450,13 @@ def _mentioned_anywhere(text: str, full_name: str, first_counts: dict) -> bool:
     return False
 
 
+def _is_aside_only_reply(text: str) -> bool:
+    """ORW-222 - True when the WHOLE visible reply is out-of-character ((aside)) blocks (or an `ooc:` line): the narrator answered an OOC question in the intended producer-aside
+    format, so there is no scene and no room population to surface. Uses the shared span-based detector (`src/ooc_aside.py`, also used by the recorder), which tolerates nested parens."""
+    from src.ooc_aside import is_aside_only
+    return is_aside_only(text)
+
+
 def _presence_omission_directive(narration: str, facts: dict) -> Optional[str]:
     """PARITY-8 — the inverse desync: the engine places one or more houseguests in the player's OWN
     room, but the scene never mentions ANY of them at all (the narration substituted its own cast).
@@ -3433,6 +3467,9 @@ def _presence_omission_directive(narration: str, facts: dict) -> Optional[str]:
     if not room_present:
         return None
     text = narration or ""
+    # ORW-222: an aside-only ((out-of-character)) reply is not a scene: nothing to surface, and "surface who is actually here" next turn would be a false steer (live 11-06 07:46:49).
+    if _is_aside_only_reply(text):
+        return None
     # The uniqueness check needs the WHOLE roster (in view + off-scene + evicted), not just the
     # room — an off-scene/evicted houseguest sharing a first name with a present one must still make
     # that first name ambiguous (Greptile #1746).
@@ -3574,6 +3611,16 @@ _NAME_STOPWORDS_FIRST = {
     "the", "a", "an", "this", "that", "these", "those", "his", "her", "their", "your", "our", "my",
     "you", "i", "we", "he", "she", "they", "it", "and", "but", "or", "then", "now", "so", "as",
 }
+# ORW-180: capitalized sentence-initial TRANSITION/adverb words ("Meanwhile Marcus said...") are not a first name.
+# Live 11-06: "Meanwhile <real houseguest>" read as an unknown two-token full name and stashed a bogus re-ground.
+# The word is skipped and the scan resumes at the NEXT token, so a real invented name after it ("Suddenly Zed Quill
+# said") is still caught.
+_NAME_TRANSITION_FIRST = {
+    "meanwhile", "later", "suddenly", "soon", "then", "next", "finally", "eventually", "afterward", "afterwards",
+    "earlier", "elsewhere", "instead", "still", "meantime", "momentarily", "presently", "shortly", "today", "tonight",
+    "tomorrow", "yesterday", "however", "anyway", "also", "once", "after", "before", "while", "when", "just", "even",
+    "here", "there", "outside", "inside", "upstairs", "downstairs", "slowly", "quickly", "quietly",
+}
 
 
 def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -> Optional[str]:
@@ -3587,7 +3634,18 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
     enough to flag a bare capitalized token on its own."""
     if not sentence or not sentence.strip():
         return None
-    for m in _TWO_TOKEN_NAME_RE.finditer(sentence):
+    _matches = []
+    _pos = 0
+    while True:
+        m = _TWO_TOKEN_NAME_RE.search(sentence, _pos)
+        if not m:
+            break
+        if m.group(1).lower() in _NAME_TRANSITION_FIRST:
+            _pos = m.start(2)  # ORW-180: drop the transition word, rescan from the token after it
+            continue
+        _matches.append(m)
+        _pos = m.end()
+    for m in _matches:
         first_l = m.group(1).lower()
         second_l = m.group(2).lower()
         full = f"{m.group(1)} {m.group(2)}"
