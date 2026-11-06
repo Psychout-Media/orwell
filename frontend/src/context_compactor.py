@@ -524,12 +524,17 @@ async def maybe_compact(
     headers: Optional[Dict] = None,
     owner: Optional[str] = None,
     input_budget_fn: Optional[Callable[[int], int]] = None,
+    persist_history: bool = True,
 ) -> tuple:
     """Check context usage and compact if above threshold.
 
     ``input_budget_fn(context_length) -> effective input-token budget`` (ORW-219): when given, the
     threshold is ``min(85% of window, COMPACT_BUDGET_FRACTION x budget)`` so summarizing always
     happens before ``trim_for_context`` has to drop anything.
+
+    ``persist_history=False`` (ORW-224, every game/casting session): never summarize. Compaction ends in
+    ``replace_messages``, which deletes and re-inserts every stored row; a game transcript must never be
+    rewritten (non-degradation, mandate #4). The caller's ``trim_for_context`` shortens the prompt only.
 
     Returns (messages, context_length, was_compacted).
     """
@@ -548,6 +553,10 @@ async def maybe_compact(
         if budget > 0:
             threshold_tokens = min(threshold_tokens, COMPACT_BUDGET_FRACTION * budget)
     if used < threshold_tokens:
+        return messages, context_length, False
+
+    if not persist_history:
+        logger.info("Context at %.1f%% — compaction skipped (game/casting session: stored history is never rewritten)", pct)
         return messages, context_length, False
 
     logger.info(

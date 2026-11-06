@@ -7842,6 +7842,8 @@ async def build_chat_context(
     # (unchanged; reachable at 85% of the raw window; game sessions guarded by ORW-224). The trimmer only drops old turns from the PROMPT, never from the database.
     messages, context_length, was_compacted = await maybe_compact(
         sess, sess.endpoint_url, sess.model, messages, resolve_session_headers(sess, user), owner=user,
+        # ORW-224: a game/casting transcript is never rewritten; the trimmer shortens the prompt only.
+        persist_history=not (game_active or framed),
     )
     messages = trim_for_context(messages, context_length, preserve_system=bool(game_active or framed))
 
