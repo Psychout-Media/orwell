@@ -70,7 +70,7 @@ import { confessionalFor, involvedConfessionals, isBareGame, recordConfessionalT
 import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confessionals";
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
-import { rankApproaches, applyApproachCooldown } from "../../engine/conversation";
+import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
@@ -1351,7 +1351,9 @@ export class GameSessionAdapter implements GameSession {
     let sincerity = a.sincerity;
     if (a.source === "npc") {
       const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(a.from), this.emotionalReadOf(a.from))));
-      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}`)).next();
+      // Review lead 5: a repeat same-kind assurance (same week, from, to) used to get the SAME roll; the 2nd, 3rd... salt the seed with how many already stand (the first keeps its exact seed).
+      const prior = ledger.all.filter((x) => x.week === this.live!.week && x.from === a.from && x.to === a.to && x.kind === a.kind).length;
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}${prior > 0 ? `:${prior}` : ""}`)).next();
       sincerity = npcAssuranceSincerity(loyalty, roll);
     }
     const { heardBy, ...rest } = a;
@@ -5399,8 +5401,7 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined,
-      this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined);
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachBiasHook(player));
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -8024,7 +8025,7 @@ export class GameSessionAdapter implements GameSession {
     const m = nextMilestone(live);
     const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
     const rng = new SeededRandom(hashSeed(`desire:${this.gameSeed ?? ""}:${Math.floor(this.absHour() * 10)}`));
-    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng).map((a) => [a.npc, a.drive] as const));
+    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng, undefined, this.approachBiasHook(PLAYER)).map((a) => [a.npc, a.drive] as const));
     const since = live.desireApproachedAt ?? {};
     const cands: Candidate[] = [];
     for (const id of ids) {
@@ -10280,7 +10281,7 @@ export class GameSessionAdapter implements GameSession {
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
-          const top = rankApproaches(PLAYER, ids, this.rel, r)[0];
+          const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER))[0];
           return top ? { npc: this.nameOf(top.npc) } : null;
         },
         observed: (r) => {
@@ -11768,11 +11769,17 @@ export class GameSessionAdapter implements GameSession {
    * B7 M1b - how much more (+) or less (-) `npc` is drawn to seek the player out, from what they remember about the player (a favor raises it, a grudge lowers it: the 0024 ledger's standalone tilt,
    * sign-flipped, i.e. the same read the veto save uses) and owe (an open deal or kept-able assurance the NPC made to the player raises it). Deterministic, no rng, bounded to [-1, 1] (the ranker clamps further).
    */
+  /** Review lead 1: ONE bias provider for every place the NPCs' drive to seek the player is ranked (social initiatives, the hang-out approach, the desire clock's drive). Undefined when neither layer is on => byte-identical. */
+  private approachBiasHook(player: EntityId): ((n: EntityId) => number) | undefined {
+    return this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined;
+  }
   approachMemoryFor(npc: EntityId, player: EntityId): number {
     if (!this.approachMemoryEnabled || npc === PLAYER) return 0;
     const mem = this.npcMemoryEnabled ? this.memoryTiltFor(player, npc) : 0;
-    const owedDeal = this.deals.open().some((d) => d.condition.promisors.includes(npc) && d.parties.includes(player)) ? 0.1 : 0;
-    const owedAssurance = this.assurancesEnabled && this.live?.assurances && AssuranceLedger.fromJSON(this.live.assurances).openFor(npc).some((a) => a.to === player) ? 0.1 : 0;
+    // Review lead 2: a real grudge dominates the cheap owed-promise pull (it counts only while the NPC holds no grudge above the floor).
+    const owedOk = mem <= APPROACH_OWED.grudgeFloor;
+    const owedDeal = owedOk && this.deals.open().some((d) => d.condition.promisors.includes(npc) && d.parties.includes(player)) ? APPROACH_OWED.bonus : 0;
+    const owedAssurance = owedOk && this.assurancesEnabled && this.live?.assurances && AssuranceLedger.fromJSON(this.live.assurances).openFor(npc).some((a) => a.to === player) ? APPROACH_OWED.bonus : 0;
     return Math.max(-1, Math.min(1, -mem + owedDeal + owedAssurance));
   }
 
