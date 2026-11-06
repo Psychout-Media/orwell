@@ -1020,6 +1020,50 @@ export interface CreateCharacterReq {
 export interface MomentPromptReq {
   /** Override the phase-derived beat (e.g. "diary-room", "character-creation"). */
   moment?: string;
+  /**
+   * Showrunner memory, Show Brief v1 skeleton (K6 §3, ORWELL_SHOW_BRIEF): present ONLY when the caller wants the
+   * terminal Show Brief for this turn. Absent ⇒ the response is byte-identical to before (no `showBrief`).
+   */
+  brief?: ShowBriefReq;
+}
+
+/**
+ * What the FE sends when it asks for a Show Brief. Every field is optional and re-validated by the engine; the
+ * brief itself is built from the engine's own Vault-free projections, never from these strings (the FE echoes
+ * are only used to say what CHANGED and which absences to state).
+ */
+export interface ShowBriefReq {
+  /** The `seen` state the PREVIOUS brief of this conversation returned (the narrator's last view). Absent on the first brief. */
+  seen?: BriefSeenState;
+  /** Houseguest ids the player's latest message or the last scene named (resolved by the FE from the public roster). */
+  askedAbout?: EntityId[];
+  /** The last lines the player saw: the tail of the previous narrated reply, out-of-character asides removed. */
+  lastShown?: string;
+}
+
+/** The player-visible state a brief was built from, echoed back by the FE next turn (no hidden position ever). */
+export interface BriefSeenState {
+  v: 1;
+  beatSeq: number;
+  /** The in-game clock label at that brief, when the clock runs. */
+  clock?: string;
+  /** The player's room. */
+  room: string;
+  /** Who was with the player (ids, sorted). */
+  here: EntityId[];
+  /** Each room in the player's sightline and who was in it (ids, sorted). */
+  inView: Array<{ room: string; ids: EntityId[] }>;
+}
+
+/** The Show Brief v1 skeleton: one terminal system message, fixed section order, Vault-free by construction. */
+export interface ShowBriefView {
+  text: string;
+  /** Echo this back as `brief.seen` on the next turn. */
+  seen: BriefSeenState;
+  beatSeq: number;
+  /** chars / 4.1 (the K6 estimator). */
+  tokens: number;
+  sections: Array<{ id: "header" | "now" | "changed" | "established"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1040,6 +1084,12 @@ export interface MomentPromptView {
    *  feature). Vault-free (public voice flavor only). The FE uses it as the chat sender name so the
    *  producer reads as a real person, not the generic "Production" label. Always present. */
   producerName: string;
+  /**
+   * Showrunner memory — the Show Brief v1 skeleton, present ONLY when the request carried `brief` and a season is
+   * live with the player in the house. Meant to be appended as a terminal system message, after the transcript,
+   * so the cached prompt prefix is untouched.
+   */
+  showBrief?: ShowBriefView;
 }
 
 /**

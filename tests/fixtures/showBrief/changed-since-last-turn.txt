@@ -1,0 +1,23 @@
+SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.
+If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.
+
+1. NOW
+It is 10:30am, Day 1.
+You are in the living room (3 turns here).
+HERE with you: NPC B (1 turn), NPC H (just arrived).
+In view: the kitchen: NPC A and NPC C; the dining room: NPC E and NPC I; the backyard: nobody; the hallway: nobody.
+NOT HERE: NPC A is NOT here; NPC A is in the kitchen.
+Not in view (you cannot see where they are): NPC D, NPC F, NPC G, NPC J, NPC K, NPC L, NPC M, NPC N and NPC O.
+
+2. CHANGED SINCE YOUR LAST TURN
+- Now here with you: NPC H.
+- No longer with you: NPC A (now in the kitchen).
+- Moved within view: NPC E from the backyard to the dining room.
+- Now in view: NPC I (in the dining room).
+- Out of view now: NPC D (was in the kitchen).
+- Clock: 10:25am, Day 1 -> 10:30am, Day 1.
+
+3. WHAT YOU ESTABLISHED
+Built into the living room: big sectional couch; armchairs; coffee table; area rug; floor-to-ceiling glass doors to the yard; console table; bean bags; feature wall; air-conditioner vents; staircase up to the HOH room. That is the whole list.
+Loose things that may be lying around: drinks and mugs, snacks, books and magazines, cards and games, clothes, shoes and flip-flops, a watch or an earbuds case.
+HOW THE LAST SCENE ENDED: not available (a fresh conversation).
