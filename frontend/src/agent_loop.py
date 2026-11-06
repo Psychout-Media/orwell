@@ -3240,13 +3240,14 @@ async def _auto_mark_premiere_intros(narration, owner) -> int:
 # without exception"), and the machinery prefixes are the EXACT strings chat.js puppeteers back
 # into the conversation as a synthetic user turn when a stream drops (`_renderStreamDropRetry` /
 # the auto-continue prompt) — never real player speech.
-_OOC_WRAP_RE = re.compile(r"^\s*\(\(.*\)\)\s*$", re.DOTALL)
-_OOC_PREFIX_RE = re.compile(r"^\s*ooc\s*:", re.IGNORECASE)
 _NONDIEGETIC_MACHINERY_PREFIXES = (
     "the stream dropped before you finished",
     "your previous response was interrupted",
     "connection dropped",
 )
+
+
+from src.ooc_aside import is_aside_only  # noqa: E402
 
 
 def _is_nondiegetic_scene_text(text: Optional[str]) -> bool:
@@ -3257,18 +3258,16 @@ def _is_nondiegetic_scene_text(text: Optional[str]) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    if _OOC_WRAP_RE.match(t) or _OOC_PREFIX_RE.match(t):
+    if is_aside_only(t):  # span-based shared detector (src/ooc_aside.py): `((a)) real scene ((b))` is NOT an aside
         return True
     low = t.lower()
     return any(low.startswith(p) for p in _NONDIEGETIC_MACHINERY_PREFIXES)
 
 
 def _is_ooc_aside_text(text: Optional[str]) -> bool:
-    """ORW-207 - True when `text` is purely an out-of-character aside (the whole text is ((wrapped)) or "ooc:"-prefixed). Such a turn is the INTENDED
-    format for answering an OOC question ("whos left?"), so the recorder skips it quietly: nothing diegetic happened, and a soft-fail would report a fault
-    that is not one. FE stream-recovery machinery is NOT an aside and still goes through the nondiegetic gate (the backstop)."""
-    t = (text or "").strip()
-    return bool(t) and bool(_OOC_WRAP_RE.match(t) or _OOC_PREFIX_RE.match(t))
+    """ORW-207 - True when `text` is purely an out-of-character aside (shared span-based detector). Such a turn is the INTENDED format for answering an OOC question
+    ("whos left?"), so the recorder skips it quietly. FE stream-recovery machinery is NOT an aside and still goes through the nondiegetic gate (the backstop)."""
+    return is_aside_only(text)
 
 
 # ── #1734 (B4) — normalize + validate withIds at the extraction boundary ───────────────────────
@@ -3360,10 +3359,11 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         if _is_ooc_aside_text(last_user) or _is_ooc_aside_text(narration):
             logger.info(f"[orwell] auto-record: skipped OOC aside turn (ORW-207) user={owner}")
             return False
-        # #1729 (B1) — reject non-diegetic content BEFORE folding: an OOC vent or a stream-recovery
-        # machinery fragment must never become an "(overheard, clearly)" world event. Checked on
-        # BOTH the player's own turn and the model's narration (the narrator marks its own HUD/
-        # producer asides with the identical ((wrap)) convention — momentPrompts.ts).
+        # #1729 (B1) — reject non-diegetic content BEFORE folding: a stream-recovery machinery fragment
+        # (or any OOC text the quiet ORW-207 skip above did not already take) must never become an
+        # "(overheard, clearly)" world event. Checked on BOTH the player's own turn and the model's
+        # narration. NOTE: since ORW-207 a pure ((aside)) / `ooc:` turn never reaches here (skipped quietly
+        # above), so this RED path is now the backstop for machinery text and anything the aside check missed.
         _nondiegetic_side = ("player" if _is_nondiegetic_scene_text(last_user)
                             else "narration" if _is_nondiegetic_scene_text(narration) else None)
         if _nondiegetic_side is not None:
