@@ -683,6 +683,32 @@ def _entrance_stage_of(game_state) -> Optional[str]:
         return None
 
 
+# ORW-148 part B: runway keys where the MODEL already released a staged-entrance arrival in the CURRENT player turn.
+# Per-turn signal = the one hook that already runs exactly once per framed turn (`note_premiere_turn`, called from the
+# turn framing right after the state read); it clears this set, so a new player message resets the allowance. In-process
+# like its sibling premiere dicts; a restart clears it (fail-open = the old behaviour for one turn).
+_PREMIERE_RELEASED_THIS_TURN: set = set()
+
+
+def premiere_release_already_this_turn(user) -> bool:
+    """ORW-148 B - True when a staged premiere arrival was already released in this player turn (entrance stage live only)."""
+    try:
+        key = _runway_key(user)
+        return key in _PREMIERE_ENTRANCE_STAGE and key in _PREMIERE_RELEASED_THIS_TURN
+    except Exception:
+        return False
+
+
+def mark_premiere_release(user) -> None:
+    """ORW-148 B - record that this turn's one staged-entrance release happened (no-op unless the entrance stage is live)."""
+    try:
+        key = _runway_key(user)
+        if key in _PREMIERE_ENTRANCE_STAGE:
+            _PREMIERE_RELEASED_THIS_TURN.add(key)
+    except Exception:
+        pass
+
+
 def premiere_entrance_active(user) -> bool:
     """A9 - True while the premiere is in its entrances/toast stage (flag-on only). Reads the stash `note_premiere_turn` wrote."""
     try:
@@ -696,6 +722,7 @@ def note_premiere_turn(user, game_state) -> None:
     A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
     try:
         key = _runway_key(user)
+        _PREMIERE_RELEASED_THIS_TURN.discard(key)  # ORW-148 B: a new framed turn resets the one-release-per-turn allowance
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
         if stage in ("entrances", "toast"):

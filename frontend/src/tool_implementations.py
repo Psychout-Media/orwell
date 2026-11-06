@@ -5215,6 +5215,16 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                     "exit_code": 0}
     except Exception:
         pass
+    # ORW-148 B: ONE staged-entrance arrival per player turn on the model's lever. Live 11-06 the narrator called advanceGame 3x in one reply
+    # (each call releases another arrival), so the premiere fast-forwarded past what it voiced. Same `held` shape as above; the engine is not called.
+    try:
+        from routes import chat_helpers as _ch_ent
+        if _ch_ent.premiere_release_already_this_turn(owner):
+            return {"output": json.dumps({"held": True, "note": "One arrival per reply. An arrival was already released this turn — voice that arrival (who walked in, how the house "
+                                          "reacts) FIRST, then wait for the player. Do not call advanceGame again this turn; the next arrival comes on the next beat."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
     try:
         _ebs, _ik = _model_progression_cas(owner, "advanceGame")
         try:
@@ -5241,6 +5251,11 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                 return {"output": json.dumps(_cur, indent=2), "exit_code": 0}
             # else: the retry LANDED — fall through to the shared post-advance handling below.
         await _refresh_after_model_progression(owner, res)  # CON-3
+        try:
+            from routes import chat_helpers as _ch_mark
+            _ch_mark.mark_premiere_release(owner)  # ORW-148 B: this turn's one staged-entrance release is spent
+        except Exception:
+            pass
         orwell_engine.remember_pending(res, user=owner)  # D3/E66: the card survives a reload
         # 0070: an advance runs the bounded off-screen tick, which may record new HIDDEN NPC-to-NPC
         # scenes. Fire-and-forget their FE-driven prose enrichment — best-effort, never blocks the
