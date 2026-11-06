@@ -104,6 +104,8 @@ const SOUL_DEPTH = {
   /** B32 (ORWELL_DRIFT_FIX): the negativity bias on the temperament accumulator - a hardening event gains x1.5, a softening one x0.75 (matches the memory ledger's grudgeMax > favorMax). */
   negativityClashMul: 1.5,
   negativityBondMul: 0.75,
+  /** B32 (ORWELL_DRIFT_FIX): softening cannot push the temperament below this floor, so a run of routine good beats (bond / survived-vote / comp-win, which fire for most houseguests most weeks) cannot pin it at the bond limit where three real betrayals could never lift it back to clash. The measured #2104 finding: with a symmetric clamp the median drift sat at -1.0. */
+  driftBondFloor: -0.7,
   /** Fraction the temperament drift reverts toward 0 (the true baseline) on a `calm` beat (× settleScale). */
   driftSettle: 0.2,
   /** Effective-disposition bands: |base+drift| past these reads clash/bond, else neutral (hysteresis). */
@@ -215,7 +217,7 @@ export function evolveEmotion(
       soul.confidence = clamp01(soul.confidence + Math.max(0, valence) * SOUL_DEPTH.confidenceGain);
       let d = driftOf(event) * (opts.driftScale ?? 1);
       if (opts.negativityBias) d *= d > 0 ? SOUL_DEPTH.negativityClashMul : SOUL_DEPTH.negativityBondMul;
-      soul.temperamentDrift = clampSigned(soul.temperamentDrift + d, 1);
+      soul.temperamentDrift = opts.negativityBias ? Math.max(SOUL_DEPTH.driftBondFloor, Math.min(1, soul.temperamentDrift + d)) : clampSigned(soul.temperamentDrift + d, 1);
     }
   }
 

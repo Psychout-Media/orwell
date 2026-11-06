@@ -93,6 +93,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
   // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default OFF).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
+  // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default OFF).
+  commands.setHeardAboutMeSink((h) => session.recordHeardAboutMe(h));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its
   // bounded duration to the session, which the orchestrator's per-turn clock advance then consumes — so
   // the day's clock tracks the play the player actually did, not a flat floor. Self-gated on the running

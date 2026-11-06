@@ -101,6 +101,12 @@ export interface RecordInteractionReq {
    * player; `sincerity` (0..1, default 1) lets a strategic lie be low. The ENGINE later decides whether it is kept (self-interested, personality-scaled) - the model never does.
    */
   assurance?: { kind: "safe" | "vote" | "loyal"; from?: EntityId; sincerity?: number };
+  /**
+   * B24 (heard-about-me, behind ORWELL_HEARD_ABOUT_ME, default OFF): in this player-witnessed scene an NPC TOLD the other named NPCs something about the PLAYER - that the player is gunning for them
+   * (`targeting`) or has betrayed someone (`betrayal`). Only the CLOSED nature crosses (never free text). `from` names the teller (an NPC; default the initiator). The ENGINE decides how far each
+   * listener believes it (the teller's reliability) and whether they mishear it - the model never does. Ignored unless the flag and the belief layer are on.
+   */
+  heardAboutMe?: { nature: "targeting" | "betrayal"; from?: EntityId };
   /** Whose hidden opinion of the initiator moves (default: the other witnesses). */
   toward?: EntityId[];
   /**
