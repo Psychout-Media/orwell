@@ -490,6 +490,43 @@ jobs:
       - name: browser smoke — keep-set UI loads, no broken modules (feature 0032)
         run: cd frontend && python3 scripts/browser_smoke.py
 
+  # ORW-189-lite: REPORT-ONLY front-end performance job (4x CPU throttle: long tasks while a ~2,000-char reply streams,
+  # idle requests/min, JS+CSS bytes). Prints a table to the job summary and uploads perf-report.json. NOT in `ci-gate`
+  # needs and `continue-on-error`: it never blocks a merge. Gating comes later, in the ratchet.
+  fe-perf-report:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: pip install -r frontend/requirements.lock.txt
+      - run: npm ci
+      - run: npm run build
+      - run: python3 -m playwright install --with-deps chromium
+      - name: perf report (report-only)
+        env:
+          PERF_LABEL: ${{ github.sha }}
+        run: cd frontend && python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-report
+          path: perf-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
   fe-responsive:
     needs: changes
     if: needs.changes.outputs.fe_render == 'true'
