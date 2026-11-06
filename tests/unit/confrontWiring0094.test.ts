@@ -129,9 +129,9 @@ describe("0094 confront — reaches the engine over the MCP boundary", () => {
   });
 });
 
-describe("0094 confront — OFF (the default) is calibration-neutral: no divergence, no fold", () => {
+describe("0094 confront — OFF (explicit =0; ON is the default since 2026-11-06) is calibration-neutral: no divergence, no fold", () => {
   it("with the flag off, even a materially distorted belief always lands with no fold", () => {
-    GameSessionAdapter.setGossipConsequenceEnabled(null); // explicit: the default is OFF
+    GameSessionAdapter.setGossipConsequenceEnabled(false); // explicit opt-out (the default is ON since 2026-11-06)
     const { sb } = startedGame("off-default");
     const npcId = sb.session.snapshot().house!.npcs[0]!.id;
     seedBelief(sb, npcId, "fact:off", 3, 0.3); // would misfire if the flag were on
@@ -142,7 +142,7 @@ describe("0094 confront — OFF (the default) is calibration-neutral: no diverge
   });
 
   it("the Vault bright line still holds when the flag is off — an unrecognized factId is still refused", () => {
-    GameSessionAdapter.setGossipConsequenceEnabled(null);
+    GameSessionAdapter.setGossipConsequenceEnabled(false);
     const { sb } = startedGame("off-bright-line");
     const npcId = sb.session.snapshot().house!.npcs[0]!.id;
     expect(sb.session.confront(npcId, "fact:never-seeded")).toBeNull();

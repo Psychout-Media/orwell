@@ -15,8 +15,6 @@ const NEVER_FLIPPED = [
   // One flag per line: concurrent flag PRs append DIFFERENT lines instead of conflicting on one.
   "ORWELL_SHOWRUNNER_REWEIGHT",
   "ORWELL_FORESHADOW",
-  "ORWELL_TIE_REVEAL",
-  "ORWELL_GOSSIP_CONSEQUENCE",
   "ORWELL_GOSSIP_COPRESENCE",
 ] as const;
 
