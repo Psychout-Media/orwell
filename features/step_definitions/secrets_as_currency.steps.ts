@@ -2,6 +2,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { NO_HARD_CAPS } from "../../src/engine/noHardCapsConstants";
 import { buildSandbox } from "../../tests/support/sandbox";
 import { learn } from "../support/secretLearn";
 import { PLAYER } from "../../src/domain/ids";
@@ -179,9 +180,6 @@ Then("the recipient may refuse the trade", function (this: BbWorld) {
 
 Given("the player holds a learned secret a recipient would value", function (this: BbWorld) {
   const st = ensure(this);
-  // PINNED (ORW release blocker): ORWELL_NO_HARD_CAPS is ON (Ryne 2026-11-05), so the old trade-per-season cap no longer exists; pinned to the legacy cap path until the "past the season cap" assertion is
-  // rewritten to assert the consequence-based limit (each repeat trade sours the recipient).
-  (st.tcSession as unknown as GameSessionAdapter).setNoHardCapsEnabled(false);
   st.tcSubject = st.tcSession!.livingIds().find((id) => id !== PLAYER)!;
   st.tcRecipient = st.tcSession!.livingIds().find((id) => id !== PLAYER && id !== st.tcSubject)!;
   setEdge(st.tcSession!, st.tcRecipient, st.tcSubject, { trust: 0.1, affinity: 0.05, threat: 0.9 });
@@ -237,20 +235,21 @@ When("the player offers the secret for a concession", function (this: BbWorld) {
 });
 
 Then("the magnitude of its effect is bounded and seeded by the engine", function (this: BbWorld) {
-  // Try to PUMP it: after the first trade, hand the recipient a fresh learned secret about every other houseguest.
-  // Run on two identical seeded houses: the season cap stops the stream, the recipient's warming toward the player is
-  // under the configured ceiling, and the SAME seed gives the SAME outcomes (nothing the model sends sets the amount).
-  const pump = (): { results: string[]; accepted: number; capped: number; trustGain: number; count: number; subjects: number } => {
+  // Try to PUMP it: after the first trade, hand the recipient a fresh learned secret about every other houseguest. Ryne 2026-11-05 (card 24): no arbitrary per-season count. Run on two identical seeded
+  // houses: the SAME seed gives the SAME outcomes (nothing the model sends sets the amount); no trade is refused as capped; each landed trade warms the recipient by at most the configured fold; and
+  // pumping BACKFIRES: every repeat sours the recipient's read of the player, until they stop biting.
+  const pump = (): { results: string[]; accepted: number; capped: number; declined: number; trust: number[]; trustBefore: number; count: number; subjects: number } => {
     const { session, sb } = freshSession(110);
-    (session as unknown as GameSessionAdapter).setNoHardCapsEnabled(false); // PINNED (see the Given): the fresh pump session also runs the legacy cap path
     const subject = session.livingIds().find((id) => id !== PLAYER)!;
     const rec = session.livingIds().find((id) => id !== PLAYER && id !== subject)!;
     setEdge(session, rec, subject, { trust: 0.1, affinity: 0.05, threat: 0.9 });
     const trustBefore = relOf(session).edge(rec, PLAYER).trust;
     const results: string[] = [];
+    const trust: number[] = [];
     const fire = (subj: EntityId): void => {
       const r = session.tradeSecret({ factId: learn(sb, subj), toNpcId: rec, askKind: "vote" });
       results.push(`${r?.accepted}:${r?.refused ?? ""}`);
+      trust.push(relOf(session).edge(rec, PLAYER).trust);
     };
     fire(subject);
     const others = session.livingIds().filter((id) => id !== PLAYER && id !== rec && id !== subject);
@@ -262,7 +261,9 @@ Then("the magnitude of its effect is bounded and seeded by the engine", function
       results,
       accepted: results.filter((r) => r.startsWith("true")).length,
       capped: results.filter((r) => r.endsWith(":capped")).length,
-      trustGain: relOf(session).edge(rec, PLAYER).trust - trustBefore,
+      declined: results.filter((r) => r.endsWith(":declined")).length,
+      trust,
+      trustBefore,
       count: session.snapshot().secretTradeCount ?? 0,
       subjects: others.length + 1,
     };
@@ -270,15 +271,18 @@ Then("the magnitude of its effect is bounded and seeded by the engine", function
   const a = pump();
   const b = pump();
   assert.deepEqual(a, b, "the same seed gave a different trade stream (the amount is not seeded)");
-  assert.ok(a.subjects > SECRET_TRADE.maxTradesPerSeason, "the fixture offers more trades than the cap");
-  assert.ok(a.accepted <= SECRET_TRADE.maxTradesPerSeason, `${a.accepted} trades landed, past the season cap`);
-  assert.ok(a.capped > 0, "trades past the cap are refused as capped");
-  assert.ok(a.count <= SECRET_TRADE.maxTradesPerSeason, "the recorded trade count passed the season cap");
-  // The configured magnitude ceiling: each landed trade warms the recipient by at most the configured fold, scaled by the
-  // most generous disposition and jitter band, so the whole stream cannot move them further than cap × that.
+  assert.ok(a.subjects > SECRET_TRADE.maxTradesPerSeason, "the fixture offers more trades than the old cap");
+  assert.equal(a.capped, 0, "no trade is refused as capped: there is no hard count");
+  assert.ok(a.accepted > SECRET_TRADE.maxTradesPerSeason, `${a.accepted} trades landed, past the old cap of ${SECRET_TRADE.maxTradesPerSeason}`);
+  assert.ok(a.count <= NO_HARD_CAPS.safetyValve, "only the technical safety valve bounds the count");
+  // The configured magnitude ceiling: each landed trade warms the recipient by at most the configured fold, scaled by the most generous disposition and jitter band.
   const C = RELATIONSHIP_CONSTANTS;
   const perTradeMax = SECRET_TRADE.recipientFold.trust! * Math.max(...Object.values(C.dispositionFactors).map((d) => d.bondScale)) * (1 + C.TEMPERATURE_JITTER / 2);
-  assert.ok(a.trustGain <= SECRET_TRADE.maxTradesPerSeason * perTradeMax + 1e-9, `the recipient warmed ${a.trustGain}, past the configured ceiling`);
+  let prev = a.trustBefore;
+  for (const t of a.trust) { assert.ok(t - prev <= perTradeMax + 1e-9, `one trade warmed the recipient ${t - prev}, past the configured ceiling ${perTradeMax}`); prev = t; }
+  // Pumping backfires: the recipient ends colder than their peak and eventually stops biting (the limit is felt, never announced).
+  assert.ok(a.trust[a.trust.length - 1]! < Math.max(...a.trust), "repeat trades sour the recipient: they end colder than their peak");
+  assert.ok(a.declined > 0, "the recipient eventually stops biting (declined, not capped)");
 });
 
 Then("the model may propose only which secret, to whom, and the ask", function (this: BbWorld) {

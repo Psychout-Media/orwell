@@ -66,11 +66,11 @@ Feature: Secrets as strategic levers (information becomes power)
       Then the other houseguests learn it as a recorded witnessed event
       And no surface is ever handed the Vault to deliver it
 
-    Scenario: A used secret cannot be wielded again, and exposes are capped per season
+    Scenario: A used secret cannot be wielded again, and repeat exposes are limited by what they cost
       Given a secret the player has already exposed
       When the player attempts to leverage that secret again
       Then the attempt is rejected because the secret is already spent
-      And across a full season the number of exposes never exceeds the season cap
+      And across a full season repeat exposes are never refused as capped, but each one sours the house against the player
       And the spent state survives an engine restart
 
   Rule: The Vault Wall holds for the admin too, and outcomes are deterministic
