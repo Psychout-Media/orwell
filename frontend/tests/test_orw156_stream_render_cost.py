@@ -203,3 +203,12 @@ def test_random_replies_settle_to_the_full_render(measured):
     # the one documented exception is a reply whose last line is a bare `@[Name]` tag (see the harness)
     r = measured["random"]
     assert r["endMismatch"] == 0, r["firstBad"]
+
+
+def test_the_restatement_watch_makes_exactly_the_f6_collapse_decision(measured):
+    """markdown.js keeps F-6's rules in two places (_collapseRestatedReply stays self-contained; createRestatementWatch is its
+    incremental twin). On random replies the watch must agree with the real function on the whole text and at every paragraph-aligned
+    prefix, and fed in random deltas it must never miss a collapse (an early yes only costs speed)."""
+    w = measured["watch"]
+    assert w["cases"] == 150 and w["collapsing"] >= 20, w  # non-vacuous: plenty of replies really collapse
+    assert w["whole"] == 0 and w["prefix"] == 0 and w["falseNeg"] == 0, w

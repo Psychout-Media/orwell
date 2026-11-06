@@ -289,29 +289,25 @@ function _extractInlineOocAsides(reply) {
 // turn; the rounds stack into one bubble. A later `@[Name] ...` block that restates an earlier block by the SAME speaker - mostly covered (>= ~35% of its 8-word runs) by
 // the earlier block - is the second rendition: drop it AND its untagged continuation paragraphs (the player already read the first). Paragraphs that are genuinely new are kept; blocks by
 // other speakers, and text with no speaker blocks, are never touched. Pure; no restatement => the text is returned unchanged.
-const _rrWords = (s) => s.toLowerCase().replace(/@\[[^\]]*\]/g, ' ').replace(/[^a-z0-9']+/g, ' ').trim().split(' ').filter(Boolean);
-const _rrShingles = (w, n) => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' ')); return out; };
-const _rrSpeakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
-// A restatement is a SUBSTANTIAL duplication: at least ~a third of this block's 8-word runs were already shown by the same speaker. One
-// shared phrase in an otherwise new paragraph is NOT a restatement (the new content is kept).
-const _rrRestated = (prior, sh) => {
-  if (!prior || !sh.size) return false;
-  let hit = 0;
-  for (const s of sh) { if (prior.has(s)) hit++; }
-  return hit / sh.size >= 0.35;
-};
 function _collapseRestatedReply(text) {
   if (!text || text.indexOf('@[') < 0) return text;
   const paras = String(text).split(/\n{2,}/);
+  const words = (s) => s.toLowerCase().replace(/@\[[^\]]*\]/g, ' ').replace(/[^a-z0-9']+/g, ' ').trim().split(' ').filter(Boolean);
+  const shingles = (w, n) => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' ')); return out; };
+  const speakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
   const seen = new Map();            // speaker -> Set of 8-word shingles already shown
   const kept = [];
   let dropped = false, skipping = false;
   for (const p of paras) {
-    const sp = _rrSpeakerOf(p);
+    const sp = speakerOf(p);
     if (!sp) { if (skipping) continue; kept.push(p); continue; }   // untagged continuation of a dropped block goes with it
-    const sh = _rrShingles(_rrWords(p), 8);
+    const sh = shingles(words(p), 8);
     const prior = seen.get(sp);
-    if (_rrRestated(prior, sh)) { dropped = true; skipping = true; continue; }
+    // A restatement is a SUBSTANTIAL duplication: at least ~a third of this block's 8-word runs were already shown by the same speaker. One
+    // shared phrase in an otherwise new paragraph is NOT a restatement (the new content is kept).
+    let restated = false;
+    if (prior && sh.size) { let hit = 0; for (const s of sh) { if (prior.has(s)) hit++; } restated = hit / sh.size >= 0.35; }
+    if (restated) { dropped = true; skipping = true; continue; }
     skipping = false;
     const acc = prior || new Set();
     sh.forEach((s) => acc.add(s));
@@ -324,19 +320,24 @@ function _collapseRestatedReply(text) {
 // ORW-156: the streaming renderer freezes finished paragraphs and renders the live tail on its own, so the tail cannot see the earlier
 // paragraphs F-6's collapse needs (a later `@[Name]` block that restates an earlier block by the same speaker is dropped). This watch answers
 // "would the whole-reply render collapse a restatement here?" for a growing, append-only text, folding each finished paragraph in ONCE (the
-// per-call work is O(new text)). It mirrors _collapseRestatedReply exactly (same helpers); the still-growing last paragraph is checked but
+// per-call work is O(new text)). It mirrors _collapseRestatedReply exactly; the still-growing last paragraph is checked but
 // not folded in. Once it says yes it stays yes: the caller renders the whole reply (the pre-ORW-156 path) for the rest of that stream, which
 // is always correct. A false yes only costs speed. Only the game build collapses restatements, so elsewhere it always says no.
 export function createRestatementWatch() {
+  // the SAME rules as _collapseRestatedReply above (kept self-contained there; tests/js/orw156_stream_render_harness.mjs proves the two agree)
+  const words = (s) => s.toLowerCase().replace(/@\[[^\]]*\]/g, ' ').replace(/[^a-z0-9']+/g, ' ').trim().split(' ').filter(Boolean);
+  const shingles = (w, n) => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' ')); return out; };
+  const speakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
+  const isRestated = (prior, sh) => { if (!prior || !sh.size) return false; let hit = 0; for (const x of sh) { if (prior.has(x)) hit++; } return hit / sh.size >= 0.35; };
   const seen = new Map();
   let scanned = 0;   // text before this offset is whole paragraphs already folded into `seen`
   let prefix = '';   // text.slice(0, scanned) at the previous call (append-only check)
   let hit = false;
   const restates = (p, commit) => {
-    const sp = _rrSpeakerOf(p);
+    const sp = speakerOf(p);
     if (!sp) return false;
-    const sh = _rrShingles(_rrWords(p), 8);
-    if (_rrRestated(seen.get(sp), sh)) return true;
+    const sh = shingles(words(p), 8);
+    if (isRestated(seen.get(sp), sh)) return true;
     if (commit) { const acc = seen.get(sp) || new Set(); sh.forEach((s) => acc.add(s)); seen.set(sp, acc); }
     return false;
   };
