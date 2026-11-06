@@ -46,6 +46,10 @@ export default defineConfig({
     // The architecture test shells out to dependency-cruiser, which can take a
     // moment on a cold cache; give the whole suite generous headroom.
     testTimeout: 30_000,
+    // ORW-229 flaky-test rule (docs/CI.md): on GitHub Actions, also list every test that needed CI's automatic retry (`--retry=1` in ci.yml) in the
+    // job summary, so a flake is counted, not hidden (tests/support/flakyReporter.ts). A lane that passes its own `--reporter` (the coverage-shard
+    // blobs) replaces this list; the `coverage` merge job reads those blobs back and reports their retries.
+    reporters: process.env.GITHUB_ACTIONS === "true" ? ["default", "./tests/support/flakyReporter.ts"] : ["default"],
     coverage: {
       provider: "v8",
       include: ["src/**"],
