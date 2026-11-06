@@ -5356,7 +5356,25 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       // reads metadata._db_id). A later softReloadHistory then ADOPTS this bubble (id match) with ZERO
       // churn instead of leaving it an unmatchable orphan beside the canonical reload render (duplicate).
       if (savedDbId) meta_._db_id = savedDbId;
-      chatRenderer.addMessage('assistant', _combined(), model, meta_);
+      // ORW-21 / S17: a settle reconcile (the WS `done`, or a state edge) may already have rebuilt the transcript from history WHILE this reader was still finishing - the settled row with this db id
+      // is then on screen and finalizing in place would add a SECOND copy (no footer, in-world moment stamp). The history row is authoritative: just drop the live holder.
+      let _alreadySettled = false;
+      if (savedDbId) {
+        try {
+          const _box = document.getElementById('chat-history');
+          _alreadySettled = !!(_box && Array.from(_box.querySelectorAll('.msg.msg-ai[data-db-id]')).some((el) => el.dataset.dbId === String(savedDbId) && !el.dataset.liveHolder && !el.dataset.keptLive));
+        } catch (_) { _alreadySettled = false; }
+      }
+      // ...and any OTHER live observer holder (the WS leg's) already stamped with THIS message's db id is the same reply in its unfinalized form - drop it so one canonical row remains.
+      if (savedDbId) {
+        try {
+          const _b2 = document.getElementById('chat-history');
+          if (_b2) _b2.querySelectorAll('.msg.msg-ai[data-live-holder], .msg.msg-ai[data-kept-live]').forEach((el) => { if (el !== holder && el.dataset.dbId === String(savedDbId)) el.remove(); });
+        } catch (_) { /* best-effort DOM cleanup */ }
+      }
+      // ORW-21: the history render is the ONE settled-row composer (ADR 0015). When this reader's reply carries a db id, do not hand-build a second copy in place (its markup drifted from a fresh window's:
+      // header spacing, footer, data-seq) - drop the live holder and let the settle reconcile below paint the authoritative row. Only a reply the server did not persist (no db id) is finalized in place.
+      if (!_alreadySettled && !savedDbId) chatRenderer.addMessage('assistant', _combined(), model, meta_);
       uiModule.scrollHistory();
       // F5 / ADR 0008: a reconcile that raced this live attach may have DEFERRED past it (it saw the
       // `_resumingStreams` lock and added to `_pendingReconcile` instead of rebuilding). Now that the

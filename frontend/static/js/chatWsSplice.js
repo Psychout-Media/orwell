@@ -113,6 +113,10 @@ let _wsRound = null;   // { holder, contentDiv, state, reply, reasoning, session
 // SSE observer's rich resume (resumeStream rich=true: discard the live holder, reload). Reset per
 // run at `done` (frames arrive in run order, `done` last).
 let _wsRichRun = false;
+// ORW-21: when the last observer `done` settled (ms). A run-boundary event that fires right after a settle must not pre-mount a holder: with no frames left to fill it, the empty holder (and the
+// `_resumingStreams` lock `_wsEnsureRound` takes) would sit forever and defer every reconcile - the stale half-painted bubble beside the settled row.
+let _wsLastDoneAt = 0;
+const _WS_POST_DONE_QUIET_MS = 4000;
 const _wsLiveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
 export function _wsResetRound() { _wsRound = null; _wsRichRun = false; }
 
@@ -126,6 +130,12 @@ export function _wsEnsureRound() {
   if (_wsRound && _wsRound.holder && _wsRound.holder.isConnected) return _wsRound;
   const box = document.getElementById('chat-history');
   if (!box) return null;
+  // ORW-21 / S17: ONE live reader per session. If the SSE mirror (`resumeStream`) already owns this session's live render (it holds the `_resumingStreams` lock and has mounted its own holder), the WS
+  // frames of the SAME run must not mount a second holder beside it - the duplicate / half-painted bubble a mid-generation join settled with. The SSE reader finalizes and settles on its own.
+  try {
+    const _sidNow = (sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId()) || null;
+    if (_sidNow && chatState._resumingStreams && chatState._resumingStreams.has(_sidNow)) return null;
+  } catch (_) { /* best-effort: fall through to the normal mount */ }
   const holder = document.createElement('div');
   holder.className = 'msg msg-ai';
   holder.dataset.liveHolder = '1'; // S17: an observer's streamed holder is never finalized in place - chatReconcile rebuilds it from history at settle
@@ -214,6 +224,7 @@ export function _onWsResync(ev) {
 export function _onWsRunBoundary() {
   try { if (chatState._streamSessionId) return; } catch (_) { /* observer path only */ }
   const prior = _wsRound;
+  if (!prior && (Date.now() - _wsLastDoneAt) < _WS_POST_DONE_QUIET_MS) return; // see _wsLastDoneAt: the first delta of a genuinely new run still mounts its holder
   const priorRich = _wsRichRun;   // capture BEFORE _wsResetRound() clears it
   if (prior && prior.holder) {
     // Settle the PRIOR observer round like a synthetic `done`: release the #1570 live-render lock (so a
@@ -322,6 +333,7 @@ export function _onWsChatFrame(frame) {
     // Terminal sentinel (maps `[DONE]`, §3.2). Release the live holder and run the
     // settle reconcile from history — the SAME idempotent, seq-aware softReloadHistory
     // the SSE path settles through; it adopts the streamed bubble by {id, seq}.
+    _wsLastDoneAt = Date.now();
     const round = _wsRound;
     const rich = _wsRichRun;
     const sid = (round && round.sessionId) ||
@@ -335,9 +347,20 @@ export function _onWsChatFrame(frame) {
     _wsResetRound();
     // #1570 — release the OBSERVER live-render lock (added in _wsEnsureRound) so the settle reconcile
     // below can actually rebuild. Harmless no-op for the SENDER (it never took the resuming lock).
-    if (sid) { try { chatState._resumingStreams.delete(sid); } catch (_) {} }
+    // ORW-21: release the lock ONLY if the WS round owned it - when the SSE resume reader owns the render, its own end-of-stream settle releases it (clearing it here would let the reconcile rebuild under it).
+    if (sid && round) { try { chatState._resumingStreams.delete(sid); } catch (_) {} }
     if (sid && chatState._streamSessionId === sid) chatState._streamSessionId = null; // release the active-stream lock
-    if (sid) { try { _softReloadHistory(sid); } catch (_) {} }
+    // ORW-21: the settle reconcile can land while a late frame / the SSE resume reader still owns a live holder (it defers past a live stream), leaving an unfinalized observer holder beside the
+    // history row. Chain ONE follow-up reconcile when the first resolves and an unfinalized live holder is still in the DOM - the second pass rebuilds it (chatReconcile treats an unfinalized live
+    // holder as not converged). No timers; bounded to one retry.
+    if (sid) {
+      try {
+        Promise.resolve(_softReloadHistory(sid)).then(() => {
+          const _box = document.getElementById('chat-history');
+          if (_box && _box.querySelector('.msg.msg-ai[data-live-holder], .msg.msg-ai[data-kept-live]')) return _softReloadHistory(sid);
+        }).catch(() => {});
+      } catch (_) {}
+    }
     return;
   }
 }
