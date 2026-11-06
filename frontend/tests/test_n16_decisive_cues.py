@@ -215,3 +215,15 @@ def test_a_correct_time_a_future_event_time_or_no_clock_is_never_cut(monkeypatch
     ch._LAST_BEAT_SIG[_USER] = dict(nosig)
     _board(monkeypatch, nosig)
     assert _run(ch.screen_streamed_scene_break(_USER, "It's 8:10am on day 4.")) is None
+
+
+def test_an_unvoiced_veto_result_is_regrounded_with_the_winner(monkeypatch):
+    sig = {"week": 1, "phase": "veto-ceremony", "pending": None, "hoh": "npc:1", "noms": ["npc:5", "npc:6"], "vetoHolder": "npc:4", "vetoUsed": False, "evicted": 0, "finished": False}
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+
+    async def fake_capture(user=None):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    ch.note_ceremony_beat_for_voicing(_USER, "Nia Coleman wins the Power of Veto", ["Nia Coleman"])
+    _run(ch.record_post_turn_desync_check(_USER, "Tessa grins. 'Who would I put up? Filthy question.'"))
+    assert _USER in ch._DESYNC_REGROUND and "Nia Coleman" in ch._DESYNC_REGROUND[_USER]
