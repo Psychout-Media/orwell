@@ -7,6 +7,7 @@ import { learn } from "../support/secretLearn";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { LEVERAGE, SECRET_TRADE } from "../../src/engine/leverageConstants";
+import { NO_HARD_CAPS } from "../../src/engine/noHardCapsConstants";
 import { dealAcceptance, leverageDealBoost } from "../../src/engine/leverage";
 import { seasonTrail } from "../support/seasonTrail";
 import type { EntityId } from "../../src/domain/ids";
@@ -333,21 +334,32 @@ Then("the attempt is rejected because the secret is already spent", function (th
   assert.equal(sp(this).spExpose!.refused, "already-spent");
 });
 
-Then("across a full season the number of exposes never exceeds the season cap", function (this: BbWorld) {
+Then("across a full season repeat exposes are never refused as capped, but each one sours the house against the player", function (this: BbWorld) {
+  // Ryne 2026-11-05 (card 24): no arbitrary per-season count. Expose MORE secrets than the old cap of three: none is refused as capped (only a high technical safety valve remains), and the limit is
+  // felt instead: every repeat expose lowers the rest of the house's trust in the player (scaled by how much each had trusted them).
   const st = sp(this);
-  // Try to expose far more secrets than the cap allows, each a distinct learned secret about a distinct houseguest.
+  const rel = (st.spSession as unknown as { rel: { edge(a: string, b: string): { trust: number } } }).rel;
+  const others = st.spSession!.livingIds().filter((id) => id !== PLAYER && id !== st.spSubject).slice(0, LEVERAGE.maxExposesPerSeason + 3);
+  assert.ok(others.length > LEVERAGE.maxExposesPerSeason, "the fixture tries more exposes than the old cap");
+  const meanTrust = (): number => {
+    const ids = st.spSession!.livingIds().filter((i) => i !== PLAYER);
+    return ids.reduce((a, i) => a + rel.edge(i, PLAYER).trust, 0) / ids.length;
+  };
   let exposed = 0;
   let capped = 0;
-  const others = st.spSession!.livingIds().filter((id) => id !== PLAYER && id !== st.spSubject).slice(0, LEVERAGE.maxExposesPerSeason + 3);
+  let sourings = 0;
   for (const id of others) {
+    const before = meanTrust();
     const r = st.spSession!.exposeSecret({ factId: learn(st.spSb!, id) }) as ExposeResult;
     if (r.exposed) exposed++;
     if (r.refused === "capped") capped++;
+    if (meanTrust() < before) sourings++;
   }
-  assert.ok(others.length > LEVERAGE.maxExposesPerSeason, "the fixture tries more exposes than the cap");
-  assert.ok(capped > 0, "exposes past the cap are refused as capped");
-  assert.ok((st.spSession!.snapshot().secretExposeCount ?? 0) <= LEVERAGE.maxExposesPerSeason, "the season's expose count stayed within the cap");
-  assert.ok(exposed + 1 <= LEVERAGE.maxExposesPerSeason, `more than the cap were exposed (${exposed + 1})`); // +1: the one exposed in the Given
+  assert.equal(capped, 0, "no expose is refused as capped: there is no hard count");
+  assert.equal(exposed, others.length, "every distinct secret lands, past the old cap");
+  assert.ok(exposed + 1 > LEVERAGE.maxExposesPerSeason, "more exposes landed than the old cap allowed (the +1 is the one in the Given)");
+  assert.equal(sourings, exposed, "every expose costs: the house trusts the player less after each one");
+  assert.ok((st.spSession!.snapshot().secretExposeCount ?? 0) <= NO_HARD_CAPS.safetyValve, "only the technical safety valve bounds the count");
 });
 
 Then("the spent state survives an engine restart", function (this: BbWorld) {

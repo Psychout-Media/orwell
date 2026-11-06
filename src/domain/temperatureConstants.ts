@@ -1,4 +1,5 @@
 import type { RandomnessSource } from "../ports/RandomnessSource";
+import { clamp01 } from "./num";
 
 /**
  * Temperature & emotional-modifier constants — the SINGLE tunable module (0028).
@@ -118,7 +119,6 @@ export const TEMPERATURE_CONSTANTS: TemperatureConstants = {
 // (audit E52); its result flows into the persisted `soul.emotionalState` via `emotionalArc.evolveEmotion`.
 // A NaN circumstance/temperature input must never propagate. Finite inputs clamp exactly as before.
 // (Kept as a local mirror, not an import, so `src/domain` stays engine-free per the hexagonal layering.)
-const clamp01 = (v: number): number => (Number.isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
 
 /** One bounded, seeded temperature value (the per-moment roll). */
 export function temperatureRoll(rng: RandomnessSource, c: TemperatureConstants = TEMPERATURE_CONSTANTS): number {

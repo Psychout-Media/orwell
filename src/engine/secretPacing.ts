@@ -17,8 +17,7 @@
 import type { EntityId } from "../domain/ids";
 import type { EdgeSignals } from "./relationshipConstants";
 import { SECRET_PACING } from "./secretPacingConstants";
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /** Which 0060 pathway a ripe drip prefers (the channel its ripeness leans on). Both are EXISTING organs. */
 export type DripChannel = "confidant" | "gossip";

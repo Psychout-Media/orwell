@@ -154,6 +154,30 @@ import type { LiveSeasonState } from "../../src/engine/liveSeason";
 afterEach(() => vi.unstubAllEnvs());
 
 function playThroughRuntime(on: boolean, seed: number): LiveSeasonState {
+  // explicit OFF for the strategy layers that now default ON and read/write the belief store (this test proves the OBSERVER alone is read-only)
+  vi.stubEnv("ORWELL_ASSURANCES", "0");
+  vi.stubEnv("ORWELL_VOTE_COUNT", "0");
+  vi.stubEnv("ORWELL_VETO_MEMORY", "0");
+  vi.stubEnv("ORWELL_DEAL_NOMS", "0");
+  vi.stubEnv("ORWELL_CAMPAIGN_MEMORY", "0");
+  vi.stubEnv("ORWELL_APPROACH_MEMORY", "0");
+  vi.stubEnv("ORWELL_HC_MEMORY", "0");
+  vi.stubEnv("ORWELL_MEMORY_PROMISES", "0");
+  vi.stubEnv("ORWELL_FORGIVENESS", "0");
+  vi.stubEnv("ORWELL_LOBBYING", "0");
+  vi.stubEnv("ORWELL_DESIRE_CLOCK", "0");
+  vi.stubEnv("ORWELL_WANT_MOVEMENT", "0");
+  vi.stubEnv("ORWELL_MULTI_NIGHT_FATIGUE", "0");
+  vi.stubEnv("ORWELL_MORNING_APPROACH", "0");
+  vi.stubEnv("ORWELL_NPC_TELLS", "0");
+  vi.stubEnv("ORWELL_TELL_REACTIONS", "0");
+  vi.stubEnv("ORWELL_MOOD_VETO", "0");
+  vi.stubEnv("ORWELL_MOOD_APPROACH", "0");
+  vi.stubEnv("ORWELL_MOOD_DEAL", "0");
+  vi.stubEnv("ORWELL_MOOD_CAMPAIGN", "0");
+  vi.stubEnv("ORWELL_DRIFT_FIX", "0");
+  vi.stubEnv("ORWELL_NPC_MEMORY_SPEECH", "0");
+  vi.stubEnv("ORWELL_DRIVE_DECISIONS", "0");
   vi.stubEnv("ORWELL_NPC_BELIEFS", on ? "1" : "0");
   vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0"); // the claim OBSERVER must be read-only; the nomination/vote TERM (default ON since P4f) legitimately moves outcomes and is covered by beliefNoms/beliefVoteTilt
   const rt = composeRuntime({ saveStore: new FileSaveStore(freshTmpDir("orwell-s0b2-")) });

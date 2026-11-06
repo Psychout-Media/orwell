@@ -2,6 +2,8 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { NO_HARD_CAPS } from "../../src/engine/noHardCapsConstants";
+import { lieProbScale } from "../../src/engine/repetitionCost";
 import { buildSandbox } from "../../tests/support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
 import { RelationshipModel } from "../../src/engine/relationships";
@@ -388,8 +390,19 @@ Given("a full season is played", function (this: BbWorld) {
   }
 });
 
-Then("the number of false confidences never exceeds the season cap", function (this: BbWorld) {
-  assert.ok(lieCountOf(cf(this).cSession!) <= CONFIDENCE.maxLiesPerSeason);
-  // ...AND non-manipulators never lie (the cap alone held even if everyone lied up to it).
+Then("false confidences stay rare, held down by consequences rather than a hard cap", function (this: BbWorld) {
+  // Ryne 2026-11-05 (card 24): no arbitrary per-season count. The limit is felt instead: (1) not every would-be liar lies (a lie is a strategic choice, so a house of liars never happens), (2) a liar who
+  // has already lied lies LESS often next time (a repeat is rarer, floored so a manipulator still can), and (3) only a high technical safety valve remains.
+  const s = cf(this).cSession!;
+  const liars = houseOf(s).npcs.filter((n) => (n.character.hiddenElements ?? []).length).length;
+  const lies = lieCountOf(s);
+  assert.ok(lies > 0, "some would-be liars do lie (the lever is live)");
+  assert.ok(lies < liars, `lies stay rare: ${lies} lies from ${liars} would-be liars, not everyone`);
+  assert.ok(lies <= NO_HARD_CAPS.safetyValve, "only the technical safety valve bounds the count");
+  assert.equal(lieProbScale(0), 1, "a fresh liar rolls at the base chance");
+  assert.ok(lieProbScale(1) < lieProbScale(0), "each lie told makes that liar's next lie less likely");
+  assert.ok(lieProbScale(100) >= NO_HARD_CAPS.lieRepeatFloor && lieProbScale(100) > 0, "...but never to zero: it is frequency, not a count");
+  // ...AND non-manipulators never lie.
   for (const r of cf(this).cWarmResults ?? []) assert.ok(r.truthful, "a warm non-manipulator never tells a false confidence");
 });
+

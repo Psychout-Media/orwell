@@ -1,5 +1,6 @@
 // A9 flip (2026-11-04): the BDD lane exercises the premiere through the pre-A9 champagne-circle scenarios (0111 etc.); the entrance scenarios opt IN via setPremiereEntrancesEnabled(true).
 process.env.ORWELL_PREMIERE_ENTRANCES = "0";
+process.env.ORWELL_BEDTIME_GATE = "0"; // the BDD lane turns in at 8am in several scenarios; the bedtime gate has its own unit test
 // Cucumber.js configuration (CommonJS so it loads regardless of "type": "module").
 // TypeScript step definitions are loaded through the tsx ESM loader, wired via
 // NODE_OPTIONS="--import tsx" in the `test:bdd` npm script.

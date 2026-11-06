@@ -74,6 +74,7 @@ describe("npcVoice memory in speech (A54)", () => {
   });
   it("the narrator instruction rides only the flag (OFF prompt byte-identical; ON names bringUp as the engine's decision)", () => {
     const { s } = game();
+    s.setNpcMemorySpeechEnabled(false); // defaults ON since 2026-11-05; this asserts the OFF prompt
     const sess = s as unknown as { getMomentPrompt(a: object): { systemPrompt: string } };
     const off = sess.getMomentPrompt({}).systemPrompt;
     expect(off).not.toContain("rememberedAboutYou");

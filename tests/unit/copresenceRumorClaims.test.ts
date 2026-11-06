@@ -105,6 +105,30 @@ describe("B36/B24 - the co-presence receipt writes a heard-rumor claim", () => {
 
 describe("B36/B24 - the production runtime under ORWELL_GOSSIP_COPRESENCE writes heard-rumor claims, read-only", () => {
   function play(beliefs: boolean): LiveSeasonState {
+    // explicit OFF for the strategy layers that now default ON (they read/write the belief store this test inspects)
+  vi.stubEnv("ORWELL_ASSURANCES", "0");
+  vi.stubEnv("ORWELL_VOTE_COUNT", "0");
+  vi.stubEnv("ORWELL_VETO_MEMORY", "0");
+  vi.stubEnv("ORWELL_DEAL_NOMS", "0");
+  vi.stubEnv("ORWELL_CAMPAIGN_MEMORY", "0");
+  vi.stubEnv("ORWELL_APPROACH_MEMORY", "0");
+  vi.stubEnv("ORWELL_HC_MEMORY", "0");
+  vi.stubEnv("ORWELL_MEMORY_PROMISES", "0");
+  vi.stubEnv("ORWELL_FORGIVENESS", "0");
+  vi.stubEnv("ORWELL_LOBBYING", "0");
+  vi.stubEnv("ORWELL_DESIRE_CLOCK", "0");
+  vi.stubEnv("ORWELL_WANT_MOVEMENT", "0");
+  vi.stubEnv("ORWELL_MULTI_NIGHT_FATIGUE", "0");
+  vi.stubEnv("ORWELL_MORNING_APPROACH", "0");
+  vi.stubEnv("ORWELL_NPC_TELLS", "0");
+  vi.stubEnv("ORWELL_TELL_REACTIONS", "0");
+  vi.stubEnv("ORWELL_MOOD_VETO", "0");
+  vi.stubEnv("ORWELL_MOOD_APPROACH", "0");
+  vi.stubEnv("ORWELL_MOOD_DEAL", "0");
+  vi.stubEnv("ORWELL_MOOD_CAMPAIGN", "0");
+  vi.stubEnv("ORWELL_DRIFT_FIX", "0");
+  vi.stubEnv("ORWELL_NPC_MEMORY_SPEECH", "0");
+  vi.stubEnv("ORWELL_DRIVE_DECISIONS", "0");
     vi.stubEnv("ORWELL_GOSSIP_COPRESENCE", "1");
     vi.stubEnv("ORWELL_NPC_BELIEFS", beliefs ? "1" : "0");
     vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0");

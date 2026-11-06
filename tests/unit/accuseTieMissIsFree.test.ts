@@ -14,6 +14,8 @@ import type { AccuseTieResult } from "../../src/ports/GameSession";
 function season(seed: number): UserSandbox {
   const sb = new GameSessionRegistry().sandboxFor(`atf-${seed}-${Math.random()}`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
+  // This file pins TODAY's free-miss behaviour: the B50 miss cost (ORWELL_ACCUSE_COST) now defaults ON, so it is pinned OFF explicitly here (accuseCost.test.ts covers ON).
+  (sb.session as unknown as { setAccuseCostEnabled(on: boolean): void }).setAccuseCostEnabled(false);
   return sb;
 }
 const npcIds = (sb: UserSandbox): EntityId[] => sb.session.livingIds().filter((i) => i !== PLAYER);

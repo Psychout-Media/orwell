@@ -211,6 +211,19 @@ def _reset_cast_authoring_ledger() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _reset_scene_cut_streak():
+    """ORW-10: the scene circuit-breaker's consecutive-cut streak is process-global state keyed by user. Several guard tests cut a scene as the SAME user across tests with no clean turn between,
+    which (correctly, in production) turns the 2nd consecutive cut into the neutral engine-true directive and hides the specific correction the test asserts. Reset it per test."""
+    ch = sys.modules.get("routes.chat_helpers")
+    if ch is not None and hasattr(ch, "_CUT_STREAK"):
+        ch._CUT_STREAK.clear()
+    yield
+    ch = sys.modules.get("routes.chat_helpers")
+    if ch is not None and hasattr(ch, "_CUT_STREAK"):
+        ch._CUT_STREAK.clear()
+
+
+@pytest.fixture(autouse=True)
 def _join_stray_capability_probe_threads(monkeypatch):
     """T0-4 (#1821): ``capability_probe.probe_endpoint_background`` fires a REAL daemon thread
     (real network calls, real settings writes) whenever a test POSTs to

@@ -156,6 +156,9 @@ When("that drive's intensity rises past the campaign threshold", function (this:
   const [owner, target] = [ids[0]!, ids[1]!];
   for (const o of ids) if (o !== owner) { rel.edge(owner, o).threat = 0.1; rel.edge(owner, o).affinity = 0.2; }
   rel.edge(owner, target).threat = 0.95;
+  // PINNED (ORW release blocker, Ryne: built means ON): with ORWELL_VOTE_COUNT on, an evict campaign forms only while the owner believes the count is IN DOUBT (B5, by design), and this crafted house has
+  // no doubt, so no campaign forms. This scenario tests promotion BY INTENSITY, so the vote-count gate is switched off here; the gate itself is covered by voteEstimate.test.ts.
+  session.setVoteCountEnabled(false);
   session.campaignTick();
   dw(this).dwSession = session; dw(this).dwSubject = owner; dw(this).dwTarget = target;
   dw(this).dwCampaign = campsOf(session).find((c) => c.owners[0] === owner && c.target === target);

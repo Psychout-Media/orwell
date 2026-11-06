@@ -151,6 +151,7 @@ describe("the adapter wiring (live, campaigns on)", () => {
     rel.edge(ids[0]!, ids[1]!).threat = 0.85;
     rel.edge(ids[0]!, ids[2]!).affinity = 0.95; // the lobby reaches ids[2]
     session.setCampaignsEnabled(true);
+    session.setVoteCountEnabled(false); session.setMoodCampaignEnabled(false); session.setCampaignMemoryEnabled(false); session.setNpcTellsEnabled(false); // explicit OFF: these default ON now and gate/alter campaign formation
     session.campaignTick();
     const push = ctxOf(session).campaignPushFor!;
     expect(camps(session).some((c) => c.goal === "evict" && c.target === ids[1])).toBe(true);

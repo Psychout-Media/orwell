@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it, expect, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";

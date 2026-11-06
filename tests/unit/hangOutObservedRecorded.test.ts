@@ -10,6 +10,7 @@ function parked(seed: number, user: string) {
   const sb = new GameSessionRegistry().sandboxFor(user);
   const s = sb.session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed });
+  s.setDesireClockEnabled(false); s.setWantMovementEnabled(false); s.setMorningApproachEnabled(false); s.setMoodApproachEnabled(false); s.setApproachMemoryEnabled(false); s.setNpcTellsEnabled(false); // explicit OFF: these default ON now and re-time the hang-out stops this fixture counts
   s.setPerConversationClockEnabled(true); s.setHangOutEnabled(true);
   for (let i = 0; i < 600; i++) {
     const v = s.advanceGame();

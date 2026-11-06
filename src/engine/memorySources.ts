@@ -9,9 +9,9 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "hcMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "hcMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
 
-export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "approaches";
+export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
@@ -24,6 +24,8 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor"],
   // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.
   houseguestsChoice: ["hcMemoryFor"],
+  // Each juror's finale vote (`precomputeVotes`): relationship + manner + game respect + (B26, ORWELL_JURY_MEMORY) the juror's memory of the finalist.
+  juryVote: ["juryMemoryFor"],
   // Who approaches the player (`rankApproaches` in conversation.ts, called by the adapter's `socialInitiatives`): edges + (B7 M1b, ORWELL_APPROACH_MEMORY) one memory/owed bias passed as the `memoryBias` hook,
   // NOT a SeasonCtx provider - held by tests/unit/approachMemory.test.ts instead of the liveSeason scan.
   approaches: ["approachMemoryFor", "moodApproachFor"],
@@ -42,7 +44,7 @@ export type OtherDecision = "tieBreak" | "jury" | "final3Eviction" | "secretVeto
 
 export const OTHER_DECISION_READS: Readonly<Record<OtherDecision, readonly string[]>> = {
   tieBreak: ["voteChoice"],
-  jury: ["edgeAsJuryRel", "mannerFor", "gameRespectTerm", "appealPerf", "jurorProfile"],
+  jury: ["edgeAsJuryRel", "gameRespectTerm", "appealPerf", "jurorProfile"], // A62: the recorded manner (and a juror's possibly mistaken blame) now arrives inside edgeAsJuryRel, no separate mannerFor read
   final3Eviction: ["byThreat"],
   secretVetoReplacement: ["nominationScore"],
   dealConsent: ["memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor"],
