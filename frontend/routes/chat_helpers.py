@@ -3576,6 +3576,16 @@ _NAME_STOPWORDS_FIRST = {
     "the", "a", "an", "this", "that", "these", "those", "his", "her", "their", "your", "our", "my",
     "you", "i", "we", "he", "she", "they", "it", "and", "but", "or", "then", "now", "so", "as",
 }
+# ORW-180: capitalized sentence-initial TRANSITION/adverb words ("Meanwhile Marcus said...") are not a first name.
+# Live 11-06: "Meanwhile <real houseguest>" read as an unknown two-token full name and stashed a bogus re-ground.
+# The word is skipped and the scan resumes at the NEXT token, so a real invented name after it ("Suddenly Zed Quill
+# said") is still caught.
+_NAME_TRANSITION_FIRST = {
+    "meanwhile", "later", "suddenly", "soon", "then", "next", "finally", "eventually", "afterward", "afterwards",
+    "earlier", "elsewhere", "instead", "still", "meantime", "momentarily", "presently", "shortly", "today", "tonight",
+    "tomorrow", "yesterday", "however", "anyway", "also", "once", "after", "before", "while", "when", "just", "even",
+    "here", "there", "outside", "inside", "upstairs", "downstairs", "slowly", "quickly", "quietly",
+}
 
 
 def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -> Optional[str]:
@@ -3589,7 +3599,18 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
     enough to flag a bare capitalized token on its own."""
     if not sentence or not sentence.strip():
         return None
-    for m in _TWO_TOKEN_NAME_RE.finditer(sentence):
+    _matches = []
+    _pos = 0
+    while True:
+        m = _TWO_TOKEN_NAME_RE.search(sentence, _pos)
+        if not m:
+            break
+        if m.group(1).lower() in _NAME_TRANSITION_FIRST:
+            _pos = m.start(2)  # ORW-180: drop the transition word, rescan from the token after it
+            continue
+        _matches.append(m)
+        _pos = m.end()
+    for m in _matches:
         first_l = m.group(1).lower()
         second_l = m.group(2).lower()
         full = f"{m.group(1)} {m.group(2)}"
