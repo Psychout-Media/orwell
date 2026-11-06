@@ -839,6 +839,7 @@ export class BbWorld extends World {
     fm?: {
       session: import("../../src/adapters/engine/GameSessionAdapter").GameSessionAdapter;
       exit?: import("../../src/ports/GameSession").AdvanceView;
+      hour?: number;
       next?: import("../../src/ports/GameSession").AdvanceView;
     };
   };

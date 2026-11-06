@@ -668,6 +668,8 @@ export interface LiveSeasonState {
   firstMorningPassed?: boolean;
   /** ORW-116 (a): set once the first NIGHT (premiere evening -> first morning) has been crossed, so the first HOH can be due that afternoon. Clock-live only; absent => byte-identical. */
   firstNightPassed?: boolean;
+  /** ORW-116 (b): true once a PLAYER conversation has ticked the clock. The night-hold only protects a night the player is actually playing; a headless driver that never talks keeps the pre-hold day-breaks. Serialization-neutral (undefined). */
+  clockInteractive?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
@@ -775,6 +777,8 @@ export interface SeasonCtx {
    * game) ⇒ the gate is fully inert ⇒ BYTE-IDENTICAL to the pre-feature model.
    */
   nightGate?: boolean;
+  /** ORW-116 (b): with the clock live, a night-gate day-break only runs once the NIGHT IS OVER (the player turned in, or the clock reached the next 8am). Unset (calibration, spectator, admin fast-forward) => the day-breaks run as before. */
+  nightHold?: boolean;
   /**
    * The OPEN deals binding a houseguest (0039 → 0044): an eviction vote leans away from evicting
    * a party the voter promised to protect — and breaking that lean anyway is a real betrayal the
@@ -2014,6 +2018,46 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
   if (hours > 0) advanceClockBy(s, hours, false);
 }
 
+/** ORW-116 (b): would the NEXT ordinary advance be a night-gate day-break (the beat that rolls the night)? Pure read of the same one-shot flags `advance` tests. */
+export function nightBreakPending(s: LiveSeasonState): boolean {
+  if (s.twist?.phase === "running" || s.nightDepth === undefined) return false;
+  switch (s.beat) {
+    case "hoh-competition": return s.week === 1 && !s.firstNightPassed && (s.dayNumber ?? 1) < 2;
+    case "nominations": return !s.preNomsNightPassed;
+    case "veto-competition": return !s.preVetoNightPassed && !s.vetoField;
+    case "veto-ceremony": return !s.preVetoCeremonyNightPassed;
+    case "eviction": return !s.preEvictionNightPassed && !s.eviction;
+    default: return false;
+  }
+}
+
+/**
+ * ORW-116 (b), Ryne's rule: the night is NEVER auto-run. With the clock live, the people stay social through the evening and the night until the PLAYER turns in, or the clock reaches the next 8am
+ * (full sleep debt, no forced bedtime). So a night-gate day-break (the beat that rolls the night) is HELD until the night is over; a plain advance, an NPC-ceremony pre-resolve, or a chained step
+ * can no longer slide the game overnight. No clock (`nightDepth` unset) => never held.
+ */
+export function nightHeld(s: LiveSeasonState): boolean {
+  return s.clockInteractive === true && !nightIsOver(s);
+}
+
+export function nightIsOver(s: LiveSeasonState): boolean {
+  if (s.nightDepth === undefined) return true;
+  return s.playerRetired === true || s.nightDepth >= DAY_END_HOUR - 0.01;
+}
+
+/** ORW-116 (a): the clock-hour the first night starts at when the premiere ends (the premiere and toast are the evening; the night is the social night after). */
+export const FIRST_NIGHT_HOUR = 20;
+/** ORW-116: time passes through the premiere entrances/toast (NOT a player conversation, so it does not arm the night-hold). Clamped below the pre-dawn edge. */
+export function tickPremiereClock(s: LiveSeasonState, hours: number): void {
+  if (s.nightDepth === undefined || hours <= 0) return;
+  s.nightDepth = Math.min(s.nightDepth + hours, DAY_END_HOUR - 0.0001);
+  s.timeOfDay = phaseForHour(s.nightDepth);
+}
+/** ORW-116: the houseguests ENTER in the afternoon - the in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
+export const PREMIERE_ENTRY_HOUR = 16;
+/** Hours each premiere entrance / toast release costs (time passing, not a skip): 16 entrances put the toast in the evening. */
+export const PREMIERE_STEP_HOURS = 0.15;
+
 /**
  * #1320 night-gate — cross the night to the NEXT MORNING as a clean day boundary (the HOH→nominations
  * gate: nominations must not land the same in-fiction moment as the crown). Unlike the per-beat/per-
@@ -2023,14 +2067,13 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
  * between the crown and the noms is a normal night's rest, and any real deficit is (re)banked by the
  * player's own `turnIn` / the per-beat wraps during the days of play that follow before the next comp.
  */
-/** ORW-116 (a): the clock-hour the first night starts at when the premiere ends (the premiere and toast are the evening; the night is the social night after). */
-export const FIRST_NIGHT_HOUR = 20;
-
 export function crossToNextDay(s: LiveSeasonState): void {
   if (s.nightDepth === undefined) return; // dormant until the per-beat clock starts the day
   // A69: a REAL night is crossed only if the clock has moved past this morning's wake. Just after the player's turn-in the clock sits AT the wake (the turn-in's recap already moved the day), so
   // crossing again is the same morning - not a second night.
   if (s.nightDepth > (s.wakeHour ?? WAKE_HOUR) + 1e-6) s.dayNumber = (s.dayNumber ?? 1) + 1;
+  // ORW-116 (b): the player outlasted the whole night without turning in (the clock sat at the bitter pre-dawn edge) - they wake at 8am running on empty: FULL sleep debt, same as the per-beat wrap.
+  if (!s.playerRetired && s.nightDepth >= DAY_END_HOUR - 0.01) { s.lastSleepDepth = DAY_END_HOUR; s.lastSleepPhase = DAY_END_HOUR; }
   s.wakeHour = undefined;
   s.nightDepth = WAKE_HOUR;
   s.timeOfDay = DAY_START;
@@ -2713,24 +2756,11 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
 
   switch (s.beat) {
     case "hoh-competition":
-      // P4b FIRST MORNING (live screen check on main 24936f96): the premiere exit used to start the clock AND raise the first HOH's comp card at 8am on day 1 — no
-      // 8->12 social morning, and the HOH could be played at 8am (the FE due-gate cannot hold a card that is already pending). With the clock live (`ctx.nightGate`)
-      // the premiere exit is now a one-shot diegetic `day-break` that STARTS day 1 at 8am without staging the comp; the NEXT advance (held by the FE's due-gate until
-      // the afternoon) is where the HOH actually starts. One-shot, week 1 only, never during a twist; clock off (the seeded calibration spine) skips it => byte-identical.
-      if (ctx.nightGate && s.week === 1 && !s.firstMorningPassed && s.nightDepth === undefined && s.twist?.phase !== "running") {
-        // ORW-116 (a) (Ryne 2026-11-06): the houseguests ENTER in the afternoon, the premiere and the toast are the EVENING, the player socializes THAT NIGHT, and the first HOH is the NEXT afternoon. So the premiere
-        // exit starts the clock at the first NIGHT (not 8am), and the first HOH waits for the next day (see `milestoneDue`).
-        s.firstMorningPassed = true; // legacy name: the premiere-exit one-shot has fired
-        s.nightDepth = FIRST_NIGHT_HOUR;
-        s.timeOfDay = "night";
-        return {
-          beat: "day-break",
-          content: "The champagne toast is over, and the first night in the house begins. The Head of Household competition is tomorrow afternoon.",
-          participants: [],
-        };
-      }
+      // ORW-116 (Ryne 2026-11-06): NO phase advance moves the clock. The clock starts at the premiere ENTRY (afternoon) and ticks through the entrances and the toast for real (see the adapter), so the premiere
+      // exit is just the next beat, and the first night is the player's to spend (below).
       // ORW-116 (a): the first NIGHT is crossed (the player turned in, or the night ran out) before the first HOH: one diegetic day-break to the first morning, the competition set for that afternoon.
-      if (ctx.nightGate && s.week === 1 && s.firstMorningPassed && !s.firstNightPassed && (s.dayNumber ?? 1) < 2 && s.twist?.phase !== "running") {
+      if (ctx.nightGate && s.week === 1 && s.nightDepth !== undefined && !s.firstNightPassed && (s.dayNumber ?? 1) < 2 && s.twist?.phase !== "running") {
+        if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): the first night is the player's to spend
         s.firstNightPassed = true;
         crossToNextDay(s);
         return {
@@ -2768,6 +2798,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // gates must NOT fire during it — that would stretch the same-night second cycle across days. Skip
       // every day-break while `s.twist?.phase === "running"`; the ordinary (non-twist) week is untouched.
       if (ctx.nightGate && !s.preNomsNightPassed && s.twist?.phase !== "running") {
+        if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preNomsNightPassed = true;
         crossToNextDay(s);
         return {
@@ -2809,6 +2840,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // advance into it crosses the night as a one-shot diegetic day-break, before the chip draw. GATED on
       // the clock ⇒ a clock-off calibration game skips it ⇒ byte-identical.
       if (ctx.nightGate && !s.preVetoNightPassed && !s.vetoField && s.twist?.phase !== "running") {
+        if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preVetoNightPassed = true;
         crossToNextDay(s);
         return {
@@ -2829,6 +2861,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // was removed; that work brings its own flag when it is built.
       // Phase 3a NIGHT-GATE: the veto ceremony is its own day (Day 4). One-shot day-break before it resolves.
       if (ctx.nightGate && !s.preVetoCeremonyNightPassed && s.twist?.phase !== "running") {
+        if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preVetoCeremonyNightPassed = true;
         crossToNextDay(s);
         return {
@@ -2869,6 +2902,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // Phase 3a NIGHT-GATE: eviction is its own day (Day 5). One-shot day-break before the reveal begins —
       // guarded on `!s.eviction` so a mid-reveal re-entry never re-fires it. GATED on the clock (byte-identical off).
       if (ctx.nightGate && !s.preEvictionNightPassed && !s.eviction && s.twist?.phase !== "running") {
+        if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preEvictionNightPassed = true;
         crossToNextDay(s);
         return {
