@@ -37,6 +37,9 @@ say "fake model :$FAKE_PORT"
 wait_http "http://127.0.0.1:$FAKE_PORT/v1/models" fake-model || exit 1
 
 say "front end :$FE_PORT"
+# auth.json/sessions/app.db live in frontend/data regardless of ORWELL_DATA_DIR (same as run_mirror_gate.sh):
+# clear them so this throwaway admin account is the one that exists. These are runtime files, never committed.
+mkdir -p "$ROOT/frontend/data"; rm -f "$ROOT/frontend/data/auth.json" "$ROOT/frontend/data/sessions.json" "$ROOT/frontend/data/app.db" "$ROOT/frontend/data/settings.json"
 ( cd "$ROOT/frontend" && ORWELL_ADMIN_USER=$ADMIN_USER ORWELL_ADMIN_PASSWORD="$ADMIN_PW" ORWELL_SKIP_ADMIN_PROMPT=1 \
     ORWELL_SKIP_RUN_HINT=1 ORWELL_DATA_DIR="$S/fe-data" .venv/bin/python setup.py >"$S/logs/setup.log" 2>&1 )
 ( cd "$ROOT/frontend" && exec env ORWELL_GAME_BUILD=1 AUTH_ENABLED=true LOCALHOST_BYPASS=false ORWELL_ENRICHMENT_POLICY=soft \

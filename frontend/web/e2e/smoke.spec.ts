@@ -80,3 +80,36 @@ async function sessionId(page: Page): Promise<string> {
   const r = await page.request.get('/api/orwell/game-session');
   return ((await r.json()) as { sessionId: string }).sessionId;
 }
+
+test('decision card: a pending nominations card submits the classic payload with an idempotency key', async ({ page }) => {
+  await signIn(page);
+  // The seeded game sits at the premiere with nothing pending, so the engine's pending is simulated at the
+  // network edge; the POST is captured and never reaches the engine.
+  await page.route('**/api/orwell/state', async (route) => {
+    const r = await route.fetch();
+    const j = await r.json();
+    const house = (j.house ?? []).slice(0, 4) as Array<{ id: string; name: string }>;
+    j.pending = { kind: 'nominations', prompt: 'Nominate two houseguests.', options: house.map((h) => ({ id: h.id, name: h.name })) };
+    await route.fulfill({ response: r, json: j });
+  });
+  let posted: Record<string, unknown> | null = null;
+  await page.route('**/api/orwell/decision', async (route) => {
+    posted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ json: { beatSeq: 99 } });
+  });
+  await page.goto('/play');
+  const card = page.getByTestId('decision-card');
+  await expect(card).toBeVisible();
+  const confirm = page.getByTestId('decision-confirm');
+  await expect(confirm).toBeDisabled();
+  const options = card.locator('button[aria-pressed]');
+  await options.nth(0).click();
+  await expect(confirm).toBeDisabled(); // two are required
+  await options.nth(1).click();
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(card).toContainText('Locked in');
+  expect(posted).toMatchObject({ kind: 'nominations' });
+  expect((posted as unknown as { choice: string[] }).choice).toHaveLength(2);
+  expect(String((posted as unknown as { idempotency_key: string }).idempotency_key)).toMatch(/^dec:nominations\|/);
+});
