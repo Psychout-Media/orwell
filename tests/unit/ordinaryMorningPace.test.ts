@@ -23,7 +23,7 @@ describe("a scripted chat morning", () => {
     const s = new GameSessionRegistry().sandboxFor(`pace-${Math.random()}`).session;
     s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
     s.setPerConversationClockEnabled(true);
-    s.advanceGame(); s.advanceGame();                 // premiere -> the day starts at 8am
+    s.advanceGame(); s.advanceGame(); s.advanceGame(); // premiere -> first night -> the first morning at 8am (ORW-116 a)                 // premiere -> the day starts at 8am
     return s;
   }
   const hour = (s: GameSessionAdapter): number => s.snapshot().live?.nightDepth ?? 0;
@@ -56,7 +56,7 @@ describe("P4c regression + behaviour (AMEND time-stack v2 tests 2-4)", () => {
     const s = new GameSessionRegistry().sandboxFor(`pace2-${Math.random()}`).session;
     s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
     s.setPerConversationClockEnabled(true);
-    s.advanceGame(); s.advanceGame();
+    s.advanceGame(); s.advanceGame(); s.advanceGame(); // premiere -> first night -> the first morning at 8am (ORW-116 a)
     return s;
   }
   const hour = (s: GameSessionAdapter): number => s.snapshot().live?.nightDepth ?? 0;

@@ -23,7 +23,7 @@ function parked(seed: number, user = `ho${seed}`, afterFirstCeremony = false): S
     const v = s.advanceGame();
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
     const st = s.getGameState() as { daySchedule?: { due: boolean } };
-    if (st.daySchedule && st.daySchedule.due === false && !(s.getGameState() as { pending?: unknown }).pending && (!afterFirstCeremony || (s.snapshot() as unknown as { live: { hoh?: string } }).live.hoh !== undefined)) return s;
+    if (st.daySchedule && st.daySchedule.due === false && ((s.snapshot() as unknown as { live: { dayNumber?: number } }).live.dayNumber ?? 1) >= 2 && !(s.getGameState() as { pending?: unknown }).pending && (!afterFirstCeremony || (s.snapshot() as unknown as { live: { hoh?: string } }).live.hoh !== undefined)) return s;
   }
   return null;
 }

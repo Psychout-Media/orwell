@@ -21,7 +21,7 @@ describe("the per-conversation clock brings a scheduled milestone due on its own
         const v = s.advanceGame();
         if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
         const st = s.getGameState() as { daySchedule?: { due: boolean } };
-        if (st.daySchedule && st.daySchedule.due === false) {
+        if (st.daySchedule && st.daySchedule.due === false && ((s.snapshot() as unknown as { live: { dayNumber?: number } }).live.dayNumber ?? 1) >= 2) { // ORW-116 (a): park on a MORNING (the first night is not one)
           let turns = 0;
           while (turns < 150 && !(s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { s.advanceClockPerConversation(); turns += 1; }
           expect(turns, `seed ${seed}: due within a bounded number of lingering turns`).toBeLessThan(150);

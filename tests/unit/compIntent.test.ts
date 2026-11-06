@@ -63,7 +63,7 @@ describe("0006 staged-rounds — a declared throw measurably lowers the player's
     s.createCharacter({ playerName: "P", seed: 2 });
     s.advanceGame(); // 0111: close the premiere champagne circle
     let view = s.advanceGame(); // now the first HOH stages
-    if (view.event?.beat === "day-break") view = s.advanceGame(); // P4b: with the clock live the premiere exit is the first-morning day-break; the HOH stages on the NEXT advance
+    while (view.event?.beat === "day-break") view = s.advanceGame(); // P4b: with the clock live the premiere exit is the first-morning day-break; the HOH stages on the NEXT advance
     expect(view.pending?.kind).toBe("comp-round");
     expect(view.pending!.options.map((o) => o.id)).toEqual(["compete", "throw", "play-safe"]);
     // The staged prompt carries WHO IS STILL IN this round (the narrowed field) + the round number.

@@ -16,6 +16,7 @@ function game(gate: boolean) {
   (s as unknown as Peek).setBedtimeGateEnabled(gate);
   const live = () => (s as unknown as Peek).snapshot().live;
   for (let i = 0; i < 80 && live().nightDepth === undefined; i++) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); }
+  s.advanceGame(); // ORW-116 (a): the premiere exit starts the first NIGHT; this advance crosses it to the first morning (8am)
   return { s, live };
 }
 const label = (s: GameSessionAdapter) => (s.getGameState() as { clockLabel?: string }).clockLabel;

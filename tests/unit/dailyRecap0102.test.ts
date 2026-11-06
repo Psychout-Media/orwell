@@ -109,7 +109,7 @@ describe("0102 — the recap is stitched from witnessed + already-surfaced mater
     for (let i = 0; i < 3; i++) { const a = session.advanceGame(); if (a.pending) resolveLegally(session, a.pending); }
     const v = session.turnIn();
     expect(v.dailyRecap).toBeDefined();
-    expect(v.dailyRecap!.day).toBe(1);
+    expect(v.dailyRecap!.day).toBe(2); // ORW-116: Day 1 is the premiere + first night; the first HOH is Day 2's afternoon
     expect(Array.isArray(v.dailyRecap!.highlights)).toBe(true);
     expect(v.dailyRecap!.highlights.length).toBeGreaterThan(0); // real weekly-loop beats happened
   });

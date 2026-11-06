@@ -18,7 +18,7 @@ function morning(seed: number, user: string, flag: boolean) {
   for (let i = 0; i < 40; i++) {
     const live = s.snapshot().live as unknown as Live;
     const st = s.getGameState() as { pending?: unknown; daySchedule?: { due: boolean } };
-    if (live.champagneCircle !== "gathered" && live.hoh === undefined && !st.pending && st.daySchedule?.due === false) return s;
+    if (live.champagneCircle !== "gathered" && (live as unknown as { timeOfDay?: string }).timeOfDay === "morning" && live.hoh === undefined && !st.pending && st.daySchedule?.due === false) return s;
     const v = s.advanceGame();
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
   }

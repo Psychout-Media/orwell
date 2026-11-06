@@ -30,7 +30,7 @@ function walkToDone(s: GameSessionAdapter): void {
 
 describe("entrances ON + clock ON (the shipped combination)", () => {
   for (const seed of [3, 11, 21]) {
-    it(`seed ${seed}: done -> one advance -> day-break at 8am, no comp card, HOH not due; the morning holds 48 messages; then the HOH stages in the afternoon`, () => {
+    it(`seed ${seed}: done -> first night (20:00) -> day-break at 8am, no comp card, HOH not due; the morning holds 48 messages; then the HOH stages in the afternoon (ORW-116 a)`, () => {
       const s = shipped(seed);
       // The premiere has no clock: nothing has started the day yet.
       expect(live(s).timeOfDay, "no clock during the entrances").toBeUndefined();
@@ -38,7 +38,14 @@ describe("entrances ON + clock ON (the shipped combination)", () => {
       expect(live(s).timeOfDay, "no clock during the toast either").toBeUndefined();
       expect(live(s).hoh).toBeUndefined();
 
-      // ONE more advance: the day-break.
+      // ORW-116 (a, Ryne): the premiere and toast were the EVENING; the next advance starts the first NIGHT (20:00) with no comp card, and the first HOH is not due that night.
+      const n = s.advanceGame();
+      expect(n.pending ?? null, "the first-night day-break opens no competition card").toBeNull();
+      expect(live(s).timeOfDay).toBe("night");
+      expect(live(s).nightDepth).toBe(20);
+      expect(milestoneDue(live(s) as never), "the first HOH is not due on the premiere night").toBe(false);
+
+      // ONE more advance: the first night is crossed to the first morning (day-break).
       const v = s.advanceGame();
       expect(v.pending ?? null, "the day-break opens no competition card").toBeNull();
       expect(live(s).pending ?? null).toBeNull();

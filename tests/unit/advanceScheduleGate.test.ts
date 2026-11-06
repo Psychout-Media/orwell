@@ -8,9 +8,10 @@ function runningDay(gate: boolean) {
   const s = new GameSessionRegistry().sandboxFor(`gate-${gate}-${Math.random()}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed: 7 });
   s.setPerConversationClockEnabled(true);
-  s.setAdvanceGateEnabled(gate);
   const live = () => s.snapshot().live as unknown as { timeOfDay?: string; pending?: unknown };
   for (let i = 0; i < 80 && live().timeOfDay === undefined; i++) s.advanceGame(); // up to the day-break (the clock starts); no milestone exists yet
+  s.advanceGame(); // ORW-116 (a): the premiere exit starts the first NIGHT; this advance crosses it to the first morning (8am)
+  s.setAdvanceGateEnabled(gate); // (set after the setup advances: an ON gate would hold them)
   expect(live().timeOfDay, "precondition: the day is running").toBeDefined();
   return s;
 }
@@ -35,7 +36,7 @@ describe("A65 - the engine schedule gate", () => {
     const after = s.getGameState() as { beatSeq: number; phase: string };
     expect(after.beatSeq).toBe(before.beatSeq);
     expect(after.phase).toBe(before.phase);
-    s.advanceGame(); s.advanceGame();
+    s.advanceGame(); s.advanceGame(); s.advanceGame(); // premiere -> first night -> the first morning (ORW-116 a)
     expect(s.getGameState().beatSeq).toBe(before.beatSeq);
   });
   it("ON: once the milestone is due the same advance goes through", () => {
