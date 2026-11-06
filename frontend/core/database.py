@@ -130,7 +130,10 @@ class Session(TimestampMixin, Base):
     crew_member_id = Column(String, nullable=True)  # links to crew_members.id
 
     # Relationship to chat messages
-    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    # ORW-197: explicit order. Without it SQLite serves the rows in whatever index order it picks (the UNIQUE
+    # (session_id, client_msg_id) index puts every assistant row first), so a hydrated history was scrambled.
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan",
+                            order_by="[ChatMessage.seq, ChatMessage.timestamp]")
     
     @property
     def is_active(self):
