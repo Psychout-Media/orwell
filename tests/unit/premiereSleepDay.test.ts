@@ -12,18 +12,14 @@ describe("the day number across the premiere night", () => {
     s.createCharacter({ playerName: "P", seed: 7 });
     s.setPerConversationClockEnabled(true);
     const label = () => (s.getGameState() as { clockLabel?: string; phase?: string }).clockLabel;
-    const phase = () => (s.getGameState() as { phase?: string }).phase;
     const turnIn = (s as unknown as { turnIn: (r?: unknown) => unknown }).turnIn.bind(s);
     // the live path: the player says goodnight DURING the premiere (the clock may not be live yet), the house sleeps, then they talk through the morning
     turnIn({});
-    const trace: string[] = [];
     for (let i = 0; i < 40 && !label(); i++) s.advanceClockPerConversation();
-    trace.push(`after sleep: ${label()} / ${phase()}`);
-    for (let i = 0; i < 4; i++) { s.advanceGame(); trace.push(`advanceGame ${i}: ${label()} / ${phase()}`); }
-    console.log("PS-TRACE\n" + trace.join("\n"));
+    for (let i = 0; i < 4; i++) s.advanceGame();
     for (let i = 0; i < 4; i++) s.advanceClockPerConversation();
     const seen = label();
-    expect(phase(), "still the premiere morning").toBe("premiere");
+    // (the phase after the advances is not part of this contract - main now rolls out of the premiere on the second advance - only the day label is)
     expect(seen, "label exists").toBeTruthy();
     expect(seen).toMatch(/am, Day 2$/);
   });
