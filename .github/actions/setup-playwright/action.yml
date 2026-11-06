@@ -3,7 +3,7 @@ description: >-
   Install headless Chromium for the front-end browser lanes. Restores the browser cache (keyed to the pinned playwright version), then runs
   `playwright install --with-deps` under a hard timeout with one retry. Observed failure mode (ORW-193): `--with-deps` apt-fetches a few
   font packages and the azure mirror intermittently trickles one file for 6-8 minutes (about 8% of jobs), which dominated those jobs. All of
-  chromium's shared libraries are already on the ubuntu-latest image; the last-resort fallback installs the browser alone and proves it launches.
+  chromium's shared libraries are already on the pinned ubuntu-24.04 image; the last-resort fallback installs the browser alone and proves it launches.
   Requires `pip install -r frontend/requirements.lock.txt` to have run first (playwright comes from the lock file).
 runs:
   using: composite
