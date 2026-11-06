@@ -332,6 +332,12 @@ export function validateHouseMap(map: HouseMap): readonly string[] {
   return problems;
 }
 
+/** How a room reads in a sentence: "the living room", "the HOH room", but "bedroom A" (a named room takes no article). */
+export function roomPhrase(room: Room): string {
+  const name = roomDisplayName(room);
+  return /^bedroom [A-Z]$/.test(name) ? name : `the ${name}`;
+}
+
 /** The map entry for a room (the BASE map unless another is given). */
 export function roomMapEntry(room: Room, map: HouseMap = BASE_HOUSE_MAP): RoomMapEntry | undefined {
   return map.get(room);
@@ -347,7 +353,7 @@ export function fixturesForBrief(room: Room, map: HouseMap = BASE_HOUSE_MAP): st
   const entry = map.get(room);
   if (!entry || entry.fixtures.length === 0) return undefined;
   const lines = [
-    `Built into the ${roomDisplayName(room)}: ${entry.fixtures.map((fx) => fx.label).join("; ")}. That is the whole list.`,
+    `Built into ${roomPhrase(room)}: ${entry.fixtures.map((fx) => fx.label).join("; ")}. That is the whole list.`,
     entry.allowedProps.length
       ? `Loose things that may be lying around: ${entry.allowedProps.map((p) => PROP_CATEGORY_LABELS[p]).join(", ")}.`
       : "Nothing loose lies around in here.",

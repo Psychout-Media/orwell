@@ -4,7 +4,7 @@ import { HOUSE_ROOMS, type Room } from "../../src/domain/house";
 import { HOUSE_EVENT_POOL } from "../../src/engine/houseEvents";
 import {
   BASE_HOUSE_MAP, FORBIDDEN_FIXTURE_TERMS, HOUSE_MAP_STATUS, MAX_FIXTURES_PER_ROOM, PROP_CATEGORIES,
-  PROP_CATEGORY_LABELS, fixturesForBrief, forbiddenFixtureTerm, roomMapEntry, validateHouseMap,
+  PROP_CATEGORY_LABELS, fixturesForBrief, forbiddenFixtureTerm, roomMapEntry, roomPhrase, validateHouseMap,
   type HouseMap, type RoomFixture, type RoomMapEntry,
 } from "../../src/domain/houseFixtures";
 
@@ -217,6 +217,13 @@ describe("fixturesForBrief: the current room, about 0.1K tokens", () => {
     expect(fixturesForBrief("diary-room")).toBe(
       "Built into the diary room: the chair; the camera wall; soft lighting; padded door. That is the whole list.\nNothing loose lies around in here.",
     );
+  });
+
+  it("names rooms the way people say them (no article before a lettered bedroom)", () => {
+    expect(fixturesForBrief("bedroom-b")!.startsWith("Built into bedroom B: beds;")).toBe(true);
+    expect(fixturesForBrief("hoh-room")!.startsWith("Built into the HOH room: HOH bed;")).toBe(true);
+    expect(roomPhrase("living-room")).toBe("the living room");
+    expect(roomPhrase("bedroom-a")).toBe("bedroom A");
   });
 
   it("never prints aliases (they are for the later sentence gate)", () => {
