@@ -2965,7 +2965,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
-    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False:
+    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
         desync = "a phantom POWER OF VETO win (the engine shows you do NOT hold the veto)"
     # (6b) A2: the model hands the veto to a NAMED houseguest who is NOT the actual holder → wrong
     #      identity (mirrors 4b). Scoped to the veto beat AND a holder that really committed this turn.
@@ -4527,6 +4527,21 @@ _COMP_FINISH_WINNER_RE = re.compile(
     r"\b(?:It(?:'|\u2019)s|It is|That(?:'|\u2019)s|And it(?:'|\u2019)s)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b|"
     r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:outlasts|outlasted|is the last (?:one )?(?:standing|on the rig)|takes it)\b",
 )
+
+
+_VETO_HYP_MARKER_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+
+
+def _all_veto_matches_hypothetical(text: str) -> bool:
+    """ORW-10 (live replay 7, 03:19): '"If I won the veto and you were on the block." He says it back to you slowly.' was cut as a phantom veto win. True only when EVERY self-veto-win match sits in a sentence whose text
+    BEFORE the match carries a hypothetical marker (if / suppose / imagine / would / could / might ...); one non-hypothetical claim keeps the guard."""
+    found = False
+    for sent in re.split(r"(?<=[.!?\n])", text or ""):
+        for m in _CLAIM_SELF_VETO_WIN_RE.finditer(sent):
+            found = True
+            if not _VETO_HYP_MARKER_RE.search(sent[:m.start() + 1]):
+                return False
+    return found
 
 
 def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
