@@ -263,6 +263,10 @@ jobs:
           pattern: coverage-blob-*
           path: .vitest-reports
           merge-multiple: true
+      - name: all four shard reports must be present
+        run: |
+          ls -l .vitest-reports
+          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 4
       # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all four shards.
       - run: >-
           npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
