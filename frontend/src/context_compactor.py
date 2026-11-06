@@ -38,6 +38,26 @@ def _content_as_text(content: Any) -> str:
     return ""
 
 
+GAME_COMPACTION_REFUSAL = "Compaction is off for game sessions; the narrator's memory is handled automatically"
+_GAME_PHASES = ("game", "casting")
+
+
+def is_game_or_casting_session(session) -> bool:
+    """ORW-224: True when this session is (or ever was) a game or casting chat: any stored row stamped
+    ``phase`` game/casting, or the session is the owner's bound canonical game session. Compaction rewrites
+    stored rows, so it is refused for these regardless of how the caller reached it."""
+    for m in (getattr(session, "history", None) or []):
+        md = (m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", None)) or {}
+        if md.get("phase") in _GAME_PHASES:
+            return True
+    try:
+        from src.orwell_game_session import get_game_session
+        sid = getattr(session, "id", None)
+        return bool(sid) and get_game_session(getattr(session, "owner", None)) == sid
+    except Exception:  # noqa: BLE001 - the binding store is optional; the phase check above already ran
+        return False
+
+
 COMPACT_THRESHOLD = 0.85  # Trigger compaction at 85% of context window
 # ORW-219: the destructive trim runs at the effective INPUT budget, which is far below 85% of the raw
 # window (48K of a 1M window before; 600K now). Compaction must run FIRST, so when the caller knows the
@@ -555,7 +575,7 @@ async def maybe_compact(
     if used < threshold_tokens:
         return messages, context_length, False
 
-    if not persist_history:
+    if not persist_history or is_game_or_casting_session(session):
         logger.info("Context at %.1f%% — compaction skipped (game/casting session: stored history is never rewritten)", pct)
         return messages, context_length, False
 

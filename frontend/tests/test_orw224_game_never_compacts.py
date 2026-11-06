@@ -87,6 +87,87 @@ def test_non_game_compaction_is_unchanged(mgr, monkeypatch):
     assert any((m.metadata or {}).get("compacted") for m in sess.history)
 
 
-def test_build_chat_context_passes_the_game_guard():
-    src = open(os.path.join(os.path.dirname(__file__), "..", "routes", "chat_helpers.py"), encoding="utf-8").read()
-    assert "persist_history=not (game_active or framed)" in src
+def test_unframed_session_whose_rows_carry_game_or_casting_phase_is_refused_too(mgr, monkeypatch):
+    """Edge case: even when the caller says persist_history=True (not framed), stored game/casting rows win."""
+    for tag, phase in (("g", "game"), ("c", "casting")):
+        calls = {"n": 0}
+        _patch(monkeypatch, calls)
+        sess = _session(mgr, f"orw224-edge-{tag}", phase)
+        before = _rows(f"orw224-edge-{tag}")
+        _drive(sess)  # persist_history default True
+        assert calls["n"] == 0 and _rows(f"orw224-edge-{tag}") == before
+
+
+# ── the two manual routes (they DELETE rows too, and the player can trigger them) ──
+
+def _client(mgr, *, which):
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def stamp(request: Request, call_next):
+        request.state.current_user = "u"
+        request.state.api_token = True
+        request.state.api_token_owner = "u"
+        return await call_next(request)
+
+    if which == "history":
+        from routes import history_routes
+        app.include_router(history_routes.setup_history_routes(mgr))
+        return TestClient(app, raise_server_exceptions=False), "/api/session/{}/compact"
+    from routes import session_routes
+    app.include_router(session_routes.setup_session_routes(mgr, {}))
+    return TestClient(app, raise_server_exceptions=False), "/api/session/{}/compact"
+
+
+@pytest.mark.parametrize("which", ["history", "session"])
+@pytest.mark.parametrize("phase", ["game", "casting"])
+def test_manual_compact_routes_refuse_game_sessions_and_delete_nothing(mgr, monkeypatch, which, phase):
+    from src import llm_core
+    calls = {"n": 0}
+
+    async def fake_llm(*a, **k):
+        calls["n"] += 1
+        return "SUMMARY"
+
+    monkeypatch.setattr(llm_core, "llm_call_async", fake_llm)
+    sid = f"orw224-route-{which}-{phase}"
+    _session(mgr, sid, phase)
+    before = _rows(sid)
+    client, path = _client(mgr, which=which)
+    resp = client.post(path.format(sid))
+    assert resp.status_code == 409, resp.text
+    assert "Compaction is off for game sessions" in resp.text
+    assert calls["n"] == 0, "no summary requested"
+    assert _rows(sid) == before, "no row deleted, inserted or re-id'd"
+
+
+def test_canonical_bound_game_session_is_refused_even_without_stamped_rows(mgr, monkeypatch):
+    import src.orwell_game_session as ogs
+    sid = "orw224-bound"
+    _session(mgr, sid, None)
+    monkeypatch.setattr(ogs, "get_game_session", lambda user: sid)
+    client, path = _client(mgr, which="history")
+    assert client.post(path.format(sid)).status_code == 409
+
+
+def test_manual_compact_route_still_works_for_a_plain_chat(mgr, monkeypatch):
+    from src import llm_core
+    async def fake_llm(*a, **k):
+        return "SUMMARY"
+    monkeypatch.setattr(llm_core, "llm_call_async", fake_llm)
+    sid = "orw224-route-plain"
+    _session(mgr, sid, None)
+    client, path = _client(mgr, which="session")
+    assert client.post(path.format(sid)).status_code != 409
+
+
+def test_ui_hides_compact_entry_points_in_the_game_build():
+    here = os.path.dirname(__file__)
+    slash = open(os.path.join(here, "..", "static", "js", "slashCommands.js"), encoding="utf-8").read()
+    body = slash.split("async function _cmdCompact", 1)[1].split("// ── TTS", 1)[0]
+    assert "isGameBuild()" in body and body.index("isGameBuild()") < body.index("fetch("), "the command refuses before any request"
+    ring = open(os.path.join(here, "..", "static", "js", "chatRenderer.js"), encoding="utf-8").read()
+    assert "ctxPct >= 70 && !isGameBuild()" in ring, "the Compact context button is not rendered in the game build"
