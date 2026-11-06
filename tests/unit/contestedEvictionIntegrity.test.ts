@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+// ORW-212: a seed-pinned tie-break; the calm re-seat (ORW-212) shifts the weighted occupancy that co-presence consumers read; this test pins the previous (non-calm) movement so its seeded premise holds. The calm movement has its own tests (calmPresence.test.ts).
+vi.hoisted(() => { process.env.ORWELL_CALM_PRESENCE = "0"; });
 import { freshTmpDir } from "../support/freshTmpDir";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";

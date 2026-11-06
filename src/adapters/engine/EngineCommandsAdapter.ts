@@ -55,6 +55,9 @@ export class EngineCommandsAdapter implements EngineCommands {
    *  to advance the day clock on the next per-turn tick. Unwired ⇒ inert (standalone / no clock). */
   /** The live occupancy ground truth (0049); when unset, scenes are placeless (standalone — prior behavior). */
   private presenceProvider?: () => Occupancy | null;
+  /** ORW-212: told the NPC partners of each recorded player scene (who the player is actually talking to). */
+  private sceneSink?: (partners: EntityId[]) => void;
+  setSceneSink(fn: (partners: EntityId[]) => void): void { this.sceneSink = fn; }
   /**
    * ADR 0006 — who is still AWAKE right now (`null` ⇒ the clock is off ⇒ everyone is up). A houseguest who
    * has turned in for the night has left the floor, so they neither witness nor overhear a player scene —
@@ -385,6 +388,11 @@ export class EngineCommandsAdapter implements EngineCommands {
     // any phantom (different-room) witness, so a hot read can never form off a name the engine's own
     // occupancy places elsewhere. The session no-ops this outside the premiere, so it is free every other
     // turn. This is the reliable engagement signal that lets first power become reachable.
+    if (this.sceneSink) {
+      const talking = new Set<EntityId>(namedWitnesses); talking.add(req.initiator); talking.delete(PLAYER);
+      const ids = [...talking].filter(isLiving);
+      if (ids.length) this.sceneSink(ids);
+    }
     if (this.playerReadSink) {
       const partners = new Set<EntityId>(namedWitnesses);
       partners.add(req.initiator);

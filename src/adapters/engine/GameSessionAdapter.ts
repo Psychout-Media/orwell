@@ -46,7 +46,7 @@ import { runJuryHouseStretch, bearingWord } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { PRESENCE, PRIVACY, MOVEMENT_INTENT } from "../../engine/presenceConstants";
+import { PRESENCE, PRIVACY, MOVEMENT_INTENT, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
@@ -4658,6 +4658,10 @@ export class GameSessionAdapter implements GameSession {
             // calibration-neutral BASE pass NEVER gets a sceneRoom, so its shared-stream draw count is
             // byte-identical to the pre-0076 build (the juryReach spine is untouched).
             ...(sceneRoom ? { sceneRoom, sceneMoveProb: PRESENCE.companionMoveProb } : {}),
+            // ORW-212 / ORW-210: calm, non-magnetic movement on the player-facing pass (ORWELL_CALM_PRESENCE, default ON; OFF => the previous behaviour).
+            ...(this.calmPresenceEnabled && weighted
+              ? { calm: { moveScale: CALM_PRESENCE.moveScale, maxMovers: Math.max(1, Math.floor(this.presenceActive().length * CALM_PRESENCE.maxMoverShare)), startOffset: this.presenceTickCount, holdIds: this.conversationHold(), playerId: playerId ?? PLAYER, excludePlayerPull: !CALM_PRESENCE.playerPullsDestinations } }
+              : {}),
           }
         : {}),
     };
@@ -4784,6 +4788,22 @@ export class GameSessionAdapter implements GameSession {
    *     weighting moves the house it cannot perturb calibration. The player never observes the hidden
    *     society's pairing, so one-place-at-a-time still holds for everything the player sees.
    */
+  /**
+   * ORW-212 / ORW-210 - CALM, non-magnetic movement (Ryne: "they are all moving too fast" / "NPCs gravitate to wherever the player is"). ON unless `ORWELL_CALM_PRESENCE=0`; OFF => the previous
+   * 0076 behaviour. Player-facing (weighted) view only: the calibration-neutral base is untouched. The 0076 scene-hold now keeps only the houseguests the player is actually talking to (the partners of the
+   * last recorded scene, for `CALM_PRESENCE.holdTicks` ticks); the player no longer pulls NPC destinations; the house moves gradually (a per-tick mover cap) and at a calmer rate.
+   */
+  private calmPresenceEnabled = flagDefaultOn("ORWELL_CALM_PRESENCE");
+  setCalmPresenceEnabled(on: boolean): void { this.calmPresenceEnabled = on; }
+  private convoPartners: { ids: EntityId[]; tick: number } | null = null;
+  /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
+  noteConversationPartners(ids: readonly EntityId[]): void {
+    this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
+  }
+  private conversationHold(): ReadonlySet<EntityId> {
+    const c = this.convoPartners;
+    return c && this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks ? new Set(c.ids) : new Set<EntityId>();
+  }
   presenceTick(rng?: RandomnessSource): void {
     if (!this.house) return;
     // Advance the dedicated movement stream by one tick FIRST, so the WEIGHTED pass draws a fresh,
