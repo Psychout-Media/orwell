@@ -8210,8 +8210,14 @@ async def _stream_agent_loop_impl(
                 except Exception:
                     _framed_phase = None
                 _in_eviction = str(_framed_phase or "").lower().startswith("eviction")
-                _want_drain_eviction = (_in_eviction and (not _progressed)
-                                        and _turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN)
+                try:
+                    from routes import chat_helpers as _ch_hold
+                    _production_holding_now = bool(_ch_hold.production_is_holding(owner))
+                except Exception:
+                    _production_holding_now = False
+                _want_drain_eviction = _gates.want_drain_eviction(
+                    in_eviction=_in_eviction, progressed=_progressed, turn_advance_nudges=_turn_advance_nudges,
+                    max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN, production_holding=_production_holding_now)
                 # 0118 — the TIMED ceremony interrupt. When the engine reports the scheduled ceremony time
                 # has ARRIVED (the day-schedule `due` flag, cached at framing), fire the forced advance even
                 # during ENGAGING play — production calls the house together at the scheduled hour, whether
