@@ -43,6 +43,9 @@ def _patch(monkeypatch, calls):
     monkeypatch.setattr(cc, "resolve_endpoint", lambda *a, **k: (None, None, None))
     cc._compaction_in_flight.clear()
     cc._background_tasks.clear()
+    # These tests exercise the compaction mechanics on a game-shaped history. ORW-224 (separate PR) refuses
+    # compaction for game sessions altogether, so neutralise that guard here when it exists.
+    monkeypatch.setattr(cc, "is_game_or_casting_session", lambda s: False, raising=False)
 
 
 def _long_game(mgr, sid, turns=40, chars=14_000):
