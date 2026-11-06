@@ -75,3 +75,31 @@ describe("premiere prompt - entrance stage", () => {
     expect(frag).not.toMatch(/npc:\w+/);
   });
 });
+
+/** ORW-205 - the entrance prompt hands the narrator the engine's headcount and forbids its own counts. */
+describe("premiere prompt - headcount (ORW-205)", () => {
+  const v = board();
+  const guest = v.premiere!.met[0]!.houseguest;
+  const mk = (extra: Record<string, unknown>) => withEntrance(v, {
+    stage: "entrances", index: 12, total: 16, playerPosition: 3, insideCount: 12, playerInside: true,
+    headcount: "12 of 16 are inside (the player is one of them)", arrivedNames: ["Inside One"],
+    justArrived: { id: guest.id, name: guest.name }, ...extra,
+  });
+  it("the entrance context carries the engine headcount verbatim as the only allowed count", () => {
+    const ctx = renderGameContext(mk({}));
+    expect(ctx).toContain("HEADCOUNT (engine truth): 12 of 16 are inside (the player is one of them).");
+    expect(ctx).toContain("the ONLY count you may state");
+  });
+  it("the player-not-yet-inside variant says so (no 'eight of you' with the player outside)", () => {
+    const ctx = renderGameContext(mk({ insideCount: 8, playerInside: false, headcount: "8 of 16 are inside (the player has NOT walked in yet; they are not counted)" }));
+    expect(ctx).toContain("8 of 16 are inside (the player has NOT walked in yet; they are not counted)");
+  });
+  it("the entrance beat forbids the narrator's own counts", () => {
+    const p = buildSystemPrompt("premiere", mk({}));
+    expect(p).toContain("NEVER count the room yourself");
+  });
+  it("an older payload without a headcount still renders (no HEADCOUNT line)", () => {
+    expect(renderGameContext(withEntrance(v, { stage: "entrances", index: 3, total: 16, playerPosition: 9, arrivedNames: [] }))).not.toContain("HEADCOUNT");
+  });
+});
+
