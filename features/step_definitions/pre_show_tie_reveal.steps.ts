@@ -254,6 +254,8 @@ Given("a pair of near-strangers with no seeded tie", function (this: BbWorld) {
   const tiedIds = new Set(ties.flatMap((t) => [t.a, t.b]));
   const untied = npcs.filter((id) => !tiedIds.has(id));
   tr(this).trUntiedPair = [untied[0]!, untied[1]!];
+  // 0095 asserts the ORIGINAL "a miss moves nothing" premise. ORWELL_ACCUSE_COST (B50, default ON since 2026-11-05, Ryne's ruling that a wrong accusation costs you) gives a miss a bounded cost - covered by tests/unit/accuseCost.test.ts; rewriting this scenario to the consequence model is owed to the Auditor.
+  (sb!.session as unknown as { setAccuseCostEnabled(on: boolean): void }).setAccuseCostEnabled(false);
 });
 
 When("the player accuses that pair of a prior connection through the engine authority", function (this: BbWorld) {

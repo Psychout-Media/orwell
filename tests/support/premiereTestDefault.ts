@@ -10,3 +10,5 @@ import { expect } from "vitest";
 const path = String(expect.getState().testPath ?? "");
 if (/[\\/]tests[\\/](property|uat|calibration)[\\/]/.test(path)) delete process.env.ORWELL_PREMIERE_ENTRANCES;
 else process.env.ORWELL_PREMIERE_ENTRANCES = "0";
+// Bedtime gate (turnIn refused in the morning/afternoon): the unit lane drives days by turning in at 8am; the gate has its own test that opts IN through setBedtimeGateEnabled(true).
+if (!/[\\/]tests[\\/](property|uat|calibration)[\\/]/.test(path)) process.env.ORWELL_BEDTIME_GATE = "0"; else delete process.env.ORWELL_BEDTIME_GATE;

@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it, expect, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -190,6 +191,7 @@ describe("G16 (#1850) — the 0066 Phase-2 flag-trio doc block doesn't self-cont
   /** Ground truth pulled straight from the `_ENABLED_DEFAULT` assignment expression, never from prose. */
   function actualDefaultOn(envName: string, src: string): boolean {
     if (new RegExp(`process\\.env\\.${envName} !== "0"`).test(src)) return true; // opt-out ⇒ default ON
+    if (new RegExp(`flagDefaultOn\\("${envName}"\\)`).test(src)) return true; // the shared default-ON reader ⇒ default ON
     if (new RegExp(`process\\.env\\.${envName} === "1"`).test(src)) return false; // opt-in ⇒ default OFF
     throw new Error(`could not find a recognizable default expression for ${envName} in ${SRC_PATH}`);
   }
@@ -220,14 +222,16 @@ describe("G16 (#1850) — the 0066 Phase-2 flag-trio doc block doesn't self-cont
       expect(itemMatch![1] === "ON", `${env}'s per-item annotation must match its actual code default`).toBe(defaults[i]);
     });
 
-    // The G16 gap itself: the block-level SUMMARY (the part a skimming reader sees first) must not
-    // blanket the trio as uniformly opt-in/default-OFF when the ground truth is mixed (two default ON,
-    // one default OFF) — that was the exact self-contradiction the audit caught (summary said "opt-in
-    // flag ... default OFF" for "each", while item 1's own annotation said "Default ON" a few lines later).
-    const mixedPolarity = new Set(defaults).size > 1;
-    expect(mixedPolarity, "sanity: this regression only makes sense while the trio's defaults are mixed").toBe(true);
+    // The G16 gap itself: the block-level SUMMARY (the part a skimming reader sees first) must never contradict the per-item truth. While the trio's defaults are MIXED it must call that out and
+    // must not blanket the trio as opt-in; once they are UNIFORM (all three default ON since the 2026-11-05 flip) it must state the uniform default and must not claim a mixed/not-uniform polarity.
     const summaryClaimsUniformOptIn = /each\b[\s\S]{0,120}\bopt-in\b/i.test(summary);
-    expect(summaryClaimsUniformOptIn, "the summary must not describe the whole trio as opt-in when two of three default ON").toBe(false);
-    expect(/\bnot uniform\b|\bmixed\b/i.test(summary), "a mixed-default trio's summary must call out that polarity differs per item, not assert one uniform default").toBe(true);
+    expect(summaryClaimsUniformOptIn, "the summary must not describe the whole trio as opt-in when any of them defaults ON").toBe(false);
+    const mixedPolarity = new Set(defaults).size > 1;
+    if (mixedPolarity) {
+      expect(/\bnot uniform\b|\bmixed\b/i.test(summary), "a mixed-default trio's summary must call out that polarity differs per item, not assert one uniform default").toBe(true);
+    } else {
+      expect(/\bnot uniform\b|\bmixed\b/i.test(summary), "a uniform-default trio's summary must not claim mixed polarity").toBe(false);
+      expect(summary.includes(defaults[0] ? "default ON" : "default OFF"), "a uniform-default trio's summary must state the uniform default").toBe(true);
+    }
   });
 });

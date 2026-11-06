@@ -28,6 +28,7 @@
  *     BASE values below ⇒ byte-identical to the pre-feature agnostic drift.
  */
 import type { VoiceProfile } from "../domain/voiceProfile";
+import { clamp } from "../domain/num";
 
 export const GOSSIP_DRIFT = {
   /** Base chance a hop past the floor nudges the claimed NATURE (the pre-feature `TYPE_DRIFT_PROB`). Held
@@ -59,7 +60,6 @@ export const VOICE_AMPLIFICATION: Record<string, Record<string, number>> = {
   register: { formal: -0.3, polished: -0.2, plainspoken: 0.0, folksy: 0.2, crude: 0.4 },
 };
 
-const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 
 /** The reteller's amplification tendency in [-1, +1] — the mean of its four contributing PUBLIC dials. */
 export function amplification(voice: VoiceProfile): number {

@@ -15,7 +15,7 @@ const ctxBody = (): string => {
   return SRC.slice(a, b);
 };
 const interfaceMembers = (): Set<string> => new Set([...ctxBody().matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]!));
-const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor)$/;
+const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor|juryMemoryFor)$/;
 const SCANNED = (Object.keys(DECISION_SOURCES) as StrategicDecision[]).filter((d): d is Exclude<StrategicDecision, "approaches"> => d !== "approaches");
 
 function fnBody(startMarker: string, endMarker: string): string {
@@ -32,6 +32,7 @@ const SLICES: Record<Exclude<StrategicDecision, "approaches">, () => string> = {
   replacementNominee: () => fnBody("const replacement = replacementPick(s.hoh!", "s.replacement = replacement;"),
   vetoSave: () => fnBody("// NPC veto holder: save self if nominated", "if (!saved) {"),
   houseguestsChoice: () => fnBody("function resolveVetoDraw(", "const hc = draw.houseguestsChoice;"),
+  juryVote: () => fnBody("function precomputeVotes(", "return votes;"),
 };
 const readsOf = (body: string): Set<string> => new Set([...body.matchAll(/ctx\.(\w+)/g)].map((m) => m[1]!).filter((n) => MEMORY_LIKE.test(n)));
 
@@ -58,3 +59,26 @@ describe("decision x memory-source matrix (the drift gate)", () => {
     for (const d of Object.keys(DECISION_SOURCES) as StrategicDecision[]) expect(DECISION_SOURCES[d].length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * AMEND 3b item 3 / S22 - the KNOWN-GAP decisions. These strategic decisions read NO memory-like `SeasonCtx` provider today (the 2026-11-05 matrix refresh; the jury vote LEFT this list when B26 gave it `juryMemoryFor`, now held in DECISION_SOURCES above: it reads edges + manner, the Final-3 eviction reads threat,
+ * the secret-veto replacement reads threat + mood, the AUTO decision proxy reads none). The gate pins that: the day one of them starts reading a provider this FAILS, and the reader must move it into `DECISION_SOURCES`
+ * (and decide deliberately whether it should) instead of a memory source creeping in unlisted. Tie-break needs no slice: it calls `voteChoice`, already held above.
+ */
+const GAP_SLICES: Record<string, () => string> = {
+  final3Eviction: () => fnBody('case "final-eviction": {', "\n    }\n"),
+  secretVetoReplacement: () => fnBody("function secretVetoReplacementOptions(", "\n}\n"),
+  autoDecision: () => fnBody("export function autoDecision(", "\n}\n"),
+};
+describe("known-gap decisions read no memory provider (AMEND 3b #3)", () => {
+  for (const [name, slice] of Object.entries(GAP_SLICES)) {
+    it(`${name}: reads no memory-like provider today`, () => {
+      const found = [...readsOf(slice())];
+      expect(found, `${name} now reads ${found.join(", ")} - add it to DECISION_SOURCES (src/engine/memorySources.ts) deliberately`).toEqual([]);
+    });
+  }
+  it("the scan is not vacuous: the same reader finds the providers in a decision that does read them", () => {
+    expect(readsOf(SLICES.evictionVote()).size).toBeGreaterThan(2);
+  });
+});
+

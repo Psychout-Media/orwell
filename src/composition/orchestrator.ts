@@ -865,6 +865,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
         audienceOf: () => 0,
+        // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.
+        ...(sandbox.session.credibilityEnabledNow() ? { credibilityOf: (h: EntityId, l: EntityId, n: number) => sandbox.session.credibilityOf(l, h, n) } : {}),
         // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
         ...(beliefObs ? { onTold: (r: { listener: EntityId; subject: EntityId; confidence: number }) => beliefObs({ listener: r.listener, subject: r.subject, type: "gossip", confidence: r.confidence, delta: {} }) } : {}),
       },

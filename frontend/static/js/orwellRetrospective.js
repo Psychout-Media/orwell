@@ -98,6 +98,14 @@
             max-height: calc(100dvh - var(--composer-clearance, 84px) - var(--on-banner-inset, 0px) - 178px) !important;
           }
           #orwell-retro:not(.ow-docked) .ow-body { flex: 1 1 auto; min-height: 0; max-height: none !important; }
+          /* A live decision card OUTRANKS the recap on the narrow tier. A pre-jury evictee is left holding the 0133
+             finale-interview card after the crown while the finished-season retro is ALSO due, and the two cannot
+             co-fit a phone viewport: the retro (a top sheet) reached down over the card's anchored action-sheet above
+             the composer. The card is the player's pending obligation, so the FLOATING retro yields until it is
+             answered or dismissed (the card's own x / Escape); the retro then returns by itself. Pure CSS - the card
+             element is the signal - so there is no second poll and no state to drift. A docked retro is rail-flow
+             and never overlaps, so it is untouched. */
+          body:has(#orwell-decision-card) #orwell-retro:not(.ow-docked) { display: none !important; }
         }
       </style>
       <div class="oretro-body" data-role="body"></div>`;

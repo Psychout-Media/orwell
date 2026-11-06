@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";

@@ -48,6 +48,7 @@ function started() {
 describe("the adapter's approach memory bias (ORWELL_APPROACH_MEMORY)", () => {
   it("flag off => 0 for everyone", () => {
     const { g, holder } = started();
+    g.setApproachMemoryEnabled(false); // B54 flip: explicit OFF (the layer now defaults ON)
     g.setAssurancesEnabled(true);
     g.recordAssurance({ from: holder, to: PLAYER, kind: "safe", sincerity: 1, source: "npc" });
     expect(g.approachMemoryFor(holder, PLAYER)).toBe(0);

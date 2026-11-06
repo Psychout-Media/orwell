@@ -21,7 +21,7 @@ function season(user: string, seed: number, enabled = true): UserSandbox {
   const sb = new GameSessionRegistry().sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", seed });
   sb.session.advanceGame(); sb.session.advanceGame();
-  if (enabled) on(sb);
+  if (enabled) on(sb); else sb.session.setHeardAboutMeEnabled(false); // default ON since 2026-11-05: the OFF arm pins it explicitly
   return sb;
 }
 const npcsOf = (sb: UserSandbox): EntityId[] => sb.session.livingIds().filter((id) => id !== PLAYER);
@@ -288,8 +288,8 @@ describe("heard-about-me: flag off is byte-identical", () => {
     expect(strip(onSb)).toBe(strip(off));
     expect(heard(onSb).length).toBeGreaterThan(0);
   });
-  it("the flag is registered strict (on only when exactly '1')", () => {
-    expect(FEATURE_FLAGS.find((f) => f.envKey === "ORWELL_HEARD_ABOUT_ME")?.parser).toBe("strict");
+  it("the flag is registered defaultOn (ON unless set to 0; PO 2026-11-05)", () => {
+    expect(FEATURE_FLAGS.find((f) => f.envKey === "ORWELL_HEARD_ABOUT_ME")?.parser).toBe("defaultOn");
   });
 });
 

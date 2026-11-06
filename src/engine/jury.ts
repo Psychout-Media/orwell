@@ -2,6 +2,7 @@ import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { tallyJury } from "./season";
 import { JURY_WEIGHTS, MANNER_LEAN, MANNER_GRADING, APPEAL, type JuryWeights } from "./juryConstants";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 // Re-export the tunables so existing importers keep reading them from `jury` (the math lives here).
 export { JURY_WEIGHTS, type JuryWeights };
@@ -37,6 +38,8 @@ export interface EvictionManner {
   blindsided?: boolean;
   betrayed?: boolean;
   disrespected?: boolean;
+  /** A62 (ORWELL_JUROR_PROFILES): the grievance rests on a possibly-WRONG belief - the juror blames this finalist for a vote they did not cast (0110 deduction error). A `mend` appeal dissolves it. Absent => byte-identical. */
+  mistaken?: boolean;
   /**
    * SOC-NEW-1/5: the graded 0..1 SEVERITY of the categorical read above, read off the actual edge
    * numbers (how deeply they were trusted / how harmless they seemed / how feared a clean cut was).
@@ -125,8 +128,6 @@ export function finalePerformance(parts: ReadonlyArray<{ quality: number }>): nu
 export type FinaleAppeal = "own-game" | "mend" | "connect" | "discredit-rival";
 
 export const FINALE_APPEALS: readonly FinaleAppeal[] = ["own-game", "mend", "connect", "discredit-rival"];
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 
 /**
  * Engine-scored quality in [0,1] of `appeal` made to a juror with this read/manner of the finalist:

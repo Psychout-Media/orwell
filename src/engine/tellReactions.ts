@@ -1,5 +1,5 @@
 import type { TellBand, TellKind } from "./tells";
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : Math.max(0, Math.min(1, x))); // (B47 will fold this into src/domain/num.ts)
+import { clamp01 } from "../domain/num";
 
 /**
  * B29 (#2017 15.4 E3, flag ORWELL_TELL_REACTIONS) - OBSERVERS REACT to a visible tell. A houseguest in the same room as someone visibly rattled can respond, chosen by the OBSERVER's own personality and bond

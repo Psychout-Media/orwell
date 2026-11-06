@@ -69,6 +69,7 @@ describe("slice 2 - the pitch term in the nomination score (flag ORWELL_LOBBYING
   type G = { pitchTiltFor(subject: string, holder: string): number; setLobbyingEnabled(on: boolean): void };
   it("is zero with the flag off (default) - byte-identical", () => {
     const { sb, hoh, other } = started();
+    (sb.session as unknown as G).setLobbyingEnabled(false); // the layer defaults ON since 2026-11-05; this asserts the OFF path
     expect((sb.session as unknown as G).pitchTiltFor(other, hoh)).toBe(0);
   });
   it("with the flag on it is deterministic, bounded by the cap, and never positive for the pitcher's own seat", () => {
