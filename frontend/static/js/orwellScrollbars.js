@@ -96,14 +96,27 @@
     scan(document);
     // Kit windows mount/unmount dynamically — observe and decorate new bodies.
     if (typeof MutationObserver === 'function') {
-      var mo = new MutationObserver(function (records) {
-        for (var i = 0; i < records.length; i++) {
-          var added = records[i].addedNodes;
+      // ORW-157: one pass per animation frame over the still-attached added nodes (not per streamed token).
+      var _sbQueue = [];
+      var _sbPending = false;
+      var _sbRun = function () {
+        if (!_sbPending) return;
+        _sbPending = false;
+        var recs = _sbQueue; _sbQueue = [];
+        for (var i = 0; i < recs.length; i++) {
+          var added = recs[i].addedNodes;
           for (var j = 0; j < added.length; j++) {
             var n = added[j];
-            if (n && n.nodeType === 1) scan(n);
+            if (n && n.nodeType === 1 && n.isConnected) scan(n);
           }
         }
+      };
+      var mo = new MutationObserver(function (records) {
+        for (var i = 0; i < records.length; i++) _sbQueue.push(records[i]);
+        if (_sbPending) return;
+        _sbPending = true;
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_sbRun);
+        setTimeout(_sbRun, 120);
       });
       mo.observe(document.body, { childList: true, subtree: true });
       window.__owScrollbarsObserver = mo;
