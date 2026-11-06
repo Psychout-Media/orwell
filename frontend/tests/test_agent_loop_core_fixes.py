@@ -141,7 +141,10 @@ def test_advance_nudge_is_still_capped_to_once_per_turn():
     importlib.reload(al)
     assert al._MAX_ADVANCE_NUDGES_PER_TURN == 1
     js = _read("src", "agent_loop.py")
-    assert "_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN" in js
+    gates = _read("src", "agent_gates.py")
+    # The cap now lives in the pure gates (want_advance / want_drain_eviction, ORW-228); the loop feeds both the per-turn counter.
+    assert js.count("max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN") >= 2
+    assert "turn_advance_nudges < max_advance_nudges" in gates
 
 
 def test_silent_commit_does_not_append_the_forced_advance_narration_nudge():
