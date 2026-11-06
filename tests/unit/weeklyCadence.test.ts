@@ -53,9 +53,9 @@ describe("period placement — HOH in the morning, veto comp in the afternoon, e
     expect(phaseForHour(CLOCK.phaseStartsHour.evening)).toBe("evening");
   });
 
-  it("nominations and the veto ceremony are afternoon beats per DAY_SCHEDULE", () => {
-    expect(DAY_SCHEDULE.nominations).toBe("afternoon");
-    expect(DAY_SCHEDULE["veto-ceremony"]).toBe("afternoon");
+  it("nominations and the veto ceremony are EVENING beats per DAY_SCHEDULE (ORW-116, Ryne: ceremonies in the evening)", () => {
+    expect(DAY_SCHEDULE.nominations).toBe("evening");
+    expect(DAY_SCHEDULE["veto-ceremony"]).toBe("evening");
   });
 });
 
