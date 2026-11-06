@@ -59,6 +59,7 @@ import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTilt
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitOf } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
+import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { confideToDisclosure, dripToDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
@@ -11760,7 +11761,7 @@ export class GameSessionAdapter implements GameSession {
   dealNomPushFor(target: EntityId, holder: EntityId): number {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
-    return bound ? -0.2 : 0;
+    return bound ? DEAL_NOMS.protectivePush : 0;
   }
 
   /** B26 - a juror's finale lean reads their memory of the finalist too. OFF unless exactly `ORWELL_JURY_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
