@@ -1,5 +1,7 @@
 # 0110 — Vote deduction (process of elimination): the secret ballot becomes a deduced belief
 
+> **Current default (AMEND 2026-11-06):** `ORWELL_VOTE_DEDUCTION` is **default ON** in the engine (`src/featureFlags.ts`, `defaultOn`; `=0` turns it off, and the deploy profile sets it too). The "default off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** ✅ **BUILT (2026-06-28) and BDD-gated in `cucumber.cjs`** (`tests/unit/voteDeduction.test.ts`; flag `ORWELL_VOTE_DEDUCTION`, code default off, ON in the deploy profile). Originally drafted 2026-06-28 during the PO-review sweep. Realizes **option B** of the
 > PO's secret-vote-grudge ruling (0023 review): the jury grudge must not enact off the *true* secret
 > ballot. Instead the evictee **deduces** who moved against them by **process of elimination**, and the

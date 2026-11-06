@@ -1,5 +1,7 @@
 # 0101 — NPC myth-making (you become house folklore)
 
+> **Current default (AMEND 2026-11-06):** `ORWELL_MYTH_MAKING` is **default ON** in the engine (`src/featureFlags.ts`, `defaultOn`; `=0` turns it off, and the deploy profile sets it too). The "default off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** ✅ **BUILT 2026-07-05.** Tracks issue **#883**.
 > **Gate:** engine (`tests/unit/legends0101.test.ts` — the pure selector + adapter/calibration-neutrality
 > gate; `test:arch`'s dependency-cruiser Vault boundary; BDD `0101-npc-myth-making.feature`, wired into
