@@ -42,3 +42,23 @@ def test_the_nomination_beat_keeps_the_original_rule():
     s = _sig(phase="nominations", noms=[], nomNames=[], vetoHolder=None, vetoHolderName=None)
     d = chat_helpers._narration_claims_outcome("Marcus nominates Sofia and Mario for eviction.", s, s)
     assert d and "NOMINATION" in d
+
+
+# ── ORW-10 item 1: the wrong competition winner named AFTER the veto beat (live replay 5, turn 1169) ───────────────────────────────────────────────
+def test_wrong_winner_named_in_a_replayed_finish_after_the_veto_beat_is_flagged():
+    s = _sig(phase="eviction", vetoHolder="npc:4", vetoHolderName="Nina", noms=["npc:2", "npc:3"], nomNames=["Sofia", "Mario"])
+    text = ("The rig comes down to the last two, and then it comes down to one.\nIt's Sofia.\n"
+            "She gets there by not being fast and not being clever - she gets there by not letting go, long after Marcus's grip finally fails.")
+    d = chat_helpers._narration_claims_outcome(text, s, s)
+    assert d and "WRONG houseguest" in d and "Nina" in d
+
+
+def test_the_committed_holder_named_in_a_replayed_finish_is_not_flagged():
+    s = _sig(phase="eviction", vetoHolder="npc:4", vetoHolderName="Nina")
+    text = "The rig comes down to the last two, and then it comes down to one.\nIt's Nina.\nShe outlasts everyone."
+    assert chat_helpers._narration_claims_outcome(text, s, s) is None
+
+
+def test_ordinary_its_name_prose_with_no_finish_cue_is_untouched():
+    s = _sig(phase="eviction", vetoHolder="npc:4", vetoHolderName="Nina")
+    assert chat_helpers._narration_claims_outcome("It's Sofia at the door, hands shaking, asking to talk.", s, s) is None

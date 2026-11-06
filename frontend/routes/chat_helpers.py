@@ -4498,17 +4498,42 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
     return None
 
 
+# ORW-10: the endurance-finish shape the narrator used to replay a competition ("comes down to the last two", "grip fails", "the rig") and the way it named the winner ("It's Tara.", "Tara outlasts them").
+_COMP_FINISH_CTX_RE = re.compile(r"\b(?:last two|down to one|comes down to|the rig|grip (?:finally )?fails|outlast\w*|lets? go)\b", re.IGNORECASE)
+_COMP_FINISH_WINNER_RE = re.compile(
+    r"\b(?:It(?:'|\u2019)s|It is|That(?:'|\u2019)s|And it(?:'|\u2019)s)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b|"
+    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:outlasts|outlasted|is the last (?:one )?(?:standing|on the rig)|takes it)\b",
+)
+
+
 def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
     """N-1 — the narration names a houseguest OTHER than the engine's committed veto holder as winning the veto
     (bell/'gets there first'/'wins the veto') or as going to use it. Returns a LABEL naming the real holder, or
     None. Stands down on every uncertainty: no committed holder, not a veto phase, the named person is the
     holder or not on the active roster, a past-week sentence, a hypothetical clause."""
-    if not isinstance(live, dict) or "veto" not in str(live.get("phase") or "").lower():
+    if not isinstance(live, dict):
         return None
     holder = live.get("vetoHolderName")
     if not holder or not live.get("vetoHolder") or not text:
         return None
     sents = re.split(r"(?<=[.!?\n])", text)
+    if "veto" not in str(live.get("phase") or "").lower():
+        # ORW-10 (live replay 5, turn 1169): AFTER the veto beat (here the eviction phase) the narrator replayed the competition's finish and named the wrong winner ("The rig comes down to the last
+        # two ... It's Tara.") while the engine's committed holder was someone else. No "veto" word, no veto phase - so the veto-phase branch below never ran. Outside the veto phases ONLY this
+        # endurance-finish shape is checked: a finish cue in the window AND an "It's <Name>" / "<Name> outlasts" naming a houseguest who is not the committed holder.
+        for _i, sent in enumerate(sents):
+            if not sent.strip() or _COMP_PAST_RE.search(sent):
+                continue
+            _win = " ".join(sents[max(0, _i - 2):_i + 3])
+            if not _COMP_FINISH_CTX_RE.search(_win):
+                continue
+            for m in _COMP_FINISH_WINNER_RE.finditer(sent):
+                name = next((g for g in m.groups() if g), None)
+                if not name or _name_matches(name, holder) or not _name_matches_active(name, live):
+                    continue
+                return ("the WRONG houseguest as the winner of the finished competition (the engine's Power of Veto holder is "
+                        + str(holder) + " - " + str(name) + " is not)")
+        return None
     for _i, sent in enumerate(sents):
         if not sent.strip() or _COMP_PAST_RE.search(sent):
             continue
@@ -4675,6 +4700,88 @@ _ENGINE_UNREACHABLE_REGROUND = (
 )
 
 
+# ── ORW-10 (live replay 5): the cut streak, the engine-true fallback, and the persisted cut log ──────────────────────────────────────────────────────────────────────────────────── #
+_CUT_STREAK: dict = {}
+_CUT_STREAK_NEUTRAL_AT = 2  # from the 2nd consecutive cut TURN the breaker goes neutral and engine-true
+
+
+def _roll_cut_streak(dkey, before) -> None:
+    """A new turn (a new baseline dict) whose predecessor had no cut resets the streak. Keeps the dict itself (not id()) so identity is never recycled."""
+    try:
+        st = _CUT_STREAK.setdefault(dkey, {"count": 0, "seen": None, "cut": None, "line": ""})
+        if st["seen"] is not before:
+            if st["cut"] is not st["seen"]:
+                st["count"] = 0  # the previous turn did not cut
+            st["seen"] = before
+    except Exception:
+        pass
+
+
+def _count_cut(dkey, before, live) -> int:
+    """Count this CUT TURN once (several chunks of one turn are one cut) and remember the engine-true line for the fallback. Returns the streak."""
+    try:
+        st = _CUT_STREAK.setdefault(dkey, {"count": 0, "seen": None, "cut": None, "line": ""})
+        if st["cut"] is not before:
+            st["count"] += 1
+            st["cut"] = before
+        st["line"] = _engine_board_line(live)
+        return int(st["count"])
+    except Exception:
+        return 1
+
+
+def cut_streak(user) -> int:
+    """How many consecutive turns have had a scene cut (0 when none). Pure read."""
+    try:
+        return int((_CUT_STREAK.get(_desync_key(user)) or {}).get("count") or 0)
+    except Exception:
+        return 0
+
+
+def _engine_board_line(live) -> str:
+    """The plain engine-true board statement (HOH, nominees, veto holder) - closed-set facts only, from the live read."""
+    if not isinstance(live, dict):
+        return ""
+    parts = []
+    if live.get("hohName"):
+        parts.append(f"{live['hohName']} holds Head of Household")
+    noms = [n for n in (live.get("nomNames") or []) if n]
+    if noms:
+        parts.append(" and ".join(noms) + (" are" if len(noms) > 1 else " is") + " on the block")
+    if live.get("vetoHolderName"):
+        parts.append(f"{live['vetoHolderName']} holds the Power of Veto")
+    return "; ".join(parts)
+
+
+def _neutral_board_directive(live) -> str:
+    board = _engine_board_line(live)
+    return ("BOARD, AS THE ENGINE HAS IT" + (f": {board}" if board else "") + ". These are settled facts, not new events: talking about them is fine and is not a fabrication. "
+            "Narrate a normal, concrete scene for what the player just said or did; do not answer in a one-line aside.")
+
+
+def engine_true_line(user) -> str:
+    """The plain line the cutaway uses once the streak has reached the neutral threshold: a producer's recap of the engine's board. Empty when unknown."""
+    try:
+        line = (_CUT_STREAK.get(_desync_key(user)) or {}).get("line") or ""
+        return f"A voice from production runs through the board for the house: {line}." if line else ""
+    except Exception:
+        return ""
+
+
+def _log_scene_cut(user, phase, directive, text) -> None:
+    """Persist the cut scene text (JSONL, best effort) so a cut is diagnosable afterwards. Never raises."""
+    try:
+        import json as _json
+        import time as _time
+        path = os.environ.get("ORWELL_SCENE_CUT_LOG") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "scene_cuts.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(_json.dumps({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()), "user": str(user), "phase": phase,
+                                  "directive": str(directive)[:600], "text": str(text)[:4000]}) + "\n")
+    except Exception:
+        pass
+
+
 async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
     """A2 — decide whether the WHOLE scene in `text` must be cut (a phantom/unverifiable board change).
     Returns the re-ground directive (and stashes it as the next-turn backstop) when the scene must be
@@ -4682,6 +4789,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
     try:
         if not text or not text.strip():
             return None
+        _roll_cut_streak(_desync_key(user), _LAST_BEAT_SIG.get(_desync_key(user)))  # ORW-10: a new turn with no cut resets the streak (runs ahead of the cheap gate so prose-only turns count)
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
         if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
@@ -4726,14 +4834,25 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             # No baseline this turn — we cannot tell phantom from real, so do NOT cut (the sentence
             # guard + post-turn re-ground remain the backstop). Conservatism on the open set.
             return None
+        _roll_cut_streak(_dkey, before)
         directive = _narration_claims_outcome(text, before, live)
         if directive:
-            _reground_enqueue(_dkey, directive)  # BL-004: bounded append
+            _cut_text, _cut_phase = text, live.get("phase")
+            _streak = _count_cut(_dkey, before, live)
+            if _streak >= _CUT_STREAK_NEUTRAL_AT:
+                # ORW-10 item 2: consecutive cut TURNS must never strand the player in fragments - from the second one on, stop accusing (the accusation re-ground is what taught the narrator to answer in
+                # one-line asides) and queue a neutral engine-true board directive INSTEAD of appending another correction; the cutaway line also becomes the engine-true board line (`engine_true_line`).
+                directive = _neutral_board_directive(live)
+                _DESYNC_REGROUND[_dkey] = directive
+                logger.warning("[orwell] scene circuit-breaker cut streak=%d for user=%s - queueing the neutral engine-true board directive instead of another accusation", _streak, user)
+            else:
+                _reground_enqueue(_dkey, directive)  # BL-004: bounded append
+            _log_scene_cut(user, _cut_phase, directive, _cut_text)
             # Observability (A/B 2026-11-04): log WHICH claim tripped the cut and the engine phase — the bare line could not be
             # classified afterwards (the cut scene is never persisted), so the cut rate could not be broken down by class.
             logger.warning("[orwell] scene circuit-breaker HELD a phantom board change for user=%s — "
-                           "cutting the whole scene, re-grounding next turn (phase=%s; %s)", user, live.get("phase"),
-                           " ".join(str(directive).split())[:160])
+                           "cutting the whole scene, re-grounding next turn (phase=%s; %s) text=%r", user, live.get("phase"),
+                           " ".join(str(directive).split())[:160], " ".join(str(text).split())[:240])
             return directive
         return None
     except Exception as e:
