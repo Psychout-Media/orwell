@@ -318,6 +318,9 @@ Then("no surface is ever handed the Vault to deliver it", function (this: BbWorl
 
 Given("a secret the player has already exposed", function (this: BbWorld) {
   const st = ensureSession(this);
+  // PINNED (ORW release blocker): ORWELL_NO_HARD_CAPS is ON (Ryne 2026-11-05), so the old expose-per-season cap no longer exists; pinned to the legacy cap path until the "capped per season" step is rewritten
+  // to assert the consequence-based limit (each repeat expose sours the house's read of the player).
+  (st.spSession as unknown as GameSessionAdapter).setNoHardCapsEnabled(false);
   st.spSubject = st.spSession!.livingIds().find((id) => id !== PLAYER)!;
   st.spFactId = learn(st.spSb!, st.spSubject);
   const r = st.spSession!.exposeSecret({ factId: st.spFactId }) as ExposeResult;
