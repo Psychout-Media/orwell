@@ -3012,6 +3012,24 @@ _MAX_NPC_MOVE_NUDGES_PER_TURN = 1  # at most one NPC-move extraction per finishi
 _MAX_NPC_MOVES_PER_TURN = 4        # …relocating at most a handful of houseguests from it
 
 
+_SUMMON_RE = re.compile(
+    r"\b(come|comes|coming|get|grab|bring|call|calls|calling|fetch|invite|summon|join|find|go\s+(?:get|find)|"
+    r"pull\s+\w+\s+aside|ask|asks|tell|tells|wave|waves|beckon)\b", re.I)
+
+
+def _player_summoned(last_user, name) -> bool:
+    """ORW-210: did the PLAYER's message ask this houseguest to come over (their name + a summoning verb)?
+    Only then may the FE turn a narrated arrival into a real move. Merely naming them is not enough.
+    Matches the first name or the full name, case-insensitive; deterministic, no LLM."""
+    text = (last_user or "")
+    if not name or not text:
+        return False
+    first = str(name).split()[0]
+    if not re.search(r"\b" + re.escape(first) + r"\b", text, re.I):
+        return False
+    return bool(_SUMMON_RE.search(text))
+
+
 async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner) -> int:
     """GUARANTEE whereabouts cohesion for the HOUSEGUESTS (ADR 0009), mirroring _auto_move_player for
     the player. When the turn's narration walked one or more houseguests to new rooms but the model
@@ -3073,6 +3091,25 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             picks.append((hid, room))
             if len(picks) >= _MAX_NPC_MOVES_PER_TURN:
                 break
+        # ORW-210: MENTIONING someone never pulls them into the room. The narrator can write an absent
+        # houseguest's entrance after the player merely names them; relaying that as a real move made them
+        # appear and react as if they'd heard. An ARRIVAL INTO THE PLAYER'S ROOM is only relayed when the
+        # player actually asked that houseguest to come (an engine-driven approach never goes through this
+        # belt - the engine moves its own people). Moves elsewhere in the house are the NPCs' own business.
+        if picks:
+            try:
+                _w = await _oe.whereabouts(user=owner)
+            except Exception:
+                _w = None
+            _proom = _w.get("room") if isinstance(_w, dict) else None
+            if _proom:
+                _kept = []
+                for hid, room in picks:
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)):
+                        logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
+                        continue
+                    _kept.append((hid, room))
+                picks = _kept
         if not picks:
             return 0
         recorded = 0
