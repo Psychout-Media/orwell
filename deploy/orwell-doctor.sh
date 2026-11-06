@@ -333,6 +333,15 @@ journal_tail() {
   echo "-----------------------------------"
 }
 
+# ORW-206: an update held back because a game is live (orwell-update.sh writes data/ops/update-deferred
+# while it waits; it proceeds by itself once the game is idle, or at the max-defer limit).
+update_deferred_check() {
+  local f="${APP_DIR}/data/ops/update-deferred"
+  [[ -f "$f" && ! -L "$f" ]] || return 0
+  warn "an update is DEFERRED (a game is live) — it runs on its own once the game is idle: $(tr '\n' ' ' < "$f" | sed 's/ *$//')"
+  info "to run it now (cuts any live game): bash ${APP_DIR}/deploy/orwell-update.sh --force"
+}
+
 diagnose() {
   echo "==> diagnose (engine=${ENGINE_SVC} :${ENGINE_PORT}, frontend=${FRONTEND_SVC}${FE_PORT:+ :${FE_PORT}})"
   if [[ "$UNITS_MISSING" == 1 ]]; then
@@ -342,6 +351,7 @@ diagnose() {
     unit_active "$FRONTEND_SVC" && pass "unit active: ${FRONTEND_SVC}" || fail "unit active: ${FRONTEND_SVC}"
   fi
   [[ -f "${APP_DIR}/dist/main.js" ]] && pass "build artifact: dist/main.js" || fail "build artifact missing — run: bash ${APP_DIR}/deploy/orwell-update.sh"
+  update_deferred_check
   token_security_check
   engine_http_ok       && pass "engine /health answers"        || fail "engine /health answers (${ENGINE_BASE}/health)"
   # DEPLOY-12 (B2): report which opt-in "living house" behavioral-fidelity layers are live, so an
