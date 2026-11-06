@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { renderReply } from '../markdown/render';
+import { renderLive, renderReply } from '../markdown/render';
 import type { ChatRow } from '../store/types';
 import { Blocks } from './Markdown';
 import { ReasoningBox } from './ReasoningBox';
@@ -28,7 +28,7 @@ export const MessageView = memo(function MessageView({ row }: { row: ChatRow }) 
 });
 
 export function LiveMessage({ reply, reasoning, working }: { reply: string; reasoning: string; working: string | null }) {
-  const rendered = useMemo(() => renderReply(reply), [reply]);
+  const rendered = useMemo(() => renderLive(reply), [reply]);
   const allReasoning = joinReasoning(reasoning, rendered.reasoning);
   const hasText = rendered.blocks.length > 0;
   return (

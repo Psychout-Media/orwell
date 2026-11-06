@@ -111,7 +111,7 @@ jobs:
           #     deploy smoke boot. The pytest lanes (fe-unit, fe-browser-tests) still run for any frontend/ change.
           # `/play` (frontend/web/**) has its own lane (`fe-web`); it must not wake the classic render lanes.
           changed_nw="$(echo "$changed" | grep -vE '^frontend/web/' || true)"
-          WEB_RE='^(frontend/web/|frontend/static/js/markdown(/|\.js$)|frontend/app\.py$|frontend/routes/(play|chat|orwell|session|auth|ws)_routes\.py$|frontend/routes/chat_helpers\.py$|frontend/src/(orwell_|agent_|session_)[a-z_]*\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
+          WEB_RE='^(frontend/web/|frontend/static/js/markdown(/|\.js$)|frontend/app\.py$|frontend/routes/(play|chat|orwell|session|auth|ws)_routes\.py$|frontend/routes/(chat_helpers|history_routes)\.py$|frontend/src/llm_core\.py$|frontend/core/session_manager\.py$|frontend/static/js/emojiShortcodes\.js$|frontend/src/(orwell_|agent_|session_)[a-z_]*\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
           fe_changed="$changed_nw"
           if [ "${EVENT_NAME:-}" = "pull_request" ]; then
             HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|\.github/actions/)'
@@ -797,7 +797,7 @@ jobs:
   fe-web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

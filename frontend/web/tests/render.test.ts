@@ -122,3 +122,64 @@ describe('block stability while streaming (what makes memoisation work)', () => 
     expect(b[0]).toBe(a[0]);
   });
 });
+
+import { renderLive } from '../src/markdown/render';
+
+/** Feed the text frame by frame (as the stream does) and return what was visible after each frame. */
+function frames(full: string, step = 3): string[] {
+  const out: string[] = [];
+  for (let i = step; i < full.length + step; i += step) out.push(visible(renderLive(full.slice(0, i)).blocks));
+  return out;
+}
+
+describe('live stream: reasoning never paints, frame by frame (and nothing shown is ever taken back)', () => {
+  const secret = /user wants|vote count|privately|flip on|Thinking Process|plan the scene/i;
+
+  function check(full: string, expectFinal: string) {
+    const f = frames(full);
+    for (const frame of f) expect(frame).not.toMatch(secret);
+    // never taken back: every frame's text is a prefix-compatible growth of the previous one
+    for (let i = 1; i < f.length; i++) {
+      const prev = f[i - 1] ?? '';
+      const cur = f[i] ?? '';
+      expect(cur.startsWith(prev.slice(0, Math.max(0, prev.length - 4)))).toBe(true);
+    }
+    expect(f[f.length - 1]).toBe(expectFinal);
+  }
+
+  it('an unclosed LEADING <think> (multi-line) shows nothing until it closes', () => {
+    check('<think>The user wants the vote count.\nNatalia privately told production she will flip on Marcus.\n\nMore planning.</think>\n\nThe house goes quiet.', 'The house goes quiet.');
+  });
+
+  it('a single-line open <think> shows nothing until it closes', () => {
+    check('<think>The user wants the vote count and Natalia will flip on Marcus</think>The house goes quiet.', 'The house goes quiet.');
+  });
+
+  it('a plain "Thinking Process:" preamble shows nothing until a reply starts', () => {
+    const full = 'Thinking Process: The user wants the vote count, so I should plan the scene first.\n\nHello everyone, the house goes quiet.';
+    check(full, 'Hello everyone, the house goes quiet.');
+    // not even the label ("Thi", "Thinking") flashes before the reply starts
+    expect(frames(full).every((x) => !/^Th/.test(x))).toBe(true);
+  });
+
+  it('text before an unclosed opener stays visible; only the opener onward is hidden', () => {
+    const r = renderLive('Natalia nods.\n\n<think>The user wants the vote count');
+    expect(visible(r.blocks)).toBe('Natalia nods.');
+    expect(r.reasoning).toContain('vote count');
+  });
+
+  it('a partial opener at the end of the buffer never flashes', () => {
+    expect(visible(renderLive('Natalia nods. <thi').blocks)).toBe('Natalia nods.');
+    expect(visible(renderLive('Natalia nods. </thin').blocks)).toBe('Natalia nods.');
+  });
+
+  it('<think></think> followed by thinking outside the tags stays hidden until the real closer', () => {
+    expect(visible(renderLive('<think></think>\nThe user wants the vote count and more thoughts').blocks)).toBe('');
+  });
+
+  it('a normal reply streams through untouched', () => {
+    const full = 'Juan shrugs.\n\nThe room hums with quiet tension.';
+    const f = frames(full);
+    expect(f[f.length - 1]).toBe('Juan shrugs. The room hums with quiet tension.');
+  });
+});
