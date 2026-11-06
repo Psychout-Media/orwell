@@ -6,6 +6,7 @@ import uiModule from './ui.js';
 import { initColorPickers, attachColorPicker } from './colorPicker.js';
 import { hexToRgb, onAccentColor } from './color/hex.js';
 import { makeDraggable } from './windowDrag.js';
+import { lowPowerActive, evaluateLowPower } from './lowPower.js';
 // The glass theme's wallpaper REUSES the login screen's mesh-gradient renderer
 // (DRY — one mesh, both surfaces). mountMeshGradient paints the shared
 // .login-bg-gradient layer (css/meshGradient.css); resolveLoginBackgroundConfig
@@ -778,6 +779,9 @@ function _constrainedEnvironment() {
  *  (coarse pointer OR small viewport OR sustained low FPS) is capped at 'frosted'
  *  (no Full-glass refraction); an unconstrained one has no ceiling ('full'). */
 export function glassTierCeiling() {
+  // ORW-154/190: a software renderer (no GPU) defaults to Flat — no blur, no glass, no animated wallpaper — unless the
+  // player explicitly chose a theme (lowPower.js owns the detection + the precedence rules).
+  if (lowPowerActive()) return 'normal';
   return _constrainedEnvironment() ? 'frosted' : 'full';
 }
 
@@ -1327,6 +1331,8 @@ export function save(name, colors, opts) {
   }
   Storage.setJSON(LS_KEY, obj);
   _syncToServer(obj);
+  // ORW-154/190: an explicit choice just landed — the low-power default stands down, so re-apply the tier now.
+  if (obj && obj._explicit) { try { evaluateLowPower(); if (_lastRequestedTier) applyGlassTier(_lastRequestedTier); } catch (_) { /* noop */ } }
 }
 
 function _syncToServer(obj) {
