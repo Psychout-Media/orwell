@@ -67,8 +67,23 @@ function toBlocks(html: string): string[] {
 export function renderReply(text: string): RenderedReply {
   if (!text || !text.trim()) return { blocks: [], reasoning: '' };
   ensureHook();
-  const ex = extractThinkingBlocks(text);
-  const reasoning = cleanReasoning(ex.thinkingBlocks.join('\n\n'));
+  // A reply that ENDS inside an open <think> (Stop pressed mid-think, a dropped connection, out of tokens) must not show the
+  // reasoning. Classic's settled-text "stray opener" rule would show an unclosed leading <think> body as the reply; in the game
+  // build we cut at the unclosed opener instead. When unsure, hide.
+  let src = text;
+  let tail = '';
+  if (document.body.hasAttribute('data-game-build') && hasUnclosedThinkTag(text)) {
+    const cut = firstUnclosedOpener(text);
+    if (cut >= 0) {
+      src = text.slice(0, cut);
+      tail = text.slice(cut).replace(OPEN_RE, '').replace(CLOSE_RE, '');
+    } else {
+      src = '';
+      tail = text;
+    }
+  }
+  const ex = extractThinkingBlocks(src);
+  const reasoning = cleanReasoning([ex.thinkingBlocks.join('\n\n'), tail].filter((x) => x.trim()).join('\n\n'));
   if (!ex.content) return { blocks: [], reasoning };
   const html = processWithThinking(squashOutsideCode(ex.content));
   const clean = DOMPurify.sanitize(html) as unknown as string;
@@ -89,8 +104,13 @@ const TAG_PREFIXES = ['<think', '<thinking', '<thought', '</think', '</thinking'
 /** Drop a partial reasoning tag at the very end of the buffer (`<thi`), so it never flashes and then vanishes. */
 function dropPartialTag(text: string): string {
   const i = text.lastIndexOf('<');
-  if (i < 0 || text.indexOf('>', i) >= 0) return text;
+  if (i < 0) return text;
   const frag = text.slice(i).toLowerCase();
+  // Gemma's `<|channel>` is already "closed" by its `>` but is still a partial opener until `thought`/`response` is complete.
+  if (frag.startsWith('<|') && ['<|channel>thought', '<|channel>response'].some((c) => c.startsWith(frag))) return text.slice(0, i);
+  if (text.indexOf('>', i) >= 0) return text;
+  // An opener with attributes still being typed: `<think time="2.1`
+  if (/^<(?:think(?:ing)?|thought)\s[^>]*$/.test(frag)) return text.slice(0, i);
   return TAG_PREFIXES.some((c) => c.startsWith(frag)) ? text.slice(0, i) : text;
 }
 

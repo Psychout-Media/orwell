@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { renderLive, renderReply } from '../markdown/render';
+import { reasoningVisible, renderLive, renderReply } from '../markdown/render';
 import type { ChatRow } from '../store/types';
 import { Blocks } from './Markdown';
 import { ReasoningBox } from './ReasoningBox';
@@ -13,15 +13,16 @@ export const MessageView = memo(function MessageView({ row }: { row: ChatRow }) 
   const mine = row.role === 'user';
   const rendered = useMemo(() => (mine ? null : renderReply(row.text)), [mine, row.text]);
   const reasoning = joinReasoning(row.reasoning, rendered?.reasoning ?? '');
-  // A reply that scrubs down to nothing (all machinery) shows no bubble at all, never an empty one.
-  if (!mine && rendered && rendered.blocks.length === 0 && !reasoning) return null;
+  // The reasoning box is off in the game build, so a reasoning-only reply is an empty one: no bubble at all, never an empty one.
+  const showReasoning = reasoningVisible() && reasoning.trim().length > 0;
+  if (!mine && rendered && rendered.blocks.length === 0 && !showReasoning) return null;
   return (
     <article className={`${styles.msg} ${mine ? styles.mine : styles.theirs}`} data-testid={mine ? 'msg-user' : 'msg-ai'} data-state={row.state} data-id={row.id ?? ''}>
       {row.moment && !mine ? <div className={styles.moment}>{row.moment}</div> : null}
       {mine || (rendered && rendered.blocks.length > 0) ? (
         <div className={styles.body}>{mine ? <p className={styles.plain}>{row.text}</p> : <Blocks blocks={rendered?.blocks ?? []} />}</div>
       ) : null}
-      {reasoning ? <ReasoningBox text={reasoning} /> : null}
+      {showReasoning ? <ReasoningBox text={reasoning} /> : null}
       {row.state === 'failed' ? <div className={styles.failed}>Not delivered. It will be retried when you reload.</div> : null}
     </article>
   );
