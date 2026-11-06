@@ -131,6 +131,24 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (cons["rationale"] !== undefined && typeof cons["rationale"] !== "string") refuse("consequence.rationale", "a string when present");
       }
       return;
+    case "getMomentPrompt": {
+      // Showrunner memory — the OPTIONAL Show Brief request (ORWELL_SHOW_BRIEF on the FE). Shape-guard only; the
+      // engine re-validates every field and builds the brief from its own Vault-free view. Absent ⇒ unchanged.
+      const b = args["brief"];
+      if (b === undefined) return;
+      if (typeof b !== "object" || b === null || Array.isArray(b)) refuse("brief", "an object when present");
+      const br = b as Record<string, unknown>;
+      if (br["seen"] !== undefined && (typeof br["seen"] !== "object" || br["seen"] === null || Array.isArray(br["seen"]))) {
+        refuse("brief.seen", "an object when present");
+      }
+      if (br["askedAbout"] !== undefined && (!isStrArray(br["askedAbout"]) || br["askedAbout"].length > 32)) {
+        refuse("brief.askedAbout", "an array of at most 32 houseguest ids when present");
+      }
+      if (br["lastShown"] !== undefined && (typeof br["lastShown"] !== "string" || br["lastShown"].length > 4000)) {
+        refuse("brief.lastShown", "a string of at most 4000 characters when present");
+      }
+      return;
+    }
     case "surfaceInformationTo": {
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       if (!isStr(args["entity"])) refuse("entity", "an entity id (string)");

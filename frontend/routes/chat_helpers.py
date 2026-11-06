@@ -7023,6 +7023,7 @@ async def apply_game_framing(
     preset_system_prompt=None,
     has_attachments: bool = False,
     player_msg=None,
+    last_scene_tail=None,
 ):
     """Big Brother game framing for one turn. Vault-free; mutates `preface` in place.
 
@@ -7166,17 +7167,31 @@ async def apply_game_framing(
             _LAST_FRAMED_REQUIRED_LEVER[user or "default"] = game_state.get("requiredLever")
         if session_id is not None and session_id not in _SESSION_GAME_FRAMED:
             moment = RE_ENTRY_MOMENT
+        # Showrunner memory — the Show Brief v1 skeleton (ORWELL_SHOW_BRIEF, default OFF). Off ⇒ the moment prompt is
+        # fetched exactly as before and nothing is stashed; on ⇒ the same call also carries the optional `brief` request
+        # and the engine returns this turn's brief, stashed (by session) for build_chat_context's terminal append.
+        from src import orwell_show_brief as _show_brief
+        _brief_on = _show_brief.show_brief_enabled()
         try:
-            mp = await orwell_engine.get_moment_prompt(moment, user=user)
+            if _brief_on:
+                mp = await orwell_engine.get_moment_prompt(
+                    moment, user=user,
+                    brief=_show_brief.build_request(session_id, game_state, player_msg, last_scene_tail))
+            else:
+                mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
+            if _brief_on:
+                _show_brief.stash(session_id, mp)
         except Exception as e:
             # The season IS live (state proved it) — a moment-prompt hiccup must not become a
             # feeds-down message. Stay in character with a generic, non-fabricating frame.
             logger.warning("[orwell] moment-prompt fetch failed (game live) for user=%s: %s", _gkey, e)
             gm_prompt = FALLBACK_GM_PROMPT
             _LAST_FRAMED_HARD_CONSTRAINTS.pop(session_id or "default", None)  # #1735/#1752: never replay a stale pin
+            if _brief_on:
+                _show_brief.clear(session_id)  # never replay a stale brief either
         if session_id is not None:
             _SESSION_GAME_FRAMED.add(session_id)
             _bind_canonical_game_session(user, session_id)  # 0064: converge every device here
@@ -8300,12 +8315,18 @@ async def build_chat_context(
 
     # Big Brother game framing (see apply_game_framing): in-character prompt when a game is
     # live; fail-CLOSED feed-down framing when the engine drops mid-season (C12).
+    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF): the last lines the player saw, for the brief's "how the
+    # last scene ended". Off ⇒ the framing call is exactly as before (no extra keyword).
+    from src import orwell_show_brief as _show_brief
+    _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(getattr(sess, "history", None))}
+                 if _show_brief.show_brief_enabled() else {})
     engine_available, game_active, feed_down = await apply_game_framing(
         preface, user, incognito,
         session_id=session_id,                              # P2: re-entry on a fresh context
         preset_system_prompt=preset.system_prompt,          # E16: persona never rides the GM stack
         has_attachments=bool(preprocessed.attachment_meta),  # E94: showing something in the scene
         player_msg=_ctx_msg,                                # social runway: "let's move on" cuts it short
+        **_brief_kw,
     )
     # P3: did ANY framing land on this turn? A live game and a feeds-down refusal frame
     # explicitly; the pre-game casting interview frames exactly when the engine answered
@@ -8383,6 +8404,13 @@ async def build_chat_context(
     # `preface`/`gm_prompt`, which stay the leading system-prompt stack. One-shot consume (pop): absent
     # ⇒ no message appended, byte-identical to before this fix (pre-game, or a framing hiccup this turn).
     _hard_constraints = pop_framed_hard_constraints(session_id)
+    # Showrunner memory — the Show Brief (ORWELL_SHOW_BRIEF, default OFF): a terminal system message AFTER the
+    # transcript and right BEFORE the HARD CONSTRAINTS block (which keeps its measured last position). The cached
+    # prefix (system prompt + transcript) is untouched. Off, or no brief this turn ⇒ nothing is appended.
+    if _brief_kw:
+        _brief_text = _show_brief.pop(session_id)
+        if _brief_text:
+            messages = messages + [{"role": "system", "content": _brief_text}]
     if _hard_constraints:
         messages = messages + [{"role": "system", "content": _hard_constraints}]
 

@@ -787,11 +787,17 @@ async def get_game_state(user: str | None = None, timeout: float | None = None) 
         raise
 
 
-async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None) -> dict:
-    """The managed system prompt to inject for this user's current (or given) moment."""
+async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None,
+                            brief: dict | None = None) -> dict:
+    """The managed system prompt to inject for this user's current (or given) moment.
+
+    ``brief`` (Showrunner memory, ORWELL_SHOW_BRIEF): when given, the engine also returns ``showBrief`` — the
+    terminal Show Brief for this turn. Omitted (the default) ⇒ the call and its response are byte-identical."""
     args: dict = {}
     if moment:
         args["moment"] = moment
+    if brief is not None:
+        args["brief"] = brief
     return await _call("getMomentPrompt", args, user=user, timeout=timeout if timeout is not None else _FRAMING_TIMEOUT)
 
 

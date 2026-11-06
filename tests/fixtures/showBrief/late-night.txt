@@ -1,0 +1,19 @@
+SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.
+If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.
+
+1. NOW
+It is 1:10am, Day 2.
+You are in the kitchen (1 turn here).
+HERE with you: NPC A (6 turns).
+In view: the living room: nobody; the dining room: nobody; the backyard: nobody.
+NOT HERE: NPC C is NOT here; you last saw NPC C head into the lounge just now. NPC D is NOT here; NPC D has turned in for the night. NPC J is no longer in the house.
+Turned in for the night: NPC D and NPC E.
+Not in view (you cannot see where they are): NPC B, NPC F, NPC G, NPC H, NPC I, NPC K, NPC L, NPC M, NPC N and NPC O.
+
+2. CHANGED SINCE YOUR LAST TURN
+Unknown: this is the first brief of this conversation. Trust section 1.
+
+3. WHAT YOU ESTABLISHED
+Built into the kitchen: fridge; pantry cupboard; island with stools; stovetop and oven; microwave; dishwasher; double sink; coffee maker; toaster; cabinets; dish rack. That is the whole list.
+Loose things that may be lying around: drinks and mugs, snacks, towels, puzzles and craft supplies.
+HOW THE LAST SCENE ENDED: not available (a fresh conversation).
