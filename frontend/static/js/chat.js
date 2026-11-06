@@ -3442,9 +3442,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                       _rbHolder.dataset.raw = markdownModule.scrubMachineryForPersistence(_rbReply);
                       // Render-boundary ONLY: merge the reasoning back in as a <think> block so the
                       // accordion is rebuilt; the buffers above stay reply-only.
-                      const _rbMerged = (roundReasoningText && roundReasoningText.trim())
-                        ? ('<think>' + roundReasoningText + '</think>\n\n' + _rbReply)
-                        : _rbReply;
+                      const _rbMerged = markdownModule.composeThinkSource(roundReasoningText, _rbReply);
                       _rbBody.innerHTML = markdownModule.processWithThinking(
                         markdownModule.squashOutsideCode(_rbMerged));
                       if (window.hljs) {
@@ -5190,9 +5188,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     // into the bubble. That divergence WAS the cross-session "reasoning leaks" hot mess.
     const _combined = () => {
       const reply = stripToolBlocks(replyText);
-      return reasoningText.trim()
-        ? '<think>' + reasoningText + '</think>\n\n' + reply
-        : reply;
+      return markdownModule.composeThinkSource(reasoningText, reply);
     };
     // R2 (ADR 0012 §3.3): render each live delta through the SHARED incremental renderer
     // (_renderLiveStream → createStreamRenderer), the SAME machinery the sender feeds — NOT a

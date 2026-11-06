@@ -356,7 +356,7 @@ def test_chat_client_shared_canonical_render_shape():
     is sacred — reasoning lives ONLY in the closed <think> accordion, never the public bubble."""
     chat = _read("static", "js", "chat.js")
     # the observer's canonical combined source: reasoning in a CLOSED think block, then the clean reply.
-    assert "'<think>' + reasoningText + '</think>\\n\\n' + reply" in chat
+    assert "markdownModule.composeThinkSource(reasoningText, reply)" in chat  # A59: the one shared helper builds the CLOSED <think> block
     # both live paths route through processWithThinking (the single canonical renderer).
     assert chat.count("markdownModule.processWithThinking(") >= 2
     # the settled message is finalized through the one canonical bubble builder.
