@@ -1087,11 +1087,29 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
+    // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
+    const nowOcc = this.witnessOccupancy();
+    this.sendOccupancy = nowOcc ? new Map(nowOcc) as Occupancy : null;
     this.messageMode = true;
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
+  }
+  /** The occupancy frozen at the player's last SEND (see `noteMessage`); null before any send or after the player moved rooms. Memory-only, never persisted. */
+  private sendOccupancy: Occupancy | null = null;
+  /**
+   * The occupancy the WITNESS grounding reads for a recorded scene: the send-time roster while it still applies (the player is still in the room they sent from), else the live witness occupancy.
+   * Anyone who arrived after the player spoke is placed elsewhere here, so the engine drops them as a phantom witness; anyone who was there and left still heard it.
+   */
+  sendTimeOccupancy(): Occupancy | null {
+    const live = this.witnessOccupancy();
+    const sent = this.sendOccupancy;
+    if (!sent || !live || !this.house) return live;
+    const me = this.house.player.id;
+    if (sent.get(me) !== live.get(me)) { this.sendOccupancy = null; return live; } // the player changed rooms: the old roster is stale
+    return sent;
   }
   /** True once the front-end has announced a player message (clock billing is per message from then on). */
   messageModeNow(): boolean { return this.messageMode; }
