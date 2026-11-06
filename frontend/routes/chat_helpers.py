@@ -1088,6 +1088,11 @@ def _premiere_progress_directive(premiere) -> Optional[str]:
     # and the moment prompt already frames the gathered scene + the close edge. Stay silent here.
     if premiere.get("champagneCircle") == "gathered":
         return None
+    # ORW-196: while the staged ENTRANCES run the engine reports complete=false (arrivals still coming). That is not a "go engage more people" gap: arrivals are
+    # released one at a time by the engine, so the directive stays silent (the entrance prompt fragment owns the framing).
+    _ent = premiere.get("entrance")
+    if isinstance(_ent, dict) and _ent.get("stage") == "entrances":
+        return None
     # CHAMPAGNE CIRCLE (0111): the whole house is met at the toast, so `complete`/`powerReachable` are
     # true throughout a live premiere ⇒ STOP redirecting (the model is free to start the game the instant
     # the player is ready). This is now the normal path — the branch below is a defensive fail-open remnant.

@@ -143,12 +143,31 @@ import { onNarrowChange } from './platform.js';
     return !!(st && !st.hoh && st.week === 1 && !st.finished);
   }
 
-  // M2-3: the premiere's NOT-yet-met ids (the unlit tiles) — derived from the Vault-free premiere
-  // projection's `remaining` set, keyed by houseguest id (name fallback). Pure + node-testable; reads
-  // ONLY the public NamedRef (id/name), never a soul, number, or hidden field.
-  function premiereUnmetIds(prem) {
+  // M2-3: the premiere's NOT-yet-met ids (the unlit tiles). ORW-196: during the staged ENTRANCES the engine's `remaining` lists the not-yet-arrived houseguests as ANONYMOUS ordinal
+  // placeholders (`unarrived:N`, no name), so they can't be matched to roster tiles by id. When the caller passes the roster (`rosterKeys`: [{id,name}]) and the projection carries `met`,
+  // the unmet set is the roster minus the met houseguests (by id or name); otherwise (older payloads / no roster) it falls back to the `remaining` ids. Pure + node-testable; reads ONLY the
+  // public NamedRef (id/name), never a soul, number, or hidden field. Visible effect: while arrivals are staged, the tiles of houseguests who have not walked in yet are dimmed.
+  function premiereUnmetIds(prem, rosterKeys) {
     const out = [];
-    if (!prem || typeof prem !== "object" || !Array.isArray(prem.remaining)) return out;
+    if (!prem || typeof prem !== "object") return out;
+    if (Array.isArray(rosterKeys) && Array.isArray(prem.met)) {
+      const metKeys = new Set();
+      for (const fi of prem.met) {
+        const hg = fi && fi.houseguest;
+        if (hg && hg.id != null) metKeys.add(String(hg.id));
+        if (hg && hg.name != null) metKeys.add(String(hg.name));
+      }
+      for (const r of rosterKeys) {
+        if (!r) continue;
+        const id = r.id != null ? String(r.id) : null;
+        const nm = r.name != null ? String(r.name) : null;
+        if ((id != null && metKeys.has(id)) || (nm != null && metKeys.has(nm))) continue;
+        const k = id != null ? id : nm;
+        if (k != null) out.push(k);
+      }
+      return out;
+    }
+    if (!Array.isArray(prem.remaining)) return out;
     for (const fi of prem.remaining) {
       const hg = fi && fi.houseguest;
       const k = hg && (hg.id != null ? hg.id : hg.name);
@@ -597,8 +616,9 @@ import { onNarrowChange } from './platform.js';
     // Present iff the engine is in the premiere moment — no `complete` gate (the roster shows throughout
     // the premiere, even though the whole house is met at the toast).
     if (!prem || typeof prem !== "object") { clearPremiereStrip(el); wrap.hidden = true; return; }
-    // No progress count and no still-to-meet list — everyone is met at the toast. Keep the elements in the
-    // DOM but empty/hidden; the roster strip is the only content now.
+    // No progress count and no still-to-meet list. Keep the elements in the DOM but empty/hidden; the roster
+    // strip is the only content now. (ORW-196: while the staged entrances run, tiles of houseguests who have
+    // not walked in yet are dimmed; from the toast on every tile is lit.)
     const countEl = el.querySelector("#os-prem-count");
     if (countEl) countEl.textContent = "";
     const leftEl = el.querySelector("#os-prem-left");
@@ -608,10 +628,10 @@ import { onNarrowChange } from './platform.js';
   }
 
   // M2-3 (audit B2): the PREMIERE CAST STRIP — a Vault-free row of sixteen monogram tiles (the shared
-  // OrwellMonogram kit). Since the champagne circle meets the WHOLE house at the toast (feature 0111,
-  // owner ruling 2026-07-14), this is now a pure cast ROSTER (every tile lit) — NOT a still-to-meet
-  // tracker: the premiere projection's `remaining` set is empty, so the met-flag machinery below simply
-  // lights every face. Each tile carries ONLY the public roster card (id/name/status) — no soul, number,
+  // OrwellMonogram kit). This is a cast ROSTER, not a still-to-meet checklist: with the entrances OFF the
+  // whole house is met at the toast so every tile is lit; with the staged entrances ON (default) the tiles of
+  // houseguests who have not arrived yet are dimmed until they walk in (the met-flag machinery below reads
+  // the projection's `met` list, ORW-196). Each tile carries ONLY the public roster card (id/name/status) — no soul, number,
   // or hidden field. Clicking a tile FOCUSES the chat (ADR 0003: augments, never replaces). It lives
   // inside #os-premiere, so it appears throughout the premiere and retires the moment the first HOH
   // begins (the engine drops the `premiere` field). Keyed, idempotent upsert (no flicker).
@@ -653,7 +673,7 @@ import { onNarrowChange } from './platform.js';
       clearPremiereStrip(el);
       return;
     }
-    const unmet = new Set(premiereUnmetIds(prem)); // the not-yet-lit tiles
+    const unmet = new Set(premiereUnmetIds(prem, cards.filter((c) => !c.isPlayer).map((c) => ({ id: c.id, name: c.name })))); // the not-yet-lit tiles (ORW-196: un-arrived houseguests during the entrances)
     const seen = new Set();
     for (const card of cards) {
       const key = String(card.id);

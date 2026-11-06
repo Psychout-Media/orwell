@@ -623,8 +623,8 @@ const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THR
  */
 const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
 /**
- * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). OFF unless
- * `ORWELL_PREMIERE_ENTRANCES=1`; read at `createCharacter` (season start). Off => nothing new is written.
+ * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). ON by default (`flagDefaultOn`); `ORWELL_PREMIERE_ENTRANCES=0` turns it off; read at
+ * `createCharacter` (season start). Off => nothing new is written.
  */
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
 
@@ -906,6 +906,9 @@ function groupPlayerDossier(
   }
   return grouped;
 }
+
+/** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
+export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
 
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
@@ -5550,11 +5553,12 @@ export class GameSessionAdapter implements GameSession {
    * the player is implicitly met (counted in `metCount`/`total`), so `total` is the whole cast. `null`
    * outside the premiere.
    *
-   * CHAMPAGNE CIRCLE (owner ruling 2026-07-14): `premiereMet`/`premiereHotReads` are SEEDED at premiere
-   * entry (`meetWholeHouseAtChampagneCircle`) — the whole house is introduced at once at the toast, so
-   * during a live premiere every active NPC is already met: `remaining` is empty, `complete` is true, and
-   * `powerReachable` is true (the first HOH is ready the moment the toast is done — no manual roll-call).
-   * The narrator reads `met` (the whole cast) for the observable reads it voices at the circle.
+   * Entrances OFF (CHAMPAGNE CIRCLE, owner ruling 2026-07-14): `premiereMet`/`premiereHotReads` are SEEDED at premiere
+   * entry (`meetWholeHouseAtChampagneCircle`), so every active NPC is already met: `remaining` is empty, `complete` is
+   * true, and `powerReachable` is true (the first HOH is ready the moment the toast is done - no manual roll-call).
+   * Entrances ON (default, ORW-196): while `entrance.stage === "entrances"` the houseguests who have not walked in yet are
+   * `remaining` (as anonymous ordinal placeholders), `complete`/`powerReachable` are false; from the toast on everyone is
+   * met, `remaining` is empty and `complete`/`powerReachable` are true. Nothing in the engine is gated on these values.
    */
   premiereIntros(): PremiereIntrosView | null {
     this.clearPremiereIfOver();
@@ -5579,9 +5583,25 @@ export class GameSessionAdapter implements GameSession {
     const hotReads = activeNpcs.filter((n) => this.premiereHotReads.has(n.id)).length;
     const everyoneVisible = activeNpcs.every((n) => this.presence === null || this.presence.has(n.id));
     const pe = this.live?.premiereEntrance;
-    // A9: during the staged entrances the roll-call gate is GONE (not re-added): un-arrived houseguests are not
-    // "remaining" and `complete`/`powerReachable` stay TRUE exactly as under the old circle.
-    if (pe) remaining.length = 0;
+    // ORW-196: `complete`/`remaining` must agree with the entrance stage. While arrivals are still being staged ("entrances")
+    // the meet-everyone tally is NOT complete: the not-yet-arrived houseguests are `remaining`, listed as ANONYMOUS placeholders (id only, no
+    // name and no facets) so the narrator knows how many are still to come but cannot voice anyone early (the arrival order stays hidden).
+    // From the toast on (everyone is inside) the tally is complete and `remaining` is empty, as under the old circle.
+    if (pe && pe.stage === "entrances") {
+      const outside = this.notYetArrived();
+      remaining.length = 0;
+      const outsideIds = new Set<EntityId>();
+      for (const n of activeNpcs) {
+        if (!outside?.has(n.id)) continue;
+        outsideIds.add(n.id);
+        // ORDINAL ids (`unarrived:1`, ...): the model-facing view must not let the narrator join a placeholder to a real houseguest id/name. The status panel dims
+        // un-arrived roster tiles from the `met` list instead, so it never needs the real ids of the houseguests still outside.
+        remaining.push({ houseguest: { id: `unarrived:${remaining.length + 1}` as EntityId, name: UNARRIVED_PLACEHOLDER_NAME }, met: false });
+      }
+      met.splice(0, met.length, ...met.filter((m) => !outsideIds.has(m.houseguest.id as EntityId)));
+    } else if (pe) {
+      remaining.length = 0;
+    }
     const everyoneMet = remaining.length === 0;
     // +1 on both counts for the player (they ARE met — they're playing). total = the whole cast.
     return {
