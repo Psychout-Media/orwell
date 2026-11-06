@@ -170,7 +170,7 @@ Then("the eviction order is identical both times", function (this: BbWorld) {
 Then("it matches the approved seeded trajectory anchor", function (this: BbWorld) {
   // The anchor is captured under the DEFAULT profile; a diagnostic ORWELL_FLAGS_OFF=1 (or a per-flag =0) run plays a different game on purpose.
   assert.ok(
-    process.env.ORWELL_FLAGS_OFF !== "1" && !Object.keys(process.env).some((k) => k.startsWith("ORWELL_") && k !== "ORWELL_PREMIERE_ENTRANCES" && k !== "ORWELL_BEDTIME_GATE" && /^(0|false|off)$/i.test(process.env[k] ?? "")),
+    process.env.ORWELL_FLAGS_OFF !== "1" && !Object.keys(process.env).some((k) => k.startsWith("ORWELL_") && k !== "ORWELL_PREMIERE_ENTRANCES" && k !== "ORWELL_BEDTIME_GATE" && k !== "ORWELL_PHILOSOPHIES" && /^(0|false|off)$/i.test(process.env[k] ?? "")),
     "the seed-108 anchor is captured under the default flag profile — unset ORWELL_FLAGS_OFF / any ORWELL_*=0 to run it",
   );
   assert.deepEqual(this.xiOrderA, BASELINE_108);
