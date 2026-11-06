@@ -1311,7 +1311,7 @@ export function renderGameContext(view: GameStateView): string {
   // Present ONLY in the premiere moment (`view.premiere` is absent otherwise). PUBLIC facets only — no
   // Vault data, no numbers, never an assertion of how the player feels (anti-sycophancy).
   const pr = view.premiere ?? null;
-  const observable = (fi: { houseguest: { id: string; name: string }; archetype?: string; presentation?: string; demeanor?: string; background?: string; age?: number; genderPresentation?: "man" | "woman" | "nonbinary" }): string => {
+  const observable = (fi: { houseguest: { id: string; name: string }; archetype?: string; presentation?: string; demeanor?: string; background?: string; vocation?: string; hometown?: string; age?: number; genderPresentation?: "man" | "woman" | "nonbinary" }): string => {
     // The same Vault-free public facets the roster exposes — the observable read the player "clocks".
     // F3 (#1016) / NARR-26/PROMPT2-12: the archetype is the MOST spoiler-y token (the exact label the
     // premiere rules forbid saying aloud) — it is DEMOTED to a fenced private cue at the TAIL, mirroring
@@ -1326,6 +1326,8 @@ export function renderGameContext(view: GameStateView): string {
       fi.demeanor && `comes across as ${fi.demeanor}`,
       fi.background,
       fi.age !== undefined ? `${fi.age}` : undefined,
+      fi.vocation && `works as ${fi.vocation}`, // ORW-194: the public basics a viewer gets on a real show
+      fi.hometown && `from ${fi.hometown}`,
       fi.archetype && `(private cue, never said aloud: ${fi.archetype})`,
     ].filter(Boolean);
     return bits.length ? ` — ${bits.join(", ")}` : "";
@@ -1339,7 +1341,8 @@ export function renderGameContext(view: GameStateView): string {
       ? [
           `- PREMIERE — THE CIRCLE IS GATHERED NOW: the GAME has convened the whole house in the living ` +
             `room (whereabouts shows everyone present; moveTo no-ops until the toast closes). Narrate the ` +
-            `gathered toast a FEW AT A TIME across turns, never all fifteen at once. When the toast has ` +
+            `gathered toast a FEW AT A TIME across turns, never all fifteen at once. Give EACH houseguest a real first impression as a viewer would get on a real show - ` +
+            `name, age, where they are from, what they do, and one line of how they come across - drawn ONLY from the facts listed for them below, woven into the scene (a greeting, a line of chat), never a data dump and never a secret or a label. When the toast has ` +
             `played, call advanceGame ONCE to CLOSE the circle (releases the player to the bedroom pick — ` +
             `it does NOT start the HOH); a LATER advanceGame begins the first HOH.`,
         ]

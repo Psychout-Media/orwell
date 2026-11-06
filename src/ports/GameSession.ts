@@ -1539,6 +1539,9 @@ export interface FirstImpressionView {
   presentation?: string;
   /** The observable voice register / demeanor (L28) — how they come across in the room. */
   demeanor?: string;
+  /** ORW-194 (Ryne): the PUBLIC job and hometown (already on the roster card) so the champagne toast gives real first impressions, not just a photo. */
+  vocation?: string;
+  hometown?: string;
   /**
    * How the houseguest PRESENTS (feature 0063; #1140) — a PUBLIC facet already on the roster card, so the
    * premiere introduction voices the SAME stored gender/pronouns the portrait encodes (never inferred from
