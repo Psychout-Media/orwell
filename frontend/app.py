@@ -1036,6 +1036,8 @@ async def _startup_event():
         from src.deepseek_seed import pin_legacy_model_defaults, seed_deepseek_endpoint_from_env
         pin_legacy_model_defaults()  # existing installs keep their effective models (PR #1935 review)
         seed_deepseek_endpoint_from_env()
+        from src.deepseek_seed import seed_default_model_fallbacks
+        seed_default_model_fallbacks()  # ORW-144: DeepSeek -> OpenRouter per-call fallback default
     except Exception as _e:
         logger.warning("DeepSeek endpoint seed skipped (fail-open): %s", _e)
     webhook_manager.set_loop(asyncio.get_running_loop())
