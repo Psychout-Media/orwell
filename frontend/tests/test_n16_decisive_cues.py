@@ -151,3 +151,33 @@ def test_a_voiced_ceremony_queues_nothing(monkeypatch):
     ch.note_ceremony_beat_for_voicing(_USER, "Isaac Okoro nominates Tristan Ballard and Denise Calloway", ["Tristan Ballard", "Denise Calloway"])
     _run(ch.record_post_turn_desync_check(_USER, "The room goes still as Isaac reads two names: Tristan, and then Denise."))
     assert _USER not in ch._DESYNC_REGROUND
+
+
+# ── a phantom veto holder (live replay 4: "He turns the veto over" with no veto played) ──
+VETO_PHANTOM = "They laugh, a little giddy.\n\nMV: What am I gonna do? I have no idea.\n\nHe turns the veto over. \"I'm not using it to make a point,\" he says."
+VETO_HYP = "Nobody has played for the veto yet, and every conversation in the house circles it; the draw is this afternoon."
+
+
+def test_a_houseguest_holding_the_veto_when_none_was_played_is_cut(monkeypatch):
+    sig = _sig(phase="veto-competition", not_due=True)
+    sig.update({"vetoHolder": None, "vetoUsed": False})
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+    _board(monkeypatch, sig)
+    d = _run(ch.screen_streamed_scene_break(_USER, VETO_PHANTOM))
+    assert d is not None and "Power of Veto" in d, d
+
+
+def test_a_hypothetical_about_the_veto_is_not_cut(monkeypatch):
+    sig = _sig(phase="veto-competition", not_due=True)
+    sig.update({"vetoHolder": None, "vetoUsed": False})
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+    _board(monkeypatch, sig)
+    assert _run(ch.screen_streamed_scene_break(_USER, VETO_HYP)) is None
+
+
+def test_the_veto_possession_cut_stands_down_when_the_engine_has_a_holder(monkeypatch):
+    sig = _sig(phase="veto-ceremony", not_due=False)
+    sig.update({"vetoHolder": "npc:3", "vetoHolderName": "Someone Real", "vetoUsed": False})
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+    _board(monkeypatch, sig)
+    assert _run(ch.screen_streamed_scene_break(_USER, VETO_PHANTOM)) is None

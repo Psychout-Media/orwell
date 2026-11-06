@@ -2981,7 +2981,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # the re-ground that names the real field, not only the generic unresolved-competition correction.
     _f3 = None if desync else _player_seated_in_excluded_field(text, after)
     # (10) N-1: the veto winner / its user named as someone other than the engine's committed holder.
-    _n1 = None if desync else _veto_holder_contradiction(text, after)
+    _n1 = None if desync else (_veto_holder_contradiction(text, after) or _veto_possession_without_holder(text, after))
     # (11) N-3: a "not yet" about a closed-set fact the engine has ALREADY committed (the HOH, the nominees, the veto).
     _n3 = None if desync else _stale_denial_contradiction(text, after)
     # (12) N-15: the PLAYER's own card-gated choice narrated as made while its card is still open (never recorded).
@@ -4432,6 +4432,29 @@ def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
     return None
 
 
+# Live replay 4 (nominations / veto-competition phases, NO veto played): the player's scripted line presupposed a veto winner and the narrator produced one - "He turns the veto over ... I'm not using it to make a point".
+# A houseguest HOLDING / turning over / using the veto while the engine has no veto holder is a phantom. Conservative: possession verbs on "the/his/her/their (power of) veto" only, hypotheticals exempt.
+_VETO_POSSESSION_RE = re.compile(
+    r"\b(?:turns?|turned|holds?|holding|held|clutch(?:es|ed|ing)?|grips?|gripping|waves?|waving|palms?)\s+(?:the|his|her|their)\s+(?:power\s+of\s+)?(?:veto|pov)\b|"
+    r"\b(?:the|his|her|their)\s+(?:power\s+of\s+)?(?:veto|pov)\s+(?:in\s+(?:his|her|their)\s+(?:hand|hands|fist|lap))\b|\b(?:won|has\s+won|just\s+won)\s+the\s+(?:power\s+of\s+)?(?:veto|pov)\b",
+    re.IGNORECASE,
+)
+
+
+def _veto_possession_without_holder(text: str, live: dict) -> Optional[str]:
+    """Phantom veto holder: the narration shows someone holding / winning the veto while the engine has no veto holder and the veto competition is not over."""
+    if not isinstance(live, dict) or not text or live.get("pending"):
+        return None
+    phase = str(live.get("phase") or "").lower()
+    if phase not in ("nominations", "veto-competition") or live.get("vetoHolder") or live.get("vetoUsed"):
+        return None
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        m = _VETO_POSSESSION_RE.search(sent) if sent.strip() else None
+        if m and not _VETO_N1_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.end()]):
+            return "a houseguest as HOLDING / having won the Power of Veto - the engine has no veto holder: the veto has not been played"
+    return None
+
+
 def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
     """N-1 — the narration names a houseguest OTHER than the engine's committed veto holder as winning the veto
     (bell/'gets there first'/'wins the veto') or as going to use it. Returns a LABEL naming the real holder, or
@@ -4618,7 +4641,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
-        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text)):
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
