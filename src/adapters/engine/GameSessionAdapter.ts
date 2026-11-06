@@ -270,6 +270,7 @@ import {
   tieExposureOf, tieNatureProse, exposedTies, nextTieExposure,
 } from "../../engine/seededRelationships";
 import type { SeededRelationships, PreGameTie } from "../../engine/seededRelationships";
+import { TIE_BEHAVIOR } from "../../engine/tieBehavior";
 import { validateCastGenesis, generateSeasonBrief } from "../../engine/castGenesis";
 import type { CastGenesisProposal, SeasonBrief, GenesisContext } from "../../engine/castGenesis";
 import { surfaceSeededTies } from "../../engine/seededTieSurfacing";
@@ -7975,6 +7976,7 @@ export class GameSessionAdapter implements GameSession {
       // trust × progress (the engine tallies; narration only voices). Bounded; never crosses the wall.
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
+      ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
@@ -11797,6 +11799,27 @@ export class GameSessionAdapter implements GameSession {
    *   (2) a `betrayal` rumor they heard about someone ⇒ "they may turn on me" (confidence = the rumor's confidence x 0.5; usually not about the HOH at all).
    * Never reads the relationship edge; never draws the shared rng; the PLAYER is never a holder here.
    */
+  /**
+   * ORW-37 half 2 / B41 - how a pre-show tie's NATURE shapes decisions (`tieBehavior.ts`, decision terms only - NEVER competition odds): the HOH shields a family member / pushes a rival in nominations,
+   * and a voter keeps family / evicts a rival. Applies only between the two PEOPLE the tie binds (they know their own tie). ON unless `ORWELL_TIE_BEHAVIOR=0`; OFF => no ctx provider => byte-identical.
+   * The old friend's pressure-flip (`pressureFlipAt`) and the ex's scene awkwardness are NOT wired here (ASSUMED, pending Ryne): the shield stays.
+   */
+  private tieBehaviorEnabled = flagDefaultOn("ORWELL_TIE_BEHAVIOR");
+  setTieBehaviorEnabled(on: boolean): void { this.tieBehaviorEnabled = on; }
+  private tieBetween(a: EntityId, b: EntityId): PreGameTie | undefined {
+    return this.seededRels?.ties?.find((t) => (t.a === a && t.b === b) || (t.a === b && t.b === a));
+  }
+  tieNomPushFor(target: EntityId, holder: EntityId): number {
+    if (!this.tieBehaviorEnabled || holder === PLAYER || target === PLAYER || target === holder) return 0;
+    const t = this.tieBetween(holder, target);
+    return t ? TIE_BEHAVIOR[t.nature].nominationPush : 0;
+  }
+  tieVotePushFor(nominee: EntityId, voter: EntityId): number {
+    if (!this.tieBehaviorEnabled || voter === PLAYER || nominee === PLAYER || nominee === voter) return 0;
+    const t = this.tieBetween(voter, nominee);
+    return t ? TIE_BEHAVIOR[t.nature].votePush : 0;
+  }
+
   /** B7 M3 - open protective deals feed the HOH's nominations (approved tie-in #3). OFF unless exactly `ORWELL_DEAL_NOMS=1`; never-flipped. OFF => no ctx provider => byte-identical. */
   private dealNomsEnabled = flagDefaultOn("ORWELL_DEAL_NOMS");
   setDealNomsEnabled(on: boolean): void { this.dealNomsEnabled = on; }
