@@ -5217,7 +5217,13 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         # the rail on the one turn it mattered most. The same diegetic cutaway line the scene
         # circuit-breaker (above) already uses for an identical "nothing safe to show yet" situation
         # covers it instead — in-fiction, never the lie, never a raw error.
-        return _GuardedScene(_SCENE_CUTAWAY_LINE, False, True, tuple(role_drops), screened)
+        _line = _SCENE_CUTAWAY_LINE
+        try:
+            if chat_helpers is not None:
+                _line = (await chat_helpers.guard_emptied_cutaway(owner)) or _SCENE_CUTAWAY_LINE  # ORW-10: 2nd consecutive emptied turn => the plain engine-true line
+        except Exception:
+            _line = _SCENE_CUTAWAY_LINE
+        return _GuardedScene(_line, False, True, tuple(role_drops), screened)
     return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
 
 
