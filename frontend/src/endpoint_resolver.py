@@ -269,6 +269,152 @@ def _owner_scoped(query, owner: Optional[str]):
         return query
 
 
+# --------------------------------------------------------------------------------------------
+# Session auth headers: resolved from the endpoint record at call time (ORW-199 / ORW-200)
+# --------------------------------------------------------------------------------------------
+# A session row used to carry a plain-text copy of the provider key in `sessions.headers`
+# (while `model_endpoints.api_key` is encrypted). That copy went stale on a key rotation or a
+# provider change, so a live session kept sending the OLD / WRONG provider's key. The endpoint
+# record is now the single source of truth: every call that sends a session's headers resolves
+# them through `resolve_session_headers`, and the session row no longer persists auth keys when
+# an endpoint supplies them (`persistable_session_headers`).
+
+AUTH_HEADER_NAMES = frozenset({"authorization", "x-api-key"})
+
+
+def session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
+    """True when a session's stored URL is (a path under) the endpoint's base URL."""
+    if not session_url or not endpoint_base:
+        return False
+    sess = session_url.rstrip("/")
+    base = normalize_base(endpoint_base).rstrip("/")
+    variants = {
+        base,
+        base + "/chat/completions",
+        build_chat_url(base).rstrip("/"),
+    }
+    return sess in variants or sess.startswith(base + "/")
+
+
+def _stored_headers_dict(headers) -> Dict[str, str]:
+    if isinstance(headers, str):
+        try:
+            headers = json.loads(headers)
+        except Exception:
+            return {}
+    return dict(headers) if isinstance(headers, dict) else {}
+
+
+def _non_auth_headers(headers: Dict[str, str]) -> Dict[str, str]:
+    return {k: v for k, v in headers.items() if str(k).lower() not in AUTH_HEADER_NAMES}
+
+
+def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str]):
+    """The enabled, KEYED endpoint a session URL resolves to, or None.
+
+    Owner scoping: own rows + shared/null-owner rows (never another user's owned row). With no
+    owner, only shared/null-owner rows are eligible. Own rows win over shared ones."""
+    if not endpoint_url:
+        return None
+    q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+    if owner:
+        q = _owner_scoped(q, owner)
+    else:
+        q = q.filter(ModelEndpoint.owner.is_(None))
+    matches = [
+        ep for ep in q.all()
+        if session_url_matches_endpoint(endpoint_url, getattr(ep, "base_url", "") or "")
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda ep: 0 if owner and getattr(ep, "owner", None) == owner else 1)
+    for ep in matches:
+        if (getattr(ep, "api_key", None) or "").strip():
+            return ep
+    return None
+
+
+def resolve_session_headers(sess, owner: Optional[str] = None):
+    """Auth headers to SEND for a session, resolved from the endpoint record at call time.
+
+    - Finds the enabled endpoint whose base matches ``sess.endpoint_url`` (same matcher as the
+      orphan check; own + shared owner scoping) and returns
+      ``build_headers(ep.api_key, ep.base_url)`` merged over any NON-auth stored headers.
+    - No matching (keyed) endpoint: the stored headers are returned unchanged (legacy / custom
+      sessions keep working).
+    - Fail-soft: any error falls back to the stored headers, never to an empty set.
+    """
+    stored = getattr(sess, "headers", None)
+    try:
+        url = (getattr(sess, "endpoint_url", "") or "").strip()
+        if not url:
+            return stored
+        owner = owner or getattr(sess, "owner", None) or None
+        db = SessionLocal()
+        try:
+            ep = _find_session_endpoint(db, url, owner)
+            if ep is None:
+                return stored
+            fresh = build_headers(ep.api_key, normalize_base(ep.base_url or ""))
+        finally:
+            db.close()
+        if not any(str(k).lower() in AUTH_HEADER_NAMES for k in fresh):
+            return stored
+        merged = _non_auth_headers(_stored_headers_dict(stored))
+        merged.update(fresh)
+        return merged
+    except Exception as e:
+        logger.debug("resolve_session_headers fell back to stored headers: %s", e)
+        return stored
+
+
+def persistable_session_headers(endpoint_url: str, headers, owner: Optional[str] = None):
+    """Headers to WRITE to a session row: auth keys are stripped, but ONLY when a keyed endpoint
+    resolves for the URL (it will supply them at call time). Otherwise unchanged. Fail-soft."""
+    try:
+        hdrs = _stored_headers_dict(headers)
+        if not any(str(k).lower() in AUTH_HEADER_NAMES for k in hdrs):
+            return hdrs if hdrs or headers is None else headers
+        db = SessionLocal()
+        try:
+            ep = _find_session_endpoint(db, (endpoint_url or "").strip(), owner or None)
+        finally:
+            db.close()
+        if ep is None:
+            return hdrs
+        return _non_auth_headers(hdrs)
+    except Exception as e:
+        logger.debug("persistable_session_headers kept headers unchanged: %s", e)
+        return headers if headers is not None else {}
+
+
+def migrate_strip_session_auth_headers() -> int:
+    """One-time, idempotent: strip auth keys from existing session rows whose URL resolves to a
+    keyed endpoint. Rows with no resolvable endpoint are NEVER touched. Returns rows changed."""
+    from core.database import Session as DbSession
+    changed = 0
+    db = SessionLocal()
+    try:
+        for row in db.query(DbSession).all():
+            hdrs = _stored_headers_dict(row.headers)
+            if not any(str(k).lower() in AUTH_HEADER_NAMES for k in hdrs):
+                continue
+            ep = _find_session_endpoint(db, (row.endpoint_url or "").strip(), getattr(row, "owner", None) or None)
+            if ep is None:
+                continue
+            row.headers = _non_auth_headers(hdrs)
+            changed += 1
+        if changed:
+            db.commit()
+        return changed
+    except Exception as e:
+        db.rollback()
+        logger.warning("session auth-header strip migration failed: %s", e)
+        return 0
+    finally:
+        db.close()
+
+
 def _sole_keyed_chat_endpoint(db, owner: Optional[str]):
     """The single-endpoint auto-default (issue: post-OOBE-reset brick, 2026-07-12).
 

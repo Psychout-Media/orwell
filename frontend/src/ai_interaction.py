@@ -55,7 +55,7 @@ def set_rag_manager(rag_mgr, personal_docs_mgr=None):
 # Model resolution
 # ---------------------------------------------------------------------------
 
-from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url, build_headers, build_models_url
+from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url, build_headers, build_models_url, resolve_session_headers
 
 
 # Auto-detect image-model candidates, tried in order when no image_model is configured (the
@@ -421,7 +421,7 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
     if sess:
         original_url = sess.endpoint_url
         original_model = sess.model
-        original_headers = getattr(sess, "headers", None) or {}
+        original_headers = resolve_session_headers(sess) or {}
 
         unify_system = (
             "Another AI model just reviewed the conversation you've been having with the user. "
@@ -648,7 +648,7 @@ async def do_send_to_session(content: str, session_id: Optional[str] = None, own
 
         response = await llm_call_async(
             sess.endpoint_url, sess.model, context,
-            headers=sess.headers,
+            headers=resolve_session_headers(sess),
             timeout=AI_CHAT_TIMEOUT,
         )
 
