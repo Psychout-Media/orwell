@@ -51,8 +51,11 @@ def test_leaving_the_premiere_clears_the_entrance_stage():
 def test_nudge_fires_after_the_lull_and_not_mid_exchange():
     # mid-exchange: one non-advancing player message, plain chat -> neither lull nor stale
     assert al._entrance_pacing(1, "tell me more about where you grew up", False, False) == (False, False)
-    # the lull: two player messages with no advance
-    assert al._entrance_pacing(al._ENTRANCE_LULL_TURNS, "hm ok", False, False) == (True, True)
+    # ORW-148: two (or many) non-advancing player messages are NO LONGER a release signal. The old quiet-lull
+    # branch let the stall-L0 belt silently release an arrival mid-conversation and fast-forwarded the premiere
+    # in the live 11-06 playtest. Only an explicit cue (next test) releases an arrival.
+    assert al._entrance_pacing(al._ENTRANCE_LULL_TURNS, "hm ok", False, False) == (False, False)
+    assert al._entrance_pacing(al._ENTRANCE_LULL_TURNS + 5, "hm ok", False, False) == (False, False)
 
 
 def test_next_or_watch_cue_advances_immediately():
