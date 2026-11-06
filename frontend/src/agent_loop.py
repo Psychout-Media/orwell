@@ -67,9 +67,11 @@ _ORWELL_SILENT_TOOLS = frozenset({
 # channel must not see them). That left investigators unable to tell what the engine actually returned (getGameState / whereabouts / gameStatus, and the createCharacter
 # card). The engine results below are Vault-free projections (the same data the HUD already renders), so the FULL text is persisted in a SEPARATE admin-only key,
 # `engine_result`, on the tool event (capped at _ENGINE_RESULT_CAP chars, with a truncation marker, never blank). The player-facing `output` stays as #1871
-# requires, and the history routes strip `engine_result` from what the player's browser receives. The set is deliberately NARROW: nothing else (e.g. npcVoice) is widened.
+# requires. "Admin-only" means: stored in the message metadata and read ONLY by the admin transcript export; every non-admin serializer (history routes, ChatMessage.to_dict /
+# provider context, the SSE metrics event incl. WS mirror + resume replay, add_message inbound) goes through core.models.public_metadata, a field WHITELIST. The set is deliberately NARROW: nothing else (e.g. npcVoice) is widened.
 _ENGINE_RESULT_LEDGER_TOOLS = frozenset({"getGameState", "whereabouts", "gameStatus", "createCharacter"})
 _ENGINE_RESULT_CAP = 30000
+_ENGINE_RESULT_ERROR_CLASS = "[engine error - details withheld]"
 
 
 def _engine_result_for_transcript(tool_type: str, result: Any) -> Optional[str]:
@@ -78,9 +80,8 @@ def _engine_result_for_transcript(tool_type: str, result: Any) -> Optional[str]:
         return None
     raw = result.get("output")
     if not isinstance(raw, str) or not raw:
-        raw = result.get("error") if isinstance(result.get("error"), str) else ""
-    if not raw:
-        return None
+        # A failed call keeps a FIXED error class, never the raw error text (it can echo arbitrary engine/exception strings).
+        return _ENGINE_RESULT_ERROR_CLASS if result.get("error") else None
     if len(raw) > _ENGINE_RESULT_CAP:
         return raw[:_ENGINE_RESULT_CAP] + f"\n…[truncated {len(raw) - _ENGINE_RESULT_CAP} chars]"
     return raw

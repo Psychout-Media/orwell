@@ -21,6 +21,31 @@ def set_session_manager(manager: "SessionManager"):
     _session_manager = manager
 
 
+# ORW-187 - the persisted transcript keeps the FULL engine result of a few read tools in `tool_events[].engine_result` for ADMIN investigation only. Every non-admin serializer
+# (the history routes, `ChatMessage.to_dict`, the SSE `metrics` event, the provider context) goes through `public_metadata`, which keeps ONLY these tool-event fields (a whitelist,
+# so a new admin-only field is private by default). The admin transcript export reads the stored metadata directly and is the only reader of `engine_result`.
+PUBLIC_TOOL_EVENT_FIELDS = frozenset({
+    "round", "tool", "command", "output", "exit_code", "error",
+    "image_url", "image_id", "image_prompt", "image_model", "image_size", "image_quality",
+    "doc_id", "doc_title", "diff",
+})
+
+
+def public_tool_events(events: Any) -> Any:
+    """Whitelist each tool event down to its public fields (non-dict entries pass through unchanged)."""
+    if not isinstance(events, list):
+        return events
+    return [{k: v for k, v in e.items() if k in PUBLIC_TOOL_EVENT_FIELDS} if isinstance(e, dict) else e for e in events]
+
+
+def public_metadata(metadata: Any) -> Any:
+    """A copy of message `metadata` that is safe for a non-admin reader: `tool_events` are whitelisted. The stored metadata is never mutated.
+    Also the INBOUND sanitizer: a client-supplied `engine_result` can never be stored (`add_message`)."""
+    if not isinstance(metadata, dict) or "tool_events" not in metadata:
+        return metadata
+    return {**metadata, "tool_events": public_tool_events(metadata.get("tool_events"))}
+
+
 @dataclass
 class ChatMessage:
     """A single chat message."""
@@ -31,10 +56,11 @@ class ChatMessage:
     client_msg_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dict for API responses."""
+        """Convert to dict for API responses AND the provider context (`Session.get_context_messages`).
+        The metadata is the PUBLIC projection: admin-only fields (ORW-187 `engine_result`) never leave through here."""
         result = {"role": self.role, "content": self.content}
         if self.metadata:
-            result["metadata"] = self.metadata
+            result["metadata"] = public_metadata(self.metadata)
         return result
 
     def get(self, key: str, default=None):

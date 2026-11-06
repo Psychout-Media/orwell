@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, Request, HTTPException
 
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata
 from core.database import SessionLocal, ChatMessage as DbChatMessage, Session as DbSession
 from src.topic_analyzer import analyze_topics
 from routes.session_routes import (
@@ -18,15 +18,12 @@ from routes.session_routes import (
 )
 
 def _without_admin_engine_results(entries):
-    """ORW-187 - the persisted tool events carry an admin-only `engine_result` (the full engine read for the transcript). The player's history payload never
-    includes it: return copies of the entries with that key removed from each tool event (the stored metadata is not mutated)."""
+    """ORW-187 - return copies of the history entries whose `metadata` went through `core.models.public_metadata` (admin-only tool-event fields removed; storage untouched)."""
     out = []
     for e in entries:
         md = e.get("metadata") if isinstance(e, dict) else None
-        evs = md.get("tool_events") if isinstance(md, dict) else None
-        if isinstance(evs, list) and any(isinstance(x, dict) and "engine_result" in x for x in evs):
-            e = {**e, "metadata": {**md, "tool_events": [
-                {k: v for k, v in x.items() if k != "engine_result"} if isinstance(x, dict) else x for x in evs]}}
+        if isinstance(md, dict) and "tool_events" in md:
+            e = {**e, "metadata": public_metadata(md)}
         out.append(e)
     return out
 
@@ -228,7 +225,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             content = body.get("content", "")
             if not content:
                 raise HTTPException(400, "content is required")
-            msg = ChatMessage(role=role, content=content, metadata=body.get("metadata"))
+            msg = ChatMessage(role=role, content=content, metadata=public_metadata(body.get("metadata")))  # ORW-187: a client can never store an admin-only engine_result
             session_manager.add_message(session_id, msg)
             return {"status": "ok"}
         except KeyError:

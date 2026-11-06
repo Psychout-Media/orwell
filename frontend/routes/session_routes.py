@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, HTTPException, Response, Request
 import logging
 
 from core.session_manager import SessionManager
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata
 from src.request_models import SessionResponse
 from core.database import Session as DbSession, SessionLocal, Document, GalleryImage
 from src.auth_helpers import get_current_user, effective_user, _auth_disabled
@@ -609,7 +609,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
         messages = body.get("messages", [])
         from core.models import ChatMessage
         for m in messages:
-            sess.add_message(ChatMessage(m["role"], m["content"], metadata=m.get("metadata")))
+            sess.add_message(ChatMessage(m["role"], m["content"], metadata=public_metadata(m.get("metadata"))))
         session_manager.save_sessions()
         return {"ok": True, "count": len(messages)}
 
