@@ -265,3 +265,13 @@ export const MOVEMENT_INTENT: MovementIntentConstants = {
   avoidThreatDominance: 1.5,
   workableBondFloor: 0.1,
 };
+
+/**
+ * ORW-212 / ORW-210 (Ryne, playtest: "they are all moving too fast, constantly moving" and "NPCs gravitate to wherever the player is"; "Yes, all of it") - the CALM, non-magnetic movement of the
+ * PLAYER-FACING (weighted) view. ASSUMED starting points pending Ryne's read; every number is here and only the weighted pass reads them (the calibration-neutral base is untouched).
+ *  - moveScale: multiplies an ordinary NPC's per-tick move chance (0.6 base -> ~0.35).
+ *  - maxMoverShare: at most this share of the active houseguests relocate in ONE tick (the house drifts gradually instead of reshuffling together); the order that decides who is blocked rotates each tick.
+ *  - holdTicks: how many presence ticks the player's live conversation partners are held in the room after a recorded scene with them (others in the room are NOT held).
+ *  - playerPullsDestinations: false => the player does not count in the affinity pull that picks an NPC's destination (NPCs move for their own reasons).
+ */
+export const CALM_PRESENCE = { moveScale: 0.58, maxMoverShare: 0.2, holdTicks: 2, playerPullsDestinations: false } as const;
