@@ -5,6 +5,7 @@
   <title>Orwell Chat</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 16Q9 7 16 7Q23 7 30 16Q23 25 16 25Q9 25 2 16Z' fill='none' stroke='%23e06c75' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='16' r='4.5' fill='%23e06c75'/%3E%3C/svg%3E">
   <link rel="manifest" href="/static/manifest.json">
+  <meta name="orwell-build" content="{{BUILD_ID}}">
   <meta name="theme-color" content="#282c34">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2814,5 +2815,36 @@
 <script type="module" src="/static/js/orwellOocAside.js"></script>  <!-- L36: OOC aside channel — `((...))`/`ooc:` detection drives the player-input bubble style (the old composer tip is gone; hints live in orwellChatHint.js) -->
 <script src="/static/js/orwellPremiereTutorial.js"></script>  <!-- L31 (FE): the premiere is a light, one-time, dismissible tutorial card (week 1) — sets the weekly-rhythm expectation, never replaces the chat -->
 <script nonce="{{CSP_NONCE}}">if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}</script>
+<!-- ORW-203: stale-shell self-correct. sw.js serves "/" stale-while-revalidate, so the first load after a
+     deploy paints the OLD shell with NEW scripts. The shell carries its build id (meta orwell-build);
+     if /api/version reports a different build, drop the cached "/" and reload ONCE (sessionStorage
+     remembers the target build, so a mismatch that persists can never loop). -->
+<script nonce="{{CSP_NONCE}}">
+window.orwellShellStale = function (shell, live, store) {
+  var bad = function (v) { return !v || v === 'unknown' || String(v).indexOf('{{') === 0; };
+  if (bad(shell) || bad(live) || shell === live) return false;
+  try {
+    if (store.getItem('orwell-shell-reload') === live) return false;
+    store.setItem('orwell-shell-reload', live);
+  } catch (e) { return false; }
+  return true;
+};
+(function () {
+  var m = document.querySelector('meta[name="orwell-build"]');
+  var shell = m && m.getAttribute('content');
+  fetch('/api/version', { cache: 'no-store', credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!window.orwellShellStale(shell, d && d.build, window.sessionStorage)) return;
+      var purge = window.caches && caches.keys
+        ? caches.keys().then(function (ks) {
+            return Promise.all(ks.map(function (k) { return caches.open(k).then(function (c) { return c.delete('/'); }); }));
+          })
+        : Promise.resolve();
+      purge.catch(function () {}).then(function () { window.location.reload(); });
+    })
+    .catch(function () {});
+})();
+</script>
 </body>
 </html>

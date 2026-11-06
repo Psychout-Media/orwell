@@ -898,6 +898,10 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
         html = f.read()
     nonce = getattr(request.state, "csp_nonce", "")
     html = html.replace("{{CSP_NONCE}}", nonce)
+    # ORW-203: stamp the shell with the build that served it, so a stale cached shell can
+    # detect (vs /api/version's "build") that a deploy happened and self-correct once.
+    from src.orwell_version import get_build as _fe_build
+    html = html.replace("{{BUILD_ID}}", _fe_build())
     from src.settings import strip_dropped_scripts, game_build_enabled, ws_transport_enabled
     html = strip_dropped_scripts(html)
     if game_build_enabled():
@@ -966,7 +970,10 @@ async def get_version():
     # and cached; falls back to a committed string when git is unavailable. See
     # src/orwell_version.py.
     from src.orwell_version import get_version as _fe_version
-    return {"version": _fe_version()}
+    from src.orwell_version import get_build as _fe_build
+    # "build" = the deployed commit's short SHA (changes on EVERY deploy, unlike the
+    # PR-derived "version"); the page shell compares its stamped copy against this (ORW-203).
+    return {"version": _fe_version(), "build": _fe_build()}
 
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:
