@@ -74,7 +74,7 @@ import {
   runFinale as buildFinaleScript, castJuryVote, juryLean, appealEffect, bestAppeal, gameRespectTerm, JURY_WEIGHTS,
   FINALE_APPEALS, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
 } from "./jury";
-import { MANNER_THRESHOLDS, MANNER_GRADING } from "./juryConstants";
+import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
@@ -2533,8 +2533,10 @@ export function mannerForVote(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgr
   const base = mannerFor(s, juror, fin);
   if (!ctx.jurorProfiles || !s.mistakenBlame?.[juror]?.includes(fin)) return base;
   if (f.appeals[fin]?.[juror] !== "mend") return { ...base, mistaken: true };
-  const { betrayed: _b, blindsided: _bl, disrespected: _d, mistaken: _m, ...rest } = base;
-  return rest;
+  // ORW-129: a mend FADES the mistaken grievance, it does not erase it - the grievance flags stay, at MEND_TRACE.residual of their strength (a small lingering doubt). A TRUE grievance is never touched here.
+  const { mistaken: _m, ...rest } = base;
+  const hadGrievance = !!(rest.betrayed || rest.blindsided || rest.disrespected);
+  return hadGrievance ? { ...rest, intensity: (rest.intensity ?? 1) * MEND_TRACE.residual } : rest;
 }
 
 /** Record the appeal a finalist made to a juror (appeals[finalist][juror]). */
