@@ -237,3 +237,52 @@ def test_routes_wired_into_app_py():
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     app_py = open(os.path.join(base, "app.py"), encoding="utf-8").read()
     assert "setup_admin_update_routes" in app_py
+
+
+def _force_setup(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ORWELL_UPDATE_DIRECT", raising=False)
+    unit = tmp_path / "orwell-ops-update.path"
+    unit.write_text("[Path]\n")
+    monkeypatch.setenv("ORWELL_UPDATE_WATCHER_UNIT", str(unit))
+    (tmp_path / "ops").mkdir()
+    return TestClient(_app(), raise_server_exceptions=False)
+
+
+def _status(tmp_path, running, age_s=0):
+    import datetime as dt, json
+    ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=age_s)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    (tmp_path / "ops" / "update-status.json").write_text(json.dumps({"running": running, "ts": ts}))
+
+
+def test_force_with_no_active_update_queues_one_and_sets_the_force_flag(monkeypatch, tmp_path):
+    client = _force_setup(monkeypatch, tmp_path)
+    r = client.post("/api/admin/update/force").json()
+    assert r["started"] is True and r["queued"] is True
+    assert (tmp_path / "ops" / "update-requested").exists() and (tmp_path / "ops" / "update-force-requested").exists()
+
+
+def test_force_while_an_update_is_running_writes_only_the_force_flag(monkeypatch, tmp_path):
+    client = _force_setup(monkeypatch, tmp_path)
+    _status(tmp_path, running=True, age_s=30)
+    r = client.post("/api/admin/update/force").json()
+    assert r["started"] is True and r["queued"] is False
+    assert (tmp_path / "ops" / "update-force-requested").exists()
+    assert not (tmp_path / "ops" / "update-requested").exists()    # no second update + restart
+
+
+def test_force_with_a_stale_running_status_still_queues(monkeypatch, tmp_path):
+    client = _force_setup(monkeypatch, tmp_path)
+    _status(tmp_path, running=True, age_s=7200)     # a crashed run's leftover
+    assert client.post("/api/admin/update/force").json()["queued"] is True
+
+
+def test_force_flag_is_removed_when_queueing_fails(monkeypatch, tmp_path):
+    client = _force_setup(monkeypatch, tmp_path)
+    def _fail():
+        raise OSError("disk full")
+    monkeypatch.setattr(aur, "_trigger_via_flag", _fail)
+    r = client.post("/api/admin/update/force").json()
+    assert r["started"] is False
+    assert not (tmp_path / "ops" / "update-force-requested").exists()
