@@ -2329,6 +2329,12 @@ _CLAIM_NOMINATED_RE = re.compile(
     r"on the (?:chopping )?block|the nominees are|named (?:as )?(?:a )?nominee)\b",
     re.IGNORECASE,
 )
+# ORW-10: a REPLACEMENT nominee being named at the veto ceremony ("names Sam as the replacement nominee", "renominates", "takes X's place on the block").
+_REPLACEMENT_NOMINEE_RE = re.compile(
+    r"\b(?:replacement\s+nominee|re-?nominat\w*|replac\w+\s+(?:\w+\s+){0,3}?(?:on the block|as (?:a )?nominee)|"
+    r"(?:takes?|taking|took)\s+(?:\w+\s+){0,2}?place\s+on the block|(?:in|into)\s+(?:his|her|their)\s+place\s+on the block)\b",
+    re.IGNORECASE,
+)
 # NARR-8 (#574): a VETO WINNER was narrated ("wins the Power of Veto", "wins the veto", "the new
 # veto holder"). Paired with the `vetoHolder` signature field.
 _CLAIM_VETO_WINNER_RE = re.compile(
@@ -2922,9 +2928,12 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # (5) NARR-8 (#574): a NOMINATION was narrated, but the nominee set didn't move → no nomination
     #     was committed. Scoped to the nomination / veto-ceremony phases (like the HOH branch),
     #     so plan/speculation language outside the beat ("I might nominate you") is never policed.
+    #     ORW-10 (live replay 5): at the VETO CEREMONY the nominees are already on the block, so ordinary prose about them is a recap, not a phantom nomination - there only a
+    #     REPLACEMENT claim (the one nomination the ceremony can really commit) is suspect. The nomination beat itself keeps the original rule.
     if not desync and (_CLAIM_NOMINATED_RE.search(text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
-          and (after.get("noms") or []) == (before.get("noms") or [])):
+          and (after.get("noms") or []) == (before.get("noms") or [])
+          and (_REPLACEMENT_NOMINEE_RE.search(text) or "ceremony" not in str(after.get("phase") or "").lower())):
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
