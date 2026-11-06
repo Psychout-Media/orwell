@@ -1,6 +1,7 @@
 // A9 flip (2026-11-04): the BDD lane exercises the premiere through the pre-A9 champagne-circle scenarios (0111 etc.); the entrance scenarios opt IN via setPremiereEntrancesEnabled(true).
 process.env.ORWELL_PREMIERE_ENTRANCES = "0";
 process.env.ORWELL_PHILOSOPHIES = "0"; // ORW-37: lasting game philosophies re-seed who nominates whom; the seed-pinned BDD scenarios (0047 secret-ballot fixture, 0078 floor, 0119 felt-duration neutrality, 0130 anchor) were written on the archetype table. The wiring has its own tests (philosophiesWired.test.ts).
+process.env.ORWELL_CALM_PRESENCE = "0"; // ORW-212: the calm re-seat (fewer, staggered moves) changes the seeded movement the 0078 intentional-movement floor scenario measures; calm has its own tests (calmPresence.test.ts)
 process.env.ORWELL_BEDTIME_GATE = "0"; // the BDD lane turns in at 8am in several scenarios; the bedtime gate has its own unit test
 // Cucumber.js configuration (CommonJS so it loads regardless of "type": "module").
 // TypeScript step definitions are loaded through the tsx ESM loader, wired via
