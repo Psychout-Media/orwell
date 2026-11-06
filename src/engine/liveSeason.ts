@@ -1937,6 +1937,7 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
       s.lastSleepDepth = DAY_END_HOUR;
       s.lastSleepPhase = DAY_END_HOUR;
       s.wakeHour = undefined;
+      s.dayNumber = (s.dayNumber ?? 1) + 1; // A69: a real night passed - it is a new day
       s.nightDepth = WAKE_HOUR;
       s.timeOfDay = DAY_START;
       return;
@@ -2020,6 +2021,9 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
  */
 export function crossToNextDay(s: LiveSeasonState): void {
   if (s.nightDepth === undefined) return; // dormant until the per-beat clock starts the day
+  // A69: a REAL night is crossed only if the clock has moved past this morning's wake. Just after the player's turn-in the clock sits AT the wake (the turn-in's recap already moved the day), so
+  // crossing again is the same morning - not a second night.
+  if (s.nightDepth > (s.wakeHour ?? WAKE_HOUR) + 1e-6) s.dayNumber = (s.dayNumber ?? 1) + 1;
   s.wakeHour = undefined;
   s.nightDepth = WAKE_HOUR;
   s.timeOfDay = DAY_START;

@@ -28,7 +28,7 @@ const ALLOWED: ReadonlyArray<readonly [string, string]> = [
   ["0040-npc-confessionals.feature", "Confessionals deepen the soul and ground later voice"],
   ["0071-defensive-hardening-redaction-url-guards.feature", "the URL guard fails closed on unsafe addresses"],
   ["0071-defensive-hardening-redaction-url-guards.feature", "the path join rejects traversal"],
-  ["0109-deal-duration.feature", "A no-duration break is byte-identical to 0039 (the feature is off by default)"],
+  ["0109-deal-duration.feature", "A no-duration break is byte-identical to 0039 (no duration is the floor, not a flag)"],
 ];
 
 interface Tagged { file: string; scenario: string; tagLine: number; comment: string }

@@ -80,7 +80,7 @@ def test_resume_stream_splits_reasoning_and_uses_the_canonical_renderer():
     assert "if (json.thinking) reasoningText += json.delta;" in resume
     assert "else replyText += json.delta;" in resume
     # reasoning is wrapped in a CLOSED <think> block so it can only reach the accordion
-    assert "'<think>' + reasoningText + '</think>" in resume
+    assert "markdownModule.composeThinkSource(reasoningText, reply)" in resume  # A59: the one shared helper builds the CLOSED <think> block
     # the bubble is rendered through the SAME splitter as the primary path + history — never
     # raw mdToHtml of the combined text (that was the leak)
     assert "markdownModule.processWithThinking(" in resume

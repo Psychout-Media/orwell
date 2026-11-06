@@ -12,6 +12,8 @@
 > 0/identity when no alliance is shared ⇒ `juryReach`/UAT **byte-identical** (re-verified within band).
 > **From:** owner design discussion (2026-06-26).
 
+> **Gate (A93):** 0107 has no Gherkin. Its gate is `tests/unit/alliances0107.test.ts` (the model, the three bounded effects, persistence) and `tests/unit/alliancesNpc0107b.test.ts` (NPC-named alliances, Phase B). There is no Vault-sentinel row for an NPC-only alliance (low risk: the store is engine-only and the player sees an alliance only when `knownTo` includes them).
+
 ## The idea — naming cements an alliance "in reality," real or not
 
 The game already had two relationship layers: emergent, unnamed **blocs** (0043 — clustered from the live

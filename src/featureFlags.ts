@@ -120,6 +120,12 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'defaultOn' },
+  // B23 / #2017 14.5(3): a lie exposed (a believed bluff caught by a real expose/trade, a landed accuseTie) writes a `lied-to-me` belief claim at the evidence's confidence; a believed bluff is stored as a belief too. Needs ORWELL_NPC_BELIEFS. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
+  // B24 / #2017 14.5(5): what an NPC is TOLD about the player in a recorded chat scene (`recordInteraction.heardAboutMe`) writes a belief claim for each named listener at the teller's reliability, sometimes wrong by construction (seeded, bounded). Needs ORWELL_NPC_BELIEFS. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_HEARD_ABOUT_ME', key: 'heardAboutMe', parser: 'defaultOn' },
+  // B49 / PO ruling card 24: the hard per-season counts (NPC confide lies 2, player exposes 3, trades 5) stop being a design rule - ON leaves only a high safety valve and an escalating, recipient-scaled REPETITION COST on each further expose/trade/lie by the same actor. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_NO_HARD_CAPS', key: 'noHardCaps', parser: 'defaultOn' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'defaultOn' },
   // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -136,13 +142,17 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_GOSSIP_COPRESENCE', key: 'gossipCopresence', parser: 'strict' },
   // Anti-sycophancy: the ENGINE decides whether an NPC agrees to a player's proposed deal (from the NPC's own read of the player); a refusal records nothing. Default-ON; `=0` restores today's record-every-deal behaviour.
   { envKey: 'ORWELL_NPC_DEAL_CONSENT', key: 'npcDealConsent', parser: 'defaultOn' },
-  // B26: a juror's finale lean also reads their memory of the finalist (a grudge lowers, a favor raises; bounded). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
+  // A10: want-driven NPC movement. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_WANT_MOVEMENT', key: 'wantMovement', parser: 'defaultOn' },
+  // B26-jury layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_JURY_MEMORY', key: 'juryMemory', parser: 'defaultOn' },
-  // B25: the closest ties of a houseguest a recorded player scene touched remember the player's treatment of their friend too (smaller, bond-weighted). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  // B25-friends layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
-  // B50: accusing a pre-show tie has consequences (a miss sours a friend; a hit draws reactions). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  // B50-accuse layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ACCUSE_COST', key: 'accuseCost', parser: 'defaultOn' },
-  // B48: credibility memory - how far an observer believes a speaker falls with each lie they caught. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
 ];
 

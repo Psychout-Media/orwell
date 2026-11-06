@@ -387,6 +387,8 @@ export interface SessionCore {
   /** 0129 slice 4 — the contents of facts a juror TOLD the player in the jury house via `askJuror` (the informed vote card's only source). Append-only. */
   jurorTold?: string[];
   confideLieCount?: number;
+  /** B49 (ORWELL_NO_HARD_CAPS) - per NPC, how many confide lies it has told this season (the repetition roll). Absent flag-off / pre-B49 saves. */
+  confideLiesBy?: Record<string, number>;
   /**
    * Features 0093 + 0099 — secrets as power. `secretUsedAs` maps each learned `factId` the player has
    * WIELDED to how (`leverage` | `exposed` | `traded`), so a spent secret can't be re-wielded; the

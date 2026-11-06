@@ -1,4 +1,5 @@
 import { Given, When, Then } from "@cucumber/cucumber";
+import { pinLayersOff } from "../support/pinLayersOff";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -38,6 +39,7 @@ function seedEvicting(w: BbWorld, inRange: (idx: number) => boolean, bound = 40)
     const user = `pe${peUsers++}`;
     const sb = reg.sandboxFor(user);
     sb.session.createCharacter({ playerName: "P", seed });
+    pinLayersOff(sb.session); // the seed search for the wanted eviction index is a flag-off-profile premise
     if (inRange(driveToPlayerEviction(sb.session).idx)) {
       w.peRegistry = reg; w.peUser = user; w.peSandbox = sb;
       return sb;

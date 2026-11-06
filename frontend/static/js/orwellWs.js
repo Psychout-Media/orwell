@@ -257,8 +257,8 @@
     if (b < _beatSeq) {
       // #1599 — a backwards engine head is a REAL anomaly (engine restart / rollback). It is being
       // AUTO-CORRECTED here (heal downward + resync), but a correction is NOT a cloak: log it at WARN
-      // with disposition so it is never silently swallowed. TODO(#1599): also raise a RED client-health
-      // event on /admin/status once the client health ring lands (the proactive-observability lane).
+      // with disposition so it is never silently swallowed. A42: it also raises the RED health event on /admin/status.
+      try { if (window.OrwellReport) window.OrwellReport.fail('ws:beat-backwards', 'BeatSeqBackwards', _beatSeq + ' -> ' + b, { red: true, corrected: 'heal downward + resync' }); } catch (_) {}
       try {
         console.warn("[orwellWs #1596] engine beatSeq went BACKWARDS (" + _beatSeq + " -> " + b +
           ") — restart detected; healed downward + emitting ws-resync (auto-corrected).");
@@ -785,7 +785,8 @@
             if (wasReconnect && subAck && subAck.d && subAck.d.hasRun === false) {
               // #1599 — the run we were tailing vanished across the reconnect (engine restart mid-turn).
               // This is a REAL interruption being AUTO-CORRECTED (resync → history reconcile); log it with
-              // disposition rather than swallowing. TODO(#1599): raise a RED client-health event too.
+              // disposition rather than swallowing. A42: it also raises the RED health event.
+              try { if (window.OrwellReport) window.OrwellReport.fail('ws:reconnect-run-gone', 'RunGoneOnReconnect', 'the mid-stream run vanished across the reconnect', { red: true, corrected: 'ws-resync history reconcile' }); } catch (_) {}
               try {
                 console.warn("[orwellWs #1596] reconnect found NO live run for the canonical — the " +
                   "mid-stream run was interrupted (engine restart); emitting ws-resync to reconcile " +
@@ -798,7 +799,8 @@
           .catch(function (e) {
             // #1599 — a subscribe REFUSAL is a genuine failure (chat degrades to the SSE fallback for
             // this session): log it at WARN with disposition, never swallow it silently.
-            // TODO(#1599): raise a RED client-health event once the client health ring lands.
+            // A42: it also raises the RED health event (chat degrades to the SSE fallback).
+            try { if (window.OrwellReport) window.OrwellReport.fail('ws:chat-subscribe-refused', 'SubscribeRefused', (e && e.message) || String(e), { red: true, corrected: 'SSE fallback' }); } catch (_) {}
             try {
               console.warn("[orwellWs #1596] chat subscribe refused on " +
                 (wasReconnect ? "reconnect" : "connect") + " — chat falls back to SSE for this session:",
