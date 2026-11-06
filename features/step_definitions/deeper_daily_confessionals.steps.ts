@@ -236,14 +236,14 @@ Then("with the depth layer off the day-close sweep does not fire", function (thi
 
 Then("the same seed reproduces the same swept confessionals", function (this: BbWorld) {
   const a = liveHouse(7, "ddc-det", true);
-  const beforeA = confessionalEvents(a).length;
   a.session.turnIn();
-  const seqA = confessionalEvents(a).slice(beforeA).map((e) => e.content).join("|");
+  // The WHOLE swept sequence (not just the final turnIn's slice): with the co-presence layer ON the day-close sweeps already fired while the season was driven, so the closing turnIn can land on an
+  // already-swept in-game day and add none (62 confessionals existed beforehand) - the determinism claim is about the full recorded sequence.
+  const seqA = confessionalEvents(a).map((e) => e.content).join("|");
 
   const b = liveHouse(7, "ddc-det", true);
-  const beforeB = confessionalEvents(b).length;
   b.session.turnIn();
-  const seqB = confessionalEvents(b).slice(beforeB).map((e) => e.content).join("|");
+  const seqB = confessionalEvents(b).map((e) => e.content).join("|");
 
   assert.ok(seqA.length > 0);
   assert.equal(seqA, seqB);
