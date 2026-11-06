@@ -7832,7 +7832,7 @@ async def build_chat_context(
     # Auto-compact
     # ORW-219: maybe_compact deliberately gets NO input_budget_fn here. Compaction rewrites (deletes) stored
     # chat rows, which breaks non-degradation (mandate #4); it stays on its legacy 85%-of-window trigger
-    # (dormant on 1M models). The trimmer only drops old turns from the PROMPT, never from the database.
+    # (unchanged; reachable at 85% of the raw window; game sessions guarded by ORW-224). The trimmer only drops old turns from the PROMPT, never from the database.
     messages, context_length, was_compacted = await maybe_compact(
         sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
     )

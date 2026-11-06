@@ -721,11 +721,39 @@ def load_settings() -> dict:
             saved = json.load(f)
         if not isinstance(saved, dict):
             raise ValueError("settings must be an object")
+        saved = _migrate_legacy_hard_max(saved)
         merged = {**DEFAULT_SETTINGS, **saved}
     except (FileNotFoundError, PermissionError, json.JSONDecodeError, ValueError):
         merged = dict(DEFAULT_SETTINGS)
     _settings_cache = (now, merged)
     return merged
+
+
+_LEGACY_HARD_MAX = 48_000
+_hard_max_migration_logged = False
+
+
+def _migrate_legacy_hard_max(saved: dict) -> dict:
+    """ORW-219 one-time migration: the old default for ``agent_input_token_hard_max`` was 48000 and settings-repair
+    persisted it, so such installs would read it as an EXPLICIT 48K cap and stay truncated on big-window models.
+    Rewrite exactly 48000 to 0 (auto; auto still gives 48K on windows under 500K, so only 500K+ windows change).
+    Any other value is an operator choice and is left alone. Applied in memory always, and written back once
+    (best effort); logged once per process."""
+    global _hard_max_migration_logged
+    v = saved.get("agent_input_token_hard_max")
+    if isinstance(v, bool) or v != _LEGACY_HARD_MAX:
+        return saved
+    migrated = {**saved, "agent_input_token_hard_max": 0}
+    if not _hard_max_migration_logged:
+        _hard_max_migration_logged = True
+        logger.warning("settings: migrated legacy agent_input_token_hard_max=48000 to 0 (auto; 0.60 x window on windows "
+                       ">= 500K tokens, 48K cap below). Set an explicit other number to pin a cap.")
+    try:
+        from core.atomic_io import atomic_write_json
+        atomic_write_json(SETTINGS_FILE, migrated, indent=2)
+    except Exception as e:  # noqa: BLE001 - read-only store etc.: the in-memory value is already migrated
+        logger.debug("settings: could not persist hard_max migration: %s", e)
+    return migrated
 
 
 def save_settings(settings: dict):

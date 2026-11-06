@@ -109,3 +109,35 @@ def test_auto_means_unset_none_zero_or_garbage():
 def test_repo_default_is_auto():
     from src.settings import DEFAULT_SETTINGS
     assert DEFAULT_SETTINGS["agent_input_token_hard_max"] == 0
+
+
+def _settings_with(tmp_path, monkeypatch, saved):
+    import json
+    import src.settings as st
+    f = tmp_path / "settings.json"
+    f.write_text(json.dumps(saved))
+    monkeypatch.setattr(st, "SETTINGS_FILE", str(f))
+    monkeypatch.setattr(st, "_settings_cache", None)
+    monkeypatch.setattr(st, "_hard_max_migration_logged", False)
+    return st, f
+
+
+def test_legacy_48000_is_migrated_to_auto_once_and_persisted(tmp_path, monkeypatch, caplog):
+    import json
+    st, f = _settings_with(tmp_path, monkeypatch, {"agent_input_token_hard_max": 48000, "other": 1})
+    with caplog.at_level(logging.WARNING):
+        assert st.load_settings()["agent_input_token_hard_max"] == 0
+    assert json.loads(f.read_text())["agent_input_token_hard_max"] == 0 and json.loads(f.read_text())["other"] == 1
+    assert sum("migrated legacy agent_input_token_hard_max" in r.getMessage() for r in caplog.records) == 1
+    monkeypatch.setattr(st, "_settings_cache", None)
+    caplog.clear()
+    st.load_settings()
+    assert not caplog.records, "logged once only"
+    from src.context_budget import resolve_hard_max
+    assert compute_input_token_budget(DEFAULT_BUDGET, 1_000_000, explicit=True, hard_max=resolve_hard_max(st.get_setting("agent_input_token_hard_max"))) == 600_000
+
+
+def test_other_values_are_not_migrated(tmp_path, monkeypatch):
+    for v in (600000, 65000, 0, 48001):
+        st, f = _settings_with(tmp_path, monkeypatch, {"agent_input_token_hard_max": v})
+        assert st.load_settings()["agent_input_token_hard_max"] == v
