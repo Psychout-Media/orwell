@@ -1,5 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { CREDIBILITY } from "./credibilityConstants";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /**
  * B48 - CREDIBILITY MEMORY (pure: no I/O, no rng, no Vault, no clock). `credibility(evidence, repeatsToListener, nowWeek)` is how far an OBSERVER believes a SPEAKER's word, 0..1 (1 = fully).
@@ -16,7 +17,6 @@ export interface CaughtLie {
   severity?: number;
 }
 
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 export function credibility(evidence: readonly CaughtLie[], repeatsToListener: number, nowWeek: number): number {
   let c = 1;

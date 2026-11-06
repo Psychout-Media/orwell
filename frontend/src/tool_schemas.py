@@ -1280,6 +1280,24 @@ FUNCTION_TOOL_SCHEMAS = [
                         "type": "integer",
                         "description": "About how long this scene FELT, in in-game minutes — a quick word ~15–30, a real conversation ~60, a long strategy summit ~120–180. A note only: the in-game clock runs by message count (about 5 minutes each) and never by this. Optional.",
                     },
+                    "assurance": {
+                        "type": "object",
+                        "description": "Optional. Set ONLY when someone made a cheap, explicit promise in the scene: 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal). `by` is 'player' (default) when the player promised, else the id of the houseguest in the scene who promised the player. Never for hints or friendliness. No numbers: the engine decides whether it is kept.",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["safe", "vote", "loyal"]},
+                            "by": {"type": "string", "description": "'player', or the houseguest id (in withIds) who made the promise."},
+                        },
+                        "required": ["kind"],
+                    },
+                    "heardAboutMe": {
+                        "type": "object",
+                        "description": "Optional. Set ONLY when a houseguest in the scene TOLD the other houseguests present something about the player: that the player is gunning for them (targeting) or has betrayed someone (betrayal). `by` is the teller's id (in withIds, never the player). The engine decides how far each listener believes it.",
+                        "properties": {
+                            "nature": {"type": "string", "enum": ["targeting", "betrayal"]},
+                            "by": {"type": "string", "description": "The houseguest id (in withIds) who told the others."},
+                        },
+                        "required": ["nature", "by"],
+                    },
                 },
                 "required": ["content"],
             },

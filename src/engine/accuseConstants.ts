@@ -1,5 +1,6 @@
 import type { EdgeSignals } from "./relationships";
 import type { TieNature } from "./seededRelationships";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /**
  * B50 (Ryne's accuseTie ruling 2026-11-05; flag ORWELL_ACCUSE_COST, off by default) - ACCUSING a pre-show tie has consequences. "Falsely accusing someone should definitely ding. But honestly accusing
@@ -31,7 +32,6 @@ export const ACCUSE = {
 
 /** P(a HIT sours this member): monotone in distrust of the accuser, in prickliness (0..1) and in how much the tie hurts. Pure. */
 export function sourChance(trustOfAccuser: number, prickly: number, nature: TieNature): number {
-  const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
   const p = ACCUSE.baseSour + ACCUSE.trustWeight * (1 - clamp01(trustOfAccuser)) + ACCUSE.pricklyWeight * clamp01(prickly) + ACCUSE.natureHurt[nature] - 0.5 * ACCUSE.trustWeight;
   return Math.max(ACCUSE.minSour, Math.min(ACCUSE.maxSour, p));
 }
