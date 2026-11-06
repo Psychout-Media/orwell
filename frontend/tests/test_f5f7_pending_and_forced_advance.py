@@ -179,5 +179,8 @@ def test_f7_fails_open_to_not_forcing():
 
 
 def test_f7_still_bounded_one_force_per_turn():
-    # The per-turn advance-nudge cap is unchanged — the guard adds a skip, never a retry loop.
-    assert "_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN" in AGENT_SRC
+    # The per-turn advance-nudge cap is unchanged — the guard adds a skip, never a retry loop. Since ORW-228 the cap lives in the
+    # pure gates (agent_gates.want_advance / want_drain_eviction); the loop passes them the per-turn counter and the cap.
+    gates = (FE / "src" / "agent_gates.py").read_text(encoding="utf-8")
+    assert AGENT_SRC.count("max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN") >= 2
+    assert "turn_advance_nudges < max_advance_nudges" in gates
