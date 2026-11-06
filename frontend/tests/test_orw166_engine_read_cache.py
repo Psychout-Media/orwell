@@ -274,9 +274,19 @@ def test_a_failing_mutation_still_invalidates(monkeypatch):
 def test_pure_reads_list_is_pinned():
     # adding a tool here means it can no longer invalidate; a mutating tool in this set would serve stale state. Review deliberately.
     assert cache.PURE_READS == frozenset({
-        "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleState", "renderScene", "socialRead", "seasonRecap", "dailyRecap",
-        "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView",
+        "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead",
+        "seasonRecap", "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice",
+        "competitionStagingView",
     })
+
+
+def test_every_pure_read_is_a_real_engine_tool_name():
+    """Greptile on #2265: the list carried `getVisibleState`, but the FE calls `getVisibleStateFor`, so the /knowledge and /dossier reads
+    invalidated the cache on every poll. Every name must be a tool orwell_engine actually calls, or it guards nothing."""
+    import re
+    src = open(os.path.join(FRONTEND, "src", "orwell_engine.py"), encoding="utf-8").read()
+    called = set(re.findall(r'_call\("(\w+)"', src))
+    assert cache.PURE_READS <= called, sorted(cache.PURE_READS - called)
 
 
 def test_state_route_is_fresh_after_a_decision_with_the_cache_on(monkeypatch):
@@ -307,3 +317,100 @@ def test_state_route_is_fresh_after_a_decision_with_the_cache_on(monkeypatch):
     run(orwell_engine.submit_decision({"choice": "x"}, user=None))
     r3 = client.get("/api/orwell/state")
     assert r3.json()["beatSeq"] == 2 and st["reads"] == 2
+
+
+# ---- handover fixes (Greptile on aa573da1) --------------------------------------------------------------------------------------------------
+def _route_client(monkeypatch, fake_inner):
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from src import orwell_engine, log_rings
+    routes = importlib.import_module("routes.orwell_routes")
+    monkeypatch.setattr(log_rings, "record_io", lambda *a, **k: None)
+    monkeypatch.setattr(orwell_engine, "_call_inner", fake_inner)
+    app = FastAPI()
+    app.include_router(routes.setup_orwell_routes())
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_the_panel_routes_share_one_cached_state_read(monkeypatch):
+    """/state, /knowledge, /dossier and /whereabouts polled inside one TTL window make ONE getGameState engine call: their own reads
+    (`getVisibleStateFor`, `whereabouts`) are pure, so they no longer wipe the player's cached state before and after themselves."""
+    monkeypatch.setenv("ORWELL_STATE_CACHE_TTL_MS", "10000")  # a slow runner must not expire the entry mid-test; the TTL is not under test
+    calls = []
+
+    async def fake_inner(name, args=None, user=None, timeout=None):
+        calls.append(name)
+        if name == "getGameState":
+            return {"started": True, "beatSeq": 7, "phase": "x", "house": [{"id": "npc:1", "name": "Houseguest One"}]}
+        if name == "getVisibleStateFor":
+            return {"knowledge": [], "visibleEvents": []}
+        if name == "whereabouts":
+            return None
+        return {}
+    client = _route_client(monkeypatch, fake_inner)
+    assert client.get("/api/orwell/state").status_code == 200
+    assert client.get("/api/orwell/knowledge").json().get("started") is True
+    assert client.get("/api/orwell/dossier/npc:1").json().get("found") is True
+    assert client.get("/api/orwell/whereabouts").status_code == 200
+    assert client.get("/api/orwell/state").status_code == 200
+    assert calls.count("getGameState") == 1, calls
+    assert calls.count("getVisibleStateFor") == 2  # the panels' own reads still go to the engine (not cacheable)
+
+
+def test_a_swept_user_record_never_revives_a_read_that_began_before_a_mutation(monkeypatch):
+    """Greptile on #2265: the idle sweep dropped a user's generation counter, resetting it to 0, so a read that began before a mutation
+    (generation 0) passed the freshness check again and stored PRE-mutation state as fresh. Ticks are never reused now, and a retired
+    record's last invalidation is folded into a floor every record-less user is measured against."""
+    monkeypatch.setenv("ORWELL_STATE_CACHE_TTL_MS", "30")
+    monkeypatch.setattr(cache, "_MAX_USERS", 2)
+    cache.clear()  # re-arms the sweep threshold from the patched bound
+    slow = Engine(delay=0.5)   # the read that began before the mutation
+    eng = Engine()             # every other read
+
+    async def go():
+        a = asyncio.ensure_future(cache.read("getGameState", "u1", slow.fetcher("u1")))   # snapshots beat 1, then waits
+        await asyncio.sleep(0.01)
+        slow.beat["u1"] = eng.beat["u1"] = 2
+        cache.invalidate("u1")                                                           # a mutation lands
+        assert (await cache.read("getGameState", "u1", eng.fetcher("u1")))["beatSeq"] == 2
+        await asyncio.sleep(0.05)                                                        # u1's fresh entry expires: u1 is idle now
+        for i in range(12):                                                              # other players' traffic sweeps the records
+            cache.invalidate(f"other{i}")
+            await cache.read("getGameState", f"reader{i}", eng.fetcher(f"reader{i}"))
+        old = await a                                                                    # the pre-mutation read lands only now
+        before = eng.calls
+        now = await cache.read("getGameState", "u1", eng.fetcher("u1"))
+        return old, now, eng.calls - before
+    old, now, fetched = run(go())
+    assert old["beatSeq"] == 1                      # the slow caller keeps its own answer...
+    assert now["beatSeq"] == 2 and fetched == 1     # ...but it was never stored: the next read asks the engine
+
+
+def test_per_user_records_stay_bounded_and_are_swept_amortized(monkeypatch):
+    """Greptile on #2265: the sweep only ever ran off the entry count, so the per-user generation and last-seen-beat records grew for the
+    life of the process (a player who mutates after polling leaves no entry behind). Every record kind now triggers the sweep, idle users'
+    records are retired, and the threshold is re-armed so a cache full of live users is not swept on every call."""
+    monkeypatch.setattr(cache, "_MAX_USERS", 4)
+    cache.clear()
+    sweeps = {"n": 0}
+    real = cache._sweep_locked
+
+    def counting():
+        sweeps["n"] += 1
+        real()
+    monkeypatch.setattr(cache, "_sweep_locked", counting)
+    eng = Engine()
+    peak = 0
+
+    async def go():
+        nonlocal peak
+        for i in range(500):
+            u = f"p{i}"
+            await cache.read("getGameState", u, eng.fetcher(u))                 # a poll (records the beat it saw)
+            cache.invalidate(u)                                                  # a mutation (records the user's invalidation)
+            await cache.read("gameStatus", u, eng.fetcher(u, "gameStatus"))     # the next poll
+            peak = max(peak, len(cache._INV), len(cache._BEAT), len(cache._ENTRIES))
+    run(go())
+    assert peak <= 4 * 4 + 1, peak                 # never more than the sweep threshold (+ the record that tripped it)
+    assert 0 < sweeps["n"] < 200, sweeps           # swept regularly, but nowhere near once per call (1,000 calls)
