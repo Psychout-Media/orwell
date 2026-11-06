@@ -14,6 +14,7 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
 const NEVER_FLIPPED = [
   // One flag per line: concurrent flag PRs append DIFFERENT lines instead of conflicting on one.
   "ORWELL_SHOWRUNNER_REWEIGHT",
+  "ORWELL_ADVANCE_GATE",
   "ORWELL_FORESHADOW",
   "ORWELL_TIE_REVEAL",
   "ORWELL_GOSSIP_CONSEQUENCE",

@@ -154,6 +154,10 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ACCUSE_COST', key: 'accuseCost', parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
+  // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. OFF unless exactly '1'; never-flipped until the FE honours `held` everywhere.
+  // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
+  { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
+  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

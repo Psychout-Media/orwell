@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /**
  * Feature 0107 — NAMED ALLIANCES. An explicit, NAMED, multi-party pact layered over the emergent bloc
@@ -85,8 +86,6 @@ export function sameMembers(a: readonly EntityId[], b: readonly EntityId[]): boo
   const s = new Set(a);
   return b.every((m) => s.has(m));
 }
-
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /** The active alliances a houseguest is a member of. */
 export function alliancesOf(alliances: readonly Alliance[], member: EntityId): Alliance[] {

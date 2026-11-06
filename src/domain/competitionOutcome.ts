@@ -2,6 +2,7 @@ import type { EntityId } from "./ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { TEMPERATURE_CONSTANTS } from "./temperatureConstants";
 import type { TemperatureConstants } from "./temperatureConstants";
+import { clamp01Raw as clamp01 } from "./num";
 
 /**
  * Competition resolution: outcomes are earned, never story convenience. A score
@@ -42,7 +43,6 @@ export interface Competitor {
 }
 
 /** Local [0,1] clamp (kept module-local so `src/domain` stays I/O- and import-free). */
-const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
 /** The governing aptitude per competition type — exported so the 0042 library can pin to it. */
 export const RELEVANT: Record<CompetitionType, "physical" | "mental" | "social"> = {

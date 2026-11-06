@@ -511,6 +511,8 @@ export interface LiveSeasonState {
    * field itself is absent unless commit 2 stores it).
    */
   deducedCulprits?: Record<EntityId, EntityId[]>;
+  /** A62 (ORWELL_JUROR_PROFILES + vote deduction, engine-only, never projected): per evictee, the houseguests they WRONGLY blame (believed to have voted against them, but did not). */
+  mistakenBlame?: Record<EntityId, EntityId[]>;
   /**
    * #2017 S0a — the NPC belief store (`beliefStore.ts`): per-holder typed claims with origin + confidence. ENGINE-ONLY, never projected, read
    * by NOTHING yet (data model + plumbing), no rng. Created ONLY when `ORWELL_NPC_BELIEFS` is on (absent ⇒ byte-identical season state). Rides on
@@ -2464,6 +2466,11 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // #1790 — store the POSSIBLY-WRONG deduced set on engine-only season state for jury-house blame
   // routing (AC1). NEVER projected to any surface — this is an engine-only store.
   (s.deducedCulprits ??= {})[evictee] = believedVoters;
+  // A62 - remember WHICH of those blames are wrong (flag-gated; no rng, no new draw): a mend appeal can later correct exactly these.
+  if (ctx.jurorProfiles && ctx.voteDeduction) {
+    const wrong = believedVoters.filter((v) => v !== evictee && !votesToEvict.includes(v) && v !== s.hoh);
+    if (wrong.length) (s.mistakenBlame ??= {})[evictee] = wrong;
+  }
   // #2017 S0a — mirror the evictee's possibly-wrong deduction into the belief store as `voted-against-me` claims (origin `deduced`). Flag-gated: OFF ⇒
   // the store is never created. Written from values already computed above (no rng, no new draw) and read by nothing, so it moves no outcome.
   if (ctx.npcBeliefs && ctx.voteDeduction) {  // only a REAL 0110 deduction is a belief: with deduction off `believedVoters` is the true ballot
@@ -2516,6 +2523,18 @@ function edgeAsJuryRel(s: LiveSeasonState, juror: EntityId, finalist: EntityId, 
 /** The recorded manner the evictee/juror read toward a finalist (empty if none). */
 function mannerFor(s: LiveSeasonState, juror: EntityId, finalist: EntityId): EvictionManner {
   return s.mannerByEvictee?.[juror]?.[finalist] ?? {};
+}
+
+/**
+ * A62 - the manner a juror weighs when VOTING. Flag-off (or no mistaken blame) => exactly `mannerFor`. With `ORWELL_JUROR_PROFILES` on, a juror who WRONGLY blames this finalist (0110 deduction error) carries
+ * the grievance as `mistaken`; if the finalist made the `mend` appeal to that juror, the mistaken grievance is dissolved (the juror's held mistake is corrected). A TRUE grievance is never dissolved.
+ */
+export function mannerForVote(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, juror: EntityId, fin: EntityId): EvictionManner {
+  const base = mannerFor(s, juror, fin);
+  if (!ctx.jurorProfiles || !s.mistakenBlame?.[juror]?.includes(fin)) return base;
+  if (f.appeals[fin]?.[juror] !== "mend") return { ...base, mistaken: true };
+  const { betrayed: _b, blindsided: _bl, disrespected: _d, mistaken: _m, ...rest } = base;
+  return rest;
 }
 
 /** Record the appeal a finalist made to a juror (appeals[finalist][juror]). */
@@ -2584,11 +2603,11 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     const prof = ctx.jurorProfiles ? jurorProfile(juror, ctx.jurorProfileSalt ?? 0) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
     const leanFor = prof
       ? (fin: EntityId): number =>
-          profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerFor(s, juror, fin), prof) +
+          profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin), prof) +
           profiledWeights(prof).gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
           (ctx.juryMemoryFor?.(juror, fin) ?? 0)
       : (fin: EntityId): number =>
-      juryLean(edgeAsJuryRel(s, juror, fin, ctx), mannerFor(s, juror, fin)) +
+      juryLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin)) +
       // GAME RESPECT (ruling 2026-06-11): jurors weigh who actually PLAYED — the public resume
       // (comp wins) splits the two finalists; a goat with no game starts every juror down a
       // bounded notch. Grievance (manner) can still outvote it: bitter juries stay possible.

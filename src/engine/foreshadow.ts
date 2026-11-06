@@ -23,8 +23,7 @@
  * an anchored belief); a hint crosses only *that the camera lingered*.
  */
 import { FORESHADOW } from "./foreshadowConstants";
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /** The class of in-motion pathway a hint may foreshadow (all EXISTING organs). */
 export type PathwayKind = "thread" | "drive" | "campaign" | "secret";

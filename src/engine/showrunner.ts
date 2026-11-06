@@ -16,8 +16,8 @@
  * a number) — so a note is safe to unseal in the 0048 retrospective as the season's production bible.
  */
 import { SHOWRUNNER } from "./showrunnerConstants";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 const clampEmphasis = (x: number): number =>
   Math.max(SHOWRUNNER.minEmphasis, Math.min(SHOWRUNNER.maxEmphasis, x));
 

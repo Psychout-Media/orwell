@@ -4,6 +4,7 @@
  * different houseguest - with a bounded chance that shrinks as the teller's reliability grows, so a trusted teller is believed and almost never garbled, a distrusted one lands weakly and is the
  * likeliest to be misheard. The claim moves no relationship edge and folds no memory: it is a belief, and only the later nominations / deal consent that already READ beliefs ever show it.
  */
+import { clamp01 } from "../domain/num";
 export type HeardNature = "targeting" | "betrayal";
 
 export const HEARD = {
@@ -16,8 +17,6 @@ export const HEARD = {
   /** Added to the listener's trust in the teller when the listener credits them as a word-keeper (the 0121 reliability reputation). */
   creditedBonus: 0.1,
 } as const;
-
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : Math.max(0, Math.min(1, x)));
 
 export function isHeardNature(x: unknown): x is HeardNature {
   return x === "targeting" || x === "betrayal";
