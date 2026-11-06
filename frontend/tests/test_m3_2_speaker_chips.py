@@ -993,3 +993,68 @@ def test_live_and_history_render_paths_share_the_one_processwiththinking_seam():
         assert "_SPEAKER_BOLD_LINE_RE" not in src, f"{label} must not duplicate the speaker regex"
         assert "extractSpeakerTags(" not in src, f"{label} must not bypass processWithThinking"
         assert "restoreSpeakerChips(" not in src, f"{label} must not bypass processWithThinking"
+
+
+# ── ORW-140 / ORW-141 (11-06 live playtest) ───────────────────────────────────────────── #
+# ORW-140: the consumed @[Name] tag left subject-less sentences ("stands near the memory wall…");
+# owner ruling (Kevin, 11-06): complete sentences in all cases, so the name is rendered as visible
+# text after the chip. ORW-141: the speaker line was a flex row, so every inline element of the
+# paragraph became its own column ("as / se / ssi / ng").
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+def test_orw140_consumed_tag_keeps_the_name_as_visible_text():
+    r = _run_natural_battery({
+        "narration": "@[Natalia Reed] stands near the memory wall, arms crossed.",
+        "dash": "@[Paige Patterson] — barks a laugh over the top of your line.",
+        "colon": '@[Faith Willis]: "I trust no one this week."',
+        "idform": '@[Deja Monroe](npc:8) "We ride together," she whispers.',
+        "tag_then_bold": "@[Stephanie Briggs] **Stephanie Briggs** grins at the room.",
+        "tag_then_plain": "@[Riley Cho] Riley Cho waves from the couch.",
+        "bold_only": "**Stephanie Briggs** leans against the counter.",
+        "escaped": "@[A<b>x] says hi.",
+    }, roster=["Stephanie Briggs"])
+
+    n = r["narration"]
+    assert n["chips"][0]["showName"] is True
+    assert '<strong class="ow-speaker-name">Natalia Reed</strong> stands near the memory wall' in n["restored"]
+    assert n["restored"].count('class="ow-speaker-chip"') == 1
+    assert n["restoredTwice"] == n["restored"]  # idempotent: no second name on a re-render
+
+    assert '<strong class="ow-speaker-name">Paige Patterson</strong> — barks a laugh' in r["dash"]["restored"]
+    assert '<strong class="ow-speaker-name">Faith Willis</strong>: "I trust no one this week."' in r["colon"]["restored"]
+
+    idf = r["idform"]
+    assert 'data-hg-id="npc:8"' in idf["restored"]
+    assert '<strong class="ow-speaker-name">Deja Monroe</strong> "We ride together,"' in idf["restored"]
+    assert "npc:8)" not in idf["restored"]  # the id form never leaks as text
+
+    # the narrator already wrote the name right after the tag: never a second copy
+    for key in ("tag_then_bold", "tag_then_plain"):
+        assert r[key]["chips"][0]["showName"] is False, key
+        assert "ow-speaker-name" not in r[key]["restored"], key
+    assert "**Stephanie Briggs** grins at the room." in r["tag_then_bold"]["restored"]
+
+    # the #1638 bold-name pass keeps its own **Name** in the prose, so it never adds a label
+    b = r["bold_only"]
+    assert len(b["chips"]) == 1
+    assert "ow-speaker-name" not in b["restored"]
+    assert "**Stephanie Briggs** leans against the counter." in b["restored"]
+
+    # the name is HTML-escaped in the visible label (and the chip attributes)
+    e = r["escaped"]["restored"]
+    assert "A&lt;b&gt;x</strong>" in e
+    assert "<b>" not in e
+
+
+def test_orw141_speaker_line_is_not_a_flex_row():
+    md = _read("static", "js", "markdown.js")
+    css_fn = md[md.index("function ensureSpeakerCss"):]
+    css_fn = css_fn[:css_fn.index("\n}\n")]
+    line_rule = re.search(r"\.ow-speaker-line\{([^}]*)\}", css_fn)
+    assert line_rule, "the .ow-speaker-line rule must exist"
+    rule = line_rule.group(1)
+    # a flex speaker line turns every inline element (<em>, <strong>, a link) into a column
+    assert "display:flex" not in rule and "display:inline-flex" not in rule
+    assert "padding-left:calc(1.7em + .5rem)" in rule  # same gutter as .ow-speaker-cont
+    chip_rule = re.search(r"\.ow-speaker-line>\.ow-speaker-chip\{([^}]*)\}", css_fn)
+    assert chip_rule and "position:absolute" in chip_rule.group(1)
