@@ -250,7 +250,11 @@
   function watchNewMessages(box) {
     if (typeof MutationObserver === "undefined") return;
     try { _lastMsgCount = box.querySelectorAll(".msg").length; } catch (_) { _lastMsgCount = 0; }
-    var mo = new MutationObserver(function () {
+    // ORW-157: the `.msg` recount is O(messages); do it once per animation frame, not on every streamed token.
+    var _wnPending = false;
+    var _wnRun = function () {
+      if (!_wnPending) return;
+      _wnPending = false;
       var count;
       try { count = box.querySelectorAll(".msg").length; } catch (_) { count = _lastMsgCount; }
       if (count > _lastMsgCount && !nearBottom(box)) {
@@ -259,6 +263,12 @@
       }
       _lastMsgCount = count;
       scheduleUpdate();
+    };
+    var mo = new MutationObserver(function () {
+      if (_wnPending) return;
+      _wnPending = true;
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(_wnRun);
+      setTimeout(_wnRun, 120);
     });
     mo.observe(box, { childList: true, subtree: true });
   }

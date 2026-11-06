@@ -1,4 +1,5 @@
 import { isNarrow } from './platform.js';
+import { frameBatched } from './frameBatch.js';
 // ============================================
 // Sidebar Layout — icon rail, hamburger cycling, mobile backdrop & swipe
 // ============================================
@@ -549,7 +550,7 @@ export function initSidebarLayout(Storage, opts) {
       _railWasOpenBeforeTool = false;
       if (_sidebarWasOpenBeforeTool || _railWasOpenBeforeTool) syncRailSide();
     };
-    const _modalObs = new MutationObserver((muts) => {
+    const _modalObs = new MutationObserver(frameBatched((muts) => {   // ORW-157: one callback per frame
       let triggered = false;
       for (const m of muts) {
         if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
@@ -558,7 +559,7 @@ export function initSidebarLayout(Storage, opts) {
         if (t.classList.contains('modal')) { triggered = true; break; }
       }
       if (triggered) setTimeout(_restoreSidebar, 50);
-    });
+    }));
     _modalObs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
   }
 
