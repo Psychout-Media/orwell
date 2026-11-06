@@ -6,7 +6,7 @@ import uiModule from './ui.js';
 import { initColorPickers, attachColorPicker } from './colorPicker.js';
 import { hexToRgb, onAccentColor } from './color/hex.js';
 import { makeDraggable } from './windowDrag.js';
-import { lowPowerActive, evaluateLowPower, decideLowPower, applyLowPowerClass } from './lowPower.js';
+import { lowPowerActive, evaluateLowPower, decideLowPower, applyLowPowerClass, setThemeChoiceClassifier } from './lowPower.js';
 // The glass theme's wallpaper REUSES the login screen's mesh-gradient renderer
 // (DRY — one mesh, both surfaces). mountMeshGradient paints the shared
 // .login-bg-gradient layer (css/meshGradient.css); resolveLoginBackgroundConfig
@@ -1250,10 +1250,16 @@ const _PREV_DEFAULT_THEME = 'telescreen';
 function _isPristineOldDefault(obj) {
   if (!obj || obj.name !== _PREV_DEFAULT_THEME) return false;
   if (obj._explicit) return false;                 // stamped as a real selection
+  return _isUncustomizedRecordOf(obj, _PREV_DEFAULT_THEME);
+}
+
+// The field-by-field "nothing customised" test behind _isPristineOldDefault and isDeliberateThemeRecord: `obj` carries `themeName`'s
+// canonical palette and none of the markers of a customisation. It looks at neither the record's name nor its `_explicit` stamp.
+function _isUncustomizedRecordOf(obj, themeName) {
   const c = obj.colors || {};
-  const ref = THEMES[_PREV_DEFAULT_THEME] || {};
-  // Colors must match the canonical telescreen palette (a customized telescreen
-  // — even via the color pickers — has different values and is left untouched).
+  const ref = THEMES[themeName] || {};
+  // Colors must match the theme's canonical palette (a customized theme
+  // — even via the color pickers — has different values).
   for (const k of ['bg', 'fg', 'panel', 'border', 'red']) {
     if ((c[k] || '').toLowerCase() !== (ref[k] || '').toLowerCase()) return false;
   }
@@ -1261,17 +1267,40 @@ function _isPristineOldDefault(obj) {
   if (obj.bgImage) return false;
   if (obj.font && obj.font !== DEFAULT_FONT) return false;
   if (obj.density && obj.density !== DEFAULT_DENSITY) return false;
-  // The pattern/effect/tier, if present, must equal telescreen's own defaults.
-  const defPattern = THEME_DEFAULT_PATTERN[_PREV_DEFAULT_THEME] || 'none';
+  // The pattern/effect/tier, if present, must equal the theme's own defaults.
+  const defPattern = THEME_DEFAULT_PATTERN[themeName] || 'none';
   if (obj.bgPattern && obj.bgPattern !== defPattern) return false;
-  if (obj.bgEffectColor && obj.bgEffectColor !== (THEME_DEFAULT_EFFECT_COLOR[_PREV_DEFAULT_THEME] || '')) return false;
-  const defInt = THEME_DEFAULT_INTENSITY[_PREV_DEFAULT_THEME];
+  if (obj.bgEffectColor && obj.bgEffectColor !== (THEME_DEFAULT_EFFECT_COLOR[themeName] || '')) return false;
+  const defInt = THEME_DEFAULT_INTENSITY[themeName];
   if (obj.bgEffectIntensity !== undefined && defInt !== undefined && obj.bgEffectIntensity !== defInt) return false;
   if (obj.bgEffectSize !== undefined && obj.bgEffectSize !== 1) return false;
-  // A non-default tier (telescreen defaults to 'frosted') is a deliberate tweak.
-  const t = resolveGlassTier(obj, _PREV_DEFAULT_THEME);
-  if (t !== defaultGlassTierFor(_PREV_DEFAULT_THEME)) return false;
+  // A non-default tier (e.g. telescreen defaults to 'frosted') is a deliberate tweak.
+  const t = resolveGlassTier(obj, themeName);
+  if (t !== defaultGlassTierFor(themeName)) return false;
   return true;
+}
+
+// ORW-154/190: is a saved theme record a DELIBERATE choice (so the low-power default must stand down)? Every save() stamps `_explicit`
+// now, but before that only a swatch click did: a colour edit, a custom theme, a tier/tint/font/density tweak was saved WITHOUT the stamp.
+// Nothing but boot writes a record the player did not choose: the stale-old-default migration writes the untouched glass default, and an
+// old boot path wrote the untouched telescreen default. So a record is deliberate when it is stamped, or tinted (#739: Clear is the omitted default), or is
+// anything but one of those two untouched defaults. A record identical to an untouched default cannot be told apart from one, and stays
+// eligible for low-power (one Glass/Flat click now stamps it, see the tier control).
+export function isDeliberateThemeRecord(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  if (obj._explicit === true) return true;
+  if (obj.tinted) return true;
+  if (obj.name === DEFAULT_THEME || obj.name === _PREV_DEFAULT_THEME) return !_isUncustomizedRecordOf(obj, obj.name);
+  return true;
+}
+// lowPower.js reads the raw record and asks this (it cannot import theme.js: theme.js imports it).
+setThemeChoiceClassifier(isDeliberateThemeRecord);
+
+// The theme a browser shows when nothing is saved (DEFAULT_THEME with its canonical palette), as a {name, colors} record to save from.
+function _untouchedDefaultRecord() {
+  const colors = { ...(THEMES[DEFAULT_THEME]) };
+  delete colors._key;
+  return { name: DEFAULT_THEME, colors };
 }
 
 export function getSaved() {
@@ -2387,7 +2416,11 @@ export function initThemeUI() {
       const tier = btn.dataset.tier;
       applyGlassTier(tier);
       _syncGlassTierControl(tier);
-      const s = getSaved(); if (s) _saveFull(s.name, s.colors);
+      // ORW-154/190 (Greptile on #2262): a Glass/Flat pick is a deliberate choice even when nothing is saved yet (a fresh browser on the
+      // untouched default). Persist the default theme with it; save() stamps `_explicit` and re-applies the tier, so on a software
+      // renderer the low-power ceiling stands down and Glass really shows (it used to skip the save and stay Flat).
+      const s = getSaved() || _untouchedDefaultRecord();
+      _saveFull(s.name, s.colors);
     });
   }
   _syncGlassTierControl(_initTier);
@@ -3364,7 +3397,7 @@ const themeModule = { initThemeUI, togglePopup, closePopup, openPopup, makeDragg
                        applyBgEffectColor, applyBgEffectIntensity, applyBgEffectSize,
                        applyGlassTier, glassTierCeiling, applyFrostedGlass, applyGlassTint, applyBgImage, applyGlassMeshBackground,
                        save, getSaved, saveCustomTheme, deleteCustomTheme,
-                       getCustomThemes };
+                       getCustomThemes, isDeliberateThemeRecord };
 
 export default themeModule;
 

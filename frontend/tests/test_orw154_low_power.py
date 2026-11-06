@@ -29,7 +29,7 @@ def _read(*parts):
 _PROGRAM = r"""
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[1], 'utf8').replace(/export default [^;]*;/, '').replace(/export /g, '');
-const lib = new Function(src + '; return { isSoftwareRendererString, detectSoftwareRenderer, hasExplicitThemeChoice, readOverride, shouldUseLowPower, decideLowPower, evaluateLowPower, _resetLowPowerForTests };')();
+const lib = new Function(src + '; return { isSoftwareRendererString, detectSoftwareRenderer, hasExplicitThemeChoice, setThemeChoiceClassifier, readOverride, shouldUseLowPower, decideLowPower, evaluateLowPower, _resetLowPowerForTests };')();
 const out = {};
 
 const strings = {
@@ -115,6 +115,22 @@ function perfCaveatDoc() {
   return { createElement: () => ({ getContext: (k, o) => (o && o.failIfMajorPerformanceCaveat ? null : gl) }) };
 }
 out.perfCaveat = lib.detectSoftwareRenderer(perfCaveatDoc());
+
+// theme.js injects its full classifier (a pre-stamp customised record counts as a choice); lowPower.js must use it everywhere, survive a
+// classifier that throws (fall back to the `_explicit` stamp) and ignore a non-function
+const SW = () => ({ software: true, renderer: 'llvmpipe', reason: 'renderer' });
+lib.setThemeChoiceClassifier((r) => r._explicit === true || !!r.tinted || r.name !== 'glass');
+lib._resetLowPowerForTests();
+out.classifier = {
+  legacyTinted: lib.hasExplicitThemeChoice(store({ name: 'glass', tinted: true })),
+  legacyOtherTheme: lib.hasExplicitThemeChoice(store({ name: 'dark' })),
+  untouchedDefault: lib.hasExplicitThemeChoice(store({ name: 'glass' })),
+  decideLegacyTinted: lib.decideLowPower({ storage: store({ name: 'glass', tinted: true }), search: '', detect: SW, automated: false, fresh: true }).on,
+  decideUntouched: lib.decideLowPower({ storage: store({ name: 'glass' }), search: '', detect: SW, automated: false, fresh: true }).on,
+};
+lib.setThemeChoiceClassifier(() => { throw new Error('boom'); });
+lib.setThemeChoiceClassifier('not a function');   // ignored: the throwing classifier above stays installed
+out.classifierThrows = { stamped: lib.hasExplicitThemeChoice(store({ name: 'glass', _explicit: true })), unstamped: lib.hasExplicitThemeChoice(store({ name: 'dark' })) };
 console.log(JSON.stringify(out));
 """
 
@@ -194,3 +210,27 @@ def test_wiring_theme_ceiling_and_css():
     assert "animation: none !important" in css
     # the HTML shell and the service worker are owned by another lane and must not know about this
     assert "low-power" not in _read("index.html") and "low-power" not in _read("sw.js")
+
+
+def test_an_injected_classifier_decides_explicit_and_survives_a_throw(unit):
+    """Greptile on #2262: a record saved before every save() stamped `_explicit` (a colour edit, a custom theme, a tint/tier/font tweak) is
+    still the player's choice. theme.js injects that classifier; lowPower.js must use it for the decision, not only the stamp."""
+    assert unit["classifier"] == {"legacyTinted": True, "legacyOtherTheme": True, "untouchedDefault": False,
+                                  "decideLegacyTinted": False, "decideUntouched": True}, unit["classifier"]
+    assert unit["classifierThrows"] == {"stamped": True, "unstamped": False}, unit["classifierThrows"]
+
+
+def test_theme_js_registers_its_classifier_and_a_first_tier_pick_is_saved():
+    theme = _read("js", "theme.js")
+    assert "setThemeChoiceClassifier(isDeliberateThemeRecord);" in theme
+    assert "export function isDeliberateThemeRecord(obj)" in theme
+    # Greptile on #2262: the Glass/Flat control saves even when nothing is saved yet (it used to skip the save, so on a software renderer
+    # the low-power ceiling kept a first Glass pick Flat)
+    ctrl = theme[theme.index("const GLASS_TIER_CONTROL_IDS"):]
+    ctrl = ctrl[:ctrl.index("_syncGlassTierControl(_initTier);")]
+    assert "const s = getSaved() || _untouchedDefaultRecord();" in ctrl
+    assert "if (s) _saveFull" not in ctrl
+    # the stale-old-default migration keeps its own rules (only the shared field checks moved)
+    mig = theme[theme.index("function _isPristineOldDefault(obj) {"):]
+    mig = mig[:mig.index("\n}\n")]
+    assert "obj.name !== _PREV_DEFAULT_THEME" in mig and "if (obj._explicit) return false;" in mig and "_isUncustomizedRecordOf(obj, _PREV_DEFAULT_THEME)" in mig

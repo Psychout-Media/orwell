@@ -114,3 +114,92 @@ def test_a_theme_choice_made_in_the_ui_sticks_across_tweaks_and_reload(_app):  #
         page.wait_for_timeout(3000)
         assert not page.evaluate("() => document.body.classList.contains('low-power')"), "an explicit choice must survive a reload"
         browser.close()
+
+
+# ---- Greptile on #2262: a pre-stamp customised record is still a choice; an untouched default stays eligible; a first tier pick sticks --
+GLASS = {"bg": "#15171c", "fg": "#eef1f4", "panel": "#1d2026", "border": "#3a3f47", "red": "#9aa3af"}
+TELESCREEN = {"bg": "#101418", "fg": "#d7e9ee", "panel": "#151c22", "border": "#2a3e4a", "red": "#56c8e8"}
+# exactly what the stale-old-default migration writes (no `_explicit`): the untouched glass default
+UNTOUCHED_GLASS = {"name": "glass", "colors": {**GLASS, "glassTier": "full", "glass": True}, "glassTier": "full", "bgPattern": "glass-mesh"}
+LLVMPIPE = SPOOF % json.dumps("llvmpipe (LLVM 15.0.7, 256 bits)")
+
+
+def _seed(rec):
+    return "try { localStorage.setItem('orwell-theme', %s); } catch (e) {}" % json.dumps(json.dumps(rec))
+
+
+@pytest.mark.browser
+def test_the_classifier_tells_a_pre_stamp_choice_from_the_untouched_default(_app):  # noqa: F811
+    """theme.js `isDeliberateThemeRecord`: before every save() stamped `_explicit`, a colour edit, a custom theme or a tint/tier/font tweak
+    was saved without it. Those are choices; only the untouched defaults boot itself writes are not."""
+    from playwright.sync_api import sync_playwright
+    cases = {
+        "untouchedGlass": (UNTOUCHED_GLASS, False),
+        "untouchedTelescreen": ({"name": "telescreen", "colors": dict(TELESCREEN)}, False),
+        "stampedGlass": ({**UNTOUCHED_GLASS, "_explicit": True}, True),
+        "tintedGlass": ({**UNTOUCHED_GLASS, "tinted": True}, True),
+        "flatGlass": ({**UNTOUCHED_GLASS, "glassTier": "normal"}, True),
+        "fontGlass": ({**UNTOUCHED_GLASS, "font": "serif"}, True),
+        "editedColour": ({**UNTOUCHED_GLASS, "colors": {**GLASS, "bg": "#000000"}}, True),
+        "otherTheme": ({"name": "dark", "colors": {"bg": "#282c34", "fg": "#9cdef2", "panel": "#111111", "border": "#355a66", "red": "#e06c75"}}, True),
+        "customTheme": ({"name": "My Night", "colors": dict(GLASS)}, True),
+        "notARecord": (None, False),
+    }
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+        page.goto(_app, wait_until="load")
+        got = page.evaluate("(cases) => Object.fromEntries(Object.entries(cases).map(([k, rec]) => [k, window.themeModule.isDeliberateThemeRecord(rec)]))",
+                            {k: v[0] for k, v in cases.items()})
+        browser.close()
+    assert got == {k: v[1] for k, v in cases.items()}, got
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("rec", [{**UNTOUCHED_GLASS, "tinted": True}, {"name": "dark", "colors": {"bg": "#282c34", "fg": "#9cdef2", "panel": "#111111", "border": "#355a66", "red": "#e06c75"}}],
+                         ids=["tinted-glass", "other-theme"])
+def test_a_pre_stamp_customised_record_keeps_glass_on_a_software_renderer(_app, rec):  # noqa: F811
+    s = _snap(_app, [AUTO, LLVMPIPE, _seed(rec)], False)
+    assert not s["low"] and s["info"]["explicit"] is True, s
+
+
+@pytest.mark.browser
+def test_the_untouched_default_record_stays_eligible_for_low_power(_app):  # noqa: F811
+    s = _snap(_app, [AUTO, LLVMPIPE, _seed(UNTOUCHED_GLASS)], True)
+    assert s["low"] and s["info"]["explicit"] is False, s
+
+
+@pytest.mark.browser
+def test_a_first_glass_pick_on_a_fresh_software_renderer_turns_glass_on(_app):  # noqa: F811
+    """Nothing saved yet, software renderer: low-power is on. Picking Glass in the theme window must persist an explicit choice and show
+    glass (the control used to skip the save without a saved record, so the low-power ceiling kept the page Flat)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+        # a truly fresh player: no server-side theme either (the module-scoped app keeps prefs other tests saved), and this test's own
+        # save never reaches the server (so a CI rerun, or a later test, starts clean)
+        page.route("**/api/prefs/theme", lambda route: route.fulfill(status=200, content_type="application/json",
+                                                                     body=json.dumps({"value": None} if route.request.method == "GET" else {})))
+        page.add_init_script(AUTO)
+        page.add_init_script(LLVMPIPE)
+        page.goto(_app, wait_until="load")
+        _wait_low_power(page)
+        assert page.evaluate("() => localStorage.getItem('orwell-theme')") is None
+        page.evaluate("() => document.querySelector('#theme-glass-tier-quick [data-tier=\"full\"]').click()")
+        page.wait_for_timeout(500)
+        rec = page.evaluate("() => JSON.parse(localStorage.getItem('orwell-theme') || 'null')")
+        assert rec and rec.get("_explicit") is True and rec.get("glassTier") == "full", rec
+        after = page.evaluate(SNAP)
+        assert not after["low"] and after["frosted"], f"a Glass pick must leave low-power and show glass: {after}"
+        page.reload(wait_until="load")
+        page.wait_for_timeout(3000)
+        again = page.evaluate(SNAP)
+        assert not again["low"] and again["frosted"], f"the pick must survive a reload: {again}"
+        browser.close()

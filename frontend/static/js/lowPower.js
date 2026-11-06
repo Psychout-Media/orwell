@@ -10,7 +10,8 @@
 // HTML shell and the service worker are untouched.
 //
 // Precedence: an explicit override (`localStorage['orwell-low-power']` = '1' force on / '0' force off, or `?lowpower=1|0`) beats
-// everything; else an explicit saved theme (`_explicit: true`, stamped by every theme save) wins over detection; else detection.
+// everything; else an explicit saved theme (`_explicit: true`, stamped by every theme save, or a pre-stamp record that differs from the
+// untouched default, see hasExplicitThemeChoice) wins over detection; else detection.
 // AUTOMATION: a browser driven by WebDriver/Playwright (`navigator.webdriver`) is a test harness, not a player, and CI runners are
 // software-rendered: so detection is skipped there (glass stays the deterministic default for the mirror, screenshot, a11y and perf
 // jobs) unless the override is '1' or 'auto' (`localStorage['orwell-low-power']='auto'` / `?lowpower=auto` = detect even under automation).
@@ -57,14 +58,27 @@ export function detectSoftwareRenderer(doc) {
   }
 }
 
-/** Has the player made an explicit theme choice? (`_explicit` is stamped by the swatch / glass-tier pick, see theme.js save().) */
+// Is a saved theme record a DELIBERATE choice? Out of the box only the `_explicit` stamp counts; theme.js registers its full classifier
+// at load (setThemeChoiceClassifier). That one also recognises a record saved BEFORE every save() stamped `_explicit` (a colour edit, a
+// custom theme, a tier/font/tint tweak): anything but the untouched default (the shape boot and the old-default migration write) is the
+// player's choice. Kept as an injected function so this module never imports theme.js (theme.js imports this one).
+let _isDeliberate = (rec) => !!(rec && rec._explicit === true);
+
+/** theme.js hands in its classifier (`isDeliberateThemeRecord`). Anything that is not a function is ignored. */
+export function setThemeChoiceClassifier(fn) {
+  if (typeof fn === 'function') _isDeliberate = fn;
+}
+
+/** Has the player made an explicit theme choice? (`_explicit` is stamped by every theme.js save(); older records are classified, see above.) */
 export function hasExplicitThemeChoice(storage) {
+  let rec = null;
   try {
     const raw = storage && storage.getItem(THEME_KEY);
     if (!raw) return false;
-    const rec = JSON.parse(raw);
-    return !!(rec && rec._explicit === true);
+    rec = JSON.parse(raw);
   } catch (_) { return false; }
+  if (!rec || typeof rec !== 'object') return false;
+  try { return !!_isDeliberate(rec); } catch (_) { return rec._explicit === true; }
 }
 
 /** 'on' | 'off' | 'auto' | null from the query string / localStorage escape hatch ('auto' = detect even under automation). */
@@ -139,4 +153,4 @@ export function lowPowerActive() {
 /** Test seam: forget the memoised probe. */
 export function _resetLowPowerForTests() { _detected = null; _failedAt = 0; _lastProbe = null; }
 
-export default { isSoftwareRendererString, detectSoftwareRenderer, hasExplicitThemeChoice, shouldUseLowPower, decideLowPower, applyLowPowerClass, evaluateLowPower, lowPowerActive };
+export default { isSoftwareRendererString, detectSoftwareRenderer, hasExplicitThemeChoice, setThemeChoiceClassifier, shouldUseLowPower, decideLowPower, applyLowPowerClass, evaluateLowPower, lowPowerActive };
