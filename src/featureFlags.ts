@@ -101,6 +101,11 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
   // A49 / #2017 E1a: npcVoice hands the narrator each PRESENT houseguest's observable tells (top 2, words only). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_NPC_TELLS', key: 'npcTells', parser: 'defaultOn' },
+  { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
+  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
+  { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
+  { envKey: 'ORWELL_HEARD_ABOUT_ME', key: 'heardAboutMe', parser: 'defaultOn' },
+  { envKey: 'ORWELL_NO_HARD_CAPS', key: 'noHardCaps', parser: 'defaultOn' },
   // A54 / #2017 M5: npcVoice hands the narrator what the NPC remembers about the player (top 3 plain facts) + an engine-decided, rate-limited bringUp. OFF unless exactly '1'; never-flipped.
   // B29 / #2017 E3: observers react to a visible tell (comfort / exploit / avoid; needs ORWELL_NPC_TELLS). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_TELL_REACTIONS', key: 'tellReactions', parser: 'defaultOn' },

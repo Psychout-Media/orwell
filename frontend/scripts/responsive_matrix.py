@@ -256,6 +256,16 @@ _FINALE_KINDS = {"final-eviction", "finale-statement", "finale-answer",
                  "finale-interview"}
 
 
+# 0133 — the finale-interview card a pre-jury-evicted player is left holding AFTER the crown (the shape the engine's PendingDecisionView emits). A pre-jury
+# eviction depends on the staged seed, so the deterministic "card + retro co-render" sub-pass mounts this when the driver did not capture a real one.
+_FINALE_INTERVIEW_FIXTURE = {
+    "kind": "finale-interview", "by": {"id": "player", "name": "Player"}, "pick": 1,
+    "prompt": "The season is crowned - the host sits you down for your finale-night interview. Choose the posture you take; your own words carry it.",
+    "options": [{"id": s, "name": s} for s in ("gracious", "defiant", "bitter")],
+    "stances": ["gracious", "defiant", "bitter"],
+}
+
+
 def finish_game():
     """Drive the staged game to a FINISHED season via the engine's player channel (opt-in,
     fail-soft, idempotent). Returns (finished: bool, endgame_pending: dict|None) — the latter is
@@ -308,17 +318,13 @@ def finish_game():
             finished = True
             break
     if finished:
-        # A pre-jury-evicted player is offered the 0133 finale-interview AFTER the crown (the season is already decided), and it stays the engine's live `pending`
-        # for the rest of the run. Whether that happens depends on the (random) staged seed, so a base-pass sweep would see a REAL decision card beside the
-        # post-season retro on some seeds and not on others - a seed-dependent red on unrelated PRs. Capture it for the isolated endgame-card sub-pass (it is mounted
-        # synthetically from this dict, exactly as before), then answer it so the engine state - and so the base sweep - is the same on every seed.
+        # A pre-jury-evicted player is offered the 0133 finale-interview AFTER the crown (the season is already decided), and it stays the engine's live
+        # `pending` for the rest of the run - so the post-season retro and a REAL decision card co-render in the real game. The driver deliberately leaves it
+        # UNANSWERED: the base overlap sweep must hold with the card pending (the layout owes the player a non-overlapping stack, not a driver that hides it).
         st = _engine_tool("getGameState") or {}
         fp = st.get("pending") if isinstance(st, dict) else None
-        if isinstance(fp, dict) and fp.get("kind") == "finale-interview":
+        if isinstance(fp, dict) and fp.get("kind") in _FINALE_KINDS:
             endgame_pending = endgame_pending or fp
-            decision = _auto_resolve(fp)
-            if decision is not None:
-                _engine_tool("submitDecision", decision)
     if not finished:
         # A48: say WHY the season did not finish (the CI log used to say only "endgame not reached"), so a stuck driver is diagnosable from the log alone.
         try:
@@ -992,6 +998,16 @@ def main():
                         remove_endgame_card(page)
                     if mount_retro(page):
                         audit_page(page, vp_name + "+retro", w, h, coarse, with_game)
+
+                # A pre-jury-evicted player holds the finale-interview card AFTER the crown WHILE the post-season retro is also due - the real game DOES
+                # co-render them (the old "never co-exist" assumption was wrong, and a driver that answered the card hid a phone overlap). Mount BOTH, with
+                # the retro NOT suppressed, and run the same sweep: the layout owes the player a non-overlapping stack on every tier. Needs a finished
+                # season (the retro self-gates on it); seed-independent (the card falls back to the fixture when the driver captured none).
+                if finished:
+                    card_pending = endgame_pending if (endgame_pending or {}).get("kind") == "finale-interview" else _FINALE_INTERVIEW_FIXTURE
+                    if mount_retro(page) and mount_endgame_card(page, card_pending):
+                        audit_page(page, vp_name + "+card-with-retro", w, h, coarse, with_game)
+                        remove_endgame_card(page)
 
                 # M3-4: the face-button grid — a synthetic multi-option decision (nominations, six
                 # houseguest faces) mounted the SAME way as the endgame card above, but engine-
