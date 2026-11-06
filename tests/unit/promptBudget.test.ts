@@ -82,13 +82,13 @@ describe("#1391 — narrator-prompt token budget (anti-re-bloat gate)", () => {
     // block (whereabouts pins the house; the two-step close→HOH framing) — 72,853 chars. Consciously
     // bumped, not widened to sneak past: the new tokens buy the pin + close-edge framing that stops the
     // toast firing off-screen (the reported bug).
-    const BUDGET = 74_300; // ~18.6k tok — ≈2.0% over the 72,853-char post-0111 size
+    const BUDGET = 76_400; // ~19.1k tok — ≈2.1% over the 74,840-char post-ORW-194 size (re-baselined: the toast now lists each of the 15 houseguests' public job + hometown and asks for a woven-in first impression - Ryne's request, 2026-11-06)
     expect(buildSystemPrompt("premiere", LIVE_VIEW).length).toBeLessThanOrEqual(BUDGET);
   });
 
   it("the assembled in-game (social) prompt stays under its budget", () => {
     // 2026-07-16 re-baseline (same BASE growth as above): now 66,605 chars (full 16-cast roster).
-    const BUDGET = 68_000; // ~17k tok — ≈2.0% over the 66,605-char post-2026-07-16 size
+    const BUDGET = 70_400; // ~17.6k tok — ≈2.1% over the 68,976-char post-ORW-194 size (same re-baseline: the premiere cards in the live view carry the public job + hometown)
     expect(buildSystemPrompt("social", LIVE_VIEW).length).toBeLessThanOrEqual(BUDGET);
   });
 

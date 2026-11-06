@@ -5499,6 +5499,8 @@ export class GameSessionAdapter implements GameSession {
       ...(n.character.age !== undefined ? { age: n.character.age } : {}),
       ...(n.character.presentation !== undefined ? { presentation: n.character.presentation } : {}),
       ...(n.character.demeanor !== undefined ? { demeanor: n.character.demeanor } : {}),
+      ...(n.character.vocation !== undefined ? { vocation: n.character.vocation } : {}), // ORW-194: public job + hometown for the toast
+      ...(n.character.hometown !== undefined ? { hometown: n.character.hometown } : {}),
       ...(n.character.identityConcept !== undefined ? { identityConcept: n.character.identityConcept } : {}),
       ...(n.character.genderPresentation !== undefined ? { genderPresentation: n.character.genderPresentation } : {}),
     };
