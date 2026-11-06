@@ -18,11 +18,12 @@ CASES = [
     ("do_expose_secret", "expose_secret", '{"factId":"f1"}'),
     ("do_trade_secret", "trade_secret", '{"toNpcId":"npc:1","factId":"f1"}'),
     ("do_confront", "confront", '{"npcId":"npc:1","factId":"f1"}'),
+    ("do_update_casting", "update_casting", '{"name":"The Player"}'),
 ]
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _fake(result):
@@ -48,3 +49,28 @@ def test_a_result_without_a_token_leaves_it_alone(monkeypatch, tool, engine_fn, 
     monkeypatch.setattr(orwell_engine, engine_fn, _fake({"ok": True}))
     _run(getattr(ti, tool)(args, owner="o2"))
     assert ch.last_beat_seq("o2") == 10
+
+
+def test_move_to_returning_none_leaves_the_token_alone(monkeypatch):
+    ch._LAST_BEAT_SEQ.clear()
+    ch._refresh_beat_seq("o3", {"beatSeq": 10})
+    monkeypatch.setattr(orwell_engine, "move_to", _fake(None))
+    out = _run(ti.do_move_to('{"room":"kitchen"}', owner="o3"))
+    assert out["exit_code"] == 0 and "No game" in out["output"]
+    assert ch.last_beat_seq("o3") == 10
+
+
+def test_a_refused_make_deal_never_calls_the_engine_and_leaves_the_token_alone(monkeypatch):
+    ch._LAST_BEAT_SEQ.clear()
+    ch._refresh_beat_seq("o4", {"beatSeq": 10})
+    called = []
+
+    async def fake(*a, **k):
+        called.append(1)
+        return {"beatSeq": 99}
+
+    monkeypatch.setattr(orwell_engine, "make_deal", fake)
+    out = _run(ti.do_make_deal('{"with":"npc:1","kind":"not-a-kind","terms":"x"}', owner="o4"))  # refused before any engine call
+    assert out["exit_code"] == 1 and not called
+    assert ch.last_beat_seq("o4") == 10
+
