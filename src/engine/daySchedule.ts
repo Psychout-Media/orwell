@@ -33,13 +33,16 @@ export type StructuralMilestone =
  */
 export const DAY_SCHEDULE: Record<StructuralMilestone, TimeOfDay> = {
   "hoh-competition": "afternoon",
-  "nominations": "afternoon",
+  "nominations": "evening",
   "veto-competition": "afternoon",
-  "veto-ceremony": "afternoon",
+  "veto-ceremony": "evening",
   "eviction": "evening",
   "final-eviction": "evening",
   "finale": "evening",
 };
+
+/** ORW-116: the veto player draw happens in the MORNING of the veto-competition day (the competition itself follows in the afternoon, `DAY_SCHEDULE["veto-competition"]`). */
+export const VETO_DRAW_PHASE: TimeOfDay = "morning";
 
 /** Readable names for the telegraphed milestones (narration priming + the HUD cue). Public, Vault-free. */
 export const MILESTONE_LABEL: Record<StructuralMilestone, string> = {
@@ -84,7 +87,9 @@ export function nextMilestone(live: LiveSeasonState | null | undefined): NextMil
   const beat = live?.beat;
   if (!beat || !MILESTONE_BEATS.has(beat)) return null;
   const m = beat as StructuralMilestone;
-  const phase = DAY_SCHEDULE[m];
+  // ORW-116 (Ryne: "veto player draw in the morning", "the day of the veto comp"): the veto DRAW is the first advance of the veto-competition beat and is scheduled for the MORNING of the veto
+  // day; the competition itself (once the field is drawn) is the afternoon. `vetoField` is set exactly when the draw has happened.
+  const phase = m === "veto-competition" && !live?.vetoField ? VETO_DRAW_PHASE : DAY_SCHEDULE[m];
   return { beat: m, phase, targetHour: phaseStartHour(phase) };
 }
 

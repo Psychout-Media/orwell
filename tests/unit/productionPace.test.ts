@@ -16,7 +16,7 @@ describe("the default pace: 48 ordinary messages per morning (5 in-game minutes 
     expect(MESSAGES_PER_MORNING).toBe(48);
   });
   it("a scheduled afternoon event is NOT due after one message fewer, and IS due on the MESSAGES_PER_MORNING-th", () => {
-    const s = morningOf("veto-competition");
+    const s = morningOf("hoh-competition");
     expect(nextMilestone(s)?.phase).toBe("afternoon");
     for (let i = 0; i < MESSAGES_PER_MORNING - 1; i++) tick(s);
     expect(milestoneDue(s), "one message short of the pace: production says not yet").toBe(false);
