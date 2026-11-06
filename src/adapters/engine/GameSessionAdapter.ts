@@ -232,6 +232,7 @@ import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
+import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
@@ -6955,17 +6956,36 @@ export class GameSessionAdapter implements GameSession {
     const ties: PreGameTie[] = this.genesisTies
       ? this.genesisTies.filter((t) => knownIds.has(t.a) && knownIds.has(t.b))
       : floor.ties;
-    this.seededRels = { ties, showmances: floor.showmances };
+    // ORW-132: every tie is marked SECRET or PUBLIC here, at season start, from a DEDICATED seeded draw (never the loader's or the shared stream). A PUBLIC tie starts at exposure `public` (a settled house fact).
+    const marked = markTieVisibility(ties, new SeededRandom(hashSeed(`${seed}:tie-visibility`)))
+      .map((t) => (t.visibility === "public" ? { ...t, exposure: "public" as const } : t));
+    this.seededRels = { ties: marked, showmances: floor.showmances };
     // Fold the small standing affinity bias between each seeded pair (both directions). NEVER a
     // deterministic advantage — just unconscious warmth a careful player reads only as behavior (§3).
     const bias = (a: EntityId, b: EntityId, amount: number): void => {
       this.rel.edge(a, b).affinity = clamp01(this.rel.edge(a, b).affinity + amount);
       this.rel.edge(b, a).affinity = clamp01(this.rel.edge(b, a).affinity + amount);
     };
-    for (const t of this.seededRels.ties) bias(t.a, t.b, TIE_AFFINITY_BIAS);
+    // ORW-132: friendly natures keep the original warm bias (byte-identical); an ex / rival starts COLD, each direction scaled by that houseguest's OWN temperament.
+    const npcById = new Map(this.house.npcs.map((n) => [n.id, n] as const));
+    for (const t of this.seededRels.ties) {
+      for (const [from, to] of [[t.a, t.b], [t.b, t.a]] as const) {
+        const hg = npcById.get(from);
+        const amount = tieDirectedBias(t.nature, hg?.character.strategyStyle, hg?.soul.volatility ?? 0.3);
+        this.rel.edge(from, to).affinity = clamp01(this.rel.edge(from, to).affinity + amount);
+      }
+    }
     for (const s of this.seededRels.showmances) bias(s.a, s.b, SHOWMANCE_SPARK_BIAS);
     if (this.seededRels.ties.length || this.seededRels.showmances.length) {
       this.onSealSeededRels?.(this.seededRels);
+    }
+    // ORW-132: a PUBLIC tie is a house fact from Day 1 - recorded as a witnessed event the WHOLE house (and the player) saw, so it lives in the normal knowledge layer. A secret tie stays sealed (above).
+    if (this.onPlayerEvent) {
+      const everyone: EntityId[] = [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+      for (const t of this.seededRels.ties) {
+        if (t.visibility !== "public") continue;
+        this.onPlayerEvent(publicTieAnnouncement(this.nameOf(t.a), this.nameOf(t.b), tieNatureProse(t.nature)), everyone, "pre-show-tie");
+      }
     }
   }
 
