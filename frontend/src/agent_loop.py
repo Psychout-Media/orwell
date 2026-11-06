@@ -3263,6 +3263,14 @@ def _is_nondiegetic_scene_text(text: Optional[str]) -> bool:
     return any(low.startswith(p) for p in _NONDIEGETIC_MACHINERY_PREFIXES)
 
 
+def _is_ooc_aside_text(text: Optional[str]) -> bool:
+    """ORW-207 - True when `text` is purely an out-of-character aside (the whole text is ((wrapped)) or "ooc:"-prefixed). Such a turn is the INTENDED
+    format for answering an OOC question ("whos left?"), so the recorder skips it quietly: nothing diegetic happened, and a soft-fail would report a fault
+    that is not one. FE stream-recovery machinery is NOT an aside and still goes through the nondiegetic gate (the backstop)."""
+    t = (text or "").strip()
+    return bool(t) and bool(_OOC_WRAP_RE.match(t) or _OOC_PREFIX_RE.match(t))
+
+
 # ── #1734 (B4) — normalize + validate withIds at the extraction boundary ───────────────────────
 def _normalize_with_ids(raw, valid_ids) -> tuple:
     """#1734 (B4) — normalize a model-proposed `withIds` list to the engine's canonical EntityId
@@ -3346,6 +3354,11 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         roster = "\n".join(f'{h.get("id")} = {h.get("name")}'
                            for h in house if h.get("id") and h.get("name"))
         if not roster:
+            return False
+        # ORW-207: an OOC question answered in a ((aside)) (or an OOC player message) is not a scene: skip quietly BEFORE the gate, no soft-fail. The gate
+        # below stays as the backstop for what is left (stream-recovery machinery).
+        if _is_ooc_aside_text(last_user) or _is_ooc_aside_text(narration):
+            logger.info(f"[orwell] auto-record: skipped OOC aside turn (ORW-207) user={owner}")
             return False
         # #1729 (B1) — reject non-diegetic content BEFORE folding: an OOC vent or a stream-recovery
         # machinery fragment must never become an "(overheard, clearly)" world event. Checked on

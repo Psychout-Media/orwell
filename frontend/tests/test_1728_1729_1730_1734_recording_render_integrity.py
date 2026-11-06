@@ -204,19 +204,19 @@ def test_ordinary_scene_still_records(monkeypatch):
 # ---- #1729 (B1) / #1599: the reject path is NEVER silent — a RED-eligible health event lands
 #      on the overseer ring (the no-silent-fail-soft ruling: even an auto-corrected fault is RED).
 
-def test_ooc_rejection_records_a_red_eligible_overseer_event(monkeypatch):
+def test_ooc_turn_is_skipped_quietly_with_no_health_event(monkeypatch):
+    """ORW-207: an OOC player message / an aside-only ((reply)) is the intended OOC format, not a fault. The recorder skips it before the gate and raises no
+    soft-fail (it used to raise `recorder:nondiegetic-content-rejected` on every OOC answer). The gate stays the backstop for machinery text (next test)."""
     from src import log_rings as lr
-    lr.OVERSEER.buf.clear()
-    ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"x"}',
-                     last_user="((that was fucking weird, so combative))")
-    assert ok is False
-    events = list(lr.OVERSEER.buf)
-    assert events, "the reject must land a health event — #1599 bans a silent fail-soft"
-    ev = events[-1]
-    assert ev["overseerLevel"] == "anomaly"
-    assert ev["ok"] is False, "RED per #1599 — an auto-corrected fault is still RED, not a cloak"
-    assert ev["lever"] == "nondiegetic-gate"
-    assert "recorder:nondiegetic-content-rejected" in ev["kind"]
+    for kw in ({"last_user": "((that was fucking weird, so combative))"},
+               {"narration": "((There are 4 houseguests left: ...))"},
+               {"last_user": "ooc: whos left?"}):
+        lr.OVERSEER.buf.clear()
+        ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"x"}', **kw)
+        assert ok is False and cap["llm_called"] is False and cap["record_called"] is False
+        kinds = [e.get("kind") for e in lr.OVERSEER.buf]
+        assert "recorder:nondiegetic-content-rejected" not in kinds, kw
+        assert not [e for e in lr.OVERSEER.buf if e.get("ok") is False], kw
 
 
 def test_stream_drop_rejection_records_a_red_eligible_overseer_event(monkeypatch):
