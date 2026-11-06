@@ -37,3 +37,13 @@ def select_shard(files_in_order: Sequence[str], idx: int, total: int) -> set[str
     """The set of files that belong to shard `idx` of `total`, given each collected item's file (one entry per test)."""
     assignment = assign_files(dict(Counter(files_in_order)), total)
     return {f for f, k in assignment.items() if k == idx}
+
+
+SHARD_ENV_PREFIX = "ORWELL_CI_SHARD"
+
+
+def nested_env(env: Mapping[str, str]) -> dict[str, str]:
+    """A copy of `env` without any shard variable. Pass it to every test that launches pytest as a subprocess: the child is a separate session over
+    its own target file, and an inherited ORWELL_CI_SHARD makes it deselect that file (0 tests collected, exit 5) whenever the wrapper and the target
+    sit in different shards (ORW-193 regression)."""
+    return {k: v for k, v in env.items() if not k.startswith(SHARD_ENV_PREFIX)}

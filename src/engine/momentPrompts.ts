@@ -1798,6 +1798,10 @@ export interface PremiereEntranceShape {
   index: number;
   total: number;
   playerPosition: number;
+  /** ORW-205: the engine's own headcount (optional so an older payload still renders). */
+  insideCount?: number;
+  playerInside?: boolean;
+  headcount?: string;
   arrivedNames: string[];
   justArrived?: { id: string; name: string };
   speakers?: { id?: string; name: string }[];
@@ -1826,6 +1830,8 @@ function premiereEntrancesFragment(): string {
     "the room, however much you want to move things along. Only the game brings in the next arrival (advanceGame); " +
     "if no new arrival is shown this turn, play the scene with those already inside \u2014 do NOT introduce one yourself. " +
     "Never a roll-call, never a recap of those already in. " +
+    "NEVER count the room yourself (no \"ten of the cast\", \"eight of you\", \"fourteen now\"): the game gives the one true headcount " +
+    "in the GAME CONTEXT. Quote it exactly if a number matters; otherwise use no number at all. " +
     "Never gate on the player talking to anyone: small-group chat is ordinary play, and the player may chat " +
     "or just watch. When the player lulls (a message or two) or asks for the next / says they are just " +
     "watching, call advanceGame to bring in the next arrival \u2014 not before. If the game marks the " +
@@ -1850,6 +1856,7 @@ function premiereEntranceLines(
     const card = ja ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === ja.id) : undefined;
     return [
       `- PREMIERE \u2014 ENTRANCES (engine truth): arrival ${ent.index} of ${ent.total}. INSIDE THE HOUSE NOW: ${inside}. ` +
+        (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. This is the ONLY count you may state; never count the room yourself. ` : "") +
         `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
       ...(ent.playerEntrance
         ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
@@ -1864,6 +1871,7 @@ function premiereEntranceLines(
     const sp = (ent.speakers ?? []).map((x) => x.name).join(", ");
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
+        (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
         (sp ? `Speakers this batch, in order: ${sp}. ` : "") +
         `Open with the production host if the toast has not begun; the player's slot is theirs to take in chat \u2014 invite it, never force it. Call advanceGame for the next batch.`,
     ];
