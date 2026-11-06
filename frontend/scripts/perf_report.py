@@ -126,18 +126,21 @@ def _delta(a: dict[str, float], b: dict[str, float], name: str) -> float:
     return round((b.get(name, 0.0) - a.get(name, 0.0)) * 1000.0, 1)  # seconds -> ms
 
 
-def run(stack: dict, idle_seconds: int, throttle: float, reply_chars: int) -> dict:
+def run(stack: dict, idle_seconds: int, throttle: float, reply_chars: int, low_power: str = "") -> dict:
     from playwright.sync_api import sync_playwright
     import test_m0_3_midgen_join as m03
     from test_p0h_day1_clock_e2e import _session
 
     sid = _session(stack, "perf-report")
-    result: dict = {"cpu_throttle": throttle, "idle_seconds": idle_seconds}
+    result: dict = {"cpu_throttle": throttle, "idle_seconds": idle_seconds, "low_power": low_power or "default"}
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         ctx = browser.new_context(viewport={"width": 1280, "height": 800})
         page = ctx.new_page()
         page.add_init_script(INIT_JS)
+        if low_power in ("0", "1", "auto"):
+            # the low-power default (ORW-154/190) is skipped under automation unless opted in; '0' pins glass, '1' pins low-power
+            page.add_init_script("try { localStorage.setItem('orwell-low-power', '%s'); } catch (e) {}" % low_power)
         cdp = ctx.new_cdp_session(page)
         cdp.send("Network.enable")
         cdp.send("Performance.enable")
@@ -299,12 +302,12 @@ def _rows(res: dict) -> list[tuple[str, str]]:
 def render_table(res: dict) -> str:
     rows = _rows(res)
     w = max(len(k) for k, _ in rows)
-    head = f"Orwell front-end performance (report-only), {res['cpu_throttle']}x CPU throttle"
+    head = f"Orwell front-end performance (report-only), {res['cpu_throttle']}x CPU throttle, low-power={res.get('low_power', 'default')}"
     return head + "\n" + "\n".join(f"{k.ljust(w)}  {v}" for k, v in rows)
 
 
 def render_markdown(res: dict) -> str:
-    lines = [f"### Front-end performance (report-only, {res['cpu_throttle']}x CPU throttle)", "", "| Measure | Value |", "|---|---|"]
+    lines = [f"### Front-end performance (report-only, {res['cpu_throttle']}x CPU throttle, low-power={res.get('low_power', 'default')})", "", "| Measure | Value |", "|---|---|"]
     lines += [f"| {k} | {v} |" for k, v in _rows(res)]
     return "\n".join(lines) + "\n"
 
@@ -315,6 +318,8 @@ def main() -> int:
     ap.add_argument("--cpu-throttle", type=float, default=float(os.environ.get("PERF_CPU_THROTTLE", "4")))
     ap.add_argument("--reply-chars", type=int, default=2000)
     ap.add_argument("--out", default=os.environ.get("PERF_OUT", "perf-report.json"))
+    ap.add_argument("--low-power", default=os.environ.get("PERF_LOW_POWER", ""), choices=["", "0", "1", "auto"],
+                    help="pin the low-power mode (ORW-154/190): 1 = reduced effects, 0 = glass, auto = detect, '' = leave the app default")
     ap.add_argument("--label", default=os.environ.get("PERF_LABEL", ""))
     args = ap.parse_args()
 
@@ -330,7 +335,7 @@ def main() -> int:
         print(f"[perf] could not boot the stack: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
     try:
-        res = run(stack, args.idle_seconds, args.cpu_throttle, args.reply_chars)
+        res = run(stack, args.idle_seconds, args.cpu_throttle, args.reply_chars, args.low_power)
     finally:
         gen.close()  # the fixture's teardown: restore settings, stop engine + FE + stub
     res["label"] = args.label

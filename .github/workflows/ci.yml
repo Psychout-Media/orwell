@@ -574,7 +574,9 @@ jobs:
         # Report-only: a bad NUMBER never fails the build, and neither does a dead harness - but a dead harness must be visible.
         continue-on-error: true
         run: |
-          if ! (cd frontend && python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json"); then
+          # pass 1: glass pinned (the automation default is glass; this is the long-run baseline). pass 2: low-power pinned, short idle window.
+          if ! (cd frontend && PERF_LOW_POWER=0 python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json" \
+                && PERF_LOW_POWER=1 python3 scripts/perf_report.py --idle-seconds 10 --out "$GITHUB_WORKSPACE/perf-report-lowpower.json"); then
             echo "::warning::perf report did not run (the harness could not boot the stack or crashed); see this step's log"
             echo "### Front-end performance: perf report did not run" >> "$GITHUB_STEP_SUMMARY"
             exit 1
@@ -583,7 +585,9 @@ jobs:
         if: always()
         with:
           name: perf-report
-          path: perf-report.json
+          path: |
+            perf-report.json
+            perf-report-lowpower.json
           if-no-files-found: warn
           retention-days: 30
 
