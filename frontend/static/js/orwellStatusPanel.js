@@ -518,7 +518,7 @@ import { onNarrowChange } from './platform.js';
     setText(el.querySelector("#os-week"), "Week " + st.week);
     setText(el.querySelector("#os-phase"), phaseLabel(st.phase));
     // ADR 0006: the in-game clock (ORWELL_TIME_OF_DAY is default-ON engine side and the FE setting time_of_day_enabled is True; absent timeOfDay ⇒ the chip simply stays hidden).
-    { const todEl = el.querySelector("#os-tod"); const tod = todLabel(st.timeOfDay);
+    { const todEl = el.querySelector("#os-tod"); const tod = todLabel(st.timeOfDay) + (todLabel(st.timeOfDay) && Number.isInteger(st.dayNumber) && st.dayNumber > 0 ? ", Day " + st.dayNumber : ""); // ORW-115: "Morning, Day 1" (time of day only, not minutes)
       if (todEl) { if (tod) { setText(todEl, tod); todEl.hidden = false; } else todEl.hidden = true; } }
     setText(el.querySelector("#os-hoh"), name(st.hoh));
     const idOf = (c) => (c && typeof c === "object" ? c.id : c);
