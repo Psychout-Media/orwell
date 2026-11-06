@@ -6947,6 +6947,10 @@ async def _stream_agent_loop_impl(
     # Bound for the WHOLE turn: a turn that exits the round loop early (e.g. the model's own `ask_user`) never reaches the in-loop nudge block that assigns these, and the
     # post-loop overseer/faithfulness hooks then died on UnboundLocalError (live E-1 soft-fails `overseer:hook-error` / `faith:gate-error`) — skipping both gates that turn.
     _want_record = False
+    # ORW-10 (live replay 6): these two are assigned only inside the conditional finishing block, but the post-loop overseer/faithfulness hooks read them on EVERY turn - a turn that ended on an ask_user question
+    # skipped the block and the hook died on UnboundLocalError (soft-fail overseer:hook-error). Defined here so every path has a value.
+    _is_lull = False
+    _progressed = False
     _phase = None
     _turn_deal_nudges = 0  # 0039 deal back-fill: at most one auto-makeDeal per finishing turn
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
