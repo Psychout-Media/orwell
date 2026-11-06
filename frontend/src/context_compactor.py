@@ -43,9 +43,18 @@ _GAME_PHASES = ("game", "casting")
 
 
 def is_game_or_casting_session(session) -> bool:
-    """ORW-224: True when this session is (or ever was) a game or casting chat: any stored row stamped
-    ``phase`` game/casting, or the session is the owner's bound canonical game session. Compaction rewrites
-    stored rows, so it is refused for these regardless of how the caller reached it."""
+    """ORW-224: True when compaction must be refused for this session. Compaction rewrites stored rows, so it is
+    refused (a) for EVERY session while the game build is on (the default product: an old game session with no
+    phase stamps and no canonical binding must still be safe from a direct POST), and (b) regardless of build
+    for a session that carries game/casting rows (any stored row stamped ``phase`` game/casting) or is the
+    owner's bound canonical game session. Only the workspace build (ORWELL_GAME_BUILD=0) keeps compaction for
+    sessions that never held a game."""
+    try:
+        from src.settings import game_build_enabled
+        if game_build_enabled():
+            return True
+    except Exception:  # noqa: BLE001 - fall through to the per-session checks
+        pass
     for m in (getattr(session, "history", None) or []):
         md = (m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", None)) or {}
         if md.get("phase") in _GAME_PHASES:

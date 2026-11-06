@@ -14,6 +14,17 @@ import core.models as core_models
 
 
 @pytest.fixture
+def workspace_build(monkeypatch):
+    """The debugging workspace build (ORWELL_GAME_BUILD=0): compaction is only refused for sessions that hold game rows."""
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")
+
+
+@pytest.fixture
+def game_build(monkeypatch):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
+
+
+@pytest.fixture
 def mgr():
     from core.session_manager import SessionManager
     manager = SessionManager()
@@ -63,7 +74,7 @@ def _drive(sess, **kw):
     return asyncio.run(go())
 
 
-def test_game_session_over_trigger_never_deletes_or_reinserts_rows(mgr, monkeypatch):
+def test_game_session_over_trigger_never_deletes_or_reinserts_rows(mgr, monkeypatch, workspace_build):
     calls = {"n": 0}
     _patch(monkeypatch, calls)
     sess = _session(mgr, "orw224-game", "game")
@@ -75,7 +86,7 @@ def test_game_session_over_trigger_never_deletes_or_reinserts_rows(mgr, monkeypa
     assert not any((m.metadata or {}).get("compacted") for m in sess.history)
 
 
-def test_non_game_compaction_is_unchanged(mgr, monkeypatch):
+def test_workspace_build_compaction_of_a_plain_chat_is_unchanged(mgr, monkeypatch, workspace_build):
     calls = {"n": 0}
     _patch(monkeypatch, calls)
     sess = _session(mgr, "orw224-plain", None)
@@ -87,7 +98,7 @@ def test_non_game_compaction_is_unchanged(mgr, monkeypatch):
     assert any((m.metadata or {}).get("compacted") for m in sess.history)
 
 
-def test_unframed_session_whose_rows_carry_game_or_casting_phase_is_refused_too(mgr, monkeypatch):
+def test_unframed_session_whose_rows_carry_game_or_casting_phase_is_refused_too(mgr, monkeypatch, workspace_build):
     """Edge case: even when the caller says persist_history=True (not framed), stored game/casting rows win."""
     for tag, phase in (("g", "game"), ("c", "casting")):
         calls = {"n": 0}
@@ -124,7 +135,7 @@ def _client(mgr, *, which):
 
 @pytest.mark.parametrize("which", ["history", "session"])
 @pytest.mark.parametrize("phase", ["game", "casting"])
-def test_manual_compact_routes_refuse_game_sessions_and_delete_nothing(mgr, monkeypatch, which, phase):
+def test_manual_compact_routes_refuse_game_sessions_and_delete_nothing(mgr, monkeypatch, which, phase, workspace_build):
     from src import llm_core
     calls = {"n": 0}
 
@@ -144,7 +155,7 @@ def test_manual_compact_routes_refuse_game_sessions_and_delete_nothing(mgr, monk
     assert _rows(sid) == before, "no row deleted, inserted or re-id'd"
 
 
-def test_canonical_bound_game_session_is_refused_even_without_stamped_rows(mgr, monkeypatch):
+def test_canonical_bound_game_session_is_refused_even_without_stamped_rows(mgr, monkeypatch, workspace_build):
     import src.orwell_game_session as ogs
     sid = "orw224-bound"
     _session(mgr, sid, None)
@@ -153,7 +164,28 @@ def test_canonical_bound_game_session_is_refused_even_without_stamped_rows(mgr, 
     assert client.post(path.format(sid)).status_code == 409
 
 
-def test_manual_compact_route_still_works_for_a_plain_chat(mgr, monkeypatch):
+def test_game_build_refuses_manual_and_auto_compaction_even_for_an_unstamped_old_session(mgr, monkeypatch, game_build):
+    """An old game session with no phase stamps and no canonical binding must still be safe from a direct POST."""
+    from src import llm_core
+    calls = {"n": 0}
+
+    async def fake_llm(*a, **k):
+        calls["n"] += 1
+        return "SUMMARY"
+
+    monkeypatch.setattr(llm_core, "llm_call_async", fake_llm)
+    _patch(monkeypatch, calls)
+    sid = "orw224-unstamped"
+    sess = _session(mgr, sid, None)
+    before = _rows(sid)
+    for which in ("history", "session"):
+        client, path = _client(mgr, which=which)
+        assert client.post(path.format(sid)).status_code == 409
+    _drive(sess)  # auto path, persist_history default True
+    assert calls["n"] == 0 and _rows(sid) == before
+
+
+def test_workspace_build_manual_compact_route_works_for_a_plain_chat(mgr, monkeypatch, workspace_build):
     from src import llm_core
     async def fake_llm(*a, **k):
         return "SUMMARY"
@@ -161,7 +193,9 @@ def test_manual_compact_route_still_works_for_a_plain_chat(mgr, monkeypatch):
     sid = "orw224-route-plain"
     _session(mgr, sid, None)
     client, path = _client(mgr, which="session")
-    assert client.post(path.format(sid)).status_code != 409
+    resp = client.post(path.format(sid))
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("ok") is True
 
 
 def test_ui_hides_compact_entry_points_in_the_game_build():
