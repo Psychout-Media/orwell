@@ -105,13 +105,19 @@ it reads, plus the node/npm/python versions) and what it left on disk (npm's
 
 Everything is reinstalled in full when there is no record: the first update with this updater, a
 fresh install, or right after an update or rollback that failed, was reverted or was interrupted (the
-record is deleted when a run starts and written only at its commit point). It is also redone when the
-disk no longer matches the record, for example after someone ran `npm` or `pip` by hand on the box. To
-force a full reinstall, delete `dist/.orwell-deps-stamp`.
+record is deleted when a run starts and written only at its commit point). It is also redone:
+- when the disk no longer matches the record, for example after someone ran `npm` or `pip` by hand on
+  the box;
+- once after `orwell-update.sh` itself changes (its own text is part of the record);
+- when the record, `dist/`, `node_modules` or `frontend/.venv` is not owned by root, or is writable by
+  anyone else (the ownership pass then fixes the tree, and the next update can skip again).
+
+To force a full reinstall, delete `dist/.orwell-deps-stamp`.
 
 The React `/play` app (`frontend/web`, when the commit has it) is built by the update too, and never
 fails it: a failed build logs a warning and `/play` keeps its current build (or its "not built yet"
-page). It builds from a clean export of the commit in a temp dir and is swapped into
+page). It builds from a clean export of the commit in a temp dir (`npm ci --prefer-offline
+--ignore-scripts && npm run build`; no dependency install scripts run) and is swapped into
 `frontend/web/dist` only after the update commits, so `/play` keeps serving the old build while the new
 one builds, and a failed update never changes it. It is skipped when nothing under `frontend/web` or
 `frontend/static/js` (the classic markdown module it imports) changed. The previous build is kept in
