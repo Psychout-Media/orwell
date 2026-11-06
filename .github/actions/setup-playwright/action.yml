@@ -1,0 +1,38 @@
+name: setup-playwright
+description: >-
+  Install headless Chromium for the front-end browser lanes. Restores the browser cache (keyed to the pinned playwright version), then runs
+  `playwright install --with-deps` under a hard timeout with one retry. Observed failure mode (ORW-193): `--with-deps` apt-fetches a few
+  font packages and the azure mirror intermittently trickles one file for 6-8 minutes (about 8% of jobs), which dominated those jobs. All of
+  chromium's shared libraries are already on the pinned ubuntu-24.04 image; the last-resort fallback installs the browser alone and proves it launches.
+  Requires `pip install -r frontend/requirements.lock.txt` to have run first (playwright comes from the lock file).
+runs:
+  using: composite
+  steps:
+    - name: resolve playwright version (cache key)
+      id: pw
+      shell: bash
+      run: echo "version=$(pip show playwright | awk '/^Version:/ {print $2}')" >> "$GITHUB_OUTPUT"
+    - name: cache playwright browsers
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+    - name: install playwright chromium (bounded)
+      shell: bash
+      run: |
+        set -uo pipefail
+        for attempt in 1 2; do
+          if timeout 150 python3 -m playwright install --with-deps chromium; then
+            echo "playwright chromium installed (attempt $attempt)"; exit 0
+          fi
+          echo "::warning::playwright --with-deps attempt $attempt failed or timed out; retrying"
+        done
+        echo "::warning::falling back to browser-only install (system libraries ship on the runner image)"
+        python3 -m playwright install chromium
+        python3 - <<'PY'
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            b.close()
+        print("chromium launches")
+        PY

@@ -53,13 +53,14 @@ jobs:
   # bottom (`if: always()`) is the ONE required check — it passes when no needed job FAILED/was
   # CANCELLED (a SKIP counts as a pass). Point branch protection at `ci-gate`, not the individual jobs.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       engine: ${{ steps.filter.outputs.engine }}
       frontend: ${{ steps.filter.outputs.frontend }}
       deploy: ${{ steps.filter.outputs.deploy }}
       heavy: ${{ steps.filter.outputs.heavy }}
+      fe_render: ${{ steps.filter.outputs.fe_render }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,6 +72,7 @@ jobs:
         id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # On a PR, diff the base..head; on push, diff against the previous commit.
@@ -100,14 +102,29 @@ jobs:
           # change can never move a calibration result, so the heavy lane skips for those. `deploy/orwell-env-defaults.sh` is in the set
           # because it still writes the gameplay flags to a box's .env (an `=0` there overrides the code default), so a change to it re-plays the game.
           HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$)'
-          for name in engine frontend deploy heavy; do
+          # ORW-193 PRECISION (pull requests ONLY; a push to main always uses the broad sets above, so main never loses coverage):
+          #   - `heavy`: the heavy sims import only src/ plus their own tests/{uat,property,calibration} files and the tests/support
+          #     setup files, so an edit under tests/{unit,integration,architecture,dev} cannot move a calibration result.
+          #   - `fe_render` / `deploy`: edits to ONLY front-end tests or markdown (frontend/tests/** except the vendored axe-core,
+          #     frontend/**/*.md) cannot change what the render lanes (fe-browser, fe-responsive, mirror-parity, a11y-matrix) and the
+          #     deploy smoke boot. The pytest lanes (fe-unit, fe-browser-tests) still run for any frontend/ change.
+          fe_changed="$changed"
+          if [ "${EVENT_NAME:-}" = "pull_request" ]; then
+            HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|\.github/actions/)'
+            fe_changed="$(echo "$changed" | grep -vE '^frontend/(tests/|.*\.md$)' || true; echo "$changed" | grep -E '^frontend/tests/vendor/' || true)"
+            DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|\.github/actions/)'
+          fi
+          FRONTEND_RE="$FRONTEND_RE|^\.github/actions/"
+          for name in engine frontend fe_render deploy heavy; do
+            subject="$changed"
             case "$name" in
-              engine)   re="$ENGINE_RE" ;;
-              frontend) re="$FRONTEND_RE" ;;
-              deploy)   re="$DEPLOY_RE" ;;
-              heavy)    re="$HEAVY_RE" ;;
+              engine)    re="$ENGINE_RE" ;;
+              frontend)  re="$FRONTEND_RE" ;;
+              fe_render) re="$FRONTEND_RE"; subject="$fe_changed" ;;
+              deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
+              heavy)     re="$HEAVY_RE" ;;
             esac
-            if matches "$re"; then
+            if echo "$subject" | grep -qE "$re"; then
               echo "${name}=true" >> "$GITHUB_OUTPUT"
               echo "==> ${name}: WILL run"
             else
@@ -131,7 +148,7 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +180,7 @@ jobs:
   test-unit:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -192,10 +209,8 @@ jobs:
   # completion — the same files `test:ci` excludes — via `npm run test:heavy`, which runs all five
   # heavy files in ONE vitest process. Vitest fans them out across the runner's cores internally.
   #
-  # Topology (2026-11 default flip): a per-file MATRIX — ten legs, one `npm run test:heavy:<leg>` each (UAT 12-seed in three
-  # shards, 5-seed, decisions, reweight; jury, jury-reweight, gradient, gradient-reweight). Every leg repeats checkout +
-  # `npm ci` (about a minute of setup each) in exchange for wall-clock: the legs run concurrently on separate hosted runners
-  # and the long pole is the single slowest file, comfortably inside the 45-minute leg cap. juryReach and calibrationGradient run
+  # Topology (ORW-193): a MATRIX of four legs, each running its group of `npm run test:heavy:<script>` scripts back to back
+  # (UAT 12-seed in three shards + 5-seed + decisions + reweight; jury + jury-reweight; gradient + gradient-reweight). juryReach and calibrationGradient run
   # UNSHARDED inside their own leg and assert the full band inline (see each file's header). The code defaults are the
   # deployed profile, so this lane replaces the old flags-off `heavy-sims` AND the retired advisory `heavy-sims-deployed`.
   #
@@ -204,27 +219,27 @@ jobs:
   heavy-sims:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
-    runs-on: ubuntu-latest
-    # The code defaults ARE the deployed profile now (the 2026-11 default flip): the heavy lane plays what ships,
-    # about 7x slower than the old flags-off game, so each heavy file runs on its own runner (one npm script per
-    # leg; the UAT 12-seed file is split three ways). `ORWELL_FLAGS_OFF=1` is the diagnostic legacy profile and
-    # is NOT run here. UAT_TIMEOUT_SCALE widens the one UAT test whose per-test timeout actually fires (the
+    runs-on: ubuntu-24.04
+    # The code defaults ARE the deployed profile now (the 2026-11 default flip): the heavy lane plays what ships. `ORWELL_FLAGS_OFF=1` is the
+    # diagnostic legacy profile and is NOT run here. UAT_TIMEOUT_SCALE widens the one UAT test whose per-test timeout actually fires (the
     # real-HTTP decisions test, which yields to the event loop).
-    timeout-minutes: 45
+    #
+    # ORW-193: measured on 25 post-ORW-39 runs, each of the ten per-file legs ran 35-140 s of real work behind 20-30 s of runner start-up
+    # and (under load) a 4-13 min queue for a slot, so ten slots were spent on about 15 minutes of work. The same ten npm scripts now run in
+    # four balanced legs (about 2-4 min each). Every script still runs exactly once; a failing script does not hide the later ones in its leg.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        leg:
-          - uat-12seed-a
-          - uat-12seed-b
-          - uat-12seed-c
-          - uat-5seed
-          - uat-decisions
-          - uat-reweight
-          - jury
-          - jury-reweight
-          - gradient
-          - gradient-reweight
+        include:
+          - leg: uat-12seed
+            scripts: "uat-12seed-a uat-12seed-b uat-12seed-c"
+          - leg: uat-rest
+            scripts: "uat-5seed uat-decisions uat-reweight"
+          - leg: jury
+            scripts: "jury jury-reweight"
+          - leg: gradient
+            scripts: "gradient gradient-reweight"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4
@@ -235,9 +250,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:heavy:${{ matrix.leg }}
+      - name: heavy sims (${{ matrix.scripts }})
         env:
           UAT_TIMEOUT_SCALE: "10"
+          SCRIPTS: ${{ matrix.scripts }}
+        run: |
+          rc=0
+          for s in $SCRIPTS; do
+            echo "::group::npm run test:heavy:$s"
+            npm run "test:heavy:$s" || { echo "::error::heavy sim '$s' FAILED"; rc=1; }
+            echo "::endgroup::"
+          done
+          exit $rc
 
   # ── Coverage gate ──────────────────────────────────────────────────────────────
   # Per-directory branch thresholds in vitest.config.ts — coverage can no longer silently regress
@@ -247,7 +271,7 @@ jobs:
   coverage:
     needs: [changes, coverage-shard]
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -278,7 +302,7 @@ jobs:
   coverage-shard:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -312,7 +336,7 @@ jobs:
   smoke:
     needs: changes
     if: needs.changes.outputs.deploy == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -350,11 +374,18 @@ jobs:
   # Shorter jobs are the whole point: a job that finishes in ~2 min survives a self-hosted-runner fleet
   # blip that would guillotine a 12-min one. `-n 4` (not `auto`) bounds worker memory to a fixed cost so a
   # bigger runner can't spawn N workers × the FastAPI app and OOM the box.
+  # ORW-193: split in two by test FILE (ORWELL_CI_SHARD, frontend/tests/_ci_shard.py; every file runs in exactly one shard), each shard still
+  # `-n 4`. The serial pytest step was 5.5 min of the ~6 min job. The py_compile and JS syntax checks are cheap and run in both shards.
   fe-unit:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: fe-unit (${{ matrix.shard }}/2)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -376,6 +407,7 @@ jobs:
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
           ORWELL_SKIP_LANE: unit
+          ORWELL_CI_SHARD: ${{ matrix.shard }}/2
         run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs
       - uses: actions/setup-node@v4
         with:
@@ -392,16 +424,22 @@ jobs:
           done
           exit $bad
 
-  # The headless-Chromium pytest tests (the `browser` marker). Serial (they bind fixed ports / drive a
+  # The headless-Chromium pytest tests (the `browser` marker). Serial WITHIN a job (they bind fixed ports / drive a
   # real page) with `--reruns 1` so the known environmental onboarding-scrim flake (#925/#1148/#930)
   # self-recovers within the job instead of reddening the whole run. Needs the chromium binary, installed
-  # the same way as the `fe-browser` job (`--with-deps` so the gh-hosted ubuntu image gets chromium's
-  # system libs via apt).
+  # by the shared `setup-playwright` composite action (cache + bounded `--with-deps` + fallback).
   fe-browser-tests:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # ORW-193: three parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
+    # shard (fixed ports, one real page at a time) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: fe-browser-tests (${{ matrix.shard }}/3)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -413,16 +451,7 @@ jobs:
           cache: pip
       - name: install front-end deps
         run: pip install -r frontend/requirements.lock.txt
-      - name: resolve playwright version (cache key)
-        id: pw
-        run: echo "version=$(pip show playwright | awk '/^Version:/ {print $2}')" >> "$GITHUB_OUTPUT"
-      - name: cache playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
-      - name: install playwright chromium
-        run: python3 -m playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
       # The real-stack browser tests (test_m0_3_midgen_join, test_p0h_day1_clock_e2e, test_b13_interrupt_e2e, test_first_message_double_render, test_f3_drop_after_saved_no_recovery, ...) boot the
       # BUILT engine (`dist/main.js`) and skipped with "engine bundle missing" because this job never built it. The A41 skip guard surfaced that 23 browser tests were silently not running.
       - uses: actions/setup-node@v4
@@ -436,12 +465,13 @@ jobs:
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
           ORWELL_SKIP_LANE: browser
-        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs
+          ORWELL_CI_SHARD: ${{ matrix.shard }}/3
+        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=8
 
   fe-browser:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    if: needs.changes.outputs.fe_render == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -454,21 +484,7 @@ jobs:
           cache: pip
       - name: install front-end deps
         run: pip install -r frontend/requirements.lock.txt
-      # Cache the Playwright chromium download (keyed to the installed playwright version).
-      - name: resolve playwright version (cache key)
-        id: pw
-        run: |
-          pip install playwright
-          echo "version=$(pip show playwright | awk '/^Version:/ {print $2}')" >> "$GITHUB_OUTPUT"
-      - name: cache playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
-      # `--with-deps` apt-installs chromium's system libs — the gh-hosted ubuntu-latest image grants
-      # sudo, and (unlike the old self-hosted box) does not have them pre-baked.
-      - name: install playwright chromium
-        run: python3 -m playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
       - name: boot smoke — real app, game-build gating (feature 0032)
         run: cd frontend && python3 scripts/boot_smoke.py
       - name: browser smoke — keep-set UI loads, no broken modules (feature 0032)
@@ -476,8 +492,8 @@ jobs:
 
   fe-responsive:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    if: needs.changes.outputs.fe_render == 'true'
+    runs-on: ubuntu-24.04
     # 25 min: the engine-staged run adds npm ci + build (~2 min) and the ORWELL_MATRIX_FINISH
     # season fast-forward (~2 min of Echo-narrator advance calls) to the ~2-min sweep itself.
     timeout-minutes: 25
@@ -496,18 +512,7 @@ jobs:
           cache: pip
       - name: install front-end deps
         run: pip install -r frontend/requirements.lock.txt
-      - name: resolve playwright version (cache key)
-        id: pw
-        run: |
-          pip install playwright
-          echo "version=$(pip show playwright | awk '/^Version:/ {print $2}')" >> "$GITHUB_OUTPUT"
-      - name: cache playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
-      - name: install playwright chromium
-        run: python3 -m playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
       # ── #651 gap 1: stage a REAL engine so the game surfaces are actually measured ──────────
       # Without ORWELL_MATRIX_ENGINE the gate runs CHROME-ONLY (no game staged), so the game
       # surfaces (#orwell-status, #orwell-presence, the decision card, #orwell-retro, …) were
@@ -560,9 +565,17 @@ jobs:
   # (a self-hosted-runner boot blip), not the mechanism the gate relies on to be green.
   mirror-parity:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 40  # four gate legs (live SSE/WS + toolturn SSE/WS), each with bounded retries
+    if: needs.changes.outputs.fe_render == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20  # one group of gate legs, each with bounded retries (was 40 for all six in one job)
+    # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane). Split into two parallel jobs of three-ish
+    # legs each; the legs are independent (each boots its own engine + FE on its own ports) and every one still runs, with the same retries.
+    #   live = the F5 live parity gate, SSE + WS (about 4.7 min)   rest = tool-turn + HUD parity, SSE + WS each (about 4.2 min)
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [live, rest]
+    name: mirror-parity (${{ matrix.group }})
     steps:
       - uses: actions/checkout@v4
         with:
@@ -585,6 +598,7 @@ jobs:
           frontend/.venv/bin/pip install --upgrade pip
           frontend/.venv/bin/pip install -r frontend/requirements.lock.txt
       - name: mirror-parity gate — SSE/poll fallback transport (blocking)
+        if: matrix.group == 'live'
         run: |
           set -uo pipefail
           # The blocking F5 gate runs in the SSE/poll FALLBACK transport (MIRROR_WS_TRANSPORT=0 ⇒
@@ -614,6 +628,7 @@ jobs:
       # default-on (settings.py `ws_transport_enabled`); this leg keeps both modes honest (protocol spec §9
       # step 7 — WS default-on only with both legs green).
       - name: mirror-parity gate — WebSocket transport (blocking)
+        if: matrix.group == 'live'
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -634,6 +649,7 @@ jobs:
       # asserts the WS frame-log collapse (one chat subscribe per attached run, no stale run-started
       # edge churn), so a reintroduced replay loop fails loudly here, not in production.
       - name: mirror-toolturn gate — SSE/poll transport (blocking)
+        if: matrix.group == 'rest'
         run: |
           set -uo pipefail
           for attempt in 1 2; do
@@ -648,6 +664,7 @@ jobs:
           echo "::error::mirror-toolturn SSE leg failed all attempts (dup/orphan bubbles across a tool-rich turn under the fallback transport)."
           exit 1
       - name: mirror-toolturn gate — WebSocket transport (blocking)
+        if: matrix.group == 'rest'
         run: |
           set -uo pipefail
           for attempt in 1 2; do
@@ -669,6 +686,7 @@ jobs:
       # 20-30s poll. Key-free, deterministic fake model, same run_mirror_gate.sh driver as the live
       # and toolturn parity gates. See docs/audits/playtest-harness/README.md §10.
       - name: mirror-hud gate — SSE/poll transport (blocking)
+        if: matrix.group == 'rest'
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -683,6 +701,7 @@ jobs:
           echo "::error::mirror-hud SSE leg failed all attempts (B's HUD did not reconcile off the SSE push within budget)."
           exit 1
       - name: mirror-hud gate — WebSocket transport (blocking)
+        if: matrix.group == 'rest'
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -710,8 +729,8 @@ jobs:
   # so it never gates a merge. Fold it into ci-gate to flip it blocking once the ratchet is trusted.
   a11y-matrix:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    if: needs.changes.outputs.fe_render == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -727,18 +746,7 @@ jobs:
           cache: pip
       - name: install front-end deps
         run: pip install -r frontend/requirements.lock.txt
-      - name: resolve playwright version (cache key)
-        id: pw
-        run: |
-          pip install playwright
-          echo "version=$(pip show playwright | awk '/^Version:/ {print $2}')" >> "$GITHUB_OUTPUT"
-      - name: cache playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
-      - name: install playwright chromium
-        run: python3 -m playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
       # Stage a REAL engine (deterministic Echo narrator, key-free — same as fe-responsive) so the
       # game + endgame surfaces are actually rendered + audited.
       - name: build the engine (dist/main.js the matrix stages against)
@@ -793,7 +801,7 @@ jobs:
       - mirror-parity
       - heavy-sims
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: resolve overall CI status
         env:
