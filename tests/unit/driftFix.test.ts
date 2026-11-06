@@ -59,3 +59,16 @@ describe("chat scenes feed the arc", () => {
     expect(effectiveDisposition("neutral", g.s.soulObj(g.who)!)).toBe("clash");
   });
 });
+
+describe("the bond floor (a run of good beats cannot pin the temperament where betrayals can never reach clash)", () => {
+  const run = (evs: EmotionalEvent[], o: { negativityBias?: boolean }) => { const s = fresh(); for (const e of evs) evolveEmotion(s, e, undefined, undefined, { soulDepth: true, ...o }); return s; };
+  const goodRun: EmotionalEvent[] = Array.from({ length: 12 }, () => "bond");
+  it("with the fix, many good beats bottom out at the floor, and three betrayals then reach clash; without it they pin at -1 and three betrayals do not", () => {
+    const withFix = run([...goodRun, "betrayed", "betrayed", "betrayed"], { negativityBias: true });
+    const without = run([...goodRun, "betrayed", "betrayed", "betrayed"], {});
+    expect(run(goodRun, { negativityBias: true }).temperamentDrift).toBeCloseTo(-0.7, 9);
+    expect(run(goodRun, {}).temperamentDrift).toBe(-1);
+    expect(effectiveDisposition("neutral", withFix)).toBe("clash");
+    expect(effectiveDisposition("neutral", without)).not.toBe("clash");
+  });
+});

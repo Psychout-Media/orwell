@@ -74,7 +74,7 @@ export interface ConfidenceDecision {
 export function decideConfidence(
   s: ConfidenceSignals,
   rng: RandomnessSource,
-  opts: { liesRemaining: number },
+  opts: { liesRemaining: number; /** B49: scale on the base lie chance (absent => 1, the old roll). */ lieProbScale?: number },
 ): ConfidenceDecision {
   const genuine = disclosureMotive(s);
   const strategic = strategicMotive(s);
@@ -82,7 +82,7 @@ export function decideConfidence(
   const motive = wantsLie ? strategic : genuine;
   const tier = disclosureTier(motive);
   if (tier === "none") return { disclosed: false, tier, truthful: true };
-  if (wantsLie && tier !== "tease" && rng.next() < CONFIDENCE.lieProb) {
+  if (wantsLie && tier !== "tease" && rng.next() < CONFIDENCE.lieProb * (opts.lieProbScale ?? 1)) {
     return { disclosed: true, tier, truthful: false };
   }
   return { disclosed: true, tier, truthful: true };
