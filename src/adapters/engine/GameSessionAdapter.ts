@@ -907,6 +907,9 @@ function groupPlayerDossier(
   return grouped;
 }
 
+/** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
+export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -5579,9 +5582,21 @@ export class GameSessionAdapter implements GameSession {
     const hotReads = activeNpcs.filter((n) => this.premiereHotReads.has(n.id)).length;
     const everyoneVisible = activeNpcs.every((n) => this.presence === null || this.presence.has(n.id));
     const pe = this.live?.premiereEntrance;
-    // A9: during the staged entrances the roll-call gate is GONE (not re-added): un-arrived houseguests are not
-    // "remaining" and `complete`/`powerReachable` stay TRUE exactly as under the old circle.
-    if (pe) remaining.length = 0;
+    // ORW-196: `complete`/`remaining` must agree with the entrance stage. While arrivals are still being staged ("entrances")
+    // the meet-everyone tally is NOT complete: the not-yet-arrived houseguests are `remaining`, listed as ANONYMOUS placeholders (id only, no
+    // name and no facets) so the narrator knows how many are still to come but cannot voice anyone early (the arrival order stays hidden).
+    // From the toast on (everyone is inside) the tally is complete and `remaining` is empty, as under the old circle.
+    if (pe && pe.stage === "entrances") {
+      const outside = this.notYetArrived();
+      remaining.length = 0;
+      for (const n of activeNpcs) {
+        if (outside?.has(n.id)) remaining.push({ houseguest: { id: n.id, name: UNARRIVED_PLACEHOLDER_NAME }, met: false });
+      }
+      const outsideIds = new Set(remaining.map((r) => r.houseguest.id));
+      met.splice(0, met.length, ...met.filter((m) => !outsideIds.has(m.houseguest.id)));
+    } else if (pe) {
+      remaining.length = 0;
+    }
     const everyoneMet = remaining.length === 0;
     // +1 on both counts for the player (they ARE met — they're playing). total = the whole cast.
     return {

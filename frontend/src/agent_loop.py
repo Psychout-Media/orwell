@@ -1721,7 +1721,10 @@ def _forced_tool_choice_for_whereabouts(turn_tool_names, *, game_mode, premiere_
         return None
 
     # Trigger (a): Premiere opener — active premiere view
-    if isinstance(premiere_view, dict) and not premiere_view.get("complete"):
+    # ORW-196: not while the staged entrances run (complete=false there only means arrivals are still coming; the entrance payload already carries who is inside).
+    _ent = premiere_view.get("entrance") if isinstance(premiere_view, dict) else None
+    _entrances_live = isinstance(_ent, dict) and _ent.get("stage") == "entrances"
+    if isinstance(premiere_view, dict) and not premiere_view.get("complete") and not _entrances_live:
         # Premiere is still in progress → force whereabouts
         return {"type": "function", "function": {"name": "whereabouts"}}
 
@@ -3189,6 +3192,10 @@ async def _auto_mark_premiere_intros(narration, owner) -> int:
     if not isinstance(intros, dict):
         return 0
     remaining = intros.get("remaining") or []
+    # ORW-196: during the staged entrances `remaining` holds anonymous placeholders for houseguests who have not walked in; nobody can be met early.
+    _ent = intros.get("entrance")
+    if isinstance(_ent, dict) and _ent.get("stage") == "entrances":
+        return 0
     marked = 0
     for fi in remaining:
         hg = (fi or {}).get("houseguest") or {}
