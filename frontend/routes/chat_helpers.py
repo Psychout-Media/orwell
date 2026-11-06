@@ -2136,6 +2136,8 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        # live replay 4: the engine's exact in-game clock label ("11:35am, Day 3"), so a narrated "it's 8:10am on day 4" that disagrees with it can be cut.
+        "clockLabel": (state.get("clockLabel") if isinstance(state.get("clockLabel"), str) else None),
         # N-16: the engine says the scheduled competition is NOT due yet (clock live, `daySchedule.due` False) - True/False, None when there is no schedule (never judge).
         "compNotDue": (False if not isinstance(state.get("daySchedule"), dict) or "due" not in state.get("daySchedule")
                        else (not bool(state["daySchedule"].get("due")))) if isinstance(state.get("daySchedule"), dict) else None,
@@ -2988,8 +2990,9 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     _n15 = None if desync else _uncommitted_player_choice(text, after)
     # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
     _n16 = None if desync else (_comp_started_before_due(text, after) or _comp_replayed_when_none_running(text, after))
-    if _a9 or _f3 or _n1 or _n3 or _n15 or _n16:
-        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16) if x)
+    _clk = None if desync else _clock_misstated(text, after)
+    if _a9 or _f3 or _n1 or _n3 or _n15 or _n16 or _clk:
+        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16, _clk) if x)
 
     if not desync:
         return None
@@ -4455,6 +4458,37 @@ def _veto_possession_without_holder(text: str, live: dict) -> Optional[str]:
     return None
 
 
+# Live replay 4 (turns 59 and 94): asked what time it was, the narrator answered "It's 8:10am on day 3/4" - a canned line copied from its own earlier reply - while the engine clock read about noon (and the beat it named,
+# "the nomination ceremony this afternoon", was long over). A present-tense "it's H:MM am/pm" that disagrees with the engine's clock by more than the tolerance is a fabrication of a closed-set fact the engine states exactly.
+_CLOCK_STATEMENT_RE = re.compile(r"\b(?:it(?:'s|\u2019s|\s+is)|the\s+time\s+is|right\s+now\s+it(?:'s|\u2019s))\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b(?:[^.\n]{0,30}?\bday\s+(\d{1,2})\b)?", re.IGNORECASE)
+_CLOCK_LABEL_RE = re.compile(r"^(\d{1,2}):(\d{2})(am|pm),\s*Day\s+(\d+)$")
+_CLOCK_TOLERANCE_MIN = 45
+
+
+def _clock_minutes(h: int, m: int, ap: str) -> int:
+    return ((h % 12) + (12 if ap.lower() == "pm" else 0)) * 60 + m
+
+
+def _clock_misstated(text: str, live: dict) -> Optional[str]:
+    """The narration states the current time (or day) and it disagrees with the engine's clock label. Stands down with no clock (clock off) or an unparseable label."""
+    if not isinstance(live, dict) or not text:
+        return None
+    lab = live.get("clockLabel")
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    if not mm:
+        return None
+    eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+    eng_day = int(mm.group(4))
+    for m in _CLOCK_STATEMENT_RE.finditer(text):
+        said = _clock_minutes(int(m.group(1)), int(m.group(2) or 0), m.group(3))
+        diff = abs(said - eng)
+        diff = min(diff, 1440 - diff)
+        said_day = int(m.group(4)) if m.group(4) else None
+        if diff > _CLOCK_TOLERANCE_MIN or (said_day is not None and said_day != eng_day):
+            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
+    return None
+
+
 def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
     """N-1 — the narration names a houseguest OTHER than the engine's committed veto holder as winning the veto
     (bell/'gets there first'/'wins the veto') or as going to use it. Returns a LABEL naming the real holder, or
@@ -4641,7 +4675,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
-        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or ''))):
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)

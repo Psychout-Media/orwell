@@ -181,3 +181,37 @@ def test_the_veto_possession_cut_stands_down_when_the_engine_has_a_holder(monkey
     ch._LAST_BEAT_SIG[_USER] = dict(sig)
     _board(monkeypatch, sig)
     assert _run(ch.screen_streamed_scene_break(_USER, VETO_PHANTOM)) is None
+
+
+# ── a stale/wrong clock statement (live replay 4: "It's 8:10am on day 4" at ~11am, long after the nominations) ──
+def _sig_clock(label, phase="veto-competition"):
+    s = _sig(phase=phase, not_due=True)
+    s["clockLabel"] = label
+    return s
+
+
+def test_a_wrong_current_time_is_cut(monkeypatch):
+    sig = _sig_clock("11:35am, Day 4")
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+    _board(monkeypatch, sig)
+    d = _run(ch.screen_streamed_scene_break(_USER, "It's 8:10am on day 4. Today's beat is the nomination ceremony - Isaac names two people, this afternoon."))
+    assert d is not None and "11:35am, Day 4" in d, d
+
+
+def test_a_wrong_day_is_cut_even_with_the_right_time(monkeypatch):
+    sig = _sig_clock("11:35am, Day 4")
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+    _board(monkeypatch, sig)
+    assert _run(ch.screen_streamed_scene_break(_USER, "It's 11:30am on day 3 and the house is quiet.")) is not None
+
+
+def test_a_correct_time_a_future_event_time_or_no_clock_is_never_cut(monkeypatch):
+    sig = _sig_clock("11:35am, Day 4")
+    ch._LAST_BEAT_SIG[_USER] = dict(sig)
+    _board(monkeypatch, sig)
+    for ok in ("It's about 11:30am, and the veto draw is at 1:00pm.", "The veto draw is at 1:00pm, they say; nobody believes it.", "It's 11:40am on day 4."):
+        assert _run(ch.screen_streamed_scene_break(_USER, ok)) is None, ok
+    nosig = _sig()
+    ch._LAST_BEAT_SIG[_USER] = dict(nosig)
+    _board(monkeypatch, nosig)
+    assert _run(ch.screen_streamed_scene_break(_USER, "It's 8:10am on day 4.")) is None
