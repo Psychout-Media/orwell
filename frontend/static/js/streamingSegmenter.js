@@ -123,8 +123,9 @@ function cutIsRenderSafe(before, after, render) {
   return normalizeBlockGaps(render(before) + render(after)) === normalizeBlockGaps(render(before + after));
 }
 
+// Only the whitespace AFTER a closing block tag (or an <hr>) is presentation-inert; inline whitespace (`</em> <strong>`) is content and is kept.
 function normalizeBlockGaps(html) {
-  return html.replace(/>\s+</g, '><').trim();
+  return html.replace(/(<\/(?:p|ul|ol|li|pre|blockquote|div|table|h[1-6])>|<hr\s*\/?>)\s+(?=<)/g, '$1').trim();
 }
 
 /**
@@ -146,6 +147,15 @@ function normalizeBlockGaps(html) {
  * @param {Map<number, boolean>} [memo]
  * @returns {number}
  */
+// A `((production aside))` can span several blocks, and the game-build scrub (and the whole-message OOC wrap) treat the aside, and its
+// position in the reply, as ONE unit. Freezing a block of an aside, or text around one, can paint something the settled render hides or
+// wraps differently (found by the ORW-156 scrub-safety tests). So nothing is frozen past an aside marker: the reply simply stays in the
+// live tail until it settles (the old behaviour, for the rare reply that has an aside).
+function hasAside(text, from, to) {
+  const seg = text.slice(from, to);
+  return seg.indexOf('((') !== -1 || seg.indexOf('))') !== -1;
+}
+
 export function splitFinalized(text, render, committedLen = 0, memo = null) {
   const { boundaries } = findBoundaries(text, committedLen);
 
@@ -166,7 +176,9 @@ export function splitFinalized(text, render, committedLen = 0, memo = null) {
       const nextOffset = hasLater ? boundaries[k + 1].offset : text.length;
       const after = text.slice(offset, nextOffset);
       let safe;
-      if (memo && memo.has(offset)) {
+      if (hasAside(text, committedLen, offset)) {
+        safe = false; // never cached: the aside may close later and the cut become safe
+      } else if (memo && memo.has(offset)) {
         safe = memo.get(offset);
       } else if (after.trim() === '') {
         safe = false;

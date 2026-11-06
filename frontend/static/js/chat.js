@@ -1159,13 +1159,13 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     // caller keeps the synchronous `_renderStream` (which also supersedes a pending frame render, since it
     // renders the current buffers anyway). Non-delta SSE events flush a pending frame render FIRST (see the
     // `_flushStreamSoon()` call after JSON.parse), so tool/segment/settle code never sees a stale bubble.
-    let _renderStreamRaf = 0;
-    let _streamRenderedOnce = false;   // the FIRST paint of a bubble stays synchronous (no empty-bubble frame)
-    const _flushStreamSoon = () => { if (_renderStreamRaf) { cancelAnimationFrame(_renderStreamRaf); _renderStreamRaf = 0; _renderStream(); } };
+    // One shared coalescer (`_makeFrameCoalescer`, also used by the mirror's `_renderLiveStream`) so sender and mirror paint on the same cadence.
+    let _streamRenderedOnce = false;   // the FIRST paint of a bubble/segment stays synchronous (no empty-bubble frame)
+    const _streamCo = _makeFrameCoalescer(() => _renderStream());
+    const _flushStreamSoon = () => { _streamCo.now(); };
     const _renderStreamSoon = () => {
       if (!_streamRenderedOnce || (typeof document !== 'undefined' && document.hidden)) { _renderStream(); return; }
-      if (_renderStreamRaf) return;
-      _renderStreamRaf = requestAnimationFrame(() => { _renderStreamRaf = 0; _renderStream(); });
+      _streamCo.soon();
     };
     let _cancelThinkingTimer = () => {};
     let _removeThinkingSpinner = () => {};
@@ -1907,14 +1907,14 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
       // Direct render helper for streaming text
       _renderStream = () => {
-        if (_renderStreamRaf) { cancelAnimationFrame(_renderStreamRaf); _renderStreamRaf = 0; }
-        _streamRenderedOnce = true;
+        _streamCo.cancel();
         // F8: the BODY renders the reply-only buffer (roundReplyText — deltas with json.thinking
         // falsy). Reasoning is structurally ABSENT here, so it can NEVER paint in the public
         // bubble; the live "Thinking" accordion renders roundReasoningText separately. (A model
         // that inlines literal <think> tags on the CONTENT channel still works: processWithThinking
         // extracts/handles inline <think> and, in the game build, scrubs operator asides.)
         const dt = stripToolBlocks(roundReplyText);
+        if (dt.trim()) _streamRenderedOnce = true;   // ORW-156: only a render that PAINTS reply text ends the synchronous first paint
         const bodyEl = roundHolder.querySelector('.body');
         const contentEl = _ensureStreamLayout(bodyEl);
 
@@ -2029,6 +2029,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
         seg.classList.add('round-seg');
         seg._streamRenderer = null;
         seg._streamRendererOoc = undefined;
+        _streamRenderedOnce = false;   // ORW-156: the next round's segment paints its first text synchronously
       };
 
       let _nextIsError = false;
@@ -4410,9 +4411,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
         }
       }
     } finally {
-      if (_renderStreamRaf) { cancelAnimationFrame(_renderStreamRaf); _renderStreamRaf = 0; }   // ORW-156: never paint a frame after the turn settled
       clearResponseTimeout();
       clearProcessingProbe();
+      _streamCo.cancel();   // ORW-156: never paint a frame after the turn settled
       // F-5 / N-10: a finished turn must never leave a header-only assistant bubble (see isEmptyAssistantBubble).
       try { pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) {}
       // #615: a mid-stream engine-tool error (e.g. a 409 stale-beat) can throw out of the reader
@@ -4731,6 +4732,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           const payload = line.slice(6);
           if (payload === '[DONE]') {
             if (paintDirty) { paintDirty = false; renderDelta(); }
+            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
             try { await reader.cancel(); } catch (_) {}
             break readLoop;
           }
@@ -4765,6 +4767,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           }
         }
         if (paintDirty) { paintDirty = false; renderDelta(); }
+            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
       }
     } catch (e) {
       // Second drop during self-resume — keep accumulated, cleanup below
@@ -4969,6 +4972,26 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
   // through _setReconcileDeps, mirroring the PR2..PR6 injection pattern. The reconcile Sets stay
   // chatState-backed (PR0), so submit / outbox / reconcile serialize on ONE instance.
 
+  // ORW-156: ONE per-frame coalescer shared by the sender (`_renderStreamSoon`) and the mirror/observer (`_renderLiveStream`), so both
+  // windows paint on the same cadence. `soon()` schedules `run` once per animation frame with a 100 ms timer backstop (rAF does not fire in a
+  // hidden/backgrounded window); `now()` runs a pending `run` immediately; `cancel()` drops it. `run` always renders the LATEST buffers.
+  function _makeFrameCoalescer(run) {
+    let raf = 0;
+    let timer = 0;
+    const cancel = () => {
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      raf = 0;
+      timer = 0;
+    };
+    const fire = () => { cancel(); run(); };
+    return {
+      soon() { if (raf || timer) return; if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(fire); timer = setTimeout(fire, 100); },
+      now() { if (raf || timer) fire(); },
+      cancel,
+    };
+  }
+
   /**
    * R2 (refactor-roadmap / ADR 0012 §3.3): the SHARED incremental live-stream renderer that BOTH
    * the sender (its `.live-reply-content` path) and the observer (resumeStream) feed, so two windows
@@ -5043,8 +5066,24 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       state._replyRendererOoc = _liveOoc.ooc;
       state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs });
     }
-    state._replyRenderer.update(replySrc);
-    uiModule.scrollHistory();
+    // ORW-156: the first reply paint is synchronous; later deltas are coalesced to one per frame through the SAME coalescer the sender uses.
+    state._pendingReplySrc = replySrc;
+    if (!state._replyPainted || document.hidden) {
+      state._replyPainted = true;
+      if (state._replyCo) state._replyCo.cancel();
+      state._replyRenderer.update(replySrc);
+      uiModule.scrollHistory();
+      return;
+    }
+    if (!state._replyCo) {
+      state._replyCo = _makeFrameCoalescer(() => {
+        if (state._replyRenderer && state._replyEl && state._replyEl.isConnected) {
+          state._replyRenderer.update(state._pendingReplySrc);
+          uiModule.scrollHistory();
+        }
+      });
+    }
+    state._replyCo.soon();
   }
 
   /**
@@ -5246,6 +5285,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
             // terminal replay whose reply + `[DONE]` ride one burst would skip the chunk-end
             // paint batch and never mount the incremental container (ship-gate F5).
             if (paintDirty) { paintDirty = false; renderDelta(); }
+            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
             try { await reader.cancel(); } catch (_) {}
             break readLoop;
           }
@@ -5341,6 +5381,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
         }
         // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check).
         if (paintDirty) { paintDirty = false; renderDelta(); }
+            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
       }
     } catch (e) {
       // Network drop or parse failure: fall through to the reload below.

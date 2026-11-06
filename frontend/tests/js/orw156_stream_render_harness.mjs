@@ -22,7 +22,7 @@ globalThis.window = globalThis;
 globalThis.addEventListener = noop;
 globalThis.NodeFilter = { SHOW_TEXT: 4 };
 globalThis.document = {
-  readyState: 'complete', addEventListener: noop, body: { hasAttribute: () => true, classList: { contains: () => false } },
+  readyState: 'complete', addEventListener: noop, body: { hasAttribute: (n) => n === 'data-game-build', classList: { contains: () => false } },
   getElementById: () => null, querySelector: () => null,
   createElement: () => new N(1), createComment: () => new N(8), createTextNode: (d) => { const n = new N(3); n.data = d; return n; }, createTreeWalker: () => ({ nextNode: () => false }),
 };
@@ -78,4 +78,31 @@ out.proseSplitAt = PROSE2.indexOf('Two');
 // once the next block's first line is complete, the boundary before it is judged and frozen
 out.proseCommittedLater = seg.splitFinalized(PROSE2 + ' now.\nmore', baseRender, 0, new Map());
 out.proseSplitLater = PROSE2.indexOf('Three');
+
+// ---- scrub safety: whatever a frozen block shows must be a PREFIX of what the final render shows (a frozen block can never be un-shown) ----
+function frozenPrefixes(text, step) {
+  const el = new N(1);
+  const r = createStreamRenderer(el, { render: baseRender, hljs: null });
+  const bad = [];
+  const finalHtml = gaps(baseRender(text));
+  for (let n = step; n < text.length + step; n += step) {
+    r.update(text.slice(0, Math.min(n, text.length)));
+    const frozen = [];
+    for (const c of el.childNodes) { if (c.nodeType === 8) break; frozen.push(c.html || ''); }
+    const f = gaps(frozen.join(''));
+    if (f && !finalHtml.startsWith(f)) { bad.push({ at: n, frozen: f.slice(-120) }); break; }
+  }
+  r.finalize();
+  return { bad, parity: gaps(el.innerHTML) === finalHtml };
+}
+const SCRUB_CASES = {
+  asideSpanningBlocks: 'The kitchen is quiet.\n\n((Production: the first part of a long aside.\n\nthe second part continues here.\n\nand the third part ends it.)) \n\nSomeone laughs near the sink.\n\nA door opens.',
+  npcIdLine: 'The kitchen is quiet.\n\nnpc:3 walks over and says hello.\n\nSomeone laughs near the sink.\n\nA door opens.',
+  operatorAsideMiddle: 'The kitchen is quiet.\n\nLet me call advanceGame and see what surfaces.\n\nSomeone laughs near the sink.\n\nA door opens and closes.',
+  operatorAsideStandalone: 'The kitchen is quiet.\n\nI should check the tool results before answering.\n\nSomeone laughs near the sink.\n\nA door opens and closes.',
+};
+out.scrub = {};
+for (const [k, t] of Object.entries(SCRUB_CASES)) out.scrub[k] = frozenPrefixes(t, 3);
+const fin = (t) => baseRender(t);
+out.scrubActive = { npc: !fin(SCRUB_CASES.npcIdLine).includes('npc:3'), op: !fin(SCRUB_CASES.operatorAsideMiddle).includes('advanceGame'), aside: !fin(SCRUB_CASES.asideSpanningBlocks).includes('second part continues') || fin(SCRUB_CASES.asideSpanningBlocks).includes('ooc') };
 console.log(JSON.stringify(out));
