@@ -236,7 +236,8 @@ jobs:
       - run: npm ci
       - run: pip install -r frontend/requirements.lock.txt
       - run: npm run build
-      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/4
+      # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
+      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/4 --retry=1
 
   # ── Heavy simulation lane (ONE job — consolidated for the single self-hosted runner) ──────────
   #
@@ -285,6 +286,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # ORW-229: one automatic retry per test; a test that passes only on the retry is listed in the job summary (docs/CI.md).
       - name: heavy sims (${{ matrix.scripts }})
         env:
           UAT_TIMEOUT_SCALE: "10"
@@ -293,7 +295,7 @@ jobs:
           rc=0
           for s in $SCRIPTS; do
             echo "::group::npm run test:heavy:$s"
-            npm run "test:heavy:$s" || { echo "::error::heavy sim '$s' FAILED"; rc=1; }
+            npm run "test:heavy:$s" -- --retry=1 || { echo "::error::heavy sim '$s' FAILED"; rc=1; }
             echo "::endgroup::"
           done
           exit $rc
@@ -334,6 +336,7 @@ jobs:
   # ── Coverage gate, SHARDED (ORW-39) ─────────────────────────────────────────────
   # Four legs each run a disjoint slice of the coverage suite under v8 and upload a blob (vitest.shard.config.ts zeroes the floors for the legs only);
   # the `coverage` job below merges the blobs and enforces the ORIGINAL thresholds once on the merged measurement.
+  # ORW-229: one automatic retry per test (`--retry=1`); the blobs keep each test's retry count, so the `coverage` job's summary lists every flake.
   coverage-shard:
     needs: changes
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
@@ -355,7 +358,7 @@ jobs:
       - run: >-
           npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-          --coverage.reporter=json --shard=${{ matrix.shard }}/4 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json
+          --coverage.reporter=json --shard=${{ matrix.shard }}/4 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-blob-${{ matrix.shard }}
@@ -443,7 +446,9 @@ jobs:
           ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
           ORWELL_SKIP_LANE: unit
           ORWELL_CI_SHARD: ${{ matrix.shard }}/2
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs
+        # ORW-229 flaky-test rule (docs/CI.md): one automatic rerun, like the browser lane; a test that passes only on the rerun is listed in the job
+        # summary (frontend/tests/_flaky_report.py). Quarantined tests are deselected here and run nightly (frontend/tests/_quarantine.py).
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --reruns 1 -q -rs
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -606,6 +611,7 @@ jobs:
     # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane). Split into two parallel jobs of three-ish
     # legs each; the legs are independent (each boots its own engine + FE on its own ports) and every one still runs, with the same retries.
     #   live = the F5 live parity gate, SSE + WS (about 4.7 min)   rest = tool-turn + HUD parity, SSE + WS each (about 4.2 min)
+    # ORW-229: a gate that passes only on a later attempt is a flake: it is written to the job summary and raised as a warning (docs/CI.md).
     strategy:
       fail-fast: false
       matrix:
@@ -645,6 +651,7 @@ jobs:
             echo "──── mirror-parity (SSE) attempt $attempt ────"
             if MIRROR_WS_TRANSPORT=0 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
               echo "mirror-parity (SSE): PASS on attempt $attempt"
+              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-parity (SSE) passed only on attempt $attempt"; echo "- mirror-parity (SSE): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
               exit 0
             fi
             echo "mirror-parity (SSE): attempt $attempt did not pass; retrying"
@@ -670,6 +677,7 @@ jobs:
             echo "──── mirror-parity (WS) attempt $attempt ────"
             if MIRROR_WS_TRANSPORT=1 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
               echo "mirror-parity (WS): PASS on attempt $attempt"
+              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-parity (WS) passed only on attempt $attempt"; echo "- mirror-parity (WS): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
               exit 0
             fi
             echo "mirror-parity (WS): attempt $attempt did not pass; retrying"
@@ -691,6 +699,7 @@ jobs:
             echo "──── mirror-toolturn (SSE) attempt $attempt ────"
             if MIRROR_TOOLTURN=1 MIRROR_WS_TRANSPORT=0 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
               echo "mirror-toolturn (SSE): PASS on attempt $attempt"
+              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-toolturn (SSE) passed only on attempt $attempt"; echo "- mirror-toolturn (SSE): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
               exit 0
             fi
             echo "mirror-toolturn (SSE): attempt $attempt did not pass; retrying"
@@ -706,6 +715,7 @@ jobs:
             echo "──── mirror-toolturn (WS) attempt $attempt ────"
             if MIRROR_TOOLTURN=1 MIRROR_WS_TRANSPORT=1 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
               echo "mirror-toolturn (WS): PASS on attempt $attempt"
+              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-toolturn (WS) passed only on attempt $attempt"; echo "- mirror-toolturn (WS): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
               exit 0
             fi
             echo "mirror-toolturn (WS): attempt $attempt did not pass; retrying"
@@ -728,6 +738,7 @@ jobs:
             echo "──── mirror-hud (SSE) attempt $attempt ────"
             if MIRROR_HUD=1 MIRROR_WS_TRANSPORT=0 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
               echo "mirror-hud (SSE): PASS on attempt $attempt"
+              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-hud (SSE) passed only on attempt $attempt"; echo "- mirror-hud (SSE): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
               exit 0
             fi
             echo "mirror-hud (SSE): attempt $attempt did not pass; retrying"
@@ -743,6 +754,7 @@ jobs:
             echo "──── mirror-hud (WS) attempt $attempt ────"
             if MIRROR_HUD=1 MIRROR_WS_TRANSPORT=1 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
               echo "mirror-hud (WS): PASS on attempt $attempt"
+              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-hud (WS) passed only on attempt $attempt"; echo "- mirror-hud (WS): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
               exit 0
             fi
             echo "mirror-hud (WS): attempt $attempt did not pass; retrying"

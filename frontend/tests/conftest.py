@@ -96,6 +96,18 @@ if _existing is None or not getattr(_existing, "_orwell_test_stub", False):
     sys.modules["core"] = pkg
 
 
+# ── ORW-229 flaky-test rule (docs/CI.md) ─────────────────────────────────────────────
+# Two small plugins: `_quarantine` (the `quarantine(card=..., added=...)` marker: such tests are DESELECTED unless ORWELL_RUN_QUARANTINED=1, the
+# nightly run) and `_flaky_report` (lists every test that passed only on CI's `--reruns 1` in the job summary). Registered here, not via
+# `pytest_plugins` (only allowed in a rootdir conftest). The quarantine deselection runs inside the modifyitems wrapper below, so before the shard split.
+def pytest_configure(config):
+    import _flaky_report
+    import _quarantine
+    for plugin, name in ((_quarantine, "orwell-quarantine"), (_flaky_report, "orwell-flaky-report")):
+        if not config.pluginmanager.has_plugin(name):
+            config.pluginmanager.register(plugin, name)
+
+
 # ── CI lane split: auto-mark the real headless-browser tests as `browser` ────────────
 #
 # The FE suite's ~11 Playwright tests (they call `sync_playwright`) dominate wall-clock and carry the
