@@ -1,5 +1,4 @@
 import { Given, When, Then, After } from "@cucumber/cucumber";
-import { ACCUSE } from "../../src/engine/accuseConstants";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -7,6 +6,8 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { RelationshipModel } from "../../src/engine/relationships";
 import { tieExposureOf, tieNatureProse, exposedTies, type PreGameTie } from "../../src/engine/seededRelationships";
 import { TIE_REVEAL } from "../../src/engine/tieRevealConstants";
+import { ACCUSE } from "../../src/engine/accuseConstants";
+import { RELATIONSHIP_CONSTANTS } from "../../src/engine/relationshipConstants";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { liveAdminSurface } from "../support/liveSweep";
@@ -255,6 +256,8 @@ Given("a pair of near-strangers with no seeded tie", function (this: BbWorld) {
   const tiedIds = new Set(ties.flatMap((t) => [t.a, t.b]));
   const untied = npcs.filter((id) => !tiedIds.has(id));
   tr(this).trUntiedPair = [untied[0]!, untied[1]!];
+  // This scenario asserts Ryne's miss-has-a-cost ruling, so it states the flag it tests (ORWELL_ACCUSE_COST, ON by default) instead of depending on the process default.
+  (sb!.session as unknown as { setAccuseCostEnabled(on: boolean): void }).setAccuseCostEnabled(true);
 });
 
 When("the player accuses that pair of a prior connection through the engine authority", function (this: BbWorld) {
@@ -274,33 +277,52 @@ Then("no tie is surfaced and no sealed state is read", function (this: BbWorld) 
   assert.equal(peek(sb!.session).tieExposureCount, 0);
 });
 
+type Edge = { from: string; to: string; trust: number; affinity: number; threat: number };
+
 Then("a wrong accusation costs the accuser: each wrongly accused houseguest thinks less of the player, by a bounded amount", function (this: BbWorld) {
-  // Ryne 2026-11-05 (accuseTie ruling): "Falsely accusing someone should definitely ding." A miss is no longer free (ORWELL_ACCUSE_COST, ON): each accused houseguest's read of the accuser takes a
-  // bounded dent (ACCUSE.missImpact, scaled by the engine's seeded jitter). The scenario runs with the shipped default flags.
+  // Ryne 2026-11-05 (accuseTie ruling): "Falsely accusing someone should definitely ding." A miss is no longer free (ORWELL_ACCUSE_COST): each accused houseguest's read of the accuser takes a bounded
+  // dent (ACCUSE.missImpact: trust and affinity fall, threat rises), scaled by the disposition's adverse scale and the engine's jitter band.
   const { trSb: sb, trUntiedPair } = tr(this);
-  const before = JSON.parse(tr(this).trRelsBefore!) as [Array<{ from: string; to: string; trust: number }>, unknown, number];
-  const after = relOf(sb!.session).serialize().edges as Array<{ from: string; to: string; trust: number }>;
-  const trustOf = (edges: typeof after, from: string, to: string): number => edges.find((e) => e.from === from && e.to === to)?.trust ?? NaN;
+  const before = (JSON.parse(tr(this).trRelsBefore!) as [Edge[], unknown, number])[0];
+  const after = relOf(sb!.session).serialize().edges as Edge[];
+  const base = RELATIONSHIP_CONSTANTS.baseline;
+  const edgeOf = (edges: Edge[], from: string, to: string): Edge =>
+    edges.find((e) => e.from === from && e.to === to) ?? { from, to, trust: base.trust, affinity: base.affinity, threat: base.threat };
+  const C = RELATIONSHIP_CONSTANTS;
+  const worst = Math.max(...Object.values(C.dispositionFactors).map((d) => d.adverseScale)) * (1 + C.TEMPERATURE_JITTER / 2) + 1e-9;
   for (const member of trUntiedPair!) {
-    const drop = trustOf(before[0], member, PLAYER) - trustOf(after, member, PLAYER);
-    assert.ok(drop > 0, `the wrongly accused ${member} thinks less of the player (trust fell by ${drop})`);
-    assert.ok(drop <= Math.abs(ACCUSE.missImpact.trust ?? 0) * 2, `...but the cost is bounded (fell by ${drop})`);
+    const b = edgeOf(before, member, PLAYER);
+    const a = edgeOf(after, member, PLAYER);
+    assert.ok(b.trust - a.trust > 0, `the wrongly accused ${member} trusts the player less`);
+    assert.ok(b.affinity - a.affinity > 0, `...likes the player less`);
+    assert.ok(a.threat - b.threat > 0, `...and reads the player as more of a threat`);
+    assert.ok(b.trust - a.trust <= Math.abs(ACCUSE.missImpact.trust ?? 0) * worst, `...but the cost is bounded (trust fell by ${b.trust - a.trust})`);
+    assert.ok(b.affinity - a.affinity <= Math.abs(ACCUSE.missImpact.affinity ?? 0) * worst);
+    assert.ok(a.threat - b.threat <= Math.abs(ACCUSE.missImpact.threat ?? 0) * worst);
   }
 });
 
 Then("nothing else sealed or hidden moves", function (this: BbWorld) {
-  // The seeded ties are untouched, the player learned nothing, and no relationship edge that does NOT point at the player changed.
-  const { trSb: sb } = tr(this);
+  // The seeded ties are untouched, the player learned nothing, no edge between other houseguests moved, and the only change toward the player from anyone else is the tiny witness ripple (trust only, bounded).
+  const { trSb: sb, trUntiedPair } = tr(this);
   const core = sb!.session.snapshot();
-  const before = JSON.parse(tr(this).trRelsBefore!) as [Array<{ from: string; to: string }>, unknown, number];
-  assert.equal(JSON.stringify(core.seededRelationships), JSON.stringify(before[1]), "the seeded ties are untouched");
-  assert.equal(sb!.engine.knowledge.knownTo(PLAYER).length, before[2], "the player learned nothing");
-  const after = relOf(sb!.session).serialize().edges as Array<{ from: string; to: string }>;
-  const notTowardPlayer = (edges: Array<{ from: string; to: string }>): string => JSON.stringify(edges.filter((e) => e.to !== PLAYER));
-  assert.equal(notTowardPlayer(after), notTowardPlayer(before[0]), "no edge between other houseguests moved");
+  const parsed = JSON.parse(tr(this).trRelsBefore!) as [Edge[], unknown, number];
+  assert.equal(JSON.stringify(core.seededRelationships), JSON.stringify(parsed[1]), "the seeded ties are untouched");
+  assert.equal(sb!.engine.knowledge.knownTo(PLAYER).length, parsed[2], "the player learned nothing");
+  const after = relOf(sb!.session).serialize().edges as Edge[];
+  const notTowardPlayer = (edges: Edge[]): string => JSON.stringify(edges.filter((e) => e.to !== PLAYER));
+  assert.equal(notTowardPlayer(after), notTowardPlayer(parsed[0]), "no edge between other houseguests moved");
+  const ripple = Math.abs(ACCUSE.missRipple.trust ?? 0) * Math.max(...Object.values(RELATIONSHIP_CONSTANTS.dispositionFactors).map((d) => d.adverseScale)) * (1 + RELATIONSHIP_CONSTANTS.TEMPERATURE_JITTER / 2) + 1e-9;
+  for (const e of after.filter((x) => x.to === PLAYER && !trUntiedPair!.includes(x.from))) {
+    const b = parsed[0].find((x) => x.from === e.from && x.to === PLAYER);
+    if (!b) continue;
+    assert.equal(e.affinity, b.affinity, `${e.from}'s affinity toward the player did not move`);
+    assert.equal(e.threat, b.threat, `${e.from}'s threat read of the player did not move`);
+    assert.ok(b.trust - e.trust >= -1e-9 && b.trust - e.trust <= ripple, `${e.from}'s trust moved only by the bounded witness ripple`);
+  }
 });
 
-Then("the player is shown no number and no tell distinguishing a miss from a hit", function (this: BbWorld) {
+Then("the player is shown no number, only whether the accusation landed", function (this: BbWorld) {
   assert.deepEqual(Object.keys(tr(this).trAccuseResult!).sort(), ["landed"]);
 });
 
