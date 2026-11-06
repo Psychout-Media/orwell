@@ -302,8 +302,8 @@ PREMIERE_IDENTITY_ON_FILE_NOTE = (
     "GAME CONTEXT). This premiere is a WELCOME, not a fresh intake. Do NOT have production or any "
     "houseguest interrogate the player for their name, hometown, or job again, and do NOT ask them to "
     "\"introduce themselves\" from scratch as if you don't know who they are — GREET them by name. The "
-    "houseguests still introduce THEMSELVES around the champagne circle (they are strangers to the player "
-    "and to each other); only the player's own basics are already known to production. The player may of "
+    "houseguests still introduce THEMSELVES as they arrive, one at a time (they are strangers to the player "
+    "and to each other; do not describe or stage a champagne toast until the engine reaches it); only the player's own basics are already known to production. The player may of "
     "course volunteer more about themselves, but never re-demand the basics they gave in casting."
 )
 

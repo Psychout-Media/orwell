@@ -5572,6 +5572,12 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+PREMIERE_INTROS_ENTRANCES_NOTE = (
+    "\n\nNOTE: the houseguest entrances are STILL IN PROGRESS — arrivals are released one at a time, so this list does not mean everyone has arrived. "
+    "The champagne toast has NOT happened yet; do not narrate or stage it until the engine reaches it."
+)
+
+
 async def do_premiere_intros(content: str, owner: Optional[str] = None) -> Dict:
     """PREMIERE ONLY (#380): the meet-everyone progress — who's met + who's STILL to introduce."""
     from src import orwell_engine
@@ -5579,7 +5585,16 @@ async def do_premiere_intros(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.premiere_intros(user=owner)
         if res is None:
             return {"output": "Not in the premiere — everyone has already been met.", "exit_code": 0}
-        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+        out = json.dumps(res, indent=2)
+        # ORW-148 C: the engine reports complete/remaining:[] while arrivals are still being staged (GameSessionAdapter.ts), which made the
+        # narrator jump to the champagne toast. While the entrance stage is live, say so plainly. (Engine-side fix is a follow-up.)
+        try:
+            from routes import chat_helpers as _ch_pi
+            if _ch_pi.premiere_entrance_active(owner):
+                out += PREMIERE_INTROS_ENTRANCES_NOTE
+        except Exception:
+            pass
+        return {"output": out, "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
