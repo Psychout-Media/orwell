@@ -801,11 +801,14 @@
   // new request on top of one still in flight (about 210 of the 660 state reads measured on prod in
   // 14 minutes of casting). Skip while the tab is hidden or a previous route() is still running.
   let _routeInFlight = false;
-  setInterval(async function () {
+  setInterval(function () {
     if (document.hidden || _routeInFlight) return;
     if (_win || document.getElementById(ID) || _maybePregame) {
       _routeInFlight = true;
-      try { await route(); } catch (_) { /* route() is fail-open */ } finally { _routeInFlight = false; }
+      Promise.resolve()
+        .then(function () { return route(); })
+        .catch(function () { /* route() is fail-open */ })
+        .then(function () { _routeInFlight = false; });
     }
   }, 4000);
 
