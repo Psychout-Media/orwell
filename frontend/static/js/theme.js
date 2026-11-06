@@ -6,7 +6,7 @@ import uiModule from './ui.js';
 import { initColorPickers, attachColorPicker } from './colorPicker.js';
 import { hexToRgb, onAccentColor } from './color/hex.js';
 import { makeDraggable } from './windowDrag.js';
-import { lowPowerActive, evaluateLowPower } from './lowPower.js';
+import { lowPowerActive, evaluateLowPower, decideLowPower, applyLowPowerClass } from './lowPower.js';
 // The glass theme's wallpaper REUSES the login screen's mesh-gradient renderer
 // (DRY — one mesh, both surfaces). mountMeshGradient paints the shared
 // .login-bg-gradient layer (css/meshGradient.css); resolveLoginBackgroundConfig
@@ -860,6 +860,7 @@ export function applyGlassTier(tier) {
   const full = (t === 'full');
   document.body.classList.toggle('theme-frosted', frosted);
   document.body.classList.toggle('glass-full', full);
+  applyLowPowerClass(decideLowPower());        // ORW-154/190: the body class follows the same verdict the ceiling used
   _bindLowEndWatch();                          // arm the live-ceiling watch once (lazy)
   return t;
 }
@@ -1302,6 +1303,9 @@ export function getSaved() {
 
 export function save(name, colors, opts) {
   const obj = { name, colors };
+  // ORW-154/190: EVERY save() is a deliberate player action (a swatch, a tier/tint/font/density/picker tweak, a custom theme; boot and server
+  // sync write storage directly, not through here). Stamp it so the low-power default stands down and a later tweak can never drop the choice.
+  obj._explicit = true;
   if (opts) {
     if (opts.font && opts.font !== DEFAULT_FONT) obj.font = opts.font;
     if (opts.density && opts.density !== DEFAULT_DENSITY) obj.density = opts.density;
