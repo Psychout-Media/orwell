@@ -69,7 +69,9 @@ describe("co-presence gossip ON: the 0122 day-close confessional sweep still fir
       expect((sb.session as GameSessionAdapter).copresenceEnabledNow(), "the flag under test is really on").toBe(true);
       developHouse(sb);
 
+      expect(sb.session.snapshot().live?.hoh, "the house reached a normal live week with an HOH").toBeDefined();
       const livingNpcs = sb.session.livingIds().filter((id) => id !== PLAYER).length;
+      expect(livingNpcs, "a real house, not a nearly empty one").toBeGreaterThanOrEqual(8);
       const before = confessionals(sb).length;
       sb.session.turnIn();
       const swept = confessionals(sb).length - before;
@@ -98,6 +100,7 @@ describe("co-presence gossip ON: the 0122 day-close confessional sweep still fir
     const sweptOff = confessionals(off.sb).length - b2;
     expect(sweptOff, "control: the OFF game confesses at day close").toBeGreaterThan(0);
     // The two games can differ (gossip changes what happened), but gossip must not shrink the sweep to a fraction of the control.
-    expect(sweptOn).toBeGreaterThanOrEqual(Math.floor(sweptOff / 2));
+    expect(sweptOn, "gossip ON still confesses at day close").toBeGreaterThan(0);
+    expect(sweptOn).toBeGreaterThanOrEqual(Math.ceil(sweptOff / 2));
   });
 });

@@ -16,8 +16,7 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
 type Mem = { kind: string; severity: number };
-type Live = { beliefs?: BeliefStore; npcMemory?: Record<string, Record<string, Mem[]>>; week?: number };
-type G = { recordAssurance(a: unknown): void; setNpcBeliefsEnabled(on: boolean): void; setMemoryPromisesEnabled(on: boolean): void };
+type Live = { beliefs?: BeliefStore; npcMemory?: Record<string, Record<string, Mem[]>>; assurances?: { items: Array<{ status: string }> } };
 
 function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<AdvanceView["pending"]>): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
@@ -34,7 +33,7 @@ function playOneEviction(seed: number) {
   const sb = new GameSessionRegistry().sandboxFor(`sealed-live-${seed}`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
   sb.session.setAssurancesEnabled(true);
-  const g = sb.session as unknown as G;
+  const g = sb.session as GameSessionAdapter;
   g.setNpcBeliefsEnabled(true);
   g.setMemoryPromisesEnabled(true);
   let voteCard: NonNullable<AdvanceView["pending"]> | undefined;
@@ -62,6 +61,13 @@ describe("a sealed eviction ballot is never attributable from what a houseguest 
 
       sb.session.submitDecision({ kind: "eviction-vote", vote: nominees[0]! });
 
+      // 0. POSITIVE CONTROL: the ballots really resolved assurances and the nominees really hold ballot-made memory. Without this every check below could pass on an empty house.
+      const resolved = (live().assurances?.items ?? []).filter((a) => a.status !== "open").length;
+      expect(resolved, "the vote resolved assurances (broken or kept)").toBeGreaterThan(0);
+      const mem0 = live().npcMemory ?? {};
+      const ballotEntries = nominees.flatMap((n) => voters.flatMap((v) => (mem0[n]?.[v] ?? []).filter((e) => e.kind === "deal-broken" || e.kind === "deal-kept")));
+      expect(ballotEntries.length, "the nominees hold ballot-made break/keep memory").toBeGreaterThan(0);
+
       // 1. No nominee holds a lied-to-me claim that names any voter.
       for (const n of nominees) {
         const named = claimsOf(live().beliefs ?? {}, n).filter((c) => c.kind === "lied-to-me" && voters.includes(c.subject));
@@ -81,7 +87,7 @@ describe("a sealed eviction ballot is never attributable from what a houseguest 
           // Compare only suspects whose ledger holds nothing but the ballot's own entries: a voter with an unrelated memory (a veto grudge) can lose a share to the per-pair cap of 6, which is the
           // cap, not an attribution.
           const clean = voters.filter((v) => (mem[n]?.[v] ?? []).every((e) => e.kind === "deal-broken" || e.kind === "deal-kept"));
-          expect(clean.length, "enough clean suspects to compare").toBeGreaterThanOrEqual(3);
+          expect(clean.length, "most suspects are clean, so the comparison is not a handful").toBeGreaterThanOrEqual(Math.ceil(voters.length / 2));
           const shares = clean.map((v) => (mem[n]?.[v] ?? []).filter((e) => e.kind === kind).reduce((s, e) => s + e.severity, 0));
           for (const x of shares) expect(x, `${kind} share is identical across the clean suspects`).toBeCloseTo(shares[0]!, 9);
         }
