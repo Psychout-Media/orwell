@@ -61,6 +61,7 @@ jobs:
       deploy: ${{ steps.filter.outputs.deploy }}
       heavy: ${{ steps.filter.outputs.heavy }}
       fe_render: ${{ steps.filter.outputs.fe_render }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,18 +109,22 @@ jobs:
           #   - `fe_render` / `deploy`: edits to ONLY front-end tests or markdown (frontend/tests/** except the vendored axe-core,
           #     frontend/**/*.md) cannot change what the render lanes (fe-browser, fe-responsive, mirror-parity, a11y-matrix) and the
           #     deploy smoke boot. The pytest lanes (fe-unit, fe-browser-tests) still run for any frontend/ change.
-          fe_changed="$changed"
+          # `/play` (frontend/web/**) has its own lane (`fe-web`); it must not wake the classic render lanes.
+          changed_nw="$(echo "$changed" | grep -vE '^frontend/web/' || true)"
+          WEB_RE='^(frontend/web/|frontend/routes/play_routes\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
+          fe_changed="$changed_nw"
           if [ "${EVENT_NAME:-}" = "pull_request" ]; then
             HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|\.github/actions/)'
-            fe_changed="$(echo "$changed" | grep -vE '^frontend/(tests/|.*\.md$)' || true; echo "$changed" | grep -E '^frontend/tests/vendor/' || true)"
+            fe_changed="$(echo "$changed_nw" | grep -vE '^frontend/(tests/|.*\.md$)' || true; echo "$changed_nw" | grep -E '^frontend/tests/vendor/' || true)"
             DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|\.github/actions/)'
           fi
           FRONTEND_RE="$FRONTEND_RE|^\.github/actions/"
-          for name in engine frontend fe_render deploy heavy; do
+          for name in engine frontend fe_render deploy heavy web; do
             subject="$changed"
             case "$name" in
               engine)    re="$ENGINE_RE" ;;
-              frontend)  re="$FRONTEND_RE" ;;
+              frontend)  re="$FRONTEND_RE"; subject="$changed_nw" ;;
+              web)       re="$WEB_RE" ;;
               fe_render) re="$FRONTEND_RE"; subject="$fe_changed" ;;
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
               heavy)     re="$HEAVY_RE" ;;
@@ -785,6 +790,61 @@ jobs:
   # Why this is genuinely deadlock-free on an all-skip (e.g. a docs-only PR): the gated jobs report
   # `skipped`; `ci-gate` still runs (always()); each `needs.*.result` is `skipped`; the loop below
   # treats `skipped`/`success` as OK and exits 0. No required check is ever left "expected / pending".
+  # ── /play (the new React front end): typecheck, build + size budget, unit, Playwright smoke ──
+  # PATH-GATED (`changes.web`): runs only when frontend/web/**, the /play route, the fake model harness or this file change.
+  # The smoke boots the real engine + front end + the deterministic fake model (no API key) via frontend/web/scripts/run-smoke.sh.
+  fe-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: web — install, typecheck, build
+        working-directory: frontend/web
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: web — size budget (JS <= 200 KB gzip, CSS <= 40 KB gzip)
+        working-directory: frontend/web
+        run: npm run size
+      - name: web — unit tests
+        working-directory: frontend/web
+        run: npm test
+      - name: build the engine (dist/main.js the smoke boots)
+        run: |
+          npm ci
+          npm run build
+      - name: front-end venv + /play route test
+        run: |
+          python3 -m venv frontend/.venv
+          frontend/.venv/bin/pip install --upgrade pip
+          frontend/.venv/bin/pip install -r frontend/requirements.lock.txt
+          cd frontend && .venv/bin/python -m pytest tests/test_play_routes.py -q
+      - name: install Chromium for Playwright (bounded)
+        working-directory: frontend/web
+        run: |
+          for attempt in 1 2; do
+            if timeout 150 npx playwright install --with-deps chromium; then exit 0; fi
+          done
+          npx playwright install chromium
+      - name: web — Playwright smoke (load, history, send, stream, reload, no dupes)
+        run: bash frontend/web/scripts/run-smoke.sh
+
   ci-gate:
     timeout-minutes: 5
     needs:
@@ -800,6 +860,7 @@ jobs:
       - fe-responsive
       - mirror-parity
       - heavy-sims
+      - fe-web
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -818,6 +879,7 @@ jobs:
             fe-responsive=${{ needs.fe-responsive.result }}
             mirror-parity=${{ needs.mirror-parity.result }}
             heavy-sims=${{ needs.heavy-sims.result }}
+            fe-web=${{ needs.fe-web.result }}
         run: |
           set -euo pipefail
           echo "Needed job results: $RESULTS"

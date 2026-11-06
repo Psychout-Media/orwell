@@ -1,0 +1,38 @@
+/* Design tokens. Plain colours and borders only: no backdrop-filter, no animated backgrounds. */
+:root {
+  --surface-0: #0e1116;
+  --surface-1: #151a21;
+  --surface-2: #1b222b;
+  --surface-3: #252e3a;
+  --border: #2d3745;
+  --text: #e6ebf2;
+  --text-dim: #9aa7b8;
+  --accent: #4f8ff7;
+  --accent-soft: #1d2c46;
+  --on-accent: #ffffff;
+  --danger: #ff7a7a;
+  --warn: #e8b64c;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --radius-2: 0.5rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --surface-0: #f6f7f9;
+    --surface-1: #ffffff;
+    --surface-2: #f0f2f5;
+    --surface-3: #e5e9ef;
+    --border: #d3d9e2;
+    --text: #1a2230;
+    --text-dim: #566377;
+    --accent: #2563d6;
+    --accent-soft: #dbe7fb;
+    --danger: #c0392b;
+    --warn: #9a6b00;
+  }
+}

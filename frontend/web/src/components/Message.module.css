@@ -1,0 +1,10 @@
+.msg { max-width: 46rem; padding: var(--space-3) var(--space-4); border-radius: var(--radius-2); background: var(--surface-2); border: 1px solid var(--border); }
+.mine { align-self: flex-end; background: var(--accent-soft); }
+.theirs { align-self: flex-start; }
+.moment { font-size: var(--text-xs); color: var(--text-dim); margin-bottom: var(--space-1); letter-spacing: 0.02em; }
+.body { line-height: 1.55; overflow-wrap: anywhere; }
+.plain { margin: 0; white-space: pre-wrap; }
+.working { color: var(--text-dim); margin: var(--space-2) 0 0; font-style: italic; }
+.failed { color: var(--danger); font-size: var(--text-xs); margin-top: var(--space-2); }
+.reasoning { margin-top: var(--space-2); font-size: var(--text-xs); color: var(--text-dim); }
+.reasoning pre { white-space: pre-wrap; margin: var(--space-2) 0 0; font-family: inherit; }
