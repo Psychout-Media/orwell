@@ -78,4 +78,4 @@ Feature: 0075 — Trust-gated confidences (a houseguest opens up to you)
 
     Scenario: Lies are rare across a season
       Given a full season is played
-      Then the number of false confidences never exceeds the season cap
+      Then false confidences stay rare, held down by consequences rather than a hard cap
