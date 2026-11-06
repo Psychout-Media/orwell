@@ -301,6 +301,9 @@ jobs:
         with:
           name: coverage-blob-${{ matrix.shard }}
           path: .vitest-reports/
+          # the folder is hidden (leading dot): upload-artifact@v4 skips hidden files unless told otherwise ("Found 0 artifact(s)")
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 1
 
   # ── Deploy smoke ────────────────────────────────────────────────────────────────
