@@ -1342,7 +1342,7 @@ export function renderGameContext(view: GameStateView): string {
           `- PREMIERE — THE CIRCLE IS GATHERED NOW: the GAME has convened the whole house in the living ` +
             `room (whereabouts shows everyone present; moveTo no-ops until the toast closes). Narrate the ` +
             `gathered toast a FEW AT A TIME across turns, never all fifteen at once. Give EACH houseguest a real first impression as a viewer would get on a real show - ` +
-            `name, age, where they are from, what they do, and one line of how they come across - drawn ONLY from the facts listed for them below, woven into the scene (a greeting, a line of chat), never a data dump and never a secret or a label. When the toast has ` +
+            `name, age, where they are from, what they do, and one line of how they come across - drawn ONLY from the facts listed for them below, woven into the scene (a greeting, a line of chat), never a data dump and never a label. When the toast has ` +
             `played, call advanceGame ONCE to CLOSE the circle (releases the player to the bedroom pick — ` +
             `it does NOT start the HOH); a LATER advanceGame begins the first HOH.`,
         ]
