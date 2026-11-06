@@ -29,6 +29,7 @@ function game() {
 describe("through the real session", () => {
   it("flag off: only the touched houseguest remembers (today's behaviour)", () => {
     const { g, npcs, ledger, rel } = game();
+    g.setMemoryFriendsEnabled(false); // pinned OFF explicitly: the flag now defaults ON
     const [touched, friend] = npcs;
     for (const [a, b] of [[friend!, touched!], [touched!, friend!]] as const) { rel.edge(a, b).trust = 0.95; rel.edge(a, b).affinity = 0.95; }
     g.rememberPlayerScene([touched!], "betrayal");

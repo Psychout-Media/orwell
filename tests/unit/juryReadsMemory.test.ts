@@ -21,6 +21,7 @@ function game() {
 describe("juryMemoryFor", () => {
   it("flag off => 0 even with a remembered grudge", () => {
     const { g, live, juror, finalist } = game();
+    g.setJuryMemoryEnabled(false); // pinned OFF explicitly: the flag now defaults ON
     live.npcMemory = { [juror]: { [finalist]: [{ kind: "deal-broken", week: live.week, severity: 1 }] } };
     expect(g.juryMemoryFor(juror, finalist)).toBe(0);
   });

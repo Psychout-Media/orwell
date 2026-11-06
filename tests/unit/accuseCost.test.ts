@@ -43,6 +43,7 @@ describe("a MISS dings the accuser (flag on); a free miss stays free (flag off)"
     const on = game(7), off = game(7), ctrl = game(7);
     const [a, b] = noTiePair(on.ties, on.npcs);
     on.g.setAccuseCostEnabled(true);
+    off.g.setAccuseCostEnabled(false); // pinned OFF explicitly: the flag now defaults ON
     expect(on.g.accuseTie(a, b)).toEqual({ landed: false });
     expect(off.g.accuseTie(a, b)).toEqual({ landed: false });
     for (const m of [a, b]) {
@@ -71,7 +72,7 @@ describe("an honest HIT sometimes sours and sometimes earns respect", () => {
       const again = game(seed); again.g.setAccuseCostEnabled(true); again.g.accuseTie(tie.a, tie.b);
       expect((again.ledger()[tie.a]?.[PLAYER] ?? []).map((e) => e.kind)).toEqual(kinds);
       // flag off: a hit folds neither reaction
-      const off = game(seed); off.g.accuseTie(tie.a, tie.b);
+      const off = game(seed); off.g.setAccuseCostEnabled(false); off.g.accuseTie(tie.a, tie.b);
       expect(off.ledger()[tie.a]?.[PLAYER]).toBeUndefined();
     }
     expect(seen).toBeGreaterThan(20);
