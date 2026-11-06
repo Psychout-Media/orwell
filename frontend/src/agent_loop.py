@@ -5172,7 +5172,14 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
             pass
     if scene_broken:
         if not emitted_visible and not cutaway_emitted:
-            return _GuardedScene(_SCENE_CUTAWAY_LINE, True, True)
+            # ORW-10: from the 2nd consecutive cut TURN the cutaway is the plain engine-true board line (never another generic "feeds cut away" with nothing in it).
+            _line = _SCENE_CUTAWAY_LINE
+            try:
+                if chat_helpers is not None and chat_helpers.cut_streak(owner) >= chat_helpers._CUT_STREAK_NEUTRAL_AT:
+                    _line = chat_helpers.engine_true_line(owner) or _SCENE_CUTAWAY_LINE
+            except Exception:
+                _line = _SCENE_CUTAWAY_LINE
+            return _GuardedScene(_line, True, True)
         return _GuardedScene("", True, cutaway_emitted)  # drop the fabricated prose
     # A-15 (rehearsal 2026-11-03): ROLE-CLAIM screen on name + role co-occurrence, ellipsis/quote-split announcements joined into
     # one unit — the host-PA phrasing ("The winner of the Power of Veto..." / "...is X.") the sentence-level claim detectors never
