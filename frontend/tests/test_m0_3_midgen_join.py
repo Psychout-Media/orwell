@@ -130,6 +130,15 @@ class _StubHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         emit({"role": "assistant"})
+        if entry is not None and entry.get("tool_calls"):
+            # A40: a scripted NATIVE tool call (the fake narrator "decides" to call an engine lever), e.g. {"tool_calls": [{"name": "advanceGame", "args": {}}]}.
+            for i, tc in enumerate(entry["tool_calls"]):
+                emit({"tool_calls": [{"index": i, "id": f"call_stub_{i}", "type": "function",
+                                      "function": {"name": tc["name"], "arguments": json.dumps(tc.get("args") or {})}}]})
+            emit({}, finish="tool_calls")
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
         if entry is None:
             emit({"content": "Understood."})
         else:

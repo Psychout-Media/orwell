@@ -45,3 +45,19 @@ describe("a chat during the gathered toast counts", () => {
     expect(s.witnessOccupancy()).toBe((s as unknown as { presence: unknown }).presence);
   });
 });
+
+describe("S20 - the staged entrances: only houseguests who have ARRIVED are witnesses", () => {
+  it("witnessOccupancy drops the not-yet-arrived and keeps the arrived in the player's room (mutation: letting everyone witness fails this)", () => {
+    const sb = new GameSessionRegistry().sandboxFor("entr-wit");
+    sb.session.setPremiereEntrancesEnabled(true);
+    sb.session.createCharacter({ playerName: "P", seed: 5 });
+    const s = sb.session as GameSessionAdapter;
+    const pe = (s as unknown as { live: { premiereEntrance: { stage: string; order: string[]; arrived: number } } }).live.premiereEntrance;
+    expect(pe.stage).toBe("entrances");
+    pe.arrived = 2; // two inside, the rest still outside
+    const occ = (s as unknown as { witnessOccupancy(): Map<string, string> | null }).witnessOccupancy()!;
+    const room = occ.get(PLAYER)!;
+    for (const id of pe.order.slice(0, 2)) expect(occ.get(id), "an arrived houseguest witnesses in the player's room").toBe(room);
+    for (const id of pe.order.slice(2).filter((x) => x !== PLAYER)) expect(occ.has(id), "a houseguest who has not arrived is not a witness").toBe(false);
+  });
+});

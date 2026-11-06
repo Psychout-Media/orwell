@@ -85,3 +85,25 @@ def test_auto_resolve_covers_every_pending_kind():
         assert out is not None and out.get("kind") == kind, f"no resolution for {kind}"
     # self-evict is deliberately NOT resolved (never walk the player out).
     assert mod._auto_resolve({"kind": "self-evict"}) is None
+
+
+def test_finish_game_leaves_the_finale_interview_card_unanswered():
+    """A pre-jury evictee REALLY holds the finale-interview card beside the retro; a driver that answers it hides a
+    phone overlap from the base sweep. finish_game must capture it, never submit an answer for it."""
+    import inspect
+    src = inspect.getsource(_load().finish_game)
+    assert "_auto_resolve(fp)" not in src, "the driver must not answer the live finale card"
+    assert "endgame_pending = endgame_pending or fp" in src  # captured for the isolated endgame-card pass
+
+
+def test_matrix_has_the_card_with_retro_pass_seed_independent():
+    """The deterministic co-render pass: retro + the finale-interview card mounted TOGETHER (retro not suppressed), with a
+    fixture so it never depends on the staged seed evicting the player pre-jury."""
+    py = SCRIPT.read_text(encoding="utf-8")
+    assert '"+card-with-retro"' in py and "_FINALE_INTERVIEW_FIXTURE" in py
+    assert _load()._FINALE_INTERVIEW_FIXTURE["kind"] == "finale-interview"
+
+
+def test_retro_yields_to_a_live_decision_card_on_the_narrow_tier():
+    css = (SCRIPT.parents[1] / "static" / "js" / "orwellRetrospective.js").read_text(encoding="utf-8")
+    assert "body:has(#orwell-decision-card) #orwell-retro:not(.ow-docked) { display: none !important; }" in css

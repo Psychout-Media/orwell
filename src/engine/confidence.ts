@@ -12,8 +12,7 @@
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { HiddenElement } from "./characterFactory";
 import { CONFIDENCE, type DisclosureTier } from "./confidenceConstants";
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 /** The already-read signals the decision is computed from (the adapter fills these; all Vault-hidden). */
 export interface ConfidenceSignals {

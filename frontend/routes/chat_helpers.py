@@ -2136,6 +2136,8 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "vetoFieldNames": sorted(str(p.get("name")).strip() for p in (veto.get("players") or [])
                                  if isinstance(p, dict) and isinstance(p.get("name"), str) and p.get("name").strip()),
         "playerId": player_id,
+        # live replay 4: the engine's exact in-game clock label ("11:35am, Day 3"), so a narrated "it's 8:10am on day 4" that disagrees with it can be cut.
+        "clockLabel": (state.get("clockLabel") if isinstance(state.get("clockLabel"), str) else None),
         # N-16: the engine says the scheduled competition is NOT due yet (clock live, `daySchedule.due` False) - True/False, None when there is no schedule (never judge).
         "compNotDue": (False if not isinstance(state.get("daySchedule"), dict) or "due" not in state.get("daySchedule")
                        else (not bool(state["daySchedule"].get("due")))) if isinstance(state.get("daySchedule"), dict) else None,
@@ -2203,7 +2205,11 @@ _CLAIM_EVICTED_RE = re.compile(
     r"\bunanimous(?:ly)?\s+(?:vote\s+)?to\s+evict\b|"
     r"\b(?:is|are|was|were|has been|have been|been)\s+(?:being\s+)?voted\s+out\b|"
     r"\b(?:is|are|was|were|has been|have been)\s+(?:now\s+)?out\s+of\s+the\s+(?:house|game)\b|"
-    r"\b(?:is|are|has been|have been)\s+(?:being\s+)?(?:sent\s+home|going\s+home|leaving\s+the\s+house|departing\s+the\s+house)\b",
+    r"\b(?:is|are|has been|have been)\s+(?:being\s+)?(?:sent\s+home|going\s+home|leaving\s+the\s+house|departing\s+the\s+house)\b|"
+    # live week 1 (replay 4): on the nominations morning the narrator fast-forwarded a whole eviction - "The vote's read ... the evictee comes down the stairs with their bag already packed". Each is a
+    # COMMITTED eviction beat in the narrator's own voice, never a hypothetical.
+    r"\bthe\s+vote(?:'s|\u2019s|\s+is|\s+has\s+been)\s+(?:been\s+)?read\b|\bthe\s+evictee\s+(?:comes|came|walks|walked|steps|stepped|descends|heads|headed|stands|stood|leaves|left)\b|"
+    r"\bbags?\s+(?:already\s+)?packed\s+by\s+production\b",
     re.IGNORECASE,
 )
 # F16 (#1014): when an eviction RESULT/TALLY claim NAMES a houseguest, extract that name so the
@@ -2977,15 +2983,16 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # the re-ground that names the real field, not only the generic unresolved-competition correction.
     _f3 = None if desync else _player_seated_in_excluded_field(text, after)
     # (10) N-1: the veto winner / its user named as someone other than the engine's committed holder.
-    _n1 = None if desync else _veto_holder_contradiction(text, after)
+    _n1 = None if desync else (_veto_holder_contradiction(text, after) or _veto_possession_without_holder(text, after))
     # (11) N-3: a "not yet" about a closed-set fact the engine has ALREADY committed (the HOH, the nominees, the veto).
     _n3 = None if desync else _stale_denial_contradiction(text, after)
     # (12) N-15: the PLAYER's own card-gated choice narrated as made while its card is still open (never recorded).
     _n15 = None if desync else _uncommitted_player_choice(text, after)
     # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
-    _n16 = None if desync else _comp_started_before_due(text, after)
-    if _a9 or _f3 or _n1 or _n3 or _n15 or _n16:
-        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16) if x)
+    _n16 = None if desync else (_comp_started_before_due(text, after) or _comp_replayed_when_none_running(text, after))
+    _clk = None if desync else _clock_misstated(text, after)
+    if _a9 or _f3 or _n1 or _n3 or _n15 or _n16 or _clk:
+        desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16, _clk) if x)
 
     if not desync:
         return None
@@ -3012,6 +3019,30 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     )
 
 
+# Live week 1 (replay 4): the engine pre-resolved the NPC nominations in this turn's framing (nominees Tristan Ballard and Denise Calloway were committed) and framed the turn on the nominations moment, but the
+# narrator answered the player's unrelated question and NEVER voiced the ceremony - the player was not told who was nominated. A committed ceremony beat the reply did not voice at all is re-grounded into the next turn.
+_CEREMONY_UNVOICED: dict = {}
+
+
+def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
+    """Remember the ceremony beat the engine committed this turn, with the houseguest names its narration must mention. Never raises."""
+    try:
+        names = [str(n).strip() for n in (names or []) if str(n).strip()]
+        if names:
+            _CEREMONY_UNVOICED[_desync_key(user)] = {"label": str(label)[:160], "names": names}
+    except Exception:
+        pass
+
+
+def _ceremony_beat_unvoiced(narration: str, note: dict) -> bool:
+    text = (narration or "").lower()
+    for n in note.get("names", []):
+        parts = [p for p in re.split(r"\s+", n.lower()) if len(p) >= 3]
+        if n.lower() in text or any(p in text for p in parts):
+            return False
+    return True
+
+
 async def record_post_turn_desync_check(user, narration: str, this_turn_progressed: bool = True) -> None:
     """Post-turn layer of the desync spine: capture the AFTER signature, diff it against the
     BEFORE signature stored at the start of this turn, and when the narration asserted an outcome
@@ -3027,6 +3058,12 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
     narrated-but-uncommitted case (board unchanged, or this turn itself progressed) is untouched."""
     try:
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
+        _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
+        if _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine just committed this beat - " + _cnote["label"] + " - but your last turn never voiced it, so the player has not been told. Open your next turn by "
+                              "playing it for real (who is named, the room's reaction), using ONLY the names given here; do not invent anyone else.")
+            _note_belt(user, "ceremony-unvoiced-reground")
+            logger.warning("[orwell] committed ceremony beat %r was not voiced in the narration - re-grounding next turn for user=%s", _cnote["label"], user)
         after = await _capture_beat_signature(user)
         before = _LAST_BEAT_SIG.get(_dkey)
         if not before or not after:
@@ -4274,10 +4311,65 @@ _COMP_STARTED_CUES = (
 )
 
 
+# N-16 DECISIVE cues (found in the live week-1 run): a statement that the competition IS LIVE / underway, or has RESOLVED / been WON, is conclusive on its own - production was holding it ("not due yet") and the narrator still
+# announced it, described it, and named a winner with no engine event. A denial ("isn't live yet") or a future mention ("when the competition is live") is not a claim and is exempted in the same clause.
+_COMP_DECISIVE_CUES = (
+    re.compile(r"\b(?:the\s+)?(?:first\s+|second\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way|happening|running)\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:competition|comp)\s+(?:resolves|has\s+resolved|ends|has\s+ended|is\s+over|wraps\s+up|finishes)\b", re.IGNORECASE),
+    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:wins|won|takes|claims)\s+(?:it|the\s+(?:competition|comp|head\s+of\s+household|hoh|crown|key))\b"),
+)
+_COMP_DECISIVE_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether)\b", re.IGNORECASE)
+
+
+def _comp_decisive_hit(text: str) -> bool:
+    for rx in _COMP_DECISIVE_CUES:
+        for m in rx.finditer(text):
+            clause = _N3_CLAUSE_SPLIT_RE.split(text[max(0, m.start() - 60):m.start()])[-1] + text[m.start():m.end()]
+            if not _COMP_DECISIVE_EXEMPT_RE.search(clause):
+                return True
+    return False
+
+
+# N-16b (found in the live week-1 run, nominations phase): with the HOH ALREADY crowned the narrator re-ran "The Head of Household competition begins now. Everyone to the backyard" and then kept the whole house
+# on a ghost wall for several turns. A competition that is announced as beginning / live when the engine's phase is NOT a competition phase (and the premiere is over) is a replay of finished history.
+# Only start/live cues count here (never "resolves"/"ends"/"wins it": recaps legitimately narrate a finished competition in the past tense).
+_COMP_LIVE_NOW_CUES = (
+    re.compile(r"\b(?:head\s+of\s+household|hoh|veto)\s+(?:competition|comp)\s+(?:begins|starts|kicks\s+off)\s+now\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way)\b", re.IGNORECASE),
+    re.compile(r"\b(?:the\s+)?(?:first\s+|head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is\s+)?about\s+to\s+(?:begin|start)\b", re.IGNORECASE),
+    re.compile(r"\bmid[\s-]+(?:competition|comp)\b|\bhow\s+you(?:'re|\u2019re|\s+are)\s+(?:playing|approaching)\s+(?:this|the)\s+(?:competition|comp)\b", re.IGNORECASE),
+)
+_COMP_LIVE_NOW_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether|was|were|had)\b", re.IGNORECASE)
+
+
+def _comp_live_now_hit(text: str) -> bool:
+    for rx in _COMP_LIVE_NOW_CUES:
+        for m in rx.finditer(text or ""):
+            clause = _N3_CLAUSE_SPLIT_RE.split(text[max(0, m.start() - 60):m.start()])[-1] + text[m.start():m.end()]
+            if not _COMP_LIVE_NOW_EXEMPT_RE.search(clause):
+                return True
+    return False
+
+
+# phases in which NO competition can be running (the board is past the HOH comp / between competitions): a "competition is live" claim here is a replay
+_NO_COMP_PHASES = ("premiere", "nominations", "veto-ceremony", "eviction", "eviction-reveal", "final-eviction")
+
+
+def _comp_replayed_when_none_running(text: str, live: dict) -> Optional[str]:
+    """N-16b - the narration announces a competition as beginning / live while the engine's phase is a non-competition one (nominations, ceremony, eviction) and nothing is pending. Returns a LABEL or None."""
+    if not isinstance(live, dict) or not text or live.get("pending"):
+        return None
+    if str(live.get("phase") or "").lower() not in _NO_COMP_PHASES:
+        return None
+    if not _comp_live_now_hit(text):
+        return None
+    return ("a competition as BEGINNING / LIVE (the house on the wall, contestants called to the yard) - the engine's phase is " + str(live.get("phase")) + ": no competition is running now and the finished one is not replayed")
+
+
 def _comp_started_cue_hit(text: str) -> bool:
     """A74 - does `text` show >= 2 DISTINCT N-16 'the competition has begun' cue families? The scene-level gate admits such prose to the live-board read (the cheap closed-set gate cannot: this prose
     carries no outcome claim), where `_comp_started_before_due` then decides (comp phase + explicit not-due flag + nothing pending). Pure and cheap; a single stage direction never qualifies."""
-    return bool(text) and sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2
+    return bool(text) and (sum(1 for rx in _COMP_STARTED_CUES if rx.search(text)) >= 2 or _comp_decisive_hit(text))
 
 
 def _comp_started_before_due(text: str, live: dict) -> Optional[str]:
@@ -4340,6 +4432,60 @@ def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
             m = rx.search(sent)
             if m and not _VETO_N1_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.start() + 12]):
                 return "the narration says " + label
+    return None
+
+
+# Live replay 4 (nominations / veto-competition phases, NO veto played): the player's scripted line presupposed a veto winner and the narrator produced one - "He turns the veto over ... I'm not using it to make a point".
+# A houseguest HOLDING / turning over / using the veto while the engine has no veto holder is a phantom. Conservative: possession verbs on "the/his/her/their (power of) veto" only, hypotheticals exempt.
+_VETO_POSSESSION_RE = re.compile(
+    r"\b(?:turns?|turned|holds?|holding|held|clutch(?:es|ed|ing)?|grips?|gripping|waves?|waving|palms?)\s+(?:the|his|her|their)\s+(?:power\s+of\s+)?(?:veto|pov)\b|"
+    r"\b(?:the|his|her|their)\s+(?:power\s+of\s+)?(?:veto|pov)\s+(?:in\s+(?:his|her|their)\s+(?:hand|hands|fist|lap))\b|\b(?:won|has\s+won|just\s+won)\s+the\s+(?:power\s+of\s+)?(?:veto|pov)\b",
+    re.IGNORECASE,
+)
+
+
+def _veto_possession_without_holder(text: str, live: dict) -> Optional[str]:
+    """Phantom veto holder: the narration shows someone holding / winning the veto while the engine has no veto holder and the veto competition is not over."""
+    if not isinstance(live, dict) or not text or live.get("pending"):
+        return None
+    phase = str(live.get("phase") or "").lower()
+    if phase not in ("nominations", "veto-competition") or live.get("vetoHolder") or live.get("vetoUsed"):
+        return None
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        m = _VETO_POSSESSION_RE.search(sent) if sent.strip() else None
+        if m and not _VETO_N1_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sent[:m.start()])[-1] + sent[m.start():m.end()]):
+            return "a houseguest as HOLDING / having won the Power of Veto - the engine has no veto holder: the veto has not been played"
+    return None
+
+
+# Live replay 4 (turns 59 and 94): asked what time it was, the narrator answered "It's 8:10am on day 3/4" - a canned line copied from its own earlier reply - while the engine clock read about noon (and the beat it named,
+# "the nomination ceremony this afternoon", was long over). A present-tense "it's H:MM am/pm" that disagrees with the engine's clock by more than the tolerance is a fabrication of a closed-set fact the engine states exactly.
+_CLOCK_STATEMENT_RE = re.compile(r"\b(?:it(?:'s|\u2019s|\s+is)|the\s+time\s+is|right\s+now\s+it(?:'s|\u2019s))\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b(?:[^.\n]{0,30}?\bday\s+(\d{1,2})\b)?", re.IGNORECASE)
+_CLOCK_LABEL_RE = re.compile(r"^(\d{1,2}):(\d{2})(am|pm),\s*Day\s+(\d+)$")
+_CLOCK_TOLERANCE_MIN = 45
+
+
+def _clock_minutes(h: int, m: int, ap: str) -> int:
+    return ((h % 12) + (12 if ap.lower() == "pm" else 0)) * 60 + m
+
+
+def _clock_misstated(text: str, live: dict) -> Optional[str]:
+    """The narration states the current time (or day) and it disagrees with the engine's clock label. Stands down with no clock (clock off) or an unparseable label."""
+    if not isinstance(live, dict) or not text:
+        return None
+    lab = live.get("clockLabel")
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    if not mm:
+        return None
+    eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+    eng_day = int(mm.group(4))
+    for m in _CLOCK_STATEMENT_RE.finditer(text):
+        said = _clock_minutes(int(m.group(1)), int(m.group(2) or 0), m.group(3))
+        diff = abs(said - eng)
+        diff = min(diff, 1440 - diff)
+        said_day = int(m.group(4)) if m.group(4) else None
+        if diff > _CLOCK_TOLERANCE_MIN or (said_day is not None and said_day != eng_day):
+            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
     return None
 
 
@@ -4529,7 +4675,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
-        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)):
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
@@ -4762,7 +4908,7 @@ async def _detect_ungrounded_overclaim(user, text: str, tools: set) -> tuple:
             if not _live_p:
                 return (None, None)
             # else: board readable — fall through and verify each claim below (moved or not).
-        has_outcome = _sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text)  # A89: N-16 "the competition has started" prose has no outcome claim but is a closed-set one (>= 2 cue families)
+        has_outcome = _sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text)  # A89: N-16 "the competition has started" prose has no outcome claim but is a closed-set one (>= 2 cue families)
         has_met = bool(_MET_EVERYONE_RE.search(text or ""))
         if not has_outcome and not has_met:
             return (None, None)  # no closed-set claim at all — open-set prose, never policed
@@ -5856,6 +6002,17 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         _beat_kind = str((_adv_event or {}).get("beat") or "") if isinstance(_adv_event, dict) else ""
         _beat = (_adv_event or {}).get("content") if isinstance(_adv_event, dict) else None
         logger.info("[orwell] pre-resolve advanced %s for user=%s -> beat=%r", phase, user, _beat)
+        if _beat and phase in ("hoh-competition", "veto-competition"):
+            # live replay 4: the competition ran to its result inside this turn's framing ("Nia Coleman wins the Power of Veto") and the narrator never told the player who won - note the winner so an unvoiced result is re-grounded
+            _wm = re.search(r"\b([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+){0,2})\s+wins\s+(?:the\s+)?(?:Head of Household|HOH|Power of Veto|Veto)\b", str(_beat))
+            if _wm:
+                note_ceremony_beat_for_voicing(user, str(_beat), [_wm.group(1)])
+        if phase == "nominations" and _beat:
+            try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
+                note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
+                                               or re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+", str(_beat))[1:])
+            except Exception:
+                pass
         # gap #3 belt-fire telemetry (docs/design/undercall-seam-structural.md §5; never raises)
         _note_belt(user, "pre-resolve-npc-ceremony")
         refreshed = await _fetch_game_state(user, retry=retry)

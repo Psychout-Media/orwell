@@ -1482,6 +1482,10 @@ export class GameSessionAdapter implements GameSession {
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
+  /** A65 (ORWELL_ADVANCE_GATE, default OFF): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
+  private advanceGateEnabled = process.env.ORWELL_ADVANCE_GATE === "1";
+  setAdvanceGateEnabled(on: boolean): void { this.advanceGateEnabled = on; }
+  private scheduleGateBypass = false;
   private desireClockEnabled = DESIRE_CLOCK_ENABLED_DEFAULT;
   private wantMovementEnabled = WANT_MOVEMENT_ENABLED_DEFAULT;
   /** The clock hour a hang-out just ended at: the orchestrator's follow-up per-conversation step skips ONCE if the clock has not moved since. */
@@ -3769,6 +3773,8 @@ export class GameSessionAdapter implements GameSession {
     // (the engine somehow never advancing) can NEVER spin forever — it falls out with the current
     // (unfinished) summary instead of hanging the request.
     const MAX_ITERS = 20_000;
+    this.scheduleGateBypass = true; // A65: the engine's own fast-forward is not a player ask - the schedule gate must not stall it
+    try {
     for (let i = 0; i < MAX_ITERS && !this.live.finished; i++) {
       if (this.live.pending) {
         // Auto-resolve the player's pending with the loop's own legal NPC policy (no second rulebook,
@@ -3779,6 +3785,7 @@ export class GameSessionAdapter implements GameSession {
         this.advanceGame();
       }
     }
+    } finally { this.scheduleGateBypass = false; }
     return this.fastForwardSummary();
   }
 
@@ -9652,6 +9659,13 @@ export class GameSessionAdapter implements GameSession {
       const spectated = this.inOneCommit(() => this.spectatorFastForward());
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, spectated) : spectated;
     }
+    // A65: defense in depth for the production schedule. With the gate on, the clock running and the next milestone NOT yet due, an ordinary beat is REFUSED here (typed `held`, no commit, no beatSeq
+    // bump, not cached for idempotency) so the schedule no longer rests on the FE hold alone. Pending decisions, the premiere stages, the spectator fast-forward and the engine's own fast-forward
+    // (`scheduleGateBypass`) are unaffected; flag off => this block is skipped entirely (byte-identical).
+    if (this.advanceGateEnabled && !this.scheduleGateBypass && this.perConversationClockLive() && !this.live.pending && !this.live.finished) {
+      const m = nextMilestone(this.live);
+      if (m && !milestoneDueOf(this.live)) return { ...this.advanceView(null), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live) ?? 0 } };
+    }
     // One persisted commit per beat (E3): interior persists (a deal broken mid-tally) defer to a
     // single hook call AFTER all state mutation — a refused commit throws instead of narrating.
     const view = this.inOneCommit(() => {
@@ -10079,6 +10093,8 @@ export class GameSessionAdapter implements GameSession {
    * `materializeDailyRecap` always returns one once the clock is running, so this is present on every
    * turn-in that actually fires; absent only when the whole call was a dormant no-op above).
    */
+  private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
+  setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }
   turnIn(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
     // 0065 Part B — replay an already-ended night verbatim (wins even if beatSeq has since moved), so a
     // retried/duplicate turnIn is REPLAYED, not re-executed: `playerTurnIn` never re-stamps `lastSleepDepth`
@@ -10097,6 +10113,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return remember(this.advanceView(null));
     if (!this.timeOfDayEnabled) return remember(this.advanceView(null)); // dormant unless the clock is running
     if (this.live.finished || playerHasLeft(this.live, PLAYER)) return remember(this.advanceView(null));
+    // Bedtime gate (found in a live run: the narrator called turnIn on "wake up in the morning" and the engine slept through a whole day). A bed in the morning or afternoon is not a night: refuse with a typed
+    // `held` (nothing commits, beatSeq unchanged) so the narrator is told it is not bedtime yet. From the evening on the player owns their bedtime exactly as before (ADR 0006).
+    if (this.bedtimeGateEnabled && (this.live.timeOfDay === "morning" || this.live.timeOfDay === "afternoon")) {
+      const hour = this.live.nightDepth ?? WAKE_HOUR;
+      return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.evening - hour) * 60)) } });
+    }
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       const recap = this.materializeDailyRecap();

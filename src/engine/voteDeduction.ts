@@ -1,5 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
+import { clamp01 } from "../domain/num";
 
 /**
  * Feature 0110 — Vote deduction (process of elimination).
@@ -52,8 +53,6 @@ export interface DeducedVoters {
   /** Per pool member: whether the evictee believes they voted, and their raw suspicion (engine-only). */
   perVoter: Map<EntityId, { believed: boolean; suspicion: number }>;
 }
-
-const clamp01 = (v: number): number => (Number.isNaN(v) ? 0 : Math.max(0, Math.min(1, v)));
 
 /**
  * A deterministic numeric seed for the DEDICATED deduction sub-rng, from the evictee + week. Isolated
