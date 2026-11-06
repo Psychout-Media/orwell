@@ -33,3 +33,14 @@ def test_empty_narration_is_not_treated_as_an_aside():
     assert ch._is_aside_only_reply("   ") is False
     assert ch._is_aside_only_reply("No parentheses here.") is False
     assert ch._is_aside_only_reply("((just an aside))") is True
+
+
+def test_nested_parens_inside_an_aside_are_still_aside_only():
+    assert ch._is_aside_only_reply("((day 12 (HOH: An Ally)))") is True
+    assert ch._presence_omission_directive("((day 12 (HOH: An Ally)))", FACTS) is None
+
+
+def test_mid_text_asides_and_unbalanced_open_parens_are_not_aside_only():
+    assert ch._is_aside_only_reply("((a)) You stare at the hatch ((b))") is False
+    assert ch._is_aside_only_reply("((unbalanced and then a real scene") is False
+
