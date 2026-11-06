@@ -1105,6 +1105,8 @@ export interface PublicGameStatus {
    * the time-of-day HUD renders; Vault-free; absent pre-game / when the clock isn't running.
    */
   timeOfDay?: string;
+  /** ORW-115 (Ryne: "Time of day only"): the in-game DAY number the HUD shows beside the time of day ("Morning, Day 1") - the same day as `GameStateView.clockLabel`. Public; present only while the clock runs. */
+  dayNumber?: number;
   /**
    * ADR 0006 — the houseguests who've TURNED IN for the night (see `GameStateView.asleep`). Names only;
    * Vault-free; present only when the clock is running.
