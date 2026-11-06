@@ -594,6 +594,11 @@ export interface GameStateView {
    */
   createRefusedReason?: string;
   /**
+   * ORW-208 - present ONLY when the strategy style the caller asked for was NOT one of the chosen archetype's own styles and the engine
+   * stored the archetype's first style instead (it drives hidden stats/leakiness). Previously this substitution was silent. Public labels only.
+   */
+  strategyStyleAdjusted?: { requested: string; applied: string; archetype: string };
+  /**
    * RC5 / feature 0116 / #1599 — the cast-identity COHERENCE outcome of this game start (Vault-free
    * diagnostic; NEVER player content, never a secret). A model-authored dossier is assembled across three
    * async write-backs (genesis skeleton + `recordCastIdentity` gender pin + `recordCastProfile` body), so a

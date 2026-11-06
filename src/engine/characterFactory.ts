@@ -948,6 +948,23 @@ export const NEUTRAL_PLAYER_STATS: { physical: number; mental: number; social: n
  *    `archetypeDefaulted: true`, and an EMPTY persona — never the fabricated "floater" identity.
  *  - BACKGROUND: absent ⇒ EMPTY (`""`) — never a placeholder presented as canon.
  */
+/**
+ * ORW-208 - resolve the stored strategy style for a chosen archetype. The canonical style must be one of the archetype's own `styles`
+ * (it drives hidden stats and leakiness). A requested style OUTSIDE that list is still replaced with the list's first entry (the closed
+ * set is unchanged), but the substitution is now REPORTED (`adjusted`) instead of silent, so the caller can surface it. An unauthored
+ * (defaulted) archetype keeps the neutral first-entry placeholder and reports nothing (the style was never authored against it).
+ */
+export function resolveStrategyStyle(
+  archetype: string | undefined,
+  requested: string | undefined,
+): { applied: StrategyStyle; adjusted?: { requested: string; applied: StrategyStyle } } {
+  const known = archetype !== undefined && SPEC_OF.has(archetype as Archetype);
+  const spec = known ? SPEC_OF.get(archetype as Archetype)! : SPEC_OF.get(DEFAULT_ARCHETYPE)!;
+  if (known && requested && (spec.styles as readonly string[]).includes(requested)) return { applied: requested as StrategyStyle };
+  const applied = spec.styles[0]!;
+  return known && requested ? { applied, adjusted: { requested, applied } } : { applied };
+}
+
 export function runPlayerOOBE(input: OobeInput): PlayerCharacter {
   // Validation: a profile can't be half-authored. `name` is the required field.
   if (!input || typeof input.name !== "string" || input.name.trim().length === 0) {
@@ -958,8 +975,7 @@ export function runPlayerOOBE(input: OobeInput): PlayerCharacter {
   // Stats come from the AUTHORED archetype only. Unauthored ⇒ neutral/unbiased (#529): never deal a
   // fabricated archetype's bias to a human who never chose it.
   const stats = defaulted ? { ...NEUTRAL_PLAYER_STATS } : { ...spec.bias };
-  const strategyStyle = !defaulted && input.strategyStyle && spec.styles.includes(input.strategyStyle)
-    ? input.strategyStyle : spec.styles[0]!;
+  const strategyStyle = resolveStrategyStyle(input.archetype, input.strategyStyle).applied; // ORW-208: same rule, now reportable
   // The casting interview seeds the Soul memory (0050): the house's long-term memory starts with
   // who the player said they were. These are the player's OWN pre-game memories — recallable and
   // persisted (0007/0030), never an NPC pathway (the interview is OOC; no one witnessed it).
