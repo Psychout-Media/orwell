@@ -5153,6 +5153,31 @@ def _blank_turn_fallback_line(*, upstream_failed: bool) -> str:
     return _BLANK_FALLBACK_UPSTREAM if upstream_failed else _BLANK_FALLBACK_MODEL
 
 
+def _fallback_markers() -> "tuple[str, ...]":
+    return (
+        _SCENE_CUTAWAY_LINE[:70],
+        _BLANK_FALLBACK_MODEL[:40],
+        _BLANK_FALLBACK_UPSTREAM[:40],
+        "The live feeds settle back over the house. Right now the game sits",
+        "A voice from production runs through the board",
+    )
+
+
+def _drop_fallback_turns(messages):
+    """ORW-10 (c): return `messages` without the assistant turns that are one of the FE's own deterministic fallback lines. Pure; leaves every other message (and the order) untouched; a non-list passes through."""
+    if not isinstance(messages, list):
+        return messages
+    marks = _fallback_markers()
+    out = []
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str):
+            head = m["content"].strip()[:260]
+            if any(mk in head for mk in marks):
+                continue
+        out.append(m)
+    return out
+
+
 async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_visible: bool,
                               cutaway_emitted: bool) -> "_GuardedScene":
     """A2 (2026-07-03) — run one leak-scrubbed stream chunk through BOTH the whole-scene circuit-breaker
@@ -5217,7 +5242,13 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         # the rail on the one turn it mattered most. The same diegetic cutaway line the scene
         # circuit-breaker (above) already uses for an identical "nothing safe to show yet" situation
         # covers it instead — in-fiction, never the lie, never a raw error.
-        return _GuardedScene(_SCENE_CUTAWAY_LINE, False, True, tuple(role_drops), screened)
+        _line = _SCENE_CUTAWAY_LINE
+        try:
+            if chat_helpers is not None:
+                _line = (await chat_helpers.guard_emptied_cutaway(owner)) or _SCENE_CUTAWAY_LINE  # ORW-10: 2nd consecutive emptied turn => the plain engine-true line
+        except Exception:
+            _line = _SCENE_CUTAWAY_LINE
+        return _GuardedScene(_line, False, True, tuple(role_drops), screened)
     return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
 
 
@@ -6719,6 +6750,10 @@ async def _stream_agent_loop_impl(
         else:
             messages.insert(0, {"role": "system", "content": GUIDE_ONLY_DIRECTIVE})
     prep_timings["prompt_build"] = time.time() - _t2
+
+    # ORW-10 (c): the deterministic fallback lines the FE shows the player (the feeds-cut cutaway, the engine-truth recital, the blank-turn lines) are saved in the chat as assistant turns; left in the model's own
+    # history they teach it to emit them again (replay 7: the narrator copied the cutaway sentence for ~30 turns). Keep them out of what the narrator sees; the player's transcript is untouched.
+    messages = _drop_fallback_turns(messages)
 
     _t3 = time.time()
     try:
