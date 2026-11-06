@@ -28,7 +28,8 @@ async function startedDay(): Promise<Day> {
   await call("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
   const session = rt.registry.sandboxFor(user).session;
   session.setPerConversationClockEnabled(true);
-  // the day-start (two advances: premiere -> 8am), as the other pace tests do
+  // the day-start (three advances: premiere exit -> the first NIGHT -> the first morning at 8am; ORW-116 a), as the other pace tests do
+  await call("advanceGame");
   await call("advanceGame");
   await call("advanceGame");
   return { call, hour: () => session.snapshot().live?.nightDepth ?? 0, live: () => session.snapshot().live };

@@ -666,6 +666,8 @@ export interface LiveSeasonState {
   preNomsNightPassed?: boolean;
   /** P4b — set once the one-shot day-1 `day-break` (the premiere exit that starts the first morning WITHOUT staging the HOH comp) has fired. Clock-live only; absent ⇒ byte-identical. */
   firstMorningPassed?: boolean;
+  /** ORW-116 (a): set once the first NIGHT (premiere evening -> first morning) has been crossed, so the first HOH can be due that afternoon. Clock-live only; absent => byte-identical. */
+  firstNightPassed?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
@@ -2021,6 +2023,9 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
  * between the crown and the noms is a normal night's rest, and any real deficit is (re)banked by the
  * player's own `turnIn` / the per-beat wraps during the days of play that follow before the next comp.
  */
+/** ORW-116 (a): the clock-hour the first night starts at when the premiere ends (the premiere and toast are the evening; the night is the social night after). */
+export const FIRST_NIGHT_HOUR = 20;
+
 export function crossToNextDay(s: LiveSeasonState): void {
   if (s.nightDepth === undefined) return; // dormant until the per-beat clock starts the day
   // A69: a REAL night is crossed only if the clock has moved past this morning's wake. Just after the player's turn-in the clock sits AT the wake (the turn-in's recap already moved the day), so
@@ -2713,12 +2718,24 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // the premiere exit is now a one-shot diegetic `day-break` that STARTS day 1 at 8am without staging the comp; the NEXT advance (held by the FE's due-gate until
       // the afternoon) is where the HOH actually starts. One-shot, week 1 only, never during a twist; clock off (the seeded calibration spine) skips it => byte-identical.
       if (ctx.nightGate && s.week === 1 && !s.firstMorningPassed && s.nightDepth === undefined && s.twist?.phase !== "running") {
-        s.firstMorningPassed = true;
-        s.nightDepth = WAKE_HOUR;
-        s.timeOfDay = DAY_START;
+        // ORW-116 (a) (Ryne 2026-11-06): the houseguests ENTER in the afternoon, the premiere and the toast are the EVENING, the player socializes THAT NIGHT, and the first HOH is the NEXT afternoon. So the premiere
+        // exit starts the clock at the first NIGHT (not 8am), and the first HOH waits for the next day (see `milestoneDue`).
+        s.firstMorningPassed = true; // legacy name: the premiere-exit one-shot has fired
+        s.nightDepth = FIRST_NIGHT_HOUR;
+        s.timeOfDay = "night";
         return {
           beat: "day-break",
-          content: "The first night in the house is over, and the first morning dawns. The Head of Household competition is set for later today.",
+          content: "The champagne toast is over, and the first night in the house begins. The Head of Household competition is tomorrow afternoon.",
+          participants: [],
+        };
+      }
+      // ORW-116 (a): the first NIGHT is crossed (the player turned in, or the night ran out) before the first HOH: one diegetic day-break to the first morning, the competition set for that afternoon.
+      if (ctx.nightGate && s.week === 1 && s.firstMorningPassed && !s.firstNightPassed && (s.dayNumber ?? 1) < 2 && s.twist?.phase !== "running") {
+        s.firstNightPassed = true;
+        crossToNextDay(s);
+        return {
+          beat: "day-break",
+          content: "The first night in the house is over, and the first morning dawns. The Head of Household competition is set for this afternoon.",
           participants: [],
         };
       }

@@ -191,7 +191,7 @@ describe("#1320 night-gate — the pure cross + the live gate are correct", () =
       if (adv.pending) resolveLegally(sb.session, adv.pending);
       if ((sb.session.snapshot().live?.evictionOrder ?? []).length > 0) break; // stop at the first eviction
     }
-    expect(names.filter((n) => n === "day-break").length, "five day-breaks in week 1: the one-shot first morning (P4b) + one per cadence transition").toBe(5);
+    expect(names.filter((n) => n === "day-break").length, "six day-breaks in week 1: the premiere-exit first night + the first-night crossing (ORW-116 a) + one per cadence transition").toBe(6);
     // …and each cadence beat is emitted and preceded by a day-break (the beat lands a day on, never
     // same-day as the prior). NOTE: a day-break is not always the IMMEDIATELY-preceding beat — the veto
     // comp is STAGED (a `veto-draw` + inert `comp-elimination` rounds sit between its day-break and the
@@ -275,7 +275,7 @@ describe("Phase 3a night-gate — a running double eviction is one compressed ni
     // is a real suppression, not a harness that never sees a day-break at all. (Ordinary cadence intact.)
     const wk = runOrdinaryWeek(true);
     expect(wk.evictions, "a real eviction resolved").toBe(1);
-    expect(wk.dayBreaks, "one day-break per cadence transition (noms, veto, veto-ceremony, eviction) + the week-1 first-morning one (P4b)").toBe(5);
+    expect(wk.dayBreaks, "one day-break per cadence transition (noms, veto, veto-ceremony, eviction) + the week-1 premiere-exit night and first-night crossing (ORW-116 a)").toBe(6);
   });
 
   it("a running double eviction with the night-gate ON stays ONE compressed night — zero day-breaks", () => {

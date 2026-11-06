@@ -15,24 +15,41 @@ describe("P4b — the first HOH waits for its hour on day 1", () => {
     const s = new GameSessionRegistry().sandboxFor(`fm-${clock}-${Math.random()}`).session;
     s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
     s.setPerConversationClockEnabled(clock);
-    const views = [s.advanceGame(), s.advanceGame(), s.advanceGame()];
+    const views = [s.advanceGame(), s.advanceGame(), s.advanceGame(), s.advanceGame()];
     return { s, views };
   };
 
-  it("clock live: the premiere exit starts day 1 at 8am with a day-break and NO comp card; the NEXT advance stages the comp", () => {
+  it("clock live (ORW-116 a, Ryne): the premiere exit starts the first NIGHT (20:00) with a day-break and NO comp card; the next advance crosses it to the first morning; the HOH comp stages the next afternoon", () => {
     const { s, views } = play(true);
-    // advance 1 = the champagne-circle close (premiere), advance 2 = the premiere exit
+    // advance 1 = the champagne-circle close (premiere), advance 2 = the premiere exit (the first night begins), advance 3 = the first night is crossed, advance 4 = the HOH
     const exit = views[1]!;
     expect(exit.event?.beat).toBe("day-break");
-    expect(exit.pending ?? null, "the first HOH comp must NOT be raised at 8am").toBeNull();
+    expect(exit.pending ?? null, "the first HOH comp must NOT be raised on the premiere night").toBeNull();
+    const morning = views[2]!;
+    expect(morning.event?.beat).toBe("day-break");
+    expect(morning.pending ?? null, "nor at 8am the next morning").toBeNull();
     const live = s.snapshot().live!;
     expect(live.nightDepth).toBe(8);
     expect(live.timeOfDay).toBe("morning");
+    expect(live.dayNumber).toBe(2);
     const st = s.getGameState();
     expect(st.phase).toBe("hoh-competition");
-    expect(st.daySchedule).toEqual({ next: "hoh-competition", phase: "afternoon", due: false, minutesUntil: 240 }); // A7: 8am -> the 12:00 afternoon start = exactly 240 minutes (exact, not a subset)
+    expect(st.daySchedule).toEqual({ next: "hoh-competition", phase: "afternoon", due: false, minutesUntil: 240 }); // 8am -> the 12:00 afternoon start = exactly 240 minutes
     // the following advance is where the HOH comp actually starts (the FE holds this call until 12:00)
-    expect(views[2]!.pending?.kind === "comp-round" || views[2]!.event?.beat === "hoh-competition" || views[2]!.event?.beat === "comp-elimination").toBe(true);
+    expect(views[3]!.pending?.kind === "comp-round" || views[3]!.event?.beat === "hoh-competition" || views[3]!.event?.beat === "comp-elimination").toBe(true);
+  });
+
+  it("the premiere night itself: the clock reads night on Day 1 and the first HOH is NOT due (it is the next afternoon)", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const s = new GameSessionRegistry().sandboxFor(`fm-night-${Math.random()}`).session;
+    s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
+    s.setPerConversationClockEnabled(true);
+    s.advanceGame(); s.advanceGame();
+    const live = s.snapshot().live!;
+    expect(live.timeOfDay).toBe("night");
+    expect(live.nightDepth).toBe(20);
+    expect(live.dayNumber ?? 1).toBe(1);
+    expect((s.getGameState().daySchedule as { due: boolean }).due).toBe(false);
   });
 
   it("clock off (calibration spine): byte-identical — the premiere exit still stages the HOH comp immediately", () => {

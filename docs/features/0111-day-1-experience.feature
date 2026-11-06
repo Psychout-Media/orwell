@@ -101,12 +101,14 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
 
   Rule: With the in-game clock on, Day 1 has a social morning before the first HOH (P4b)
 
-    Scenario: The premiere exit is a one-shot day-break to 8am and the first HOH waits for the afternoon
+    Scenario: The premiere exit is a one-shot day-break into the first night and the first HOH waits for Day 2's afternoon
       Given a new Day-1 premiere with the in-game clock on
       Then the toast seats and pins the whole house
       When the toast closes and the premiere is exited
-      Then the exit is a one-shot day-break to 8am with no competition card
+      Then the exit is a one-shot day-break into the first night with no competition card
       And the first HOH has not fired and is not yet due
+      When the player lets the first night run out
+      Then the first night closes with a one-shot day-break into Day 2's morning
       When the player spends the morning block in social scenes
       Then the first HOH is now due in the afternoon
       And the first HOH fires only once it is due, and the day-break never repeats

@@ -21,6 +21,7 @@ function walkWeekOne() {
   const p = s as unknown as Priv;
   const live = () => p.snapshot().live;
   for (let i = 0; i < 80 && live().nightDepth === undefined; i++) s.advanceGame();
+  s.advanceGame(); // ORW-116 (a): the premiere exit starts the first NIGHT (20:00); this advance crosses it to the first morning (8am)
   const trace: Array<{ day: number; hour: number; abs: number; label?: string }> = [];
   const note = () => trace.push({ day: live().dayNumber ?? 1, hour: live().nightDepth!, abs: p.absHour(), label: (s.getGameState() as { clockLabel?: string }).clockLabel });
   note();

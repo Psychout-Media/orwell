@@ -38,7 +38,11 @@ function weekOne(): Row[] {
 describe("milestone hours vs the schedule (week 1, real loop)", () => {
   const rows = weekOne();
   it("the schedule table says what the code says", () => {
-    expect(DAY_SCHEDULE["veto-ceremony"]).toBe("afternoon");
+    // ORW-116 (Ryne 2026-11-06): competitions afternoon, ceremonies (nominations, veto ceremony) and eviction evening, the veto player draw in the morning of the veto day.
+    expect(DAY_SCHEDULE["hoh-competition"]).toBe("afternoon");
+    expect(DAY_SCHEDULE["veto-competition"]).toBe("afternoon");
+    expect(DAY_SCHEDULE.nominations).toBe("evening");
+    expect(DAY_SCHEDULE["veto-ceremony"]).toBe("evening");
     expect(DAY_SCHEDULE.eviction).toBe("evening");
   });
   it("every ceremony RESOLVES in its own scheduled phase (the schedule is honoured)", () => {
@@ -50,13 +54,23 @@ describe("milestone hours vs the schedule (week 1, real loop)", () => {
     const ev = rows.find((x) => x.next === "eviction" && !x.event);
     expect(ev!.dueTod).toBe(DAY_SCHEDULE.eviction);
   });
-  it("PINNED QUIRK: `due` is already true at the tail of the previous event day, and the next advance is a day-break, not the ceremony", () => {
+  it("every event of a played week lands in its slot: draw in the morning, the competition that afternoon of the SAME day, ceremonies and eviction in the evening", () => {
+    const at = (next: string, ev: string) => rows.find((x) => x.next === next && x.event === ev)!;
+    const draw = at("veto-competition", "veto-draw");
+    expect(draw.dueTod, "the veto player draw is a MORNING event").toBe("morning");
+    expect(draw.dueHour).toBeCloseTo(8, 1);
+    const comp = at("veto-competition", "veto-competition");
+    expect(comp.dueTod, "the veto competition itself is the afternoon").toBe("afternoon");
+    expect(comp.dueHour).toBeCloseTo(12, 1);
+    expect(at("nominations", "nominations").dueTod).toBe("evening");
+    expect(at("veto-ceremony", "veto-ceremony").dueTod).toBe("evening");
+    expect(rows.find((x) => x.next === "eviction" && !x.event)!.dueTod).toBe("evening");
+  });
+  it("PINNED QUIRK (still true, now only about the night): `due` reads true at the tail of the previous event day and the next advance is a day-break that crosses the night; the event then lands in its slot the next day", () => {
     const tail = (beat: string) => rows.find((x) => x.next === beat && x.event === "day-break");
-    expect(tail("nominations")!.dueHour).toBeCloseTo(15, 1);
-    expect(tail("veto-competition")!.dueHour).toBeCloseTo(13, 1);
-    const vc = tail("veto-ceremony")!;
-    expect(vc.dueTod, "veto ceremony reads due at EVENING although it is scheduled for the afternoon").toBe("evening");
-    expect(vc.dueHour).toBeCloseTo(18, 1);
-    expect(vc.afterHour, "...and the night is crossed to 8am; the ceremony lands the next afternoon").toBeCloseTo(8, 1);
+    expect(tail("nominations")!.afterHour, "the night is crossed to 8am; nominations land that evening").toBeCloseTo(8, 1);
+    expect(tail("veto-competition")!.dueHour, "after the nominations ceremony (evening) the veto draw already reads due").toBeCloseTo(17, 1);
+    expect(tail("veto-competition")!.afterHour).toBeCloseTo(8, 1);
+    expect(tail("veto-ceremony")!.afterHour).toBeCloseTo(8, 1);
   });
 });
