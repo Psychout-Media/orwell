@@ -114,6 +114,10 @@
   // ORW-217: was a LIVE chat run being tailed when the socket last dropped? `onclose` clears `_chatTailActive`, so the reconnect cannot read it; this remembers it until the
   // reconnect's chat subscribe has been acknowledged. `hasRun:false` on an IDLE reconnect is the normal idle state and must NOT be reported as a vanished run.
   var _runInFlightAtDrop = false;
+  // ORW-217 (review): `_liveRunKnown` = we have POSITIVE evidence a run is live: the chat subscribe ack said `hasRun` (not false), or a `run-started` edge mounted the new run's holder.
+  // Unlike `_chatTailActive` (set when the subscribe is merely SENT, and the re-attach guard) it is NOT set pre-ack, so a drop between "subscribe sent" and "ack" is not misread as a vanished run.
+  // Cleared by the run's `done`, a `hasRun:false` ack, and the drop itself (after being remembered in `_runInFlightAtDrop`).
+  var _liveRunKnown = false;
   // CodeRabbit fix (2026-07-17): a monotonic generation stamped on each `_onRunStarted` re-attach's
   // OWN `_subscribeChat(0)` call. `_chatTailActive` is a single shared boolean — a STALE reattach A's
   // `hasRun:false` ack can resolve AFTER a genuinely new run B has superseded it (B's own re-attach,
@@ -211,7 +215,7 @@
           // `_lastRunId` is deliberately KEPT: it is what lets a stale replayed `run-started` for
           // this now-finished run be ignored (#1087).
           var _chatDone = !!(frame.d && frame.d.done);
-          if (_chatDone) _chatTailActive = false;
+          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; }
           _emit("chat", frame);
         } else if (_handlers[frame.ch]) {
           _emit(frame.ch, frame);
@@ -301,7 +305,8 @@
         // live tail). Clear the tail flag so the FIRST subsequent `run-started` edge (§4.1) re-attaches
         // instead of being skipped as "already tailing". A live/terminal-buffered run keeps the flag —
         // its `done` event (or a drop) clears it.
-        if (frame.d && frame.d.hasRun === false) _chatTailActive = false;
+        if (frame.d && frame.d.hasRun === false) { _chatTailActive = false; _liveRunKnown = false; }
+        else if (frame.d && frame.d.hasRun === true) _liveRunKnown = true; // ORW-217: positive evidence of a live (or buffered, until `done`) run
         // #1087 reconcile-by-id: the ack names the run this subscribe attached to (the run whose
         // buffer replays/tails). Record it so a later ring-replayed `run-started` for the SAME run
         // is recognized as stale and ignored.
@@ -519,6 +524,7 @@
     // and B never mounts a fresh streaming container (mirror-parity `incrementalStream=false`). A DISTINCT
     // window event (not `orwell:gamechanged`), so the g15 single-dispatcher rule is untouched.
     _emitWindow("orwell:ws-run-boundary", { runId: runId != null ? runId : null });
+    _liveRunKnown = true; // ORW-217: a new run's holder is mounted; if the socket drops before its ack/done, that run IS in flight
     // Ship-gate F2 ("right status") self-heal: the boundary emit above already mounted an observer
     // holder + a "Responding" spinner in ANTICIPATION of a live run (chatWsSplice._onWsRunBoundary),
     // before knowing whether one actually exists. Most of the time it does — but a `run-started` edge
@@ -834,7 +840,8 @@
     sock.onclose = function () {
       _sock = null;
       _chatSubscribed = false;
-      if (_chatTailActive) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was mid-tail at the drop)
+      if (_liveRunKnown) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was known live at the drop)
+      _liveRunKnown = false;
       _chatTailActive = false;
       _edgesSubscribed = false;
       _rebinding = null;

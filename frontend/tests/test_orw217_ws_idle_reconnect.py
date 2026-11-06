@@ -14,7 +14,8 @@ const src = fs.readFileSync(process.argv[1], "utf8");
 function assert(c, m) { if (!c) { throw new Error("ASSERT: " + m); } }
 process.on("unhandledRejection", (e) => { console.error(e); process.exit(1); });
 const tick = () => new Promise((r) => setImmediate(r));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Poll until the reconnect timer has replaced the socket (real 500 ms backoff + jitter-free), instead of a fixed sleep racing it.
+async function nextSocket(prev) { for (let i = 0; i < 400 && lastSock === prev; i++) await new Promise((r) => setTimeout(r, 10)); assert(lastSock !== prev, "the reconnect never created a new socket"); }
 let lastSock = null, resyncs = [], reports = [];
 function boot() {
   resyncs = []; reports = [];
@@ -64,7 +65,7 @@ const goneResync = () => resyncs.some((r) => r.reason === "reconnect-run-gone");
     down({ t: "event", ch: "chat", seq: 0, d: { delta: "the reply" } });
     down({ t: "event", ch: "chat", seq: 1, d: { done: true } });   // the run FINISHED before the drop
     await tick(); resyncs = []; reports = [];
-    lastSock.onclose(); await sleep(700);
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); }
     await handshake(10, false);                                     // server: no run at all (idle)
     assert(!gone(), "an idle reconnect must NOT raise the RED run-gone report; got " + JSON.stringify(reports));
     assert(!goneResync(), "an idle reconnect must NOT emit a run-gone resync");
@@ -73,7 +74,7 @@ const goneResync = () => resyncs.some((r) => r.reason === "reconnect-run-gone");
   {
     boot(); await tick();
     await handshake(10, false);
-    lastSock.onclose(); await sleep(700);
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); }
     await handshake(10, false);
     assert(!gone() && !goneResync(), "a never-ran page reconnecting idle is not a vanished run");
   }
@@ -83,7 +84,7 @@ const goneResync = () => resyncs.some((r) => r.reason === "reconnect-run-gone");
     await handshake(30, true);
     down({ t: "event", ch: "chat", seq: 0, d: { delta: "partial" } });
     await tick(); resyncs = []; reports = [];
-    lastSock.onclose(); await sleep(700);
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); }
     await handshake(30, false);
     assert(gone(), "a mid-stream run that vanished across the reconnect MUST still be reported");
     assert(goneResync(), "...and must still resync so the half-painted bubble reconciles");
@@ -94,12 +95,26 @@ const goneResync = () => resyncs.some((r) => r.reason === "reconnect-run-gone");
     await handshake(30, true);
     down({ t: "event", ch: "chat", seq: 0, d: { delta: "partial" } });
     await tick();
-    lastSock.onclose(); await sleep(700);
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); }
     await handshake(30, false);                                     // reported once (run gone)
     resyncs = []; reports = [];
-    lastSock.onclose(); await sleep(1200);                          // a second, idle drop
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); }                          // a second, idle drop
     await handshake(30, false);
     assert(!gone() && !goneResync(), "a later idle reconnect must not re-report the already-handled run");
+  }
+  // E: a drop between "subscribe sent" and its ack, on a page that never had a live run, is NOT a vanished run.
+  {
+    boot(); await tick();
+    await handshake(10, false);
+    resyncs = []; reports = [];
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); }
+    lastSock.readyState = 1; lastSock.onopen();                       // reconnect: hello sent, subscribe about to go
+    const hello = lastSock.sent.find((f) => f.t === "hello");
+    down({ t: "ack", cid: hello.cid, d: { canonicalId: "sess_pertab", live: true, beatSeq: 10 } });
+    await tick();
+    { const prev = lastSock; prev.onclose(); await nextSocket(prev); } // dropped again BEFORE the subscribe ack
+    await handshake(10, false);
+    assert(!gone() && !goneResync(), "a pre-ack drop with no known live run must not raise run-gone");
   }
   console.log("OK");
   process.exit(0);
