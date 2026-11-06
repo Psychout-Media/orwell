@@ -15,11 +15,11 @@
 # Tunables (env wins, then the ROOT-OWNED /etc/orwell/update-defer.conf, then data/.env, then default;
 # every value is clamped, so even a tampered data/.env cannot make the wait unbounded):
 #   ORWELL_UPDATE_IDLE_MINUTES       idle time that counts as "game over"   (default 15, 1..120)
-#   ORWELL_UPDATE_MAX_DEFER_MINUTES  longest the update may wait            (default 240, 1..1440)
+#   ORWELL_UPDATE_MAX_DEFER_MINUTES  longest the update may wait            (default 240, 1..1440; data/.env may raise it only to 240, the root conf/env to 1440)
 #   ORWELL_UPDATE_DEFER_POLL_SECONDS re-check interval                      (default 60, 5..300)
 #   ORWELL_UPDATE_FORCE=1            skip the check entirely
 # Web-side force: the admin tier may drop data/ops/update-force-requested (existence + recent mtime only,
-# content never read); the wait loop consumes it and proceeds.
+# content never read; a flag whose mtime is older than 60 minutes is ignored as stale); the wait loop consumes it and proceeds.
 # Status (for orwell-doctor.sh --status) lives in a ROOT-owned dir, /run/orwell/update-deferred — never in
 # the service-user-owned data/ tree, because this code runs as root. The web page gets the same news through
 # the ops-progress channel (data/ops/update-status.json) via the update_defer_notify hook.
@@ -34,8 +34,10 @@ ORWELL_DB_ERROR_RETRIES=3
 # Value of KEY from a KEY=VALUE file, or nothing. Quotes/space/CR stripped.
 _ud_file_value() {
   local key="$1" f="$2"
-  [[ -r "$f" && ! -L "$f" ]] || return 0
-  sed -n "s/^${key}=//p" "$f" 2>/dev/null | tail -1 | tr -d "\"' \r"
+  # REGULAR file only (a FIFO planted at the path would block sed forever, with the update flock held), and the
+  # read is time-boxed anyway in case the path is swapped between this check and the read.
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 0
+  { timeout 5 sed -n "s/^${key}=//p" "$f" 2>/dev/null || true; } | tail -1 | tr -d "\"' \r"
 }
 
 # A root-owned config file only counts if root owns it and nobody else can write it.
@@ -43,16 +45,23 @@ _ud_root_conf_ok() {
   local f="$ORWELL_UPDATE_ROOT_CONF" owner mode
   [[ -f "$f" && ! -L "$f" ]] || return 1
   owner="$(stat -c %u "$f" 2>/dev/null)" && mode="$(stat -c %a "$f" 2>/dev/null)" || return 1
+  [[ "$owner" == "0" && "${mode: -2:1}" =~ [0145] && "${mode: -1}" =~ [0145] ]] || return 1
+  # ...and its directory must be root-owned and not group/world-writable either (else the file could be swapped).
+  local dir; dir="$(dirname "$f")"
+  owner="$(stat -c %u "$dir" 2>/dev/null)" && mode="$(stat -c %a "$dir" 2>/dev/null)" || return 1
   [[ "$owner" == "0" && "${mode: -2:1}" =~ [0145] && "${mode: -1}" =~ [0145] ]]
 }
 
 # A clamped positive integer: env, else root conf, else data/.env, else default. Never trusts a malformed
-# value; leading zeros are decimal (10#), never octal. $1 key $2 default $3 min $4 max $5 env file
+# value; leading zeros are decimal (10#), never octal. data/.env is service-user-writable, so a value taken
+# from it is held to the tighter $6 (default: $4); only env and the root conf may use the full range.
+# $1 key $2 default $3 min $4 max $5 env file $6 max when the value comes from data/.env
 update_defer_setting() {
-  local key="$1" def="$2" min="$3" max="$4" envf="${5:-}" v="${!1:-}"
-  if [[ ! "$v" =~ ^[0-9]+$ ]] && _ud_root_conf_ok; then v="$(_ud_file_value "$key" "$ORWELL_UPDATE_ROOT_CONF")"; fi
-  if [[ ! "$v" =~ ^[0-9]+$ && -n "$envf" ]]; then v="$(_ud_file_value "$key" "$envf")"; fi
+  local key="$1" def="$2" min="$3" max="$4" envf="${5:-}" envmax="${6:-$4}" v="${!1:-}" from=env
+  if [[ ! "$v" =~ ^[0-9]+$ ]] && _ud_root_conf_ok; then v="$(_ud_file_value "$key" "$ORWELL_UPDATE_ROOT_CONF")"; from=conf; fi
+  if [[ ! "$v" =~ ^[0-9]+$ && -n "$envf" ]]; then v="$(_ud_file_value "$key" "$envf")"; from=dotenv; fi
   if [[ "$v" =~ ^[0-9]{1,6}$ ]] && (( 10#$v > 0 )); then v=$((10#$v)); else v="$def"; fi
+  if [[ "$from" == dotenv ]] && (( v > envmax )); then v="$envmax"; fi
   (( v < min )) && v="$min"
   (( v > max )) && v="$max"
   printf '%s' "$v"
@@ -155,7 +164,7 @@ update_wait_for_idle_game() {
   local db="$1" ops="$2" force="${3:-0}" envf="${4:-}"
   local thr max poll start now waited idle verdict since until_ errs=0 last_log=-1 msg
   thr="$(update_defer_setting ORWELL_UPDATE_IDLE_MINUTES "$ORWELL_UPDATE_IDLE_MINUTES_DEFAULT" 1 120 "$envf")"
-  max="$(update_defer_setting ORWELL_UPDATE_MAX_DEFER_MINUTES "$ORWELL_UPDATE_MAX_DEFER_MINUTES_DEFAULT" 1 1440 "$envf")"
+  max="$(update_defer_setting ORWELL_UPDATE_MAX_DEFER_MINUTES "$ORWELL_UPDATE_MAX_DEFER_MINUTES_DEFAULT" 1 1440 "$envf" 240)"
   poll="$(update_defer_setting ORWELL_UPDATE_DEFER_POLL_SECONDS "$ORWELL_UPDATE_DEFER_POLL_SECONDS_DEFAULT" 5 300 "$envf")"
   start="$(_update_defer_now)"
   since="$(date -u -d "@${start}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -213,4 +222,4 @@ _update_defer_abort() {
   exit "$1"
 }
 _update_defer_now() { date +%s; }
-_update_defer_sleep() { sleep "$1"; }
+_update_defer_sleep() { sleep "$1" & wait $!; }   # `wait` so a trapped INT/TERM/HUP fires at once, not after the sleep

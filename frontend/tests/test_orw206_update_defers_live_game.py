@@ -93,6 +93,37 @@ def test_root_owned_conf_is_read_before_data_env_only_when_safe(tmp_path):
         assert bash(f"update_defer_setting ORWELL_UPDATE_IDLE_MINUTES 15 1 120 '{envf}'", env) == "45"
 
 
+@needs_bash
+def test_fifo_in_place_of_data_env_does_not_hang_the_updater(tmp_path):
+    fifo = tmp_path / ".env"
+    os.mkfifo(fifo)
+    t0 = time.time()
+    out = bash(f"update_defer_setting ORWELL_UPDATE_IDLE_MINUTES 15 1 120 '{fifo}'",
+               {"ORWELL_UPDATE_ROOT_CONF": str(tmp_path / "none.conf")})
+    assert out == "15" and time.time() - t0 < 5      # a FIFO is not a regular file: skipped, never read
+
+
+@needs_bash
+def test_data_env_cannot_raise_max_defer_above_240_but_env_can(tmp_path):
+    envf = tmp_path / ".env"
+    envf.write_text("ORWELL_UPDATE_MAX_DEFER_MINUTES=1440\n")
+    nocfg = {"ORWELL_UPDATE_ROOT_CONF": str(tmp_path / "none.conf")}
+    assert bash(f"update_defer_setting ORWELL_UPDATE_MAX_DEFER_MINUTES 240 1 1440 '{envf}' 240", nocfg) == "240"
+    assert bash(f"update_defer_setting ORWELL_UPDATE_MAX_DEFER_MINUTES 240 1 1440 '{envf}' 240",
+                {**nocfg, "ORWELL_UPDATE_MAX_DEFER_MINUTES": "1440"}) == "1440"
+
+
+@needs_bash
+def test_root_conf_in_a_writable_directory_is_rejected(tmp_path):
+    d = tmp_path / "etc"
+    d.mkdir()
+    d.chmod(0o777)
+    conf = d / "update-defer.conf"
+    conf.write_text("ORWELL_UPDATE_IDLE_MINUTES=45\n")
+    env = {"ORWELL_UPDATE_ROOT_CONF": str(conf)}
+    assert bash("_ud_root_conf_ok && echo yes || echo no", env) == "no"
+
+
 # ── the real signal: newest player message in the FE DB ──────────────────────
 def _db(tmp_path, rows):
     db = tmp_path / "app.db"
