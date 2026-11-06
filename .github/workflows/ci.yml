@@ -495,10 +495,9 @@ jobs:
   # needs and `continue-on-error`: it never blocks a merge. Gating comes later, in the ratchet.
   fe-perf-report:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -514,11 +513,18 @@ jobs:
       - run: pip install -r frontend/requirements.lock.txt
       - run: npm ci
       - run: npm run build
-      - run: python3 -m playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-playwright
       - name: perf report (report-only)
         env:
           PERF_LABEL: ${{ github.sha }}
-        run: cd frontend && python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json"
+        # Report-only: a bad NUMBER never fails the build, and neither does a dead harness - but a dead harness must be visible.
+        continue-on-error: true
+        run: |
+          if ! (cd frontend && python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json"); then
+            echo "::warning::perf report did not run (the harness could not boot the stack or crashed); see this step's log"
+            echo "### Front-end performance: perf report did not run" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

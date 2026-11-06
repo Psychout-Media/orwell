@@ -35,8 +35,24 @@ def test_table_and_markdown_render_every_measure():
 
 
 def test_perf_job_is_report_only_in_ci():
-    ci = open(os.path.join(os.path.dirname(FRONTEND), ".github", "workflows", "ci.yml"), encoding="utf-8").read()
-    job = ci.split("\n  fe-perf-report:\n", 1)[1].split("\n  fe-responsive:", 1)[0]
-    assert "continue-on-error: true" in job
-    gate = ci.split("\n  ci-gate:\n", 1)[1]
-    assert "fe-perf-report" not in gate  # not a ci-gate need: never blocks a merge
+    import yaml
+    ci = yaml.safe_load(open(os.path.join(os.path.dirname(FRONTEND), ".github", "workflows", "ci.yml"), encoding="utf-8"))
+    job = ci["jobs"]["fe-perf-report"]
+    assert "fe_render" in job["if"]  # test-only / markdown edits do not spend a runner slot
+    assert "continue-on-error" not in job  # the STEP is report-only, so a dead harness stays visible
+    steps = job["steps"]
+    assert any(st.get("uses") == "./.github/actions/setup-playwright" for st in steps)
+    perf = next(st for st in steps if st.get("name", "").startswith("perf report"))
+    assert perf.get("continue-on-error") is True and "::warning::" in perf["run"] and "GITHUB_STEP_SUMMARY" in perf["run"]
+    assert "fe-perf-report" not in ci["jobs"]["ci-gate"]["needs"]  # never blocks a merge
+
+
+def test_private_test_symbols_the_harness_imports_still_exist():
+    import sys
+    sys.path.insert(0, os.path.join(FRONTEND, "tests"))
+    import test_m0_3_midgen_join as m03
+    import test_p0h_day1_clock_e2e as p0h
+    for name in ("_stack", "STUB", "_post_form", "_post_json"):
+        assert hasattr(m03, name), name
+    assert hasattr(p0h, "_session")
+    assert hasattr(m03.STUB, "script")

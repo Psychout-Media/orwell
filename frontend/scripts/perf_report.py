@@ -31,8 +31,6 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # frontend/
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 # ── in-page probes (installed before any page script runs) ────────────────────────────────────────────────────────
 INIT_JS = r"""
@@ -320,6 +318,8 @@ def main() -> int:
     ap.add_argument("--label", default=os.environ.get("PERF_LABEL", ""))
     args = ap.parse_args()
 
+    sys.path.insert(0, ROOT)
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
     import test_m0_3_midgen_join as m03
 
     fn = _unwrap_fixture(m03._stack)
