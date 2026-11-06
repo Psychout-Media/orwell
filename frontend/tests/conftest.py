@@ -109,10 +109,27 @@ def _module_launches_browser(path: str) -> bool:
         return False
 
 
+@pytest.hookimpl(hookwrapper=True)
 def pytest_collection_modifyitems(config, items):
     for item in items:
         if _module_launches_browser(str(item.fspath)):
             item.add_marker("browser")
+    yield  # every other modifyitems hook (notably `-m` deselection) has run once we resume
+    # ORW-193: optional CI sharding (ORWELL_CI_SHARD="i/n"), by test file, so each shard balances exactly the lane being run. Done here (not later in
+    # pytest_collection_finish) because xdist workers report their collected ids from that later hook. Deselects (never skips) the other shards' files.
+    raw = os.environ.get("ORWELL_CI_SHARD")
+    if not raw:
+        return
+    from _ci_shard import parse_shard, select_shard
+    idx, total = parse_shard(raw)
+    # The shard applies to THIS session only: drop the variable now so a pytest launched by a test (a child process) is not sharded again (ORW-193 regression:
+    # a nested run over another file collected 0 tests, exit 5). Belt and braces with _ci_shard.nested_env() at the call sites.
+    os.environ.pop("ORWELL_CI_SHARD", None)
+    keep_files = select_shard([str(i.fspath) for i in items], idx, total)
+    dropped = [i for i in items if str(i.fspath) not in keep_files]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+    items[:] = [i for i in items if str(i.fspath) in keep_files]
 
 
 # ── cross-file isolation: the M1-10 cast-authoring ledger is process-global ──────────
