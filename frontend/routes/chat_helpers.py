@@ -2331,6 +2331,22 @@ _CLAIM_NOMINATED_RE = re.compile(
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
 _PRESENT_NOMINATION_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|nominating)\b", re.IGNORECASE)
+_NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+
+
+def _nomination_claims_all_hypothetical(text: str) -> bool:
+    """ORW-10 (live replay 7): every sentence that talks about a nomination / being 'on the block' sits in a conditional or hypothetical ("If it got to that, and you were on the block, and I had the power ...") - speculation
+    in dialogue, never a committed-nomination claim. True only when EVERY matching sentence carries a hypothetical marker before the claim."""
+    hits = [sent for sent in re.split(r"(?<=[.!?\n])", text or "") if _CLAIM_NOMINATED_RE.search(sent)]
+    if not hits:
+        return False
+    for sent in hits:
+        m = _CLAIM_NOMINATED_RE.search(sent)
+        if not _NOM_HYPOTHETICAL_RE.search(sent[:m.start() + 1]):
+            return False
+    return True
+
+
 _STRONG_NOMINATION_CUE_RE = re.compile(r"\b(?:nominat(?:e[sd]?|ing)|the nominees are|named (?:as )?(?:a )?nominee)\b", re.IGNORECASE)
 
 
@@ -2955,6 +2971,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     if not desync and (_CLAIM_NOMINATED_RE.search(text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
           and (after.get("noms") or []) == (before.get("noms") or [])
+          and not _nomination_claims_all_hypothetical(text)
           and (_REPLACEMENT_NOMINEE_RE.search(text) or not (after.get("noms") or []) or _PRESENT_NOMINATION_ACT_RE.search(text) or _nomination_names_outsider(text, after))):
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
