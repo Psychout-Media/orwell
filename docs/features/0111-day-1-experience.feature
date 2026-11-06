@@ -62,6 +62,7 @@ Feature: 0111 — The Day-1 experience (the first session is the first move of t
       Given the premiere entrances are enabled for a seeded season
       When the entrances and the toast are played through
       Then the meet-everyone gate is never raised
+      # (ORW-196: "complete" reads false ONLY while arrivals are still being staged, so the narrator never treats the toast as over; nothing is gated on it, and from the toast on it reads complete.)
       And the first power does not start until the toast is done
 
     Scenario: With premiere entrances OFF the season is byte-identical to today
