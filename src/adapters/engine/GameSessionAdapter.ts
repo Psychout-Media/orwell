@@ -7092,7 +7092,8 @@ export class GameSessionAdapter implements GameSession {
 
   private get tieRevealEnabled(): boolean {
     if (GameSessionAdapter.tieRevealOverride !== null) return GameSessionAdapter.tieRevealOverride;
-    return flagDefaultOn("ORWELL_TIE_REVEAL"); // ON by default since 2026-11-06 (ORW-16 follow-up; Ryne 11-05: built means on); =0 turns it off
+    const v = process.env.ORWELL_TIE_REVEAL;
+    return v === "1" || v === "true" || v === "on";
   }
 
   /**
@@ -7236,7 +7237,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * Feature 0094 — whether the belief-vs-reality DIVERGENCE runs. Default ON since 2026-11-06 (`ORWELL_GOSSIP_CONSEQUENCE=0` turns it off).
+   * Feature 0094 — whether the belief-vs-reality DIVERGENCE runs. Default OFF (`ORWELL_GOSSIP_CONSEQUENCE`).
    * Off is NOT "the lever is unavailable" — `confront` still validates the cited `factId` against what
    * the player legitimately holds (the Vault bright line always applies) and always resolves `landed:
    * true` with no fold, so a distorted belief simply cannot misfire. On, `isMateriallyDistorted`
@@ -7253,7 +7254,8 @@ export class GameSessionAdapter implements GameSession {
 
   private get gossipConsequenceEnabled(): boolean {
     if (GameSessionAdapter.gossipConsequenceOverride !== null) return GameSessionAdapter.gossipConsequenceOverride;
-    return flagDefaultOn("ORWELL_GOSSIP_CONSEQUENCE"); // ON by default since 2026-11-06 (ORW-16 follow-up; Ryne 11-05: built means on); =0 turns it off
+    const v = process.env.ORWELL_GOSSIP_CONSEQUENCE;
+    return v === "1" || v === "true" || v === "on";
   }
 
   /**

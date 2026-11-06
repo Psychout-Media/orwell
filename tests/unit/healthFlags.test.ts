@@ -42,7 +42,7 @@ describe("/health flag parsing matches what the engine actually runs", () => {
 
   it("the default flip: every default-on flag (derived from the registry) reports ON unset, OFF for each of 0/false/off, and ORWELL_FLAGS_OFF=1 forces all OFF", () => {
     const FLIPPED = FEATURE_FLAGS.filter((d) => d.parser === "defaultOn");
-    expect(FLIPPED.length, "the registry carries the 72 flipped flags").toBe(72);
+    expect(FLIPPED.length, "the registry carries the 70 flipped flags").toBe(70);
     const NOT_FLIPPED: string[] = ["advanceGate"];
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
     let f = bootFlagsFromEnv();
