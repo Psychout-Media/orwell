@@ -4497,6 +4497,18 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
         args = _parse_tool_args(content) if content and content.strip() else {}
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
+    # ORW-220: PRODUCTION OWNS THE SCHEDULE on this lever too. The engine's runCompetition PREVIEWS the current competition (type, name, winner); while the pre-resolve is
+    # holding a not-yet-due scheduled event the narrator must not learn it early (live 11-06 07:29:58 it got the first HOH comp's name and winner in the same batch where advanceGame
+    # returned held). Same `held` shape as do_advance_game; the engine is not called and no outcome is returned.
+    try:
+        from routes import chat_helpers as _ch_gate
+        if _ch_gate.scheduled_event_is_held(owner):
+            return {"output": json.dumps({"held": True, "note": "Production hasn't called the house in yet - the competition is set for later today and has not been "
+                                          "drawn for the house. There is no result to report. Stay in the scene and keep the houseguests talking; do NOT narrate the "
+                                          "competition or name a winner, and do not call runCompetition again until the production calls the house in."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
     try:
         res = await orwell_engine.run_competition(args.get("type"), args.get("participantIds"), user=owner)
         if not res.get("started"):
@@ -4543,6 +4555,9 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
             **({"assurance": _assurance} if _assurance else {}),
             **({"heard_about_me": _heard} if _heard else {}),
         )
+        # ORW-188: a recorded scene commits (bumps beatSeq) and the engine echoes the post-commit token. Adopt it (the belt path already does) so a later mutating
+        # call this turn (advanceGame) does not carry a stale token and 409.
+        await _refresh_after_model_progression(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
