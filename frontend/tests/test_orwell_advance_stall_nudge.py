@@ -41,8 +41,9 @@ def test_stall_nudge_fires_only_for_live_game_at_a_beat_with_no_progress():
     assert "_is_live_game = game_mode in (True, \"game\")" in js
     assert "_phase in _ADVANCE_PHASES" in js
     assert "_tool_names & _PROGRESSION_TOOLS" in js
-    # the per-turn cap guards the loop; the persisted level sets message forcefulness
-    assert "_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN" in js
+    # the per-turn cap guards the loop; the persisted level sets message forcefulness. Since ORW-228 the cap is
+    # enforced in the pure gates (want_advance / want_drain_eviction); the loop passes them the per-turn cap.
+    assert js.count("max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN") >= 2
     # NAR-1: the level is read/written under the SAME owner-keying resolver (`_belt_key`) so the
     # ladder actually persists single-tenant (`AUTH_ENABLED=false`) — see test_nar1_belt_key.py.
     assert "_ADVANCE_STALL_LEVEL.get(_sl_key, 0)" in js
