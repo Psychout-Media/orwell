@@ -5096,6 +5096,22 @@ async def _presence_wall_guard(text: str, owner) -> str:
         return text
 
 
+async def _headcount_wall_guard(text: str, owner) -> str:
+    """ORW-205 — the PRE-EMISSION headcount wall: drops any sentence that STATES how many houseguests are
+    inside (or still to come) during the premiere entrances when the engine's live count contradicts it
+    ("ten of the cast in the house now" with twelve inside). The engine supplies the one true headcount
+    (#2244); this holds the rule structurally instead of by prompt wording alone. Everything else streams
+    verbatim. Delegates to `chat_helpers.screen_headcount_wall`, which is fail-open by construction and
+    fires single-tenant too. Any hiccup returns the text unchanged."""
+    if not text:
+        return text
+    try:
+        from routes import chat_helpers
+        return await chat_helpers.screen_headcount_wall(owner, text)
+    except Exception:
+        return text
+
+
 def _mirror_wall_drop(round_response: str, before: str, after: str,
                       split_pattern: str = r"(?<=[.!?\n])") -> str:
     """Greptile P1 (#1746) — durability fix. `_knowledge_wall_guard`/`_presence_wall_guard` only
@@ -5321,8 +5337,14 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
             screened, role_drops = await chat_helpers.screen_role_claims_ex(owner, clean)
     except Exception:
         screened, role_drops = clean, ()
-    guarded = await _pre_emission_outcome_guard(screened, owner) if screened.strip() else screened
-    if not guarded.strip() and clean.strip() and not emitted_visible and not cutaway_emitted:
+    # ORW-205: a stated premiere headcount the engine's live count contradicts is dropped here, sentence by
+    # sentence. A wrong count is not a fabricated outcome, so a chunk it empties gets NO cutaway line (and
+    # no cut-streak step) below: it is simply not shown. The drop is mirrored like any other, because the
+    # scene's mirror pair is `screened` -> the final text.
+    counted = await _headcount_wall_guard(screened, owner) if screened.strip() else screened
+    emptied_by_count = bool(screened.strip()) and not counted.strip()
+    guarded = await _pre_emission_outcome_guard(counted, owner) if counted.strip() else counted
+    if not guarded.strip() and clean.strip() and not emitted_visible and not cutaway_emitted and not emptied_by_count:
         # T0-3: the pre-emission guard dropped EVERY sentence this chunk offered (each one asserted a
         # closed-set claim the board couldn't confirm) and the player has seen nothing yet this turn.
         # The removed fallback used to re-emit `clean` HERE — the exact unguarded, unverified prose the
@@ -5377,18 +5399,25 @@ async def _screen_aside_text(text: str, owner) -> str:
     """N-6: truth-check the sentences of one `((...))` aside segment against the LIVE board STATE (`chat_helpers._aside_claim_contradicts_board`).
     A sentence that makes a closed-set claim the board contradicts is DROPPED (never replaced by the cutaway line); a true restatement passes.
     If the engine is unreadable, a sentence carrying a closed-set claim is dropped (an unverifiable outcome must not stream); claim-free
-    sentences always pass. Returns the surviving text. Fail-open on an internal error (never gag a healthy turn)."""
+    sentences always pass. ORW-205: a stated premiere headcount the engine's live entrance count contradicts is dropped too (that check
+    fails open on an unreadable engine, like the narration guard). Returns the surviving text. Fail-open on an internal error (never gag a
+    healthy turn)."""
     if not text:
         return text
     try:
         from routes import chat_helpers
         parts = re.split(r"(?<=[.!?\n])", text)
-        if not any(chat_helpers._aside_sentence_makes_board_claim(p) for p in parts):
+        board = any(chat_helpers._aside_sentence_makes_board_claim(p) for p in parts)
+        count = any(chat_helpers._sentence_has_headcount_claim(p) for p in parts)  # ORW-205
+        if not board and not count:
             return text
-        live = await chat_helpers._capture_beat_signature(owner)
+        live = await chat_helpers._capture_beat_signature(owner) if board else None
         kept = []
         for p in parts:
-            if p and chat_helpers._aside_sentence_makes_board_claim(p) and (not live or chat_helpers._aside_claim_contradicts_board(p, live)):
+            if board and p and chat_helpers._aside_sentence_makes_board_claim(p) and (not live or chat_helpers._aside_claim_contradicts_board(p, live)):
+                continue
+            # ORW-205: a production aside answering "how many are in?" is held to the engine's live headcount too.
+            if count and p and chat_helpers._sentence_has_headcount_claim(p) and not await chat_helpers.screen_streamed_headcount(owner, p):
                 continue
             kept.append(p)
         return "".join(kept)
