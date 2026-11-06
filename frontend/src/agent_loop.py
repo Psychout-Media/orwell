@@ -2487,6 +2487,12 @@ def _peer_advanced_since_framing(progressed: bool, framed_beat_key, current_beat
         return False
     if framed_beat_key is None or current_beat_key is None:
         return False
+    # ORW-221: while production HOLDS a scheduled event, `apply_game_framing` frames the turn on the held `social` moment (`_hold_for_social`) and stores THAT in the framed key,
+    # but the caller reads the RAW engine moment. Comparing the two flagged a "peer advance" on every held turn (32 false hits, each resetting the stall ladder). Compare held
+    # against held: when the framed moment is the `social` override, read the current moment as `social` too, so only a change of week / phase / pending counts as a peer move.
+    if (isinstance(framed_beat_key, (tuple, list)) and len(framed_beat_key) >= 3 and framed_beat_key[2] == "social"
+            and isinstance(current_beat_key, (tuple, list)) and len(current_beat_key) >= 3):
+        current_beat_key = (current_beat_key[0], current_beat_key[1], "social", *tuple(current_beat_key)[3:])
     normalized_current_beat_key = (
         (*current_beat_key, current_pending_kind)
         if current_pending_kind is not None
