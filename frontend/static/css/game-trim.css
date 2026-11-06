@@ -301,3 +301,23 @@ body[data-game-build] .ow-cslate {
   body[data-game-build] .ow-cslate-names { font-size: .9rem; }
   body[data-game-build] .ow-cslate-line { font-size: .8rem; }
 }
+
+/* ORW-154 / ORW-190 — LOW-POWER mode (body.low-power, set from JS by lowPower.js when the WebGL renderer is a software
+   rasteriser and the player has not explicitly chosen a theme). theme.js already drops the glass tier to Flat
+   (no .theme-frosted / .glass-full), so the per-bubble and chrome blurs and the SVG refraction are off; this is the belt:
+   NO backdrop-filter anywhere (a stray rule keyed to something else), and a STILL, un-blurred wallpaper (the mesh's
+   54px blur + mix-blend ray are CPU-rasterised and re-encoded by the remote-desktop codec). An explicit theme wins. */
+body.low-power,
+body.low-power *,
+body.low-power *::before,
+body.low-power *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body.low-power #__wp .login-bg-gradient::before,
+body.low-power #__wp .login-bg-gradient::after {
+  animation: none !important;
+  filter: none !important;
+  mix-blend-mode: normal !important;
+  will-change: auto !important;
+}
