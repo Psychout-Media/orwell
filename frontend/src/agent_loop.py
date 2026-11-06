@@ -7377,8 +7377,14 @@ async def _stream_agent_loop_impl(
                 _wa_status = await _oe_wa.game_status(user=_force_owner)
                 if isinstance(_wa_status, dict):
                     _wa_premiere = _wa_status.get("premiere")
+                # ORW-142 — compute this turn's tool names HERE. BL-007 used to read the local that
+                # only the sibling lever-force / casting-finalize branches above assign, so every
+                # premiere/group free-play turn raised UnboundLocalError, the blanket except below
+                # swallowed it, and BL-007 never ran in prod.
+                _wa_turn_tools = {ev.get("tool") for ev in (tool_events or [])
+                                  if isinstance(ev, dict) and ev.get("tool")}
                 _candidate_wa = _forced_tool_choice_for_whereabouts(
-                    _turn_tool_names_force if _turn_tool_names_force else set(),
+                    _wa_turn_tools,
                     game_mode=game_mode,
                     premiere_view=_wa_premiere,
                     frozen_whereabouts=_wa_frozen,
