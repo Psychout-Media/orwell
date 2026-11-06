@@ -18,8 +18,6 @@ const NEVER_FLIPPED = [
   "ORWELL_FORESHADOW",
   "ORWELL_TIE_REVEAL",
   "ORWELL_GOSSIP_CONSEQUENCE",
-  "ORWELL_WIPEOUT_REEL",
-  "ORWELL_JUROR_PROFILES",
 ] as const;
 
 const deployKeys = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
