@@ -374,7 +374,7 @@ Then("it yields a well-formed outcome the band gate can score", function (this: 
   assert.ok(typeof r.playerCompWins === "number" && r.playerCompWins >= 0, "the public comp-win count the EARNED_WINS teeth read");
   // AMEND 0078 #3: a SPECIFIC, deterministic expected outcome (the wiring-only check accepted all three statuses). Seed 1 / passive on the current model: the player makes the jury,
   // does not reach Final 2, with one public comp win. Re-pin DELIBERATELY when calibration moves (A10 / any movement-strength change) - a silent drift here is the point.
-  assert.deepEqual(r, { seed: 1, status: "jury", f2Win: false, playerCompWins: 1 }, "seed 1, passive, current model");
+  assert.deepEqual(r, { seed: 1, status: "jury", f2Win: false, playerCompWins: 4 }, "seed 1, passive, current model"); // re-pinned 2026-11-06 (ORW-116 schedule moved the comps to the afternoon: seed 1 still makes the jury, with 4 public comp wins; the heavy band gates are the real check)
   assert.ok(MOVEMENT_INTENT.moveIntentStrength > 0, "the intentional-movement lever is live in the measured model");
 });
 
