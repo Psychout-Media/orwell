@@ -62,7 +62,7 @@ def test_orw153_saved_reply_separates_agent_rounds():
 
 def test_orw143_headshot_poll_skips_hidden_tabs_and_in_flight_routes():
     js = _read("static", "js", "orwellHeadshot.js")
-    i = js.index("setInterval(async function ()")
+    i = js.index("setInterval(function ()")
     loop = js[i:i + 400]
     assert "document.hidden || _routeInFlight" in loop
-    assert "finally { _routeInFlight = false; }" in loop
+    assert "_routeInFlight = false;" in loop and ".catch(" in loop
