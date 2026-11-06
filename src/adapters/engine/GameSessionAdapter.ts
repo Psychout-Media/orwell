@@ -78,6 +78,8 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candid
 import { decideDealConsent } from "../../engine/dealConsent";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
+import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
+import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
 
@@ -7917,7 +7919,7 @@ export class GameSessionAdapter implements GameSession {
       // 0044 §9: an NPC's style comes from their archetype; the player's NPC proxy (admin fast-forward)
       // always reads as a threat hunter — the player's own character never picks an NPC lens.
       nominationStyleOf: (id) =>
-        id === PLAYER ? "threat-hunter" : NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
+        id === PLAYER ? "threat-hunter" : this.philosophiesEnabled ? styleOfPhilosophy(this.philosophyOf(id)) : NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
       // #1320 night-gate: the HOH→nominations day boundary is live ONLY when the clock pacing is running
       // (the per-conversation clock AND the master clock) — it is the "deeper half" of the fast-forward
       // fix and rides the same pair, so the golden replay (which pins `ORWELL_TIME_PER_CONVERSATION=0`)
@@ -9384,6 +9386,17 @@ export class GameSessionAdapter implements GameSession {
     if (!this.npcBeliefsEnabled || !this.live) return undefined;
     const live = this.live;
     return (r) => { recordRumorClaim((live.beliefs ??= {}), r, live.week); };
+  }
+
+  /**
+   * ORW-37 / B40 - lasting GAME PHILOSOPHIES: each NPC plays one philosophy for the whole game (shark / chaos agent / loyal soldier / protector / social climber), a seeded draw conditioned on their archetype
+   * (`philosophy.ts`: most keep their archetype's default, so the table below still describes the modal house; some play against type). The philosophy sets the nomination style they play. ON unless
+   * `ORWELL_PHILOSOPHIES=0`; OFF => the archetype table (today's behaviour). Deterministic in (game seed, houseguest id): no shared rng, nothing persisted.
+   */
+  private philosophiesEnabled = flagDefaultOn("ORWELL_PHILOSOPHIES");
+  setPhilosophiesEnabled(on: boolean): void { this.philosophiesEnabled = on; }
+  philosophyOf(id: EntityId): GamePhilosophy {
+    return drawPhilosophy(this.archetypeReadOf(id) ?? "", hashSeed(`${this.gameSeed ?? 0}:philosophy:${id}`));
   }
 
   private archetypeOf(id: EntityId): string {
