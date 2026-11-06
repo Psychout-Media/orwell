@@ -8035,7 +8035,11 @@ async def _stream_agent_loop_impl(
                 # string for its args (not the structured {id, room}), so the per-turn freeze can't
                 # reflect it. Mark the freeze not-confident so the gadget defers to LIVE engine truth this
                 # turn (no wrong room). A player re-center (model moveTo) is caught by the room compare.
-                if _npc_moved:
+                # ORW-151: the same holds when the ENGINE moved the board this turn (advanceGame /
+                # submitDecision: premiere arrivals, the house gathering for a ceremony, a new beat).
+                # Those changes are narrated in this very reply but are absent from the turn-start
+                # snapshot, so without this the room strip lagged a whole turn behind the prose.
+                if _npc_moved or _progressed:
                     try:
                         from routes import chat_helpers as _chf
                         _chf.freeze_mark_model_moved(owner)
