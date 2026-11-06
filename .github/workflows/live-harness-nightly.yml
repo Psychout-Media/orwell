@@ -44,7 +44,7 @@ env:
 
 jobs:
   live-harness:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     # No job-level continue-on-error: a bootstrap failure (checkout / npm ci / build / pip /
     # playwright) MUST turn the job red instead of masking to green with no evidence. The live
