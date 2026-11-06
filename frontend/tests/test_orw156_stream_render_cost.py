@@ -82,17 +82,33 @@ def test_loose_list_never_freezes_across_the_blank_line(measured):
 # ---- source pins: chat.js keeps its conventions around the coalescing ----------------------------------------------------------------
 def test_chat_js_coalesces_only_the_plain_delta_render():
     chat = _read("static", "js", "chat.js")
-    assert "const _renderStreamSoon = () =>" in chat and "requestAnimationFrame(() => { _renderStreamRaf = 0; _renderStream(); })" in chat
-    # exactly one call site: the "Normal streaming" branch; the thinking/tool/agent/settle paths stay synchronous
+    assert "function _makeFrameCoalescer(run)" in chat
+    co = chat[chat.index("function _makeFrameCoalescer(run)"):]
+    co = co[:co.index("\n  }\n")]
+    assert "requestAnimationFrame(fire)" in co and "setTimeout(fire, 100)" in co  # rAF + a 100 ms backstop: replies appear in a hidden/backgrounded window
+    assert "const _renderStreamSoon = () =>" in chat and "document.hidden" in chat
+    # exactly one sender call site: the "Normal streaming" branch; the thinking/tool/agent/settle paths stay synchronous
     assert chat.count("_renderStreamSoon();") == 1
     branch = chat[chat.index("// Normal streaming\n"):]
     assert branch[:400].count("_renderStreamSoon();") == 1
     # a non-delta event flushes the pending frame render before doing anything else; the sync render supersedes it
     assert "if (!json.delta) _flushStreamSoon();" in chat
-    assert chat.index("const json = JSON.parse(data);\n              if (!json.delta) _flushStreamSoon();") > 0
-    assert re.search(r"_renderStream = \(\) => \{\n\s+if \(_renderStreamRaf\)", chat)
-    # the settle `finally` never paints a late frame
-    assert "never paint a frame after the turn settled" in chat
+    assert re.search(r"_renderStream = \(\) => \{\n\s+_streamCo\.cancel\(\);", chat)
+    # the settle `finally` never paints a late frame, and keeps the F5 pin (test_f5_empty_assistant_bubble) on `} finally {\n clearResponseTimeout();`
+    assert "_streamCo.cancel();   // ORW-156: never paint a frame after the turn settled" in chat
+    assert "    } finally {\n      clearResponseTimeout();" in chat
+    # each round's segment paints its first text synchronously again
+    assert "_streamRenderedOnce = false;   // ORW-156: the next round's segment" in chat
+
+
+def test_sender_and_mirror_share_one_coalescer():
+    chat = _read("static", "js", "chat.js")
+    live = chat[chat.index("  function _renderLiveStream(contentDiv, replyText"):]
+    live = live[:live.index("\n  }\n")]
+    assert "_makeFrameCoalescer(" in live and "state._replyCo.soon()" in live  # the mirror/observer paints through the same helper
+    assert "!state._replyPainted" in live  # ...with a synchronous first paint
+    # every observer settle flushes the coalesced paint before the canonical rebuild
+    assert chat.count("_liveState._replyCo.now()") == 4
 
 
 def test_reasoning_still_never_reaches_the_body():
@@ -102,3 +118,18 @@ def test_reasoning_still_never_reaches_the_body():
     assert "stripToolBlocks(roundReplyText)" in body  # reply-only buffer (F8 channel split)
     code = "\n".join(ln for ln in body.splitlines() if not ln.strip().startswith("//"))
     assert "roundReasoningText" not in code
+
+
+@pytest.mark.parametrize("case", ["asideSpanningBlocks", "npcIdLine", "operatorAsideMiddle", "operatorAsideStandalone"])
+def test_a_frozen_block_never_shows_text_the_final_render_hides(measured, case):
+    """With the real game-build scrubs on (scrubReasoningPreamble, scrubMachineryAsides, redactRawIds, the ((aside)) wrap), freezing finished
+    blocks must never paint something the settled render would hide: every frozen prefix is a prefix of the final render."""
+    r = measured["scrub"][case]
+    assert r["bad"] == [], r
+    if case != "asideSpanningBlocks":  # a mid-reply ((aside)) is settled by chat.js re-rendering the finished message from source; mid-stream only "never un-show" matters
+        assert r["parity"], case
+
+
+def test_the_scrubs_are_really_on_in_the_harness(measured):
+    # otherwise the prefix test above is vacuous: the final render must actually hide the leak text
+    assert measured["scrubActive"]["npc"] and measured["scrubActive"]["op"], measured["scrubActive"]
