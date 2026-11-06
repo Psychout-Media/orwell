@@ -53,7 +53,7 @@ jobs:
   # bottom (`if: always()`) is the ONE required check — it passes when no needed job FAILED/was
   # CANCELLED (a SKIP counts as a pass). Point branch protection at `ci-gate`, not the individual jobs.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       engine: ${{ steps.filter.outputs.engine }}
@@ -148,7 +148,7 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -180,7 +180,7 @@ jobs:
   test-unit:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -219,7 +219,7 @@ jobs:
   heavy-sims:
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The code defaults ARE the deployed profile now (the 2026-11 default flip): the heavy lane plays what ships. `ORWELL_FLAGS_OFF=1` is the
     # diagnostic legacy profile and is NOT run here. UAT_TIMEOUT_SCALE widens the one UAT test whose per-test timeout actually fires (the
     # real-HTTP decisions test, which yields to the event loop).
@@ -271,7 +271,7 @@ jobs:
   coverage:
     needs: [changes, coverage-shard]
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -302,7 +302,7 @@ jobs:
   coverage-shard:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -336,7 +336,7 @@ jobs:
   smoke:
     needs: changes
     if: needs.changes.outputs.deploy == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -379,7 +379,7 @@ jobs:
   fe-unit:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -431,7 +431,7 @@ jobs:
   fe-browser-tests:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # ORW-193: three parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
     # shard (fixed ports, one real page at a time) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
@@ -471,7 +471,7 @@ jobs:
   fe-browser:
     needs: changes
     if: needs.changes.outputs.fe_render == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -493,7 +493,7 @@ jobs:
   fe-responsive:
     needs: changes
     if: needs.changes.outputs.fe_render == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 25 min: the engine-staged run adds npm ci + build (~2 min) and the ORWELL_MATRIX_FINISH
     # season fast-forward (~2 min of Echo-narrator advance calls) to the ~2-min sweep itself.
     timeout-minutes: 25
@@ -566,7 +566,7 @@ jobs:
   mirror-parity:
     needs: changes
     if: needs.changes.outputs.fe_render == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # one group of gate legs, each with bounded retries (was 40 for all six in one job)
     # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane). Split into two parallel jobs of three-ish
     # legs each; the legs are independent (each boots its own engine + FE on its own ports) and every one still runs, with the same retries.
@@ -730,7 +730,7 @@ jobs:
   a11y-matrix:
     needs: changes
     if: needs.changes.outputs.fe_render == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -801,7 +801,7 @@ jobs:
       - mirror-parity
       - heavy-sims
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: resolve overall CI status
         env:
