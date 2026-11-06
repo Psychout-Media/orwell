@@ -2409,8 +2409,11 @@ def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, s
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
     cue = bool(s) and not _is_production_cue(s) and bool(_ENTRANCE_CUE_RE.search(s))
-    quiet = turns_since_progress >= _ENTRANCE_LULL_TURNS
-    if cue or quiet:
+    # ORW-148: the old "quiet lull" branch (>= _ENTRANCE_LULL_TURNS non-advancing messages) let the stall-L0
+    # belt silently release an arrival while the player was still talking (live 11-06: the premiere fast-
+    # forwarded). Only an explicit player cue ("next", "just watch"...) pulls the next arrival now; the
+    # narrator's own advance_game call otherwise paces entrances. turns_since_progress is kept for the signature.
+    if cue:
         return True, True
     return is_lull, stale
 
