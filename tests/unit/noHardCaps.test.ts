@@ -21,7 +21,7 @@ const gOf = (sb: UserSandbox): G => sb.session as unknown as G;
 function season(user: string, seed: number, enabled = true): UserSandbox {
   const sb = new GameSessionRegistry().sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", seed });
-  if (enabled) gOf(sb).setNoHardCapsEnabled(true);
+  gOf(sb).setNoHardCapsEnabled(enabled); // default ON since 2026-11-05: the OFF arm pins it explicitly
   return sb;
 }
 const npcsOf = (sb: UserSandbox): EntityId[] => sb.session.livingIds().filter((id) => id !== PLAYER);
@@ -34,9 +34,9 @@ function learnSecretAbout(sb: UserSandbox, subject: EntityId): string {
 }
 
 describe("B49 - the flag", () => {
-  it("is registered strict (on only when exactly '1') and the adapter default is OFF", () => {
-    expect(FEATURE_FLAGS.find((f) => f.envKey === "ORWELL_NO_HARD_CAPS")?.parser).toBe("strict");
-    expect(process.env.ORWELL_NO_HARD_CAPS).not.toBe("1");
+  it("is registered defaultOn (ON unless set to 0; PO 2026-11-05) and the adapter default is ON", () => {
+    expect(FEATURE_FLAGS.find((f) => f.envKey === "ORWELL_NO_HARD_CAPS")?.parser).toBe("defaultOn");
+    expect(process.env.ORWELL_NO_HARD_CAPS).not.toBe("0");
   });
   it("the safety valve is a technical number, far above every old design cap", () => {
     expect(NO_HARD_CAPS.safetyValve).toBeGreaterThanOrEqual(4 * Math.max(CONFIDENCE.maxLiesPerSeason, LEVERAGE.maxExposesPerSeason, SECRET_TRADE.maxTradesPerSeason));

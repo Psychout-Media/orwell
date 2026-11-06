@@ -86,6 +86,9 @@ describe("0122 — the daily sweep: most living houseguests confess each in-game
 
   it("the HOH / nominees get DEEPER, role-triggered reads (a plan or a standing surfaces live)", () => {
     const { sb } = harness({ depthOn: true, seed: 7, user: "sweep-deep" });
+    // Seed 7 on this user key is a TRAJECTORY-specific assertion; want-driven movement (default ON since 2026-11-05) lands this one house on a day with no plan/standing confessor. It is not a regression
+    // (the default-layers test below fires on every seed 1..8), so this trajectory pins the layer off explicitly.
+    sb.session.setWantMovementEnabled(false);
     developHouse(sb);
     const before = confessionals(sb).length;
     sb.session.turnIn();
@@ -95,6 +98,18 @@ describe("0122 — the daily sweep: most living houseguests confess each in-game
       "sitting pretty", "how exposed I am", "writing down"];
     const anyDeep = swept.some((c) => DEEP_MARKERS.some((m) => c.includes(m)));
     expect(anyDeep, "a role-triggered deep facet fired in the sweep").toBe(true);
+  });
+
+  it("with the DEFAULT layers on (want-driven movement etc.) the role-triggered deep facet fires in the day-close sweep on every seed 1..8", () => {
+    const DEEP_MARKERS = ["the plan is simple", "goes up", "I have to win", "using it to steer", "sitting pretty", "how exposed I am", "writing down"];
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const { sb } = harness({ depthOn: true, seed, user: `sweep-deep-all-${seed}` });
+      developHouse(sb);
+      const before = confessionals(sb).length;
+      sb.session.turnIn();
+      const swept = confessionals(sb).slice(before).map((e) => e.content);
+      expect(swept.some((c) => DEEP_MARKERS.some((m) => c.includes(m))), `seed ${seed}: a role-triggered deep facet fired`).toBe(true);
+    }
   });
 
   it("is seed-deterministic — the same seed reproduces the same sweep confessionals", () => {

@@ -20,7 +20,7 @@ const on = (sb: UserSandbox): void => sb.session.setLiesCaughtEnabled(true);
 function season(user: string, seed: number, enabled = true): UserSandbox {
   const sb = new GameSessionRegistry().sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", seed });
-  if (enabled) on(sb);
+  if (enabled) on(sb); else sb.session.setLiesCaughtEnabled(false); // default ON since 2026-11-05: the OFF arm pins it explicitly
   return sb;
 }
 const edge = (sb: UserSandbox, a: EntityId, b: EntityId) => sb.engine.relationships.edge(a, b);
@@ -242,9 +242,9 @@ describe("lies-caught: flag off is byte-identical", () => {
     expect(strip(onSb)).toBe(strip(off));
     expect(lies(onSb).length).toBeGreaterThan(0);
   });
-  it("the flag is registered strict (on only when exactly '1')", () => {
+  it("the flag is registered defaultOn (ON unless set to 0; PO 2026-11-05)", () => {
     const d = FEATURE_FLAGS.find((f) => f.envKey === "ORWELL_LIES_CAUGHT");
-    expect(d?.parser).toBe("strict");
+    expect(d?.parser).toBe("defaultOn");
   });
 });
 

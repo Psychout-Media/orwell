@@ -205,6 +205,8 @@ describe("0075 confide — the PASSIVE LIE-CATCH (spec open-Q #4)", () => {
 
   it("lies are capped per season (a house of liars is noise, not drama)", () => {
     const { session } = startedServer(1);
+    // The old design cap is the premise here: ORWELL_NO_HARD_CAPS (default ON since 2026-11-05) replaces it with an escalating cost, so pin it OFF explicitly.
+    (session as unknown as { setNoHardCapsEnabled(on: boolean): void }).setNoHardCapsEnabled(false);
     const house = (session as unknown as { house: GameHouse }).house;
     for (const npc of house.npcs) {
       if (!(npc.character.hiddenElements ?? []).length) continue;
