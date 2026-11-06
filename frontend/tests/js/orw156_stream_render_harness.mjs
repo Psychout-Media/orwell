@@ -197,4 +197,32 @@ out.asideAt = ASIDE_FENCE.indexOf('((');
   }
   out.random = { cases, stepMismatch, endMismatch, firstBad };
 }
+// ---- the restatement watch makes exactly F-6's decision (markdown.js keeps the rules in two places: _collapseRestatedReply stays
+// self-contained, and createRestatementWatch is its incremental twin). Extract the real function from the source and compare. -------------
+{
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(dir + '/markdown.js', 'utf8');
+  const at = src.indexOf('function _collapseRestatedReply(text) {');
+  const collapse = new Function(src.slice(at, src.indexOf('\n}\n', at) + 2) + '\nreturn _collapseRestatedReply;')();
+  let seed = 4242; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }; const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const LINES = [LINE, 'You heard what happened in the kitchen last night and what she said about the plan', 'I am not putting my name on that plan until I see the numbers for myself'];
+  let u = 0;
+  const para = () => (rnd() < 0.6
+    ? `@[${pick(SPEAKERS)}] "${rnd() < 0.75 ? pick(LINES) : `fresh line ${++u} with ${u * 3} words and ${u + 5} more`}."`
+    : `She ${rnd() < 0.3 ? 'nods.' : `turns away for the ${++u}th time.`}`);
+  let whole = 0; let prefix = 0; let falseNeg = 0; let collapsing = 0; const N = 150;
+  for (let n = 0; n < N; n++) {
+    const ps = []; const k = 2 + Math.floor(rnd() * 6); for (let i = 0; i < k; i++) ps.push(para());
+    const text = ps.join('\n\n');
+    const expect = collapse(text) !== text; if (expect) collapsing++;
+    if (md.createRestatementWatch()(text) !== expect) whole++;                    // the same verdict on the whole text
+    const w = md.createRestatementWatch();                                        // ...and at every paragraph-aligned prefix
+    for (let i = 1; i <= ps.length; i++) { const pre = ps.slice(0, i).join('\n\n') + (i < ps.length ? '\n\n' : ''); if (w(pre) !== (collapse(pre) !== pre)) { prefix++; break; } }
+    // random-size deltas: never miss a collapse (an early yes only costs speed)
+    const wd = md.createRestatementWatch(); let said = false;
+    for (let i = 1 + Math.floor(rnd() * 7); i < text.length + 7; i += 1 + Math.floor(rnd() * 7)) said = wd(text.slice(0, Math.min(i, text.length))) || said;
+    if (expect && !said) falseNeg++;
+  }
+  out.watch = { cases: N, collapsing, whole, prefix, falseNeg };
+}
 console.log(JSON.stringify(out));
