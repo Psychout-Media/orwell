@@ -6828,7 +6828,7 @@ async def _stream_agent_loop_impl(
                 soft_budget,
                 context_length,
                 is_setting_overridden("agent_input_token_budget"),
-                hard_max=hard_max,
+                hard_max=hard_max,  # at its default + a >=500K window => model-aware 0.60 x window (ORW-219)
             )
             # ADR 0010 slice D (opt-in non-degradation tier): before trimming older turns AWAY, grow
             # the budget toward the model window so a long game keeps its history instead of losing it
@@ -6841,6 +6841,7 @@ async def _stream_agent_loop_impl(
                 messages,
                 effective_budget,
                 reserve_tokens=reserve_tokens,
+                preserve_system=bool(game_mode),  # ORW-219: never cut the GM prompt / HARD CONSTRAINTS
             )
             after_trim_tokens = estimate_tokens(trimmed_messages)
             if after_trim_tokens < before_trim_tokens:

@@ -27,6 +27,12 @@ default is honoured as explicit.
 # lands here; a 1M model is held to this cap. Tunable via
 # ``agent_input_token_hard_max``.
 DEFAULT_HARD_MAX = 48_000
+# ORW-219: a window this large (DeepSeek-class, 1M) is the one case where the 48K
+# cost cap is wrong: the designed 0.60 x window headroom is wanted, and cached input
+# is priced ~50x below uncached, so a long stable prompt is cheap. When the cap is
+# still at its default and the window is at least this big, the cap lifts to
+# window x headroom. A cap the operator moved OFF the default is always honoured.
+LONG_WINDOW_TOKENS = 500_000
 DEFAULT_BUDGET = 6000
 # Target a sane large fraction of the model window so the full conversation is
 # visible to the model (the root cause of NPC re-improvisation was a context the
@@ -73,6 +79,9 @@ def compute_input_token_budget(
 
     if context_length > 0:
         scaled = int(context_length * headroom)
+        if context_length >= LONG_WINDOW_TOKENS and int(hard_max) == int(DEFAULT_HARD_MAX):
+            # Model-aware default (ORW-219): long-window model + untouched cap.
+            return max(1, scaled)
         return max(1, min(scaled, hard_max))
 
     return configured if configured > 0 else default
@@ -147,3 +156,22 @@ def escalate_budget(
     # Grow toward the window, but only as far as actually needed, and never below
     # the lean floor (cap could be < lean on a tiny window).
     return max(lean, min(needed, cap))
+
+
+def effective_input_budget(context_length: int) -> int:
+    """The effective input-token budget for ``context_length``, read from the live settings with the same
+    rules the agent loop's trim uses (ORW-219). Lets the compactor trigger relative to the budget the
+    trimmer will enforce. Returns 0 when budgeting is disabled (``agent_input_token_budget`` <= 0)."""
+    from src.settings import get_setting, is_setting_overridden
+
+    soft = int(get_setting("agent_input_token_budget", DEFAULT_BUDGET) or 0)
+    if soft <= 0:
+        return 0
+    try:
+        hard_max = int(get_setting("agent_input_token_hard_max", DEFAULT_HARD_MAX) or DEFAULT_HARD_MAX)
+    except (TypeError, ValueError):
+        hard_max = DEFAULT_HARD_MAX
+    if hard_max <= 0:
+        hard_max = DEFAULT_HARD_MAX
+    return compute_input_token_budget(soft, context_length, is_setting_overridden("agent_input_token_budget"),
+                                      hard_max=hard_max)

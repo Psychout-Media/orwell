@@ -157,7 +157,9 @@ DEFAULT_SETTINGS = {
     # long-context window that still fits the whole narrative conversation, so
     # NPCs stay consistent turn to turn); lower this for cost-paranoid setups,
     # raise it on premium APIs with very large windows that you want to actually
-    # use (e.g. 900_000 to fill a 1M-context model). See `compute_input_token_budget`
+    # use (e.g. 900_000 to fill a 1M-context model). ORW-219: model-aware — while this
+    # stays at its 48k default, a model whose window is >= 500k gets 0.60 x window
+    # instead (600k for a 1M model); set it to any other value to force a cap. See `compute_input_token_budget`
     # in src/context_budget.py.
     "agent_input_token_hard_max": 48_000,
     "agent_stream_timeout_seconds": 300,

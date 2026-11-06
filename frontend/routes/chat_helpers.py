@@ -7830,10 +7830,12 @@ async def build_chat_context(
     )
 
     # Auto-compact
+    from src.context_budget import effective_input_budget
     messages, context_length, was_compacted = await maybe_compact(
         sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
+        input_budget_fn=effective_input_budget,  # ORW-219: summarize BEFORE the trimmer would drop anything
     )
-    messages = trim_for_context(messages, context_length)
+    messages = trim_for_context(messages, context_length, preserve_system=bool(game_active or framed))
 
     # #1735 (A4) — append this turn's terminal HARD-CONSTRAINTS block as the caller's OWN LAST message,
     # AFTER the transcript (the last user turn included) and AFTER compaction/trimming, so it can never
