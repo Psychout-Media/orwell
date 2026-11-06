@@ -36,6 +36,11 @@ BRANCH="${BRANCH:-main}"
 #                                 OOBE reset that follows owns the single final restart.
 REF="${REF:-}"
 ROLLBACK=0; SET_TOKEN=0; NO_RESTART=0
+# ORW-206 — live-game guard: before the build/restart the updater DEFERS while a player has chatted in the
+# last ORWELL_UPDATE_IDLE_MINUTES (default 15), polling until idle, then runs by itself; it gives up waiting
+# after ORWELL_UPDATE_MAX_DEFER_MINUTES (default 240). `--force` (or ORWELL_UPDATE_FORCE=1) skips the check.
+# Status: /run/orwell/update-deferred (root-owned; also the web Update page via update-status.json; also shown by `orwell-doctor.sh --status`). See deploy/orwell-live-game.sh.
+FORCE=0; [[ "${ORWELL_UPDATE_FORCE:-}" == "1" ]] && FORCE=1
 # --no-restart: do the full update (pull → rebuild → refresh deps → reconcile units) but SKIP the
 # final `systemctl restart`. Added for the composed Update + Reset tier (orwell-update-reset.sh),
 # which runs the update with restart suppressed and lets the OOBE reset perform the SINGLE final
@@ -45,6 +50,7 @@ for __a in "$@"; do
     --rollback)   ROLLBACK=1 ;;
     --set-token)  SET_TOKEN=1 ;;
     --no-restart) NO_RESTART=1 ;;
+    --force)      FORCE=1 ;;
   esac
 done
 CT_HOSTNAME_SET="${CT_HOSTNAME:+1}"   # explicit override disables the legacy-name fallback
@@ -60,6 +66,12 @@ for __lib in "${__here}/orwell-tui.sh" /opt/orwell/deploy/orwell-tui.sh /opt/bba
   if [[ -n "${__lib:-}" && -r "$__lib" ]]; then . "$__lib"; break; fi
 done
 type tui_active >/dev/null 2>&1 || tui_active() { return 1; }
+
+# ── live-game guard lib (ORW-206). Missing ⇒ the check is simply skipped (fail open: an update must never
+# be blocked by its own guard). Searched like the libs above, so the pushed /tmp copy finds it too.
+for __lg in "${__here}/orwell-live-game.sh" /opt/orwell/deploy/orwell-live-game.sh /opt/bbai/deploy/orwell-live-game.sh; do
+  if [[ -n "${__lg:-}" && -r "$__lg" ]]; then . "$__lg"; break; fi
+done
 
 # ── ops-progress lane: step-by-step progress to data/ops/<action>-status.json (sourced helper) ──
 # Lets the admin health page render a live timeline for THIS update (fetching → rebuilding →
@@ -144,7 +156,13 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   # is `git pull`, so the staleness window is one update cycle — the E84 integrity shape).
   FWD_FLAG=""; [[ $ROLLBACK -eq 1 ]] && FWD_FLAG="--rollback"; [[ $SET_TOKEN -eq 1 ]] && FWD_FLAG="--set-token"
   [[ $NO_RESTART -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--no-restart"
-  FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}';"
+  [[ $FORCE -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force"
+  # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
+  FWD_LG=""
+  for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS; do
+    [[ "${!__k:-}" =~ ^[0-9]+$ ]] && FWD_LG="${FWD_LG} ${__k}='${!__k}'"
+  done
+  FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
   if [[ -n "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]:-}" ]]; then
     TMP_UPDATE="$(mktemp /tmp/orwell-update-XXXXXX.sh)"
     cp "${BASH_SOURCE[0]}" "$TMP_UPDATE"
@@ -167,6 +185,23 @@ fi
 
 # ── In-container (or direct) update ────────────────────────────────────────────────────────────
 APP_DIR="$(find_app || true)"; APP_DIR="${APP_DIR:-/opt/orwell}"
+
+# ── ORW-206: don't restart the app in the middle of a live game. Runs BEFORE the update lock on purpose:
+# a deferred run holds nothing, so `--force`, --rollback and a manual run are never blocked behind it.
+# Only a plain update is guarded: --rollback / --set-token are operator actions, and --no-restart is the
+# composed Update + Reset tier (an explicit wipe whose reset owns the restart).
+# The web Update page polls data/ops/update-status.json: tell it we are DEFERRED (not hung), via the same
+# safe ops-progress writer the update itself uses.
+update_defer_notify() {
+  if [[ -z "${__UD_PROGRESS:-}" ]]; then
+    __UD_PROGRESS=1; export ORWELL_OPS_DIR="${APP_DIR%/}/data/ops"; ops_progress_init "update" 5
+  fi
+  ops_progress_step 0 "$1"
+}
+update_defer_cancelled() { [[ -n "${__UD_PROGRESS:-}" ]] && ops_progress_fail "update deferral was cancelled before it started" || true; }
+if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
+  update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env"
+fi
 
 # ── ONE shared lock for every run in this tree: the web Update, Update + Reset, a manual update,
 # --rollback and --set-token (all write the checkout, node_modules, dist and data/.env). It is a
