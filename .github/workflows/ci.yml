@@ -95,17 +95,14 @@ jobs:
       - name: detect changed paths
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # On a PR, diff the base..head; on push, diff against the previous commit.
-          if [ -n "${BASE_SHA:-}" ]; then
-            base="$BASE_SHA"
-            git fetch --no-tags --depth=1 origin "$base" 2>/dev/null || true
-          else
-            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
-          fi
+          # Base per event (ci/resolve-base.sh, tested in tests/unit/ciResolveBase.test.ts): PR base sha, merge_group base_sha, or push `before`.
+          base="$(bash ci/resolve-base.sh)"
           echo "Diffing against base: $base"
           changed="$(git diff --name-only "$base" HEAD)"
           echo "Changed files:"; echo "$changed" | sed 's/^/  /'
