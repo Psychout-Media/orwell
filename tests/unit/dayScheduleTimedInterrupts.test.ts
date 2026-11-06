@@ -26,14 +26,19 @@ const asLive = (beat: string, timeOfDay: string | undefined, nightDepth?: number
 describe("0118 — the day schedule (pure, deterministic reads)", () => {
   it("nextMilestone maps each ceremony beat to its scheduled phase + target hour", () => {
     for (const beat of Object.keys(DAY_SCHEDULE)) {
-      const m = nextMilestone(asLive(beat, "morning", 9));
+      const m = nextMilestone({ ...(asLive(beat, "morning", 9) as object), vetoField: ["a"] } as unknown as LiveSeasonState); // vetoField set = the veto draw has happened (competition proper)
       expect(m).not.toBeNull();
       expect(m!.beat).toBe(beat);
       expect(m!.phase).toBe(DAY_SCHEDULE[beat as keyof typeof DAY_SCHEDULE]);
     }
-    // comps land in the afternoon, evictions/finale in the evening (the day builds to them).
+    // ORW-116 (Ryne): competitions in the afternoon, ceremonies (nominations, veto ceremony) and evictions in the evening, the veto player DRAW in the morning of the veto day.
     expect(DAY_SCHEDULE["hoh-competition"]).toBe("afternoon");
+    expect(DAY_SCHEDULE["veto-competition"]).toBe("afternoon");
+    expect(DAY_SCHEDULE["nominations"]).toBe("evening");
+    expect(DAY_SCHEDULE["veto-ceremony"]).toBe("evening");
     expect(DAY_SCHEDULE["eviction"]).toBe("evening");
+    expect(nextMilestone(asLive("veto-competition", "morning", 9))!.phase).toBe("morning");          // field not drawn yet: the draw is due in the morning
+    expect(nextMilestone({ ...(asLive("veto-competition", "morning", 9) as object), vetoField: ["a"] } as unknown as LiveSeasonState)!.phase).toBe("afternoon"); // drawn: the competition is the afternoon
   });
 
   it("nextMilestone is null off a milestone beat (inert / terminal / no clock)", () => {
@@ -145,7 +150,7 @@ describe("0118 — byte-identical / golden-safe + Vault-free guardrails", () => 
 
 import { minutesUntilDue } from "../../src/engine/daySchedule";
 describe("A7 - minutesUntilDue", () => {
-  const live = (hour: number, beat = "veto-competition") => ({ beat, timeOfDay: "morning", nightDepth: hour }) as never;
+  const live = (hour: number, beat = "veto-competition") => ({ beat, timeOfDay: "morning", nightDepth: hour, vetoField: ["a"] }) as never;
   it("counts whole minutes to the scheduled hour, 0 once due, null with no milestone/clock", () => {
     expect(minutesUntilDue(live(11.5))).toBe(30);   // afternoon starts at 12
     expect(minutesUntilDue(live(11.9))).toBe(6);
