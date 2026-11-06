@@ -2335,6 +2335,28 @@ _CLAIM_NOMINATED_RE = re.compile(
     r"on the (?:chopping )?block|the nominees are|named (?:as )?(?:a )?nominee)\b",
     re.IGNORECASE,
 )
+# A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
+_PRESENT_NOMINATION_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|nominating)\b", re.IGNORECASE)
+_STRONG_NOMINATION_CUE_RE = re.compile(r"\b(?:nominat(?:e[sd]?|ing)|the nominees are|named (?:as )?(?:a )?nominee)\b", re.IGNORECASE)
+
+
+def _nomination_names_outsider(text: str, after: dict) -> bool:
+    """With nominees already committed, a sentence that says someone IS / WAS NOMINATED and names an active houseguest who is neither a committed nominee nor the HOH is still suspect (a wrong or invented
+    nominee). Bare "on the block" talk and recaps naming only the real nominees / the HOH are not."""
+    nominees = [n for n in (after.get("nomNames") or []) if n]
+    hoh = after.get("hohName")
+    for sent in re.split(r"(?<=[.!?\n])", text or ""):
+        if not _STRONG_NOMINATION_CUE_RE.search(sent):
+            continue
+        for a in (after.get("activeNames") or []):
+            if not a or any(_name_matches(a, n) for n in nominees) or (hoh and _name_matches(a, hoh)):
+                continue
+            first = str(a).split()[0]
+            if len(first) >= 3 and re.search(r"\b" + re.escape(first) + r"\b", sent):
+                return True
+    return False
+
+
 # ORW-10: a REPLACEMENT nominee being named at the veto ceremony ("names Sam as the replacement nominee", "renominates", "takes X's place on the block").
 _REPLACEMENT_NOMINEE_RE = re.compile(
     r"\b(?:replacement\s+nominee|re-?nominat\w*|replac\w+\s+(?:\w+\s+){0,3}?(?:on the block|as (?:a )?nominee)|"
@@ -2934,12 +2956,12 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # (5) NARR-8 (#574): a NOMINATION was narrated, but the nominee set didn't move → no nomination
     #     was committed. Scoped to the nomination / veto-ceremony phases (like the HOH branch),
     #     so plan/speculation language outside the beat ("I might nominate you") is never policed.
-    #     ORW-10 (live replay 5): at the VETO CEREMONY the nominees are already on the block, so ordinary prose about them is a recap, not a phantom nomination - there only a
-    #     REPLACEMENT claim (the one nomination the ceremony can really commit) is suspect. The nomination beat itself keeps the original rule.
+    #     ORW-10 (live replays 5 and 6): once nominees are COMMITTED (the veto ceremony, and every social turn left in the nominations beat after the engine pre-resolved them) ordinary prose about them
+    #     ("those are the two on the block") is a recap, not a phantom nomination - there only a REPLACEMENT claim is suspect. While NO nominee is committed the original rule stands.
     if not desync and (_CLAIM_NOMINATED_RE.search(text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
           and (after.get("noms") or []) == (before.get("noms") or [])
-          and (_REPLACEMENT_NOMINEE_RE.search(text) or "ceremony" not in str(after.get("phase") or "").lower())):
+          and (_REPLACEMENT_NOMINEE_RE.search(text) or not (after.get("noms") or []) or _PRESENT_NOMINATION_ACT_RE.search(text) or _nomination_names_outsider(text, after))):
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.

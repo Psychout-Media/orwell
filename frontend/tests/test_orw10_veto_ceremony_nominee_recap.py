@@ -62,3 +62,28 @@ def test_the_committed_holder_named_in_a_replayed_finish_is_not_flagged():
 def test_ordinary_its_name_prose_with_no_finish_cue_is_untouched():
     s = _sig(phase="eviction", vetoHolder="npc:4", vetoHolderName="Nina")
     assert chat_helpers._narration_claims_outcome("It's Sofia at the door, hands shaking, asking to talk.", s, s) is None
+
+
+def test_recap_of_committed_nominees_in_the_nominations_beat_is_not_a_phantom_nomination():
+    """Live replay 6, 01:43/01:46: after the engine pre-resolved the nominations, social turns still in the nominations beat said 'those are the two on the block' and were cut."""
+    s = _sig(phase="nominations", vetoHolder=None, vetoHolderName=None)
+    for text in ("You're standing in the living room right after the ceremony, and those are the two on the block.", "You don't let me find out on the block."):
+        assert chat_helpers._narration_claims_outcome(text, s, s) is None, text
+
+
+def test_a_nomination_claim_with_no_nominees_committed_is_still_flagged_in_the_nominations_beat():
+    s = _sig(phase="nominations", noms=[], nomNames=[], vetoHolder=None, vetoHolderName=None)
+    d = chat_helpers._narration_claims_outcome("The two on the block are Sofia and Mario.", s, s)
+    assert d and "NOMINATION" in d
+
+
+def test_a_present_tense_nomination_act_is_still_flagged_when_nominees_are_already_committed():
+    s = _sig(phase="nominations", vetoHolder=None, vetoHolderName=None)
+    d = chat_helpers._narration_claims_outcome("At the ceremony, the Head of Household nominates two houseguests for eviction.", s, s)
+    assert d and "NOMINATION" in d
+
+
+def test_a_named_outsider_nominee_is_still_flagged_when_nominees_are_committed():
+    s = _sig(phase="nominations", vetoHolder=None, vetoHolderName=None)
+    d = chat_helpers._narration_claims_outcome("Nina and Mario were nominated for eviction.", s, s)
+    assert d and "NOMINATION" in d
