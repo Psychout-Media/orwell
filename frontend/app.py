@@ -901,7 +901,8 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
     # ORW-203: stamp the shell with the build that served it, so a stale cached shell can
     # detect (vs /api/version's "build") that a deploy happened and self-correct once.
     from src.orwell_version import get_build as _fe_build
-    html = html.replace("{{BUILD_ID}}", _fe_build())
+    import html as _html_esc
+    html = html.replace("{{BUILD_ID}}", _html_esc.escape(_fe_build(), quote=True))
     from src.settings import strip_dropped_scripts, game_build_enabled, ws_transport_enabled
     html = strip_dropped_scripts(html)
     if game_build_enabled():

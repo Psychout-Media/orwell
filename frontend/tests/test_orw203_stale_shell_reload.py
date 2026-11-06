@@ -36,6 +36,25 @@ def test_shell_carries_build_stamp_and_guard_is_wired():
     assert "orwell-shell-reload" in INDEX
 
 
+def test_reload_is_skipped_for_typed_input_or_active_stream_and_purge_is_scoped():
+    seg = INDEX[INDEX.index("window.orwellShellStale = "):]
+    assert "getElementById('message')" in seg and 'data-mode="streaming"' in seg
+    assert "k.indexOf('orwell-') === 0" in seg and "AbortController" in seg
+
+
+def test_build_id_is_html_escaped(monkeypatch):
+    monkeypatch.setenv("ORWELL_FE_BUILD", 'x"><script>alert(1)</script>')
+    import importlib
+    from types import SimpleNamespace
+    ver = importlib.import_module("src.orwell_version")
+    monkeypatch.setattr(ver, "_cached_build", None)
+    app_mod = importlib.import_module("app")
+    req = SimpleNamespace(state=SimpleNamespace(csp_nonce="n"))
+    html = app_mod._serve_html_with_nonce(req, os.path.join(FRONTEND, "static", "index.html")).body.decode()
+    assert 'content="x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"' in html
+    assert 'content="x"><script>' not in html
+
+
 def test_server_substitutes_build_and_exposes_it(monkeypatch):
     monkeypatch.setenv("ORWELL_FE_BUILD", "abc1234")
     import importlib
@@ -67,6 +86,10 @@ out.unsubstituted = f('{{BUILD_ID}}', 'bbb', mk());
 out.empty = f('', 'bbb', mk());
 out.next_deploy = f('aaa', 'ccc', s);         // a LATER deploy may reload once again
 const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+{ const s2 = mk(); const t0 = 1000000;
+  f('a', 'b1', s2, t0); f('a', 'b2', s2, t0 + 1000);
+  out.flap_third_in_minute = f('a', 'b3', s2, t0 + 2000);   // 3rd reload inside a minute is refused
+  out.flap_after_minute = f('a', 'b4', s2, t0 + 70000); }
 out.storage_denied = f('aaa', 'bbb', broken); // never reload without a working loop guard
 console.log(JSON.stringify(out));
 """
@@ -77,6 +100,7 @@ console.log(JSON.stringify(out));
         "mismatch_first": True, "mismatch_second": False, "match": False,
         "unknown_live": False, "unknown_shell": False, "unsubstituted": False,
         "empty": False, "next_deploy": True, "storage_denied": False,
+        "flap_third_in_minute": False, "flap_after_minute": True,
     }
 
 
