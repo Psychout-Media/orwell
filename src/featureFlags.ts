@@ -146,6 +146,14 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
   // A10: want-driven NPC movement. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_WANT_MOVEMENT', key: 'wantMovement', parser: 'defaultOn' },
+  // B26-jury layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_JURY_MEMORY', key: 'juryMemory', parser: 'defaultOn' },
+  // B25-friends layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
+  // B50-accuse layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_ACCUSE_COST', key: 'accuseCost', parser: 'defaultOn' },
+  // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

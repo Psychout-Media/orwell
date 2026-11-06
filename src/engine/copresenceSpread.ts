@@ -34,6 +34,11 @@ export interface SpreadDeps {
   /** Override a holder's cunning (0..1). Absent => the style table. Used to prove the lie path; the live wiring leaves it unset. */
   cunning?: (id: EntityId) => number;
   /**
+   * B48 (ORWELL_CREDIBILITY): how far `listener` believes `holder`'s word, 0..1 (see `credibility.ts`; the caller derives it from the listener's own caught-lie evidence), given `repeatsToListener` = the
+   * lies this holder already told this listener. When present it REPLACES the B34 `LIE_COST` stand-in for a lie's arriving confidence; absent => the stand-in (byte-identical to B34).
+   */
+  credibilityOf?: (holder: EntityId, listener: EntityId, repeatsToListener: number) => number;
+  /**
    * B24/B36 - an OBSERVER of each one-hop receipt (the co-presence analogue of the graph path's `onReceipt`): told the listener, the (believed) subject, the nature and the transmitted
    * confidence, so the caller can record a `heard-rumor` belief claim. Read-only: it fires AFTER the transmit, draws no randomness, and moves no edge. Only fired for a fact with a subject.
    */
@@ -53,6 +58,31 @@ export const SPIN = { spunConfidence: 0.85, spunDistortion: 0.15, lieConfidence:
 const CUNNING: Partial<Record<StrategyStyle, number>> = { strategic: 0.7, aggressive: 0.6, "under-the-radar": 0.55 };
 const LEAKY: Partial<Record<StrategyStyle, number>> = { emotional: 0.7, social: 0.5, aggressive: 0.4, loyal: 0.2, strategic: 0.1, "under-the-radar": 0.1 };
 
+/** How much `holder` wants `listener` to hear fact `c`: affinity to the listener, the threat of the fact's subject, and the fact's confidence. 0..1, no rng. Shared by the spread and by seeking. */
+export function factMotive(c: { subject?: EntityId; confidence: number }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat">): number {
+  const subjThreat = c.subject !== undefined ? d.threat(holder, c.subject) : 0;
+  return Math.max(0, Math.min(1, 0.5 * d.affinity(holder, listener) + 0.4 * subjThreat + 0.1 * c.confidence));
+}
+
+/** B35 (seeking): how strongly a holder is drawn toward a listener who does not yet have a fact they have not decided about. `minMotive` is the smallest motive that bends movement; `k` the strength. */
+export const SEEK = { minMotive: 0.5, k: 1 } as const;
+
+/**
+ * B35 - for each candidate listener, the HIGHEST motive among the holder's undecided, undelivered facts (those the listener lacks and the holder has not yet decided about telling them). Pure read:
+ * no rng, no writes, no knowledge mutation. The adapter uses it to lean the holder's MOVEMENT toward the right audience (the same pull channel as the A10 want), never to tell anything.
+ */
+export function seekTargets(holder: EntityId, listeners: readonly EntityId[], d: Pick<SpreadDeps, "knowledge" | "told" | "affinity" | "threat">): Array<{ listener: EntityId; motive: number }> {
+  const out: Array<{ listener: EntityId; motive: number }> = [];
+  const mine = d.knowledge.knownTo(holder);
+  for (const listener of listeners) {
+    if (listener === holder) continue;
+    const cands = d.told.undecided(holder, listener, heldCandidates(mine, d.knowledge.knownTo(listener)));
+    if (cands.length === 0) continue;
+    out.push({ listener, motive: Math.max(...cands.map((c) => factMotive(c, holder, listener, d))) });
+  }
+  return out;
+}
+
 export interface SpreadResult { holder: EntityId; listener: EntityId; factId: string; decision: Told; transmitted: boolean }
 
 export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDeps): SpreadResult[] {
@@ -60,8 +90,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
   if (cands.length === 0) return [];
   const rng = d.rngFor(holder, listener);
   const held: HeldFact[] = cands.map((c) => {
-    const subjThreat = c.subject !== undefined ? d.threat(holder, c.subject) : 0;
-    const motive = Math.max(0, Math.min(1, 0.5 * d.affinity(holder, listener) + 0.4 * subjThreat + 0.1 * c.confidence));
+    const motive = factMotive(c, holder, listener, d);
     // Telling something about YOURSELF is the risky class; a third party's business is cheap.
     const risk = c.subject === holder ? 0.8 : c.firstHand ? 0.35 : 0.2;
     return { factId: c.factId, motive, risk, ...(c.subject !== undefined ? { subject: c.subject } : {}) };
@@ -78,7 +107,8 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
     // B34: no hard cap - a repeat liar's lies simply land weaker (LIE_COST); only a technical safety valve demotes a lie to a spin.
     const priorLies = d.told.count(holder, "lied");
     const spin = rawSpin === "lie" && priorLies >= LIE_COST.safetyValve ? "spun" : rawSpin;
-    const lieCredibility = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
+    const standIn = Math.max(LIE_COST.floor, Math.pow(LIE_COST.perPriorLie, priorLies) * Math.pow(LIE_COST.perRepeatToListener, d.told.countTo(holder, listener, "lied")));
+    const lieCredibility = d.credibilityOf ? d.credibilityOf(holder, listener, d.told.countTo(holder, listener, "lied")) : standIn;
     const told: Told = decision === "share" ? (spin === "lie" ? "lied" : "shared") : decision === "slip" ? "slipped" : "held";
     d.told.record(holder, h.factId, listener, told);
     let transmitted = false;
