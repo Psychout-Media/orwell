@@ -6,7 +6,7 @@ import { npc } from "../../src/domain/ids";
 
 /**
  * A62 (#2017 13.2.4, behind ORWELL_JUROR_PROFILES, default OFF): a juror's grievance can rest on a WRONG belief (0110 deduction error); a `mend` appeal corrects exactly that mistake and never a true
- * grievance. Flag-off is byte-identical. Roles only. (ASSUMED, pending Ryne: a mend dissolves a mistaken grievance entirely rather than softening it.)
+ * grievance. Flag-off is byte-identical. Roles only. (ORW-129, Ryne: a mend FADES a mistaken grievance but leaves a trace - see mendLeavesTrace.test.ts.)
  */
 const JA = npc(1), JB = npc(2), FIN = npc(3), OTHER = npc(4);
 const grievance = { betrayed: true, intensity: 1 } as const;
@@ -30,10 +30,12 @@ describe("A62 - mistaken blame and the mend appeal", () => {
     expect(mannerForVote(s, ctx(true), fp(), JA, FIN)).toEqual({ ...grievance, mistaken: true });
     expect(mannerForVote(s, ctx(true), fp(), JB, FIN)).toEqual({ ...grievance });
   });
-  it("flag ON + mend: the MISTAKEN grievance is dissolved; the TRUE one is not", () => {
+  it("flag ON + mend: the MISTAKEN grievance is faded to a trace (not erased, ORW-129); the TRUE one is untouched", () => {
     const s = board();
     const a = mannerForVote(s, ctx(true), fp("mend"), JA, FIN);
-    expect(a.betrayed).toBeUndefined();
+    expect(a.mistaken).toBeUndefined();
+    expect(a.betrayed, "the grievance stays, faded").toBe(true);
+    expect(a.intensity!).toBeGreaterThan(0); expect(a.intensity!).toBeLessThan(1);
     expect(mannerForVote(s, ctx(true), fp("mend"), JB, FIN).betrayed).toBe(true);
   });
   it("the same board, two jurors holding different beliefs, lean differently once the finalist mends", () => {
