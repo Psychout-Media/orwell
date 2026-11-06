@@ -92,7 +92,8 @@ live_game_idle_seconds() {
     fi
   fi
   err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
-  out="$(timeout 10 "${runner[@]}" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$sql" 2>"$err")"; rc=$?
+  rc=0   # `|| rc=$?`: a failing read must not trip the caller's `set -e`
+  out="$(timeout 10 "${runner[@]}" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$sql" 2>"$err")" || rc=$?
   if (( rc != 0 )); then
     if grep -qi 'no such table' "$err" 2>/dev/null; then rm -f "$err"; echo none; return 0; fi
     rm -f "$err"; echo error; return 0
