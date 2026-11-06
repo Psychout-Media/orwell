@@ -1,7 +1,8 @@
 # spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Feature 0129 — The jury house. Expands 0046 (juror seat) + pairs with its ceremonies-as-broadcast model.
-# HARD rule: roles only (player, juror, evictee, finalist, frontrunner). NOT YET BUILT — spec authored
-# 2026-07-13 during the 0046 PO review.
+# HARD rule: roles only (player, juror, evictee, finalist, frontrunner). SLICES 1-4 BUILT (slice 4 is an ASSUMED default, pending Ryne) (roster, jurors voiced from their own knowledge, askJuror, the finale juror-vote card;
+# unit-tested, see 0129.md §9); NOT BUILT: jurors approaching the player, rolling updates as new evictees arrive, and
+# broadcast of ceremony outcomes since eviction, jury gossip and the roundtable. Spec authored 2026-07-13 during the 0046 PO review.
 
 Feature: The jury house (living with the evicted)
 
