@@ -2651,6 +2651,29 @@ _ASIDE_NOM_STATE_RES = (
 )
 
 
+# ORW-78 / A94 (live replay 7, 03:33): the narrator put a false premise into a ((production aside)) that named no one - "((You're the veto holder - you won it.))", "((You're the one holding the veto - nobody else won it.))" -
+# so the name-based aside check never ran, and the next turn built a fast-forward on it. The PLAYER is the subject here; the board knows (`playerHasVeto` / `playerIsHoh`).
+_ASIDE_SELF_VETO_RE = re.compile(
+    r"\byou(?:'|\u2019)?re\s+(?:the\s+)?(?:(?:one|person)\s+(?:who\s+is\s+)?holding\s+the\s+(?:power\s+of\s+)?(?:veto|pov)|(?:power\s+of\s+)?(?:veto|pov)\s+(?:holder|winner))\b"
+    r"|\byou\s+(?:are\s+)?(?:the\s+)?(?:(?:power\s+of\s+)?(?:veto|pov)\s+(?:holder|winner)|holding\s+the\s+(?:power\s+of\s+)?(?:veto|pov))\b"
+    r"|\byou\s+(?:just\s+)?(?:won|hold|have)\s+the\s+(?:power\s+of\s+)?(?:veto|pov)\b", re.IGNORECASE)
+_ASIDE_SELF_HOH_RE = re.compile(
+    r"\byou(?:'|\u2019)?re\s+(?:the\s+)?(?:new\s+)?(?:hoh|head\s+of\s+household)\b|\byou\s+(?:just\s+)?won\s+(?:the\s+)?(?:hoh|head\s+of\s+household)\b", re.IGNORECASE)
+
+
+def _aside_self_claim_contradicts_board(sentence: str, live: dict) -> bool:
+    """ORW-78: an aside sentence that says the PLAYER holds/won the veto or the HOH while the board knows they do not (`playerHasVeto is False` / `playerIsHoh is False`). Hypothetical / conditional leads are exempt."""
+    if not sentence or not isinstance(live, dict):
+        return False
+    for rx, key in ((_ASIDE_SELF_VETO_RE, "playerHasVeto"), (_ASIDE_SELF_HOH_RE, "playerIsHoh")):
+        if live.get(key) is not False:
+            continue
+        m = rx.search(sentence)
+        if m and not _ASIDE_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sentence[:m.end()])[-1]):
+            return True
+    return False
+
+
 def _aside_sentence_makes_board_claim(sentence: str) -> bool:
     """N-6: does this aside sentence make a claim worth checking against the board STATE? The usual closed-set outcome detector PLUS the
     state-restatement phrasings an aside uses ("X holds the veto", "Y is the HOH", "the nominees are X and Y"). Pure; no board read."""
@@ -2658,7 +2681,7 @@ def _aside_sentence_makes_board_claim(sentence: str) -> bool:
         return False
     if _sentence_has_closed_set_claim(sentence):
         return True
-    return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES)
+    return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES + (_ASIDE_SELF_VETO_RE, _ASIDE_SELF_HOH_RE))
 
 
 def _aside_matches(sentence: str, res):
@@ -2683,6 +2706,8 @@ def _aside_claim_contradicts_board(sentence: str, live: dict) -> bool:
     (the roster guard's job, not this check's). Pure."""
     if not sentence or not isinstance(live, dict) or not live:
         return False
+    if _aside_self_claim_contradicts_board(sentence, live):
+        return True
     holder = live.get("vetoHolderName")
     for nv, _m in _aside_matches(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES):
         # Committed role: the name must match. UNcommitted role: an assertive "X won/holds the veto" is unbacked (N-1) -> strip.
