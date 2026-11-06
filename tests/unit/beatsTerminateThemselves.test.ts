@@ -219,8 +219,8 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
     // honors the same lull gate as a plain advanceGame call (the offer opportunity is never skipped).
     // PO ruling 2026-11-01: a floated offer is open state the narrator voices — it NEVER blocks the week,
     // so the chained step still draws its beat in the same single commit.
-    // Seed 17 (re-selected 2026-11-06 for the ORW-116 Day-1 flow; 17 and 24 qualify): an offer floats on a chained call.
-    const { session } = startedGame(17);
+    // Seed 2 (re-selected 2026-11-04: the one-turn eviction reveal shortened the trajectory; 2,10,24,25 qualify under the ORW-116 clock-from-entry flow): an offer floats on a chained call.
+    const { session } = startedGame(2);
     session.setNpcDealOffersEnabled(true);
 
     let view: AdvanceView = session.advanceGame();
@@ -239,7 +239,7 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
       view = session.advanceGame();
     }
 
-    expect(caught, "seed 17 should float a deal offer on a chained submitDecision call").not.toBeNull();
+    expect(caught, "seed 2 should float a deal offer on a chained submitDecision call").not.toBeNull();
     const offer = session.getGameState().openDealOffer!;
     expect(offer.from.id).not.toBe("player");
     expect(["safety", "final-two"]).toContain(offer.kind);

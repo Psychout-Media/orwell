@@ -32,6 +32,7 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
 
 describe("ADR 0006 — the runtime toggle (the FE settings switch)", () => {
   it("flips the clock at runtime with no env var, and the override beats the env", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(false); // ORW-116: the clock now STARTS at the premiere entry when it is on (default), so "dormant" means explicitly off
     const s = new GameSessionAdapter();
     s.createCharacter({ playerName: "The Player", seed: 7 });
     const a0 = s.advanceGame();
@@ -58,6 +59,7 @@ describe("ADR 0006 — the runtime toggle (the FE settings switch)", () => {
   it("the admin setTimeOfDay tool flips it through the composition delegate", () => {
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("toggle-user");
+    GameSessionAdapter.setTimeOfDayEnabled(false); // ORW-116: explicit off (see above)
     sb.session.createCharacter({ playerName: "The Player", seed: 5 });
     const a0 = sb.session.advanceGame();
     if (a0.pending) resolveLegally(sb.session, a0.pending);

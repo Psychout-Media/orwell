@@ -124,7 +124,7 @@ function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolea
  */
 function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
-    if (s.gameStatus().timeOfDay) {
+    if (s.gameStatus().timeOfDay && s.getGameState().phase !== "premiere") { // ORW-116: during the premiere the whole house is pinned to the toast - the night only thins the house once the premiere is over
       const ids = s.livingIds().filter((id) => id !== PLAYER);
       if (s.awakeAmong(ids).length < ids.length) return true;
       linger(s);
@@ -322,12 +322,10 @@ Given("the night has thinned the awake set", function (this: BbWorld) {
     if (!advanceUntilThinned(sandbox.session)) continue;
     // P4b: presence refreshes at a COMMITTED beat and the helper can return the instant the clock passes bedtime (after a linger); seat one beat before reading it (the day-1
     // first-morning day-break shifted where in the cadence that moment lands).
-    // ORW-116: on the first night the next committed beat is the one-shot day-break to Day 2's morning (everyone wakes), so settle only if the house has not already thinned.
-    const npcsNow = sandbox.session.livingIds().filter((id) => id !== PLAYER);
-    if (sandbox.session.awakeAmong(npcsNow).length >= npcsNow.length) {
-      const settle = sandbox.session.advanceGame();
-      if (settle.pending) resolvePending(settle.pending, (req) => sandbox.session.submitDecision(req));
-    }
+    // P4b: presence refreshes at a COMMITTED beat and the helper can return the instant the clock passes bedtime (after a linger); seat one beat before reading it. (ORW-116: in this headless flow no
+    // night-gate day-break is pending at that moment, so the settle beat is the next ceremony beat, not a night roll.)
+    const settle = sandbox.session.advanceGame();
+    if (settle.pending) resolvePending(settle.pending, (req) => sandbox.session.submitDecision(req));
     const npcs = sandbox.session.livingIds().filter((id) => id !== PLAYER);
     const awake = sandbox.session.awakeAmong(npcs);
     if (awake.length >= npcs.length) continue; // need ≥1 turned in for the bound to bite

@@ -6286,6 +6286,11 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 except Exception as _refetch_err:
                     logger.debug("[orwell] double-stale live-state refetch skipped: %s", _refetch_err)
                 return game_state  # reconciled — the S1b force picks it up next round
+        if isinstance(adv, dict) and adv.get("held") and not adv.get("event"):
+            # ORW-116 (b) / ORW-236, Ryne: the night is never auto-run. The engine HELD the day-break (nothing committed): the pre-resolve did NOT walk a beat, so do not mark one,
+            # and keep framing the turn against the board as it is - the evening/night stays social until the player turns in or the house wakes at 8am.
+            logger.info("[orwell] pre-resolve held for user=%s: the night is the player's (%s)", user, adv.get("held"))
+            return game_state
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
         stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says

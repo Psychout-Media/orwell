@@ -103,7 +103,7 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
   if (!m || live?.timeOfDay === undefined) return false;
   const hour = live.nightDepth ?? WAKE_HOUR;
   // ORW-116 (a): the first HOH is the afternoon of the NEXT day after the premiere evening and the social night - never that same night (the clock reads past the afternoon hour at night).
-  if (live.beat === "hoh-competition" && live.week === 1 && live.firstMorningPassed && !live.firstNightPassed && (live.dayNumber ?? 1) < 2 && hour < DAY_END_HOUR - 0.01) return false; // ...unless the night has run out: then the advance IS the day-break to the first morning (no stall on a player who never turns in)
+  if (live.beat === "hoh-competition" && live.week === 1 && !live.firstNightPassed && (live.dayNumber ?? 1) < 2 && hour < DAY_END_HOUR - 0.01) return false; // ...unless the night has run out: then the advance IS the day-break to the first morning (no stall on a player who never turns in)
   // Float-safe: the clock accrues in 0.2h steps (0.2 * 20 = 3.999999999999986...), so a scene that reaches EXACTLY the scheduled hour (the 8am wake + a 4h scene
   // cap = the 12:00 afternoon start) landed at 11.999999999999986 and was never "due" - a stall once the front-end stopped firing events ahead of the schedule.
   return hour + 1e-6 >= m.targetHour;
