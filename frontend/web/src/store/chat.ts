@@ -61,7 +61,16 @@ async function doBootstrap(): Promise<void> {
     st.setRows(rows);
     st.setBoot('ready');
     const have = new Set(rows.map((r) => r.clientMsgId).filter((x): x is string => !!x));
+    if (!streaming) {
+      // The run may have registered between the first check and the history read: look once more.
+      try {
+        streaming = (await fetchStreamStatus(sid)) === 'streaming';
+      } catch {
+        streaming = false;
+      }
+    }
     await recoverAfterReload(sid, have, streaming);
+    if (!streaming) void awaitReplyIfPending(sid);
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) return; // handler already flipped auth
     st.setBoot('error', e instanceof Error ? e.message : String(e));
@@ -169,3 +178,22 @@ export function stopActive(): void {
 }
 
 export const _test = { reconcileFromServer };
+
+/**
+ * The last row is the player's own and nothing is streaming: the server may still be producing the reply (a reload
+ * right after a send, before the run registered). Re-read history a few times so the reply appears without a manual reload.
+ */
+async function awaitReplyIfPending(sessionId: string): Promise<void> {
+  for (const waitMs of [1500, 3500, 6000]) {
+    const rows = useStore.getState().rows;
+    const last = rows[rows.length - 1];
+    if (!last || last.role !== 'user' || useStore.getState().stream) return;
+    await new Promise((r) => setTimeout(r, waitMs));
+    if (useStore.getState().sessionId !== sessionId || useStore.getState().stream) return;
+    try {
+      await reconcileFromServer(sessionId);
+    } catch {
+      return;
+    }
+  }
+}
