@@ -242,4 +242,21 @@ def setup_admin_update_routes() -> APIRouter:
         _write_failed_status("update", reason)
         return {"started": False, "via": "none", "error": reason}
 
+    @router.post("/update/force")
+    async def admin_update_force(request: Request):
+        """ORW-206: skip the live-game wait. The root updater defers while a player is mid-game; this drops
+        the separate existence-only ``update-force-requested`` flag (consumed by the waiting updater, which
+        then proceeds) and makes sure an update is queued. Admin-only, same guard as /update."""
+        await guard_root_op(request)
+        if not (await asyncio.to_thread(_flag_trigger_installed)):
+            return {"started": False, "via": "none",
+                    "error": inactive_reason(_watcher_unit_path(), "force the update")}
+        _ensure_ops_dir()
+        try:
+            with open(os.path.join(_ops_dir(), "update-force-requested"), "w", encoding="utf-8") as fh:
+                fh.write(_dt.datetime.now(timezone.utc).isoformat() + "\n")
+            return {**_trigger_via_flag(), "forced": True}
+        except OSError as e:
+            return {"started": False, "via": "none", "error": f"could not write the force flag: {e}"}
+
     return router

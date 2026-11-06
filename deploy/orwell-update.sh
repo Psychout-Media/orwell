@@ -39,7 +39,7 @@ ROLLBACK=0; SET_TOKEN=0; NO_RESTART=0
 # ORW-206 — live-game guard: before the build/restart the updater DEFERS while a player has chatted in the
 # last ORWELL_UPDATE_IDLE_MINUTES (default 15), polling until idle, then runs by itself; it gives up waiting
 # after ORWELL_UPDATE_MAX_DEFER_MINUTES (default 240). `--force` (or ORWELL_UPDATE_FORCE=1) skips the check.
-# Status: data/ops/update-deferred (also shown by `orwell-doctor.sh --status`). See deploy/orwell-live-game.sh.
+# Status: /run/orwell/update-deferred (root-owned; also the web Update page via update-status.json; also shown by `orwell-doctor.sh --status`). See deploy/orwell-live-game.sh.
 FORCE=0; [[ "${ORWELL_UPDATE_FORCE:-}" == "1" ]] && FORCE=1
 # --no-restart: do the full update (pull → rebuild → refresh deps → reconcile units) but SKIP the
 # final `systemctl restart`. Added for the composed Update + Reset tier (orwell-update-reset.sh),
@@ -190,6 +190,15 @@ APP_DIR="$(find_app || true)"; APP_DIR="${APP_DIR:-/opt/orwell}"
 # a deferred run holds nothing, so `--force`, --rollback and a manual run are never blocked behind it.
 # Only a plain update is guarded: --rollback / --set-token are operator actions, and --no-restart is the
 # composed Update + Reset tier (an explicit wipe whose reset owns the restart).
+# The web Update page polls data/ops/update-status.json: tell it we are DEFERRED (not hung), via the same
+# safe ops-progress writer the update itself uses.
+update_defer_notify() {
+  if [[ -z "${__UD_PROGRESS:-}" ]]; then
+    __UD_PROGRESS=1; export ORWELL_OPS_DIR="${APP_DIR%/}/data/ops"; ops_progress_init "update" 5
+  fi
+  ops_progress_step 0 "$1"
+}
+update_defer_cancelled() { [[ -n "${__UD_PROGRESS:-}" ]] && ops_progress_fail "update deferral was cancelled before it started" || true; }
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env"
 fi

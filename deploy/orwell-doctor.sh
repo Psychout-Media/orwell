@@ -336,9 +336,14 @@ journal_tail() {
 # ORW-206: an update held back because a game is live (orwell-update.sh writes data/ops/update-deferred
 # while it waits; it proceeds by itself once the game is idle, or at the max-defer limit).
 update_deferred_check() {
-  local f="${APP_DIR}/data/ops/update-deferred"
+  local f="${ORWELL_RUN_DIR:-/run/orwell}/update-deferred" until_epoch now text
   [[ -f "$f" && ! -L "$f" ]] || return 0
-  warn "an update is DEFERRED (a game is live) — it runs on its own once the game is idle: $(tr '\n' ' ' < "$f" | sed 's/ *$//')"
+  # Stale (the updater died without clearing it): ignore once past proceeds_by + 10 min.
+  until_epoch="$(sed -n 's/^proceeds_by_epoch=//p' "$f" | tail -1 | tr -cd '0-9')"
+  now="$(date +%s)"
+  if [[ -n "$until_epoch" ]] && (( now > until_epoch + 600 )); then return 0; fi
+  text="$(tr -cd '[:print:]\n' < "$f" | tr '\n' ' ' | sed 's/ *$//')"
+  warn "an update is DEFERRED (a game is live) — it runs on its own once the game is idle: ${text}"
   info "to run it now (cuts any live game): bash ${APP_DIR}/deploy/orwell-update.sh --force"
 }
 
