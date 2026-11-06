@@ -60,6 +60,8 @@ describe("duration-aware shard assignment (ORW-218)", () => {
     expect(() => assertPartition(withNew, legs)).not.toThrow();
   });
 
+  // Drift note: this bound is computed from the committed table, not from fresh timings, so it only fails when the table or the split algorithm changes
+  // (e.g. a handful of new heavy files recorded without re-running the greedy pass). It cannot see real-runner drift; the per-leg CI times in the PR body do.
   it("is balanced: heaviest leg <= mean + the single heaviest file (the greedy LPT bound), and within 15% of the mean for 4 legs", () => {
     const legs = assignShards(files, durations, 4);
     const loads = legs.map((l) => l.reduce((n, f) => n + weight(f), 0));

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { BaseSequencer } from "vitest/node";
 
@@ -71,6 +71,15 @@ export default class DurationShardSequencer extends BaseSequencer {
     const legs = assignShards([...byRel.keys()], durations, count);
     assertPartition([...byRel.keys()], legs);
     const mine = legs[index - 1] ?? [];
+    // Cross-leg proof (ci/check-shard-union.mjs, run by the `coverage` job over all four legs): every leg records the full list vitest handed it and its own slice.
+    const manifestDir = process.env.ORWELL_SHARD_MANIFEST_DIR;
+    if (manifestDir) {
+      mkdirSync(manifestDir, { recursive: true });
+      writeFileSync(resolve(manifestDir, `shard-${index}-of-${count}.files.json`), JSON.stringify({ index, count, all: [...byRel.keys()].sort(), files: [...mine].sort() }, null, 1));
+    }
+    // Non-failing: a test file with no entry gets the median weight (still runs); tell whoever adds it to refresh the table.
+    const unknown = [...byRel.keys()].filter((f) => durations[f] === undefined);
+    if (unknown.length > 0 && index === 1) console.log(`::warning::${unknown.length} test file(s) not in ${DURATIONS_RELATIVE_PATH} (balanced at the median weight): ${unknown.slice(0, 20).join(", ")}${unknown.length > 20 ? ", ..." : ""}`);
     console.log(`[shard ${index}/${count}] ${mine.length} of ${byRel.size} files, est. ${Math.round(mine.reduce((n, f) => n + Math.max(MIN_WEIGHT_MS, durations[f] ?? 0), 0) / 1000)} s of test time`);
     return mine.map((f) => byRel.get(f)!);
   }
