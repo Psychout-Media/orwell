@@ -33,8 +33,11 @@ def measured(tmp_path_factory):
     if not _NODE:
         pytest.skip("node not available")
     d = tmp_path_factory.mktemp("orw156")
-    for name in ("markdown", "markdown.js", "emojiShortcodes.js", "streamingSegmenter.js", "streamingRenderer.js"):
+    # frameBatch.js: markdown.js imports it once ORW-157 (#2261) lands; copied when present so this harness works on either side of it
+    for name in ("markdown", "markdown.js", "emojiShortcodes.js", "streamingSegmenter.js", "streamingRenderer.js", "frameBatch.js"):
         src = os.path.join(STATIC_JS, name)
+        if not os.path.exists(src):
+            continue
         if os.path.isdir(src):
             shutil.copytree(src, d / name)
         else:
@@ -48,8 +51,10 @@ def measured(tmp_path_factory):
     return json.loads(p.stdout.strip().splitlines()[-1])
 
 
-def test_renders_per_token_stay_flat(measured):
-    a, b = measured["prose2000"], measured["prose8000"]
+# "speech" is the game's usual reply: `@[Name]` speaker lines, each continued by narration (indented as the same speech)
+@pytest.mark.parametrize("kind", ["prose", "speech"])
+def test_renders_per_token_stay_flat(measured, kind):
+    a, b = measured[f"{kind}2000"], measured[f"{kind}8000"]
     # was ~10,000+ renders for ~500 deltas (20+ per token); now ~1 tail render per token + a few per block
     assert a["calls"] / a["deltas"] < 2.5, a
     assert b["calls"] / b["deltas"] < 2.5, b
@@ -57,14 +62,16 @@ def test_renders_per_token_stay_flat(measured):
     assert (b["calls"] / b["deltas"]) < (a["calls"] / a["deltas"]) * 1.3, (a, b)
 
 
-def test_work_is_linear_in_new_text(measured):
-    a, b = measured["prose2000"], measured["prose8000"]
+@pytest.mark.parametrize("kind", ["prose", "speech"])
+def test_work_is_linear_in_new_text(measured, kind):
+    a, b = measured[f"{kind}2000"], measured[f"{kind}8000"]
     ratio = b["chars"] / a["chars"]  # characters handed to the markdown renderer; 4x the text must cost ~4x (quadratic: ~16x)
     assert ratio < 7, f"markdown input grew {ratio:.1f}x for 4x the text (quadratic) - {a} {b}"
 
 
 def test_streamed_output_matches_one_full_render(measured):
     assert measured["prose2000"]["parity"] and measured["prose8000"]["parity"]
+    assert measured["speech2000"]["parity"] and measured["speech8000"]["parity"]
     assert measured["cases"]["mixed"]["parity"], measured["cases"]["mixed"]
 
 
@@ -76,7 +83,9 @@ def test_fenced_code_streams_without_the_fullrender_fallback(measured):
 def test_loose_list_never_freezes_across_the_blank_line(measured):
     assert measured["looseListCommitted"] == 0
     assert measured["proseCommitted"] == measured["proseSplitAt"]  # ordinary prose freezes (the live tail's first line is still arriving)
-    assert measured["proseCommittedLater"] == measured["proseSplitLater"]  # ...and one block further once that line is complete
+    # a cut is judged only once the block AFTER it is complete, so the verdict never depends on how much of that block had arrived
+    assert measured["proseCommittedHalf"] == measured["proseSplitAt"]
+    assert measured["proseCommittedLater"] == measured["proseSplitLater"]
 
 
 # ---- source pins: chat.js keeps its conventions around the coalescing ----------------------------------------------------------------
@@ -107,8 +116,18 @@ def test_sender_and_mirror_share_one_coalescer():
     live = live[:live.index("\n  }\n")]
     assert "_makeFrameCoalescer(" in live and "state._replyCo.soon()" in live  # the mirror/observer paints through the same helper
     assert "!state._replyPainted" in live  # ...with a synchronous first paint
-    # every observer settle flushes the coalesced paint before the canonical rebuild
-    assert chat.count("_liveState._replyCo.now()") == 4
+    # ...also for a NEW reply container (the OOC wrap flipped and the old one was removed): no empty mirror frame
+    assert "state._replyPainted = false;" in live[live.index("state._replyRenderer = createStreamRenderer("):]
+    # Greptile on #2260: the read loops must NOT flush per network chunk (that skipped the frame batching the sender has); each loop
+    # flushes ONCE after it ends, on every way out ([DONE], end of stream, a drop), before its settle
+    assert chat.count("_liveState._replyCo.now()") == 2
+    for fn in ("async function _trySelfResume(", "export async function resumeStream("):
+        body = chat[chat.index(fn):]
+        body = body[:body.index("\n  }\n")]
+        loop = body[body.index("readLoop:"):body.index("} catch (e) {", body.index("readLoop:"))]
+        assert "_replyCo.now()" not in loop, fn
+        after = body[body.index("} catch (e) {", body.index("readLoop:")):]
+        assert after.index("_liveState._replyCo.now()") < min(i for i in (after.find("chatState._resumingStreams.delete"), after.find("cleanup();")) if i != -1), fn
 
 
 def test_reasoning_still_never_reaches_the_body():
@@ -126,10 +145,61 @@ def test_a_frozen_block_never_shows_text_the_final_render_hides(measured, case):
     blocks must never paint something the settled render would hide: every frozen prefix is a prefix of the final render."""
     r = measured["scrub"][case]
     assert r["bad"] == [], r
-    if case != "asideSpanningBlocks":  # a mid-reply ((aside)) is settled by chat.js re-rendering the finished message from source; mid-stream only "never un-show" matters
-        assert r["parity"], case
+    # nothing is frozen past (or just before) an aside, so even a mid-reply ((aside)) streams to exactly the settled render
+    assert r["parity"], case
 
 
 def test_the_scrubs_are_really_on_in_the_harness(measured):
     # otherwise the prefix test above is vacuous: the final render must actually hide the leak text
     assert measured["scrubActive"]["npc"] and measured["scrubActive"]["op"], measured["scrubActive"]
+
+
+# ---- context markers: speech and asides depend on OTHER paragraphs, so they are never split across frozen chunks (ship gate F5) --------
+CONTEXT_CASES = ["continuation", "handOff", "restated", "asideMultiLine"]
+
+
+@pytest.mark.parametrize("case", CONTEXT_CASES)
+def test_live_render_equals_a_full_render_at_every_step(measured, case):
+    """A speaker line indents the paragraphs that continue its speech (not the one handing off to the next speaker), and F-6 drops a
+    later block that restates an earlier block by the same speaker (Greptile on #2260). Neither can be decided by one frozen piece on
+    its own: each piece is rendered in its speech context, a restatement latches the whole-reply render, and asides never freeze. So the
+    live DOM must equal a full render of the same text at EVERY step, as the pre-ORW-156 full re-render did."""
+    live = measured["speech"][case]["live"]
+    assert live["at"] is None, live
+
+
+@pytest.mark.parametrize("case", CONTEXT_CASES)
+def test_a_late_joining_mirror_paints_the_same_dom_as_the_sender(measured, case):
+    """Where a reply gets frozen must not depend on how its deltas arrived: a window that joins mid-stream (one update with everything so
+    far) paints exactly the DOM of the window that streamed it delta by delta. With an aside judged early (opened, not yet closed) the
+    two used to place the producer-aside bubble differently."""
+    assert measured["speech"][case]["lateJoin"] == [], measured["speech"][case]["lateJoin"]
+
+
+def test_the_speech_cases_are_not_vacuous(measured):
+    assert measured["speechQuoteCountSettled"] == 1  # the settled render really collapses the restated answer
+    assert measured["speechContIndented"]  # ...and really indents a continued speech
+
+
+@pytest.mark.parametrize("case", ["continuation", "handOff"])
+def test_a_speech_keeps_freezing_with_its_context(measured, case):
+    # the paragraphs of a speech are frozen too (each piece rendered in its speech context), not held in the live tail
+    assert measured["speech"][case]["live"]["frozenMax"] >= 4, measured["speech"][case]
+
+
+def test_an_aside_stops_even_a_completed_code_fence_from_freezing(measured):
+    # the closed-fence branch used to freeze unconditionally, past an open aside; now nothing at or just before the aside freezes
+    assert measured["asideFenceCommitted"] == 0 < measured["asideAt"]
+
+
+def test_two_windows_paint_the_same_dom_at_every_step_on_random_replies(measured):
+    """Fixed-seed random game replies (speech, narration, lists, quotes, headings, code fences, scrubbed lines, restatements): a window
+    that joins at ANY step paints exactly the DOM of the window that streamed the reply (ship gate F5)."""
+    r = measured["random"]
+    assert r["cases"] == 30 and r["stepMismatch"] == 0, r["firstBad"]
+
+
+def test_random_replies_settle_to_the_full_render(measured):
+    # the one documented exception is a reply whose last line is a bare `@[Name]` tag (see the harness)
+    r = measured["random"]
+    assert r["endMismatch"] == 0, r["firstBad"]

@@ -1942,8 +1942,9 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
               ? liveReply._streamRenderer
               : (liveReply._streamRendererOoc = _liveOoc.ooc,
                  liveReply._streamRenderer = createStreamRenderer(liveReply, {
-                   render: (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t)),
+                   render: (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx),
                    hljs: window.hljs,
+                   needsFullRender: markdownModule.createRestatementWatch(),
                  }));
             r.update(replyTrimmed);
           }
@@ -1957,8 +1958,9 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
           ? contentEl._streamRenderer
           : (contentEl._streamRendererOoc = _liveOoc.ooc,
              contentEl._streamRenderer = createStreamRenderer(contentEl, {
-               render: (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t)),
+               render: (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx),
                hljs: window.hljs,
+               needsFullRender: markdownModule.createRestatementWatch(),
              }));
         renderer.update(displayText);
         uiModule.scrollHistory();
@@ -4708,7 +4710,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
 
     const bodyDiv = holder.querySelector('.body');
     const _liveState = {};
-    const _liveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
+    const _liveRender = (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx);
     const renderDelta = () => {
       if (bodyDiv) _renderLiveStream(bodyDiv, replyText, reasoningText, _liveRender, _liveState, holder);
     };
@@ -4733,7 +4735,6 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
           const payload = line.slice(6);
           if (payload === '[DONE]') {
             if (paintDirty) { paintDirty = false; renderDelta(); }
-            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
             try { await reader.cancel(); } catch (_) {}
             break readLoop;
           }
@@ -4768,11 +4769,13 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
           }
         }
         if (paintDirty) { paintDirty = false; renderDelta(); }
-            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
       }
     } catch (e) {
       // Second drop during self-resume — keep accumulated, cleanup below
     }
+    // ORW-156: the per-chunk paints above go through the shared per-frame coalescer (as the sender's do); flush it ONCE here, on every way
+    // out of the loop ([DONE], end of stream, a drop), so the settle below never races a late frame and never misses the last delta.
+    if (_liveState._replyCo) _liveState._replyCo.now();
 
     chatState._resumingStreams.delete(sessionId);
 
@@ -5065,7 +5068,10 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       contentDiv.appendChild(replyEl);
       state._replyEl = replyEl;
       state._replyRendererOoc = _liveOoc.ooc;
-      state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs });
+      state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs, needsFullRender: markdownModule.createRestatementWatch() });
+      // ORW-156: a NEW reply container (first delta, or the OOC wrap flipped and the old one was just removed) paints synchronously, as the
+      // sender's re-created renderer does, so the mirror never shows an empty reply for a frame.
+      state._replyPainted = false;
     }
     // ORW-156: the first reply paint is synchronous; later deltas are coalesced to one per frame through the SAME coalescer the sender uses.
     state._pendingReplySrc = replySrc;
@@ -5257,7 +5263,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
     // sender's `_renderStream` feeds createStreamRenderer. Supplied to the shared `_renderLiveStream`
     // so the observer never invents its own markdown path (it shares the sender's), and any inline
     // <think>/operator-aside scrub the game build applies in processWithThinking runs here too.
-    const _liveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
+    const _liveRender = (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx);
     const renderDelta = () => {
       _renderLiveStream(contentDiv, replyText, reasoningText, _liveRender, _liveState, holder);
     };
@@ -5286,7 +5292,6 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
             // terminal replay whose reply + `[DONE]` ride one burst would skip the chunk-end
             // paint batch and never mount the incremental container (ship-gate F5).
             if (paintDirty) { paintDirty = false; renderDelta(); }
-            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
             try { await reader.cancel(); } catch (_) {}
             break readLoop;
           }
@@ -5380,13 +5385,15 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
             rich = true;
           }
         }
-        // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check).
+        // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check). ORW-156: after the first paint this paint goes
+        // through the shared per-frame coalescer, exactly like the sender's, so several chunks inside one frame paint once.
         if (paintDirty) { paintDirty = false; renderDelta(); }
-            if (_liveState._replyCo) _liveState._replyCo.now();   // ORW-156: settle sees the final text, never a coalesced-away delta
       }
     } catch (e) {
       // Network drop or parse failure: fall through to the reload below.
     }
+    // ORW-156: flush the coalesced paint ONCE, on every way out of the loop ([DONE], end of stream, leaving, a drop), before the settle.
+    if (_liveState._replyCo) _liveState._replyCo.now();
 
     cleanup();
     if (leftSession) { if (holder.parentNode) holder.remove(); return true; }

@@ -290,25 +290,29 @@ function _extractInlineOocAsides(reply) {
 // turn; the rounds stack into one bubble. A later `@[Name] ...` block that restates an earlier block by the SAME speaker - mostly covered (>= ~35% of its 8-word runs) by
 // the earlier block - is the second rendition: drop it AND its untagged continuation paragraphs (the player already read the first). Paragraphs that are genuinely new are kept; blocks by
 // other speakers, and text with no speaker blocks, are never touched. Pure; no restatement => the text is returned unchanged.
+const _rrWords = (s) => s.toLowerCase().replace(/@\[[^\]]*\]/g, ' ').replace(/[^a-z0-9']+/g, ' ').trim().split(' ').filter(Boolean);
+const _rrShingles = (w, n) => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' ')); return out; };
+const _rrSpeakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
+// A restatement is a SUBSTANTIAL duplication: at least ~a third of this block's 8-word runs were already shown by the same speaker. One
+// shared phrase in an otherwise new paragraph is NOT a restatement (the new content is kept).
+const _rrRestated = (prior, sh) => {
+  if (!prior || !sh.size) return false;
+  let hit = 0;
+  for (const s of sh) { if (prior.has(s)) hit++; }
+  return hit / sh.size >= 0.35;
+};
 function _collapseRestatedReply(text) {
   if (!text || text.indexOf('@[') < 0) return text;
   const paras = String(text).split(/\n{2,}/);
-  const words = (s) => s.toLowerCase().replace(/@\[[^\]]*\]/g, ' ').replace(/[^a-z0-9']+/g, ' ').trim().split(' ').filter(Boolean);
-  const shingles = (w, n) => { const out = new Set(); for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' ')); return out; };
-  const speakerOf = (p) => { const m = /^\s*@\[([^\]]+)\]/.exec(p); return m ? m[1].trim().toLowerCase() : null; };
   const seen = new Map();            // speaker -> Set of 8-word shingles already shown
   const kept = [];
   let dropped = false, skipping = false;
   for (const p of paras) {
-    const sp = speakerOf(p);
+    const sp = _rrSpeakerOf(p);
     if (!sp) { if (skipping) continue; kept.push(p); continue; }   // untagged continuation of a dropped block goes with it
-    const sh = shingles(words(p), 8);
+    const sh = _rrShingles(_rrWords(p), 8);
     const prior = seen.get(sp);
-    // A restatement is a SUBSTANTIAL duplication: at least ~a third of this block's 8-word runs were already shown by the same speaker. One
-    // shared phrase in an otherwise new paragraph is NOT a restatement (the new content is kept).
-    let restated = false;
-    if (prior && sh.size) { let hit = 0; for (const s of sh) { if (prior.has(s)) hit++; } restated = hit / sh.size >= 0.35; }
-    if (restated) { dropped = true; skipping = true; continue; }
+    if (_rrRestated(prior, sh)) { dropped = true; skipping = true; continue; }
     skipping = false;
     const acc = prior || new Set();
     sh.forEach((s) => acc.add(s));
@@ -316,6 +320,42 @@ function _collapseRestatedReply(text) {
     kept.push(p);
   }
   return dropped ? kept.join('\n\n') : text;
+}
+
+// ORW-156: the streaming renderer freezes finished paragraphs and renders the live tail on its own, so the tail cannot see the earlier
+// paragraphs F-6's collapse needs (a later `@[Name]` block that restates an earlier block by the same speaker is dropped). This watch answers
+// "would the whole-reply render collapse a restatement here?" for a growing, append-only text, folding each finished paragraph in ONCE (the
+// per-call work is O(new text)). It mirrors _collapseRestatedReply exactly (same helpers); the still-growing last paragraph is checked but
+// not folded in. Once it says yes it stays yes: the caller renders the whole reply (the pre-ORW-156 path) for the rest of that stream, which
+// is always correct. A false yes only costs speed. Only the game build collapses restatements, so elsewhere it always says no.
+export function createRestatementWatch() {
+  const seen = new Map();
+  let scanned = 0;   // text before this offset is whole paragraphs already folded into `seen`
+  let prefix = '';   // text.slice(0, scanned) at the previous call (append-only check)
+  let hit = false;
+  const restates = (p, commit) => {
+    const sp = _rrSpeakerOf(p);
+    if (!sp) return false;
+    const sh = _rrShingles(_rrWords(p), 8);
+    if (_rrRestated(seen.get(sp), sh)) return true;
+    if (commit) { const acc = seen.get(sp) || new Set(); sh.forEach((s) => acc.add(s)); seen.set(sp, acc); }
+    return false;
+  };
+  return function wouldCollapse(text) {
+    if (hit) return true;
+    if (!text || text.indexOf('@[') < 0 || !gameBuildSuppressesThinking()) return false;
+    if (scanned > text.length || text.slice(0, scanned) !== prefix) { seen.clear(); scanned = 0; }   // not an extension: start over
+    const sep = /\n{2,}/g;
+    sep.lastIndex = scanned;
+    let m;
+    while ((m = sep.exec(text)) !== null) {
+      if (restates(text.slice(scanned, m.index), true)) { hit = true; return true; }
+      scanned = m.index + m[0].length;
+    }
+    prefix = text.slice(0, scanned);
+    if (restates(text.slice(scanned), false)) { hit = true; return true; }
+    return false;
+  };
 }
 
 export function redactRawIds(text) {
@@ -1251,19 +1291,38 @@ function _scanTopLevelBlocks(html) {
 // Idempotent: only ow-speaker-line <p>s (already carrying the placeholder-derived class) start a
 // run, and a continuation <p> is only ever marked, never re-scanned as a fresh start — a second
 // pass over already-processed HTML finds the same speaker lines and produces the same runs.
-function _extendSpeakerContinuations(html) {
+//
+// ORW-156 `ctx` (streaming only; omitted everywhere else, which is the unchanged behaviour): the streaming renderer renders a reply in
+// pieces (frozen paragraphs + the live tail), so a speech can cross a piece boundary. `ctx.runOpen` says a speech is still open where this
+// piece starts (its leading untagged <p>s continue it); `ctx.handOff` says the block right after this piece is a NEW speaker line (so a run
+// reaching this piece's end is stopped there, and its last paragraph is the hand-off). `ctx.runOpenAtEnd` is set to whether a speech is
+// open at this piece's end, for the next piece. Each piece then carries exactly the classes the whole-reply render gives it.
+function _extendSpeakerContinuations(html, ctx) {
   const nodes = _scanTopLevelBlocks(html);
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i].kind !== 'p' || !nodes[i].isSpeakerLine) continue;
+  const handOffAtEnd = !!(ctx && ctx.handOff);
+  const markRun = (start) => {
     const run = [];
-    let j = i + 1;
+    let j = start;
     while (j < nodes.length && nodes[j].kind === 'p' && !nodes[j].isSpeakerLine) {
       run.push(j);
       j++;
     }
-    const stoppedByNewSpeaker = j < nodes.length && nodes[j].kind === 'p' && nodes[j].isSpeakerLine;
+    const stoppedByNewSpeaker = j < nodes.length ? (nodes[j].kind === 'p' && nodes[j].isSpeakerLine) : handOffAtEnd;
     if (stoppedByNewSpeaker && run.length) run.pop(); // the hand-off paragraph stays unindented
     for (const k of run) nodes[k].continuation = true;
+  };
+  if (ctx && ctx.runOpen) markRun(0); // a speech carried in from the frozen text before this piece
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].kind !== 'p' || !nodes[i].isSpeakerLine) continue;
+    markRun(i + 1);
+  }
+  if (ctx) {
+    let open = !!ctx.runOpen;
+    for (const node of nodes) {
+      if (node.kind !== 'p') open = false;
+      else if (node.isSpeakerLine) open = true;
+    }
+    ctx.runOpenAtEnd = open;
   }
   let out = html;
   for (let i = nodes.length - 1; i >= 0; i--) {
@@ -1280,8 +1339,20 @@ function _extendSpeakerContinuations(html) {
 // line (chip in the gutter, dialogue beside it), and the treatment extends to the rest of that
 // same speech (see _extendSpeakerContinuations); any other leftover placeholder gets an inline
 // chip. Pure apart from the one-time CSS injection.
-export function restoreSpeakerChips(html, chips) {
-  if (!html || !chips || !chips.length) return html;
+//
+// ORW-156 `ctx` (streaming only; see _extendSpeakerContinuations): `{ runs: 'skip' }` renders WITHOUT the continuation pass (the streaming
+// cut check compares structure; the speech classes are given to each piece through the context instead); `{ runOpen, handOff }` renders
+// one piece of a reply in its speech context and reports `runOpenAtEnd`. No `ctx` = the unchanged whole-reply render.
+export function restoreSpeakerChips(html, chips, ctx) {
+  const sctx = ctx && typeof ctx === 'object' && ctx.runs !== 'skip' ? ctx : null;
+  if (!html || !chips || !chips.length) {
+    // no speaker line in this piece, but a speech carried in from the frozen text before it still continues into its paragraphs
+    if (sctx) {
+      if (html && sctx.runOpen) return _extendSpeakerContinuations(html, sctx);
+      sctx.runOpenAtEnd = !html && !!sctx.runOpen;
+    }
+    return html;
+  }
   ensureSpeakerCss();
   const chipFor = (i) => {
     const c = chips[+i];
@@ -1297,14 +1368,24 @@ export function restoreSpeakerChips(html, chips) {
   let out = String(html).replace(
     /<p>(\s*)___OWSPK_(\d+)___[ \t]*/g,
     (_m, _ws, i) => `<p class="ow-speaker-line">${chipFor(i)}`);
-  out = _extendSpeakerContinuations(out);
+  if (!(ctx && typeof ctx === 'object' && ctx.runs === 'skip')) out = _extendSpeakerContinuations(out, sctx);
   // Fallback: any placeholder mdToHtml did NOT wrap in its own <p> (a list item, an inline
   // position) gets a bare inline chip so the tag never renders as raw text.
   out = out.replace(/___OWSPK_(\d+)___[ \t]*/g, (_m, i) => chipFor(i));
   return out;
 }
 
-export function processWithThinking(text) {
+// ORW-156 `ctx` (optional; only the streaming renderer passes it, every other caller renders the whole reply exactly as before):
+//   { runs: 'skip' }                 render without the speech-continuation pass (the streaming cut check compares structure only);
+//   { runOpen, lookahead }           render one PIECE of a reply in its speech context: `runOpen` = a speech is open where this piece starts,
+//                                    `lookahead` = the complete block right after it ('' = the piece ends the text). Sets `ctx.runOpenAtEnd`.
+export function processWithThinking(text, ctx) {
+  const sctx = ctx && typeof ctx === 'object' && ctx.runs !== 'skip' ? ctx : null;
+  if (sctx) {
+    // the piece's last speech paragraph is a hand-off exactly when the next block starts a new speaker line
+    sctx.handOff = !!sctx.lookahead && /^\s*<p class="ow-speaker-line"/.test(processWithThinking(sctx.lookahead, { runs: 'skip' }));
+    sctx.runOpenAtEnd = !!sctx.runOpen; // nothing below renders a speaker paragraph: the speech state passes through unchanged
+  }
   const { thinkingBlocks, content, thinkingTime } = extractThinkingBlocks(text);
 
   // Game build: the public bubble shows ONLY the clean reply; the reasoning goes
@@ -1421,7 +1502,7 @@ export function processWithThinking(text) {
       // M3-2: restore the extracted speaker tags into face chips on the rendered HTML — a
       // `___OWSPK_N___` placeholder mdToHtml wrapped as its own paragraph becomes a flex
       // speaker line (chip in the gutter beside the dialogue). No-op when there were no tags.
-      const replyHtml = restoreSpeakerChips(mdToHtml(reply), spk.chips);
+      const replyHtml = restoreSpeakerChips(mdToHtml(reply), spk.chips, ctx);
       gbHtml += oocAside ? `<div class="ooc-producer-aside">${replyHtml}</div>` : replyHtml;
     }
     for (const a of inlineAsides) {
@@ -1839,6 +1920,7 @@ const markdownModule = {
   composeThinkSource,
   extractSpeakerTags,
   restoreSpeakerChips,
+  createRestatementWatch,
   renderMermaid
 };
 

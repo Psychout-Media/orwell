@@ -20,13 +20,18 @@
 // is deliberately mechanical. If anything throws, it latches into a full-re-render
 // fallback so a bug can never produce broken output — only today's behavior.
 
-import { splitFinalized, describeOpenFence } from './streamingSegmenter.js';
+import { splitFinalized, describeOpenFence, blockEndAt } from './streamingSegmenter.js';
 
 // Compile-time escape hatch: set to false to force the plain full-re-render path.
 // (The per-instance try/catch `degraded` fallback below is the runtime safety net.)
 const ENABLED = true;
 
-export function createStreamRenderer(contentEl, { render, hljs } = {}) {
+// ORW-156: `render(src, ctx)` may take an optional second argument (markdown.js processWithThinking does). Frozen pieces and the tail are
+// rendered with `{ runOpen, lookahead }` so a speech that crosses a piece boundary gets exactly the classes the whole-reply render gives it
+// (`runOpen`: a speech is open where the piece starts; `lookahead`: the complete block after it; the render reports `runOpenAtEnd`); the cut
+// check renders with `{ runs: 'skip' }` (structure only). A render that ignores the argument keeps the old behaviour.
+// `needsFullRender(fullText)` (optional): true once the reply needs the whole-reply render (F-6's restatement collapse); it latches.
+export function createStreamRenderer(contentEl, { render, hljs, needsFullRender = null } = {}) {
   let started = false;
   let tailMarker = null; // finalized nodes precede it; live-tail nodes follow it
   let committedLen = 0; // chars of source already frozen
@@ -35,6 +40,8 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
   let appendMode = null; // { codeText: Text, appendedLen } while an open fence streams
   let degraded = !ENABLED; // true once we fall back to full re-render
   const cutMemo = new Map(); // boundary offset -> proven-safe verdict (ORW-156: prove each cut once, not per delta)
+  let runOpen = false; // ORW-156: a speech (speaker line + its continuation paragraphs) is open where the frozen text ends
+  const checkRender = (src) => render(src, { runs: 'skip' });
 
   function start() {
     contentEl.textContent = '';
@@ -53,9 +60,11 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
 
   // Render `src` and freeze the nodes before the tail marker. Highlighting happens
   // here, once, on the detached fragment before the nodes are ever shown.
-  function freeze(src) {
+  function freeze(src, lookahead) {
     const holder = document.createElement('div');
-    holder.innerHTML = render(src);
+    const ctx = { runOpen, lookahead };
+    holder.innerHTML = render(src, ctx);
+    runOpen = !!ctx.runOpenAtEnd;
     highlight(holder);
     while (holder.firstChild) contentEl.insertBefore(holder.firstChild, tailMarker);
   }
@@ -74,7 +83,7 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
       return;
     }
     const holder = document.createElement('div');
-    holder.innerHTML = render(tailText);
+    holder.innerHTML = render(tailText, { runOpen, lookahead: '' });
     fadeNewText(holder, tailShownLen);
     tailShownLen = holder.textContent.length;
     while (holder.firstChild) contentEl.appendChild(holder.firstChild);
@@ -153,6 +162,11 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
       return;
     }
     try {
+      if (needsFullRender && needsFullRender(fullText)) {
+        degraded = true; // ORW-156: e.g. a restated answer only the whole-reply render collapses; the old full render from here on
+        fullRender(fullText);
+        return;
+      }
       // Self-heal: if our DOM was replaced out from under us — chat.js writes
       // contentEl.innerHTML directly for thinking indicators and tool blocks, and
       // finalize() removes the marker — our tail marker is no longer a child of the
@@ -164,11 +178,12 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
         tailShownLen = 0;
         appendMode = null;
         cutMemo.clear();
+        runOpen = false;
       }
       if (!started) start();
-      const next = splitFinalized(fullText, render, committedLen, cutMemo);
+      const next = splitFinalized(fullText, checkRender, committedLen, cutMemo);
       if (next > committedLen) {
-        freeze(fullText.slice(committedLen, next));
+        freeze(fullText.slice(committedLen, next), fullText.slice(next, blockEndAt(fullText, next)));
         committedLen = next;
         appendMode = null; // whatever was streaming is now frozen
         tailShownLen = 0;
@@ -193,7 +208,7 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
       clearTail();
       appendMode = null;
       const rest = lastText.slice(committedLen);
-      if (rest.trim()) freeze(rest);
+      if (rest.trim()) freeze(rest, '');
       tailMarker.remove();
       tailMarker = null;
       committedLen = lastText.length;

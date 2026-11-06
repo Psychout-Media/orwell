@@ -120,7 +120,11 @@ function cutIsRenderSafe(before, after, render) {
   // NOTHING ever froze (committedLen stayed 0; every delta re-rendered the whole reply). Whitespace BETWEEN
   // block tags is presentation-inert, so compare with it collapsed. Real merge hazards (a loose list, a
   // lazy continuation, an indented block) still change the tags/text and still fail the check.
-  return normalizeBlockGaps(render(before) + render(after)) === normalizeBlockGaps(render(before + after));
+  const renderedAfter = render(after);
+  // A block that renders to nothing (a scrubbed operator line, say) cannot show the piece before it what comes next (the stream renderer
+  // decides a speech hand-off from the block after a frozen piece), so the cut before it waits for the cut after it.
+  if (!renderedAfter.trim()) return false;
+  return normalizeBlockGaps(render(before) + renderedAfter) === normalizeBlockGaps(render(before + after));
 }
 
 // Only the whitespace AFTER a closing block tag (or an <hr>) is presentation-inert; inline whitespace (`</em> <strong>`) is content and is kept.
@@ -128,72 +132,94 @@ function normalizeBlockGaps(html) {
   return html.replace(/(<\/(?:p|ul|ol|li|pre|blockquote|div|table|h[1-6])>|<hr\s*\/?>)\s+(?=<)/g, '$1').trim();
 }
 
+// A `((production aside))` (or an inline `<think>`) renders as ONE unit with its position in the whole reply: the game-build scrub, the
+// whole-message OOC wrap and the inline-aside extraction (which moves an aside bubble to the END of the prose) all see the whole reply. A
+// frozen piece is rendered once, alone. So nothing is frozen past an aside marker, and the cut just before the block that holds one is
+// refused too (the tail would start with the aside and render it ahead of the prose that follows it). From there the reply stays in the
+// live tail until it settles: the pre-ORW-156 behaviour, for the rare reply that has an aside. A completed code fence after the marker is
+// covered as well (the fence branch used to skip this check). One regex pass over the unfrozen text per call (O(tail)).
+//
+// Speech (a `@[Name]` speaker line and the paragraphs that continue it) does NOT stop freezing: the stream renderer gives each piece its
+// speech context instead (see streamingRenderer.js), and F-6's restatement collapse latches the whole-reply render (markdown.js).
+const ASIDE_MARKER_RE = /\(\(|\)\)|<\/?think/i;
+function firstAsideMarker(text, from) {
+  const m = ASIDE_MARKER_RE.exec(from > 0 ? text.slice(from) : text);
+  return m ? from + m.index : -1;
+}
+
 /**
  * Return how many leading characters of `text` can be safely finalized, scanning
  * forward from `committedLen` (the amount already finalized).
  *
  * Guarantees `render(text.slice(0, n)) + render(text.slice(n)) === render(text)`
- * (modulo inter-block whitespace), and `committedLen <= n <= text.length`.
+ * (modulo inter-block whitespace), and `committedLen <= n <= text.length`. Never
+ * cuts past, or just before, an aside or an inline <think> (see above).
  *
  * `memo` (optional Map, owned by one stream renderer) remembers each boundary's verdict by offset so a
- * boundary is proven ONCE, not on every delta (the per-token work stays O(new text)). A boundary is only
- * judged once the block after it has a complete first line (or a later boundary exists): whether anything
- * can merge across a blank line is decided by that first line (list marker, indent, ...), and judging an
- * empty or half-typed line would be a coin toss. Without a memo every call re-proves (the old behaviour).
+ * boundary is proven ONCE, not on every delta (the per-token work stays O(new text)). With a memo, a prose
+ * boundary is only judged once the block AFTER it is complete (a later boundary exists): the verdict then
+ * depends on the text alone, never on how much of that block had arrived. So two windows that received the
+ * same text in different chunks freeze at exactly the same places (ship gate F5), and the stream renderer
+ * can pass that complete block on as the frozen piece's look-ahead. The cost is one more block in the live
+ * tail. Without a memo every call re-proves on whatever has arrived (the old behaviour).
  *
  * @param {string} text       Full markdown accumulated so far.
- * @param {(src:string)=>string} render  Canonical markdown renderer.
+ * @param {(src:string)=>string} render  Canonical markdown renderer (the stream renderer passes its structure-only cut-check render).
  * @param {number} [committedLen=0]  Characters already finalized (always a prior boundary).
  * @param {Map<number, boolean>} [memo]
  * @returns {number}
  */
-// A `((production aside))` can span several blocks, and the game-build scrub (and the whole-message OOC wrap) treat the aside, and its
-// position in the reply, as ONE unit. Freezing a block of an aside, or text around one, can paint something the settled render hides or
-// wraps differently (found by the ORW-156 scrub-safety tests). So nothing is frozen past an aside marker: the reply simply stays in the
-// live tail until it settles (the old behaviour, for the rare reply that has an aside).
-function hasAside(text, from, to) {
-  const seg = text.slice(from, to);
-  return seg.indexOf('((') !== -1 || seg.indexOf('))') !== -1;
-}
-
 export function splitFinalized(text, render, committedLen = 0, memo = null) {
   const { boundaries } = findBoundaries(text, committedLen);
+  const asideAt = firstAsideMarker(text, committedLen);
 
   let best = committedLen;
   let segStart = committedLen;
 
   for (let k = 0; k < boundaries.length; k++) {
-    const { offset, afterClosedFence } = boundaries[k];
+    const { offset } = boundaries[k];
+    const blockEnd = k + 1 < boundaries.length ? boundaries[k + 1].offset : text.length; // end of the block AFTER this cut
+    if (asideAt !== -1 && asideAt < blockEnd) break; // never freeze past, or just before, an aside / <think> (see above)
 
-    if (afterClosedFence) {
-      // A completed code block — always safe to freeze through here.
-      best = offset;
+    // Every cut, including the one just past a completed code fence, needs a following block to compare against (the last block must
+    // stay live, it can still grow) and must be render-equivalent locally. ORW-156: the fence cut used to be taken unconditionally. That
+    // is safe for markdown, but the game-build render has position-dependent scrubs (the leading reasoning-preamble scrub drops a line
+    // that STARTS the text), so the piece after an unchecked fence cut could hide a line the whole-reply render shows, and a window that
+    // froze the fence and the next block in one piece showed it (two windows disagreeing, ship gate F5).
+    const hasLater = k + 1 < boundaries.length;
+    const after = text.slice(offset, blockEnd);
+    let safe;
+    if (memo && memo.has(offset)) {
+      safe = memo.get(offset);
+    } else if (after.trim() === '') {
+      safe = false;
+    } else if (memo && !hasLater) {
+      break; // the block after this cut is still arriving: judge it once it is complete (see above)
     } else {
-      // A prose/list/table boundary. We need a following block to compare
-      // against (the last block must stay live, it can still grow), and the cut
-      // must be render-equivalent locally.
-      const hasLater = k + 1 < boundaries.length;
-      const nextOffset = hasLater ? boundaries[k + 1].offset : text.length;
-      const after = text.slice(offset, nextOffset);
-      let safe;
-      if (hasAside(text, committedLen, offset)) {
-        safe = false; // never cached: the aside may close later and the cut become safe
-      } else if (memo && memo.has(offset)) {
-        safe = memo.get(offset);
-      } else if (after.trim() === '') {
-        safe = false;
-      } else if (memo && !hasLater && after.indexOf('\n') === -1) {
-        break; // the next block's first line is still arriving: not judgeable yet, nothing later exists
-      } else {
-        safe = cutIsRenderSafe(text.slice(segStart, offset), after, render);
-        if (memo) memo.set(offset, safe);
-      }
-      if (safe) best = offset;
+      safe = cutIsRenderSafe(text.slice(segStart, offset), after, render);
+      if (memo) memo.set(offset, safe);
     }
-    segStart = offset;
+    if (safe) best = offset;
+    // The next cut compares against the block after this one; if that block is only blank lines (a fence's trailing blank line), keep
+    // comparing against the last real block so the check still sees what precedes the next cut.
+    if (after.trim() !== '') segStart = offset;
   }
 
   return best;
+}
+
+/**
+ * The end of the block that starts at `offset` (the next cut point after it, or the end of the text). The stream renderer uses it to
+ * hand a frozen piece the block that follows it as its look-ahead.
+ *
+ * @param {string} text
+ * @param {number} offset  The start of a block (a cut point returned by splitFinalized).
+ * @returns {number}
+ */
+export function blockEndAt(text, offset) {
+  const { boundaries } = findBoundaries(text, offset);
+  for (const b of boundaries) if (b.offset > offset) return b.offset;
+  return text.length;
 }
 
 /**
