@@ -54,15 +54,14 @@ _RECORD_KINDS = {"bonding", "betrayal", "conflict", "strategy", "alliance", "gos
 # #1729's nondiegetic gate, mirrored: an ((double-parenthesized)) or "ooc:"-prefixed aside is the
 # out-of-character convention momentPrompts.ts documents for the narrator's own asides — never a
 # witnessed world event, on either the player's message or the narration.
-_OOC_WRAP_RE = re.compile(r"^\s*\(\(.*\)\)\s*$", re.DOTALL)
-_OOC_PREFIX_RE = re.compile(r"^\s*ooc\s*:", re.IGNORECASE)
 
 
 def _is_nondiegetic(text: Optional[str]) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    return bool(_OOC_WRAP_RE.match(t) or _OOC_PREFIX_RE.match(t))
+    from src.ooc_aside import is_aside_only  # the shared span-based detector
+    return is_aside_only(t)
 
 
 def _living_house_names(house: list) -> list:
