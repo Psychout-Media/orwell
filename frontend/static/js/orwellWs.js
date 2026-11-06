@@ -111,6 +111,9 @@
   var _highestChatSeq = -1;      // highest `chat` event.seq rendered (reconnect cursor)
   var _chatSubscribed = false;
   var _chatTailActive = false;   // are we tailing a LIVE chat run right now? (§4.1 re-attach guard)
+  // ORW-217: was a LIVE chat run being tailed when the socket last dropped? `onclose` clears `_chatTailActive`, so the reconnect cannot read it; this remembers it until the
+  // reconnect's chat subscribe has been acknowledged. `hasRun:false` on an IDLE reconnect is the normal idle state and must NOT be reported as a vanished run.
+  var _runInFlightAtDrop = false;
   // CodeRabbit fix (2026-07-17): a monotonic generation stamped on each `_onRunStarted` re-attach's
   // OWN `_subscribeChat(0)` call. `_chatTailActive` is a single shared boolean — a STALE reattach A's
   // `hasRun:false` ack can resolve AFTER a genuinely new run B has superseded it (B's own re-attach,
@@ -754,6 +757,7 @@
       // handshake is a fresh authoritative sync point (used for the engine-restart beatSeq self-heal
       // + the run-gone reconcile below).
       var wasReconnect = _reconnectFails > 0 || _highestChatSeq >= 0;
+      var runWasInFlight = _runInFlightAtDrop; // ORW-217: a live run was mid-tail when the socket dropped
       _hello(perTabId).then(function (helloAck) {
         _clearHelloTimer();
         if (!_live) {
@@ -778,11 +782,12 @@
         // Fresh window ⇒ full replay from 0; a reconnect resumes from the gap.
         _subscribeChat(wasReconnect ? _highestChatSeq + 1 : 0)
           .then(function (subAck) {
+            _runInFlightAtDrop = false; // ORW-217: this reconnect's subscribe was answered; the drop is accounted for
             // #1596 — a reconnect whose re-subscribe finds NO live run (`hasRun:false`) means the run
             // we were mid-tail on was INTERRUPTED by the engine restart and is gone. Never sit wedged
             // on the half-painted bubble: emit a resync so the chat tears it down and reconciles from
             // the authoritative history (idempotent — a converged session is a cheap no-op).
-            if (wasReconnect && subAck && subAck.d && subAck.d.hasRun === false) {
+            if (wasReconnect && runWasInFlight && subAck && subAck.d && subAck.d.hasRun === false) {
               // #1599 — the run we were tailing vanished across the reconnect (engine restart mid-turn).
               // This is a REAL interruption being AUTO-CORRECTED (resync → history reconcile); log it with
               // disposition rather than swallowing. A42: it also raises the RED health event.
@@ -829,6 +834,7 @@
     sock.onclose = function () {
       _sock = null;
       _chatSubscribed = false;
+      if (_chatTailActive) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was mid-tail at the drop)
       _chatTailActive = false;
       _edgesSubscribed = false;
       _rebinding = null;
