@@ -823,13 +823,13 @@ export interface SeasonCtx {
   /** B4 slice 4 (ORWELL_ASSURANCES): the bounded shield a KEPT 'vote'/'safe' assurance `voter` made to nominee `n` adds against evicting `n`. Absent => 0, byte-identical. */
   assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
   /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
-  assuranceVotedOut?: (voter: EntityId, nominee: EntityId) => void;
+  assuranceVotedOut?: (voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /** B4 slice 8: the HOH's nominations are final and did NOT include the houseguests they had assured 'safe'/'loyal' - those assurances were KEPT (resolved + the assured remembers a favor, by the adapter). */
   assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
   /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
-  assuranceKeptAtVote?: (voter: EntityId, spared: EntityId) => void;
+  assuranceKeptAtVote?: (voter: EntityId, spared: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 8: the eviction nominees are final (after the veto and any replacement) - every open 'safe' assurance whose assured is NOT on the block was kept. */
   assuranceKeptAtTally?: (finalNominees: readonly EntityId[]) => void;
   /**
@@ -1802,8 +1802,8 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
     const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined);
     votes[target]++;
     voteOf.set(v, target);
-    if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target); // B4 slice 4: voting the assured out breaks the assurance
-    if (ctx.assuranceKeptAtVote) ctx.assuranceKeptAtVote(v, fn[0] === target ? fn[1] : fn[0]); // B4 slice 8: voting the OTHER nominee out spares this one => kept
+    if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target, voters); // B4 slice 4: voting the assured out breaks the assurance (SEALED ballot: ORW-15 - the fold is shared across every voter, never attributed to this one)
+    if (ctx.assuranceKeptAtVote) ctx.assuranceKeptAtVote(v, fn[0] === target ? fn[1] : fn[0], voters); // B4 slice 8 (sealed, ORW-15): voting the OTHER nominee out spares this one => kept
   }
   return { fn, votes, voteOf };
 }
