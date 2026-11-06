@@ -263,3 +263,34 @@ def test_strip_is_the_unlit_class_gate():
     # the not-yet-met class the CSS dims — the visible "lights up" gate.
     assert "os-tile-unmet" in src
     assert ".os-tile-unmet" in src  # the CSS rule exists
+
+
+# ── ORW-196: during the staged entrances the engine's `remaining` holds anonymous ordinal placeholders; the strip dims un-arrived houseguests via `met` ── #
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_unarrived_roster_tiles_are_dimmed_from_the_met_list_during_entrances():
+    fn = _fn_body(_read(PANEL), "premiereUnmetIds")
+    roster = [{"id": "npc:1", "name": "n1"}, {"id": "npc:2", "name": "n2"}, {"id": "npc:3", "name": "n3"}]
+    prem = {
+        "complete": False,
+        "met": [{"houseguest": {"id": "npc:1", "name": "n1"}}],
+        # anonymous ordinal placeholders: they can NOT be joined to roster ids
+        "remaining": [{"houseguest": {"id": "unarrived:1", "name": "(not yet arrived)"}},
+                      {"houseguest": {"id": "unarrived:2", "name": "(not yet arrived)"}}],
+        "entrance": {"stage": "entrances"},
+    }
+    unmet = _node_eval(fn, "premiereUnmetIds(" + json.dumps(prem) + "," + json.dumps(roster) + ")")
+    assert set(unmet) == {"npc:2", "npc:3"}, "the two houseguests not in `met` are dimmed"
+    # once everyone has arrived (toast), every tile is lit
+    prem_done = {"complete": True, "remaining": [], "met": [{"houseguest": {"id": r["id"], "name": r["name"]}} for r in roster]}
+    assert _node_eval(fn, "premiereUnmetIds(" + json.dumps(prem_done) + "," + json.dumps(roster) + ")") == []
+    # the name key also matches (id-or-name, like the tile lighting)
+    assert _node_eval(fn, "premiereUnmetIds(" + json.dumps({"met": [{"houseguest": {"name": "n2"}}]}) + "," + json.dumps(roster) + ")") == ["npc:1", "npc:3"]
+    # no roster argument => the old `remaining`-id behaviour (back-compat)
+    assert _node_eval(fn, "premiereUnmetIds(" + json.dumps(prem) + ")") == ["unarrived:1", "unarrived:2"]
+
+
+def test_the_strip_passes_the_roster_so_unarrived_tiles_dim():
+    src = _read(PANEL)
+    assert "premiereUnmetIds(prem, cards.filter((c) => !c.isPlayer)" in src
+    assert "ALWAYS" not in _fn_body(src, "premiereUnmetIds")
