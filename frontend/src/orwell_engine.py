@@ -432,9 +432,12 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     if name in _DISCLOSURE_TOOLS:
         _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
-        res = await _call_inner(name, args, user=user, timeout=timeout)
-        if name not in engine_read_cache.PURE_READS:
-            engine_read_cache.invalidate(user)  # ...and again once it has landed (a read that raced the write is dropped)
+        try:
+            res = await _call_inner(name, args, user=user, timeout=timeout)
+        finally:
+            if name not in engine_read_cache.PURE_READS:
+                # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
+                engine_read_cache.invalidate(user)
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)

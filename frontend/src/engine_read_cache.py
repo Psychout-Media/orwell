@@ -54,10 +54,28 @@ _ENTRIES: dict[tuple[str, str], _Entry] = {}
 _INFLIGHT: dict[tuple[str, str], tuple[int, "asyncio.Future[Any]"]] = {}
 _GEN: dict[str, int] = {}
 _BEAT: dict[str, Any] = {}
+# `user=None` (auth off / single-player) is its own bucket under the key "": it never shares with a named user.
+_MAX_USERS = 256   # idle-user sweep bound: the cache is HUD-sized, so past this the oldest users' entries are dropped
 
 
 def _gen(u: str) -> int:
     return _GEN.get(u, 0)
+
+
+def _sweep() -> None:
+    """Bound memory: drop expired entries, and the oldest users' entries if there are somehow more than _MAX_USERS."""
+    now, ttl = time.monotonic(), _ttl_s()
+    for k in [k for k, e in _ENTRIES.items() if now - e.t >= ttl]:
+        _ENTRIES.pop(k, None)
+    users = {k[0] for k in _ENTRIES}
+    if len(users) > _MAX_USERS:
+        keep = {u for u, _ in sorted(((k[0], e.t) for k, e in _ENTRIES.items()), key=lambda x: -x[1])[:_MAX_USERS]}
+        for k in [k for k in _ENTRIES if k[0] not in keep]:
+            _ENTRIES.pop(k, None)
+    if len(_GEN) > 4 * _MAX_USERS:
+        for u in [u for u in _GEN if u not in users]:
+            _GEN.pop(u, None)   # safe: no entry or flight for this user can survive a generation reset (both are dropped/keyed on gen)
+        _INFLIGHT.clear()
 
 
 def invalidate(user: str | None) -> None:
@@ -89,6 +107,20 @@ def _note_beat(u: str, value: Any, own_key: tuple[str, str]) -> None:
     _BEAT[u] = beat
 
 
+async def _lead(key: tuple[str, str], u: str, gen: int, fetch: Callable[[], Awaitable[Any]]) -> Any:
+    """The ONE engine call behind a key. Runs as its own task so a cancelled caller (the request-timeout middleware, a client disconnect)
+    never cancels the call out from under the followers sharing it."""
+    try:
+        value = await fetch()
+    finally:
+        if _INFLIGHT.get(key, (None, None))[1] is asyncio.current_task():
+            _INFLIGHT.pop(key, None)
+    if _gen(u) == gen:  # no mutation landed while we were fetching: safe to store
+        _ENTRIES[key] = _Entry(copy.deepcopy(value), time.monotonic(), gen)
+        _note_beat(u, value, key)
+    return value
+
+
 async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]]) -> Any:
     """Serve `name` for `user` from the cache, a shared in-flight call, or `fetch()`. Only CACHEABLE tools are ever stored."""
     ttl = _ttl_s()
@@ -103,24 +135,12 @@ async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]])
         return copy.deepcopy(ent.value)
     flight = _INFLIGHT.get(key)
     if flight is not None and flight[0] == gen and not flight[1].done():
-        return copy.deepcopy(await asyncio.shield(flight[1]))
-    loop = asyncio.get_running_loop()
-    fut: asyncio.Future[Any] = loop.create_future()
-    _INFLIGHT[key] = (gen, fut)
-    try:
-        value = await fetch()
-    except BaseException as e:  # noqa: BLE001 - sharers get the same failure; nothing is stored
-        if _INFLIGHT.get(key, (None, None))[1] is fut:
-            _INFLIGHT.pop(key, None)
-        if not fut.done():
-            fut.set_exception(e if isinstance(e, Exception) else RuntimeError("cancelled"))
-            fut.exception()  # mark retrieved so an unshared failure never logs "never retrieved"
-        raise
-    if _INFLIGHT.get(key, (None, None))[1] is fut:
-        _INFLIGHT.pop(key, None)
-    if _gen(u) == gen:  # no mutation landed while we were fetching: safe to store
-        _ENTRIES[key] = _Entry(copy.deepcopy(value), time.monotonic(), gen)
-        _note_beat(u, value, key)
-    if not fut.done():
-        fut.set_result(value)
-    return copy.deepcopy(value)
+        task = flight[1]
+    else:
+        if len(_ENTRIES) > 4 * _MAX_USERS:
+            _sweep()
+        task = asyncio.ensure_future(_lead(key, u, gen, fetch))
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())  # mark retrieved: a failure nobody awaited must not log noise
+        _INFLIGHT[key] = (gen, task)
+    # shield: cancelling THIS caller (leader or follower) leaves the shared call running for everyone else
+    return copy.deepcopy(await asyncio.shield(task))

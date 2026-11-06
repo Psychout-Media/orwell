@@ -229,3 +229,81 @@ def test_pollers_use_the_cache_and_the_framing_path_does_not():
     assert "_cur = await orwell_engine.get_game_state(user=user)" in src
     chat = open(os.path.join(FRONTEND, "routes", "chat_helpers.py"), encoding="utf-8").read()
     assert "_polled(" not in chat
+
+
+# ---- review fixes -------------------------------------------------------------------------------------------------------------------------
+def test_a_cancelled_leader_does_not_poison_the_followers():
+    eng = Engine(delay=0.1)
+
+    async def go():
+        leader = asyncio.ensure_future(cache.read("getGameState", "u1", eng.fetcher("u1")))
+        await asyncio.sleep(0.01)
+        follower = asyncio.ensure_future(cache.read("getGameState", "u1", eng.fetcher("u1")))
+        await asyncio.sleep(0.01)
+        leader.cancel()  # the 45 s request-timeout middleware / a client disconnect
+        return await follower, leader
+    out, leader = run(go())
+    assert out["user"] == "u1" and eng.calls == 1  # the follower still gets the one shared engine answer
+    assert leader.cancelled()
+
+
+def test_a_failing_mutation_still_invalidates(monkeypatch):
+    from src import orwell_engine, log_rings
+    monkeypatch.setattr(log_rings, "record_io", lambda *a, **k: None)
+    state = {"beat": 1}
+
+    async def fake_inner(name, args=None, user=None, timeout=None):
+        if name == "submitDecision":
+            state["beat"] = 2          # the engine APPLIED it...
+            raise TimeoutError("read timeout")  # ...but the client never saw the answer
+        return {"started": True, "beatSeq": state["beat"]}
+    monkeypatch.setattr(orwell_engine, "_call_inner", fake_inner)
+
+    async def go():
+        a = await orwell_engine.get_game_state_polled(user="u1", timeout=1)
+        try:
+            await orwell_engine._call("submitDecision", {}, user="u1")
+        except TimeoutError:
+            pass
+        b = await orwell_engine.get_game_state_polled(user="u1", timeout=1)
+        return a, b
+    a, b = run(go())
+    assert a["beatSeq"] == 1 and b["beatSeq"] == 2
+
+
+def test_pure_reads_list_is_pinned():
+    # adding a tool here means it can no longer invalidate; a mutating tool in this set would serve stale state. Review deliberately.
+    assert cache.PURE_READS == frozenset({
+        "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleState", "renderScene", "socialRead", "seasonRecap", "dailyRecap",
+        "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView",
+    })
+
+
+def test_state_route_is_fresh_after_a_decision_with_the_cache_on(monkeypatch):
+    """/state, then a decision, then /state must show the new beat (the cache is ON here; the suite default is off)."""
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from src import orwell_engine, log_rings
+    routes = importlib.import_module("routes.orwell_routes")
+    monkeypatch.setattr(log_rings, "record_io", lambda *a, **k: None)
+    st = {"beat": 1, "reads": 0}
+
+    async def fake_inner(name, args=None, user=None, timeout=None):
+        if name == "getGameState":
+            st["reads"] += 1
+            return {"started": True, "beatSeq": st["beat"], "phase": "x"}
+        if name == "submitDecision":
+            st["beat"] += 1
+            return {"ok": True}
+        return {}
+    monkeypatch.setattr(orwell_engine, "_call_inner", fake_inner)
+    app = FastAPI()
+    app.include_router(routes.setup_orwell_routes())
+    client = TestClient(app, raise_server_exceptions=False)
+    r1 = client.get("/api/orwell/state")
+    r2 = client.get("/api/orwell/state")
+    assert r1.status_code == 200 and st["reads"] == 1  # second poll served from the cache
+    run(orwell_engine.submit_decision({"choice": "x"}, user=None))
+    r3 = client.get("/api/orwell/state")
+    assert r3.json()["beatSeq"] == 2 and st["reads"] == 2
