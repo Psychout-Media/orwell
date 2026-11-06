@@ -46,6 +46,18 @@ def public_metadata(metadata: Any) -> Any:
     return {**metadata, "tool_events": public_tool_events(metadata.get("tool_events"))}
 
 
+# Server-owned metadata keys a CLIENT may never write (they feed the admin forensic ledger): dropped from any client-supplied metadata merge.
+SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events"})
+
+
+def client_metadata_update(update: Any) -> dict:
+    """The part of a client-supplied metadata UPDATE that may be merged into a stored message: everything except the server-owned keys (`tool_events`, hence `engine_result`).
+    A non-dict update merges nothing."""
+    if not isinstance(update, dict):
+        return {}
+    return {k: v for k, v in update.items() if k not in SERVER_OWNED_METADATA_KEYS}
+
+
 @dataclass
 class ChatMessage:
     """A single chat message."""

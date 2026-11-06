@@ -145,3 +145,37 @@ def test_search_returns_no_metadata_fields():
     ss = importlib.import_module("src.session_search")
     d = ss.SessionSearchResult("i", "s", "n", "user", "c", "snip", None, [], []).to_dict()
     assert "metadata" not in d and "tool_events" not in str(d)
+
+
+def test_update_last_meta_cannot_touch_the_server_owned_tool_events():
+    """POST /api/session/{id}/update-last-meta merges client metadata into the last assistant message: tool_events / engine_result are server-owned and are never merged."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import routes.history_routes as hist
+    from core.models import client_metadata_update
+    assert client_metadata_update({"tool_events": [1], "variants": ["a"]}) == {"variants": ["a"]}
+    assert client_metadata_update(None) == {} and client_metadata_update("x") == {}
+    stored_events = [{"tool": "getGameState", "output": "", "engine_result": SECRET}]
+    session = Session(id="s2", name="n", endpoint_url="u", model="m",
+                      history=[ChatMessage("assistant", "reply", metadata={"tool_events": stored_events, "model": "m"})])
+
+    class SM:
+        def get_session(self, sid):
+            return session
+
+        def save_sessions(self):
+            pass
+
+    hist._verify_session_owner = lambda *a, **k: None
+    app = FastAPI()
+    app.include_router(hist.setup_history_routes(SM()))
+    c = TestClient(app)
+    r = c.post("/api/session/s2/update-last-meta", json={"metadata": {"variants": ["v1"], "tool_events": [{"tool": "forged", "engine_result": "FORGED"}]}})
+    assert r.status_code == 200
+    md = session.history[0].metadata
+    assert md["variants"] == ["v1"]                                   # ordinary keys still merge
+    assert md["tool_events"][0]["engine_result"] == SECRET            # the server-written ledger is untouched
+    assert "FORGED" not in str(md)
+    r = c.post("/api/session/s2/update-last-meta", json={"metadata": {"tool_events": []}})  # nor can it be deleted
+    assert session.history[0].metadata["tool_events"][0]["engine_result"] == SECRET
+

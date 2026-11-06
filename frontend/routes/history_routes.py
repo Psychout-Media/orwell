@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, Request, HTTPException
 
-from core.models import ChatMessage, public_metadata
+from core.models import ChatMessage, public_metadata, client_metadata_update
 from core.database import SessionLocal, ChatMessage as DbChatMessage, Session as DbSession
 from src.topic_analyzer import analyze_topics
 from routes.session_routes import (
@@ -408,7 +408,7 @@ def setup_history_routes(session_manager) -> APIRouter:
         _verify_session_owner(request, session_id)
         try:
             body = await request.json()
-            meta_update = body.get("metadata", {})
+            meta_update = client_metadata_update(body.get("metadata", {}))  # ORW-187: a client can never overwrite/forge/delete the server-owned tool_events (admin ledger)
             session = session_manager.get_session(session_id)
 
             # Update in-memory

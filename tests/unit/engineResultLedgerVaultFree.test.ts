@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER_TOOLS } from "../../src/surfaces/tools/registry";
+import { resolvePending } from "../../features/support/answerPending";
 
 /**
  * ORW-187 - the FE persists the FULL result of getGameState / whereabouts / gameStatus / createCharacter in the admin transcript. Those results must stay Vault-free projections:
@@ -39,4 +40,20 @@ describe("ORW-187 admin transcript ledger tools stay Vault-free", () => {
       expect(bad, `${tool} leaked hidden-layer keys: ${bad.join(",")}`).toEqual([]);
     }
   });
+
+  it("stays clean in later phases too (after the premiere and several advances)", () => {
+    const sb = new GameSessionRegistry().sandboxFor("orw187-ledger-later");
+    sb.session.createCharacter({ playerName: "The Player", seed: 5 });
+    for (let i = 0; i < 40; i++) {
+      const v = sb.session.advanceGame();
+      if (v.pending) resolvePending(v.pending, (req) => void sb.session.submitDecision(req));
+      if (i % 8 === 7) {
+        for (const out of [sb.session.getGameState(), sb.session.whereabouts(), sb.session.gameStatus()]) {
+          const bad = keysOf(out).filter((k) => FORBIDDEN_KEY.test(k));
+          expect(bad, `step ${i}: leaked hidden-layer keys: ${bad.join(",")}`).toEqual([]);
+        }
+      }
+    }
+  });
 });
+
