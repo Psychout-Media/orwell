@@ -167,5 +167,10 @@ def test_disconnect_partial_save_stamps_game_moment():
     # (casting → None ⇒ key absent), from the same source as the [DONE] save.
     routes = _read("routes/chat_routes.py")
     assert routes.count("current_game_moment(ctx.user) if ctx.game_active else None") >= 4  # 2 [DONE] + 2 disconnect
-    assert '_stopped_md["game_moment"] = _stopped_moment' in routes
-    assert '_stopped_md2["game_moment"] = _stopped_moment2' in routes
+    # ORW-230: both disconnect handlers save through the one `save_stopped_partial`, handing it the moment,
+    # and the helper stamps it (behaviour: test_orw230_unclosed_think_save.py reloads it from the DB).
+    assert "game_moment=_stopped_moment," in routes
+    assert "game_moment=_stopped_moment2," in routes
+    helpers = _read("routes/chat_helpers.py")
+    save = helpers[helpers.index("def save_stopped_partial("):]
+    assert 'md["game_moment"] = game_moment' in save[:2500]
