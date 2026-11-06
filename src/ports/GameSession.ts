@@ -1618,6 +1618,12 @@ export interface PremiereIntrosView {
     index: number;
     total: number;
     playerPosition: number;
+    /** ORW-205: how many of the `total` are inside right now (the player counts once they have walked in) - the ONE headcount the narrator may state. */
+    insideCount: number;
+    /** ORW-205: has the player walked in yet (so "N of you" may or may not include them). */
+    playerInside: boolean;
+    /** ORW-205: the engine's ready-made headcount sentence, e.g. "12 of 16 are inside (the player is one of them)". The narrator quotes it and never counts on its own. */
+    headcount: string;
     arrivedNames: string[];
     justArrived?: NamedRef;
     playerJustEntered?: boolean;
