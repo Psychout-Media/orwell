@@ -61,12 +61,11 @@ describe("decision x memory-source matrix (the drift gate)", () => {
 });
 
 /**
- * AMEND 3b item 3 / S22 - the KNOWN-GAP decisions. These strategic decisions read NO memory-like `SeasonCtx` provider today (the 2026-11-05 matrix refresh: the jury vote reads edges + manner, the Final-3 eviction reads threat,
+ * AMEND 3b item 3 / S22 - the KNOWN-GAP decisions. These strategic decisions read NO memory-like `SeasonCtx` provider today (the 2026-11-05 matrix refresh; the jury vote LEFT this list when B26 gave it `juryMemoryFor`, now held in DECISION_SOURCES above: it reads edges + manner, the Final-3 eviction reads threat,
  * the secret-veto replacement reads threat + mood, the AUTO decision proxy reads none). The gate pins that: the day one of them starts reading a provider this FAILS, and the reader must move it into `DECISION_SOURCES`
  * (and decide deliberately whether it should) instead of a memory source creeping in unlisted. Tie-break needs no slice: it calls `voteChoice`, already held above.
  */
 const GAP_SLICES: Record<string, () => string> = {
-  juryVote: () => fnBody("function precomputeVotes(", "\n}\n"),
   final3Eviction: () => fnBody('case "final-eviction": {', "\n    }\n"),
   secretVetoReplacement: () => fnBody("function secretVetoReplacementOptions(", "\n}\n"),
   autoDecision: () => fnBody("export function autoDecision(", "\n}\n"),

@@ -47,7 +47,7 @@ describe("credibility (pure)", () => {
   it("is pure: the module imports no store, port, clock or randomness (import-pin)", () => {
     const src = readFileSync("src/engine/credibility.ts", "utf8");
     const imports = [...src.matchAll(/^\s*import\s[^;]*?from\s*["']([^"']+)["']/gm)].map((m) => m[1]);
-    expect(imports.sort()).toEqual(["../domain/ids", "./credibilityConstants"]);
+    expect(imports.sort()).toEqual(["../domain/ids", "../domain/num", "./credibilityConstants"]);
     expect(src).not.toMatch(/Math\.random|Date\.now|VaultStore|process\.env/);
   });
 });
