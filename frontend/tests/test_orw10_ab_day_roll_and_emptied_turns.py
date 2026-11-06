@@ -68,3 +68,26 @@ def test_the_agent_loop_uses_the_engine_true_line_when_the_sentence_guard_emptie
     chat_helpers._LAST_BEAT_SIG[_USER] = _sig()
     second = _run(agent_loop._emit_guarded_scene("The veto is starting right now.", _USER, scene_broken=False, emitted_visible=False, cutaway_emitted=False))
     assert second.text != agent_loop._SCENE_CUTAWAY_LINE and "Marcus" in second.text
+
+
+# ── ORW-10 (c): fallback lines stay out of the history the narrator sees ────────────────────────────────────────────────────────────────────────────────
+def test_fallback_and_cutaway_turns_are_dropped_from_the_narrator_history():
+    msgs = [
+        {"role": "system", "content": "You are the narrator."},
+        {"role": "user", "content": "I say hello."},
+        {"role": "assistant", "content": agent_loop._SCENE_CUTAWAY_LINE},
+        {"role": "user", "content": "Again."},
+        {"role": "assistant", "content": "The live feeds settle back over the house. Right now the game sits at week 1, the premiere beat: nothing has been decided."},
+        {"role": "assistant", "content": agent_loop._BLANK_FALLBACK_UPSTREAM},
+        {"role": "assistant", "content": "A voice from production runs through the board for the house: Marcus holds Head of Household."},
+        {"role": "assistant", "content": "Sofia laughs and slides you a mug."},
+    ]
+    out = agent_loop._drop_fallback_turns(msgs)
+    assert [m["content"] for m in out if m["role"] == "assistant"] == ["Sofia laughs and slides you a mug."]
+    assert [m["role"] for m in out].count("user") == 2 and out[0]["role"] == "system"
+
+
+def test_real_scenes_that_merely_mention_cutting_away_are_kept():
+    msgs = [{"role": "assistant", "content": "The camera cuts away from Sofia as she steps outside."}]
+    assert agent_loop._drop_fallback_turns(msgs) == msgs
+    assert agent_loop._drop_fallback_turns("not a list") == "not a list"
