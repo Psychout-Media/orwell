@@ -180,8 +180,7 @@ describe("0095 — persistence: exposure survives a restart, monotonic, non-degr
 });
 
 describe("0095 — calibration-neutral: OFF is a total no-op", () => {
-  it("advanceTieReveal returns [] and touches nothing when the flag is off (it defaults ON since 2026-11-05, so this pins it OFF explicitly)", () => {
-    GameSessionAdapter.setTieRevealEnabled(false);
+  it("advanceTieReveal returns [] and touches nothing when the flag is unset (the default)", () => {
     const { sb } = gameWithATie("off-default");
     const before = sb.session.snapshot().seededRelationships;
     const events = sb.session.advanceTieReveal(sb.engine.knowledge);
