@@ -6,6 +6,7 @@ render as a control-room chyron with the approved copy.
 No browser/app-boot tests — pure source-read + regex asserts.
 """
 import re
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -97,9 +98,12 @@ def test_correction_card_uses_approved_copy():
 
 def test_g15_gamechanged_stays_green():
     """Run test_g15_gamechanged.py and assert all tests pass."""
+    # The nested run must see ALL of test_g15: under CI sharding (ORWELL_CI_SHARD="i/n") it would deselect every test when that file belongs to the OTHER shard and exit 5
+    # ("no tests collected"). Drop the shard selector for the child process only.
+    _env = {k: v for k, v in os.environ.items() if k != "ORWELL_CI_SHARD"}
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "frontend/tests/test_g15_gamechanged.py", "-q"],
-        capture_output=True, text=True, cwd=FE.parent
+        capture_output=True, text=True, cwd=FE.parent, env=_env
     )
     assert result.returncode == 0, (
         f"test_g15_gamechanged.py must stay green:\n{result.stderr}\n{result.stdout}"
