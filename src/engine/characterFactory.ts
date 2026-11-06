@@ -934,21 +934,6 @@ export const NEUTRAL_PLAYER_STATS: { physical: number; mental: number; social: n
   { physical: 0.5, mental: 0.5, social: 0.5 };
 
 /**
- * The ONLY human-authored profile, produced at first-run character creation.
- *
- * Engine contract (#529 — the engine NEVER invents canon about the human player; absence ⇒
- * empty/neutral, never fabricated). `name` is the ONE hard-required field (throws when missing —
- * the test sandbox + heavy UAT rely on a name-only intake, so this is the only throw here; the
- * "refuse to finalize on a missing required field" hard stop lives at the FE boundary, not here).
- * For every other field, ABSENCE yields empty/neutral state, never improvised content:
- *  - APPEARANCE/age/presentation: when the human authored no look, they stay EMPTY (`""`/0) — the
- *    player portrait is NEVER improvised from a name hash (the old `generateAppearance(name hash)`
- *    is gone). `getPortraitPrompt` returns null for an empty player appearance.
- *  - ARCHETYPE/stats: absent ⇒ NEUTRAL/unbiased stats (`NEUTRAL_PLAYER_STATS`), a neutral volatility,
- *    `archetypeDefaulted: true`, and an EMPTY persona — never the fabricated "floater" identity.
- *  - BACKGROUND: absent ⇒ EMPTY (`""`) — never a placeholder presented as canon.
- */
-/**
  * ORW-208 - resolve the stored strategy style for a chosen archetype. The canonical style must be one of the archetype's own `styles`
  * (it drives hidden stats and leakiness). A requested style OUTSIDE that list is still replaced with the list's first entry (the closed
  * set is unchanged), but the substitution is now REPORTED (`adjusted`) instead of silent, so the caller can surface it. An unauthored
@@ -965,6 +950,21 @@ export function resolveStrategyStyle(
   return known && requested ? { applied, adjusted: { requested, applied } } : { applied };
 }
 
+/**
+ * The ONLY human-authored profile, produced at first-run character creation.
+ *
+ * Engine contract (#529 — the engine NEVER invents canon about the human player; absence ⇒
+ * empty/neutral, never fabricated). `name` is the ONE hard-required field (throws when missing —
+ * the test sandbox + heavy UAT rely on a name-only intake, so this is the only throw here; the
+ * "refuse to finalize on a missing required field" hard stop lives at the FE boundary, not here).
+ * For every other field, ABSENCE yields empty/neutral state, never improvised content:
+ *  - APPEARANCE/age/presentation: when the human authored no look, they stay EMPTY (`""`/0) — the
+ *    player portrait is NEVER improvised from a name hash (the old `generateAppearance(name hash)`
+ *    is gone). `getPortraitPrompt` returns null for an empty player appearance.
+ *  - ARCHETYPE/stats: absent ⇒ NEUTRAL/unbiased stats (`NEUTRAL_PLAYER_STATS`), a neutral volatility,
+ *    `archetypeDefaulted: true`, and an EMPTY persona — never the fabricated "floater" identity.
+ *  - BACKGROUND: absent ⇒ EMPTY (`""`) — never a placeholder presented as canon.
+ */
 export function runPlayerOOBE(input: OobeInput): PlayerCharacter {
   // Validation: a profile can't be half-authored. `name` is the required field.
   if (!input || typeof input.name !== "string" || input.name.trim().length === 0) {
