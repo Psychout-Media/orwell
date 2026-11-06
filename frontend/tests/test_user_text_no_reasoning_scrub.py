@@ -94,7 +94,8 @@ def test_assistant_render_still_uses_processwiththinking():
     src = _read("static", "js", "chatRenderer.js")
     # The thinking-reconstruction branch (assistant) and the final else (assistant)
     # both still call processWithThinking.
-    assert "metadata.thinking + '</think>\\n\\n' + text" in src
+    # A59: the reconstruction is the ONE shared helper (composeThinkSource), whose body wraps reasoning in <think>…</think>
+    assert "composeThinkSource(metadata.thinking, text, thinkTime, true)" in src
     assert "processWithThinking(\n" in src or "processWithThinking(text)" in src, (
         "assistant bubble must still scrub model reasoning via processWithThinking"
     )

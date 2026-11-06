@@ -124,7 +124,9 @@ def test_reload_path_reconstructs_thinking_in_every_build():
     # decide (collapsed accordion in the game build, or dropped under hide-thinking).
     assert "metadata?.thinking && !isGameBuild()" not in renderer
     assert "role === 'assistant' && metadata?.thinking" in renderer
-    assert "'<think' + (thinkTime ? ` time=\"${thinkTime}\"` : '') + '>' + metadata.thinking" in renderer
+    # A59: the <think>-wrapped source is now built by the ONE shared helper (markdown.js composeThinkSource) that the live path calls too
+    assert "markdownModule.composeThinkSource(metadata.thinking, text, thinkTime, true)" in renderer
+    assert "'<think' + (timeMs ? ` time=\"${timeMs}\"` : '') + '>' + r + '</think>" in _read("static", "js", "markdown.js")
 
 
 # ── the public bubble carries NO reasoning (Node round-trip through the scrub) ──── #

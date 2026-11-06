@@ -2,7 +2,7 @@
 
 > **Status:** ✅ **BUILT 2026-06-25** — phased: A (model/traits/pure logic, #808) · B1 (seeded vote
 > tilt, #809) · B2 (live off-screen execution + the tilt provider, behind `ORWELL_CAMPAIGNS`,
-> default-off ⇒ calibration byte-identical, #810) · C (BDD closeout: the `.feature` wired into
+> ON since #1996 (the original flag was default-off with byte-identical calibration, #810) · C (BDD closeout: the `.feature` wired into
 > `cucumber.cjs` with all 15 scenarios green, veto-escape re-aim, player-campaign isolation). Engine:
 > `src/engine/campaigns.ts` (pure, Vault-sealed); `Character.influence`; `GameSessionAdapter.campaignTick`
 > + `ctx().campaignTiltFor`. The calibration spine is untouched (`juryReach` green; campaigns run only

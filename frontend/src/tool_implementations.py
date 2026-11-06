@@ -4824,11 +4824,16 @@ async def do_create_character(
             except Exception as _beat_exc:
                 # #1599 — the beatSeq refresh is the guard that PREVENTS a turn-1 desync; if it cannot
                 # run, log at WARNING with disposition (the stale-beat auto-retry belt still recovers,
-                # so it is corrected, not fatal) rather than swallowing it silently. TODO(#1599): raise a
-                # RED health event on /admin/status once the health ring covers this seam.
+                # so it is corrected, not fatal) rather than swallowing it silently. A42: it also raises the
+                # RED-eligible health event on /admin/status (an auto-corrected fault is still RED - #1599).
                 logger.warning(
                     "[#1561] post-createCharacter beatSeq refresh failed for %s (turn-1 desync guard "
                     "degraded; the stale-beat retry belt still recovers): %s", owner, _beat_exc)
+                try:
+                    from src import log_rings as _lr
+                    _lr.record_soft_failure("sync:post-create-beatseq", _beat_exc, corrected="stale-beat retry belt", user=owner)
+                except Exception:
+                    pass
         # 0057 parity: a chat "run it back" cleared the level exactly like the menu's New-season
         # button, so advance the per-user season counter too (the engine reset does NOT track it —
         # it lives in the FE store and survives the sandbox rotation). Mid-season resets never reach
@@ -5780,6 +5785,9 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": _err, "exit_code": 1}
     try:
         _extra = {"term": term} if term is not None else {}  # absent ⇒ the call is byte-identical to pre-0109
+        _dir = (args.get("direction") or "").strip().lower()
+        if _dir in ("offer", "ask") and kind in ("comp-throw", "veto-save"):  # B55: only meaningful for the active kinds
+            _extra["direction"] = _dir
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal

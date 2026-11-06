@@ -167,8 +167,8 @@ export function _onWsResync(ev) {
   const wasWedged = !!(round && round.holder);
   // #1599 — a resync is the AUTO-CORRECTION of a real interruption (engine restart mid-stream). It is
   // not a routine event: log it at WARN with disposition (reason + whether a wedged holder was torn
-  // down) so the heal is observable, never silent. TODO(#1599): raise a RED client-health event once
-  // the client health ring lands (the proactive-observability lane that follows this one).
+  // down) so the heal is observable, never silent. A42: it also raises the RED health event (a correction is not a cloak).
+  try { if (window.OrwellReport) window.OrwellReport.fail('ws:resync-heal', String(reason), wasWedged ? 'tore down a wedged live holder' : 'no wedged holder', { red: true, corrected: 'history reconcile' }); } catch (_) {}
   try {
     console.warn('[chatWsSplice #1596] ws-resync (' + reason + ') — reconciling from history' +
       (wasWedged ? '; tore down a wedged live holder' : '') + ' (auto-corrected).');
@@ -189,8 +189,9 @@ export function _onWsResync(ev) {
   }
   if (sid) {
     // A reconcile that THROWS is a real render failure — surface it (never swallow), then let the next
-    // reconcile trigger retry. TODO(#1599): raise a RED client-health event on this path too.
+    // reconcile trigger retry. A42: it also raises the RED health event (uncorrected until a later reconcile succeeds).
     Promise.resolve().then(() => _softReloadHistory(sid)).catch((e) => {
+      try { if (window.OrwellReport) window.OrwellReport.fail('ws:resync-reconcile-failed', 'ReconcileThrew', (e && e.message) || String(e), { red: true }); } catch (_) {}
       try { console.error('[chatWsSplice #1596] ws-resync history reconcile FAILED for ' + sid + ':', e); } catch (_) {}
     });
   }

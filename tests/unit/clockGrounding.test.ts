@@ -11,14 +11,14 @@ afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
 describe("formatClockLabel", () => {
   it("renders the engine clock hour as a plain 12-hour label with the day", () => {
-    expect(formatClockLabel(8, 1)).toBe("8:00am");
-    expect(formatClockLabel(9 + 40 / 60, 1)).toBe("9:40am");
-    expect(formatClockLabel(12, 1)).toBe("12:00pm");
-    expect(formatClockLabel(13.25, 2)).toBe("1:15pm");
-    expect(formatClockLabel(24, 3)).toBe("12:00am");
-    expect(formatClockLabel(27 + 5 / 60, 3)).toBe("3:05am");
-    expect(formatClockLabel(8, 0)).toBe("8:00am");
-    expect(formatClockLabel(8, 5)).not.toMatch(/Day/); // A69: never a day number (it stayed "Day 1" all week)
+    expect(formatClockLabel(8, 1)).toBe("8:00am, Day 1");
+    expect(formatClockLabel(9 + 40 / 60, 1)).toBe("9:40am, Day 1");
+    expect(formatClockLabel(12, 1)).toBe("12:00pm, Day 1");
+    expect(formatClockLabel(13.25, 2)).toBe("1:15pm, Day 2");
+    expect(formatClockLabel(24, 3)).toBe("12:00am, Day 3");
+    expect(formatClockLabel(27 + 5 / 60, 3)).toBe("3:05am, Day 3");
+    expect(formatClockLabel(8, 0)).toBe("8:00am, Day 1"); // day is floored at 1
+    expect(formatClockLabel(8)).toBe("8:00am"); // no day given => time of day only
   });
 });
 

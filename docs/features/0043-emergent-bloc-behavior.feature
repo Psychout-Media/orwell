@@ -56,6 +56,12 @@ Feature: Emergent multi-party bloc behavior
     When the soul/save is serialized
     Then it contains no bloc membership and no ally/enemy label
 
+  Scenario: A named alliance keeps its own label while no bloc or ally label is persisted
+    Given a game in which blocs have formed and a named alliance exists
+    When the soul/save is serialized
+    Then the alliance's own name is stored as the alliance's label
+    And it contains no bloc membership and no ally/enemy label
+
   Scenario: Blocs are Vault-free and deterministic
     Given a started game in which blocs have formed
     When any player surface is read

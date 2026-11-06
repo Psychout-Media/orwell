@@ -63,6 +63,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
   private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
+  private heardAboutMeSink?: (h: { teller: EntityId; listeners: EntityId[]; nature: "targeting" | "betrayal" }) => void;
   private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }) => void;
   /**
    * The live SUB-ZONE of a houseguest in a zoned big room (0077 Phase 2, OPT-IN). When wired, co-presence
@@ -185,6 +186,11 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** B4 - wire the assurance ledger so a recorded casual assurance is kept on the live state. Unwired => inert. */
   setAssuranceSink(fn: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }) => void): void {
     this.assuranceSink = fn;
+  }
+
+  /** B24 - wire the heard-about-me writer so a recorded tell about the player becomes a belief claim for each named listener. Unwired => inert. */
+  setHeardAboutMeSink(fn: (h: { teller: EntityId; listeners: EntityId[]; nature: "targeting" | "betrayal" }) => void): void {
+    this.heardAboutMeSink = fn;
   }
 
   /** Wire the awake set (ADR 0006) so a houseguest who has turned in neither witnesses nor overhears a scene. */
@@ -555,6 +561,13 @@ export class EngineCommandsAdapter implements EngineCommands {
         const heardBy = awakeNamed.filter((id) => id !== PLAYER && id !== from && id !== to); // B22: the other named, awake witnesses heard it
         this.assuranceSink({ from, to, kind: req.assurance.kind, sincerity, source: from === PLAYER ? "player" : "npc", ...(heardBy.length > 0 ? { heardBy } : {}) });
       }
+    }
+    // B24: an NPC's tell about the player rides the recorded scene (one per recorded scene; an idempotent replay returned earlier). The listeners are the scene's NAMED, awake NPCs (not the presence-expanded
+    // bystanders); the teller is `from` (default the initiator). Inert unwired / flag off.
+    if (this.heardAboutMeSink && req.heardAboutMe) {
+      const teller = req.heardAboutMe.from ?? req.initiator;
+      const listeners = awakeNamed.filter((id) => id !== PLAYER && id !== teller);
+      if (teller !== PLAYER && awakeNamed.includes(teller) && listeners.length > 0) this.heardAboutMeSink({ teller, listeners, nature: req.heardAboutMe.nature });
     }
     this.onPersist?.(); // durable save (0030): events + the hidden layer survive a restart
     // A10/#591 — record the at-most-once key ONLY after a clean commit. Placed AFTER onPersist so a

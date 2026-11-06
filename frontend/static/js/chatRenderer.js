@@ -2587,7 +2587,7 @@ export function addMessage(role, content, modelName, metadata) {
     if (role === 'assistant' && metadata?.thinking) {
       const thinkTime = metadata.thinking_time || null;
       const thinkHtml = markdownModule.processWithThinking(
-        '<think' + (thinkTime ? ` time="${thinkTime}"` : '') + '>' + metadata.thinking + '</think>\n\n' + text
+        markdownModule.composeThinkSource(metadata.thinking, text, thinkTime, true)
       );
       b.innerHTML = sourcesPrefix + thinkHtml + findingsSuffix;
     } else if (role === 'user') {

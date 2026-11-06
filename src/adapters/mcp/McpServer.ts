@@ -90,6 +90,13 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (as["kind"] !== "safe" && as["kind"] !== "vote" && as["kind"] !== "loyal") refuse("assurance", "{ kind: 'safe' | 'vote' | 'loyal' } when present");
         if (as["sincerity"] !== undefined && typeof as["sincerity"] !== "number") refuse("assurance", "a numeric sincerity when present");
       }
+      if (args["heardAboutMe"] !== undefined) {
+        const h = args["heardAboutMe"];
+        if (typeof h !== "object" || h === null || Array.isArray(h)) refuse("heardAboutMe", "an object when present");
+        const hs = h as Record<string, unknown>;
+        if (hs["nature"] !== "targeting" && hs["nature"] !== "betrayal") refuse("heardAboutMe", "{ nature: 'targeting' | 'betrayal' } when present");
+        if (hs["from"] !== undefined && !isEntityId(hs["from"])) refuse("heardAboutMe", "a houseguest id for `from` when present");
+      }
       // 0005: the optional generative-consequence descriptor. Shape-guard only (R6 class: a string
       // where an array/object is expected dies deep in the fold) — the engine owns the magnitude and
       // degrades gracefully on an unknown direction, so domain validation stays there, not here.
@@ -177,6 +184,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["with"])) refuse("with", "a houseguest id (string)");
       if (!isStr(args["kind"])) refuse("kind", "a deal kind (string)");
       if (!isStr(args["terms"])) refuse("terms", "a non-empty string");
+      // B55 - the optional direction of an ACTIVE-obligation deal (who promises): exactly "offer" or "ask" when present.
+      if (args["direction"] !== undefined && args["direction"] !== "offer" && args["direction"] !== "ask") refuse("direction", '"offer" or "ask" when present');
       // 0109 / #1993 — the optional negotiated term must be an object when present; the ENGINE bounds its
       // contents (a junk `weeks` is ignored there), so only the container shape is refused at the boundary.
       if (args["term"] !== undefined && (typeof args["term"] !== "object" || args["term"] === null || Array.isArray(args["term"]))) {

@@ -236,9 +236,10 @@ def _auto_resolve(p):
         return {"kind": kind, "statement": "What was your biggest move?"}
     if kind == "exit-interview":
         # 0130 — the player-evictee's producer sit-down. The pending carries `stances`
-        # (gracious/defiant/bitter) and the engine reads the pick from the shared single-pick field (`vote` OR `choice`) with `statement` as the words - NOT `stance`/`message` (the engine rejected those with 'a legal exit stance is required', so a staged season where the player was evicted never finished). Pick the first legal
+        # (gracious/defiant/bitter), NOT the generic `options` list; pick the first legal
         # posture + throwaway words so the finish loop clears the eviction and reaches endgame.
         stances = p.get("stances") or ["gracious"]
+        # A48: the posture rides the shared `vote` field and the words ride `statement` (SubmitDecisionReq, 0130) - the old `stance`/`message` keys were refused at the boundary, so the loop never cleared the eviction and the endgame was never reached in CI.
         return {"kind": kind, "vote": stances[0], "statement": "Take care."}
     if kind == "self-evict":
         # Never volunteer the player out of the game during a fast-forward.
@@ -306,6 +307,26 @@ def finish_game():
         if sub.get("finished"):
             finished = True
             break
+    if finished:
+        # A pre-jury-evicted player is offered the 0133 finale-interview AFTER the crown (the season is already decided), and it stays the engine's live `pending`
+        # for the rest of the run. Whether that happens depends on the (random) staged seed, so a base-pass sweep would see a REAL decision card beside the
+        # post-season retro on some seeds and not on others - a seed-dependent red on unrelated PRs. Capture it for the isolated endgame-card sub-pass (it is mounted
+        # synthetically from this dict, exactly as before), then answer it so the engine state - and so the base sweep - is the same on every seed.
+        st = _engine_tool("getGameState") or {}
+        fp = st.get("pending") if isinstance(st, dict) else None
+        if isinstance(fp, dict) and fp.get("kind") == "finale-interview":
+            endgame_pending = endgame_pending or fp
+            decision = _auto_resolve(fp)
+            if decision is not None:
+                _engine_tool("submitDecision", decision)
+    if not finished:
+        # A48: say WHY the season did not finish (the CI log used to say only "endgame not reached"), so a stuck driver is diagnosable from the log alone.
+        try:
+            st = _engine_tool("getGameState") or {}
+            print(f"== finish_game: season NOT finished after the driver loop; phase={st.get('phase')} pending={(st.get('pending') or {}).get('kind')} "
+                  f"status={st.get('status')} schedule={st.get('daySchedule')} consec_fail={consec_fail}", flush=True)
+        except Exception as e:  # diagnostics only - never perturb the run
+            print(f"== finish_game: season NOT finished (and the diagnostic read failed: {e})", flush=True)
     return finished, endgame_pending
 
 

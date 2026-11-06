@@ -326,9 +326,12 @@ Then("the staged eviction reveal is anonymized", function (this: BbWorld) {
 });
 
 Then("per-voter attribution unseals only in the post-season retrospective", function (this: BbWorld) {
-  // The retrospective seam exists and is the only place attribution is unsealed (0048) — assert the
-  // live game surfaces never carry it (structural: the campaign progress/target is never projected).
-  assert.ok(typeof (cw(this).cwSession as unknown as { retrospective?: unknown }) === "object");
+  // The retrospective is the ONLY place per-voter attribution is unsealed (0048, E12). A season still in progress has no retrospective at all, and neither the player-facing game state nor the public
+  // status carries any voter attribution (A91: this used to assert `typeof session === "object"`, true of any object).
+  const s = cw(this).cwSession!;
+  assert.equal(s.seasonRetrospective(), null, "mid-season there is no retrospective to unseal anything");
+  const blob = JSON.stringify({ state: s.getGameState(), status: s.gameStatus() });
+  assert.ok(!/"(?:voters?|voterId|castBy|ballots?ByVoter|unsealed\w*)"\s*:/i.test(blob), "no per-voter attribution on any live surface");
 });
 
 // --- Rule: player campaigns ---
@@ -387,6 +390,67 @@ Then("a houseguest the player never pitched is unmoved", function (this: BbWorld
   assert.equal(tiltOf(s!, target, bystander), 0);
 });
 
+
+// ── A90: the #1937 pushes through the live provider ───────────────────────────────────────────────────────────
+import { nominationStrategy, replacementPick } from "../../src/engine/season";
+import { CAMPAIGN } from "../../src/engine/campaigns";
+interface PushWorld { pwSession?: GameSessionAdapter; pwRival?: EntityId; pwTarget?: EntityId; pwDecider?: EntityId; pwOther?: EntityId; pwProtector?: EntityId; pwUnaware?: EntityId }
+const pw = (w: BbWorld): PushWorld => w as unknown as PushWorld;
+const pushOf = (w: BbWorld) => (pw(w).pwSession as unknown as { ctx(): { campaignPushFor: (t: EntityId, d: EntityId) => number } }).ctx().campaignPushFor;
+function pushHouse(w: BbWorld, owner: "npc" | "player", goal: "evict" | "protect" = "evict"): void {
+  const { session, rel, ids } = liveCampaignHouse(2026);
+  const [rival, target, decider, other, protector, unaware] = ids as [EntityId, EntityId, EntityId, EntityId, EntityId, EntityId];
+  rel.edge(rival, decider).trust = 1;
+  rel.edge(protector, decider).trust = 1;
+  const base = { plan: ["lobby"], progress: 1, horizon: "week", status: "active", startedBeat: 0, deadlineBeat: 999, confidence: 0.8 };
+  const owners = owner === "player" ? [PLAYER] : [rival];
+  campsOf(session).push({ id: "c1", owners, goal, target, knownTo: [...owners, decider, other], ...base } as unknown as Campaign);
+  Object.assign(pw(w), { pwSession: session, pwRival: rival, pwTarget: target, pwDecider: decider, pwOther: other, pwProtector: protector, pwUnaware: unaware });
+}
+Given("a live evict campaign against the target that the decider knows of", function (this: BbWorld) { pushHouse(this, "npc"); });
+Given("a live campaign owned by the player against the target that the decider knows of", function (this: BbWorld) { pushHouse(this, "player"); });
+
+Then("the decider is pushed toward the target through the live provider", function (this: BbWorld) {
+  const v = pushOf(this)(pw(this).pwTarget!, pw(this).pwDecider!);
+  assert.ok(v > 0, "an aware decider is pushed toward naming the target");
+  assert.ok(v <= CAMPAIGN.base + 1e-9, "and the push is bounded by the campaign ceiling");
+});
+Then("the decider is pushed toward the target, bounded by the same ceiling", function (this: BbWorld) {
+  const v = pushOf(this)(pw(this).pwTarget!, pw(this).pwDecider!);
+  assert.ok(v > 0 && v <= CAMPAIGN.base + 1e-9);
+});
+Then("on an exact tie the push decides the nomination and the replacement", function (this: BbWorld) {
+  const t = pw(this).pwTarget!, d = pw(this).pwDecider!, o = pw(this).pwOther!;
+  const rel = new RelationshipModel(0.5);
+  const active = [d, t, o, npc(90), npc(91)];
+  for (const x of [t, o]) { rel.edge(d, x).threat = 0.9; }
+  rel.edge(d, npc(90)).threat = 0.1; rel.edge(d, npc(91)).threat = 0.1;
+  const push = pushOf(this);
+  const plain = nominationStrategy(d, active, rel);
+  const pushed = nominationStrategy(d, active, rel, { campaignPush: (x) => push(x, d) });
+  assert.ok(pushed[0] === t || pushed.includes(t), "the pushed target is named");
+  assert.ok(plain.length === 2 && pushed.length === 2);
+  const withPush = replacementPick(d, npc(90), [t, o], active, rel, { campaignPush: (x) => push(x, d) });
+  assert.equal(withPush, t, "on an exact tie the replacement honors the push");
+});
+Then("a decider who does not know of the campaign feels nothing", function (this: BbWorld) {
+  assert.equal(pushOf(this)(pw(this).pwTarget!, pw(this).pwUnaware!), 0);
+});
+Then("the veto holder is steered away from saving the target", function (this: BbWorld) {
+  const t = pw(this).pwTarget!, d = pw(this).pwDecider!, o = pw(this).pwOther!;
+  const rel = new RelationshipModel(0.5);
+  const push = pushOf(this);
+  const saved = rel.chooseVetoSave(d, [t, o], (x) => -push(x, d));
+  assert.notEqual(saved, t, "an evict campaign on the target steers the holder to save the other nominee on a tie");
+});
+Then("a protect campaign on the same target lowers the evict tilt a voter feels", function (this: BbWorld) {
+  const s = pw(this).pwSession!, t = pw(this).pwTarget!, voter = pw(this).pwOther!;
+  const evictOnly = tiltOf(s, t, voter);
+  assert.ok(evictOnly > 0, "an aware voter feels the evict tilt before the protect campaign");
+  const base = { plan: ["lobby"], progress: 1, horizon: "week", status: "active", startedBeat: 0, deadlineBeat: 999, confidence: 0.8 };
+  campsOf(s).push({ id: "c2", owners: [pw(this).pwProtector!], goal: "protect", target: t, knownTo: [pw(this).pwProtector!, voter], ...base } as unknown as Campaign);
+  assert.ok(tiltOf(s, t, voter) < evictOnly, "the protect campaign nets against the evict one at the vote");
+});
 
 // ── B37 / B38 (flag-gated, default off) ───────────────────────────────────────────────────────────────────────
 import { believedMargin, inDoubt } from "../../src/engine/voteEstimate";

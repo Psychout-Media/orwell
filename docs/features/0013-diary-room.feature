@@ -9,8 +9,9 @@ Feature: The Diary Room — the player's private channel and NPC confessionals
 
   # PURPOSE (clarified PO review 2026-06-28): the player DR is an EXPRESSIVE channel — a private
   # journal, the public/private duplicity enabler (say one thing publicly, another in the DR), and a
-  # season-retrospective payoff (0048). It deliberately has NO live mechanical effect: it can never
-  # puppeteer an NPC or change an outcome (anti-sycophancy). A purposeful engine read of the player's
+  # season-retrospective payoff (0048). It has NO pathway to any NPC and can never
+  # puppeteer an NPC or change an outcome (anti-sycophancy). It is not effect-free: since 0115/0138/0139 it
+  # steers the NARRATOR (a fenced GM-only note) and the player's OWN tools (playerDossier, playerReceipts). A purposeful engine read of the player's
   # stated strategy is a DEFERRED future feature ("Diary Room with purpose", PO backlog) — the former
   # unwired `playerStrategyRead` identity-stub was removed so the code stops implying it exists.
 

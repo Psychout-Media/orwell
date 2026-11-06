@@ -16,7 +16,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel on main: each merge was cancelling the previous run (19 of 39 in 24h), so main rarely finished a verdict.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # The gh-hosted runners intermittently can't reach the npm registry (ETIMEDOUT / ENETUNREACH on `npm ci`
 # before any test runs — seen on #1911 smoke and #1912 mirror-parity). Retry the fetches with backoff
