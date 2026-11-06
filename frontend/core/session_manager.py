@@ -154,6 +154,7 @@ class SessionManager:
                 meta = json.loads(db_msg.meta_data) if db_msg.meta_data else {}
                 if meta is None: meta = {}
                 meta['_db_id'] = db_msg.id
+                if getattr(db_msg, 'seq', None) is not None: meta['_seq'] = db_msg.seq  # ORW-139: live-appended rows carry _seq; rehydrated rows must too or /api/history loses seq after a restart
                 meta.setdefault('timestamp', _message_timestamp_iso(db_msg.timestamp))
                 history.append(ChatMessage(
                     role=db_msg.role,
@@ -169,6 +170,7 @@ class SessionManager:
                 meta = json.loads(db_msg.meta_data) if db_msg.meta_data else {}
                 if meta is None: meta = {}
                 meta['_db_id'] = db_msg.id
+                if getattr(db_msg, 'seq', None) is not None: meta['_seq'] = db_msg.seq  # ORW-139: live-appended rows carry _seq; rehydrated rows must too or /api/history loses seq after a restart
                 meta.setdefault('timestamp', _message_timestamp_iso(db_msg.timestamp))
                 history.append(ChatMessage(
                     role=db_msg.role,

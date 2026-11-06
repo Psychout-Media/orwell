@@ -179,6 +179,9 @@ GAME_TOOL_OPTIONAL = frozenset({
 # non-game (workspace/admin) turns.
 GAME_NARRATOR_TOOL_DROP = frozenset({
     "manage_settings", "manage_endpoints", "manage_tokens", "manage_mcp", "list_models", "update_plan",
+    # ORW-180: the UI-control tool (open panels / resend / focus) has no in-fiction role; it survived the game-build wall
+    # when the keyword fallback matched "message"/"resend" (live 11-06). Never hand it to the game narrator.
+    "ui_control",
 })
 
 
