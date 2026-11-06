@@ -7401,9 +7401,16 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     current_url = sess.endpoint_url or ""
     db = SessionLocal()
     try:
-        endpoints = db.query(ModelEndpoint).filter(
-            ModelEndpoint.is_enabled == True
-        ).all()
+        # Owner-scoped (own + shared, no admin bypass): never adopt another user's endpoint
+        # or persist their key on this session.
+        from src.auth_helpers import owner_filter
+        _q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+        _own = getattr(sess, "owner", None)
+        if _own:
+            _q = owner_filter(_q, ModelEndpoint, _own, include_shared=True)
+        else:
+            _q = _q.filter(ModelEndpoint.owner.is_(None))
+        endpoints = _q.all()
     finally:
         db.close()
 

@@ -201,3 +201,87 @@ def test_no_call_site_sends_raw_stored_session_headers(rel):
 def test_chat_routes_agent_loop_and_chat_mode_use_the_resolver():
     src = open(os.path.join(FRONTEND, "routes", "chat_routes.py")).read()
     assert src.count("resolve_session_headers(sess)") >= 4
+
+
+# ---- security review follow-ups ----------------------------------------------------------
+
+def test_admin_session_never_receives_a_user_owned_key(db, monkeypatch):
+    import src.auth_helpers as ah
+    monkeypatch.setattr(ah, "is_admin_user", lambda u: True)
+    _ep(db, "theirs", DS_BASE, "sk-theirs", owner="u2")
+    stored = {"Authorization": "Bearer admin-own"}
+    sess = _sess(DS_BASE + "/chat/completions", stored, owner="admin")
+    assert er.resolve_session_headers(sess) == stored
+    assert er.persistable_session_headers(sess.endpoint_url, stored, "admin") == stored
+    _row(db, "adm", sess.endpoint_url, stored, owner="admin")
+    assert er.migrate_strip_session_auth_headers() == 0
+    assert _stored(db, "adm") == stored
+    # ...while a shared endpoint is still usable by the admin.
+    _ep(db, "shared", OR_BASE, "sk-shared", owner=None)
+    assert er.resolve_session_headers(_sess(OR_BASE, {}, owner="admin"))["Authorization"] == "Bearer sk-shared"
+
+
+def test_fallback_never_adopts_or_persists_another_users_key(db, monkeypatch):
+    import requests
+    from routes.chat_helpers import try_fallback_endpoint
+    _ep(db, "theirs", DS_BASE, "sk-theirs", owner="u2")
+    _row(db, "s1", "https://dead.test/v1/chat/completions", {})
+
+    class R:
+        def raise_for_status(self): pass
+        def json(self): return {"data": [{"id": "m1"}]}
+    pinged = []
+    monkeypatch.setattr(requests, "get", lambda url, **k: pinged.append(url) or R())
+    sess = _sess("https://dead.test/v1/chat/completions", {}, owner="u1")
+    assert try_fallback_endpoint(sess, "s1") is None
+    assert not pinged  # u2's endpoint was never even probed
+    assert "sk-theirs" not in str(_stored(db, "s1"))
+    # An own/shared endpoint still works.
+    _ep(db, "mine", OR_BASE, "sk-mine", owner="u1")
+    out = try_fallback_endpoint(sess, "s1")
+    assert out and out["endpoint_name"] == "mine"
+    assert "sk-mine" not in str(_stored(db, "s1"))
+
+
+def test_ambiguous_keyed_matches_do_not_strip_or_override(db):
+    _ep(db, "a", OR_BASE, "sk-a", owner="u1")
+    _ep(db, "b", OR_BASE, "sk-b", owner=None)
+    stored = {"Authorization": "Bearer sk-a"}
+    sess = _sess(OR_BASE + "/chat/completions", stored)
+    assert er.resolve_session_headers(sess) == stored
+    assert er.persistable_session_headers(sess.endpoint_url, stored, "u1") == stored
+    _row(db, "amb", sess.endpoint_url, stored)
+    assert er.migrate_strip_session_auth_headers() == 0
+    assert _stored(db, "amb") == stored
+
+
+def test_same_key_on_two_matches_is_not_ambiguous(db):
+    _ep(db, "a", OR_BASE, "sk-same", owner="u1")
+    _ep(db, "b", OR_BASE, "sk-same", owner=None)
+    assert er.resolve_session_headers(_sess(OR_BASE, {}))["Authorization"] == "Bearer sk-same"
+
+
+def test_exact_base_match_beats_prefix_match(db):
+    _ep(db, "root", "https://gw.test/v1", "sk-root")
+    _ep(db, "deep", "https://gw.test/v1/team", "sk-team")
+    # URL under the deeper base: the deeper (exact) endpoint wins; the shallower is only a prefix.
+    out = er.resolve_session_headers(_sess("https://gw.test/v1/team/chat/completions", {}))
+    assert out["Authorization"] == "Bearer sk-team"
+    out = er.resolve_session_headers(_sess("https://gw.test/v1/chat/completions", {}))
+    assert out["Authorization"] == "Bearer sk-root"
+
+
+def test_strip_requires_the_endpoint_to_really_produce_an_auth_key(db, monkeypatch):
+    _ep(db, "or", OR_BASE, "sk-or")
+    monkeypatch.setattr(er, "build_headers", lambda key, base: {"X-Other": "1"})
+    stored = {"Authorization": "Bearer sk-or"}
+    assert er.persistable_session_headers(OR_BASE, stored, "u1") == stored
+    assert er.resolve_session_headers(_sess(OR_BASE, stored)) == stored
+
+
+def test_endpoint_key_overrides_request_or_env_supplied_key(db):
+    """Documented behaviour: a session whose URL resolves to a keyed endpoint always sends that
+    endpoint's key, even if the session was created with a request/env-supplied key."""
+    _ep(db, "or", OR_BASE, "sk-endpoint")
+    out = er.resolve_session_headers(_sess(OR_BASE, {"Authorization": "Bearer sk-from-request"}))
+    assert out["Authorization"] == "Bearer sk-endpoint"
