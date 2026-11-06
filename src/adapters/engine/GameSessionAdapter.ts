@@ -1049,7 +1049,7 @@ export class GameSessionAdapter implements GameSession {
     return entrancesOver && live.champagneCircle !== "gathered"; // the circle is cleared once released
   }
   /** B10 / B11 slice 3 - information spreads only by co-presence, by the holder's choice. OFF unless exactly `ORWELL_GOSSIP_COPRESENCE=1`; never-flipped. The told ledger is engine-private (ids only; persisted in the snapshot since B20 - the old note said not yet persisted: a restart re-decides, and a listener who already holds the fact is never a candidate). */
-  private copresenceEnabled = process.env.ORWELL_GOSSIP_COPRESENCE === "1";
+  private copresenceEnabled = flagDefaultOn("ORWELL_GOSSIP_COPRESENCE");
   private copresenceTold = new ToldLedger();
   setCopresenceEnabled(on: boolean): void { this.copresenceEnabled = on; }
   copresenceEnabledNow(): boolean { return this.copresenceEnabled; }
