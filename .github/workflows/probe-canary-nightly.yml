@@ -41,7 +41,7 @@ env:
 
 jobs:
   probe-canary:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: provider key gate
