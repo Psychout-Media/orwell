@@ -251,6 +251,12 @@ PREV_FILE="${APP_DIR}/data/.update-prev"      # the last good SHA (data/ survive
 PREV_DIST="${APP_DIR}/dist.prev"              # the last good build output — stamped with PREV_FILE's SHA
 STAGED_DIST="${APP_DIR}/dist.staging"         # the RUNNING build, held aside while an update is in flight
 DIST_STAMP=".orwell-build-sha"                # inside dist.prev / dist.staging: the SHA that build came from
+DEPS_STAMP="${APP_DIR}/dist/.orwell-deps-stamp"   # ORW-229: what the last FULLY successful update installed (see below)
+PLAY_DIR="${APP_DIR}/frontend/web"            # ORW-229: the React /play app (absent on commits that predate it)
+PLAY_DIST="${PLAY_DIR}/dist"                  # what the front end serves at /play
+PLAY_NEXT="${PLAY_DIR}/dist.next"             # a finished build waiting for the commit point
+PLAY_PREV="${PLAY_DIR}/dist.prev"             # the build it replaced (reused by --rollback / an update back)
+PLAY_STAMP=".orwell-web-inputs"               # inside a /play build: the fingerprint of the inputs it was built from
 ENV_FILE="${APP_DIR}/data/.env"
 
 # Wire git to read GIT_TOKEN from data/.env at use time (A4/ruling #17). Idempotent; also the
@@ -385,6 +391,184 @@ snapshot_running_dist() {
   fi
 }
 
+# ── ORW-229 — fast updates: skip the reinstalls and rebuilds a commit does not need ────────────────────
+# Measured on the production box: every update ran `npm ci` (35-50 s, once 2 min) and `pip install`
+# (several seconds), although the lockfiles almost never change. The deps stamp (DEPS_STAMP, beside the
+# build stamp in the root-owned dist/) records, for the last update that FULLY succeeded:
+#   engine_inputs / engine_deps / frontend_inputs — what each step consumed at that commit: the git object
+#       ids of the tracked files it reads, plus the tool versions;
+#   engine_tree / engine_dist / frontend_tree — what the step LEFT on disk: npm's own hidden lockfile
+#       (node_modules/.package-lock.json, rewritten by every npm ci / install / prune), the bytes of the
+#       engine build, and the venv's installed-distribution list.
+# A step is skipped only when BOTH match: the target commit feeds it exactly the same inputs AND the tree
+# on disk is byte-for-byte the one that update left (a manual npm/pip run, a re-run installer or a
+# half-finished install all change the witness). The stamp is read and DELETED before this run touches
+# anything (and by --rollback) and written again only after the commit point, so a missing stamp — the
+# first run with this updater, a fresh install, or a previous update / rollback that failed, was reverted
+# or was interrupted — always means the full reinstall, exactly as before.
+DEPS_STAMP_TEXT=""
+ENGINE_INPUTS_FP=""; ENGINE_DEPS_FP=""; FRONTEND_DEPS_FP=""
+
+_fp_sum() { { sha256sum 2>/dev/null || shasum -a 256 2>/dev/null; } | cut -d' ' -f1; }
+# Both the same KNOWN value ("" / "none" = could not be computed, never a match).
+_same() { [[ -n "$1" && "$1" != none && "$1" == "$2" ]]; }
+# A key of the stamp this run read at its start (hex digests / SHAs only; anything else reads as "").
+stamp_get() { sed -n "s/^${1}=\([0-9a-f]\{40,64\}\)\$/\1/p" <<<"$DEPS_STAMP_TEXT" | tail -n1; }
+read_deps_stamp() { if [[ -f "$DEPS_STAMP" && ! -L "$DEPS_STAMP" ]]; then head -c 4096 "$DEPS_STAMP"; fi; return 0; }
+
+# Engine inputs: every tracked top-level entry at HEAD EXCEPT the ones that never reach dist/ or
+# node_modules (the Python front end, deploy scripts, docs, tests, BDD steps, CI + agent config, root
+# *.md). Deny by default: a new top-level file or dir counts as an input until it is listed here. Plus
+# node + npm: a node upgrade changes the native addons `npm ci` would fetch.
+_ENGINE_NOT_INPUTS='^(frontend|deploy|docs|tests|features|[.]github|[.]claude)$|[.]md$'
+engine_inputs_fp() {
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD 2>/dev/null)" || { echo none; return 0; }
+  { node -v || true; npm -v || true; awk -F'\t' -v re="$_ENGINE_NOT_INPUTS" '$2 !~ re' <<<"$tree"; } 2>/dev/null | _fp_sum
+}
+# What `npm ci` itself consumes.
+engine_deps_fp() {
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- package.json package-lock.json patches .npmrc 2>/dev/null)" || { echo none; return 0; }
+  { node -v || true; npm -v || true; printf '%s\n' "$tree"; } 2>/dev/null | _fp_sum
+}
+# What install_frontend_deps consumes, plus the venv's interpreter.
+frontend_deps_fp() {
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/requirements.lock.txt frontend/requirements.txt 2>/dev/null)" || { echo none; return 0; }
+  { "${APP_DIR}/frontend/.venv/bin/python" -V || true; printf '%s\n' "$tree"; } 2>/dev/null | _fp_sum
+}
+# What the /play build consumes: all of frontend/web (lockfile, src, config) and frontend/static/js (the
+# classic markdown module /play imports through its `@classic` alias), plus node + npm.
+play_inputs_fp() {
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
+  { node -v || true; npm -v || true; printf '%s\n' "$tree"; } 2>/dev/null | _fp_sum
+}
+engine_tree_witness() {
+  local f="${APP_DIR}/node_modules/.package-lock.json"
+  if [[ -f "$f" && ! -L "$f" ]]; then _fp_sum < "$f"; else echo none; fi
+}
+dist_witness() {
+  local d="${APP_DIR}/dist"
+  if [[ -f "${d}/main.js" && -f "${d}/embedWorker.js" ]]; then cat "${d}/main.js" "${d}/embedWorker.js" | _fp_sum; else echo none; fi
+}
+frontend_tree_witness() {   # the installed distributions (name + version) in the venv's site-packages
+  local sp f names=()
+  for sp in "${APP_DIR}/frontend/.venv/lib"/python*/site-packages; do
+    [[ -d "$sp" ]] || continue
+    for f in "$sp"/*.dist-info "$sp"/*.egg-info; do [[ -e "$f" ]] && names+=("${f##*/}"); done
+    printf '%s\n' ${names[@]+"${names[@]}"} | LC_ALL=C sort | _fp_sum
+    return 0
+  done
+  echo none
+}
+
+# What the engine step has to do for HEAD. Prints <plan>:<why>:
+#   reuse  nothing dist/ or node_modules depends on changed — keep both, no npm at all;
+#   chain  the dependencies did not change (node_modules is exactly the pruned runtime tree the last update
+#          left), only the code did — put back just the build tools `npm prune` removed, from the local npm
+#          cache, instead of a full `npm ci` that deletes and re-downloads everything;
+#   full   anything else — the full `npm ci`, as before.
+engine_plan() {
+  if [[ -z "$DEPS_STAMP_TEXT" ]]; then
+    echo "full:no record of a completed update (the first run with this updater, or the last update / rollback did not finish)"; return 0
+  fi
+  if ! _same "$(stamp_get engine_tree)" "$(engine_tree_witness)"; then echo "full:node_modules is not the tree the last successful update left"; return 0; fi
+  if ! _same "$(stamp_get engine_deps)" "$ENGINE_DEPS_FP"; then echo "full:package.json, package-lock.json, patches/ or the node / npm version changed"; return 0; fi
+  if _same "$(stamp_get engine_inputs)" "$ENGINE_INPUTS_FP" && _same "$(stamp_get engine_dist)" "$(dist_witness)"; then echo "reuse:"; return 0; fi
+  echo "chain:"
+}
+frontend_deps_unchanged() {
+  [[ -n "$DEPS_STAMP_TEXT" ]] && _same "$(stamp_get frontend_inputs)" "$FRONTEND_DEPS_FP" \
+    && _same "$(stamp_get frontend_tree)" "$(frontend_tree_witness)"
+}
+# Written only after the commit point. The input fingerprints are the ones this run planned with; the
+# witnesses are taken now, from what the run leaves behind.
+write_deps_stamp() {
+  local tmp
+  [[ -d "${APP_DIR}/dist" && ! -L "${APP_DIR}/dist" ]] || return 1
+  tmp="$(mktemp "${APP_DIR}/dist/.orwell-deps-stamp.XXXXXX")" || return 1
+  if printf 'sha=%s\nengine_inputs=%s\nengine_deps=%s\nengine_tree=%s\nengine_dist=%s\nfrontend_inputs=%s\nfrontend_tree=%s\n' \
+       "$(git -C "$APP_DIR" rev-parse HEAD)" "${ENGINE_INPUTS_FP:-none}" "${ENGINE_DEPS_FP:-none}" \
+       "$(engine_tree_witness)" "$(dist_witness)" "${FRONTEND_DEPS_FP:-none}" "$(frontend_tree_witness)" > "$tmp" \
+     && chmod 644 "$tmp" && mv -f "$tmp" "$DEPS_STAMP"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+# ── ORW-229 — the React /play app (frontend/web; the front end serves frontend/web/dist at /play) ───────
+# Built only when the target commit has frontend/web/package.json, and NON-FATALLY: a failed build logs a
+# warning and the update carries on — the classic UI is the game, and /play keeps its current build (or its
+# "not built yet" 503 page if it never had one). Skipped when nothing it is built from changed. It builds a
+# clean export of the commit in a temp dir, so the live dist/ is never emptied or half-written while vite
+# runs; the finished build waits in dist.next and goes live only after the commit point (swap_play_app),
+# so a failed or reverted update never changes what /play serves. Each build carries the fingerprint of its
+# inputs (PLAY_STAMP).
+play_build_fp() {   # the inputs fingerprint a /play build dir was made from; "" unless it is a complete build
+  [[ -f "${1}/index.html" && -f "${1}/${PLAY_STAMP}" && ! -L "${1}/${PLAY_STAMP}" ]] || return 0
+  head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
+}
+build_play_app() {
+  local fp tmp out
+  rm -rf "$PLAY_NEXT"
+  [[ -f "${PLAY_DIR}/package.json" ]] || return 0
+  fp="$(play_inputs_fp)"
+  if _same "$(play_build_fp "$PLAY_DIST")" "$fp"; then
+    echo "==> /play unchanged since its last build (frontend/web + frontend/static/js) — not rebuilding it"
+    return 0
+  fi
+  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && cp -a "$PLAY_PREV" "$PLAY_NEXT"; then
+    echo "==> /play: reusing the previous build of these exact inputs"
+    return 0
+  fi
+  echo "==> building /play (frontend/web) in a temp dir — a failure here does NOT fail the update"
+  if ! tmp="$(mktemp -d "${TMPDIR:-/tmp}/orwell-play-build.XXXXXX")"; then
+    echo "WARN: /play was NOT built (no temp dir) — it keeps its current build"
+    return 0
+  fi
+  out="${tmp}/frontend/web"
+  if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x -C "$tmp" \
+     && ( cd "$out" && npm ci --prefer-offline --no-audit --no-fund && npm run build ) \
+     && [[ -f "${out}/dist/index.html" ]] \
+     && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
+     && cp -a "${out}/dist" "$PLAY_NEXT"; then
+    echo "==> /play built — it goes live when the update commits"
+  else
+    rm -rf "$PLAY_NEXT"
+    echo "WARN: the /play build FAILED (see above) — the update continues; /play keeps its current build (or its 503 'not built yet' page). The classic UI is unaffected."
+  fi
+  rm -rf "$tmp"
+  return 0
+}
+# Put the staged /play build live: two renames on one filesystem (dist -> dist.prev, dist.next -> dist), so
+# /play keeps answering from the old build right up to the swap. Never fails the update.
+swap_play_app() {
+  [[ -d "$PLAY_NEXT" ]] || return 0
+  rm -rf "$PLAY_PREV"
+  if [[ -e "$PLAY_DIST" || -L "$PLAY_DIST" ]] && ! mv -T "$PLAY_DIST" "$PLAY_PREV"; then
+    echo "WARN: could not move the current /play build aside — it stays live (the new build is left in ${PLAY_NEXT})"
+    return 0
+  fi
+  if mv -T "$PLAY_NEXT" "$PLAY_DIST"; then
+    echo "==> /play: the new build is live (the previous one is kept as ${PLAY_PREV})"
+  else
+    echo "WARN: could not put the new /play build live — putting the previous one back"
+    if [[ -d "$PLAY_PREV" ]]; then mv -T "$PLAY_PREV" "$PLAY_DIST" || true; fi
+  fi
+  return 0
+}
+# --rollback: /play follows only when a build of that commit's inputs is still on disk (offline, no rebuild).
+play_follow_rollback() {
+  local fp
+  [[ -f "${PLAY_DIR}/package.json" ]] || return 0
+  fp="$(play_inputs_fp)"
+  if _same "$(play_build_fp "$PLAY_DIST")" "$fp"; then return 0; fi
+  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && rm -rf "$PLAY_NEXT" && cp -a "$PLAY_PREV" "$PLAY_NEXT"; then
+    swap_play_app
+    return 0
+  fi
+  echo "NOTE: no /play build of this commit is on disk — /play keeps its current build until the next update rebuilds it."
+}
+
 # Put the tree back on $1: reset git, reinstall the engine + front-end dependencies a failed run could
 # have damaged, and restore dist from the copy $2 (empty/absent ⇒ rebuild from source). Every step is
 # `|| return 1` — callers use it inside `if`, where `set -e` is suspended.
@@ -509,6 +693,7 @@ revert_failed_update() {
   if ! { printf '\n'; } 2>/dev/null; then { exec >>"$ops_log"; } 2>/dev/null || exec >/dev/null; fi
   if ! { printf '\n' >&2; } 2>/dev/null; then { exec 2>>"$ops_log"; } 2>/dev/null || exec 2>/dev/null; fi
   echo "ERROR: update FAILED during ${PHASE} (exit ${rc}) — restoring ${PREV_SHA}; services were NOT restarted." >&2
+  rm -rf "$PLAY_NEXT"   # ORW-229: a /play build staged by this run never goes live (the live /play was not touched)
   if [[ "$ENGINE_DIRTY$FE_DIRTY$DIST_DIRTY" == "000" && "$(git -C "$APP_DIR" rev-parse HEAD)" == "$PREV_SHA" ]]; then
     # Failed before anything was touched (e.g. the fetch): there is nothing to restore, and booting a
     # second engine beside the live one could only add a false alarm.
@@ -582,7 +767,11 @@ if [[ "$ROLLBACK" -eq 1 ]]; then
   git -C "$APP_DIR" diff --quiet "$CUR_SHA" "$RB_SHA" -- frontend/requirements.lock.txt frontend/requirements.txt || FE_DIRTY=1
   DIST_DIRTY=1
   echo "==> restoring ${RB_SHA}: build$([[ $ENGINE_DIRTY -eq 1 ]] && echo ' + engine dependencies')$([[ $FE_DIRTY -eq 1 ]] && echo ' + front-end dependencies')"
+  # ORW-229: a rollback changes what is installed, so the next update must not trust the record of the last
+  # one — it reinstalls in full (and records a fresh stamp).
+  rm -f "$DEPS_STAMP"
   if restore_build "$RB_SHA" "$RB_DIST" && verify_runnable; then
+    play_follow_rollback || true
     systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
     echo "==> rollback complete (now on ${RB_SHA}; the restored build was verified to start)."
     exit 0
@@ -604,6 +793,11 @@ trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP   # route signals
 
 echo "==> updating orwell in ${APP_DIR} (save in ${APP_DIR}/data is preserved)"
 PREV_SHA="$(git -C "$APP_DIR" rev-parse HEAD)"
+# ORW-229: take the record of the last successful update, then delete it BEFORE anything changes (and before
+# the snapshot below, so no copy of dist/ carries it): if this run does not reach its commit point, the next
+# one finds no stamp and reinstalls in full.
+DEPS_STAMP_TEXT="$(read_deps_stamp)"
+rm -f "$DEPS_STAMP"
 # Hold the running build aside so a failed update can restore it untouched. dist.prev + data/.update-prev
 # (the --rollback pair) are NOT touched until the update fully succeeds — see commit_rollback_pair.
 snapshot_running_dist
@@ -614,6 +808,7 @@ PHASE="fetching the target"
 ops_progress_step 1 "fetching latest code"
 fetch_target
 git -C "$APP_DIR" reset --hard "$TARGET"
+ENGINE_INPUTS_FP="$(engine_inputs_fp)"; ENGINE_DEPS_FP="$(engine_deps_fp)"; FRONTEND_DEPS_FP="$(frontend_deps_fp)"
 
 # Build BEFORE committing to the swap (B71/ops A4): a failed build must leave the services on the
 # PREVIOUS checkout + build — never a new tree with a stale dist, never a restart into a broken build.
@@ -623,18 +818,47 @@ echo "==> rebuild engine (the update commits only if everything below succeeds)"
 PHASE="the engine build"
 ops_progress_step 2 "rebuilding engine"
 cd "$APP_DIR"
-ENGINE_DIRTY=1
-npm ci
-DIST_DIRTY=1
-rm -f "${APP_DIR}/dist/${DIST_STAMP}"   # a partial dist must never carry a stamp
-npm run build
-stamp_dist
+ENGINE_PLAN="$(engine_plan)"
+case "${ENGINE_PLAN%%:*}" in
+  reuse)
+    # ORW-229: dist/ and node_modules are exactly what this commit would build, so neither is touched; dist/ is
+    # only re-stamped as this commit's build (DIST_DIRTY: a later failure puts the old stamp back).
+    echo "==> engine unchanged since the last successful update — keeping its node_modules and build (no npm ci, no rebuild)"
+    DIST_DIRTY=1
+    stamp_dist
+    ;;
+  chain)
+    # ORW-229: node_modules is the pruned runtime tree of this exact lockfile; `npm install` only adds back
+    # the build tools (esbuild, …) from the local cache. --no-save: it never rewrites package*.json.
+    echo "==> engine dependencies unchanged — restoring only the build tools the last update pruned (npm install from the local cache), not a full npm ci"
+    ENGINE_DIRTY=1
+    if ! npm install --include=dev --no-save --prefer-offline --no-audit --no-fund; then
+      echo "WARN: restoring the build tools failed — falling back to a clean npm ci"
+      npm ci
+    fi
+    ;;
+  *)
+    echo "==> full engine install (npm ci): ${ENGINE_PLAN#*:}"
+    ENGINE_DIRTY=1
+    npm ci
+    ;;
+esac
+if [[ "${ENGINE_PLAN%%:*}" != reuse ]]; then
+  DIST_DIRTY=1
+  rm -f "${APP_DIR}/dist/${DIST_STAMP}"   # a partial dist must never carry a stamp
+  npm run build
+  stamp_dist
 
-# Production hardening: the host runs the BUNDLED engine (dist/main.js + the 3 pinned native deps),
-# so once the build above is done it needs only the RUNTIME tree. Drop the dev/build chain
-# (esbuild, vitest, cucumber, …) so the deployed box doesn't carry its advisories (npm audit: all
-# dev-chain — see README "Dependency advisories"). Non-fatal; the next update re-installs it to build.
-npm prune --omit=dev || echo "WARN: npm prune --omit=dev failed (dev deps remain; harmless)"
+  # Production hardening: the host runs the BUNDLED engine (dist/main.js + the 3 pinned native deps),
+  # so once the build above is done it needs only the RUNTIME tree. Drop the dev/build chain
+  # (esbuild, vitest, cucumber, …) so the deployed box doesn't carry its advisories (npm audit: all
+  # dev-chain — see README "Dependency advisories"). Non-fatal; the next update re-installs it to build.
+  npm prune --omit=dev || echo "WARN: npm prune --omit=dev failed (dev deps remain; harmless)"
+fi
+
+# ORW-229: the React /play app — non-fatal by construction (see build_play_app); goes live after the commit point.
+PHASE="the /play build (non-fatal)"
+build_play_app || true
 
 # ── FINDING #3 — resolve the service USER/GROUP (mirrors orwell-oobe-reset.sh's resolution, ~L368):
 # needed both to drop privileges for the sqlite cruft-cleanup below AND to restore ownership after the
@@ -780,8 +1004,14 @@ echo "==> refresh front-end deps"
 PHASE="the front-end dependency install"
 ops_progress_step 3 "refreshing front-end deps"
 cd "${APP_DIR}/frontend"
-FE_DIRTY=1
-install_frontend_deps
+if frontend_deps_unchanged; then
+  # ORW-229: same lockfile + interpreter as the last successful update, and the venv still holds exactly
+  # what it installed — `pip install` would be a slow no-op.
+  echo "==> front-end dependencies unchanged since the last successful update — skipping pip install"
+else
+  FE_DIRTY=1
+  install_frontend_deps
+fi
 
 # ── Issue #636 — converge an existing box to the lean game build ───────────────────────────────
 # The FE is vendored from a larger workspace whose browser (Playwright NPX), ChromaDB RAG
@@ -1153,6 +1383,12 @@ fi
 PHASE="recording the rollback pair"
 commit_rollback_pair
 UPDATE_ARMED=0
+
+# ORW-229: the update has committed — record what it installed (so the next update can skip what did not
+# change), and put a freshly built /play live. Neither can fail the update.
+PHASE="recording the install stamp + the /play swap (non-fatal)"
+write_deps_stamp || echo "WARN: could not write ${DEPS_STAMP} — the next update reinstalls in full (harmless)"
+swap_play_app || true
 
 # ops-progress lane: terminal OK. Clear the trap before the success write so the EXIT trap can't
 # re-stamp it. (The FE restart below can kill this very process if it is the FE — but the updater
