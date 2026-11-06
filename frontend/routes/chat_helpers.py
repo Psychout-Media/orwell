@@ -1,6 +1,7 @@
 """Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -5411,6 +5412,291 @@ def _sentence_has_met_everyone_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the player met the whole house? Keeps the S7
     guard off every sentence that never mentions it (mirrors `_sentence_has_closed_set_claim`)."""
     return bool(text and _MET_EVERYONE_RE.search(text))
+
+
+# ── ORW-205 — the PRE-EMISSION HEADCOUNT guard (the premiere entrances) ──────────────────────── #
+#
+# Playtest 2026-11-06: during the staged premiere entrances the narrator counted the room itself and got
+# it wrong ("Ten of the cast in the house now" with 12 inside, "Six in the door, nine to go" with 11
+# inside, "Eight of you fill the living room" while the player was still outside). #2244 hands the
+# narrator the engine's own count (`premiereIntros.entrance.insideCount` plus a ready-made `headcount`
+# sentence) and the prompt forbids its own counts. This is the structural half, so the rule does not rest
+# on prompt wording alone: a sentence that STATES how many are inside (or still to come) is checked
+# against the engine's LIVE entrance count and DROPPED before the player sees it when the engine
+# contradicts it, and a next-turn re-ground quoting the engine's headcount sentence is stashed.
+#
+# Jurisdiction (ADR 0005 #1): who has arrived is a CLOSED-SET fact, so a stated COUNT of it may be
+# policed, and nothing else. The grammar is deliberately narrow: a number bound to an arrival anchor
+# ("N in", "N of you are inside", "N in the house", "N through the door", "N have arrived", "N of you fill
+# the living room") or a remaining anchor ("N to go", "N more to come", "N more still have to walk through
+# that door"), led in by a clause start or a copula ("that's", "there are", "it's"). A subgroup ("the three
+# of them are laughing", "four of them by the fence"), a time ("nine in the morning"), a hedge ("about ten
+# of you"), a conditional ("once all sixteen are in"), a past or future count ("ten of you were inside",
+# "there will be sixteen") and the cast total in prose never match. Counts are checked only while the
+# engine reports the entrances or the toast; outside them, or on any engine hiccup, the sentence emits
+# unchanged (fail-open: a false hold on creative prose is worse than a missed count).
+
+_HC_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+_HC_NUM_ALT = r"\d{1,2}|" + "|".join(sorted(_HC_NUMBER_WORDS, key=len, reverse=True))
+_HC_NUM_RE = re.compile(r"\b(" + _HC_NUM_ALT + r")\b", re.IGNORECASE)
+# The words that may lead straight into a stated count. Anything else right before the number ("waves two
+# in", "about ten", "were", "will be") means it is not a headcount statement — hedges are excluded simply
+# by not being here. A clause start (sentence start, punctuation, a quote or markdown opener) also leads in.
+_HC_LEAD_WORDS = frozenset({
+    "and", "so", "now", "then", "with", "but", "plus", "the", "all", "other", "just", "only",
+    "makes", "that's", "thats", "it's", "there's", "theres", "are", "we're", "you're", "they're",
+})
+_HC_CLAUSE_PUNCT = ".!?;:,(—–\n\"“”'‘’["
+_HC_CLAUSE_SPLIT_RE = re.compile(r"[.!?;:,(—–\n]")
+# A subordinate (conditional / temporal) clause states no current count: "once all sixteen are in", "when
+# there are ten of you in", "by the time twelve of you are inside".
+_HC_CONDITIONAL_RE = re.compile(
+    r"\b(?:once|when|whenever|until|till|after|before|if|unless|as\s+soon\s+as|by\s+the\s+time)\b",
+    re.IGNORECASE,
+)
+# What may follow an "in" / "to go" for it to close the count (else "in total", "in and out", "to go home").
+_HC_BOUNDARY = (
+    r"(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_(\n]|-\s|--"
+    r"|(?:now|already|so\s+far|and|but|then|before|until|till|tonight|plus|including|counting|officially|yet)\b))"
+)
+_HC_NOUNS = r"houseguests|people|strangers|guests|contestants|players|newcomers|arrivals|cast\s+members"
+_HC_SUBJ = (
+    r"(?:\s+(?P<subj>of\s+(?:you|y'?all|y’all|us|them)\b"
+    r"|of\s+(?:the\s+)?(?:cast|house|group|" + _HC_NOUNS + r"|" + _HC_NUM_ALT + r")\b"
+    r"|(?:" + _HC_NOUNS + r")\b))?"
+)
+_HC_AUX = r"(?:\s+(?:are|now|already|all|officially|finally|safely|have|has|been))*"
+_HC_INSIDE_TAIL_RE = re.compile(
+    _HC_SUBJ + _HC_AUX + r"\s+(?:"
+    r"(?:in|inside)(?!\s+and\s+out\b)" + _HC_BOUNDARY
+    + r"|(?:in|inside)\s+the\s+(?:house(?!['’]s)|front\s+door|door(?!\s*(?:frame|jamb)))\b"
+    + r"|through\s+the\s+(?:front\s+)?door\b"
+    + r"|(?:arrived|walked\s+in|moved\s+in|made\s+it\s+in|checked\s+in)" + _HC_BOUNDARY
+    + r"|(?:fill|fills|crowd|crowds|pack|packs|cram|crams|jam|jams)(?:\s+into)?\s+the\s+"
+      r"(?:living\s+room|room|house|lounge|place)" + _HC_BOUNDARY
+    + r")",
+    re.IGNORECASE,
+)
+_HC_REMAIN_NOUNS = r"houseguests?|arrivals?|people|strangers|guests|faces"
+_HC_REMAIN_TAIL_RE = re.compile(
+    r"(?:\s+more)?(?:\s+(?:" + _HC_REMAIN_NOUNS + r"))?(?:\s+(?:still|left))?\s+to\s+go" + _HC_BOUNDARY
+    + r"|\s+more(?:\s+(?:" + _HC_REMAIN_NOUNS + r"))?\s+(?:still\s+)?(?:to\s+come|on\s+the\s+way|"
+      r"waiting(?:\s+outside)?|(?:left\s+)?to\s+arrive|(?:have|has|need|needs)\s+to\s+(?:walk|come)\s+(?:through|in)|"
+      r"to\s+(?:walk|come)\s+(?:through|in))\b"
+    + r"|\s+(?:left|remaining|still)\s+to\s+(?:arrive|come|walk\s+in)\b",
+    re.IGNORECASE,
+)
+
+# One stated count: kind "inside" (how many are in) or "remaining" (how many are still to come); `subj` is
+# "you" ("N of you"), "us", or "them" (a bare number, a noun, "of the cast", "the other N").
+_HcClaim = collections.namedtuple("_HcClaim", ["kind", "n", "subj", "in_dialogue", "text"])
+
+
+def _hc_lead_word(pre: str) -> Optional[str]:
+    """The lead-in before a number: "" at a clause start, else the lowercased word right before it (or
+    None when what precedes it is neither)."""
+    p = pre.rstrip().rstrip("*_#>~`").rstrip()
+    if not p or not re.search(r"[A-Za-z0-9]", p) or p[-1] in _HC_CLAUSE_PUNCT or p.endswith((" -", "--")):
+        return ""
+    m = re.search(r"([A-Za-z’']+)$", p)
+    return m.group(1).lower().replace("’", "'") if m else None
+
+
+def _hc_in_dialogue(sentence: str, pos: int) -> bool:
+    """Is position `pos` inside quoted speech? Odd straight quotes on either side, or an open curly quote."""
+    before, after = sentence[:pos], sentence[pos:]
+    if before.count('"') % 2 == 1 or after.count('"') % 2 == 1:
+        return True
+    if before.rfind("“") > before.rfind("”"):
+        return True
+    close = after.find("”")
+    return close >= 0 and (after.find("“") < 0 or close < after.find("“"))
+
+
+def _headcount_claims(text: str) -> list:
+    """Every headcount STATEMENT in `text` (see the block comment for the grammar), as `_HcClaim`s.
+    Pure and engine-free. A number with no arrival/remaining anchor, a hedge or another non-lead word in
+    front of it, or a conditional clause around it is never a claim."""
+    if not text or not _HC_NUM_RE.search(text):
+        return []
+    claims = []
+    for m in _HC_NUM_RE.finditer(text):
+        word = m.group(1).lower()
+        pre = text[:m.start()]
+        lead = _hc_lead_word(pre)
+        if lead is None or (lead and lead not in _HC_LEAD_WORDS):
+            continue
+        clause = _HC_CLAUSE_SPLIT_RE.split(pre)[-1]
+        if _HC_CONDITIONAL_RE.search(clause):
+            continue
+        n = int(word) if word.isdigit() else _HC_NUMBER_WORDS[word]
+        tail = text[m.end():]
+        # "one in" is almost always the pronoun ("no one in the house", "the one in the corner").
+        im = None if word == "one" else _HC_INSIDE_TAIL_RE.match(tail)
+        if im:
+            subj_txt = (im.group("subj") or "").lower()
+            if lead == "other":
+                subj = "them"  # "the other eleven (of you) inside": the others, not the player
+            elif subj_txt.startswith(("of you", "of y'", "of y’", "of yall")):
+                subj = "you"
+            elif subj_txt.startswith("of us"):
+                subj = "us"
+            else:
+                subj = "them"
+            claims.append(_HcClaim("inside", n, subj, _hc_in_dialogue(text, m.start()),
+                                   (m.group(0) + im.group(0)).strip()))
+            continue
+        rm = _HC_REMAIN_TAIL_RE.match(tail)
+        if rm:
+            claims.append(_HcClaim("remaining", n, None, _hc_in_dialogue(text, m.start()),
+                                   (m.group(0) + rm.group(0)).strip()))
+    return claims
+
+
+def _sentence_has_headcount_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter (no engine read): does `text` state a headcount at all? Keeps the
+    ORW-205 guard off every sentence that does not (mirrors `_sentence_has_met_everyone_claim`)."""
+    try:
+        return bool(_headcount_claims(text))
+    except Exception:
+        return False
+
+
+def _headcount_entrance(intros) -> Optional[dict]:
+    """The live entrance count off a `premiereIntros` result, or None when there is nothing to check
+    against (outside the premiere, past the toast, or a malformed view). Reads the #2244 `insideCount` /
+    `playerInside` / `headcount`, falling back to `index` / `playerPosition` on an older engine."""
+    try:
+        ent = intros.get("entrance") if isinstance(intros, dict) else None
+        if not isinstance(ent, dict) or ent.get("stage") not in ("entrances", "toast"):
+            return None
+        inside = ent.get("insideCount", ent.get("index"))
+        total = ent.get("total")
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (inside, total)):
+            return None
+        if total <= 0 or not 0 <= inside <= total:
+            return None
+        player_inside = ent.get("playerInside")
+        if not isinstance(player_inside, bool):
+            pos = ent.get("playerPosition")
+            if not isinstance(pos, int) or isinstance(pos, bool):
+                return None
+            player_inside = inside >= pos
+        headcount = ent.get("headcount")
+        return {"stage": ent["stage"], "inside": inside, "total": total, "player_inside": player_inside,
+                "headcount": headcount.strip() if isinstance(headcount, str) and headcount.strip() else None}
+    except Exception:
+        return None
+
+
+def _headcount_claim_ok(claim, ent: dict) -> bool:
+    """Does the engine's live count back this stated count? Inside: the full count, or the others once the
+    player is in ("eleven houseguests, plus you"); "N of you" in narration also says the player is inside.
+    Remaining: the arrivals still to come (the player among them while outside, or not counted)."""
+    inside, total, player_inside = ent["inside"], ent["total"], ent["player_inside"]
+    if claim.kind == "remaining":
+        left = total - inside
+        return claim.n == left or (not player_inside and left >= 1 and claim.n == left - 1)
+    if claim.subj == "you" and not claim.in_dialogue:
+        return player_inside and claim.n == inside
+    return claim.n == inside or (player_inside and claim.n == inside - 1)
+
+
+def _headcount_mismatch(text: str, ent: Optional[dict], claims=None):
+    """The first stated count in `text` that the engine's entrance count contradicts, or None. At the toast
+    everyone is in, and "two more to go" there means speeches, not arrivals, so only inside counts apply."""
+    if not ent:
+        return None
+    for claim in (_headcount_claims(text) if claims is None else claims):
+        if claim.kind == "remaining" and ent["stage"] != "entrances":
+            continue
+        if not _headcount_claim_ok(claim, ent):
+            return claim
+    return None
+
+
+def _headcount_directive(claim, ent: dict) -> str:
+    """The next-turn re-ground: names the narrator's own count and quotes the engine's headcount sentence."""
+    headcount = ent.get("headcount") or (
+        f"{ent['inside']} of {ent['total']} are inside"
+        + (" (the player is one of them)" if ent["player_inside"]
+           else " (the player has NOT walked in yet; they are not counted)"))
+    return (
+        "RE-GROUND ON THE HEADCOUNT — last turn you counted the house yourself (\"" + claim.text[:80]
+        + "\"), but the engine's headcount is: " + headcount + ". Never count the room yourself: if a "
+        "number matters, quote the engine's HEADCOUNT line exactly; otherwise use no number at all."
+    )
+
+
+async def _live_headcount_entrance(user) -> Optional[dict]:
+    """The engine's LIVE entrance count (`premiereIntros`, not the turn-start board: an `advanceGame`
+    earlier in the same turn moves it), or None. A failed read is unverifiable, so None (fail-open)."""
+    from src import orwell_engine
+    try:
+        return _headcount_entrance(await orwell_engine.premiere_intros(user=user))
+    except Exception as e:
+        logger.debug("[orwell] headcount guard: premiere_intros lookup failed user=%s: %s", user, _exc_detail(e))
+        return None
+
+
+def _note_headcount_hold(user, bad, ent: dict) -> None:
+    """Stash the next-turn re-ground for a held headcount and log it. Never raises."""
+    try:
+        _reground_enqueue(_desync_key(user), _headcount_directive(bad, ent))
+        logger.warning("[orwell] pre-emission guard HELD a headcount for user=%s — stated %d (%s), engine has "
+                       "%d of %d inside (player inside: %s)", user, bad.n, bad.kind, ent["inside"],
+                       ent["total"], ent["player_inside"])
+    except Exception:
+        pass
+
+
+async def screen_headcount_wall(user, text: str) -> str:
+    """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
+    stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
+    rest, the same `[.!?\\n]` split the presence wall uses, so `_mirror_wall_drop` can mirror it). Cheap hot
+    path: no headcount statement anywhere ⇒ `text` verbatim with no engine read; otherwise ONE
+    `premiereIntros` read for the chunk. Outside the entrances/toast nothing is dropped. Fail-open: any
+    hiccup returns `text` unchanged."""
+    try:
+        if not text or not text.strip() or not _sentence_has_headcount_claim(text):
+            return text
+        ent = await _live_headcount_entrance(user)
+        if ent is None:
+            return text
+        kept = []
+        for part in re.split(r"(?<=[.!?\n])", text):
+            bad = _headcount_mismatch(part, ent)
+            if bad is not None:
+                _note_headcount_hold(user, bad, ent)
+                continue  # DROP — a count the engine contradicts never reaches the player
+            kept.append(part)
+        return "".join(kept)
+    except Exception as e:
+        logger.warning("[orwell] pre-emission headcount wall skipped for user=%s: %s", user, _exc_detail(e))
+        return text
+
+
+async def screen_streamed_headcount(user, sentence: str) -> bool:
+    """ORW-205 per-sentence form of `screen_headcount_wall` (the OOC-aside screen uses it): HOLD (return
+    False) a sentence whose stated headcount the engine's live entrance count contradicts, stashing the
+    next-turn re-ground; else EMIT (True). Fail-open: no claim, no entrance view, or any hiccup emits."""
+    try:
+        claims = _headcount_claims(sentence)
+        if not claims:
+            return True
+        ent = await _live_headcount_entrance(user)
+        bad = _headcount_mismatch(sentence, ent, claims)
+        if bad is None:
+            return True
+        _note_headcount_hold(user, bad, ent)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission headcount guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True  # fail-open: never suppress on an error.
 
 
 # ── ADR 0009 (D3 Part B) — the PRE-EMISSION LOCATION guard (evicted-houseguest-in-a-room) ──────── #
