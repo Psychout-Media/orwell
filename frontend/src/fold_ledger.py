@@ -174,7 +174,8 @@ def _key(owner: Optional[str], session_id: Optional[str]) -> tuple:
 
 def _make_entry(*, content: str, with_ids: list, kind: str, consequence: Optional[dict],
                  felt_minutes: Optional[int], idempotency_key: str,
-                 row_anchor: Optional[str] = None, assurance: Optional[dict] = None) -> dict:
+                 row_anchor: Optional[str] = None, assurance: Optional[dict] = None,
+                 heard_about_me: Optional[dict] = None) -> dict:
     return {
         "content": content,
         "with_ids": with_ids,
@@ -182,6 +183,7 @@ def _make_entry(*, content: str, with_ids: list, kind: str, consequence: Optiona
         "consequence": consequence,
         "felt_minutes": felt_minutes,
         "assurance": assurance,
+        "heard_about_me": heard_about_me,
         "idempotency_key": idempotency_key,
         # The IMMUTABLE DB row id (a UUID string, per `core/database.py`/`core/session_manager.py`
         # — never an orderable integer) of the assistant row this fold belongs to. Unknown (None)
@@ -196,7 +198,7 @@ def _make_entry(*, content: str, with_ids: list, kind: str, consequence: Optiona
 def stage_pending_fold(owner: Optional[str], session_id: Optional[str], *, content: str,
                         with_ids: list, kind: str, consequence: Optional[dict],
                         felt_minutes: Optional[int], idempotency_key: str,
-                        assurance: Optional[dict] = None) -> None:
+                        assurance: Optional[dict] = None, heard_about_me: Optional[dict] = None) -> None:
     """Append a validated scene-fold payload to this (owner, session)'s queue, UNANCHORED
     (`row_anchor=None` — the turn's own row does not exist yet at stage time). Never overwrites an
     existing unsettled entry (PR #1825 fix #1) — a re-queued (settle-failure) entry from an
@@ -206,7 +208,7 @@ def stage_pending_fold(owner: Optional[str], session_id: Optional[str], *, conte
     q = _PENDING.setdefault(key, [])
     q.append(_make_entry(content=content, with_ids=with_ids, kind=kind, consequence=consequence,
                          felt_minutes=felt_minutes, idempotency_key=idempotency_key,
-                         assurance=assurance))
+                         assurance=assurance, heard_about_me=heard_about_me))
     if len(q) > _MAX_QUEUE_LEN:
         dropped = q.pop(0)
         logger.warning(
