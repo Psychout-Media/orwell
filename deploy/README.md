@@ -88,6 +88,35 @@ if you renamed the container or run more than one. A container provisioned **bef
 — the engine and front-end still honor the deprecated `BBAI_*` env, so its `data/.env` keeps working
 untouched.
 
+### Fast updates: what an update skips (ORW-229)
+
+An update reinstalls and rebuilds only what the new commit actually changes. After every update that
+fully succeeds, `orwell-update.sh` records in `dist/.orwell-deps-stamp` (root-owned, beside the
+`dist/.orwell-build-sha` build stamp) what each step consumed (the git ids of the lockfiles and sources
+it reads, plus the node/npm/python versions) and what it left on disk (npm's
+`node_modules/.package-lock.json`, the engine build, the venv's installed packages). On the next update:
+
+| What changed since the last successful update | Engine (`node_modules` + `dist/`) | Front-end venv |
+|---|---|---|
+| Nothing the engine reads (front end, deploy scripts, docs, tests, CI) | kept as is: no `npm ci`, no rebuild | kept if `frontend/requirements*.txt` are unchanged |
+| Engine code only (`src/`, …), same `package.json` / `package-lock.json` / `patches/` | only the build tools that `npm prune` removed come back, from the local npm cache (`npm install --include=dev --no-save --prefer-offline`), then build + prune | same as above |
+| `package.json`, `package-lock.json`, `patches/`, or the node/npm version | full `npm ci` (as before) | same as above |
+| `frontend/requirements.lock.txt` / `requirements.txt`, or the venv's Python | (per the rows above) | `pip install` (as before) |
+
+Everything is reinstalled in full when there is no record: the first update with this updater, a
+fresh install, or right after an update or rollback that failed, was reverted or was interrupted (the
+record is deleted when a run starts and written only at its commit point). It is also redone when the
+disk no longer matches the record, for example after someone ran `npm` or `pip` by hand on the box. To
+force a full reinstall, delete `dist/.orwell-deps-stamp`.
+
+The React `/play` app (`frontend/web`, when the commit has it) is built by the update too, and never
+fails it: a failed build logs a warning and `/play` keeps its current build (or its "not built yet"
+page). It builds from a clean export of the commit in a temp dir and is swapped into
+`frontend/web/dist` only after the update commits, so `/play` keeps serving the old build while the new
+one builds, and a failed update never changes it. It is skipped when nothing under `frontend/web` or
+`frontend/static/js` (the classic markdown module it imports) changed. The previous build is kept in
+`frontend/web/dist.prev`, which `--rollback` puts back when it matches the commit it rolls back to.
+
 ## Control panel — the `orwell` menu
 
 After install, **`orwell`** (a launcher for `orwell-menu.sh`, installed to `/usr/local/bin/orwell`)
