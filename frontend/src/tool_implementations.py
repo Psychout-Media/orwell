@@ -4543,6 +4543,9 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
             **({"assurance": _assurance} if _assurance else {}),
             **({"heard_about_me": _heard} if _heard else {}),
         )
+        # ORW-188: a recorded scene commits (bumps beatSeq) and the engine echoes the post-commit token. Adopt it (the belt path already does) so a later mutating
+        # call this turn (advanceGame) does not carry a stale token and 409.
+        await _refresh_after_model_progression(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
