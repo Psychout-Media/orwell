@@ -797,8 +797,19 @@
   // once the producer turn renders during the pre-game interview, even if no event reaches this tab
   // (the new mid-interview reveal). So it re-routes while the box is mounted OR while we're still in
   // the pre-game window. Cheap state reads; a no-op once the season is underway (_maybePregame false).
+  // ORW-143: this 4 s poll was un-gated: it re-read /api/orwell/state from hidden tabs and stacked a
+  // new request on top of one still in flight (about 210 of the 660 state reads measured on prod in
+  // 14 minutes of casting). Skip while the tab is hidden or a previous route() is still running.
+  let _routeInFlight = false;
   setInterval(function () {
-    if (_win || document.getElementById(ID) || _maybePregame) { route(); }
+    if (document.hidden || _routeInFlight) return;
+    if (_win || document.getElementById(ID) || _maybePregame) {
+      _routeInFlight = true;
+      Promise.resolve()
+        .then(function () { return route(); })
+        .catch(function () { /* route() is fail-open */ })
+        .then(function () { _routeInFlight = false; });
+    }
   }, 4000);
 
   // IMMEDIATE reveal (live walkthrough, 2026-06-21): the producer's opener calls no game-mutating

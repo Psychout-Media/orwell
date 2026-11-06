@@ -302,8 +302,8 @@ PREMIERE_IDENTITY_ON_FILE_NOTE = (
     "GAME CONTEXT). This premiere is a WELCOME, not a fresh intake. Do NOT have production or any "
     "houseguest interrogate the player for their name, hometown, or job again, and do NOT ask them to "
     "\"introduce themselves\" from scratch as if you don't know who they are — GREET them by name. The "
-    "houseguests still introduce THEMSELVES around the champagne circle (they are strangers to the player "
-    "and to each other); only the player's own basics are already known to production. The player may of "
+    "houseguests still introduce THEMSELVES as they arrive, one at a time (they are strangers to the player "
+    "and to each other; do not describe or stage a champagne toast until the engine reaches it); only the player's own basics are already known to production. The player may of "
     "course volunteer more about themselves, but never re-demand the basics they gave in casting."
 )
 
@@ -683,6 +683,32 @@ def _entrance_stage_of(game_state) -> Optional[str]:
         return None
 
 
+# ORW-148 part B: runway keys where the MODEL already released a staged-entrance arrival in the CURRENT player turn.
+# Per-turn signal = the one hook that already runs exactly once per framed turn (`note_premiere_turn`, called from the
+# turn framing right after the state read); it clears this set, so a new player message resets the allowance. In-process
+# like its sibling premiere dicts; a restart clears it (fail-open = the old behaviour for one turn).
+_PREMIERE_RELEASED_THIS_TURN: set = set()
+
+
+def premiere_release_already_this_turn(user) -> bool:
+    """ORW-148 B - True when a staged premiere arrival was already released in this player turn (entrance stage live only)."""
+    try:
+        key = _runway_key(user)
+        return key in _PREMIERE_ENTRANCE_STAGE and key in _PREMIERE_RELEASED_THIS_TURN
+    except Exception:
+        return False
+
+
+def mark_premiere_release(user) -> None:
+    """ORW-148 B - record that this turn's one staged-entrance release happened (no-op unless the entrance stage is live)."""
+    try:
+        key = _runway_key(user)
+        if key in _PREMIERE_ENTRANCE_STAGE:
+            _PREMIERE_RELEASED_THIS_TURN.add(key)
+    except Exception:
+        pass
+
+
 def premiere_entrance_active(user) -> bool:
     """A9 - True while the premiere is in its entrances/toast stage (flag-on only). Reads the stash `note_premiere_turn` wrote."""
     try:
@@ -696,6 +722,7 @@ def note_premiere_turn(user, game_state) -> None:
     A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
     try:
         key = _runway_key(user)
+        _PREMIERE_RELEASED_THIS_TURN.discard(key)  # ORW-148 B: a new framed turn resets the one-release-per-turn allowance
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
         if stage in ("entrances", "toast"):
@@ -2337,6 +2364,22 @@ _CLAIM_NOMINATED_RE = re.compile(
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
 _PRESENT_NOMINATION_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|nominating)\b", re.IGNORECASE)
+_NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+
+
+def _nomination_claims_all_hypothetical(text: str) -> bool:
+    """ORW-10 (live replay 7): every sentence that talks about a nomination / being 'on the block' sits in a conditional or hypothetical ("If it got to that, and you were on the block, and I had the power ...") - speculation
+    in dialogue, never a committed-nomination claim. True only when EVERY matching sentence carries a hypothetical marker before the claim."""
+    hits = [sent for sent in re.split(r"(?<=[.!?\n])", text or "") if _CLAIM_NOMINATED_RE.search(sent)]
+    if not hits:
+        return False
+    for sent in hits:
+        m = _CLAIM_NOMINATED_RE.search(sent)
+        if not _NOM_HYPOTHETICAL_RE.search(sent[:m.start() + 1]):
+            return False
+    return True
+
+
 _STRONG_NOMINATION_CUE_RE = re.compile(r"\b(?:nominat(?:e[sd]?|ing)|the nominees are|named (?:as )?(?:a )?nominee)\b", re.IGNORECASE)
 
 
@@ -2635,6 +2678,29 @@ _ASIDE_NOM_STATE_RES = (
 )
 
 
+# ORW-78 / A94 (live replay 7, 03:33): the narrator put a false premise into a ((production aside)) that named no one - "((You're the veto holder - you won it.))", "((You're the one holding the veto - nobody else won it.))" -
+# so the name-based aside check never ran, and the next turn built a fast-forward on it. The PLAYER is the subject here; the board knows (`playerHasVeto` / `playerIsHoh`).
+_ASIDE_SELF_VETO_RE = re.compile(
+    r"\byou(?:'|\u2019)?re\s+(?:the\s+)?(?:(?:one|person)\s+(?:who\s+is\s+)?holding\s+the\s+(?:power\s+of\s+)?(?:veto|pov)|(?:power\s+of\s+)?(?:veto|pov)\s+(?:holder|winner))\b"
+    r"|\byou\s+(?:are\s+)?(?:the\s+)?(?:(?:power\s+of\s+)?(?:veto|pov)\s+(?:holder|winner)|holding\s+the\s+(?:power\s+of\s+)?(?:veto|pov))\b"
+    r"|\byou\s+(?:just\s+)?(?:won|hold|have)\s+the\s+(?:power\s+of\s+)?(?:veto|pov)\b", re.IGNORECASE)
+_ASIDE_SELF_HOH_RE = re.compile(
+    r"\byou(?:'|\u2019)?re\s+(?:the\s+)?(?:new\s+)?(?:hoh|head\s+of\s+household)\b|\byou\s+(?:just\s+)?won\s+(?:the\s+)?(?:hoh|head\s+of\s+household)\b", re.IGNORECASE)
+
+
+def _aside_self_claim_contradicts_board(sentence: str, live: dict) -> bool:
+    """ORW-78: an aside sentence that says the PLAYER holds/won the veto or the HOH while the board knows they do not (`playerHasVeto is False` / `playerIsHoh is False`). Hypothetical / conditional leads are exempt."""
+    if not sentence or not isinstance(live, dict):
+        return False
+    for rx, key in ((_ASIDE_SELF_VETO_RE, "playerHasVeto"), (_ASIDE_SELF_HOH_RE, "playerIsHoh")):
+        if live.get(key) is not False:
+            continue
+        m = rx.search(sentence)
+        if m and not _ASIDE_HYP_RE.search(_N3_CLAUSE_SPLIT_RE.split(sentence[:m.end()])[-1]):
+            return True
+    return False
+
+
 def _aside_sentence_makes_board_claim(sentence: str) -> bool:
     """N-6: does this aside sentence make a claim worth checking against the board STATE? The usual closed-set outcome detector PLUS the
     state-restatement phrasings an aside uses ("X holds the veto", "Y is the HOH", "the nominees are X and Y"). Pure; no board read."""
@@ -2642,7 +2708,7 @@ def _aside_sentence_makes_board_claim(sentence: str) -> bool:
         return False
     if _sentence_has_closed_set_claim(sentence):
         return True
-    return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES)
+    return any(rx.search(sentence) for rx in _ASIDE_VETO_STATE_RES + _ASIDE_HOH_STATE_RES + _ASIDE_NOM_STATE_RES + (_ASIDE_SELF_VETO_RE, _ASIDE_SELF_HOH_RE))
 
 
 def _aside_matches(sentence: str, res):
@@ -2667,6 +2733,8 @@ def _aside_claim_contradicts_board(sentence: str, live: dict) -> bool:
     (the roster guard's job, not this check's). Pure."""
     if not sentence or not isinstance(live, dict) or not live:
         return False
+    if _aside_self_claim_contradicts_board(sentence, live):
+        return True
     holder = live.get("vetoHolderName")
     for nv, _m in _aside_matches(sentence, _VETO_NAME_RES + _ASIDE_VETO_STATE_RES):
         # Committed role: the name must match. UNcommitted role: an assertive "X won/holds the veto" is unbacked (N-1) -> strip.
@@ -2961,11 +3029,12 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     if not desync and (_CLAIM_NOMINATED_RE.search(text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
           and (after.get("noms") or []) == (before.get("noms") or [])
+          and not _nomination_claims_all_hypothetical(text)
           and (_REPLACEMENT_NOMINEE_RE.search(text) or not (after.get("noms") or []) or _PRESENT_NOMINATION_ACT_RE.search(text) or _nomination_names_outsider(text, after))):
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
-    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False:
+    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
         desync = "a phantom POWER OF VETO win (the engine shows you do NOT hold the veto)"
     # (6b) A2: the model hands the veto to a NAMED houseguest who is NOT the actual holder → wrong
     #      identity (mirrors 4b). Scoped to the veto beat AND a holder that really committed this turn.
@@ -3532,6 +3601,16 @@ _NAME_STOPWORDS_FIRST = {
     "the", "a", "an", "this", "that", "these", "those", "his", "her", "their", "your", "our", "my",
     "you", "i", "we", "he", "she", "they", "it", "and", "but", "or", "then", "now", "so", "as",
 }
+# ORW-180: capitalized sentence-initial TRANSITION/adverb words ("Meanwhile Marcus said...") are not a first name.
+# Live 11-06: "Meanwhile <real houseguest>" read as an unknown two-token full name and stashed a bogus re-ground.
+# The word is skipped and the scan resumes at the NEXT token, so a real invented name after it ("Suddenly Zed Quill
+# said") is still caught.
+_NAME_TRANSITION_FIRST = {
+    "meanwhile", "later", "suddenly", "soon", "then", "next", "finally", "eventually", "afterward", "afterwards",
+    "earlier", "elsewhere", "instead", "still", "meantime", "momentarily", "presently", "shortly", "today", "tonight",
+    "tomorrow", "yesterday", "however", "anyway", "also", "once", "after", "before", "while", "when", "just", "even",
+    "here", "there", "outside", "inside", "upstairs", "downstairs", "slowly", "quickly", "quietly",
+}
 
 
 def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -> Optional[str]:
@@ -3545,7 +3624,18 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
     enough to flag a bare capitalized token on its own."""
     if not sentence or not sentence.strip():
         return None
-    for m in _TWO_TOKEN_NAME_RE.finditer(sentence):
+    _matches = []
+    _pos = 0
+    while True:
+        m = _TWO_TOKEN_NAME_RE.search(sentence, _pos)
+        if not m:
+            break
+        if m.group(1).lower() in _NAME_TRANSITION_FIRST:
+            _pos = m.start(2)  # ORW-180: drop the transition word, rescan from the token after it
+            continue
+        _matches.append(m)
+        _pos = m.end()
+    for m in _matches:
         first_l = m.group(1).lower()
         second_l = m.group(2).lower()
         full = f"{m.group(1)} {m.group(2)}"
@@ -4529,6 +4619,21 @@ _COMP_FINISH_WINNER_RE = re.compile(
 )
 
 
+_VETO_HYP_MARKER_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+
+
+def _all_veto_matches_hypothetical(text: str) -> bool:
+    """ORW-10 (live replay 7, 03:19): '"If I won the veto and you were on the block." He says it back to you slowly.' was cut as a phantom veto win. True only when EVERY self-veto-win match sits in a sentence whose text
+    BEFORE the match carries a hypothetical marker (if / suppose / imagine / would / could / might ...); one non-hypothetical claim keeps the guard."""
+    found = False
+    for sent in re.split(r"(?<=[.!?\n])", text or ""):
+        for m in _CLAIM_SELF_VETO_WIN_RE.finditer(sent):
+            found = True
+            if not _VETO_HYP_MARKER_RE.search(sent[:m.start() + 1]):
+                return False
+    return found
+
+
 def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
     """N-1 — the narration names a houseguest OTHER than the engine's committed veto holder as winning the veto
     (bell/'gets there first'/'wins the veto') or as going to use it. Returns a LABEL naming the real holder, or
@@ -4780,6 +4885,45 @@ def _neutral_board_directive(live) -> str:
     board = _engine_board_line(live)
     return ("BOARD, AS THE ENGINE HAS IT" + (f": {board}" if board else "") + ". These are settled facts, not new events: talking about them is fine and is not a fabrication. "
             "Narrate a normal, concrete scene for what the player just said or did; do not answer in a one-line aside.")
+
+
+_DAY_ROLL_BEAT_RE = re.compile(r"\b(?:turns? in|turned in|morning breaks?|a new day|new day (?:arrives|dawns)|dawns?)\b", re.IGNORECASE)
+
+
+def day_roll_reground(phase: str, beat) -> Optional[str]:
+    """ORW-10 (b): when the pre-resolved beat of a scheduled phase is the OVERNIGHT ROLL ("the house turns in, and morning breaks on the day of the Power of Veto comp"), the event the narrator may just have announced as
+    starting/called did NOT happen: the clock jumped to the next morning and production will call it later that day. Returns a one-line re-ground for the next turn, or None when the beat is not a day roll."""
+    if not beat or not _DAY_ROLL_BEAT_RE.search(str(beat)):
+        return None
+    label = _MOMENT_PHASE_LABELS.get(str(phase or "")) or str(phase or "the event").replace("-", " ")
+    return ("RE-GROUND ON THE CLOCK: the house slept and a new day has begun - the " + label + " has NOT started and nobody has been called to it; production will call it later today. "
+            "Anything you narrated as starting, called or under way did not happen: say so in a line and play a normal social morning.")
+
+
+async def guard_emptied_cutaway(user) -> str:
+    """ORW-10 (live replay 7): the SENTENCE guard (T0-3 path) can empty a turn too - a narrator stuck repeating "the veto is starting" while production holds the event gets every sentence dropped, turn
+    after turn, and the player sees only the generic cutaway. Count that as a cut turn; from the 2nd consecutive one return a plain engine-true line (and queue the neutral board directive, with the
+    production-hold fact) instead of the generic cutaway. Returns "" while the streak is short (the caller keeps the generic cutaway). Never raises."""
+    try:
+        dkey = _desync_key(user)
+        before = _LAST_BEAT_SIG.get(dkey)
+        _roll_cut_streak(dkey, before)
+        live = await _capture_beat_signature(user)
+        if not isinstance(live, dict) or not live:
+            return ""
+        streak = _count_cut(dkey, before, live)
+        if streak < _CUT_STREAK_NEUTRAL_AT:
+            return ""
+        directive = _neutral_board_directive(live)
+        if production_is_holding(user):
+            label = _MOMENT_PHASE_LABELS.get(str(live.get("phase") or "")) or str(live.get("phase") or "the event").replace("-", " ")
+            directive += (f" Production has NOT called the {label} yet: it is later today. Do not announce positions, a start or a result; "
+                          "if your earlier replies said it was starting, that was wrong - say so in a line and play a normal social scene.")
+        _DESYNC_REGROUND[dkey] = directive
+        logger.warning("[orwell] sentence-guard emptied %d consecutive turns for user=%s - engine-true line + neutral directive", streak, user)
+        return engine_true_line(user)
+    except Exception:
+        return ""
 
 
 def engine_true_line(user) -> str:
@@ -6153,6 +6297,13 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         _beat_kind = str((_adv_event or {}).get("beat") or "") if isinstance(_adv_event, dict) else ""
         _beat = (_adv_event or {}).get("content") if isinstance(_adv_event, dict) else None
         logger.info("[orwell] pre-resolve advanced %s for user=%s -> beat=%r", phase, user, _beat)
+        try:  # ORW-10 (b): the overnight roll is not the event - tell the narrator before it keeps announcing a start that did not happen
+            _roll = day_roll_reground(phase, _beat)
+            if _roll:
+                _reground_enqueue(_desync_key(user), _roll)
+                _note_belt(user, "day-roll-reground")
+        except Exception:
+            pass
         if _beat and phase in ("hoh-competition", "veto-competition"):
             # live replay 4: the competition ran to its result inside this turn's framing ("Nia Coleman wins the Power of Veto") and the narrator never told the player who won - note the winner so an unvoiced result is re-grounded
             _wm = re.search(r"\b([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+){0,2})\s+wins\s+(?:the\s+)?(?:Head of Household|HOH|Power of Veto|Veto)\b", str(_beat))
