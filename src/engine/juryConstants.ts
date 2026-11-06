@@ -98,3 +98,10 @@ export const APPEAL = {
 
 /** B26 (flag ORWELL_JURY_MEMORY, off by default): how much a juror's MEMORY of a finalist sways their lean. Added to the lean as a signed term (a grudge lowers, a favor raises), clamped to +-`max`. ASSUMED, pending Ryne. */
 export const JURY_MEMORY = { scale: 1, max: 0.15 } as const;
+
+/**
+ * ORW-129 (Ryne: "fades, leaves a trace") - what a `mend` appeal leaves behind. A mend used to dissolve a juror's MISTAKEN grievance completely; now most of it clears and a small lingering doubt remains:
+ * the grievance is kept but its strength is multiplied by `residual`, so the juror leans a little less warmly toward the finalist than if it had never happened, forever above zero. ASSUMED, pending Ryne:
+ * the residual share (0.15 = about a seventh of the original sting stays).
+ */
+export const MEND_TRACE = { residual: 0.15 } as const;
