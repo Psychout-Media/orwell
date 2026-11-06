@@ -8093,8 +8093,55 @@ def _extract_thinking_meta(text: str) -> dict | None:
     return None
 
 
+# ORW-230 — the narrator's think markup, for the game-turn split below (after `normalize_thinking_markup`).
+_GAME_THINK_OPEN_RE = re.compile(r'<think(?:ing)?(?:\s+time="([\d.]+)")?\s*>', re.IGNORECASE)
+_GAME_THINK_CLOSE_RE = re.compile(r'</think(?:ing)?\s*>', re.IGNORECASE)
+
+
+def _split_game_reasoning(text: str) -> dict | None:
+    """ORW-230 — split a GAME turn's text into the narrator's private reasoning and the reply, so no
+    reasoning is ever saved as the reply. Returns {thinking, reply, time}, or None when the text carries
+    no think markup at all (the caller then uses `_extract_thinking_meta` as before).
+
+    Unlike `_extract_thinking_meta` — which, for an ordinary chat, keeps an unclosed or reply-less think
+    as the content so the bubble is not blank — every think block here is reasoning: closed or cut off
+    mid-think (Stop, a dropped connection, the token cap), at the start or opened after earlier
+    narration (agent rounds are joined into one reply), and an R1-style reply where the chat template
+    opened the think so only `</think>` arrived. The reply keeps only the narration outside the blocks
+    and may be empty. Markup only, by design: the plain-text preamble heuristics in `_normalize_thinking`
+    can split the wrong way (a capitalised paragraph read as the reply), so they are not used here."""
+    if not text:
+        return None
+    from src.text_helpers import normalize_thinking_markup
+    t = normalize_thinking_markup(text)
+    first_open, first_close = _GAME_THINK_OPEN_RE.search(t), _GAME_THINK_CLOSE_RE.search(t)
+    if first_open is None and first_close is None:
+        return None
+    if first_close is not None and (first_open is None or first_close.start() < first_open.start()):
+        t = "<think>" + t  # R1-style: everything before the first `</think>` was reasoning
+    thinking, reply, think_time, pos = [], [], None, 0
+    while True:
+        opener = _GAME_THINK_OPEN_RE.search(t, pos)
+        if opener is None:
+            reply.append(t[pos:])
+            break
+        reply.append(t[pos:opener.start()])
+        think_time = think_time or opener.group(1)
+        closer = _GAME_THINK_CLOSE_RE.search(t, opener.end())
+        if closer is None:
+            thinking.append(t[opener.end():])  # cut off inside the think: the rest is all reasoning
+            break
+        thinking.append(t[opener.end():closer.start()])
+        pos = closer.end()
+    return {
+        "thinking": "\n\n".join(p.strip() for p in thinking if p.strip()),
+        "reply": _GAME_THINK_CLOSE_RE.sub("", "".join(reply)).strip(),
+        "time": think_time,
+    }
+
+
 def clean_thinking_for_save(
-    content: str, metadata: dict | None = None, reasoning: str = ""
+    content: str, metadata: dict | None = None, reasoning: str = "", *, game: bool = False
 ) -> tuple[str, dict]:
     """Extract thinking from content into metadata. Use for save paths that bypass save_assistant_response.
 
@@ -8102,9 +8149,13 @@ def clean_thinking_for_save(
     deltas), which never appears in `content` — so without it the accordion is shown live but
     LOST on reload / in a second browser session. Persist it into metadata.thinking when the
     content itself didn't already carry an inline <think> block.
+
+    `game` (ORW-230): a framed game turn. Every think block is moved out of the content (see
+    `_split_game_reasoning`), so a turn cut off mid-think saves its reasoning to metadata.thinking and
+    an EMPTY reply — never the reasoning as the reply. A non-game chat keeps today's behaviour.
     """
     md = dict(metadata) if metadata else {}
-    info = _extract_thinking_meta(content)
+    info = (_split_game_reasoning(content) if game else None) or _extract_thinking_meta(content)
     if info:
         if info.get("thinking"):
             md["thinking"] = info["thinking"]
@@ -8116,6 +8167,31 @@ def clean_thinking_for_save(
     if reasoning and reasoning.strip() and not md.get("thinking"):
         md["thinking"] = reasoning.strip()
     return out, md
+
+
+def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None,
+                         announcements: Optional[list] = None, incognito: bool = False):
+    """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
+    the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
+
+    ORW-230: with `game=True` a turn cut off inside an open `<think>` saves its reasoning to
+    metadata.thinking and only the narration around it as the content (`clean_thinking_for_save`). A game
+    partial left with nothing to show (no narration, no reasoning, no owed cards) is not saved, so a
+    reload never shows a blank bubble. M2-6: `game_moment` stamps the in-world moment; the announcement
+    cards the player was shown survive a cut-short turn. Returns the saved ChatMessage, or None."""
+    content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game)
+    if game_moment:
+        md["game_moment"] = game_moment
+    if announcements:
+        md["announcements"] = announcements
+    if game and not (content or "").strip() and not md.get("thinking") and not md.get("announcements"):
+        return None
+    message = ChatMessage("assistant", content, metadata=md)
+    sess.add_message(message)
+    if not incognito:
+        session_manager.save_sessions()
+    return message
 
 
 def save_assistant_response(
@@ -8136,8 +8212,12 @@ def save_assistant_response(
     phase: str = None,
     reasoning: str = "",
     game_moment: str = None,
+    game: bool = False,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
+
+    `game` (ORW-230): a framed game turn — every think block is moved out of the saved content (see
+    `_split_game_reasoning`), so a turn that hit the token cap inside a think saves no reasoning as the reply.
 
     `phase` (Vault Wall / casting-leak fix): when this reply is part of the OOC pre-game
     casting interview (game not yet started), stamp `phase=casting` so the in-game narrator's
@@ -8181,7 +8261,7 @@ def save_assistant_response(
         md["tool_events"] = tool_events
 
     # Extract thinking into metadata (don't pollute message content with <think> tags)
-    _think_info = _extract_thinking_meta(full_response)
+    _think_info = (_split_game_reasoning(full_response) if game else None) or _extract_thinking_meta(full_response)
     if _think_info:
         if _think_info.get("thinking"):
             md["thinking"] = _think_info["thinking"]
