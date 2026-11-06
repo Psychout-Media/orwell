@@ -38,8 +38,9 @@ describe("vote counting gates campaigns (live campaign tick, vote count on)", ()
     const formed = seeds.filter((seed) => campaignForms(seed, "split", true)).length;
     expect(formed, `${formed} of ${seeds.length} split-house seeds formed a campaign`).toBeGreaterThan(0);
   });
-  it("mutant control: with vote counting off the same decided house DOES campaign", () => {
-    const formed = seeds.filter((seed) => campaignForms(seed, "decided", false)).length;
-    expect(formed, "without vote counting the decided house still campaigns").toBeGreaterThan(0);
+  it("paired control: every seed whose decided house campaigns with vote counting OFF starts none with it ON (so the owner and target are eligible and the gate is what stops it)", () => {
+    const offFormed = seeds.filter((seed) => campaignForms(seed, "decided", false));
+    expect(offFormed.length, "without vote counting the decided house still campaigns on some seeds").toBeGreaterThan(0);
+    for (const seed of offFormed) expect(campaignForms(seed, "decided", true), `seed ${seed}: the same decided house, vote counting on`).toBe(false);
   });
 });
