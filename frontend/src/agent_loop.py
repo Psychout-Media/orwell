@@ -7377,8 +7377,14 @@ async def _stream_agent_loop_impl(
                 _wa_status = await _oe_wa.game_status(user=_force_owner)
                 if isinstance(_wa_status, dict):
                     _wa_premiere = _wa_status.get("premiere")
+                # ORW-142 — compute this turn's tool names HERE. BL-007 used to read the local that
+                # only the sibling lever-force / casting-finalize branches above assign, so every
+                # premiere/group free-play turn raised UnboundLocalError, the blanket except below
+                # swallowed it, and BL-007 never ran in prod.
+                _wa_turn_tools = {ev.get("tool") for ev in (tool_events or [])
+                                  if isinstance(ev, dict) and ev.get("tool")}
                 _candidate_wa = _forced_tool_choice_for_whereabouts(
-                    _turn_tool_names_force if _turn_tool_names_force else set(),
+                    _wa_turn_tools,
                     game_mode=game_mode,
                     premiere_view=_wa_premiere,
                     frozen_whereabouts=_wa_frozen,
@@ -8029,7 +8035,11 @@ async def _stream_agent_loop_impl(
                 # string for its args (not the structured {id, room}), so the per-turn freeze can't
                 # reflect it. Mark the freeze not-confident so the gadget defers to LIVE engine truth this
                 # turn (no wrong room). A player re-center (model moveTo) is caught by the room compare.
-                if _npc_moved:
+                # ORW-151: the same holds when the ENGINE moved the board this turn (advanceGame /
+                # submitDecision: premiere arrivals, the house gathering for a ceremony, a new beat).
+                # Those changes are narrated in this very reply but are absent from the turn-start
+                # snapshot, so without this the room strip lagged a whole turn behind the prose.
+                if _npc_moved or _progressed:
                     try:
                         from routes import chat_helpers as _chf
                         _chf.freeze_mark_model_moved(owner)

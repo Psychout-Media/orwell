@@ -988,8 +988,16 @@ function ensureSpeakerCss() {
     const s = document.createElement('style');
     s.id = 'ow-speaker-css';
     s.textContent =
-      '.ow-speaker-line{display:flex;align-items:flex-start;gap:.5rem;}' +
-      '.ow-speaker-line>.ow-speaker-chip{margin-top:.14em;}' +
+      // ORW-141 — the speaker line is ordinary flowing text indented past a gutter, with the
+      // chip absolutely positioned IN that gutter. It must NOT be a flex container: as one,
+      // every text run and every inline element of the paragraph (<em>, <strong>, a link)
+      // became its own flex item, i.e. its own side-by-side column, and a short italic word
+      // was squeezed into a sliver ("as / se / ssi / ng") — seen live in the 11-06 playtest.
+      // The gutter width matches .ow-speaker-cont below (chip width + .5rem).
+      '.ow-speaker-line{position:relative;padding-left:calc(1.7em + .5rem);min-height:1.84em;}' +
+      '.ow-speaker-line>.ow-speaker-chip{position:absolute;left:0;top:.14em;}' +
+      // ORW-140 — the visible name that follows a consumed @[Name] tag's chip.
+      '.ow-speaker-name{font-weight:700;}' +
       '.ow-speaker-chip{flex:0 0 auto;display:inline-flex;width:1.7em;height:1.7em;' +
         'border-radius:50%;overflow:hidden;position:relative;vertical-align:middle;' +
         'box-shadow:0 1px 2px rgba(0,0,0,.35);}' +
@@ -1109,12 +1117,26 @@ export function extractSpeakerTags(text) {
   if (!text) return { text: text, chips: [] };
   const chips = [];
   const codeLines = _codeLineIndices(text);
-  let out = String(text).replace(_SPEAKER_TAG_RE, (_m, lead, name, id, offset) => {
+  const src = String(text);
+  let out = src.replace(_SPEAKER_TAG_RE, (_m, lead, name, id, offset) => {
     if (codeLines.has(_lineIndexAtOffset(text, offset))) return _m;  // fenced/indented code — never chip-ify
     const nm = String(name || '').trim();
     if (!nm) return _m;                    // `@[]` — not a real speaker; leave it for the scrub
     const i = chips.length;
-    chips.push({ id: id ? 'npc:' + id : null, name: nm });
+    // ORW-140 — the tag is machinery and is consumed, but the NAME is not: narrators use the tag
+    // as the sentence's subject ("@[Natalia Reed] stands near the memory wall…"), so swallowing
+    // it left subject-less sentences ("stands near the memory wall…"). Owner ruling (Kevin,
+    // 11-06): complete sentences in all cases. restoreSpeakerChips renders the name as visible
+    // text after the chip (`showName`), unless the narrator already wrote the name right after
+    // the tag (e.g. `@[Name] **Name** grins`), and keeps a `:` the tag swallowed (`colon`).
+    const after = src.slice(offset + _m.length, offset + _m.length + nm.length + 4)
+      .replace(/^[*_]+/, '').toLowerCase();
+    chips.push({
+      id: id ? 'npc:' + id : null,
+      name: nm,
+      showName: !after.startsWith(nm.toLowerCase()),
+      colon: /:[ \t]*$/.test(_m),
+    });
     return (lead || '') + '___OWSPK_' + i + '___ ';
   });
   // A dangling partial tag at the very end of a streaming buffer renders as nothing until the
@@ -1262,7 +1284,14 @@ export function restoreSpeakerChips(html, chips) {
   ensureSpeakerCss();
   const chipFor = (i) => {
     const c = chips[+i];
-    return c ? _speakerChipHtml(c.id, c.name) : '';
+    if (!c) return '';
+    // ORW-140 — a consumed sanctioned tag gives its name back as visible text after the chip,
+    // so the sentence it started stays complete. Bold-name-pass chips (#1638) never set
+    // showName: their `**Name**` is still in the prose.
+    const label = c.showName
+      ? `<strong class="ow-speaker-name">${escapeHtml(String(c.name || '').trim())}</strong>${c.colon ? ':' : ''} `
+      : '';
+    return _speakerChipHtml(c.id, c.name) + label;
   };
   let out = String(html).replace(
     /<p>(\s*)___OWSPK_(\d+)___[ \t]*/g,

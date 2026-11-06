@@ -729,3 +729,18 @@ def test_casting_loop_kill_switch_and_rejecter_gate_apply(monkeypatch):
         monkeypatch, model="deepseek/deepseek-v4-pro", last_user="put me in the house",
         casting={"ready": True, "finalizable": True})
     assert cap.get("tool_choice") is None
+
+
+def test_orw142_bl007_block_computes_its_own_turn_tool_names():
+    """ORW-142 (11-06 live playtest): the BL-007 whereabouts force read `_turn_tool_names_force`, a
+    local assigned only inside the sibling lever-force / casting-finalize branches, so every premiere
+    or group free-play turn raised UnboundLocalError, the blanket except logged "BL-007 whereabouts
+    force skipped", and BL-007 never ran. The block must derive this turn's tool names itself."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "agent_loop.py").read_text(encoding="utf-8")
+    start = src.index("# ── BL-007: force whereabouts on premiere/group free-play turns")
+    end = src.index("# Primary target + any configured fallback models", start)
+    block = src[start:end]
+    assert "_turn_tool_names_force" not in block
+    assert "tool_events" in block
+    assert "_forced_tool_choice_for_whereabouts(" in block
