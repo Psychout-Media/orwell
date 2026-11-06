@@ -129,6 +129,22 @@ def _trigger_via_flag() -> dict:
     return {"started": True, "via": "flag-trigger", "log": "ops-update.log"}
 
 
+def _update_active(max_age_s: int = 900) -> bool:
+    """True when an update is running or deferred right now: ``data/ops/update-status.json`` says
+    ``running`` AND was written within ``max_age_s`` (the deferral loop refreshes it every poll, an update at
+    each phase), so a crashed run's stale ``running`` never blocks queuing a new one."""
+    import json as _json
+    try:
+        with open(os.path.join(_ops_dir(), "update-status.json"), "r", encoding="utf-8") as fh:
+            st = _json.load(fh)
+        if st.get("running") is not True:
+            return False
+        ts = _dt.datetime.strptime(str(st.get("ts")), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return (_dt.datetime.now(timezone.utc) - ts).total_seconds() < max_age_s
+    except Exception:
+        return False
+
+
 def _write_failed_status(action: str, reason: str) -> None:
     """FAIL LOUDLY through the ops-progress channel the status page polls: stamp
     ``data/ops/<action>-status.json`` with a terminal FAILED entry so the UI surfaces the error
@@ -241,5 +257,34 @@ def setup_admin_update_routes() -> APIRouter:
         logger.error("[update] admin '%s' could NOT start the update: %s", who, reason)
         _write_failed_status("update", reason)
         return {"started": False, "via": "none", "error": reason}
+
+    @router.post("/update/force")
+    async def admin_update_force(request: Request):
+        """ORW-206: skip the live-game wait. The root updater defers while a player is mid-game; this drops
+        the separate existence-only ``update-force-requested`` flag, which the waiting updater consumes and
+        then proceeds. If NO update is active it also queues one; if one is already running or deferred it
+        writes ONLY the force flag (a second ``update-requested`` would survive the unit's ExecStartPre and run
+        a second update + restart). Admin-only, same guard as /update."""
+        await guard_root_op(request)
+        if not (await asyncio.to_thread(_flag_trigger_installed)):
+            return {"started": False, "via": "none",
+                    "error": inactive_reason(_watcher_unit_path(), "force the update")}
+        _ensure_ops_dir()
+        force_flag = os.path.join(_ops_dir(), "update-force-requested")
+        try:
+            with open(force_flag, "w", encoding="utf-8") as fh:
+                fh.write(_dt.datetime.now(timezone.utc).isoformat() + "\n")
+        except OSError as e:
+            return {"started": False, "via": "none", "error": f"could not write the force flag: {e}"}
+        if await asyncio.to_thread(_update_active):
+            return {"started": True, "via": "force-flag", "forced": True, "queued": False}
+        try:
+            return {**_trigger_via_flag(), "forced": True, "queued": True}
+        except OSError as e:
+            try:
+                os.remove(force_flag)       # don't leave a stale force flag for some later update
+            except OSError:
+                pass
+            return {"started": False, "via": "none", "error": f"could not queue the update: {e}"}
 
     return router
