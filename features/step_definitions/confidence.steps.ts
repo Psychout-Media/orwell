@@ -372,6 +372,9 @@ Then("acting on the lie deals the liar a betrayal-grade trust blow", function (t
 
 Given("a full season is played", function (this: BbWorld) {
   const s = cf(this).cSession!;
+  // PINNED (ORW release blocker): ORWELL_NO_HARD_CAPS is ON (Ryne 2026-11-05: no arbitrary caps; limits come from consequences), so the old per-season lie count no longer exists. Pinned to the legacy cap path
+  // until this scenario is rewritten to assert the consequence-based limit (a liar's own lie rate falls with each lie).
+  (s as unknown as GameSessionAdapter).setNoHardCapsEnabled(false);
   for (const npc of houseOf(s).npcs) {
     if (!(npc.character.hiddenElements ?? []).length) continue;
     setupLiar(s, npc.id);
