@@ -186,21 +186,24 @@ describe("A9 engine entrances", () => {
 /** ORW-205 - the engine supplies the one true headcount in the entrance payload. */
 describe("ORW-205 entrance headcount", () => {
   it("insideCount/playerInside/headcount track the arrivals and say whether the player is counted", () => {
-    const sb = start(11);
-    const s = sb.session;
+    // Across seeds, so BOTH states (player not yet in, player in) are seen and asserted for sure.
     const sawPlayerOutside = { v: false }, sawPlayerInside = { v: false };
-    for (let i = 0; i < 40; i++) {
-      const e = s.premiereIntros()!.entrance!;
-      const pe = s.snapshot().live!.premiereEntrance!;
-      expect(e.insideCount).toBe(pe.arrived);
-      expect(e.playerInside).toBe(pe.arrived > pe.playerPos);
-      expect(e.headcount.startsWith(`${pe.arrived} of ${e.total} are inside`)).toBe(true);
-      expect(e.headcount).toContain(e.playerInside ? "the player is one of them" : "the player has NOT walked in yet");
-      (e.playerInside ? sawPlayerInside : sawPlayerOutside).v = true;
-      if (e.stage === "done") break;
-      s.advanceGame();
+    for (const seed of [11, 5, 3, 8]) {
+      const sb = start(seed);
+      const s = sb.session;
+      for (let i = 0; i < 40; i++) {
+        const e = s.premiereIntros()!.entrance!;
+        const pe = s.snapshot().live!.premiereEntrance!;
+        expect(e.insideCount).toBe(pe.arrived);
+        expect(e.playerInside).toBe(pe.arrived > pe.playerPos);
+        expect(e.headcount.startsWith(`${pe.arrived} of ${e.total} are inside`)).toBe(true);
+        expect(e.headcount).toContain(e.playerInside ? "the player is one of them" : "the player has NOT walked in yet");
+        (e.playerInside ? sawPlayerInside : sawPlayerOutside).v = true;
+        if (e.stage === "done") break;
+        s.advanceGame();
+      }
     }
-    expect(sawPlayerOutside.v || sawPlayerInside.v).toBe(true);
+    expect(sawPlayerOutside.v && sawPlayerInside.v).toBe(true);
   });
   it("the final headcount is all of them with the player inside", () => {
     const sb = start(5);
