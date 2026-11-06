@@ -225,8 +225,11 @@ def test_release_valve_bounded_per_turn():
     within a single turn — the hold counter climbs across TURNS, not unbounded within one."""
     al = importlib.import_module("src.agent_loop")
     assert al._MAX_ADVANCE_NUDGES_PER_TURN >= 1
-    # the escalation lives inside the `_want_advance` block, which is gated on the per-turn nudge cap
-    assert "_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN" in AGENT_SRC
+    # the escalation lives inside the `_want_advance` block, which is gated on the per-turn nudge cap. Since ORW-228
+    # the cap lives in the pure gates (agent_gates.want_advance / want_drain_eviction); the loop passes them the cap.
+    gates = (Path(al.__file__).resolve().parent / "agent_gates.py").read_text(encoding="utf-8")
+    assert AGENT_SRC.count("max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN") >= 2
+    assert "turn_advance_nudges < max_advance_nudges" in gates
 
 
 def test_streak_resets_on_a_genuine_model_advance():

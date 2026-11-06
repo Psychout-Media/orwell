@@ -17,18 +17,15 @@ import pytest
 from test_m0_3_midgen_join import _stack  # noqa: F401  (the shared real-stack fixture)
 from test_p0h_day1_clock_e2e import _engine, _schedule, _send, _session, _start_day
 from test_a40_due_ceremony_real_loop import _fresh
+from _a64_decisions import answer_for
 
 pytestmark = pytest.mark.browser
 
 
 def _decide(stack, p):
-    k = p["kind"]
-    opts = [o["id"] for o in (p.get("options") or [])]
-    req = {"comp-round": {"kind": k, "intent": "compete"}, "comp-intent": {"kind": k, "intent": "compete"},
-           "nominations": {"kind": k, "choice": opts[:2]}, "veto-decision": {"kind": k, "use": False},
-           "replacement": {"kind": k, "replacement": opts[:1] and opts[0]},
-           "eviction-vote": {"kind": k, "vote": opts[:1] and opts[0]}}[k]
-    return _engine(stack, "submitDecision", req)
+    """Answer ANY pending kind the engine emits (the player may be evicted in week 1, which opens an exit-interview / goodbye-message / spectator-choice). A kind with no
+    scripted answer raises loudly (see tests/_a64_decisions.py + test_a64_decisions_cover_every_pending_kind.py)."""
+    return _engine(stack, "submitDecision", answer_for(p))
 
 
 def _walk_week_one(stack, sid):

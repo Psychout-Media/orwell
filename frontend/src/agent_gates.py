@@ -42,3 +42,11 @@ def want_approach(*, is_lull: bool, progressed: bool, stale: bool, emitted_visib
     return (is_lull and (not progressed) and (not stale)
             and (not emitted_visible)
             and turn_approach_nudges < max_approach_nudges)
+
+
+def want_drain_eviction(*, in_eviction: bool, progressed: bool, turn_advance_nudges: int, max_advance_nudges: int, production_holding: bool) -> bool:
+    """F14 (#1013) eviction-drain allowance, now gated by the PRODUCTION HOLD (ORW fix): while production holds the eviction (it is scheduled for the evening and not yet due) the
+    drain must NOT force the ceremony open early. Before #2250 the false "peer-advance" on every held turn masked this (it suppressed the whole advance block); with that fixed, the drain
+    was the one force path with no hold check and raised the player's eviction-vote card hours early. When the hold pops (the event is due) the drain works exactly as before."""
+    return bool(in_eviction and (not progressed) and turn_advance_nudges < max_advance_nudges and not production_holding)
+
