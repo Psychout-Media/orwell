@@ -141,15 +141,16 @@ def test_old_shell_after_deploy_self_corrects_once_in_a_real_browser():
                 pytest.skip(f"chromium unavailable: {e}")
             ctx = browser.new_context()
             page = ctx.new_page()
+            page.set_default_timeout(20000)
+            page.set_default_navigation_timeout(20000)
             nav = []
             page.on("framenavigated", lambda fr: nav.append(fr.url) if fr == page.main_frame else None)
             meta = "document.querySelector('meta[name=orwell-build]').content"
 
             page.goto(base + "/", wait_until="load")
-            page.evaluate("navigator.serviceWorker.ready.then(() => true)")
             assert page.evaluate(meta) == "buildAAA"
-            # Let the SW precache '/' (the old shell) and settle.
-            page.wait_for_timeout(1500)
+            # Let the SW install and precache '/' (the old shell); bounded, never an unbounded evaluate.
+            page.wait_for_timeout(3000)
 
             # --- 'deploy': same origin, new build ---
             _stop(proc)
