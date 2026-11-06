@@ -30,26 +30,38 @@ def _derive_family(filename):
     return name or filename
 
 
+def list_custom_font_families(fonts_dir=None):
+    """Group the font files in `fonts_dir` by derived family name. Read-only by design (ORW-152): it
+    never creates the directory. On a hardened install the code tree is root-owned and read-only to
+    the service, so the old `os.makedirs` raised "Read-only file system" and the endpoint returned a
+    500 on every page load. A missing or unreadable directory simply means no custom fonts."""
+    fonts_dir = CUSTOM_FONTS_DIR if fonts_dir is None else fonts_dir
+    try:
+        names = sorted(os.listdir(fonts_dir))
+    except OSError:
+        return {}
+    families = {}
+    for f in names:
+        ext = os.path.splitext(f)[1].lower()
+        if ext not in FONT_EXTENSIONS:
+            continue
+        family = _derive_family(f)
+        if family not in families:
+            families[family] = []
+        families[family].append({
+            "file": f,
+            "url": f"/static/fonts/custom/{f}",
+            "format": ext.lstrip('.'),
+        })
+    return families
+
+
 def setup_font_routes():
     router = APIRouter(prefix="/api/fonts", tags=["fonts"])
 
     @router.get("/custom")
     async def list_custom_fonts():
         """Return available custom fonts grouped by derived family name."""
-        os.makedirs(CUSTOM_FONTS_DIR, exist_ok=True)
-        families = {}
-        for f in sorted(os.listdir(CUSTOM_FONTS_DIR)):
-            ext = os.path.splitext(f)[1].lower()
-            if ext not in FONT_EXTENSIONS:
-                continue
-            family = _derive_family(f)
-            if family not in families:
-                families[family] = []
-            families[family].append({
-                "file": f,
-                "url": f"/static/fonts/custom/{f}",
-                "format": ext.lstrip('.'),
-            })
-        return {"fonts": families}
+        return {"fonts": list_custom_font_families()}
 
     return router

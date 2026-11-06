@@ -1824,6 +1824,14 @@ def setup_chat_routes(
                                 ):
                                     if data.get("type") == "agent_step":
                                         _agent_rounds = max(_agent_rounds, data.get("round", 1))
+                                        # ORW-153: each round's text arrives as its own deltas, so the
+                                        # SAVED reply glued rounds together ("...make this official.
+                                        # Everything's on file."). The live bubble shows rounds as separate
+                                        # segments (#829) and then converges to this saved text, so the
+                                        # break belongs here. A text-less (tool-only) round adds nothing.
+                                        if full_response and not full_response.endswith(("\n", " ")):
+                                            full_response += "\n\n"
+                                            _stream_set(session, partial=full_response)
                                     elif data.get("type") == "tool_start":
                                         _agent_tool_calls += 1
                                         if data.get("tool"):

@@ -146,6 +146,11 @@ KNOWN_CONTEXT_WINDOWS = {
 
     # --- DeepSeek ---
     'deepseek-flash': 1000000,
+    # ORW-147: every DeepSeek V4 id ("deepseek-v4-flash", "deepseek-v4.1-flash", "deepseek-v4-pro",
+    # dated variants) — OpenRouter lists 1,048,576 for all of them. Without this key the substring
+    # lookup missed "deepseek-v4.1-flash" (neither 'deepseek-flash' nor 'deepseek-v4-pro' is a
+    # substring of it) and the live narrator was budgeted, and would be compacted, as 128K.
+    'deepseek-v4': 1000000,
     'deepseek-v4-pro': 1000000,
     'deepseek-chat': 64000,
     'deepseek-coder': 64000,

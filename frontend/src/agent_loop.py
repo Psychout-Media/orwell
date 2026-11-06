@@ -5153,6 +5153,31 @@ def _blank_turn_fallback_line(*, upstream_failed: bool) -> str:
     return _BLANK_FALLBACK_UPSTREAM if upstream_failed else _BLANK_FALLBACK_MODEL
 
 
+def _fallback_markers() -> "tuple[str, ...]":
+    return (
+        _SCENE_CUTAWAY_LINE[:70],
+        _BLANK_FALLBACK_MODEL[:40],
+        _BLANK_FALLBACK_UPSTREAM[:40],
+        "The live feeds settle back over the house. Right now the game sits",
+        "A voice from production runs through the board",
+    )
+
+
+def _drop_fallback_turns(messages):
+    """ORW-10 (c): return `messages` without the assistant turns that are one of the FE's own deterministic fallback lines. Pure; leaves every other message (and the order) untouched; a non-list passes through."""
+    if not isinstance(messages, list):
+        return messages
+    marks = _fallback_markers()
+    out = []
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str):
+            head = m["content"].strip()[:260]
+            if any(mk in head for mk in marks):
+                continue
+        out.append(m)
+    return out
+
+
 async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_visible: bool,
                               cutaway_emitted: bool) -> "_GuardedScene":
     """A2 (2026-07-03) — run one leak-scrubbed stream chunk through BOTH the whole-scene circuit-breaker
@@ -5217,7 +5242,13 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         # the rail on the one turn it mattered most. The same diegetic cutaway line the scene
         # circuit-breaker (above) already uses for an identical "nothing safe to show yet" situation
         # covers it instead — in-fiction, never the lie, never a raw error.
-        return _GuardedScene(_SCENE_CUTAWAY_LINE, False, True, tuple(role_drops), screened)
+        _line = _SCENE_CUTAWAY_LINE
+        try:
+            if chat_helpers is not None:
+                _line = (await chat_helpers.guard_emptied_cutaway(owner)) or _SCENE_CUTAWAY_LINE  # ORW-10: 2nd consecutive emptied turn => the plain engine-true line
+        except Exception:
+            _line = _SCENE_CUTAWAY_LINE
+        return _GuardedScene(_line, False, True, tuple(role_drops), screened)
     return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
 
 
@@ -6720,6 +6751,10 @@ async def _stream_agent_loop_impl(
             messages.insert(0, {"role": "system", "content": GUIDE_ONLY_DIRECTIVE})
     prep_timings["prompt_build"] = time.time() - _t2
 
+    # ORW-10 (c): the deterministic fallback lines the FE shows the player (the feeds-cut cutaway, the engine-truth recital, the blank-turn lines) are saved in the chat as assistant turns; left in the model's own
+    # history they teach it to emit them again (replay 7: the narrator copied the cutaway sentence for ~30 turns). Keep them out of what the narrator sees; the player's transcript is untouched.
+    messages = _drop_fallback_turns(messages)
+
     _t3 = time.time()
     try:
         from src.context_compactor import trim_for_context
@@ -7342,8 +7377,14 @@ async def _stream_agent_loop_impl(
                 _wa_status = await _oe_wa.game_status(user=_force_owner)
                 if isinstance(_wa_status, dict):
                     _wa_premiere = _wa_status.get("premiere")
+                # ORW-142 — compute this turn's tool names HERE. BL-007 used to read the local that
+                # only the sibling lever-force / casting-finalize branches above assign, so every
+                # premiere/group free-play turn raised UnboundLocalError, the blanket except below
+                # swallowed it, and BL-007 never ran in prod.
+                _wa_turn_tools = {ev.get("tool") for ev in (tool_events or [])
+                                  if isinstance(ev, dict) and ev.get("tool")}
                 _candidate_wa = _forced_tool_choice_for_whereabouts(
-                    _turn_tool_names_force if _turn_tool_names_force else set(),
+                    _wa_turn_tools,
                     game_mode=game_mode,
                     premiere_view=_wa_premiere,
                     frozen_whereabouts=_wa_frozen,
@@ -7994,7 +8035,11 @@ async def _stream_agent_loop_impl(
                 # string for its args (not the structured {id, room}), so the per-turn freeze can't
                 # reflect it. Mark the freeze not-confident so the gadget defers to LIVE engine truth this
                 # turn (no wrong room). A player re-center (model moveTo) is caught by the room compare.
-                if _npc_moved:
+                # ORW-151: the same holds when the ENGINE moved the board this turn (advanceGame /
+                # submitDecision: premiere arrivals, the house gathering for a ceremony, a new beat).
+                # Those changes are narrated in this very reply but are absent from the turn-start
+                # snapshot, so without this the room strip lagged a whole turn behind the prose.
+                if _npc_moved or _progressed:
                     try:
                         from routes import chat_helpers as _chf
                         _chf.freeze_mark_model_moved(owner)
