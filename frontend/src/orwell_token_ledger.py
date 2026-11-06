@@ -273,12 +273,25 @@ def clear(user: str | None) -> None:
             atomic_write_json(str(LEDGER_PATH), data, indent=2)
 
 
+# ORW-198: a turn whose model spent more than this many REASONING tokens is a slow-turn suspect (the DeepSeek route thinks on every round even with narration reasoning "off"; slow turns showed 4.3k-10k
+# reasoning tokens vs <=1.6k on fast ones). Counts only - the alarm carries ids and numbers, never a body.
+REASONING_ALARM_TOKENS = 3000
+
+
+def reasoning_alarm(entry: dict) -> bool:
+    """True iff this ledger entry's reasoning tokens exceed REASONING_ALARM_TOKENS (a slow-turn suspect)."""
+    try:
+        return int(entry.get("reasoningTokens") or 0) > REASONING_ALARM_TOKENS
+    except (TypeError, ValueError):
+        return False
+
+
 def _log_line(user_key: str, entry: dict) -> None:
     """One structured ``[orwell]`` line per turn — picked up by the LIVE root-logger ring
     for the admin viewer. Counts + caps + finish + cost + class + ctx% only (no body)."""
     try:
         ctx = entry.get("contextPercent")
-        logger.info(
+        (logger.warning if reasoning_alarm(entry) else logger.info)(
             "[orwell] token-ledger turn user=%s session=%s turn=%s class=%s "
             "in=%s cached=%s reasoning=%s out=%s cap=%s finish=%s cost=%.6f ctx=%s%% provider=%s",
             user_key,
