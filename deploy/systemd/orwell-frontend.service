@@ -58,7 +58,11 @@ EnvironmentFile=-/opt/orwell/data/.env
 # session framed by worker 1 looks unframed to worker 2, and each worker races to latch its own
 # time-of-day re-apply. Single-process only — scale via more RAM/CPU for embeddings/portraits,
 # never via `--workers`.
-ExecStart=/opt/orwell/frontend/.venv/bin/uvicorn app:app --host ${ORWELL_BIND_HOST} --port ${ORWELL_PORT} --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/orwell/frontend/.venv/bin/uvicorn app:app --host ${ORWELL_BIND_HOST} --port ${ORWELL_PORT} --proxy-headers --forwarded-allow-ips=127.0.0.1 --timeout-graceful-shutdown 10
+# Stop fast: uvicorn otherwise waits FOREVER for open streams (a live reply / run tail) to finish after SIGTERM, so
+# systemd's 90 s default ended every stop in SIGKILL. 10 s lets in-flight work wind down (open WebSockets are
+# closed 1012 at once by uvicorn and the client reconnects); TimeoutStopSec is the hard backstop.
+TimeoutStopSec=30
 Restart=on-failure
 RestartSec=3
 
