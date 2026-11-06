@@ -289,7 +289,7 @@ def _rows(res: dict) -> list[tuple[str, str]]:
         ("STREAM main-thread layout + style recalc", f"{s['layout_ms']} + {s['style_recalc_ms']} ms"),
         ("STREAM main-thread task total", f"{s['task_ms']} ms"),
         ("STREAM frames (n / p50 / p95 / >50ms)", f"{s['frames']} / {s['frame_p50_ms']} / {s['frame_p95_ms']} ms / {s['frames_over_50ms']}"),
-        ("STREAM MutationObserver callbacks / records", f"{s['mutation_observer_callbacks']} / {s['mutation_observer_records']}"),
+        ("STREAM MutationObserver native wake-ups / records (a frame-batched observer still wakes, but defers its work)", f"{s['mutation_observer_callbacks']} / {s['mutation_observer_records']}"),
     ]
     for site, v in (s.get("mutation_observers_by_site") or {}).items():
         rows.append((f"  observer {site}", f"{v['cb']} callbacks / {v['rec']} records"))
