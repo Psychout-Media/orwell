@@ -34,6 +34,7 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
   let tailShownLen = 0; // rendered-text length of the live tail (drives token fade)
   let appendMode = null; // { codeText: Text, appendedLen } while an open fence streams
   let degraded = !ENABLED; // true once we fall back to full re-render
+  const cutMemo = new Map(); // boundary offset -> proven-safe verdict (ORW-156: prove each cut once, not per delta)
 
   function start() {
     contentEl.textContent = '';
@@ -162,9 +163,10 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
         committedLen = 0;
         tailShownLen = 0;
         appendMode = null;
+        cutMemo.clear();
       }
       if (!started) start();
-      const next = splitFinalized(fullText, render, committedLen);
+      const next = splitFinalized(fullText, render, committedLen, cutMemo);
       if (next > committedLen) {
         freeze(fullText.slice(committedLen, next));
         committedLen = next;
