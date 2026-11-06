@@ -48,6 +48,8 @@ blindsided weighs that against them too.
 
 ## 6. The vote model (engine-owned)
 
+> **Current vote terms (AMEND 2026-11-06, from `src/engine/juryConstants.ts`):** five weighted terms, not two: relationship 1.0, eviction manner 0.8, demonstrated loyalty (reliability) 0.4, game respect 0.7 (public comp-win resume, ruling 2026-06-11; Final HOH part wins credit it once each), finale 0.3; plus the 0100 jury-house grudge folded into the bond read, and per-juror profiles when `ORWELL_JUROR_PROFILES` is on (code default off today, ORW-16). **Where the passive-win guard lives:** the PR-blocking jury gate allows `F2_WIN_MAX = 3` of 20 passive seasons with `EARNED_WINS = 2` (`tests/property/juryReachShared.ts`); the owner's "passive win under 5%" band lives in `tests/calibration/poTargetBands.ts` and the non-blocking nightly. The text below describes the original two-term model.
+
 Each juror votes for a finalist based on **(a) accumulated jury relationship — dominant** plus
 **(b) the finale performance** (statement + answers), which **sways close/undecided jurors but
 rarely overturns a clear lead**. The relative weight is **tunable config** (default:

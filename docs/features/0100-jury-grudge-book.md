@@ -1,6 +1,8 @@
 # 0100 — The jury grudge book, made felt (evicted jurors gossip; goodbyes decide the crown)
 
 > **Disambiguation:** "jury house" names two things. **This spec (0100) is the built, hidden NPC↔NPC layer** (`src/engine/juryHouse.ts`). [0129](./0129-the-jury-house.md) is the *player-facing* sequestered jury house a juror-player would visit (unbuilt).
+> **Current default (AMEND 2026-11-06):** `ORWELL_JURY_HOUSE` is **default ON** in the engine (`src/featureFlags.ts`, `defaultOn`; `=0` turns it off, and the deploy profile sets it too). The "default off" / "opt-in" wording below records how it was built and calibrated (byte-identical OFF), not today's default.
+
 > **Status:** ✅ **BUILT (2026-06-27; Tracks #882).** Engine-internal, behind `ORWELL_JURY_HOUSE`
 > (code default off ⇒ byte-identical calibration; the deploy profile sets it ON). **Cadence (owner ruling 2026-11-02, #1922; PR #1932): the jury house is a fast-forward limbo, one short stretch of 1–3 hidden juror scenes per new juror ARRIVAL (about once a week), not one per off-screen tick**; the text below that says "per tick" is the original design. It holds only jurors (see 0129): `src/engine/juryHouse.ts` (`runJuryHouseStretch`) +
 > `src/engine/juryHouseConstants.ts` (`JURY_HOUSE`), wired from the orchestrator's off-screen tick via the
