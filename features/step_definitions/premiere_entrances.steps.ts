@@ -72,7 +72,7 @@ Then("the player does not occupy the same position in every season", function (t
 When("the entrances and the toast are played through", function (this: BbWorld) {
   const w = bag(this);
   const s = w.session!;
-  w.gateAlwaysTrue = true; w.hohDuringEntrances = false;
+  w.gateAlwaysTrue = true; w.hohDuringEntrances = false; w.engineGatedOnTally = false;
   for (let i = 0; i < 80 && entranceState(s)!.stage !== "done"; i++) {
     const pr = s.premiereIntros();
     // ORW-196: the roll-call gate is "raised" only if `complete`/`powerReachable` DISAGREE with the entrance stage: while arrivals are still staged ("entrances") the tally honestly
@@ -82,8 +82,14 @@ When("the entrances and the toast are played through", function (this: BbWorld) 
       if (pr.complete === staging || (!staging && !pr.powerReachable)) w.gateAlwaysTrue = false;
     }
     if (s.gameStatus().hoh) w.hohDuringEntrances = true;
+    // ORW-196: separately from the tally's VALUES, prove no engine path is gated on `complete`/`powerReachable` while arrivals are staged: every advanceGame releases exactly
+    // one more arrival, and runCompetition (a preview) still answers.
+    const stageBefore = entranceState(s)!.stage;
+    const arrivedBefore = (s.snapshot().live!.premiereEntrance!).arrived;
+    if (stageBefore === "entrances" && !s.runCompetition({}).started) w.engineGatedOnTally = true;
     const v = s.advanceGame();
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
+    if (stageBefore === "entrances" && (s.snapshot().live!.premiereEntrance!).arrived !== arrivedBefore + 1) w.engineGatedOnTally = true;
   }
   assert.equal(entranceState(s)!.stage, "done", "the entrances and the toast finished within a bounded number of steps");
 });
@@ -137,6 +143,10 @@ Then("nothing hidden appears in any entrance or toast output", function (this: B
 
 Then("the meet-everyone gate is never raised", function (this: BbWorld) {
   assert.equal(bag(this).gateAlwaysTrue, true, "complete/powerReachable agree with the entrance stage (incomplete only while arrivals are staged, complete from the toast on) - no roll-call gate");
+});
+
+Then("no engine path is gated on the meet-everyone tally", function (this: BbWorld) {
+  assert.equal(bag(this).engineGatedOnTally, false, "advanceGame released one arrival per call and runCompetition answered at every entrance step - the tally gates nothing");
 });
 
 Then("the first power does not start until the toast is done", function (this: BbWorld) {

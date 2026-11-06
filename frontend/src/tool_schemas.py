@@ -1539,7 +1539,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "premiereIntros",
-            "description": "PREMIERE ONLY (#380): the meet-everyone progress — who the player has met and who is STILL to introduce (the stragglers are met in motion), each with their OBSERVABLE public persona (archetype/strategy/background/age/presentation/demeanor — never the soul, a number, or how the player feels). This is a READ, never a checklist — the champagne circle already met the whole house (0111), so NEVER run a meet-everyone roll-call from it; use it to pick who deserves a DEEPER scene. First power is REACHABLE once a couple of hot reads form and nobody is invisible, WITHOUT every formal introduction first; returns null outside the premiere.",
+            "description": "PREMIERE ONLY (#380): the meet-everyone progress — who the player has met and who is STILL to introduce (the stragglers are met in motion), each with their OBSERVABLE public persona (archetype/strategy/background/age/presentation/demeanor — never the soul, a number, or how the player feels). This is a READ, never a checklist — with the entrances OFF the champagne circle already met the whole house (0111); with the staged entrances ON, `complete` is false and `remaining` lists anonymous placeholders only until the last arrival. NEVER run a meet-everyone roll-call from it; use it to pick who deserves a DEEPER scene. First power is REACHABLE once a couple of hot reads form and nobody is invisible, WITHOUT every formal introduction first; returns null outside the premiere.",
             "parameters": {"type": "object", "properties": {}},
         },
     },

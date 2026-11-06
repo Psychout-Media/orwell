@@ -133,7 +133,8 @@ describe("A9 engine entrances", () => {
       // ORW-196: still arriving => NOT complete; the un-arrived are `remaining` as anonymous placeholders.
       expect(view.complete).toBe(false);
       expect(view.powerReachable).toBe(false);
-      expect(view.remaining.map((r) => r.houseguest.id).sort()).toEqual([...outside].filter((x) => x !== me).sort());
+      expect(view.remaining.map((r) => r.houseguest.id)).toEqual(view.remaining.map((_, i) => `unarrived:${i + 1}`)); // ordinal ids only
+      expect(view.remaining.length).toBe([...outside].filter((x) => x !== me).length);
       for (const m of view.met) expect(outside.has(m.houseguest.id)).toBe(false);
       s.markHouseguestMet([...outside].find((x) => x !== me)!); // a stray belt mark of an un-arrived NPC is a no-op
       for (const m of s.premiereIntros()!.met) expect(outside.has(m.houseguest.id)).toBe(false);
@@ -239,6 +240,7 @@ describe("ORW-196 premiereIntros agrees with the entrance stage", () => {
         // not-yet-arrived are anonymous: no real name and no persona facet; none of them is in `met`
         for (const r of view.remaining) {
           expect(r.houseguest.name).toBe(UNARRIVED_PLACEHOLDER_NAME);
+          expect(r.houseguest.id).toMatch(/^unarrived:\d+$/); // never a real id: the narrator cannot join a placeholder to a houseguest
           expect(Object.keys(r).sort()).toEqual(["houseguest", "met"]);
           expect(view.met.some((m) => m.houseguest.id === r.houseguest.id)).toBe(false);
         }
