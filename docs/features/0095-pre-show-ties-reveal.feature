@@ -54,7 +54,8 @@ Feature: 0095 — Pre-show ties as time-bombs (a sealed pre-alliance detonates w
       When the player accuses that pair of a prior connection through the engine authority
       Then the accusation misses
       And no tie is surfaced and no sealed state is read
-      And the attempt is recorded only as an ordinary social scene
+      And a wrong accusation costs the accuser: each wrongly accused houseguest thinks less of the player, by a bounded amount
+      And nothing else sealed or hidden moves
       And the player is shown no number and no tell distinguishing a miss from a hit
 
   Rule: The engine decides and records; the model only voices
