@@ -5,10 +5,13 @@ render as a control-room chyron with the approved copy.
 
 No browser/app-boot tests — pure source-read + regex asserts.
 """
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+from _ci_shard import nested_env
 
 FE = Path(__file__).resolve().parents[1]
 JS_DIR = FE / "static" / "js"
@@ -99,7 +102,8 @@ def test_g15_gamechanged_stays_green():
     """Run test_g15_gamechanged.py and assert all tests pass."""
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "frontend/tests/test_g15_gamechanged.py", "-q"],
-        capture_output=True, text=True, cwd=FE.parent
+        capture_output=True, text=True, cwd=FE.parent,
+        env=nested_env(os.environ),  # ORW-193 regression: never inherit ORWELL_CI_SHARD (0 tests collected -> exit 5)
     )
     assert result.returncode == 0, (
         f"test_g15_gamechanged.py must stay green:\n{result.stderr}\n{result.stdout}"

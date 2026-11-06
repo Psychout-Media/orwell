@@ -4575,6 +4575,7 @@ async def do_surface_information(content: str, owner: Optional[str] = None) -> D
         return {"error": "information and pathway are both required", "exit_code": 1}
     try:
         res = await orwell_engine.surface_information(info, pathway, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5192,6 +5193,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
         res = await orwell_engine.update_casting(args, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5603,6 +5605,7 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.move_to(str(room), user=owner)
         if res is None:
             return {"output": "No game is running yet.", "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5871,6 +5874,7 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal
             return deal_refusal_for_narrator(res)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5890,6 +5894,7 @@ async def do_confide(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "npcId (the houseguest the player is pressing to open up) is required", "exit_code": 1}
     try:
         res = await orwell_engine.confide(npc_id, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5976,6 +5981,7 @@ async def do_expose_secret(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "factId (a secret the player has actually learned) is required, or set bluff:true with a subject", "exit_code": 1}
     try:
         res = await orwell_engine.expose_secret(fact_id=fact_id, bluff=bluff, subject=subject, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -6006,6 +6012,7 @@ async def do_trade_secret(content: str, owner: Optional[str] = None) -> Dict:
     try:
         res = await orwell_engine.trade_secret(to_npc_id, fact_id=fact_id, bluff=bluff, subject=subject,
                                                ask_kind=ask_kind, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -6029,6 +6036,7 @@ async def do_confront(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": "factId (a fact the player has actually learned) is required", "exit_code": 1}
     try:
         res = await orwell_engine.confront(npc_id, fact_id, user=owner)
+        await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
