@@ -2409,8 +2409,11 @@ def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, s
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
     cue = bool(s) and not _is_production_cue(s) and bool(_ENTRANCE_CUE_RE.search(s))
-    quiet = turns_since_progress >= _ENTRANCE_LULL_TURNS
-    if cue or quiet:
+    # ORW-148: the old "quiet lull" branch (>= _ENTRANCE_LULL_TURNS non-advancing messages) let the stall-L0
+    # belt silently release an arrival while the player was still talking (live 11-06: the premiere fast-
+    # forwarded). Only an explicit player cue ("next", "just watch"...) pulls the next arrival now; the
+    # narrator's own advance_game call otherwise paces entrances. turns_since_progress is kept for the signature.
+    if cue:
         return True, True
     return is_lull, stale
 
@@ -2484,6 +2487,12 @@ def _peer_advanced_since_framing(progressed: bool, framed_beat_key, current_beat
         return False
     if framed_beat_key is None or current_beat_key is None:
         return False
+    # ORW-221: while production HOLDS a scheduled event, `apply_game_framing` frames the turn on the held `social` moment (`_hold_for_social`) and stores THAT in the framed key,
+    # but the caller reads the RAW engine moment. Comparing the two flagged a "peer advance" on every held turn (32 false hits, each resetting the stall ladder). Compare held
+    # against held: when the framed moment is the `social` override, read the current moment as `social` too, so only a change of week / phase / pending counts as a peer move.
+    if (isinstance(framed_beat_key, (tuple, list)) and len(framed_beat_key) >= 3 and framed_beat_key[2] == "social"
+            and isinstance(current_beat_key, (tuple, list)) and len(current_beat_key) >= 3):
+        current_beat_key = (current_beat_key[0], current_beat_key[1], "social", *tuple(current_beat_key)[3:])
     normalized_current_beat_key = (
         (*current_beat_key, current_pending_kind)
         if current_pending_kind is not None
@@ -3012,6 +3021,24 @@ _MAX_NPC_MOVE_NUDGES_PER_TURN = 1  # at most one NPC-move extraction per finishi
 _MAX_NPC_MOVES_PER_TURN = 4        # …relocating at most a handful of houseguests from it
 
 
+_SUMMON_RE = re.compile(
+    r"\b(come|comes|coming|get|grab|bring|call|calls|calling|fetch|invite|summon|join|find|go\s+(?:get|find)|"
+    r"pull\s+\w+\s+aside|ask|asks|tell|tells|wave|waves|beckon)\b", re.I)
+
+
+def _player_summoned(last_user, name) -> bool:
+    """ORW-210: did the PLAYER's message ask this houseguest to come over (their name + a summoning verb)?
+    Only then may the FE turn a narrated arrival into a real move. Merely naming them is not enough.
+    Matches the first name or the full name, case-insensitive; deterministic, no LLM."""
+    text = (last_user or "")
+    if not name or not text:
+        return False
+    first = str(name).split()[0]
+    if not re.search(r"\b" + re.escape(first) + r"\b", text, re.I):
+        return False
+    return bool(_SUMMON_RE.search(text))
+
+
 async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner) -> int:
     """GUARANTEE whereabouts cohesion for the HOUSEGUESTS (ADR 0009), mirroring _auto_move_player for
     the player. When the turn's narration walked one or more houseguests to new rooms but the model
@@ -3073,6 +3100,25 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             picks.append((hid, room))
             if len(picks) >= _MAX_NPC_MOVES_PER_TURN:
                 break
+        # ORW-210: MENTIONING someone never pulls them into the room. The narrator can write an absent
+        # houseguest's entrance after the player merely names them; relaying that as a real move made them
+        # appear and react as if they'd heard. An ARRIVAL INTO THE PLAYER'S ROOM is only relayed when the
+        # player actually asked that houseguest to come (an engine-driven approach never goes through this
+        # belt - the engine moves its own people). Moves elsewhere in the house are the NPCs' own business.
+        if picks:
+            try:
+                _w = await _oe.whereabouts(user=owner)
+            except Exception:
+                _w = None
+            _proom = _w.get("room") if isinstance(_w, dict) else None
+            if _proom:
+                _kept = []
+                for hid, room in picks:
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)):
+                        logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
+                        continue
+                    _kept.append((hid, room))
+                picks = _kept
         if not picks:
             return 0
         recorded = 0

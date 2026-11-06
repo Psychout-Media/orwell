@@ -302,8 +302,8 @@ PREMIERE_IDENTITY_ON_FILE_NOTE = (
     "GAME CONTEXT). This premiere is a WELCOME, not a fresh intake. Do NOT have production or any "
     "houseguest interrogate the player for their name, hometown, or job again, and do NOT ask them to "
     "\"introduce themselves\" from scratch as if you don't know who they are — GREET them by name. The "
-    "houseguests still introduce THEMSELVES around the champagne circle (they are strangers to the player "
-    "and to each other); only the player's own basics are already known to production. The player may of "
+    "houseguests still introduce THEMSELVES as they arrive, one at a time (they are strangers to the player "
+    "and to each other; do not describe or stage a champagne toast until the engine reaches it); only the player's own basics are already known to production. The player may of "
     "course volunteer more about themselves, but never re-demand the basics they gave in casting."
 )
 
@@ -683,6 +683,32 @@ def _entrance_stage_of(game_state) -> Optional[str]:
         return None
 
 
+# ORW-148 part B: runway keys where the MODEL already released a staged-entrance arrival in the CURRENT player turn.
+# Per-turn signal = the one hook that already runs exactly once per framed turn (`note_premiere_turn`, called from the
+# turn framing right after the state read); it clears this set, so a new player message resets the allowance. In-process
+# like its sibling premiere dicts; a restart clears it (fail-open = the old behaviour for one turn).
+_PREMIERE_RELEASED_THIS_TURN: set = set()
+
+
+def premiere_release_already_this_turn(user) -> bool:
+    """ORW-148 B - True when a staged premiere arrival was already released in this player turn (entrance stage live only)."""
+    try:
+        key = _runway_key(user)
+        return key in _PREMIERE_ENTRANCE_STAGE and key in _PREMIERE_RELEASED_THIS_TURN
+    except Exception:
+        return False
+
+
+def mark_premiere_release(user) -> None:
+    """ORW-148 B - record that this turn's one staged-entrance release happened (no-op unless the entrance stage is live)."""
+    try:
+        key = _runway_key(user)
+        if key in _PREMIERE_ENTRANCE_STAGE:
+            _PREMIERE_RELEASED_THIS_TURN.add(key)
+    except Exception:
+        pass
+
+
 def premiere_entrance_active(user) -> bool:
     """A9 - True while the premiere is in its entrances/toast stage (flag-on only). Reads the stash `note_premiere_turn` wrote."""
     try:
@@ -696,6 +722,7 @@ def note_premiere_turn(user, game_state) -> None:
     A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
     try:
         key = _runway_key(user)
+        _PREMIERE_RELEASED_THIS_TURN.discard(key)  # ORW-148 B: a new framed turn resets the one-release-per-turn allowance
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
         if stage in ("entrances", "toast"):
@@ -3007,7 +3034,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
-    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False:
+    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
         desync = "a phantom POWER OF VETO win (the engine shows you do NOT hold the veto)"
     # (6b) A2: the model hands the veto to a NAMED houseguest who is NOT the actual holder → wrong
     #      identity (mirrors 4b). Scoped to the veto beat AND a holder that really committed this turn.
@@ -3574,6 +3601,16 @@ _NAME_STOPWORDS_FIRST = {
     "the", "a", "an", "this", "that", "these", "those", "his", "her", "their", "your", "our", "my",
     "you", "i", "we", "he", "she", "they", "it", "and", "but", "or", "then", "now", "so", "as",
 }
+# ORW-180: capitalized sentence-initial TRANSITION/adverb words ("Meanwhile Marcus said...") are not a first name.
+# Live 11-06: "Meanwhile <real houseguest>" read as an unknown two-token full name and stashed a bogus re-ground.
+# The word is skipped and the scan resumes at the NEXT token, so a real invented name after it ("Suddenly Zed Quill
+# said") is still caught.
+_NAME_TRANSITION_FIRST = {
+    "meanwhile", "later", "suddenly", "soon", "then", "next", "finally", "eventually", "afterward", "afterwards",
+    "earlier", "elsewhere", "instead", "still", "meantime", "momentarily", "presently", "shortly", "today", "tonight",
+    "tomorrow", "yesterday", "however", "anyway", "also", "once", "after", "before", "while", "when", "just", "even",
+    "here", "there", "outside", "inside", "upstairs", "downstairs", "slowly", "quickly", "quietly",
+}
 
 
 def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -> Optional[str]:
@@ -3587,7 +3624,18 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
     enough to flag a bare capitalized token on its own."""
     if not sentence or not sentence.strip():
         return None
-    for m in _TWO_TOKEN_NAME_RE.finditer(sentence):
+    _matches = []
+    _pos = 0
+    while True:
+        m = _TWO_TOKEN_NAME_RE.search(sentence, _pos)
+        if not m:
+            break
+        if m.group(1).lower() in _NAME_TRANSITION_FIRST:
+            _pos = m.start(2)  # ORW-180: drop the transition word, rescan from the token after it
+            continue
+        _matches.append(m)
+        _pos = m.end()
+    for m in _matches:
         first_l = m.group(1).lower()
         second_l = m.group(2).lower()
         full = f"{m.group(1)} {m.group(2)}"
@@ -4569,6 +4617,21 @@ _COMP_FINISH_WINNER_RE = re.compile(
     r"\b(?:It(?:'|\u2019)s|It is|That(?:'|\u2019)s|And it(?:'|\u2019)s)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b|"
     r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:outlasts|outlasted|is the last (?:one )?(?:standing|on the rig)|takes it)\b",
 )
+
+
+_VETO_HYP_MARKER_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+
+
+def _all_veto_matches_hypothetical(text: str) -> bool:
+    """ORW-10 (live replay 7, 03:19): '"If I won the veto and you were on the block." He says it back to you slowly.' was cut as a phantom veto win. True only when EVERY self-veto-win match sits in a sentence whose text
+    BEFORE the match carries a hypothetical marker (if / suppose / imagine / would / could / might ...); one non-hypothetical claim keeps the guard."""
+    found = False
+    for sent in re.split(r"(?<=[.!?\n])", text or ""):
+        for m in _CLAIM_SELF_VETO_WIN_RE.finditer(sent):
+            found = True
+            if not _VETO_HYP_MARKER_RE.search(sent[:m.start() + 1]):
+                return False
+    return found
 
 
 def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:

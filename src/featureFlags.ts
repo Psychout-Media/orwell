@@ -160,6 +160,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
   { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
+  // ORW-212 / ORW-210: calm, non-magnetic NPC movement on the player-facing view (fewer simultaneous moves, a lower ordinary move chance, the player no longer pulls destinations, the scene-hold keeps only the houseguests the player is talking to). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_CALM_PRESENCE', key: 'calmPresence', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
