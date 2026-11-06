@@ -408,7 +408,7 @@ jobs:
           ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
           ORWELL_SKIP_LANE: unit
           ORWELL_CI_SHARD: ${{ matrix.shard }}/2
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs --durations=0
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -466,7 +466,7 @@ jobs:
           ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
           ORWELL_SKIP_LANE: browser
           ORWELL_CI_SHARD: ${{ matrix.shard }}/3
-        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=0
+        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=8
 
   fe-browser:
     needs: changes
