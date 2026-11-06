@@ -17,6 +17,20 @@ from routes.session_routes import (
     _verify_session_owner,
 )
 
+def _without_admin_engine_results(entries):
+    """ORW-187 - the persisted tool events carry an admin-only `engine_result` (the full engine read for the transcript). The player's history payload never
+    includes it: return copies of the entries with that key removed from each tool event (the stored metadata is not mutated)."""
+    out = []
+    for e in entries:
+        md = e.get("metadata") if isinstance(e, dict) else None
+        evs = md.get("tool_events") if isinstance(md, dict) else None
+        if isinstance(evs, list) and any(isinstance(x, dict) and "engine_result" in x for x in evs):
+            e = {**e, "metadata": {**md, "tool_events": [
+                {k: v for k, v in x.items() if k != "engine_result"} if isinstance(x, dict) else x for x in evs]}}
+        out.append(e)
+    return out
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,7 +144,7 @@ def setup_history_routes(session_manager) -> APIRouter:
                 db.close()
 
         return {
-            "history": history_dict,
+            "history": _without_admin_engine_results(history_dict),
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "name": session.name,

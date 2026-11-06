@@ -63,6 +63,28 @@ _ORWELL_SILENT_TOOLS = frozenset({
     'worldSnapshotView', 'inspectNonVaultState', 'sandboxHealth', 'list_models', 'search_chats',
 })
 
+# ORW-187 — the persisted transcript used to keep only the first 2,000 chars of a tool result, and BLANK the output of the silent read tools (#1871: the player
+# channel must not see them). That left investigators unable to tell what the engine actually returned (getGameState / whereabouts / gameStatus, and the createCharacter
+# card). The engine results below are Vault-free projections (the same data the HUD already renders), so the FULL text is persisted in a SEPARATE admin-only key,
+# `engine_result`, on the tool event (capped at _ENGINE_RESULT_CAP chars, with a truncation marker, never blank). The player-facing `output` stays as #1871
+# requires, and the history routes strip `engine_result` from what the player's browser receives. The set is deliberately NARROW: nothing else (e.g. npcVoice) is widened.
+_ENGINE_RESULT_LEDGER_TOOLS = frozenset({"getGameState", "whereabouts", "gameStatus", "createCharacter"})
+_ENGINE_RESULT_CAP = 30000
+
+
+def _engine_result_for_transcript(tool_type: str, result: Any) -> Optional[str]:
+    """ORW-187 — the full (capped) engine result text for the admin transcript, or None when this tool is not in the ledger set / carries no text."""
+    if tool_type not in _ENGINE_RESULT_LEDGER_TOOLS or not isinstance(result, dict):
+        return None
+    raw = result.get("output")
+    if not isinstance(raw, str) or not raw:
+        raw = result.get("error") if isinstance(result.get("error"), str) else ""
+    if not raw:
+        return None
+    if len(raw) > _ENGINE_RESULT_CAP:
+        return raw[:_ENGINE_RESULT_CAP] + f"\n…[truncated {len(raw) - _ENGINE_RESULT_CAP} chars]"
+    return raw
+
 
 def _classify_narrator_stream_error(err_msg: Any, data: Any = None) -> str:
     """Return the truthful narrator failure class for a mid-stream `data.error` frame. An explicit
@@ -9971,6 +9993,9 @@ async def _stream_agent_loop_impl(
                 "output": _persisted_output,
                 "exit_code": result.get("exit_code"),
             }
+            _engine_result = _engine_result_for_transcript(block.tool_type, result)
+            if _engine_result is not None:
+                tool_event["engine_result"] = _engine_result  # ORW-187: admin-only full result (stripped from the player's history payload)
             if result.get("image_url"):
                 for ik in ("image_url", "image_prompt", "image_model", "image_size", "image_quality"):
                     if result.get(ik):
