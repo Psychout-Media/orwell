@@ -34,6 +34,10 @@
 
   let timer = null;
   let _failures = 0;
+  // ORW-151: tick() makes four sequential requests, and every orwell:gamechanged starts a new one,
+  // so two refreshes can overlap and finish out of order. Only the NEWEST tick may render; a stale
+  // one that resolves late is dropped instead of repainting an older room over a newer one.
+  let _tickSeq = 0;
   function _pollDelay() { return Math.min(POLL_MS * Math.pow(2, _failures), 120000); }
 
   // WS Phase-1 (§4): when the multiplexed socket is live the server PUSHES a `state`/`hud`
@@ -316,11 +320,15 @@
   }
 
   async function tick() {
+    const mySeq = ++_tickSeq;
+    const superseded = () => mySeq !== _tickSeq; // ORW-151: a newer tick started; never repaint stale data
     try {
       if (document.hidden) return; // a hidden tab polls nothing (C18)
       const state = await getJSON("/api/orwell/state");
+      if (superseded()) return;
       if (!state || !state.started) { render(null); _failures = 0; return; }
       const whereData = await getJSON("/api/orwell/whereabouts");
+      if (superseded()) return;
       const w = whereData ? whereData.whereabouts : null;
       if (!w || !w.room) { render(null); _failures = 0; return; }
 
@@ -337,9 +345,11 @@
         roles = (window.OrwellMonogram && statusData) ? window.OrwellMonogram.rolesFrom(statusData) : {};
       } catch (_) { /* fall back to no role badges */ }
 
+      if (superseded()) return;
       render({ room: w.room, present: w.present, roster: roster, roles: roles, asleep: state.asleep });
       _failures = 0;
     } catch (_) {
+      if (superseded()) return;
       _failures += 1;
       if (window.OrwellReport) window.OrwellReport.fail("roomstrip", "poll", _); // G11: fail open, never silent
       render(null); // fail OPEN: the strip simply isn't there

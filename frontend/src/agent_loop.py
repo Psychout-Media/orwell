@@ -2409,8 +2409,11 @@ def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, s
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
     cue = bool(s) and not _is_production_cue(s) and bool(_ENTRANCE_CUE_RE.search(s))
-    quiet = turns_since_progress >= _ENTRANCE_LULL_TURNS
-    if cue or quiet:
+    # ORW-148: the old "quiet lull" branch (>= _ENTRANCE_LULL_TURNS non-advancing messages) let the stall-L0
+    # belt silently release an arrival while the player was still talking (live 11-06: the premiere fast-
+    # forwarded). Only an explicit player cue ("next", "just watch"...) pulls the next arrival now; the
+    # narrator's own advance_game call otherwise paces entrances. turns_since_progress is kept for the signature.
+    if cue:
         return True, True
     return is_lull, stale
 
@@ -2484,6 +2487,12 @@ def _peer_advanced_since_framing(progressed: bool, framed_beat_key, current_beat
         return False
     if framed_beat_key is None or current_beat_key is None:
         return False
+    # ORW-221: while production HOLDS a scheduled event, `apply_game_framing` frames the turn on the held `social` moment (`_hold_for_social`) and stores THAT in the framed key,
+    # but the caller reads the RAW engine moment. Comparing the two flagged a "peer advance" on every held turn (32 false hits, each resetting the stall ladder). Compare held
+    # against held: when the framed moment is the `social` override, read the current moment as `social` too, so only a change of week / phase / pending counts as a peer move.
+    if (isinstance(framed_beat_key, (tuple, list)) and len(framed_beat_key) >= 3 and framed_beat_key[2] == "social"
+            and isinstance(current_beat_key, (tuple, list)) and len(current_beat_key) >= 3):
+        current_beat_key = (current_beat_key[0], current_beat_key[1], "social", *tuple(current_beat_key)[3:])
     normalized_current_beat_key = (
         (*current_beat_key, current_pending_kind)
         if current_pending_kind is not None
@@ -3012,6 +3021,24 @@ _MAX_NPC_MOVE_NUDGES_PER_TURN = 1  # at most one NPC-move extraction per finishi
 _MAX_NPC_MOVES_PER_TURN = 4        # …relocating at most a handful of houseguests from it
 
 
+_SUMMON_RE = re.compile(
+    r"\b(come|comes|coming|get|grab|bring|call|calls|calling|fetch|invite|summon|join|find|go\s+(?:get|find)|"
+    r"pull\s+\w+\s+aside|ask|asks|tell|tells|wave|waves|beckon)\b", re.I)
+
+
+def _player_summoned(last_user, name) -> bool:
+    """ORW-210: did the PLAYER's message ask this houseguest to come over (their name + a summoning verb)?
+    Only then may the FE turn a narrated arrival into a real move. Merely naming them is not enough.
+    Matches the first name or the full name, case-insensitive; deterministic, no LLM."""
+    text = (last_user or "")
+    if not name or not text:
+        return False
+    first = str(name).split()[0]
+    if not re.search(r"\b" + re.escape(first) + r"\b", text, re.I):
+        return False
+    return bool(_SUMMON_RE.search(text))
+
+
 async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner) -> int:
     """GUARANTEE whereabouts cohesion for the HOUSEGUESTS (ADR 0009), mirroring _auto_move_player for
     the player. When the turn's narration walked one or more houseguests to new rooms but the model
@@ -3073,6 +3100,25 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             picks.append((hid, room))
             if len(picks) >= _MAX_NPC_MOVES_PER_TURN:
                 break
+        # ORW-210: MENTIONING someone never pulls them into the room. The narrator can write an absent
+        # houseguest's entrance after the player merely names them; relaying that as a real move made them
+        # appear and react as if they'd heard. An ARRIVAL INTO THE PLAYER'S ROOM is only relayed when the
+        # player actually asked that houseguest to come (an engine-driven approach never goes through this
+        # belt - the engine moves its own people). Moves elsewhere in the house are the NPCs' own business.
+        if picks:
+            try:
+                _w = await _oe.whereabouts(user=owner)
+            except Exception:
+                _w = None
+            _proom = _w.get("room") if isinstance(_w, dict) else None
+            if _proom:
+                _kept = []
+                for hid, room in picks:
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)):
+                        logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
+                        continue
+                    _kept.append((hid, room))
+                picks = _kept
         if not picks:
             return 0
         recorded = 0
@@ -5153,6 +5199,31 @@ def _blank_turn_fallback_line(*, upstream_failed: bool) -> str:
     return _BLANK_FALLBACK_UPSTREAM if upstream_failed else _BLANK_FALLBACK_MODEL
 
 
+def _fallback_markers() -> "tuple[str, ...]":
+    return (
+        _SCENE_CUTAWAY_LINE[:70],
+        _BLANK_FALLBACK_MODEL[:40],
+        _BLANK_FALLBACK_UPSTREAM[:40],
+        "The live feeds settle back over the house. Right now the game sits",
+        "A voice from production runs through the board",
+    )
+
+
+def _drop_fallback_turns(messages):
+    """ORW-10 (c): return `messages` without the assistant turns that are one of the FE's own deterministic fallback lines. Pure; leaves every other message (and the order) untouched; a non-list passes through."""
+    if not isinstance(messages, list):
+        return messages
+    marks = _fallback_markers()
+    out = []
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str):
+            head = m["content"].strip()[:260]
+            if any(mk in head for mk in marks):
+                continue
+        out.append(m)
+    return out
+
+
 async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_visible: bool,
                               cutaway_emitted: bool) -> "_GuardedScene":
     """A2 (2026-07-03) — run one leak-scrubbed stream chunk through BOTH the whole-scene circuit-breaker
@@ -5217,7 +5288,13 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         # the rail on the one turn it mattered most. The same diegetic cutaway line the scene
         # circuit-breaker (above) already uses for an identical "nothing safe to show yet" situation
         # covers it instead — in-fiction, never the lie, never a raw error.
-        return _GuardedScene(_SCENE_CUTAWAY_LINE, False, True, tuple(role_drops), screened)
+        _line = _SCENE_CUTAWAY_LINE
+        try:
+            if chat_helpers is not None:
+                _line = (await chat_helpers.guard_emptied_cutaway(owner)) or _SCENE_CUTAWAY_LINE  # ORW-10: 2nd consecutive emptied turn => the plain engine-true line
+        except Exception:
+            _line = _SCENE_CUTAWAY_LINE
+        return _GuardedScene(_line, False, True, tuple(role_drops), screened)
     return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
 
 
@@ -6720,6 +6797,10 @@ async def _stream_agent_loop_impl(
             messages.insert(0, {"role": "system", "content": GUIDE_ONLY_DIRECTIVE})
     prep_timings["prompt_build"] = time.time() - _t2
 
+    # ORW-10 (c): the deterministic fallback lines the FE shows the player (the feeds-cut cutaway, the engine-truth recital, the blank-turn lines) are saved in the chat as assistant turns; left in the model's own
+    # history they teach it to emit them again (replay 7: the narrator copied the cutaway sentence for ~30 turns). Keep them out of what the narrator sees; the player's transcript is untouched.
+    messages = _drop_fallback_turns(messages)
+
     _t3 = time.time()
     try:
         from src.context_compactor import trim_for_context
@@ -7342,8 +7423,14 @@ async def _stream_agent_loop_impl(
                 _wa_status = await _oe_wa.game_status(user=_force_owner)
                 if isinstance(_wa_status, dict):
                     _wa_premiere = _wa_status.get("premiere")
+                # ORW-142 — compute this turn's tool names HERE. BL-007 used to read the local that
+                # only the sibling lever-force / casting-finalize branches above assign, so every
+                # premiere/group free-play turn raised UnboundLocalError, the blanket except below
+                # swallowed it, and BL-007 never ran in prod.
+                _wa_turn_tools = {ev.get("tool") for ev in (tool_events or [])
+                                  if isinstance(ev, dict) and ev.get("tool")}
                 _candidate_wa = _forced_tool_choice_for_whereabouts(
-                    _turn_tool_names_force if _turn_tool_names_force else set(),
+                    _wa_turn_tools,
                     game_mode=game_mode,
                     premiere_view=_wa_premiere,
                     frozen_whereabouts=_wa_frozen,
@@ -7994,7 +8081,11 @@ async def _stream_agent_loop_impl(
                 # string for its args (not the structured {id, room}), so the per-turn freeze can't
                 # reflect it. Mark the freeze not-confident so the gadget defers to LIVE engine truth this
                 # turn (no wrong room). A player re-center (model moveTo) is caught by the room compare.
-                if _npc_moved:
+                # ORW-151: the same holds when the ENGINE moved the board this turn (advanceGame /
+                # submitDecision: premiere arrivals, the house gathering for a ceremony, a new beat).
+                # Those changes are narrated in this very reply but are absent from the turn-start
+                # snapshot, so without this the room strip lagged a whole turn behind the prose.
+                if _npc_moved or _progressed:
                     try:
                         from routes import chat_helpers as _chf
                         _chf.freeze_mark_model_moved(owner)

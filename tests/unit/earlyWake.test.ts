@@ -12,16 +12,18 @@ import { milestoneDue } from "../../src/engine/daySchedule";
 const at = (hour: number): LiveSeasonState => ({ nightDepth: hour, timeOfDay: "night", beat: "veto-competition", evictionOrder: [] } as unknown as LiveSeasonState);
 
 describe("wake = min(8am, bedtime + 8h)", () => {
-  it("10pm -> 6am; 9pm -> 5am (the floor); midnight -> 8am; 2am -> 8am", () => {
+  it("10pm -> 6am; 9pm -> 5am; 8pm -> 4am; 5pm -> 1am (ORW-114: NO 5am floor - Ryne 2026-11-06); midnight -> 8am; 2am -> 8am", () => {
     expect(wakeHourAfterBed(22)).toBe(6);
     expect(wakeHourAfterBed(21)).toBe(5);
-    expect(wakeHourAfterBed(20)).toBe(5);   // floor: never earlier than 5am
+    expect(wakeHourAfterBed(20)).toBe(4);   // no floor: the old 5am floor is gone
+    expect(wakeHourAfterBed(17)).toBe(1);
+    expect(wakeHourAfterBed(16)).toBe(0);   // the evening's start is the earliest bed that wakes early
     expect(wakeHourAfterBed(24)).toBe(8);
     expect(wakeHourAfterBed(26)).toBe(8);
   });
-  it("a daytime turn-in never wakes before the player lay down (falls back to the 8am wake)", () => {
+  it("a morning/afternoon turn-in never wakes before the player lay down (falls back to the 8am wake; the bedtime gate already refuses it)", () => {
     expect(wakeHourAfterBed(10)).toBe(WAKE_HOUR);
-    expect(wakeHourAfterBed(17)).toBe(WAKE_HOUR);
+    expect(wakeHourAfterBed(15)).toBe(WAKE_HOUR);
   });
 });
 
@@ -33,6 +35,13 @@ describe("turning in", () => {
     expect(playerRestDeficit(s)).toBe(0);
     advanceClockPerConversation(s, 0);           // the wake advance: lands on the early hour, no hours move
     expect(s.nightDepth).toBe(6);
+  });
+  it("ORW-114: a very early evening bed (5pm) wakes at 1am with NO sleep debt and the whole day is still ahead - no 5am floor, no 8pm minimum bed", () => {
+    const s = at(17);
+    playerTurnIn(s, "player");
+    expect(s.nightDepth).toBe(1);
+    expect(playerRestDeficit(s)).toBe(0);
+    expect(milestoneDue(s)).toBe(false);          // nothing scheduled can fire in the pre-dawn hours
   });
   it("at midnight the player wakes at 8am (unchanged)", () => {
     const s = at(24); playerTurnIn(s, "player");
