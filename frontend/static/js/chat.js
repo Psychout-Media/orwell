@@ -1155,6 +1155,18 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     let processingProbeTimer = null;
     let processingProbeAbort = null;
     let _renderStream = () => {};
+    // ORW-156: the plain-delta render is COALESCED to one per animation frame (`_renderStreamSoon`); every other
+    // caller keeps the synchronous `_renderStream` (which also supersedes a pending frame render, since it
+    // renders the current buffers anyway). Non-delta SSE events flush a pending frame render FIRST (see the
+    // `_flushStreamSoon()` call after JSON.parse), so tool/segment/settle code never sees a stale bubble.
+    let _renderStreamRaf = 0;
+    let _streamRenderedOnce = false;   // the FIRST paint of a bubble stays synchronous (no empty-bubble frame)
+    const _flushStreamSoon = () => { if (_renderStreamRaf) { cancelAnimationFrame(_renderStreamRaf); _renderStreamRaf = 0; _renderStream(); } };
+    const _renderStreamSoon = () => {
+      if (!_streamRenderedOnce || (typeof document !== 'undefined' && document.hidden)) { _renderStream(); return; }
+      if (_renderStreamRaf) return;
+      _renderStreamRaf = requestAnimationFrame(() => { _renderStreamRaf = 0; _renderStream(); });
+    };
     let _cancelThinkingTimer = () => {};
     let _removeThinkingSpinner = () => {};
     // The whole-turn abort is an ACTIVITY-RESET IDLE timer (`_makeStreamIdleGuard`), not a one-shot.
@@ -1895,6 +1907,8 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
       // Direct render helper for streaming text
       _renderStream = () => {
+        if (_renderStreamRaf) { cancelAnimationFrame(_renderStreamRaf); _renderStreamRaf = 0; }
+        _streamRenderedOnce = true;
         // F8: the BODY renders the reply-only buffer (roundReplyText — deltas with json.thinking
         // falsy). Reasoning is structurally ABSENT here, so it can NEVER paint in the public
         // bubble; the live "Thinking" accordion renders roundReasoningText separately. (A model
@@ -2163,6 +2177,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
             }
             try {
               const json = JSON.parse(data);
+              if (!json.delta) _flushStreamSoon();   // ORW-156: a non-delta event must see the up-to-date bubble
               // Handle SSE error events (e.g. HTTP 404 from provider)
               if (_nextIsError || json.status >= 400) {
                 _nextIsError = false;
@@ -2494,7 +2509,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 } else {
                   // Normal streaming
                   if (spinner && spinner.element) spinner.destroy();
-                  _renderStream();
+                  _renderStreamSoon();
                   _scheduleThinkingSpinner();
                   // Feed streaming TTS with accumulated text
                   if (streamingTTS) window.aiTTSManager.streamingUpdate(roundText);
@@ -4395,6 +4410,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
         }
       }
     } finally {
+      if (_renderStreamRaf) { cancelAnimationFrame(_renderStreamRaf); _renderStreamRaf = 0; }   // ORW-156: never paint a frame after the turn settled
       clearResponseTimeout();
       clearProcessingProbe();
       // F-5 / N-10: a finished turn must never leave a header-only assistant bubble (see isEmptyAssistantBubble).

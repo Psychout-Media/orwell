@@ -115,22 +115,38 @@ function findBoundaries(text, fromOffset) {
  * toward under-finalizing, which is the safe direction.
  */
 function cutIsRenderSafe(before, after, render) {
-  return render(before) + render(after) === render(before + after);
+  // ORW-156: the renderer joins blocks with a blank-line separator ("<p>A</p>\n\n<p>B</p>") but the two
+  // separate renders concatenate with none, so the old strict equality was false for ordinary prose and
+  // NOTHING ever froze (committedLen stayed 0; every delta re-rendered the whole reply). Whitespace BETWEEN
+  // block tags is presentation-inert, so compare with it collapsed. Real merge hazards (a loose list, a
+  // lazy continuation, an indented block) still change the tags/text and still fail the check.
+  return normalizeBlockGaps(render(before) + render(after)) === normalizeBlockGaps(render(before + after));
+}
+
+function normalizeBlockGaps(html) {
+  return html.replace(/>\s+</g, '><').trim();
 }
 
 /**
  * Return how many leading characters of `text` can be safely finalized, scanning
  * forward from `committedLen` (the amount already finalized).
  *
- * Guarantees `render(text.slice(0, n)) + render(text.slice(n)) === render(text)`,
- * and `committedLen <= n <= text.length`.
+ * Guarantees `render(text.slice(0, n)) + render(text.slice(n)) === render(text)`
+ * (modulo inter-block whitespace), and `committedLen <= n <= text.length`.
+ *
+ * `memo` (optional Map, owned by one stream renderer) remembers each boundary's verdict by offset so a
+ * boundary is proven ONCE, not on every delta (the per-token work stays O(new text)). A boundary is only
+ * judged once the block after it has a complete first line (or a later boundary exists): whether anything
+ * can merge across a blank line is decided by that first line (list marker, indent, ...), and judging an
+ * empty or half-typed line would be a coin toss. Without a memo every call re-proves (the old behaviour).
  *
  * @param {string} text       Full markdown accumulated so far.
  * @param {(src:string)=>string} render  Canonical markdown renderer.
  * @param {number} [committedLen=0]  Characters already finalized (always a prior boundary).
+ * @param {Map<number, boolean>} [memo]
  * @returns {number}
  */
-export function splitFinalized(text, render, committedLen = 0) {
+export function splitFinalized(text, render, committedLen = 0, memo = null) {
   const { boundaries } = findBoundaries(text, committedLen);
 
   let best = committedLen;
@@ -146,12 +162,21 @@ export function splitFinalized(text, render, committedLen = 0) {
       // A prose/list/table boundary. We need a following block to compare
       // against (the last block must stay live, it can still grow), and the cut
       // must be render-equivalent locally.
-      const nextOffset = k + 1 < boundaries.length ? boundaries[k + 1].offset : text.length;
-      const before = text.slice(segStart, offset);
+      const hasLater = k + 1 < boundaries.length;
+      const nextOffset = hasLater ? boundaries[k + 1].offset : text.length;
       const after = text.slice(offset, nextOffset);
-      if (after.trim() !== '' && cutIsRenderSafe(before, after, render)) {
-        best = offset;
+      let safe;
+      if (memo && memo.has(offset)) {
+        safe = memo.get(offset);
+      } else if (after.trim() === '') {
+        safe = false;
+      } else if (memo && !hasLater && after.indexOf('\n') === -1) {
+        break; // the next block's first line is still arriving: not judgeable yet, nothing later exists
+      } else {
+        safe = cutIsRenderSafe(text.slice(segStart, offset), after, render);
+        if (memo) memo.set(offset, safe);
       }
+      if (safe) best = offset;
     }
     segStart = offset;
   }
