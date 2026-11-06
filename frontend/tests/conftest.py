@@ -73,6 +73,10 @@ if not _current_db_url or _AUTO_TEST_DB_MARKER in _current_db_url:
 # exercise the gate explicitly.
 os.environ.setdefault("ORWELL_ALLOW_FLOOR_START", "1")
 
+# ORW-166: the HUD-poller read cache (src/engine_read_cache.py) is OFF for the suite - many tests monkeypatch the engine reads and re-poll within
+# its 400 ms window, and a cache would serve one test the previous test's state. The dedicated cache tests (test_orw166_engine_read_cache.py) set a TTL explicitly.
+os.environ.setdefault("ORWELL_STATE_CACHE_TTL_MS", "0")
+
 # Owner directive 2026-07-11 — the enrichment policy defaults to STRICT in production (loud failures,
 # creation refusals on an unwired class; src/enrichment_policy.py). The FE suite stubs the LLM
 # everywhere and its many fail-soft contracts ("absent ⇒ byte-identical deterministic floor") must
