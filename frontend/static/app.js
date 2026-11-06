@@ -3,7 +3,6 @@
 // ES6 module — entry point, no exports (wires all modules together)
 // ============================================
 import Storage from './js/storage.js';
-import { frameBatched, liveAddedElements } from './js/frameBatch.js';
 import uiModule from './js/ui.js';
 import workspaceModule from './js/workspace.js';
 import fileHandlerModule from './js/fileHandler.js';
@@ -3125,17 +3124,20 @@ function initializeEventListeners() {
     document.querySelectorAll('.modal').forEach(injectMinimizeButton);
 
     // Watch for dynamically-created modals
-    // ORW-157: once per frame over the nodes still attached (body-subtree childList fires per streamed token).
-    new MutationObserver(frameBatched((mutations) => {
-      for (const n of liveAddedElements(mutations)) {
-        if (n.classList && n.classList.contains('modal')) {
-          injectMinimizeButton(n);
-        }
-        if (n.querySelectorAll) {
-          n.querySelectorAll('.modal').forEach(injectMinimizeButton);
+    // Modal bookkeeping stays SYNCHRONOUS (ORW-157 review: dismiss / inert / scrim / focus must not wait on a frame).
+    new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          if (n.classList && n.classList.contains('modal')) {
+            injectMinimizeButton(n);
+          }
+          if (n.querySelectorAll) {
+            n.querySelectorAll('.modal').forEach(injectMinimizeButton);
+          }
         }
       }
-    })).observe(document.body, { childList: true, subtree: true });
+    }).observe(document.body, { childList: true, subtree: true });
   })();
 
   // Preset button (in overflow menu)

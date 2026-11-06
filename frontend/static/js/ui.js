@@ -9,7 +9,6 @@ import * as Modals from './modalManager.js';
 import spinnerModule from './spinner.js';
 import { registerMenuDismiss, dismissTopMenu, dismissOrRemove } from './escMenuStack.js';
 import { isNarrow } from './platform.js';
-import { frameBatched } from './frameBatch.js';
 
 let autoScrollEnabled = true;
 let hoveredToggleCard = null;
@@ -774,8 +773,7 @@ if ('ontouchstart' in window || isNarrow()) {
     }
   });
   // When a modal is re-shown, remove sheet-ready so the enter animation plays again
-  // ORW-157: body-subtree class watcher -> one callback per frame, not per streamed mutation.
-  new MutationObserver(frameBatched((mutations) => {
+  new MutationObserver((mutations) => {
     for (const m of mutations) {
       if (m.type === 'attributes' && m.attributeName === 'class') {
         const modal = m.target;
@@ -787,7 +785,7 @@ if ('ontouchstart' in window || isNarrow()) {
         }
       }
     }
-  })).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
 }
 
 // ── Mobile swipe-down-to-dismiss for bottom sheet modals ──
@@ -1196,13 +1194,12 @@ if (!window._odyEscExpandGuard) {
     }
     m._owWasVisible = vis;
   };
-  // ORW-157: one callback per frame (body subtree childList + class/style attributes fire on every streamed token).
-  new MutationObserver(frameBatched((muts) => {
+  new MutationObserver((muts) => {
     for (const m of muts) {
-      if (m.type === 'childList') m.addedNodes.forEach(n => { if (n.nodeType === 1 && n.isConnected) { _promote(n); _trackVisibility(n); } });
+      if (m.type === 'childList') m.addedNodes.forEach(n => { if (n.nodeType === 1) { _promote(n); _trackVisibility(n); } });
       else if (m.type === 'attributes' && m.target?.classList?.contains('modal')) { _promote(m.target); _trackVisibility(m.target); }
     }
-  })).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
   document.querySelectorAll('.modal').forEach((m) => { _promote(m); m._owWasVisible = _isVisible(m); });
 
   const pickTopModal = () => {

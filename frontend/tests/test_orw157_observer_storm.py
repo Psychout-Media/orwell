@@ -94,13 +94,16 @@ def test_timer_backstop_delivers_when_no_frame_fires(probe):
 @pytest.mark.parametrize("path,needle", [
     (("js", "markdown.js"), "new MutationObserver(frameBatched((mutations) => {\n      for (const node of liveAddedElements(mutations)) _apply(node);"),
     (("js", "chat.js"), "new MutationObserver(frameBatched((muts) => {\n      for (const n of liveAddedElements(muts)) {"),
-    (("js", "ui.js"), "new MutationObserver(frameBatched((mutations) => {"),
-    (("js", "ui.js"), "new MutationObserver(frameBatched((muts) => {"),
-    (("js", "sidebar-layout.js"), "new MutationObserver(frameBatched((muts) => {"),
-    (("app.js",), "new MutationObserver(frameBatched((mutations) => {\n      for (const n of liveAddedElements(mutations)) {"),
+    (("js", "censor.js"), "new MutationObserver(frameBatched((mutations) => {\n    if (!_enabled) return;\n    for (const node of liveAddedElements(mutations)) {"),
 ])
-def test_per_token_observers_are_frame_batched(path, needle):
+def test_per_token_render_observers_are_frame_batched(path, needle):
     assert needle in _read(*path)
+
+
+def test_modal_inert_scrim_and_focus_bookkeeping_stays_synchronous():
+    # review: dismiss / un-inert / scrim cleanup / focus-opener must not wait on a frame (rAF is throttled when a page is hidden)
+    for path in (("js", "ui.js"), ("js", "sidebar-layout.js"), ("app.js",)):
+        assert "frameBatch" not in _read(*path), path
 
 
 def test_classic_script_observers_coalesce_to_a_frame():
