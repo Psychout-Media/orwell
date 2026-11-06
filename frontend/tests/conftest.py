@@ -115,6 +115,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker("browser")
 
 
+# ORW-193: optional CI sharding (ORWELL_CI_SHARD="i/n"), by test file. Runs in `pytest_collection_finish`, i.e. AFTER `-m` selection and the browser marking
+# above, so each shard balances exactly the lane being run. Deselects (never skips) the other shards' files.
+def pytest_collection_finish(session):
+    raw = os.environ.get("ORWELL_CI_SHARD")
+    if not raw:
+        return
+    from _ci_shard import parse_shard, select_shard
+    idx, total = parse_shard(raw)
+    keep_files = select_shard([str(i.fspath) for i in session.items], idx, total)
+    kept = [i for i in session.items if str(i.fspath) in keep_files]
+    dropped = [i for i in session.items if str(i.fspath) not in keep_files]
+    if dropped:
+        session.config.hook.pytest_deselected(items=dropped)
+    session.items[:] = kept
+
+
 # ── cross-file isolation: the M1-10 cast-authoring ledger is process-global ──────────
 #
 # `orwell_cast_authoring` keeps the per-season attempt/give-up ledger in module globals
