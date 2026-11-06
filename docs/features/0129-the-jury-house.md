@@ -109,7 +109,7 @@ optional ORWELL_JURY_ROUNDTABLE (default off) = NPC-juror vote nudging (calibrat
 
 ## 6. Definition of Done (when built)
 
-> **Status (AMEND 2026-11-06):** slices 1–4 are built and unit-tested (roster with bearing, jurors voiced from their own knowledge, `askJuror`, the finale juror-vote card). **Not built:** jurors approaching the player, rolling updates as new evictees arrive, and broadcast of ceremony outcomes since eviction. Boxes stay unticked until each item is verified in a live game.
+> **Status (AMEND 2026-11-06):** slices 1–4 are built and unit-tested (roster with bearing, jurors voiced from their own knowledge, `askJuror`, the finale juror-vote card). **Slice 4 is an ASSUMED default, pending Ryne.** **Not built (see §9 for the full list):** jurors approaching the player, rolling updates as new evictees arrive, broadcast of ceremony outcomes since eviction, jury gossip, and the roundtable (`ORWELL_JURY_ROUNDTABLE`, does not exist yet). Boxes stay unticked until each item is verified in a live game.
 
 - [ ] **The jury is a room:** while a juror, the player sees the other jurors and can talk to any of them;
       jurors also approach the player.
