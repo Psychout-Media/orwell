@@ -26,10 +26,10 @@ describe('history rows', () => {
     expect(rows[0]?.clientMsgId).toBe('c-1');
   });
 
-  it('moves inline <think> out of the reply and into reasoning', () => {
-    const [row] = rowsFromHistory([{ role: 'assistant', content: '<think>plan</think>Hello', metadata: { _seq: 0 } }]);
-    expect(row?.text).toBe('Hello');
-    expect(row?.reasoning).toBe('plan');
+  it('keeps the raw reply; the renderer scrubs the whole reply before splitting it into blocks', () => {
+    const [row] = rowsFromHistory([{ role: 'assistant', content: '<think>plan</think>Hello', metadata: { _seq: 0, thinking: 'channel reasoning' } }]);
+    expect(row?.text).toBe('<think>plan</think>Hello');
+    expect(row?.reasoning).toBe('channel reasoning');
   });
 
   it('recognises housekeeping prompts', () => {
@@ -134,5 +134,13 @@ describe('status bar view', () => {
   });
   it('is empty before a game starts', () => {
     expect(statusView({ started: false })).toEqual({ day: null, timeOfDay: null, phase: null, week: null });
+  });
+});
+
+describe('decision cards show what the player must see', () => {
+  it('has a cue for each kind and a generic fallback', async () => {
+    const { prefillCueFor } = await import('../src/components/DecisionCard');
+    expect(prefillCueFor('nominations')).toMatch(/named my nominees/);
+    expect(prefillCueFor('something-new')).toMatch(/made my decision/);
   });
 });

@@ -11,6 +11,10 @@ export function setUnauthorizedHandler(fn: Listener): void {
   onUnauthorized = fn;
 }
 
+export function notifyUnauthorized(): void {
+  onUnauthorized();
+}
+
 export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, { credentials: 'same-origin', signal });
   if (res.status === 401) {

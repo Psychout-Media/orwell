@@ -1,5 +1,5 @@
 import { SseParser } from '../stream/sse';
-import { ApiError, } from './http';
+import { ApiError, notifyUnauthorized } from './http';
 import type { StreamEvent } from './types';
 
 export type StreamHandler = (ev: StreamEvent | 'DONE', isErrorEvent: boolean) => void;
@@ -58,6 +58,7 @@ export async function postTurn(a: SendArgs, onEvent: StreamHandler, signal: Abor
     headers: { 'X-Tz-Offset': String(-new Date().getTimezoneOffset()), 'X-Tz-Name': tzName },
     signal,
   });
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
   await readSse(res, onEvent, signal);
 }
@@ -65,6 +66,7 @@ export async function postTurn(a: SendArgs, onEvent: StreamHandler, signal: Abor
 /** GET /api/chat/resume/{id}?from_seq= : re-attach to a run the server is still buffering. */
 export async function resumeRun(sessionId: string, fromSeq: number, onEvent: StreamHandler, signal: AbortSignal): Promise<boolean> {
   const res = await fetch(`/api/chat/resume/${encodeURIComponent(sessionId)}?from_seq=${fromSeq}`, { credentials: 'same-origin', signal });
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) return false;
   await readSse(res, onEvent, signal);
   return true;

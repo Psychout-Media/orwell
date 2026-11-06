@@ -66,6 +66,49 @@ export function buildPayload(p: Pending, s: Selection): DecisionPayload | null {
   return null;
 }
 
+// Same cues as prefillCueFor in orwellDecision.js: offered (never auto-sent) after a decision so the narrator narrates the outcome.
+const CUES: Record<string, string> = {
+  nominations: "I've named my nominees — let's see the room when I say it out loud.",
+  'veto-decision': "I've decided on the veto — time to make it official at the ceremony.",
+  'finale-statement': "I've made my final case to the jury — let's see how it lands.",
+  'juror-question': "I've decided what to ask — let's hear their answer.",
+  'finale-answer': "I've cast my jury vote — let's see who takes it.",
+  'goodbye-message': "I've recorded my goodbye message — let's see how the house reacts.",
+  'exit-interview': "I've given my exit interview — that's my side of it.",
+  'spectator-choice': "I've decided how to follow the rest of the season.",
+  'finale-interview': "I've given my finale-night interview — that's my side of it.",
+  'comp-intent': "I've set my approach for this competition — let's compete.",
+  'comp-round': "I'm committing to this round — let's push on.",
+  'self-evict': "I've made my choice to walk — let's see how the house takes it.",
+};
+export function prefillCueFor(kind: string): string {
+  return CUES[kind] ?? "I've made my decision — let's see how the house takes it.";
+}
+
+/** Context the player must see before a binding choice: who, what offer, which round, what the jurors said. */
+export function ContextBlock({ p }: { p: Pending }) {
+  const rows: string[] = [];
+  if (p.kind === 'juror-question' && p.finalist?.name) rows.push(`Asking: ${p.finalist.name}`);
+  if (p.kind === 'goodbye-message' && p.evictee?.name) rows.push(`Saying goodbye: ${p.evictee.name}`);
+  if (p.kind === 'comp-round' && typeof p.round === 'number' && p.round > 0) rows.push(`Round ${p.round}`);
+  if (p.kind === 'deal-offer' && p.offer) {
+    rows.push(`Offer from ${p.offer.from?.name ?? 'a houseguest'}${p.offer.kind ? ` (${p.offer.kind})` : ''}`);
+    if (p.offer.terms) rows.push(p.offer.terms);
+  }
+  if (p.kind === 'juror-vote' && p.jurorBrief?.length) {
+    rows.push('What the jurors told you:');
+    p.jurorBrief.forEach((b) => rows.push(`${b.finalist?.name ?? ''} — ${(b.heard ?? []).join('; ')}`));
+  }
+  if (!rows.length) return null;
+  return (
+    <div className={styles.context} data-testid="decision-context" tabIndex={0} role="region" aria-label="decision details">
+      {rows.map((r, i) => (
+        <div key={i}>{r}</div>
+      ))}
+    </div>
+  );
+}
+
 function title(p: Pending): string {
   const names: Record<string, string> = {
     nominations: 'Nominate two houseguests',
@@ -109,16 +152,29 @@ function Card({ pending, onDismiss }: { pending: Pending; onDismiss: () => void 
       return cur.length >= pick ? cur : [...cur, v];
     });
 
+  const setDraft = useStore((st) => st.setDraft);
   const confirm = async () => {
     if (!payload) return;
     setState('sending');
     try {
       await submitDecision({ ...payload, idempotency_key: decisionKey(pending) });
       setState('done');
+      // The play continues in conversation: offer (never send) a cue so the narrator narrates the outcome.
+      setDraft(prefillCueFor(pending.kind));
       refreshNow();
     } catch (e) {
       setState('error');
-      setErr(e instanceof Error && /409/.test(e.message) ? 'The board moved. Refreshing.' : "That didn't reach the house. Try again.");
+      const timedOut = !!(e && typeof e === 'object' && 'timedOut' in e);
+      const msg = e instanceof Error ? e.message : '';
+      setErr(
+        timedOut
+          ? 'That is taking too long. It may not have reached the house. Tap Confirm to try again (it is safe).'
+          : /409/.test(msg)
+            ? 'The board moved since this card appeared. Refreshing the latest state.'
+            : /400/.test(msg)
+              ? "That move isn't legal right now. Pick another, or decide in conversation."
+              : "Connection problem. That didn't reach the house. Try again, or decide in conversation.",
+      );
       refreshNow();
     }
   };
@@ -140,6 +196,7 @@ function Card({ pending, onDismiss }: { pending: Pending; onDismiss: () => void 
         </button>
       </div>
       {pending.prompt ? <p className={styles.prompt}>{pending.prompt}</p> : null}
+      <ContextBlock p={pending} />
       {pending.stillIn?.length ? <p className={styles.note}>Still in: {pending.stillIn.map((r) => r.name).join(', ')}</p> : null}
       <div className={styles.opts}>
         {opts.map((o) => (

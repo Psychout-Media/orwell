@@ -41,4 +41,6 @@ export interface PlayState {
   roster: RosterEntry[];
   pending: Pending | null;
   pollHealthy: boolean;
+  /** Text to put back in the composer (a refused send, or the cue after a decision). Consumed by the Composer. */
+  draft: string | null;
 }

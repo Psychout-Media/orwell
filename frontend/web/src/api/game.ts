@@ -39,8 +39,14 @@ export interface DecisionPayload {
   idempotency_key?: string;
 }
 
-export function submitDecision(p: DecisionPayload): Promise<{ beatSeq?: number }> {
-  return postJson('/api/orwell/decision', p);
+export const DECISION_TIMEOUT_MS = 30_000;
+
+/** Submit with a bound (N-12): a server that never answers must not wedge Confirm. Retrying is safe (stable idempotency key). */
+export function submitDecision(p: DecisionPayload, timeoutMs = DECISION_TIMEOUT_MS): Promise<{ beatSeq?: number }> {
+  return Promise.race([
+    postJson<{ beatSeq?: number }>('/api/orwell/decision', p),
+    new Promise<never>((_, reject) => setTimeout(() => reject(Object.assign(new Error('timeout'), { timedOut: true })), timeoutMs)),
+  ]);
 }
 
 /** Stable per-card key so a retried or double-tapped card is a verbatim replay on the server. */

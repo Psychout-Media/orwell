@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { sendMessage, stopActive } from '../store/chat';
 import { useStore } from '../store/gameStore';
 import styles from './Composer.module.css';
@@ -7,6 +7,15 @@ export function Composer() {
   const [text, setText] = useState('');
   const busy = useStore((s) => s.stream !== null);
   const ready = useStore((s) => s.sessionId !== null);
+  const draft = useStore((s) => s.draft);
+  const setDraft = useStore((s) => s.setDraft);
+
+  // A refused send, or the cue after a decision, lands here. Never overwrite what the player is already typing.
+  useEffect(() => {
+    if (draft === null) return;
+    setText((cur) => (cur.trim() ? cur : draft));
+    setDraft(null);
+  }, [draft, setDraft]);
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();

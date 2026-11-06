@@ -44,6 +44,8 @@ export interface Pending {
   evictee?: NamedRef;
   finalist?: NamedRef;
   offer?: { from?: NamedRef; kind?: string; terms?: string };
+  /** Informed-jury brief: what each finalist's jurors said. */
+  jurorBrief?: Array<{ finalist?: NamedRef; heard?: string[] }>;
 }
 
 export interface Ceremony {

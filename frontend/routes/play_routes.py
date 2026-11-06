@@ -16,7 +16,8 @@ from typing import Dict, Tuple
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
-_IMMUTABLE = "public, max-age=31536000, immutable"
+# `private`: the assets sit behind the auth middleware, so a shared cache must not keep them for anyone else.
+_IMMUTABLE = "private, max-age=31536000, immutable"
 _COMPRESSIBLE = {".js", ".css", ".svg", ".json", ".html", ".map", ".txt"}
 
 _NOT_BUILT = """<!doctype html><meta charset="utf-8"><title>Orwell</title>
@@ -56,7 +57,10 @@ def setup_play_routes(dist_dir: str | None = None) -> APIRouter:
 
     @router.get("/play/assets/{name:path}", include_in_schema=False)
     async def play_asset(name: str, request: Request) -> Response:
-        full = os.path.realpath(os.path.join(dist, "assets", name))
+        try:
+            full = os.path.realpath(os.path.join(dist, "assets", name))
+        except ValueError:  # e.g. an embedded NUL byte (%00)
+            raise HTTPException(404, "Not found")
         # Containment: the resolved file must live under dist/assets (no ../ or symlink escape).
         if not full.startswith(os.path.join(dist, "assets") + os.sep) or not os.path.isfile(full):
             raise HTTPException(404, "Not found")

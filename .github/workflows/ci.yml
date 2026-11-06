@@ -111,7 +111,7 @@ jobs:
           #     deploy smoke boot. The pytest lanes (fe-unit, fe-browser-tests) still run for any frontend/ change.
           # `/play` (frontend/web/**) has its own lane (`fe-web`); it must not wake the classic render lanes.
           changed_nw="$(echo "$changed" | grep -vE '^frontend/web/' || true)"
-          WEB_RE='^(frontend/web/|frontend/routes/play_routes\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
+          WEB_RE='^(frontend/web/|frontend/static/js/markdown(/|\.js$)|frontend/app\.py$|frontend/routes/(play|chat|orwell|session|auth|ws)_routes\.py$|frontend/routes/chat_helpers\.py$|frontend/src/(orwell_|agent_|session_)[a-z_]*\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
           fe_changed="$changed_nw"
           if [ "${EVENT_NAME:-}" = "pull_request" ]; then
             HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|\.github/actions/)'
@@ -129,7 +129,8 @@ jobs:
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
               heavy)     re="$HEAVY_RE" ;;
             esac
-            if echo "$subject" | grep -qE "$re"; then
+            # `web` also runs on every push to main, so a server change that slips past the path list is caught after merge.
+            if { [ "$name" = web ] && [ "${EVENT_NAME:-}" != pull_request ]; } || echo "$subject" | grep -qE "$re"; then
               echo "${name}=true" >> "$GITHUB_OUTPUT"
               echo "==> ${name}: WILL run"
             else

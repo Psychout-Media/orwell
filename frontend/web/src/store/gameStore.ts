@@ -28,6 +28,8 @@ export interface PlayActions {
   setRoster(r: RosterEntry[]): void;
   setPending(p: Pending | null): void;
   setPollHealthy(ok: boolean): void;
+  removeRow(clientMsgId: string): void;
+  setDraft(text: string | null): void;
 }
 
 export const initialState: PlayState = {
@@ -41,6 +43,7 @@ export const initialState: PlayState = {
   roster: [],
   pending: null,
   pollHealthy: true,
+  draft: null,
 };
 
 export const useStore = create<PlayState & PlayActions>()((set, get) => ({
@@ -90,4 +93,6 @@ export const useStore = create<PlayState & PlayActions>()((set, get) => ({
   setRoster: (roster) => set({ roster }),
   setPending: (pending) => set({ pending }),
   setPollHealthy: (pollHealthy) => set({ pollHealthy }),
+  removeRow: (clientMsgId) => set((s) => ({ rows: s.rows.filter((r) => !(r.clientMsgId === clientMsgId && r.role === 'user')) })),
+  setDraft: (draft) => set({ draft }),
 }));

@@ -1,43 +1,46 @@
-import { marked } from 'marked';
+// The public-bubble pipeline. Everything the classic client does to keep reasoning and engine machinery out of the
+// player's transcript is done by the classic markdown.js itself (imported, not copied), on the WHOLE reply, and only then
+// is the result split into top-level blocks for memoised rendering:
+//
+//   whole reply -> extractThinkingBlocks (multi-block <think>, unclosed opener, plain-text reasoning)
+//               -> squashOutsideCode -> processWithThinking (game build: scrubReasoningPreamble, redactRawIds,
+//                  scrubMachineryAsides, scrubRealWorldDeny, restated-reply collapse, OOC asides, speaker chips)
+//               -> DOMPurify (defence in depth) -> top-level block strings
+import './classicGuards';
 import DOMPurify from 'dompurify';
-import { extractSpeakerTags, restoreSpeakerChips } from './speakers';
+import { extractThinkingBlocks, gameBuildShowsThinkingAccordion, processWithThinking, squashOutsideCode } from '@classic/markdown.js';
 
-marked.setOptions({ gfm: true, breaks: true });
-
-const SANITIZE = {
-  ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'del', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'a', 'span', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-  ALLOWED_ATTR: ['href', 'class', 'title', 'aria-hidden', 'rel', 'target'],
-  ALLOW_DATA_ATTR: false,
-};
-
-// Engine machinery that must never reach the public bubble (bare `npc:<id>` tokens).
-const RAW_NPC_ID_RE = /\(?\bnpc:\d+\b\)?/g;
-const INLINE_THINK_RE = /<(think|thinking|thought)(?:\s[^>]*)?>[\s\S]*?(?:<\/\1>|$)/gi;
-const OOC_WHOLE_RE = /^\s*\(\(([\s\S]*)\)\)\s*$/;
-
-/**
- * Last line of defence for the public bubble. Reasoning is separated by CHANNEL upstream (the stream
- * parser never puts it in the reply), but a model can still inline <think> tags in plain content, and
- * a tool result can echo a raw id. Neither may render.
- */
-export function scrubPublic(text: string): string {
-  return text.replace(INLINE_THINK_RE, '').replace(RAW_NPC_ID_RE, '');
+export interface RenderedReply {
+  /** Sanitised HTML, one string per top-level block, in order. Equal strings render identically (memoise on them). */
+  blocks: string[];
+  /** Reasoning that was inlined in the reply text (the stream's own reasoning channel is separate). */
+  reasoning: string;
 }
 
-/** Pull any inline <think> content out of a stored message so it can go to the reasoning box instead. */
-export function splitInlineThinking(text: string): { reply: string; reasoning: string } {
-  const parts: string[] = [];
-  const reply = text.replace(INLINE_THINK_RE, (m) => {
-    parts.push(m.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, '').trim());
-    return '';
-  });
-  return { reply, reasoning: parts.filter(Boolean).join('\n\n') };
+let rosterIds = new Map<string, string>();
+
+/** Roster names for the classic bold-name speaker fallback (`window.orwellResolveHouseguestId`, same hook the classic page defines). */
+export function setRoster(entries: Iterable<{ id: string; name: string }>): void {
+  rosterIds = new Map(Array.from(entries, (e) => [e.name.trim().toLowerCase(), e.id] as [string, string]));
+  (window as unknown as { orwellResolveHouseguestId?: (n: string) => string | null }).orwellResolveHouseguestId = (n: string) => rosterIds.get(String(n).trim().toLowerCase()) ?? null;
 }
 
-let linkHookInstalled = false;
-function ensureHooks(): void {
-  if (linkHookInstalled) return;
-  linkHookInstalled = true;
+const RAW_ID_RE = /\bnpc:\d+\b[ \t]*(?:[-–—:(]\s*)?/gi;
+
+/** Reasoning is allowed to discuss mechanics, but a bare engine id is never shown (same rule as the classic accordion). */
+export function cleanReasoning(text: string): string {
+  return text.replace(RAW_ID_RE, '').replace(/ {2,}/g, ' ').trim();
+}
+
+/** Operator flag: the classic client hides the reasoning accordion with body.hide-thinking / data-hide-thinking. */
+export function reasoningVisible(): boolean {
+  return gameBuildShowsThinkingAccordion();
+}
+
+let hookInstalled = false;
+function ensureHook(): void {
+  if (hookInstalled) return;
+  hookInstalled = true;
   DOMPurify.addHook('afterSanitizeAttributes', (node) => {
     if (node.tagName === 'A') {
       node.setAttribute('rel', 'noopener noreferrer');
@@ -46,33 +49,25 @@ function ensureHooks(): void {
   });
 }
 
-const cache = new Map<string, string>();
-const CACHE_MAX = 600;
-let cacheVersion = 0;
-
-/** Call when the roster names change so memoised blocks re-evaluate the bold-name fallback. */
-export function invalidateRenderCache(): void {
-  cacheVersion++;
-  cache.clear();
+function toBlocks(html: string): string[] {
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  const out: string[] = [];
+  t.content.childNodes.forEach((n) => {
+    if (n.nodeType === 1) out.push((n as Element).outerHTML);
+    else if (n.nodeType === 3 && n.textContent && n.textContent.trim()) out.push(`<p>${DOMPurify.sanitize(n.textContent)}</p>`);
+  });
+  return out;
 }
 
-/** Render ONE block of markdown to sanitised HTML. Pure and memoised by source text. */
-export function renderBlock(src: string): string {
-  const key = cacheVersion + '|' + src;
-  const hit = cache.get(key);
-  if (hit !== undefined) return hit;
-  ensureHooks();
-  const clean = scrubPublic(src);
-  const aside = OOC_WHOLE_RE.exec(clean);
-  const body = aside ? (aside[1] ?? '') : clean;
-  const { text, chips } = extractSpeakerTags(body);
-  const parsed = marked.parse(text, { async: false }) as string;
-  let html = restoreSpeakerChips(DOMPurify.sanitize(parsed, SANITIZE) as unknown as string, chips);
-  if (aside) html = `<div class="ow-aside">${html}</div>`;
-  if (cache.size >= CACHE_MAX) {
-    const first = cache.keys().next();
-    if (!first.done) cache.delete(first.value);
-  }
-  cache.set(key, html);
-  return html;
+/** Render a WHOLE reply (stored row or the live buffer so far). Pure for a given roster. */
+export function renderReply(text: string): RenderedReply {
+  if (!text || !text.trim()) return { blocks: [], reasoning: '' };
+  ensureHook();
+  const ex = extractThinkingBlocks(text);
+  const reasoning = cleanReasoning(ex.thinkingBlocks.join('\n\n'));
+  if (!ex.content) return { blocks: [], reasoning };
+  const html = processWithThinking(squashOutsideCode(ex.content));
+  const clean = DOMPurify.sanitize(html) as unknown as string;
+  return { blocks: toBlocks(clean), reasoning };
 }

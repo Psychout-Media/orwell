@@ -31,7 +31,14 @@ async function reconcileFromServer(sessionId: string): Promise<Set<string>> {
 }
 
 /** Load the game: the canonical session, its history, then reconcile the outbox and any in-flight run. */
-export async function bootstrap(): Promise<void> {
+let booting: Promise<void> | null = null;
+export function bootstrap(): Promise<void> {
+  // StrictMode (dev) mounts twice; one boot is enough and two would double-attach to a live run.
+  booting ??= doBootstrap();
+  return booting;
+}
+
+async function doBootstrap(): Promise<void> {
   const st = useStore.getState();
   setUnauthorizedHandler(() => useStore.getState().setAuth('loggedOut'));
   try {
@@ -42,11 +49,19 @@ export async function bootstrap(): Promise<void> {
       return;
     }
     st.setSession(sid);
+    // Ask the server whether a run is live BEFORE reading history, so a run that finishes in between shows up in the
+    // history read (and a run that starts later is picked up by the post-turn reconcile), never as a gap.
+    let streaming = false;
+    try {
+      streaming = (await fetchStreamStatus(sid)) === 'streaming';
+    } catch {
+      streaming = false;
+    }
     const rows = rowsFromHistory(await fetchHistory(sid));
     st.setRows(rows);
     st.setBoot('ready');
     const have = new Set(rows.map((r) => r.clientMsgId).filter((x): x is string => !!x));
-    await recoverAfterReload(sid, have);
+    await recoverAfterReload(sid, have, streaming);
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) return; // handler already flipped auth
     st.setBoot('error', e instanceof Error ? e.message : String(e));
@@ -54,14 +69,8 @@ export async function bootstrap(): Promise<void> {
 }
 
 /** F1: a reload mid-turn. Re-attach to the server's run if it is still going; re-send outbox items the server never saw. */
-async function recoverAfterReload(sessionId: string, serverCmids: Set<string>): Promise<void> {
+async function recoverAfterReload(sessionId: string, serverCmids: Set<string>, streaming: boolean): Promise<void> {
   const todo = pendingFor(sessionId, serverCmids);
-  let streaming = false;
-  try {
-    streaming = (await fetchStreamStatus(sessionId)) === 'streaming';
-  } catch {
-    streaming = false;
-  }
   if (streaming) {
     await attachToRun(sessionId, 0, todo[0]?.clientMsgId ?? null);
     const have = await reconcileFromServer(sessionId);
@@ -104,10 +113,18 @@ async function runTurn(sessionId: string, text: string, clientMsgId: string): Pr
     releaseSend(clientMsgId);
   } catch (e) {
     ctl.abandon();
-    const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
+    const status = e instanceof ApiError ? e.status : 0;
+    // 401/403/409 are recoverable (sign in again, board moved): the message stays in the outbox and on screen.
+    const keep = status === 401 || status === 403 || status === 409;
+    const refused = status >= 400 && status < 500 && status !== 408 && status !== 429 && !keep;
     if (refused) {
-      // A client-visible refusal: no row was written. Drop the durable copy so a reload cannot resurrect it.
+      // A client-visible refusal (400/413/...): no row was written. Drop the durable copy so a reload cannot resurrect
+      // it, take the bubble back out, and put the text back in the composer so nothing the player typed is lost.
       releaseSend(clientMsgId);
+      store.removeRow(clientMsgId);
+      store.clearStream();
+      store.setDraft(text);
+    } else if (keep) {
       store.markFailed(clientMsgId);
       store.clearStream();
     } else {

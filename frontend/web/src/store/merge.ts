@@ -1,5 +1,4 @@
 import type { HistoryRow } from '../api/types';
-import { splitInlineThinking } from '../markdown/render';
 import type { ChatRow } from './types';
 
 /** Housekeeping prompts the engine injects as user turns; never the player's own words. */
@@ -28,8 +27,8 @@ export function rowsFromHistory(history: HistoryRow[]): ChatRow[] {
     if (h.role !== 'user' && h.role !== 'assistant') return;
     const raw = rowText(h.content);
     if (h.role === 'user' && isSkippableUserPrompt(raw)) return;
-    const split = h.role === 'assistant' ? splitInlineThinking(raw) : { reply: raw, reasoning: '' };
-    const text = split.reply.trim();
+    // Raw text is kept: the renderer scrubs the WHOLE reply (inline <think>, machinery, OOC) before it is split into blocks.
+    const text = raw.trim();
     if (!text) return; // never render an empty bubble
     const meta = h.metadata ?? {};
     const id = meta._db_id ?? null;
@@ -40,7 +39,7 @@ export function rowsFromHistory(history: HistoryRow[]): ChatRow[] {
       seq: typeof meta._seq === 'number' ? meta._seq : null,
       role: h.role,
       text,
-      reasoning: [typeof meta.thinking === 'string' ? meta.thinking : '', split.reasoning].filter(Boolean).join('\n\n'),
+      reasoning: typeof meta.thinking === 'string' ? meta.thinking : '',
       clientMsgId: cmid,
       moment: typeof meta.game_moment === 'string' ? meta.game_moment : null,
       state: 'sent',

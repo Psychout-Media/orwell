@@ -35,7 +35,8 @@ def test_index_is_no_cache(dist):
 def test_assets_are_immutable_and_correct_type(dist):
     r = client(dist).get("/play/assets/index-abc.js", headers={"accept-encoding": "identity"})
     assert r.status_code == 200
-    assert "immutable" in r.headers["cache-control"] and "max-age=31536000" in r.headers["cache-control"]
+    cc = r.headers["cache-control"]
+    assert "immutable" in cc and "max-age=31536000" in cc and cc.startswith("private")
     assert r.headers["content-type"].startswith("text/javascript")
     assert client(dist).get("/play/assets/style-abc.css").headers["content-type"].startswith("text/css")
 
@@ -52,6 +53,7 @@ def test_path_traversal_is_refused(dist):
     assert c.get("/play/assets/../secret.txt").status_code in (404, 307)
     assert c.get("/play/assets/%2e%2e/secret.txt").status_code == 404
     assert c.get("/play/assets/missing.js").status_code == 404
+    assert c.get("/play/assets/a%00b.js").status_code == 404
 
 
 def test_unbuilt_dist_gives_a_clear_503_not_a_crash(tmp_path):

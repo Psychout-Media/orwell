@@ -1,5 +1,5 @@
 import { useStore } from '../store/gameStore';
-import { hueFor, initials } from '../markdown/speakers';
+import { hueFor, initials } from '../markdown/faces';
 import styles from './RoomStrip.module.css';
 
 function roomLabel(room: string): string {

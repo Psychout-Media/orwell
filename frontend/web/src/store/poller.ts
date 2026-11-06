@@ -6,8 +6,7 @@
 // (docs/design/fe-api-contract.md, "Live updates").
 import { fetchRoster, fetchState } from '../api/game';
 import { useStore } from './gameStore';
-import { setKnownNames } from '../markdown/speakers';
-import { invalidateRenderCache } from '../markdown/render';
+import { setRoster as setRenderRoster } from '../markdown/render';
 
 export const BASE_MS = 20_000;
 export const MAX_MS = 120_000;
@@ -44,8 +43,7 @@ async function tick(): Promise<void> {
       rosterSig = sig;
       const roster = await fetchRoster();
       store.setRoster(roster);
-      setKnownNames(roster.filter((r) => !r.isPlayer).map((r) => r.name));
-      invalidateRenderCache();
+      setRenderRoster(roster.filter((r) => !r.isPlayer));
     }
   } catch {
     failures++;

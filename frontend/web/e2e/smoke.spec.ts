@@ -113,3 +113,19 @@ test('decision card: a pending nominations card submits the classic payload with
   expect((posted as unknown as { choice: string[] }).choice).toHaveLength(2);
   expect(String((posted as unknown as { idempotency_key: string }).idempotency_key)).toMatch(/^dec:nominations\|/);
 });
+
+test('decision card: a deal offer shows its terms before the player can accept, and Confirm leaves a cue in the composer', async ({ page }) => {
+  await signIn(page);
+  await page.route('**/api/orwell/state', async (route) => {
+    const r = await route.fetch();
+    const j = await r.json();
+    j.pending = { kind: 'deal-offer', offer: { from: { id: 'npc:1', name: 'Juan Wong' }, kind: 'alliance', terms: 'Keep me safe this week and I keep you safe next week.' }, options: [{ id: 'accept', name: 'Accept' }, { id: 'decline', name: 'Decline' }] };
+    await route.fulfill({ response: r, json: j });
+  });
+  await page.route('**/api/orwell/decision', (route) => route.fulfill({ json: { beatSeq: 100 } }));
+  await page.goto('/play');
+  await expect(page.getByTestId('decision-context')).toContainText('Keep me safe this week');
+  await page.getByTestId('decision-card').locator('button[aria-pressed]').first().click();
+  await page.getByTestId('decision-confirm').click();
+  await expect(page.getByLabel('Say or do something')).toHaveValue(/made my decision/);
+});
