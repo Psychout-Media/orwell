@@ -69,6 +69,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'defaultOn' },
   { envKey: 'ORWELL_FINAL_HOH_THREE_PART',   key: 'finalHohThreePart',      parser: 'defaultOn' },
+  { envKey: 'ORWELL_WIPEOUT_REEL',            key: 'wipeoutReel',            parser: 'defaultOn' },
+  { envKey: 'ORWELL_JUROR_PROFILES',          key: 'jurorProfiles',          parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_TIME_PER_CONVERSATION',  key: 'timePerConversation',    parser: 'inverted' },

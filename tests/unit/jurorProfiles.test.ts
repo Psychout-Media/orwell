@@ -66,8 +66,8 @@ function outcomeHash(seed: number, set: (s: GameSessionAdapter) => void): string
 }
 
 describe("A2 - flag OFF is byte-identical; ON changes ballots", () => {
-  it("OFF (explicit) == never touched (SHA of a full seeded game)", () => {
-    for (const seed of [2, 5]) expect(outcomeHash(seed, (s) => s.setJurorProfilesEnabled(false))).toBe(outcomeHash(seed, () => undefined));
+  it("default (never touched) == ON explicit (the flag is ON by default since 2026-11-06, ORW-16); the opt-out is =0", () => {
+    for (const seed of [2, 5]) expect(outcomeHash(seed, (s) => s.setJurorProfilesEnabled(true))).toBe(outcomeHash(seed, () => undefined));
   });
   it("ON draws no extra rng and moves SOME ballot on some seed (non-vacuous)", () => {
     let moved = 0;

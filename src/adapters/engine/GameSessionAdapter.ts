@@ -591,9 +591,9 @@ const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS
 const COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MIXED");
 
 /**
- * C1 (#1788, Q8 hybrid-greenlit small+reversible build) — whether the WIPEOUT REEL runs by DEFAULT: a
+ * C1 (#1788, Q8 hybrid-greenlit small+reversible build) — whether the WIPEOUT REEL runs by DEFAULT (ON since 2026-11-06, ORW-16: finished, presentation-only, Q8-greenlit; `=0` turns it off): a
  * seeded, archetype-flavored `failureStyle` fact-to-voice attached to each pre-rolled staged-comp drop
- * (`liveSeason.ts`'s `beginStaged`/`advanceCompetition`). OFF unless `ORWELL_WIPEOUT_REEL=1`.
+ * (`liveSeason.ts`'s `beginStaged`/`advanceCompetition`). ON unless `ORWELL_WIPEOUT_REEL=0`.
  * PRESENTATION ONLY, like 0125's theme layer: the failure-style text is drawn from a stream FORKED
  * (`rng.fork`) AFTER the single up-front `resolveCompetition` roll that fixes the crown + drop order —
  * it never advances or reads the parent stream, so the OUTCOME axis (winner, `dropOrder`, every
@@ -602,7 +602,7 @@ const COMP_MIXED_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MIXED");
  * false ⇒ no failure-style fact is computed or appended ⇒ byte-identical to the pre-feature
  * `comp-elimination` content.
  */
-const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
+const WIPEOUT_REEL_ENABLED_DEFAULT = flagDefaultOn("ORWELL_WIPEOUT_REEL");
 
 /**
  * 0128 (issue #2045) - the THREE-PART Final HOH (endurance for all three -> a physical+mental hybrid between the two Part-1 losers -> a quiz between the two part-winners)
@@ -612,11 +612,11 @@ const WIPEOUT_REEL_ENABLED_DEFAULT = process.env.ORWELL_WIPEOUT_REEL === "1";
 const FINAL_HOH_THREE_PART_ENABLED_DEFAULT = flagDefaultOn("ORWELL_FINAL_HOH_THREE_PART");
 
 /**
- * A2 (design §13) - PER-JUROR vote profiles (archetype weights + friend-forgives) instead of one global ballot weight vector. OFF unless `ORWELL_JUROR_PROFILES=1`: it changes
+ * A2 (design §13) - PER-JUROR vote profiles (archetype weights + friend-forgives) instead of one global ballot weight vector. ON unless `ORWELL_JUROR_PROFILES=0` (flipped 2026-11-06, ORW-16 / A2 / A63: measured calibration-neutral, passive wins 3% both ways): it changes
  * how individual jurors weigh the terms (the house-mean weight per term is preserved by construction), so it is calibration-gated. Off => `ctx().jurorProfiles` is absent and the
  * ballot is byte-identical.
  */
-const JUROR_PROFILES_ENABLED_DEFAULT = process.env.ORWELL_JUROR_PROFILES === "1";
+const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
 /**
  * A9 - the staged PREMIERE ENTRANCES + champagne toast (`docs/design/premiere-entrances.md`). OFF unless
  * `ORWELL_PREMIERE_ENTRANCES=1`; read at `createCharacter` (season start). Off => nothing new is written.
