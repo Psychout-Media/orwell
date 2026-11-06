@@ -152,7 +152,39 @@ jobs:
       # import the FE app). Those wrappers shell out to `python3 -m pytest`, so the engine test job
       # needs the FE deps too — without them the BDD gate fails with "No module named pytest".
       - run: pip install -r frontend/requirements.lock.txt
-      - run: npm run test:ci
+      # ORW-39: the unit suite runs in the sharded `test-unit` job below; this job keeps the typecheck, the build and the BDD gate (same checks, no unit tests here).
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:bdd
+
+  # ── Unit suite, SHARDED (ORW-39) ────────────────────────────────────────────────
+  # `test:unit:fast` (everything but the heavy sims) split four ways with vitest's own --shard; every file still runs exactly once across the legs.
+  # The build runs first because some unit tests exercise dist/. `ci-gate` needs this job, so a failed leg fails the gate.
+  test-unit:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: npm ci
+      - run: pip install -r frontend/requirements.lock.txt
+      - run: npm run build
+      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/4
 
   # ── Heavy simulation lane (ONE job — consolidated for the single self-hosted runner) ──────────
   #
@@ -213,24 +245,59 @@ jobs:
   # instrumentation they re-run the whole live loop a second, slower time yet add no BRANCH coverage in
   # the gated dirs the rest of the live-loop suite doesn't already cover). PATH-GATED (`changes.engine`).
   coverage:
-    needs: changes
+    needs: [changes, coverage-shard]
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
-    # 15 → 25 (2026-11-04): the unit suite grew past ~3.6k tests and coverage instrumentation now runs
-    # ~14-15 min on ubuntu-latest, so the job was being CANCELLED by its own timeout with no test failure
-    # (#2050, #2053). This raises the ceiling only; every test still runs and must pass.
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:cov
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-blob-*
+          path: .vitest-reports
+          merge-multiple: true
+      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all four shards.
+      - run: >-
+          npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
+          --coverage
+
+  # ── Coverage gate, SHARDED (ORW-39) ─────────────────────────────────────────────
+  # Four legs each run a disjoint slice of the coverage suite under v8 and upload a blob (vitest.shard.config.ts zeroes the floors for the legs only);
+  # the `coverage` job below merges the blobs and enforces the ORIGINAL thresholds once on the merged measurement.
+  coverage-shard:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: >-
+          npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
+          --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
+          --coverage.reporter=json --shard=${{ matrix.shard }}/4 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-blob-${{ matrix.shard }}
+          path: .vitest-reports/
+          retention-days: 1
 
   # ── Deploy smoke ────────────────────────────────────────────────────────────────
   # Build + start the engine, probe the HTTP MCP surface, boot the real front-end against a
@@ -708,6 +775,8 @@ jobs:
     needs:
       - changes
       - test
+      - test-unit
+      - coverage-shard
       - coverage
       - smoke
       - fe-unit
@@ -724,6 +793,8 @@ jobs:
           RESULTS: >-
             changes=${{ needs.changes.result }}
             test=${{ needs.test.result }}
+            test-unit=${{ needs.test-unit.result }}
+            coverage-shard=${{ needs.coverage-shard.result }}
             coverage=${{ needs.coverage.result }}
             smoke=${{ needs.smoke.result }}
             fe-unit=${{ needs.fe-unit.result }}
