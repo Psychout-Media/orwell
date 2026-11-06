@@ -28,6 +28,7 @@ previous /play build.
 Name-agnostic: roles only, no houseguests.
 """
 import hashlib
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -64,7 +65,9 @@ case "$1" in
     [[ -f node_modules/.build-tools ]] || { echo "sh: 1: esbuild: not found (the build tools were pruned)" >&2; exit 127; }
     if grep -q '"name":"orwell-play"' package.json; then      # the React /play app (vite empties its outDir first)
       if grep -q BREAK_PLAY src/app.txt; then echo "simulated /play build failure" >&2; exit 1; fi
-      if grep -q SLOW_PLAY src/app.txt; then sleep 3; fi
+      if grep -q SLOW_PLAY src/app.txt; then   # blocks until the test releases it (bounded)
+        for _ in $(seq 1200); do [[ -e "$STUB_LOG.release-play" ]] && break; sleep 0.05; done
+      fi
       rm -rf dist; mkdir -p dist/assets
       printf 'PLAY %s %s\n' "$(head -n1 src/app.txt)" "$(head -n1 ../static/js/markdown.js)" > dist/index.html
       cp dist/index.html dist/assets/app.js
@@ -104,8 +107,9 @@ class FastBox(Box):
         self.tmp = root / "tmp"
         self.tmp.mkdir()
 
-    def put(self, **changes) -> str:
-        """One commit on origin. Fields not named keep the previous commit's value; break_* / slow_* apply once."""
+    def put(self, extra=None, **changes) -> str:
+        """One commit on origin. Fields not named keep the previous commit's value; break_* / slow_* apply once;
+        `extra` = {path: text} files to add or change (they stay in later commits, like any committed file)."""
         once = {k: changes.pop(k) for k in _ONE_SHOT if k in changes}
         self.state.update(changes)
         st, w = self.state, self.src
@@ -126,6 +130,7 @@ class FastBox(Box):
                 "frontend/web/src/app.txt": f"APP-{st['play']}\n" + ("BREAK_PLAY\n" if once.get("break_play") else "")
                 + ("SLOW_PLAY\n" if once.get("slow_play") else ""),
             })
+        files.update(extra or {})
         for rel, text in files.items():
             (w / rel).parent.mkdir(parents=True, exist_ok=True)
             (w / rel).write_text(text)
@@ -179,10 +184,14 @@ class FastBox(Box):
 
 @pytest.fixture
 def fbox(tmp_path):
-    b = FastBox(tmp_path)
-    b.v1 = b.put()
-    b.install()
-    return b
+    old = os.umask(0o022)   # like production: the code tree is never group/other-writable (the record checks it)
+    try:
+        b = FastBox(tmp_path)
+        b.v1 = b.put()
+        b.install()
+        yield b
+    finally:
+        os.umask(old)
 
 
 def _update(box, *args, **env):
@@ -375,6 +384,67 @@ def test_a_failure_after_a_skipped_install_reverts_offline_to_the_running_build(
     assert not fbox.stamp_file().exists()
 
 
+@pytest.mark.parametrize("entry, plan", [
+    ({"tsconfig.json": '{"compilerOptions":{}}\n'}, "chain"),
+    ({"scripts/gen.ts": "// a generator\n"}, "chain"),
+    ({"a-new-top-level-file.json": "{}\n"}, "chain"),
+    ({"patches/dep+1.0.0.patch": "--- a/x\n+++ b/x\n"}, "full"),
+])
+def test_any_top_level_entry_not_known_to_be_outside_the_engine_build_counts_as_an_input(fbox, entry, plan):
+    _recorded(fbox)
+    fbox.put(extra=entry)
+    r, calls = _update(fbox)
+    assert r.returncode == 0, _combined(r)
+    assert "npm run build" in calls, "deny by default: a change outside the known non-engine paths rebuilds"
+    assert ("npm ci" in calls) is (plan == "full"), "patches/ feeds `npm ci` itself"
+
+
+def test_a_pinned_deploy_back_to_an_older_commit_rebuilds_that_commit(fbox):
+    _recorded(fbox)
+    v2 = fbox.head()
+    fbox.put(src="3")
+    assert fbox.run_update().returncode == 0
+    r, calls = _update(fbox, REF=v2)
+    assert r.returncode == 0, _combined(r)
+    assert fbox.head() == v2 and fbox.dist() == fbox.expected_build(v2)
+    assert "npm ci" not in calls and "npm run build" in calls, "same lockfiles: only the build tools come back"
+
+
+def test_a_no_restart_run_for_update_plus_reset_skips_and_records_the_same_way(fbox):
+    _recorded(fbox)
+    v3 = fbox.put(fe="3")
+    r, calls = _update(fbox, "--no-restart")
+    assert r.returncode == 0, _combined(r)
+    assert not _npm_work(calls) and not _pip(calls)
+    assert not any(c.startswith("systemctl restart orwell-engine") for c in calls)
+    assert fbox.stamp()["sha"] == v3
+
+
+def test_a_change_to_the_updater_itself_forces_one_full_reinstall(fbox):
+    _recorded(fbox)
+    fbox.script.write_text(fbox.script.read_text() + "\n# a changed install step\n")   # what a new updater version is
+    fbox.put(fe="3")
+    r, calls = _update(fbox)
+    assert r.returncode == 0, _combined(r)
+    assert "npm ci" in calls and _pip(calls), "how the box was installed is part of the record"
+    fbox.put(fe="4")
+    r, calls = _update(fbox)
+    assert r.returncode == 0, _combined(r)
+    assert not _npm_work(calls) and not _pip(calls), "recorded by the new updater: it skips again"
+
+
+@pytest.mark.parametrize("what", ["the record", "dist/", "node_modules", "the venv"])
+def test_a_record_another_account_could_have_written_is_not_believed(fbox, what):
+    _recorded(fbox)
+    path = {"the record": fbox.stamp_file(), "dist/": fbox.app / "dist",
+            "node_modules": fbox.app / "node_modules", "the venv": fbox.app / "frontend" / ".venv"}[what]
+    path.chmod(path.stat().st_mode | 0o020)                 # group-writable: someone else could have planted it
+    fbox.put(fe="3")
+    r, calls = _update(fbox)
+    assert r.returncode == 0, _combined(r)
+    assert "npm ci" in calls and _pip(calls)
+
+
 # ═════════════════════════════════════════════════════ the /play app ═════════════════════════════════════════════
 def test_without_frontend_web_there_is_no_play_build(fbox):
     fbox.put(src="2")
@@ -391,7 +461,7 @@ def test_play_is_built_from_a_clean_export_outside_the_app_and_goes_live_with_th
     assert r.returncode == 0, _combined(r)
     assert fbox.play_live() == "PLAY APP-1 MD-1"
     builds = fbox.play_calls()
-    assert [a for a, _ in builds] == ["ci --prefer-offline --no-audit --no-fund", "run build"]
+    assert [a for a, _ in builds] == ["ci --prefer-offline --ignore-scripts --no-audit --no-fund", "run build"]
     assert all(cwd.startswith(str(fbox.tmp)) for _, cwd in builds), "a temp export, never the live tree"
     assert not list(fbox.tmp.iterdir()), "the temp build dir is removed"
     web = fbox.app / "frontend" / "web"
@@ -424,7 +494,7 @@ def test_a_change_to_anything_play_is_built_from_rebuilds_it(fbox, change, live)
     fbox.put(**change)
     r = fbox.run_update()
     assert r.returncode == 0, _combined(r)
-    assert [a for a, _ in fbox.play_calls(n)] == ["ci --prefer-offline --no-audit --no-fund", "run build"]
+    assert [a for a, _ in fbox.play_calls(n)] == ["ci --prefer-offline --ignore-scripts --no-audit --no-fund", "run build"]
     assert fbox.play_live() == live
 
 
@@ -452,6 +522,18 @@ def test_a_failed_update_never_puts_a_new_play_build_live(fbox):
     assert not (fbox.app / "frontend" / "web" / "dist.next").exists()
 
 
+def test_a_leftover_staged_play_build_is_discarded_never_put_live(fbox):
+    fbox.put(play="1")
+    assert fbox.run_update().returncode == 0
+    junk = fbox.app / "frontend" / "web" / "dist.next"
+    junk.mkdir()
+    (junk / "index.html").write_text("JUNK\n")              # what an interrupted run could leave behind
+    fbox.put(src="2")                                        # /play itself is unchanged
+    r = fbox.run_update()
+    assert r.returncode == 0, _combined(r)
+    assert fbox.play_live() == "PLAY APP-1 MD-1" and not junk.exists()
+
+
 def test_the_live_play_build_keeps_answering_while_the_next_one_builds(fbox):
     fbox.put(play="1")
     assert fbox.run_update().returncode == 0
@@ -459,8 +541,12 @@ def test_the_live_play_build_keeps_answering_while_the_next_one_builds(fbox):
     seen = len(fbox.calls())
     proc = subprocess.Popen(["bash", str(fbox.script)], cwd=str(fbox.root), env=fbox.env(TMPDIR=str(fbox.tmp)),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    _wait_for_call(fbox, "npm run build", seen)             # the /play build is running (the engine is unchanged)
-    assert fbox.play_live() == "PLAY APP-1 MD-1", "never emptied or half-written while vite runs"
+    try:
+        _wait_for_call(fbox, "npm run build", seen)         # the /play build is running (the engine is unchanged)
+        assert fbox.play_live() == "PLAY APP-1 MD-1", "never emptied or half-written while vite runs"
+        assert not (fbox.app / "frontend" / "web" / "dist.next").exists()
+    finally:
+        Path(f"{fbox.log}.release-play").touch()           # let the blocked build finish
     out, _ = proc.communicate(timeout=120)
     assert proc.returncode == 0, out
     assert fbox.play_live() == "PLAY APP-2 MD-1"

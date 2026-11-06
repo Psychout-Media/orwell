@@ -12,6 +12,15 @@
 # env, so its existing data/.env keeps working untouched.
 set -euo pipefail
 
+# ORW-229: a fingerprint of THIS updater's own text, taken before the fetch below replaces the file on disk. It
+# is part of the install record, so a change to HOW this script installs (flags, steps) forces one full
+# reinstall. Unreadable (e.g. run as `bash -c "..."`) => a value that never matches, i.e. always the full install.
+__UPDATER_FP=""
+if [[ -r "${BASH_SOURCE[0]:-}" ]]; then
+  __UPDATER_FP="$( { sha256sum < "${BASH_SOURCE[0]}" || shasum -a 256 < "${BASH_SOURCE[0]}"; } 2>/dev/null | cut -d' ' -f1 || true)"
+fi
+[[ -n "$__UPDATER_FP" ]] || __UPDATER_FP="unknown-$$-${RANDOM}"
+
 APP_DIR_EXPLICIT="${APP_DIR:-}"     # honor an explicit override; otherwise auto-detect below
 BRANCH="${BRANCH:-main}"
 # B71/ops A4 — pin + rollback:
@@ -405,16 +414,34 @@ snapshot_running_dist() {
 # half-finished install all change the witness). The stamp is read and DELETED before this run touches
 # anything (and by --rollback) and written again only after the commit point, so a missing stamp — the
 # first run with this updater, a fresh install, or a previous update / rollback that failed, was reverted
-# or was interrupted — always means the full reinstall, exactly as before.
+# or was interrupted — always means the full reinstall, exactly as before. It is only believed when it, and
+# the trees it vouches for, belong to the account running this updater and nobody else can write them.
 DEPS_STAMP_TEXT=""
 ENGINE_INPUTS_FP=""; ENGINE_DEPS_FP=""; FRONTEND_DEPS_FP=""
+PLAY_TMP=""                                   # the /play temp build dir while one exists (removed on every exit path)
 
 _fp_sum() { { sha256sum 2>/dev/null || shasum -a 256 2>/dev/null; } | cut -d' ' -f1; }
 # Both the same KNOWN value ("" / "none" = could not be computed, never a match).
 _same() { [[ -n "$1" && "$1" != none && "$1" == "$2" ]]; }
 # A key of the stamp this run read at its start (hex digests / SHAs only; anything else reads as "").
 stamp_get() { sed -n "s/^${1}=\([0-9a-f]\{40,64\}\)\$/\1/p" <<<"$DEPS_STAMP_TEXT" | tail -n1; }
-read_deps_stamp() { if [[ -f "$DEPS_STAMP" && ! -L "$DEPS_STAMP" ]]; then head -c 4096 "$DEPS_STAMP"; fi; return 0; }
+# Owned by the account running this updater (root in production) and not group/other-writable, so no other
+# account — e.g. the service user, on a box whose code tree predates the root-owned layout — can have planted
+# or edited it. The ownership pass later in this run fixes such a tree; until then the stamp is not believed.
+_owned_by_us() {
+  local st
+  [[ -e "$1" && ! -L "$1" ]] || return 1
+  st="$(stat -c '%u %a' -- "$1" 2>/dev/null)" || return 1
+  [[ "${st%% *}" == "$(id -u)" ]] && (( (8#${st##* } & 8#022) == 0 ))
+}
+read_deps_stamp() {
+  local p
+  for p in "$DEPS_STAMP" "${APP_DIR}/dist" "${APP_DIR}/node_modules" "${APP_DIR}/frontend/.venv"; do
+    _owned_by_us "$p" || return 0
+  done
+  if [[ -f "$DEPS_STAMP" ]]; then head -c 4096 "$DEPS_STAMP" || true; fi
+  return 0
+}
 
 # Engine inputs: every tracked top-level entry at HEAD EXCEPT the ones that never reach dist/ or
 # node_modules (the Python front end, deploy scripts, docs, tests, BDD steps, CI + agent config, root
@@ -425,21 +452,21 @@ engine_inputs_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD 2>/dev/null)" || { echo none; return 0; }
   { node -v || true; npm -v || true; awk -F'\t' -v re="$_ENGINE_NOT_INPUTS" '$2 !~ re' <<<"$tree"; } 2>/dev/null | _fp_sum
 }
-# What `npm ci` itself consumes.
+# What `npm ci` itself consumes, plus this updater's own text (how it installs).
 engine_deps_fp() {
-  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- package.json package-lock.json patches .npmrc 2>/dev/null)" || { echo none; return 0; }
-  { node -v || true; npm -v || true; printf '%s\n' "$tree"; } 2>/dev/null | _fp_sum
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- package.json package-lock.json npm-shrinkwrap.json patches .npmrc 2>/dev/null)" || { echo none; return 0; }
+  { node -v || true; npm -v || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
 }
-# What install_frontend_deps consumes, plus the venv's interpreter.
+# What install_frontend_deps consumes, plus the venv's interpreter and this updater's own text.
 frontend_deps_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/requirements.lock.txt frontend/requirements.txt 2>/dev/null)" || { echo none; return 0; }
-  { "${APP_DIR}/frontend/.venv/bin/python" -V || true; printf '%s\n' "$tree"; } 2>/dev/null | _fp_sum
+  { "${APP_DIR}/frontend/.venv/bin/python" -V || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
 }
 # What the /play build consumes: all of frontend/web (lockfile, src, config) and frontend/static/js (the
-# classic markdown module /play imports through its `@classic` alias), plus node + npm.
+# classic markdown module /play imports through its `@classic` alias), plus node + npm and this updater's text.
 play_inputs_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
-  { node -v || true; npm -v || true; printf '%s\n' "$tree"; } 2>/dev/null | _fp_sum
+  { node -v || true; npm -v || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
 }
 engine_tree_witness() {
   local f="${APP_DIR}/node_modules/.package-lock.json"
@@ -450,11 +477,12 @@ dist_witness() {
   if [[ -f "${d}/main.js" && -f "${d}/embedWorker.js" ]]; then cat "${d}/main.js" "${d}/embedWorker.js" | _fp_sum; else echo none; fi
 }
 frontend_tree_witness() {   # the installed distributions (name + version) in the venv's site-packages
-  local sp f names=()
+  local sp f
   for sp in "${APP_DIR}/frontend/.venv/lib"/python*/site-packages; do
     [[ -d "$sp" ]] || continue
-    for f in "$sp"/*.dist-info "$sp"/*.egg-info; do [[ -e "$f" ]] && names+=("${f##*/}"); done
-    printf '%s\n' ${names[@]+"${names[@]}"} | LC_ALL=C sort | _fp_sum
+    for f in "$sp"/*.dist-info "$sp"/*.egg-info; do
+      if [[ -e "$f" ]]; then printf '%s\n' "${f##*/}"; fi
+    done | LC_ALL=C sort | _fp_sum
     return 0
   done
   echo none
@@ -507,8 +535,17 @@ play_build_fp() {   # the inputs fingerprint a /play build dir was made from; ""
   [[ -f "${1}/index.html" && -f "${1}/${PLAY_STAMP}" && ! -L "${1}/${PLAY_STAMP}" ]] || return 0
   head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
 }
+# Copy a finished /play build to dist.next. dist.next must not exist when the copy starts (removed, then
+# checked), so a leftover — or anything planted there — is never merged into or nested under.
+_stage_play_build() {
+  rm -rf "$PLAY_NEXT"
+  [[ ! -e "$PLAY_NEXT" && ! -L "$PLAY_NEXT" ]] || return 1
+  cp -aT "$1" "$PLAY_NEXT" && return 0
+  rm -rf "$PLAY_NEXT"
+  return 1
+}
 build_play_app() {
-  local fp tmp out
+  local fp out
   rm -rf "$PLAY_NEXT"
   [[ -f "${PLAY_DIR}/package.json" ]] || return 0
   fp="$(play_inputs_fp)"
@@ -516,27 +553,31 @@ build_play_app() {
     echo "==> /play unchanged since its last build (frontend/web + frontend/static/js) — not rebuilding it"
     return 0
   fi
-  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && cp -a "$PLAY_PREV" "$PLAY_NEXT"; then
+  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && _stage_play_build "$PLAY_PREV"; then
     echo "==> /play: reusing the previous build of these exact inputs"
     return 0
   fi
   echo "==> building /play (frontend/web) in a temp dir — a failure here does NOT fail the update"
-  if ! tmp="$(mktemp -d "${TMPDIR:-/tmp}/orwell-play-build.XXXXXX")"; then
+  if ! PLAY_TMP="$(mktemp -d "${TMPDIR:-/tmp}/orwell-play-build.XXXXXX")"; then
+    PLAY_TMP=""
     echo "WARN: /play was NOT built (no temp dir) — it keeps its current build"
     return 0
   fi
-  out="${tmp}/frontend/web"
-  if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x -C "$tmp" \
-     && ( cd "$out" && npm ci --prefer-offline --no-audit --no-fund && npm run build ) \
+  out="${PLAY_TMP}/frontend/web"
+  # --ignore-scripts: building /play needs no package install script, so none of its dependencies' scripts
+  # run (as root). The build itself is the commit's own `npm run build`, as for the engine.
+  if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x --no-same-owner -C "$PLAY_TMP" \
+     && ( cd "$out" && npm ci --prefer-offline --ignore-scripts --no-audit --no-fund && npm run build ) \
      && [[ -f "${out}/dist/index.html" ]] \
      && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
-     && cp -a "${out}/dist" "$PLAY_NEXT"; then
+     && _stage_play_build "${out}/dist"; then
     echo "==> /play built — it goes live when the update commits"
   else
     rm -rf "$PLAY_NEXT"
     echo "WARN: the /play build FAILED (see above) — the update continues; /play keeps its current build (or its 503 'not built yet' page). The classic UI is unaffected."
   fi
-  rm -rf "$tmp"
+  rm -rf "$PLAY_TMP"
+  PLAY_TMP=""
   return 0
 }
 # Put the staged /play build live: two renames on one filesystem (dist -> dist.prev, dist.next -> dist), so
@@ -562,7 +603,7 @@ play_follow_rollback() {
   [[ -f "${PLAY_DIR}/package.json" ]] || return 0
   fp="$(play_inputs_fp)"
   if _same "$(play_build_fp "$PLAY_DIST")" "$fp"; then return 0; fi
-  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && rm -rf "$PLAY_NEXT" && cp -a "$PLAY_PREV" "$PLAY_NEXT"; then
+  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && _stage_play_build "$PLAY_PREV"; then
     swap_play_app
     return 0
   fi
@@ -693,7 +734,10 @@ revert_failed_update() {
   if ! { printf '\n'; } 2>/dev/null; then { exec >>"$ops_log"; } 2>/dev/null || exec >/dev/null; fi
   if ! { printf '\n' >&2; } 2>/dev/null; then { exec 2>>"$ops_log"; } 2>/dev/null || exec 2>/dev/null; fi
   echo "ERROR: update FAILED during ${PHASE} (exit ${rc}) — restoring ${PREV_SHA}; services were NOT restarted." >&2
-  rm -rf "$PLAY_NEXT"   # ORW-229: a /play build staged by this run never goes live (the live /play was not touched)
+  # ORW-229: a /play build staged by this run never goes live (the live /play was not touched), and a build
+  # interrupted mid-way leaves no temp dir behind.
+  rm -rf "$PLAY_NEXT"
+  if [[ -n "${PLAY_TMP:-}" ]]; then rm -rf "$PLAY_TMP"; fi
   if [[ "$ENGINE_DIRTY$FE_DIRTY$DIST_DIRTY" == "000" && "$(git -C "$APP_DIR" rev-parse HEAD)" == "$PREV_SHA" ]]; then
     # Failed before anything was touched (e.g. the fetch): there is nothing to restore, and booting a
     # second engine beside the live one could only add a false alarm.
@@ -859,6 +903,7 @@ fi
 # ORW-229: the React /play app — non-fatal by construction (see build_play_app); goes live after the commit point.
 PHASE="the /play build (non-fatal)"
 build_play_app || true
+PHASE="the engine build"
 
 # ── FINDING #3 — resolve the service USER/GROUP (mirrors orwell-oobe-reset.sh's resolution, ~L368):
 # needed both to drop privileges for the sqlite cruft-cleanup below AND to restore ownership after the
