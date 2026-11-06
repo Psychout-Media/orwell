@@ -4,13 +4,22 @@ across the veto competition, the veto ceremony and the eviction. These pin TODAY
  1. Each undue message costs exactly 5 minutes toward the next milestone (`daySchedule.minutesUntil`).
  2. The board never moves to a LATER phase early: a phase change is on the message that brings the previous milestone due (<= 5 minutes away before it) or after it was due. A non-card beat (an NPC HOH's
     nominations, the veto competition without the player) RUNS on that due message itself.
- 3. A decision card (comp-round, eviction-vote) is staged only on a message where the schedule is due - never before the due hour.
+ 3. A decision card (comp-round, eviction-vote, any card the player answers) is staged only on a message where the schedule is due - never before the due hour.
  4. Readiness spam at a due card ("I'm ready", "start it") does not progress the board, duplicate the card or double-fire it; the player's decision is what moves it.
  5. Eviction night is reached only after its own due time (evening) and the vote card is the one the engine stages there.
+ 6. From what the ENGINE reports (the public ceremony state: the HOH, the nominees, the veto holder, who has left the house), every week-1 result - the HOH, the nominations, the veto, the veto
+    ceremony, the eviction - lands only on a step where its milestone was due, or on the message that brought it due. Never early. A player ON THE BLOCK (or the HOH) gets no eviction-vote card at
+    all: their walk ends when the engine reports the evictee, and that eviction must have evicted exactly one final nominee inside the due eviction.
+
+The week-1 PATH follows the season. The player votes in most seasons but is often on the block (5 of 14 seeds in one scan of this loop) or the HOH, and then no vote card exists for them, so an
+unseeded walk that waited for one ran on into week 2 and failed at random. Each test therefore starts its season from an explicit seed picked for its path (the /new-game door's `seed`): one walk per path, both under the same
+clock checks, and neither fails merely because a season took the other path.
 
 Mismatch report (observed, not asserted): at the veto-ceremony due moment `timeOfDay` already reads "evening" while the milestone's own `phase` reads "afternoon". Roles only. Needs the built engine bundle.
 """
 from __future__ import annotations
+
+import warnings
 
 import pytest
 
@@ -21,6 +30,13 @@ from _a64_decisions import answer_for
 
 pytestmark = pytest.mark.browser
 
+# Pinned season seeds, picked by walking THIS real loop with THIS driver in this file's order. A seed fixes a season's rolls, but a restart on the same stack also carries what ran before it:
+# the engine keeps earlier seasons' houseguest names out of the new cast (NAME-1, which shifts the seeded draws) and the FE's per-user loop state (e.g. the silent-advance streak) outlives a
+# /new-game. So a rerun, a -k selection or an engine change can still move a seed onto the other path. The walk and every clock check hold on any path: test 1 warns when its seed stops putting
+# the player on the block; test 2 needs a vote card, so it moves on to its next seed as soon as the engine reports the player cannot vote.
+NOMINEE_SEED = 1               # an NPC HOH nominates the player (and evicts them): no eviction-vote card is theirs
+VOTER_SEEDS = (30012, 2, 4)    # an NPC HOH, the player is not on the block: week 1 ends on the player's own eviction-vote card
+
 
 def _decide(stack, p):
     """Answer ANY pending kind the engine emits (the player may be evicted in week 1, which opens an exit-interview / goodbye-message / spectator-choice). A kind with no
@@ -28,34 +44,67 @@ def _decide(stack, p):
     return _engine(stack, "submitDecision", answer_for(p))
 
 
-def _walk_week_one(stack, sid):
-    """Drive week 1 to the eviction vote card; returns the list of (message_index, sched, phase, pending_kind) observations taken AFTER every message."""
+def _roles(st):
+    """The public week facts the checks read (Vault-free ceremony state): the player, the HOH, the FINAL nominees (after any veto replacement), the veto holder, who has left the house."""
+    me = st.get("player") or {}
+    cer = st.get("ceremony") or {}
+    out = {h.get("id") for h in st.get("house") or [] if h.get("status") not in (None, "active")}
+    if me.get("status") not in (None, "active"):
+        out.add(me.get("id"))
+    return {"me": me.get("id"), "hoh": (cer.get("hoh") or {}).get("id"), "nominees": [x.get("id") for x in cer.get("nominees") or []],
+            "veto": ((cer.get("veto") or {}).get("holder") or {}).get("id"), "out": sorted(out)}
+
+
+def _walk_week_one(stack, sid, need_vote=False):
+    """Drive week 1 to its eviction; returns the list of (message_index, sched, phase, pending_kind, roles) observations taken AFTER every message or decision. Ends on the player's own
+    eviction-vote card when they vote, or - when they are on the block or the HOH, so no vote card is theirs - on the first observation where the engine reports the evictee. Every other card
+    on the way (a comp round, the nominations, a veto decision, a tie-break...) is answered. `need_vote`: stop as soon as the engine reports the player as HOH or nominee (no vote this week)."""
     obs = []
     n = 0
     for _ in range(420):
         s, st = _schedule(stack)
         pend = (st.get("pending") or {}).get("kind")
-        obs.append((n, s, st.get("phase"), pend))
-        if pend == "eviction-vote":
+        roles = _roles(st)
+        obs.append((n, s, st.get("phase"), pend, roles))
+        if pend == "eviction-vote" or roles["out"]:
+            return obs
+        if need_vote and (roles["me"] == roles["hoh"] or roles["me"] in roles["nominees"]):
             return obs
         if pend:
             _decide(stack, st["pending"])
             continue
         _send(stack, sid, f"Plain chat line {n}.", f"a64-{n}")
         n += 1
-    raise AssertionError(f"week 1 never reached the eviction vote: last={obs[-1]}")
+    raise AssertionError(f"week 1 never reached its eviction (no vote card, no evictee): last={obs[-1]}")
 
 
-def test_week_one_milestones_honour_the_clock(_stack):  # noqa: F811
-    _fresh(_stack)
-    sid = _session(_stack, "a64-week1")
-    _start_day(_stack, sid)
-    obs = _walk_week_one(_stack, sid)
+def _path(obs):
+    """Which week-1 path a walk took, read from what the engine reported at its end."""
+    _, _, _, pend, r = obs[-1]
+    if pend == "eviction-vote":
+        return "votes"
+    if r["me"] in r["out"]:
+        return "evicted"
+    return "hoh" if r["me"] == r["hoh"] else "on-the-block"
+
+
+# (6) each week-1 milestone and the engine-reported fact that says its result has LANDED
+_LANDED = (
+    ("hoh-competition", lambda s, r: r["hoh"] is not None),
+    ("nominations", lambda s, r: bool(r["nominees"])),
+    ("veto-competition", lambda s, r: r["veto"] is not None),
+    ("veto-ceremony", lambda s, r: s["next"] == "eviction"),
+    ("eviction", lambda s, r: bool(r["out"])),
+)
+
+
+def _assert_week_one_honours_the_clock(obs):
+    """Invariants (1)-(3), (5) and (6) over a whole week-1 walk, on whichever path its seed took."""
     saw_phases = []
     prev = None
-    for (n, s, phase, pend) in obs:
+    for (n, s, phase, pend, roles) in obs:
         if prev is not None:
-            pn, ps, pphase, ppend = prev
+            pn, ps, pphase, ppend, _ = prev
             if phase != pphase:
                 # (2) a phase change happens only on the message that BRINGS the previous milestone due (<= one 5-minute message away) or after it was due - never earlier
                 assert ps["due"] is True or ppend or ps["minutesUntil"] <= 5, f"phase {pphase} -> {phase} at message {n} but the previous milestone was not due: {ps}"
@@ -66,21 +115,65 @@ def test_week_one_milestones_honour_the_clock(_stack):  # noqa: F811
             assert s["due"] is True, f"(3) a {pend} card was staged at message {n} before the milestone was due: {s}"
         if phase not in saw_phases:
             saw_phases.append(phase)
-        prev = (n, s, phase, pend)
-    # (5) every week-1 phase was visited in order and the eviction vote came last
+        prev = (n, s, phase, pend, roles)
+    # (5) every week-1 phase was visited in order and the eviction came last
     assert saw_phases[:1] == ["hoh-competition"]
     for want in ("nominations", "veto-competition", "veto-ceremony", "eviction"):
         assert want in saw_phases, f"week 1 skipped {want}: {saw_phases}"
     assert saw_phases.index("nominations") < saw_phases.index("veto-competition") < saw_phases.index("veto-ceremony") < saw_phases.index("eviction")
-    n_last, s_last, _, pend_last = obs[-1]
-    assert pend_last == "eviction-vote" and s_last["due"] is True and s_last["next"] == "eviction"
+    # (6) from what the ENGINE reports: each result lands on a step where its milestone was due, or on the message that brought it due - never early
+    for milestone, landed in _LANDED:
+        k = next((i for i, (_, s, _, _, r) in enumerate(obs) if landed(s, r)), None)
+        if k is None:
+            # only the eviction may be unreported: a voter's walk stops on their vote card, before anyone leaves
+            assert milestone == "eviction", f"(6) week 1 reached its eviction but the engine never reported the {milestone} result: last={obs[-1]}"
+            continue
+        assert k > 0, f"(6) the {milestone} result was already on the board when the day started (not a fresh season?): {obs[0]}"
+        ps = obs[k - 1][1]
+        assert ps["next"] == milestone and (ps["due"] is True or ps["minutesUntil"] <= 5), \
+            f"(6) the {milestone} result landed at message {obs[k][0]} before it was due: {ps} -> {obs[k][1]} {obs[k][4]}"
+
+
+def _assert_the_eviction_landed(obs):
+    """(5) a player who votes ends week 1 on THEIR due eviction-vote card. (6) a player who cannot vote (on the block, or the HOH) gets no vote card: the eviction ran without them,
+    evicted exactly one of the final nominees, and the evictee is reported inside the due eviction."""
+    n, s, phase, pend, r = obs[-1]
+    if pend == "eviction-vote":
+        assert s["due"] is True and s["next"] == "eviction", f"(5) the eviction-vote card is not the due one: {s}"
+        return
+    assert r["me"] == r["hoh"] or r["me"] in r["nominees"], f"(6) the eviction ran with no vote card for the player, yet the player was neither the HOH nor on the block: {r}"
+    assert len(r["out"]) == 1 and r["out"][0] in r["nominees"], f"(6) week 1's eviction must evict exactly one of the final nominees: {r}"
+    assert phase == "eviction" and s["next"] == "eviction" and s["due"] is True, f"(6) the evictee was reported outside a due eviction: phase={phase} {s}"
+
+
+def test_week_one_milestones_honour_the_clock(_stack):  # noqa: F811
+    """NOMINEE_SEED: the player is ON THE BLOCK, so no eviction-vote card is theirs; the week is read from what the engine reports. The voter's path gets the same clock checks in the
+    readiness-spam test below (one walk per path, no second walk of the same seed)."""
+    _fresh(_stack, NOMINEE_SEED)
+    sid = _session(_stack, "a64-week1")
+    _start_day(_stack, sid)
+    obs = _walk_week_one(_stack, sid)
+    _assert_week_one_honours_the_clock(obs)
+    _assert_the_eviction_landed(obs)
+    if _path(obs) == "votes":
+        warnings.warn(f"NOMINEE_SEED={NOMINEE_SEED} gave the player an eviction vote this run (an engine change, or what ran earlier on this stack, moved week 1): every check passed, but the "
+                      "on-the-block path went unwalked - re-pick a seed where the player is nominated if this persists", stacklevel=1)
 
 
 def test_readiness_spam_at_the_due_eviction_card_does_not_double_fire(_stack):  # noqa: F811
-    _fresh(_stack)
-    sid = _session(_stack, "a64-spam")
-    _start_day(_stack, sid)
-    obs = _walk_week_one(_stack, sid)
+    """A player who VOTES (the first of VOTER_SEEDS whose player keeps their vote). This is the voter path's week-1 walk, so it takes the same clock checks (1)-(3), (5), (6) first, then (4)
+    at the due vote card."""
+    for seed in VOTER_SEEDS:
+        _fresh(_stack, seed)
+        sid = _session(_stack, f"a64-spam-{seed}")
+        _start_day(_stack, sid)
+        obs = _walk_week_one(_stack, sid, need_vote=True)
+        if _path(obs) == "votes":
+            break
+    else:
+        raise AssertionError(f"none of VOTER_SEEDS={VOTER_SEEDS} gives the player an eviction vote any more (last path {_path(obs)!r}) - re-pick seeds where the player votes")
+    _assert_week_one_honours_the_clock(obs)
+    _assert_the_eviction_landed(obs)
     _, st = _schedule(_stack)
     card = st["pending"]
     assert card["kind"] == "eviction-vote"
