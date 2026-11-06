@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 # ── in-page probes (installed before any page script runs) ────────────────────────────────────────────────────────
 INIT_JS = r"""
 (() => {
-  const P = window.__perf = { long: [], frames: [], moCb: 0, moRec: 0, recording: false };
+  const P = window.__perf = { long: [], frames: [], moCb: 0, moRec: 0, moBy: {}, recording: false };
   try {
     new PerformanceObserver((l) => { for (const e of l.getEntries()) P.long.push([e.startTime, e.duration]); })
       .observe({ type: 'longtask', buffered: true });
@@ -45,8 +45,19 @@ INIT_JS = r"""
   const NativeMO = window.MutationObserver;
   window.MutationObserver = class extends NativeMO {
     constructor(cb) {
+      let site = 'unknown';
+      try {
+        for (const l of new Error().stack.split('\n').slice(2)) {
+          const m = /\/static\/([^:)\s]+:\d+)/.exec(l);
+          if (m) { site = m[1]; break; }
+        }
+      } catch (e) {}
       super(function (recs, obs) {
-        if (P.recording) { P.moCb++; P.moRec += recs.length; }
+        if (P.recording) {
+          P.moCb++; P.moRec += recs.length;
+          const e = P.moBy[site] || (P.moBy[site] = { cb: 0, rec: 0 });
+          e.cb++; e.rec += recs.length;
+        }
         return cb.call(this, recs, obs);
       });
     }
@@ -234,7 +245,7 @@ def run(stack: dict, idle_seconds: int, throttle: float, reply_chars: int) -> di
                 blocking: long.reduce((a, b) => a + Math.max(0, b - 50), 0), long_max: long.length ? Math.max(...long) : 0,
                 frames: fr.length, frame_p50: fr.length ? fr[Math.floor(fr.length * 0.5)] : 0,
                 frame_p95: fr.length ? fr[Math.floor(fr.length * 0.95)] : 0, frame_max: fr.length ? fr[fr.length - 1] : 0,
-                frames_over_50ms: fr.filter(x => x > 50).length, mo_callbacks: P.moCb, mo_records: P.moRec }; }""",
+                frames_over_50ms: fr.filter(x => x > 50).length, mo_callbacks: P.moCb, mo_records: P.moRec, mo_by: P.moBy }; }""",
             win_start,
         )
         reply_len = page.evaluate(REPLY_LEN_JS)
@@ -258,6 +269,7 @@ def run(stack: dict, idle_seconds: int, throttle: float, reply_chars: int) -> di
             "frames_over_50ms": probe["frames_over_50ms"],
             "mutation_observer_callbacks": probe["mo_callbacks"],
             "mutation_observer_records": probe["mo_records"],
+            "mutation_observers_by_site": dict(sorted(probe["mo_by"].items(), key=lambda kv: -kv[1]["cb"])[:12]),
         }
         browser.close()
     result["session"] = sid
@@ -267,7 +279,7 @@ def run(stack: dict, idle_seconds: int, throttle: float, reply_chars: int) -> di
 def _rows(res: dict) -> list[tuple[str, str]]:
     l, i, s = res["load"], res["idle"], res["stream"]
     kb = lambda n: f"{n / 1024:,.0f} KB"  # noqa: E731
-    return [
+    rows = [
         ("LOAD  JS transferred / gzip-6 / raw", f"{kb(l['js_transferred_bytes'])} / {kb(l['js_gzip_bytes'])} / {kb(l['js_raw_bytes'])} ({l['js_files']} files)"),
         ("LOAD  CSS transferred / gzip-6 / raw", f"{kb(l['css_transferred_bytes'])} / {kb(l['css_gzip_bytes'])} / {kb(l['css_raw_bytes'])} ({l['css_files']} files)"),
         ("LOAD  requests to settle", str(l["requests"])),
@@ -281,6 +293,9 @@ def _rows(res: dict) -> list[tuple[str, str]]:
         ("STREAM frames (n / p50 / p95 / >50ms)", f"{s['frames']} / {s['frame_p50_ms']} / {s['frame_p95_ms']} ms / {s['frames_over_50ms']}"),
         ("STREAM MutationObserver callbacks / records", f"{s['mutation_observer_callbacks']} / {s['mutation_observer_records']}"),
     ]
+    for site, v in (s.get("mutation_observers_by_site") or {}).items():
+        rows.append((f"  observer {site}", f"{v['cb']} callbacks / {v['rec']} records"))
+    return rows
 
 
 def render_table(res: dict) -> str:
