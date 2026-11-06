@@ -49,6 +49,10 @@ export interface Approach {
  */
 /** The largest drive shift the memory bias may apply (a quarter of the unit agenda scale): enough to reorder close calls, never to override a clear relationship gap. */
 export const APPROACH_MEMORY_MAX = 0.15;
+/** Review lead 7: the memory bias is added AFTER the temperature multiplier, so on its own it could lift an NPC with ~no bond/threat above bonded ones. It is therefore scaled by how much agenda the NPC already has: full strength from this agenda up, proportionally less below, nothing at zero. */
+export const APPROACH_BIAS_FULL_AGENDA = 0.3;
+/** Review lead 2: the cheap pull from a promise/deal the NPC owes the player (+bonus) only counts while the NPC holds no real grudge (the memory tilt above this floor) - a real grudge dominates. */
+export const APPROACH_OWED = { bonus: 0.1, grudgeFloor: 0.02 } as const;
 
 export function rankApproaches(
   player: EntityId,
@@ -71,7 +75,7 @@ export function rankApproaches(
       const agenda = Math.max(bond, e.threat);
       // Bounded: 1 ± initiative/2 — modulates intensity, never flips a clear gap at the default.
       const temper = 1 + (rng.next() - 0.5) * initiativeWeight;
-      const bias = memoryBias ? Math.max(-APPROACH_MEMORY_MAX, Math.min(APPROACH_MEMORY_MAX, memoryBias(n))) : 0;
+      const bias = memoryBias ? Math.max(-APPROACH_MEMORY_MAX, Math.min(APPROACH_MEMORY_MAX, memoryBias(n))) * Math.min(1, agenda / APPROACH_BIAS_FULL_AGENDA) : 0;
       return { npc: n, drive: agenda * temper + bias, motive: (bond >= e.threat ? "bond" : "probe") as ApproachMotive };
     })
     .sort((a, b) => b.drive - a.drive);
