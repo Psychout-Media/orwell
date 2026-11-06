@@ -4799,6 +4799,45 @@ def _neutral_board_directive(live) -> str:
             "Narrate a normal, concrete scene for what the player just said or did; do not answer in a one-line aside.")
 
 
+_DAY_ROLL_BEAT_RE = re.compile(r"\b(?:turns? in|turned in|morning breaks?|a new day|new day (?:arrives|dawns)|dawns?)\b", re.IGNORECASE)
+
+
+def day_roll_reground(phase: str, beat) -> Optional[str]:
+    """ORW-10 (b): when the pre-resolved beat of a scheduled phase is the OVERNIGHT ROLL ("the house turns in, and morning breaks on the day of the Power of Veto comp"), the event the narrator may just have announced as
+    starting/called did NOT happen: the clock jumped to the next morning and production will call it later that day. Returns a one-line re-ground for the next turn, or None when the beat is not a day roll."""
+    if not beat or not _DAY_ROLL_BEAT_RE.search(str(beat)):
+        return None
+    label = _MOMENT_PHASE_LABELS.get(str(phase or "")) or str(phase or "the event").replace("-", " ")
+    return ("RE-GROUND ON THE CLOCK: the house slept and a new day has begun - the " + label + " has NOT started and nobody has been called to it; production will call it later today. "
+            "Anything you narrated as starting, called or under way did not happen: say so in a line and play a normal social morning.")
+
+
+async def guard_emptied_cutaway(user) -> str:
+    """ORW-10 (live replay 7): the SENTENCE guard (T0-3 path) can empty a turn too - a narrator stuck repeating "the veto is starting" while production holds the event gets every sentence dropped, turn
+    after turn, and the player sees only the generic cutaway. Count that as a cut turn; from the 2nd consecutive one return a plain engine-true line (and queue the neutral board directive, with the
+    production-hold fact) instead of the generic cutaway. Returns "" while the streak is short (the caller keeps the generic cutaway). Never raises."""
+    try:
+        dkey = _desync_key(user)
+        before = _LAST_BEAT_SIG.get(dkey)
+        _roll_cut_streak(dkey, before)
+        live = await _capture_beat_signature(user)
+        if not isinstance(live, dict) or not live:
+            return ""
+        streak = _count_cut(dkey, before, live)
+        if streak < _CUT_STREAK_NEUTRAL_AT:
+            return ""
+        directive = _neutral_board_directive(live)
+        if production_is_holding(user):
+            label = _MOMENT_PHASE_LABELS.get(str(live.get("phase") or "")) or str(live.get("phase") or "the event").replace("-", " ")
+            directive += (f" Production has NOT called the {label} yet: it is later today. Do not announce positions, a start or a result; "
+                          "if your earlier replies said it was starting, that was wrong - say so in a line and play a normal social scene.")
+        _DESYNC_REGROUND[dkey] = directive
+        logger.warning("[orwell] sentence-guard emptied %d consecutive turns for user=%s - engine-true line + neutral directive", streak, user)
+        return engine_true_line(user)
+    except Exception:
+        return ""
+
+
 def engine_true_line(user) -> str:
     """The plain line the cutaway uses once the streak has reached the neutral threshold: a producer's recap of the engine's board. Empty when unknown."""
     try:
@@ -6170,6 +6209,13 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         _beat_kind = str((_adv_event or {}).get("beat") or "") if isinstance(_adv_event, dict) else ""
         _beat = (_adv_event or {}).get("content") if isinstance(_adv_event, dict) else None
         logger.info("[orwell] pre-resolve advanced %s for user=%s -> beat=%r", phase, user, _beat)
+        try:  # ORW-10 (b): the overnight roll is not the event - tell the narrator before it keeps announcing a start that did not happen
+            _roll = day_roll_reground(phase, _beat)
+            if _roll:
+                _reground_enqueue(_desync_key(user), _roll)
+                _note_belt(user, "day-roll-reground")
+        except Exception:
+            pass
         if _beat and phase in ("hoh-competition", "veto-competition"):
             # live replay 4: the competition ran to its result inside this turn's framing ("Nia Coleman wins the Power of Veto") and the narrator never told the player who won - note the winner so an unvoiced result is re-grounded
             _wm = re.search(r"\b([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+){0,2})\s+wins\s+(?:the\s+)?(?:Head of Household|HOH|Power of Veto|Veto)\b", str(_beat))
