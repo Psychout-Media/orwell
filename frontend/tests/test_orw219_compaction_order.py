@@ -1,4 +1,7 @@
-"""ORW-219: the summarizer must run BEFORE the trimmer drops anything. maybe_compact used to wait for 85% of the
+"""ORW-219: maybe_compact CAN trigger relative to the input budget (opt-in via input_budget_fn), but build_chat_context
+does NOT opt in: compaction deletes stored rows (mandate #4), so it stays dormant on 1M models until the showrunner
+checkpoint summaries (K6) replace it. The tests below pin the capability, the safe alignment, and that dormancy.
+Original motivation: the summarizer must run BEFORE the trimmer drops anything. maybe_compact used to wait for 85% of the
 RAW window (850K of a 1M model) while the trimmer enforced the much lower input budget, so a long game was trimmed
 and never summarized. Now compaction triggers at 75% of the effective input budget. Roles only; no names."""
 import asyncio
@@ -138,3 +141,10 @@ def test_trim_preserving_system_drops_summary_after_raw_turns():
     out = cc.trim_for_context(msgs, budget, reserve_tokens=0, preserve_system=True)
     assert any(m["content"].startswith("[Conversation summary]") for m in out)
     assert out[0]["content"] == "GM"
+
+
+def test_build_chat_context_does_not_activate_destructive_compaction():
+    import os
+    src = open(os.path.join(os.path.dirname(__file__), "..", "routes", "chat_helpers.py"), encoding="utf-8").read()
+    assert "input_budget_fn" not in src.split("async def build_chat_context", 1)[1].split("return ChatContext", 1)[0].replace(
+        "maybe_compact deliberately gets NO input_budget_fn", ""), "compaction must stay dormant (it deletes stored rows)"
