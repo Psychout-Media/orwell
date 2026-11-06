@@ -57,9 +57,13 @@ export interface ClockConstants {
   perConversationHours: number;
 }
 
-/** P4d (ASSUMED, pending Ryne): the earliest a player can wake, and the earliest bedtime that wakes early (a daytime turn-in never wakes before lying down). */
-export const EARLY_WAKE_FLOOR_HOUR = 5;
-export const EARLY_WAKE_MIN_BED_HOUR = 20;
+/**
+ * ORW-114 (Ryne's ruling 2026-11-06 01:34 UTC): NO earliest-wake and NO earliest-bedtime limit - social pressure and sleep debt are the only limits. Sleeping early means waking early (bed + 8h, no debt),
+ * possibly alone; the whole house is still up by the forced 8am. (Was P4d: a 5am wake floor and a no-early-wake-before-8pm-bed rule.) The floor is hour 0 (a pre-dawn hour-of-day cannot be negative on this
+ * clock) and the earliest bed that wakes early is the evening's start - a turn-in before that (the bedtime gate already refuses morning/afternoon) falls back to the 8am wake.
+ */
+export const EARLY_WAKE_FLOOR_HOUR = 0;
+export const EARLY_WAKE_MIN_BED_HOUR = 16;
 
 export const CLOCK: ClockConstants = {
   wakeHour: 8,

@@ -46,7 +46,7 @@ import { runJuryHouseStretch, bearingWord } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { PRESENCE, PRIVACY, MOVEMENT_INTENT } from "../../engine/presenceConstants";
+import { PRESENCE, PRIVACY, MOVEMENT_INTENT, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
@@ -1088,11 +1088,29 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
+    // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
+    const nowOcc = this.witnessOccupancy();
+    this.sendOccupancy = nowOcc ? new Map(nowOcc) as Occupancy : null;
     this.messageMode = true;
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
+  }
+  /** The occupancy frozen at the player's last SEND (see `noteMessage`); null before any send or after the player moved rooms. Memory-only, never persisted. */
+  private sendOccupancy: Occupancy | null = null;
+  /**
+   * The occupancy the WITNESS grounding reads for a recorded scene: the send-time roster while it still applies (the player is still in the room they sent from), else the live witness occupancy.
+   * Anyone who arrived after the player spoke is placed elsewhere here, so the engine drops them as a phantom witness; anyone who was there and left still heard it.
+   */
+  sendTimeOccupancy(): Occupancy | null {
+    const live = this.witnessOccupancy();
+    const sent = this.sendOccupancy;
+    if (!sent || !live || !this.house) return live;
+    const me = this.house.player.id;
+    if (sent.get(me) !== live.get(me)) { this.sendOccupancy = null; return live; } // the player changed rooms: the old roster is stale
+    return sent;
   }
   /** True once the front-end has announced a player message (clock billing is per message from then on). */
   messageModeNow(): boolean { return this.messageMode; }
@@ -4549,7 +4567,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in (observable)
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -4641,6 +4659,10 @@ export class GameSessionAdapter implements GameSession {
             // calibration-neutral BASE pass NEVER gets a sceneRoom, so its shared-stream draw count is
             // byte-identical to the pre-0076 build (the juryReach spine is untouched).
             ...(sceneRoom ? { sceneRoom, sceneMoveProb: PRESENCE.companionMoveProb } : {}),
+            // ORW-212 / ORW-210: calm, non-magnetic movement on the player-facing pass (ORWELL_CALM_PRESENCE, default ON; OFF => the previous behaviour).
+            ...(this.calmPresenceEnabled && weighted
+              ? { calm: { moveScale: CALM_PRESENCE.moveScale, maxMovers: Math.max(1, Math.floor(this.presenceActive().length * CALM_PRESENCE.maxMoverShare)), startOffset: this.presenceTickCount, holdIds: this.conversationHold(), playerId: playerId ?? PLAYER, excludePlayerPull: !CALM_PRESENCE.playerPullsDestinations } }
+              : {}),
           }
         : {}),
     };
@@ -4767,6 +4789,22 @@ export class GameSessionAdapter implements GameSession {
    *     weighting moves the house it cannot perturb calibration. The player never observes the hidden
    *     society's pairing, so one-place-at-a-time still holds for everything the player sees.
    */
+  /**
+   * ORW-212 / ORW-210 - CALM, non-magnetic movement (Ryne: "they are all moving too fast" / "NPCs gravitate to wherever the player is"). ON unless `ORWELL_CALM_PRESENCE=0`; OFF => the previous
+   * 0076 behaviour. Player-facing (weighted) view only: the calibration-neutral base is untouched. The 0076 scene-hold now keeps only the houseguests the player is actually talking to (the partners of the
+   * last recorded scene, for `CALM_PRESENCE.holdTicks` ticks); the player no longer pulls NPC destinations; the house moves gradually (a per-tick mover cap) and at a calmer rate.
+   */
+  private calmPresenceEnabled = flagDefaultOn("ORWELL_CALM_PRESENCE");
+  setCalmPresenceEnabled(on: boolean): void { this.calmPresenceEnabled = on; }
+  private convoPartners: { ids: EntityId[]; tick: number } | null = null;
+  /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
+  noteConversationPartners(ids: readonly EntityId[]): void {
+    this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
+  }
+  private conversationHold(): ReadonlySet<EntityId> {
+    const c = this.convoPartners;
+    return c && this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks ? new Set(c.ids) : new Set<EntityId>();
+  }
   presenceTick(rng?: RandomnessSource): void {
     if (!this.house) return;
     // Advance the dedicated movement stream by one tick FIRST, so the WEIGHTED pass draws a fresh,
@@ -5500,6 +5538,8 @@ export class GameSessionAdapter implements GameSession {
       ...(n.character.age !== undefined ? { age: n.character.age } : {}),
       ...(n.character.presentation !== undefined ? { presentation: n.character.presentation } : {}),
       ...(n.character.demeanor !== undefined ? { demeanor: n.character.demeanor } : {}),
+      ...(n.character.vocation !== undefined ? { vocation: n.character.vocation } : {}), // ORW-194: public job + hometown for the toast
+      ...(n.character.hometown !== undefined ? { hometown: n.character.hometown } : {}),
       ...(n.character.identityConcept !== undefined ? { identityConcept: n.character.identityConcept } : {}),
       ...(n.character.genderPresentation !== undefined ? { genderPresentation: n.character.genderPresentation } : {}),
     };

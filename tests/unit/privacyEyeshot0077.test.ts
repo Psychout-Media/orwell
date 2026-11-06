@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+// ORW-212: tracks who moved where; the calm re-seat (ORW-212) changes how often anyone moves; this test pins the previous (non-calm) movement so its seeded premise holds. The calm movement has its own tests (calmPresence.test.ts).
+vi.hoisted(() => { process.env.ORWELL_CALM_PRESENCE = "0"; });
 import { rollOverhears } from "../../src/engine/presence";
 import { PRESENCE, PRIVACY } from "../../src/engine/presenceConstants";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";

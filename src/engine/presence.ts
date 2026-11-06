@@ -177,6 +177,12 @@ export interface PresenceDeps {
    */
   sceneMoveProb?: number;
   /**
+   * ORW-212 / ORW-210 - CALM, non-magnetic movement (WEIGHTED pass only; absent => the pre-ORW-212 behaviour, byte-identical). `moveScale` scales an ordinary NPC's move chance; `maxMovers` caps how
+   * many NPCs relocate in this one tick; `startOffset` rotates who the cap blocks; `holdIds` restricts the 0076 scene-hold to the houseguests the player is actually talking to; `playerId` + `excludePlayerPull`
+   * keep the player out of the affinity sum that picks a destination.
+   */
+  calm?: { moveScale: number; maxMovers: number; startOffset: number; holdIds: ReadonlySet<EntityId>; playerId: EntityId; excludePlayerPull: boolean };
+  /**
    * SEATED sub-zone output (issue #792 — opt-in). When supplied, `assignRooms` also SEATS each placed
    * houseguest's sub-zone into this map (for zoned rooms only), enabling persisted DRIFT + affinity
    * CLUSTERING via `seatZones`. ABSENT (every base-pass / legacy caller) ⇒ no zone seating, no extra
@@ -287,7 +293,11 @@ export function assignRooms(
   pinned?: Occupancy | null,
 ): Map<EntityId, Room> {
   const next = new Map<EntityId, Room>(pinned ?? undefined);
-  for (const id of active) {
+  const calm = deps.calm;
+  let movers = 0;
+  let moveOrigin: Room | null = null; // ORW-212: all of a calm tick's departures leave the SAME room (a group disbanding); moves from different rooms never line up
+  const order: readonly EntityId[] = calm && active.length > 0 ? [...active.slice(calm.startOffset % active.length), ...active.slice(0, calm.startOffset % active.length)] : active;
+  for (const id of order) {
     const here = previous?.get(id);
     // L21/L24: who this houseguest IS bends HOW they move — read once per houseguest (no rng draw),
     // so the per-NPC `rng` draw count is identical with or without a profile (the isolation guarantee).
@@ -315,20 +325,23 @@ export function assignRooms(
     // 0078: OTHERWISE, an UNSATISFIED pursuit (a motive target not in this room) raises the move rate —
     // they get up and go looking. Still ONE draw (only the threshold shifts); the scene-hold case wins
     // (a companion mid-scene with the player isn't yanked away by an off-screen agenda).
-    const heldByScene = here !== undefined && here === deps.sceneRoom && deps.sceneMoveProb !== undefined;
+    const heldByScene = here !== undefined && here === deps.sceneRoom && deps.sceneMoveProb !== undefined && (!calm || calm.holdIds.has(id));
     const moveThreshold = heldByScene
       ? deps.sceneMoveProb!
-      : intentMoveProb(moveProbFor(profile), unsatisfiedPursuit(intent, here, next));
+      : intentMoveProb(moveProbFor(profile), unsatisfiedPursuit(intent, here, next)) * (calm ? calm.moveScale : 1);
     if (here && deps.rng.next() >= moveThreshold) {
       next.set(id, here); // most ticks, most people stay where they are
       continue;
     }
+    // ORW-212: gradual re-seat - once the tick's mover budget is spent, everyone else who would have moved stays put this tick (the gate draw is already consumed).
+    if (calm && here && (movers >= calm.maxMovers || (moveOrigin !== null && here !== moveOrigin))) { next.set(id, here); continue; }
     // Weight each candidate by who is already there (affinity pull, bent by how much THIS houseguest
     // seeks company — L21/L24) + the HOH-room pull + the MOTIVATED pull toward/away (0078).
     const seekPull = seekPullFor(profile);
     const weights = candidates.map((room) => {
       let w = 1;
       for (const [other, theirRoom] of next) {
+        if (calm?.excludePlayerPull && other === calm.playerId) continue; // ORW-210: NPCs do not gravitate to the player's room just because the player is in it
         if (theirRoom === room) w += seekPull * deps.affinity(id, other);
       }
       if (room === "hoh-room") w = id === deps.hoh ? w + PRESENCE.hohRoomPull * 4 : w * PRESENCE.hohRoomPull;
@@ -350,7 +363,13 @@ export function assignRooms(
       roll -= weights[i]!;
       if (roll <= 0) { chosen = candidates[i]!; break; }
     }
+    if (here && chosen !== here) { movers++; if (calm && moveOrigin === null) moveOrigin = here; }
     next.set(id, chosen);
+  }
+  if (calm) { // restore the stable (caller) insertion order the rotation scrambled - pinned first, then `active` order
+    const ordered = new Map<EntityId, Room>(pinned ?? undefined);
+    for (const id of active) { const r = next.get(id); if (r !== undefined) ordered.set(id, r); }
+    next.clear(); for (const [k, v] of ordered) next.set(k, v);
   }
   // SEAT sub-zones (issue #792, OPT-IN). Only when the caller supplies `zonesOut` — i.e. the player-
   // facing weighted pass on the DEDICATED movement stream — so the base/calibration pass draws nothing
