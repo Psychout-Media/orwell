@@ -3450,6 +3450,20 @@ def _mentioned_anywhere(text: str, full_name: str, first_counts: dict) -> bool:
     return False
 
 
+_ASIDE_SPAN_RE = re.compile(r"\(\(.*?\)\)", re.DOTALL)
+
+
+def _is_aside_only_reply(text: str) -> bool:
+    """ORW-222 - True when the WHOLE visible reply is one or more out-of-character ((aside)) blocks (or an `ooc:`-prefixed line), i.e. the narrator answered an out-of-character question
+    in the intended producer-aside format. Such a reply is not a scene, so it has no room population to surface."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if re.match(r"^ooc\s*:", t, re.IGNORECASE):
+        return True
+    return bool(_ASIDE_SPAN_RE.search(t)) and not _ASIDE_SPAN_RE.sub("", t).strip()
+
+
 def _presence_omission_directive(narration: str, facts: dict) -> Optional[str]:
     """PARITY-8 — the inverse desync: the engine places one or more houseguests in the player's OWN
     room, but the scene never mentions ANY of them at all (the narration substituted its own cast).
@@ -3460,6 +3474,9 @@ def _presence_omission_directive(narration: str, facts: dict) -> Optional[str]:
     if not room_present:
         return None
     text = narration or ""
+    # ORW-222: an aside-only ((out-of-character)) reply is not a scene: nothing to surface, and "surface who is actually here" next turn would be a false steer (live 11-06 07:46:49).
+    if _is_aside_only_reply(text):
+        return None
     # The uniqueness check needs the WHOLE roster (in view + off-scene + evicted), not just the
     # room — an off-scene/evicted houseguest sharing a first name with a present one must still make
     # that first name ambiguous (Greptile #1746).
