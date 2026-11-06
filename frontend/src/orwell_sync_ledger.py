@@ -132,6 +132,22 @@ _PENDING_STALE: dict[str, int] = {}
 # checked against for continuity. In-process only (a restart re-derives from the next live turn).
 _LAST_BEAT_AFTER: dict[str, int] = {}
 
+# ── ORW-150: FE-OWNED engine writes that move beatSeq OUTSIDE a ledgered turn ──
+# The per-player-message `noteMessage` (+1 each) and the E22 fallback `recordInteraction` run between turns
+# (before the next turn's baseline read / after the last turn's record), so the between-turn gap check used to
+# read them as "the board moved without this FE recording the write" (48 false `sync:dropped-fold` in one night).
+# Each such write is counted here, per user, and drained into the next `record_turn` where it is subtracted
+# from the unexplained gap. A genuinely unrecorded move still exceeds the allowance and still fires.
+_PENDING_FE_WRITES: dict[str, int] = {}
+
+# ── ORW-186: belt telemetry from turns that are never ledgered (casting) ──
+# Belt / forced-choice counts buffer per user and drain at the next `record_turn`. Casting turns are never
+# ledgered, so their counts (a casting-record belt, a voiced re-ground) landed on the FIRST GAME turn's row and
+# sent investigators to a turn where nothing fired. `park_pending_unledgered_turn` moves them here instead:
+# they stay in the playtest totals (`get_belt_totals` / `get_forced_choice_totals`) but never on a game-turn row.
+_PARKED_BELTS: dict[str, dict[str, int]] = {}
+_PARKED_FORCED: dict[str, dict[str, dict[str, int]]] = {}
+
 
 def _key(user: str | None) -> str:
     # A missing user maps to the same "default" bucket the rest of the relay uses.
@@ -359,6 +375,51 @@ def _drain_pending_stale(user_key: str) -> int:
         return _PENDING_STALE.pop(user_key, 0) or 0
 
 
+def note_fe_write(user: str | None, n: Any = 1) -> None:
+    """ORW-150 - count FE-owned engine write(s) (a `noteMessage`, an E22 fallback fold) that moved the engine's beatSeq
+    outside a ledgered turn window. Drains into the next `record_turn`'s gap allowance. Never raises."""
+    try:
+        count = _clean_int(n)
+        if count <= 0:
+            return
+        k = _key(user)
+        with _LOCK:
+            _PENDING_FE_WRITES[k] = _PENDING_FE_WRITES.get(k, 0) + count
+    except Exception:  # pragma: no cover - defence in depth
+        pass
+
+
+def _drain_pending_fe_writes(user_key: str) -> int:
+    with _LOCK:
+        return _PENDING_FE_WRITES.pop(user_key, 0) or 0
+
+
+def park_pending_unledgered_turn(user: str | None) -> None:
+    """ORW-186 - call at the end of a turn that is never ledgered (casting). Moves the user's buffered belt / forced-choice
+    counts into the parked totals (still visible in `get_belt_totals` / `get_forced_choice_totals`) so the next LEDGERED game
+    turn's row does not inherit them. Also drops the buffered stale/FE-write counts: their gap baseline does not exist yet.
+    Never raises."""
+    try:
+        k = _key(user)
+        belts = _drain_pending_belts(k)
+        forced = _drain_pending_forced(k)
+        _drain_pending_stale(k)
+        _drain_pending_fe_writes(k)
+        with _LOCK:
+            if belts:
+                pb = _PARKED_BELTS.setdefault(k, {})
+                for name, count in belts.items():
+                    pb[name] = pb.get(name, 0) + count
+            if forced:
+                pf = _PARKED_FORCED.setdefault(k, {})
+                for name, counts in forced.items():
+                    e = pf.setdefault(name, {"honored": 0, "ignored": 0})
+                    e["honored"] += counts.get("honored", 0)
+                    e["ignored"] += counts.get("ignored", 0)
+    except Exception:  # pragma: no cover - defence in depth
+        pass
+
+
 def note_belt(user: str | None, belt: Any, n: Any = 1) -> None:
     """The thin never-raises convenience wrapper over :func:`note_belt_fire` for belt call
     sites OUTSIDE this module (chat_helpers / tool_implementations / the agent loop) — one
@@ -420,11 +481,13 @@ def get_forced_choice_totals(user: str | None) -> dict[str, dict[str, int]]:
     with _LOCK:
         bucket = _load().get(k)
         pending = {t: dict(c) for t, c in (_PENDING_FORCED.get(k) or {}).items()}
+        parked_f = {t: dict(c) for t, c in (_PARKED_FORCED.get(k) or {}).items()}
     if isinstance(bucket, list):
         for e in bucket:
             if isinstance(e, dict):
                 _fold(e.get("forcedChoice"))
     _fold(pending)
+    _fold(parked_f)
     for counts in totals.values():
         counts["attempted"] = counts["honored"] + counts["ignored"]
     return totals
@@ -445,6 +508,7 @@ def get_belt_totals(user: str | None) -> dict[str, int]:
     with _LOCK:
         bucket = _load().get(k)
         pending = dict(_PENDING_BELTS.get(k) or {})
+        parked_b = dict(_PARKED_BELTS.get(k) or {})
     if isinstance(bucket, list):
         for e in bucket:
             if not isinstance(e, dict):
@@ -452,6 +516,8 @@ def get_belt_totals(user: str | None) -> dict[str, int]:
             for name, count in _clean_belt_map(e.get("beltsFired")).items():
                 totals[name] = totals.get(name, 0) + count
     for name, count in _clean_belt_map(pending).items():
+        totals[name] = totals.get(name, 0) + count
+    for name, count in _clean_belt_map(parked_b).items():
         totals[name] = totals.get(name, 0) + count
     return totals
 
@@ -492,6 +558,7 @@ def record_turn(
         drained_belts = _drain_pending_belts(k)
         drained_stale = _drain_pending_stale(k)
         drained_forced = _drain_pending_forced(k)
+        drained_fe_writes = _drain_pending_fe_writes(k)
         merged_belts = _clean_belt_map(belts_fired)
         for name, count in drained_belts.items():
             merged_belts[name] = merged_belts.get(name, 0) + count
@@ -542,7 +609,7 @@ def record_turn(
         if (isinstance(last_after, int) and last_after > 0 and entry["beatSeqBefore"] > 0
                 and not entry["desyncDetected"]):
             gap = entry["beatSeqBefore"] - last_after
-            if gap > entry["staleRejections"]:
+            if gap > entry["staleRejections"] + drained_fe_writes:  # ORW-150: FE-owned writes (noteMessage, E22 fallback) explain part of the gap
                 _emit_dropped_fold(user, "an unaccounted beatSeq gap between turns — the board moved "
                                    "without this FE recording the write or reconciling a cross-window "
                                    "advance", beat_gap=gap, stale=entry["staleRejections"])
@@ -563,6 +630,8 @@ def record_turn(
             # (the baseline stays at the last COMMITTED turn). Merge back (other threads may have buffered
             # new fires meanwhile). Then re-raise for the outer fail-soft handler to log-and-swallow.
             with _LOCK:
+                if drained_fe_writes:
+                    _PENDING_FE_WRITES[k] = _PENDING_FE_WRITES.get(k, 0) + drained_fe_writes
                 if drained_stale:
                     _PENDING_STALE[k] = _PENDING_STALE.get(k, 0) + drained_stale
                 if drained_belts:
@@ -614,6 +683,9 @@ def clear(user: str | None) -> None:
         _PENDING_BELTS.pop(k, None)
         _PENDING_STALE.pop(k, None)
         _PENDING_FORCED.pop(k, None)
+        _PENDING_FE_WRITES.pop(k, None)
+        _PARKED_BELTS.pop(k, None)
+        _PARKED_FORCED.pop(k, None)
         _LAST_BEAT_AFTER.pop(k, None)
         data = _load()
         if k in data:
