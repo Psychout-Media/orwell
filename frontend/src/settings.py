@@ -150,18 +150,14 @@ DEFAULT_SETTINGS = {
     "agent_max_tool_calls": 0,
     "agent_max_rounds": 20,  # per-message agent step cap (clamped 1..200)
     "agent_input_token_budget": 6000,
-    # Ceiling on the *auto-derived* input budget that #1230 introduced. Has
-    # no effect when `agent_input_token_budget` is explicitly changed off its
-    # default (the user's value is honoured regardless). Default matches
-    # `src.context_budget.DEFAULT_HARD_MAX` (48k — a cost-bounded fraction of a
-    # long-context window that still fits the whole narrative conversation, so
-    # NPCs stay consistent turn to turn); lower this for cost-paranoid setups,
-    # raise it on premium APIs with very large windows that you want to actually
-    # use (e.g. 900_000 to fill a 1M-context model). ORW-219: model-aware — while this
-    # stays at its 48k default, a model whose window is >= 500k gets 0.60 x window
-    # instead (600k for a 1M model); set it to any other value to force a cap. See `compute_input_token_budget`
-    # in src/context_budget.py.
-    "agent_input_token_hard_max": 48_000,
+    # Ceiling on the *auto-derived* input budget (#1230). No effect when `agent_input_token_budget` is
+    # explicitly changed off its default. 0 (the default) means AUTO: a model whose context window is
+    # 500,000 tokens or more gets 0.60 x its window (600,000 for a 1M model, so a long game keeps its
+    # history), and a smaller window keeps a 48,000 cap. Any other number is an explicit cap and is
+    # honoured exactly, 48000 included, on every model. Saved files that still carry 48000 from the old
+    # default count as an explicit 48K cap; set 0 (or remove the key) to get AUTO. See
+    # `compute_input_token_budget` in src/context_budget.py.
+    "agent_input_token_hard_max": 0,
     "agent_stream_timeout_seconds": 300,
     # N4 (2026-07-16 live-playthrough forensics): `agent_stream_timeout_seconds` above only
     # guards the STREAMING path (agent_loop.py's `stream_llm` call). The async NON-stream

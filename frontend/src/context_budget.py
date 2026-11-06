@@ -21,17 +21,17 @@ window like the unset case; only a value the user genuinely changed away from th
 default is honoured as explicit.
 """
 
+from typing import Optional
+
 # Cost-bounded ceiling for the *auto-derived* budget. Sized so the narrative
 # conversation actually fits (long-context models are no longer capped at 6000)
 # while keeping the per-turn prompt — and thus the bill — bounded. A 128K model
 # lands here; a 1M model is held to this cap. Tunable via
 # ``agent_input_token_hard_max``.
 DEFAULT_HARD_MAX = 48_000
-# ORW-219: a window this large (DeepSeek-class, 1M) is the one case where the 48K
-# cost cap is wrong: the designed 0.60 x window headroom is wanted, and cached input
-# is priced ~50x below uncached, so a long stable prompt is cheap. When the cap is
-# still at its default and the window is at least this big, the cap lifts to
-# window x headroom. A cap the operator moved OFF the default is always honoured.
+# ORW-219: with the cap on AUTO (``agent_input_token_hard_max`` unset / 0) a window this large
+# (DeepSeek-class, 1M) gets the designed 0.60 x window instead of the 48K cap. Smaller windows keep 48K.
+# Any explicit number the operator sets is honoured as written (48000 included).
 LONG_WINDOW_TOKENS = 500_000
 DEFAULT_BUDGET = 6000
 # Target a sane large fraction of the model window so the full conversation is
@@ -47,7 +47,7 @@ def compute_input_token_budget(
     *,
     default: int = DEFAULT_BUDGET,
     headroom: float = DEFAULT_HEADROOM,
-    hard_max: int = DEFAULT_HARD_MAX,
+    hard_max: Optional[int] = None,
 ) -> int:
     """Return the effective soft input-token budget.
 
@@ -79,10 +79,14 @@ def compute_input_token_budget(
 
     if context_length > 0:
         scaled = int(context_length * headroom)
-        if context_length >= LONG_WINDOW_TOKENS and int(hard_max) == int(DEFAULT_HARD_MAX):
-            # Model-aware default (ORW-219): long-window model + untouched cap.
-            return max(1, scaled)
-        return max(1, min(scaled, hard_max))
+        if hard_max is None or int(hard_max) <= 0:
+            # AUTO (ORW-219): unset / None / 0. A window of 500K or more gets the full 0.60 x window; anything
+            # smaller keeps the 48K cost-sane cap.
+            if context_length >= LONG_WINDOW_TOKENS:
+                return max(1, scaled)
+            return max(1, min(scaled, DEFAULT_HARD_MAX))
+        # An explicit number is always honoured, including 48000 on a huge window.
+        return max(1, min(scaled, int(hard_max)))
 
     return configured if configured > 0 else default
 
@@ -158,6 +162,15 @@ def escalate_budget(
     return max(lean, min(needed, cap))
 
 
+def resolve_hard_max(raw: object) -> Optional[int]:
+    """Setting value -> explicit cap, or None for AUTO (unset, None, 0, negative or unparseable)."""
+    try:
+        v = int(raw or 0)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def effective_input_budget(context_length: int) -> int:
     """The effective input-token budget for ``context_length``, read from the live settings with the same
     rules the agent loop's trim uses (ORW-219). Lets the compactor trigger relative to the budget the
@@ -167,11 +180,5 @@ def effective_input_budget(context_length: int) -> int:
     soft = int(get_setting("agent_input_token_budget", DEFAULT_BUDGET) or 0)
     if soft <= 0:
         return 0
-    try:
-        hard_max = int(get_setting("agent_input_token_hard_max", DEFAULT_HARD_MAX) or DEFAULT_HARD_MAX)
-    except (TypeError, ValueError):
-        hard_max = DEFAULT_HARD_MAX
-    if hard_max <= 0:
-        hard_max = DEFAULT_HARD_MAX
     return compute_input_token_budget(soft, context_length, is_setting_overridden("agent_input_token_budget"),
-                                      hard_max=hard_max)
+                                      hard_max=resolve_hard_max(get_setting("agent_input_token_hard_max", 0)))

@@ -6815,12 +6815,10 @@ async def _stream_agent_loop_impl(
             # No-op when the user has an explicit `agent_input_token_budget`
             # (that branch ignores hard_max). Falls back to DEFAULT_HARD_MAX
             # on missing/malformed values so misconfig can't zero the budget.
-            try:
-                hard_max = int(get_setting("agent_input_token_hard_max", DEFAULT_HARD_MAX) or DEFAULT_HARD_MAX)
-            except (TypeError, ValueError):
-                hard_max = DEFAULT_HARD_MAX
-            if hard_max <= 0:
-                hard_max = DEFAULT_HARD_MAX
+            # None/unset/0 = AUTO (model-aware: 0.60 x window on windows >= 500K, else the 48K cost cap); any
+            # explicit number is honoured exactly (ORW-219).
+            from src.context_budget import resolve_hard_max
+            hard_max = resolve_hard_max(get_setting("agent_input_token_hard_max", 0))
             # Scale the default budget to the model's context window so long-context
             # models aren't silently capped at 6000; an explicit user setting is
             # still honoured (clamped to the window). (#1170)
@@ -6828,7 +6826,7 @@ async def _stream_agent_loop_impl(
                 soft_budget,
                 context_length,
                 is_setting_overridden("agent_input_token_budget"),
-                hard_max=hard_max,  # at its default + a >=500K window => model-aware 0.60 x window (ORW-219)
+                hard_max=hard_max,
             )
             # ADR 0010 slice D (opt-in non-degradation tier): before trimming older turns AWAY, grow
             # the budget toward the model window so a long game keeps its history instead of losing it

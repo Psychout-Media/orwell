@@ -92,6 +92,20 @@ def test_budget_for_500k_boundary_and_below():
     assert compute_input_token_budget(DEFAULT_BUDGET, 128_000, explicit=False) == DEFAULT_HARD_MAX
 
 
-def test_operator_cap_off_the_default_is_still_honoured_on_1m():
+def test_explicit_cap_is_honoured_exactly_including_48000_on_1m():
+    assert compute_input_token_budget(DEFAULT_BUDGET, 1_000_000, explicit=False, hard_max=48_000) == 48_000
     assert compute_input_token_budget(DEFAULT_BUDGET, 1_000_000, explicit=False, hard_max=100_000) == 100_000
     assert compute_input_token_budget(DEFAULT_BUDGET, 1_000_000, explicit=False, hard_max=900_000) == 600_000
+
+
+def test_auto_means_unset_none_zero_or_garbage():
+    from src.context_budget import resolve_hard_max
+    for raw in (None, 0, "0", "", -5, "abc"):
+        assert resolve_hard_max(raw) is None
+        assert compute_input_token_budget(DEFAULT_BUDGET, 1_000_000, explicit=False, hard_max=resolve_hard_max(raw)) == 600_000
+    assert resolve_hard_max(48000) == 48_000 and resolve_hard_max("65000") == 65_000
+
+
+def test_repo_default_is_auto():
+    from src.settings import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["agent_input_token_hard_max"] == 0

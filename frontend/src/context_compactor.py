@@ -281,8 +281,9 @@ def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: 
 
     ``preserve_system=True`` (every live-game / casting turn, ORW-219): no system message is ever
     dropped or truncated; only the oldest conversation turns go. Otherwise (non-game chat) the
-    order is: older conversation turns, then optional extra system messages (RAG/memory), and
-    only as a last resort a truncation of the first system prompt (logged WARNING).
+    order is unchanged: extra system messages (RAG/memory) are dropped first, then old conversation
+    turns, and only after that is the first system prompt truncated to 2,000 characters (this
+    truncation used to run BEFORE old turns were dropped; it is now a last resort and logs a WARNING).
     Reserves space for the response.
     """
     budget = context_length - reserve_tokens
