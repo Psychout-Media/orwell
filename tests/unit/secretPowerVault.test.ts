@@ -174,6 +174,8 @@ describe("0093 — leverage colors a deal but never forces it; expose is bounded
 
   it("expose is CAPPED per season and a used secret cannot be wielded again", () => {
     const sb = startedSeason("vw-cap", 10);
+    // The per-season cap is the premise: ORWELL_NO_HARD_CAPS (default ON since 2026-11-05) replaces it with an escalating cost, so pin it OFF explicitly.
+    (sb.session as unknown as { setNoHardCapsEnabled(on: boolean): void }).setNoHardCapsEnabled(false);
     const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
     // Spend the whole season cap on distinct learned secrets.
     let exposed = 0;
