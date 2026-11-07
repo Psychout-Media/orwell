@@ -1155,6 +1155,18 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     let processingProbeTimer = null;
     let processingProbeAbort = null;
     let _renderStream = () => {};
+    // ORW-156: the plain-delta render is COALESCED to one per animation frame (`_renderStreamSoon`); every other
+    // caller keeps the synchronous `_renderStream` (which also supersedes a pending frame render, since it
+    // renders the current buffers anyway). Non-delta SSE events flush a pending frame render FIRST (see the
+    // `_flushStreamSoon()` call after JSON.parse), so tool/segment/settle code never sees a stale bubble.
+    // One shared coalescer (`_makeFrameCoalescer`, also used by the mirror's `_renderLiveStream`) so sender and mirror paint on the same cadence.
+    let _streamRenderedOnce = false;   // the FIRST paint of a bubble/segment stays synchronous (no empty-bubble frame)
+    const _streamCo = _makeFrameCoalescer(() => _renderStream());
+    const _flushStreamSoon = () => { _streamCo.now(); };
+    const _renderStreamSoon = () => {
+      if (!_streamRenderedOnce || (typeof document !== 'undefined' && document.hidden)) { _renderStream(); return; }
+      _streamCo.soon();
+    };
     let _cancelThinkingTimer = () => {};
     let _removeThinkingSpinner = () => {};
     // The whole-turn abort is an ACTIVITY-RESET IDLE timer (`_makeStreamIdleGuard`), not a one-shot.
@@ -1895,12 +1907,14 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
       // Direct render helper for streaming text
       _renderStream = () => {
+        _streamCo.cancel();
         // F8: the BODY renders the reply-only buffer (roundReplyText — deltas with json.thinking
         // falsy). Reasoning is structurally ABSENT here, so it can NEVER paint in the public
         // bubble; the live "Thinking" accordion renders roundReasoningText separately. (A model
         // that inlines literal <think> tags on the CONTENT channel still works: processWithThinking
         // extracts/handles inline <think> and, in the game build, scrubs operator asides.)
         const dt = stripToolBlocks(roundReplyText);
+        if (dt.trim()) _streamRenderedOnce = true;   // ORW-156: only a render that PAINTS reply text ends the synchronous first paint
         const bodyEl = roundHolder.querySelector('.body');
         const contentEl = _ensureStreamLayout(bodyEl);
 
@@ -1927,8 +1941,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
               ? liveReply._streamRenderer
               : (liveReply._streamRendererOoc = _liveOoc.ooc,
                  liveReply._streamRenderer = createStreamRenderer(liveReply, {
-                   render: (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t)),
+                   render: (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx),
                    hljs: window.hljs,
+                   needsFullRender: markdownModule.createRestatementWatch(),
                  }));
             r.update(replyTrimmed);
           }
@@ -1942,8 +1957,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           ? contentEl._streamRenderer
           : (contentEl._streamRendererOoc = _liveOoc.ooc,
              contentEl._streamRenderer = createStreamRenderer(contentEl, {
-               render: (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t)),
+               render: (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx),
                hljs: window.hljs,
+               needsFullRender: markdownModule.createRestatementWatch(),
              }));
         renderer.update(displayText);
         uiModule.scrollHistory();
@@ -2015,6 +2031,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
         seg.classList.add('round-seg');
         seg._streamRenderer = null;
         seg._streamRendererOoc = undefined;
+        _streamRenderedOnce = false;   // ORW-156: the next round's segment paints its first text synchronously
       };
 
       let _nextIsError = false;
@@ -2163,6 +2180,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
             }
             try {
               const json = JSON.parse(data);
+              if (!json.delta) _flushStreamSoon();   // ORW-156: a non-delta event must see the up-to-date bubble
               // Handle SSE error events (e.g. HTTP 404 from provider)
               if (_nextIsError || json.status >= 400) {
                 _nextIsError = false;
@@ -2494,7 +2512,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 } else {
                   // Normal streaming
                   if (spinner && spinner.element) spinner.destroy();
-                  _renderStream();
+                  _renderStreamSoon();
                   _scheduleThinkingSpinner();
                   // Feed streaming TTS with accumulated text
                   if (streamingTTS) window.aiTTSManager.streamingUpdate(roundText);
@@ -4397,6 +4415,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     } finally {
       clearResponseTimeout();
       clearProcessingProbe();
+      _streamCo.cancel();   // ORW-156: never paint a frame after the turn settled
       // F-5 / N-10: a finished turn must never leave a header-only assistant bubble (see isEmptyAssistantBubble).
       try { pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) {}
       // #615: a mid-stream engine-tool error (e.g. a 409 stale-beat) can throw out of the reader
@@ -4690,7 +4709,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
     const bodyDiv = holder.querySelector('.body');
     const _liveState = {};
-    const _liveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
+    const _liveRender = (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx);
     const renderDelta = () => {
       if (bodyDiv) _renderLiveStream(bodyDiv, replyText, reasoningText, _liveRender, _liveState, holder);
     };
@@ -4753,6 +4772,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     } catch (e) {
       // Second drop during self-resume — keep accumulated, cleanup below
     }
+    // ORW-156: the per-chunk paints above go through the shared per-frame coalescer (as the sender's do); flush it ONCE here, on every way
+    // out of the loop ([DONE], end of stream, a drop), so the settle below never races a late frame and never misses the last delta.
+    if (_liveState._replyCo) _liveState._replyCo.now();
 
     chatState._resumingStreams.delete(sessionId);
 
@@ -4953,6 +4975,26 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
   // through _setReconcileDeps, mirroring the PR2..PR6 injection pattern. The reconcile Sets stay
   // chatState-backed (PR0), so submit / outbox / reconcile serialize on ONE instance.
 
+  // ORW-156: ONE per-frame coalescer shared by the sender (`_renderStreamSoon`) and the mirror/observer (`_renderLiveStream`), so both
+  // windows paint on the same cadence. `soon()` schedules `run` once per animation frame with a 100 ms timer backstop (rAF does not fire in a
+  // hidden/backgrounded window); `now()` runs a pending `run` immediately; `cancel()` drops it. `run` always renders the LATEST buffers.
+  function _makeFrameCoalescer(run) {
+    let raf = 0;
+    let timer = 0;
+    const cancel = () => {
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      raf = 0;
+      timer = 0;
+    };
+    const fire = () => { cancel(); run(); };
+    return {
+      soon() { if (raf || timer) return; if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(fire); timer = setTimeout(fire, 100); },
+      now() { if (raf || timer) fire(); },
+      cancel,
+    };
+  }
+
   /**
    * R2 (refactor-roadmap / ADR 0012 §3.3): the SHARED incremental live-stream renderer that BOTH
    * the sender (its `.live-reply-content` path) and the observer (resumeStream) feed, so two windows
@@ -5025,10 +5067,29 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       contentDiv.appendChild(replyEl);
       state._replyEl = replyEl;
       state._replyRendererOoc = _liveOoc.ooc;
-      state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs });
+      state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs, needsFullRender: markdownModule.createRestatementWatch() });
+      // ORW-156: a NEW reply container (first delta, or the OOC wrap flipped and the old one was just removed) paints synchronously, as the
+      // sender's re-created renderer does, so the mirror never shows an empty reply for a frame.
+      state._replyPainted = false;
     }
-    state._replyRenderer.update(replySrc);
-    uiModule.scrollHistory();
+    // ORW-156: the first reply paint is synchronous; later deltas are coalesced to one per frame through the SAME coalescer the sender uses.
+    state._pendingReplySrc = replySrc;
+    if (!state._replyPainted || document.hidden) {
+      state._replyPainted = true;
+      if (state._replyCo) state._replyCo.cancel();
+      state._replyRenderer.update(replySrc);
+      uiModule.scrollHistory();
+      return;
+    }
+    if (!state._replyCo) {
+      state._replyCo = _makeFrameCoalescer(() => {
+        if (state._replyRenderer && state._replyEl && state._replyEl.isConnected) {
+          state._replyRenderer.update(state._pendingReplySrc);
+          uiModule.scrollHistory();
+        }
+      });
+    }
+    state._replyCo.soon();
   }
 
   /**
@@ -5201,7 +5262,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     // sender's `_renderStream` feeds createStreamRenderer. Supplied to the shared `_renderLiveStream`
     // so the observer never invents its own markdown path (it shares the sender's), and any inline
     // <think>/operator-aside scrub the game build applies in processWithThinking runs here too.
-    const _liveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
+    const _liveRender = (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx);
     const renderDelta = () => {
       _renderLiveStream(contentDiv, replyText, reasoningText, _liveRender, _liveState, holder);
     };
@@ -5323,12 +5384,15 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
             rich = true;
           }
         }
-        // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check).
+        // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check). ORW-156: after the first paint this paint goes
+        // through the shared per-frame coalescer, exactly like the sender's, so several chunks inside one frame paint once.
         if (paintDirty) { paintDirty = false; renderDelta(); }
       }
     } catch (e) {
       // Network drop or parse failure: fall through to the reload below.
     }
+    // ORW-156: flush the coalesced paint ONCE, on every way out of the loop ([DONE], end of stream, leaving, a drop), before the settle.
+    if (_liveState._replyCo) _liveState._replyCo.now();
 
     cleanup();
     if (leftSession) { if (holder.parentNode) holder.remove(); return true; }
