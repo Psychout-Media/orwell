@@ -2519,6 +2519,49 @@ _VETO_USE_SPECULATIVE_RE = re.compile(
 )
 
 
+# ORW-80 (A96, live replay 4) — a conditional / hypothetical / interrogative mention of a weekly-loop outcome
+# ("if somebody wins the veto tomorrow", "whoever wins HOH", "what if the nominee wins the veto", "unless
+# someone wins the veto", "if he is evicted Thursday") is open-set talk (ADR 0005), not a claim. The claim
+# regexes match committed-sounding verbs ("wins", "won", "is evicted") that a conditional uses too, so the
+# detectors ask `_committed_claim` instead of a bare `.search`: a match whose own clause carries a conditional
+# lead-in BEFORE it is talk about what MIGHT happen. ORW-10 (#2221) applied the same rule to nominations and
+# the player's own veto win in the board verify only; this extends it to every weekly-loop claim kind on every
+# path (the T0-3 hard-drop rail, the closed-set pre-filter, the premiere board-absence check, the board verify).
+# Bare modals (would / could / might) are deliberately NOT lead-ins here: in "he knew he could compete, and the
+# houseguest wins the veto" the claim is real, and the hard-drop rail must keep catching it.
+# ORW-80 review: "as if" and "even if" are manner / concessive phrases, not conditionals about the outcome ("As if
+# on cue, the houseguest wins the veto" asserts the win), and "whether" introduces both ("Whether or not you
+# believe it, you won HOH"), so none of the three is a lead-in.
+_CLAIM_HYPOTHETICAL_RE = re.compile(
+    r"\b(?:(?<!\bas\s)(?<!\beven\s)if|unless|suppose|supposing|imagine|assuming|in\s+case|what\s+if|whoever|"
+    r"whichever|hypothetically|were\s+(?:i|you|he|she|they|we)|had\s+(?:i|you|he|she|they|we))\b",
+    re.IGNORECASE,
+)
+# ORW-80 review: a lead-in governs only the clause it sits in. A comma, semicolon, colon or dash ends that clause,
+# so "Thanks, if you must know, I won the veto." and "Imagine that: the houseguest wins HOH." are claims.
+_CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
+
+
+def _committed_claim(regex, text: str) -> bool:
+    """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose OWN clause
+    (the text after the last comma, semicolon, colon or dash before it) carries a conditional lead-in
+    (`_CLAIM_HYPOTHETICAL_RE`) is talk about what might happen, not a claim that it did. A lead-in in an earlier
+    clause does not cover a later claim ("Wondering if it was fair, you watch as the houseguest wins the veto"),
+    and a committed claim in another sentence, or with the conditional after it ("she wins the veto, if you can
+    believe it"), still counts. The match's own first word is checked too: a name-capturing pattern reads
+    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match."""
+    if not text:
+        return False
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        for m in regex.finditer(sentence):
+            words = m.group(0).split(None, 1)
+            clause = _CLAIM_CLAUSE_SPLIT_RE.split(sentence[:m.start()])[-1]
+            lead = re.sub(r"\s+", " ", clause + (words[0] if words else ""))   # one space, so the as/even look-behinds hold
+            if not _CLAIM_HYPOTHETICAL_RE.search(lead):
+                return True
+    return False
+
+
 def _veto_use_claim_is_speculative(text: str) -> bool:
     """True when the matched veto-USE claim's OWN clause (cut at the last sentence/clause boundary
     before the match) is governed by a modal/conditional/interrogative lead-in — legitimate open-set
@@ -2926,7 +2969,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # gated on `if not desync` — independently evaluated, first genuine problem found still wins
     # (matching the prior priority order), but a clean verdict from an earlier category never
     # suppresses a LATER category's own check.
-    if _CLAIM_EVICTED_RE.search(text):
+    if _committed_claim(_CLAIM_EVICTED_RE, text):  # ORW-80: not a hypothetical ("if he is evicted Thursday")
         _count_unmoved = after.get("evicted") == before.get("evicted")
         # P3: tonight's eviction is ALREADY committed (the pre-resolve landed it at framing, so before == after) - narrating the result is a recap, not a phantom. Only a
         # WRONG evictee (an active houseguest named as leaving) is still a fabrication.
@@ -2953,13 +2996,13 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to FINALE phases: mid-season "crowned the winner" language is necessarily
     #     hypothetical flavor ("you could be crowned the winner someday"), never a committed
     #     outcome — policing it elsewhere would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_CLAIM_WINNER_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_WINNER_RE, text)
           and str(after.get("phase") or "").lower().startswith(_FINALE_PHASES)
           and not after.get("finished")):
         desync = "the SEASON WINNER being crowned"
     # (3) A finale vote TALLY was narrated, but the game isn't finished → narrated the count
     #     before the engine revealed all the jury votes.
-    if not desync and (_CLAIM_TALLY_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_TALLY_RE, text)
           and str(after.get("phase") or "").lower().startswith(_FINALE_PHASES)
           and not after.get("finished")):
         desync = "a FINAL VOTE TALLY (the jury count)"
@@ -2977,10 +3020,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      turn keeps its result-language narration unpoliced).
     #      PO ruling 2026-11-04 (the vote reveal is ALL IN ONE TURN): once the engine has handed over every ballot (`ballotCounts`), a tally that AGREES with
     #      those counts is simply the truth the BOARD block gave the narrator - only a tally that contradicts them is still a fabrication.
-    _tally_ok = bool(_CLAIM_TALLY_RE.search(text)) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
+    _tally_ok = _committed_claim(_CLAIM_TALLY_RE, text) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
     if not desync and str(after.get("phase") or "").lower().startswith(_EVICTION_PHASES) and (
-          (_CLAIM_TALLY_RE.search(text) and not _tally_ok)
-          or (_CLAIM_EVICT_RESULT_RE.search(text) and after.get("evicted") == before.get("evicted"))):
+          (_committed_claim(_CLAIM_TALLY_RE, text) and not _tally_ok)
+          or (_committed_claim(_CLAIM_EVICT_RESULT_RE, text) and after.get("evicted") == before.get("evicted"))):
         desync = "an EVICTION VOTE TALLY / RESULT (the count is sealed until the engine commits the eviction)"
     # (4a) A2 (2026-07-03): the model tells the PLAYER they won HOH, but the engine shows the player is
     #      NOT the Head of Household → a phantom self-crown. Verified DIRECTLY against `playerIsHoh` (an
@@ -2988,7 +3031,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      (the exact live-red-team failure: "you won HOH" narrated with zero tool calls, an NPC actually
     #      won). Fires only when the board KNOWS the player is not HOH (`playerIsHoh is False`, never on
     #      the unknown/None case — an old-style signature without the field can't trip it).
-    if not desync and _CLAIM_SELF_HOH_WIN_RE.search(text) and after.get("playerIsHoh") is False:
+    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text) and after.get("playerIsHoh") is False:
         desync = "a phantom HEAD OF HOUSEHOLD win (the engine shows you are NOT the Head of Household)"
     # (4b) A2: the model crowns a NAMED houseguest HOH who is NOT the one the engine crowned → the wrong
     #      identity on the throne. Scoped to the HOH beat AND a crown that really committed THIS turn
@@ -3006,7 +3049,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to HOH phases (like the tally branch): outside the HOH beat, "the new HOH…" /
     #     "wins HOH" reads as reflection or flavor, not a committed crown — policing it elsewhere
     #     would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_CLAIM_NEW_HOH_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text)
           and str(after.get("phase") or "").lower().startswith(_HOH_PHASES)
           and after.get("hoh") == before.get("hoh")
           and not (before.get("hoh") is None and after.get("hoh") is not None)):
@@ -3026,7 +3069,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     so plan/speculation language outside the beat ("I might nominate you") is never policed.
     #     ORW-10 (live replays 5 and 6): once nominees are COMMITTED (the veto ceremony, and every social turn left in the nominations beat after the engine pre-resolved them) ordinary prose about them
     #     ("those are the two on the block") is a recap, not a phantom nomination - there only a REPLACEMENT claim is suspect. While NO nominee is committed the original rule stands.
-    if not desync and (_CLAIM_NOMINATED_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_NOMINATED_RE, text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
           and (after.get("noms") or []) == (before.get("noms") or [])
           and not _nomination_claims_all_hypothetical(text)
@@ -3034,7 +3077,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
-    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
+    if not desync and _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
         desync = "a phantom POWER OF VETO win (the engine shows you do NOT hold the veto)"
     # (6b) A2: the model hands the veto to a NAMED houseguest who is NOT the actual holder → wrong
     #      identity (mirrors 4b). Scoped to the veto beat AND a holder that really committed this turn.
@@ -3046,7 +3089,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "the WRONG houseguest winning the Power of Veto (you named someone the engine did not)"
     # (6) NARR-8 (#574): a VETO WINNER was narrated, but the veto holder didn't change → no veto win
     #     committed. Scoped to the veto phase; the fresh-win guard mirrors the HOH branch.
-    if not desync and (_CLAIM_VETO_WINNER_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_VETO_WINNER_RE, text)  # ORW-80: "if somebody wins the veto tomorrow" is talk
           and str(after.get("phase") or "").lower().startswith(_VETO_PHASES)
           and after.get("vetoHolder") == before.get("vetoHolder")
           and not (before.get("vetoHolder") is None and after.get("vetoHolder") is not None)):
@@ -4732,22 +4775,24 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
     someday' still streams — it never reaches the async verify, and would pass it anyway)."""
     if not text or not text.strip():
         return False
+    # ORW-80: the weekly-loop outcome kinds count only OUTSIDE a hypothetical ("if somebody wins the veto
+    # tomorrow" is talk, never worth a board read, a drop or a scene cut) — see `_committed_claim`.
     return bool(
-        _CLAIM_EVICTED_RE.search(text)
-        or _CLAIM_WINNER_RE.search(text)
-        or _CLAIM_NEW_HOH_RE.search(text)
-        or _CLAIM_SELF_HOH_WIN_RE.search(text)   # A2: "you won HOH" — a self-crown the board can deny
-        or _CLAIM_SELF_VETO_WIN_RE.search(text)  # A2: "you won the veto" — same
-        or _CLAIM_TALLY_RE.search(text)
-        or _CLAIM_EVICT_RESULT_RE.search(text)  # LIVE-7 (#540): self-counted majority/short
-        or _CLAIM_NOMINATED_RE.search(text)
-        or _CLAIM_VETO_WINNER_RE.search(text)
+        _committed_claim(_CLAIM_EVICTED_RE, text)
+        or _committed_claim(_CLAIM_WINNER_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)   # A2: "you won HOH" — a self-crown the board can deny
+        or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)  # A2: "you won the veto" — same
+        or _committed_claim(_CLAIM_TALLY_RE, text)
+        or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)  # LIVE-7 (#540): self-counted majority/short
+        or _committed_claim(_CLAIM_NOMINATED_RE, text)
+        or _committed_claim(_CLAIM_VETO_WINNER_RE, text)
         or _CLAIM_VETO_USE_RE.search(text)  # T0-3: the veto USE decision (distinct from who WON it)
         or _CLAIM_PLAYER_EXPULSION_RE.search(text)  # #1659 R2: "you're being removed/expelled from the game"
-        or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
+        or _committed_claim(_CLAIM_COMP_RESULT_RE, text)  # A-9: a specific competition event (verified against the board)
         or _CLAIM_COMP_ELIM_STRONG_RE.search(text)
         or _CLAIM_COMP_ELIM_WEAK_RE.search(text)
-        or _CLAIM_VETO_BELL_RE.search(text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
+        or _committed_claim(_CLAIM_VETO_BELL_RE, text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
         or _CLAIM_VETO_INTENT_RE.search(text)  # N-1: a non-holder 'going to use it'
         or _CLAIM_PLAYER_IN_FIELD_RE.search(text)  # F-3: the player seated in a veto field (verified against the engine's field)
         or _DENY_HOH_RE.search(text) or _DENY_NOMS_RE.search(text) or _DENY_VETO_RE.search(text)  # N-3: stale "not yet"
@@ -4776,22 +4821,24 @@ def _sentence_has_chyron_covered_claim(text: str) -> bool:
     `not _veto_use_claim_is_speculative(text)` — a modal/conditional/interrogative veto-use mention
     ("Priya wonders whether to use the veto on herself", "if he uses the veto, the whole week flips")
     is legitimate open-set color (ADR 0005), not a closed-set outcome claim, and must survive the
-    hard-drop rail untouched. The other 8 patterns don't need this: their committed-tense-only
-    construction (wins/won, is/was evicted, nominates — never a bare infinitive/modal form) already
-    excludes the equivalent speculative phrasing for those kinds without a separate clause scan; only
-    veto-use's present-tense "uses" is ambiguous enough (it is grammatically identical in a live
-    conditional and a declarative narration) to need one."""
+    hard-drop rail untouched. ORW-80 (A96, live replay 4): the other 8 patterns turned out to need the
+    same — present-tense "wins" / "is evicted" / "won" read identically in a conditional ("if somebody
+    wins the veto tomorrow", "whoever wins HOH") — so each is asked through `_committed_claim`, which
+    ignores a match with a conditional lead-in earlier in its sentence."""
     if not text or not text.strip():
         return False
+    # ORW-80: present-tense "wins" (and "is evicted", "won") is what a conditional uses too ("if somebody wins
+    # the veto tomorrow", "whoever wins HOH"), so — like veto-use — a match is a claim only outside a
+    # hypothetical (`_committed_claim`); a committed claim still hard-drops exactly as before.
     return bool(
-        _CLAIM_EVICTED_RE.search(text)
-        or _CLAIM_NEW_HOH_RE.search(text)
-        or _CLAIM_SELF_HOH_WIN_RE.search(text)
-        or _CLAIM_SELF_VETO_WIN_RE.search(text)
-        or _CLAIM_TALLY_RE.search(text)
-        or _CLAIM_EVICT_RESULT_RE.search(text)
-        or _CLAIM_NOMINATED_RE.search(text)
-        or _CLAIM_VETO_WINNER_RE.search(text)
+        _committed_claim(_CLAIM_EVICTED_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)
+        or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)
+        or _committed_claim(_CLAIM_TALLY_RE, text)
+        or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)
+        or _committed_claim(_CLAIM_NOMINATED_RE, text)
+        or _committed_claim(_CLAIM_VETO_WINNER_RE, text)
         or (_CLAIM_VETO_USE_RE.search(text) and not _veto_use_claim_is_speculative(text))
     )
 
@@ -5127,16 +5174,18 @@ def _unbacked_outcome_absent(text: str, live: dict) -> Optional[str]:
     if not phase.startswith(_PRE_CEREMONY_PHASES):
         return None
     t = text or ""
-    if (_CLAIM_NEW_HOH_RE.search(t) or _CLAIM_SELF_HOH_WIN_RE.search(t)) and not live.get("hoh"):
+    # ORW-80: a hypothetical ("if he wins HOH tomorrow, we're safe") is premiere talk, not a fabrication.
+    def _claims(*regexes) -> bool:
+        return any(_committed_claim(rx, t) for rx in regexes)
+    if _claims(_CLAIM_NEW_HOH_RE, _CLAIM_SELF_HOH_WIN_RE) and not live.get("hoh"):
         return "a HEAD OF HOUSEHOLD win (no Head of Household reigns yet)"
-    if _CLAIM_NOMINATED_RE.search(t) and not (live.get("noms") or []):
+    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []):
         return "a NOMINATION (no houseguest is on the block yet)"
-    if (_CLAIM_VETO_WINNER_RE.search(t) or _CLAIM_SELF_VETO_WIN_RE.search(t)) and not live.get("vetoHolder"):
+    if _claims(_CLAIM_VETO_WINNER_RE, _CLAIM_SELF_VETO_WIN_RE) and not live.get("vetoHolder"):
         return "a POWER OF VETO win (no one holds the veto yet)"
-    if (_CLAIM_EVICTED_RE.search(t) or _CLAIM_EVICT_RESULT_RE.search(t) or _CLAIM_TALLY_RE.search(t)) \
-            and not live.get("evicted"):
+    if _claims(_CLAIM_EVICTED_RE, _CLAIM_EVICT_RESULT_RE, _CLAIM_TALLY_RE) and not live.get("evicted"):
         return "an EVICTION / a vote result (no one has been evicted yet)"
-    if _CLAIM_WINNER_RE.search(t) and not live.get("finished"):
+    if _claims(_CLAIM_WINNER_RE) and not live.get("finished"):
         return "the SEASON WINNER being crowned (the season is not finished)"
     return None
 
