@@ -2523,31 +2523,40 @@ _VETO_USE_SPECULATIVE_RE = re.compile(
 # ("if somebody wins the veto tomorrow", "whoever wins HOH", "what if the nominee wins the veto", "unless
 # someone wins the veto", "if he is evicted Thursday") is open-set talk (ADR 0005), not a claim. The claim
 # regexes match committed-sounding verbs ("wins", "won", "is evicted") that a conditional uses too, so the
-# detectors ask `_committed_claim` instead of a bare `.search`: a match whose sentence carries a conditional
+# detectors ask `_committed_claim` instead of a bare `.search`: a match whose own clause carries a conditional
 # lead-in BEFORE it is talk about what MIGHT happen. ORW-10 (#2221) applied the same rule to nominations and
 # the player's own veto win in the board verify only; this extends it to every weekly-loop claim kind on every
 # path (the T0-3 hard-drop rail, the closed-set pre-filter, the premiere board-absence check, the board verify).
 # Bare modals (would / could / might) are deliberately NOT lead-ins here: in "he knew he could compete, and the
 # houseguest wins the veto" the claim is real, and the hard-drop rail must keep catching it.
+# ORW-80 review: "as if" and "even if" are manner / concessive phrases, not conditionals about the outcome ("As if
+# on cue, the houseguest wins the veto" asserts the win), and "whether" introduces both ("Whether or not you
+# believe it, you won HOH"), so none of the three is a lead-in.
 _CLAIM_HYPOTHETICAL_RE = re.compile(
-    r"\b(?:if|unless|whether|suppose|supposing|imagine|assuming|in\s+case|what\s+if|whoever|whichever|"
-    r"hypothetically|were\s+(?:i|you|he|she|they|we)|had\s+(?:i|you|he|she|they|we))\b",
+    r"\b(?:(?<!\bas\s)(?<!\beven\s)if|unless|suppose|supposing|imagine|assuming|in\s+case|what\s+if|whoever|"
+    r"whichever|hypothetically|were\s+(?:i|you|he|she|they|we)|had\s+(?:i|you|he|she|they|we))\b",
     re.IGNORECASE,
 )
+# ORW-80 review: a lead-in governs only the clause it sits in. A comma, semicolon, colon or dash ends that clause,
+# so "Thanks, if you must know, I won the veto." and "Imagine that: the houseguest wins HOH." are claims.
+_CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
 
 
 def _committed_claim(regex, text: str) -> bool:
-    """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose sentence
-    carries a conditional lead-in (`_CLAIM_HYPOTHETICAL_RE`) before it is talk about what might happen, not a
-    claim that it did; a committed claim in another sentence, or with the conditional after it ("she wins the
-    veto, if you can believe it"), still counts. The match's own first word is checked too: a name-capturing
-    pattern reads "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match."""
+    """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose OWN clause
+    (the text after the last comma, semicolon, colon or dash before it) carries a conditional lead-in
+    (`_CLAIM_HYPOTHETICAL_RE`) is talk about what might happen, not a claim that it did. A lead-in in an earlier
+    clause does not cover a later claim ("Wondering if it was fair, you watch as the houseguest wins the veto"),
+    and a committed claim in another sentence, or with the conditional after it ("she wins the veto, if you can
+    believe it"), still counts. The match's own first word is checked too: a name-capturing pattern reads
+    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match."""
     if not text:
         return False
     for sentence in re.split(r"(?<=[.!?\n])", text):
         for m in regex.finditer(sentence):
             words = m.group(0).split(None, 1)
-            lead = sentence[:m.start()] + (words[0] if words else "")
+            clause = _CLAIM_CLAUSE_SPLIT_RE.split(sentence[:m.start()])[-1]
+            lead = re.sub(r"\s+", " ", clause + (words[0] if words else ""))   # one space, so the as/even look-behinds hold
             if not _CLAIM_HYPOTHETICAL_RE.search(lead):
                 return True
     return False
