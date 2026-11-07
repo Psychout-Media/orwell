@@ -1505,15 +1505,15 @@ Do you want me to write those up as a clean feature spec you could hand off?
 
 ## You said: check out the features that are in the docs folder at https://github.
 
-check out the features that are in the docs folder at [https://github.com/kevinhirsch/orwell](https://github.com/kevinhirsch/orwell)
+check out the features that are in the docs folder at [https://github.com/Psychout-Media/orwell](https://github.com/Psychout-Media/orwell)
 
 Jun 8
 
 ## Claude responded: Let me dig into the docs folder specifically.
 
-Fetched: GitHub - kevinhirsch/orwell
+Fetched: GitHub - Psychout-Media/orwell
 
-Fetched: GitHub - kevinhirsch/orwell
+Fetched: GitHub - Psychout-Media/orwell
 
 Let me dig into the docs folder specifically.
 
@@ -1563,7 +1563,7 @@ What's the easiest way for you to get them to me?
 
 ## You said: Try this.
 
-Try this. [https://github.com/kevinhirsch/orwell/tree/main/docs/features](https://github.com/kevinhirsch/orwell/tree/main/docs/features)
+Try this. [https://github.com/Psychout-Media/orwell/tree/main/docs/features](https://github.com/Psychout-Media/orwell/tree/main/docs/features)
 
 Jun 8
 
@@ -1577,7 +1577,7 @@ GitHub is consistently blocking automated directory access. I can read individua
 
 The easiest fix — can you grab the raw URL for one of the files? It would look like:
 
-`https://raw.githubusercontent.com/kevinhirsch/orwell/main/docs/features/[filename].md`
+`https://raw.githubusercontent.com/Psychout-Media/orwell/main/docs/features/[filename].md`
 
 If you can drop even one of those links here I can fetch it directly. Or just paste the contents — whichever is faster for you.
 
@@ -1585,15 +1585,15 @@ If you can drop even one of those links here I can fetch it directly. Or just pa
 
 ## You said: There are almost 50 files.
 
-There are almost 50 files. That would take too long. Is this helpful for now? [https://github.com/kevinhirsch/orwell/blob/main/docs/features/README.md](https://github.com/kevinhirsch/orwell/blob/main/docs/features/README.md)
+There are almost 50 files. That would take too long. Is this helpful for now? [https://github.com/Psychout-Media/orwell/blob/main/docs/features/README.md](https://github.com/Psychout-Media/orwell/blob/main/docs/features/README.md)
 
 Jun 8
 
 ## Claude responded: Got it.
 
-Fetched: orwell/docs/features/README.md at main · kevinhirsch/orwell
+Fetched: orwell/docs/features/README.md at main · Psychout-Media/orwell
 
-Fetched: orwell/docs/features/README.md at main · kevinhirsch/orwell
+Fetched: orwell/docs/features/README.md at main · Psychout-Media/orwell
 
 Got it. That's very useful. Here's what I can see:
 

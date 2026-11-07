@@ -22,7 +22,7 @@ from src import agent_runs
 from src import session_events
 from src.model_context import estimate_tokens
 from src.chat_helpers import coerce_message_and_session
-from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url
+from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url, resolve_session_headers
 from src.session_search import search_session_messages
 from src.prompt_security import untrusted_context_message
 from core.exceptions import SessionNotFoundError
@@ -81,16 +81,8 @@ def _stream_set(session_id: str, **fields) -> None:
 
 
 def _session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
-    if not session_url or not endpoint_base:
-        return False
-    sess = session_url.rstrip("/")
-    base = _normalize_base(endpoint_base).rstrip("/")
-    variants = {
-        base,
-        base + "/chat/completions",
-        build_chat_url(base).rstrip("/"),
-    }
-    return sess in variants or sess.startswith(base + "/")
+    from src.endpoint_resolver import session_url_matches_endpoint
+    return session_url_matches_endpoint(session_url, endpoint_base)
 
 
 # F-TR-1 (perf audit): anti-buffering headers for every token-carrying SSE response. A reverse
@@ -855,7 +847,7 @@ def setup_chat_routes(
             sess.endpoint_url,
             sess.model,
             ctx.messages,
-            headers=sess.headers,
+            headers=resolve_session_headers(sess),
             temperature=ctx.preset.temperature,
             max_tokens=ctx.preset.max_tokens,
             prompt_type=preset_id,
@@ -1585,7 +1577,7 @@ def setup_chat_routes(
                 _chat_finish_reason = None
                 # ── Chat mode: call stream_llm directly, NO tools, NO document access ──
                 try:
-                    _chat_candidates = [(sess.endpoint_url, sess.model, sess.headers)] + _fallback_candidates
+                    _chat_candidates = [(sess.endpoint_url, sess.model, resolve_session_headers(sess))] + _fallback_candidates
                     async for chunk in stream_llm_with_fallback(
                         _chat_candidates,
                         messages,
@@ -1770,7 +1762,7 @@ def setup_chat_routes(
                         sess.endpoint_url,
                         sess.model,
                         messages,
-                        headers=sess.headers,
+                        headers=resolve_session_headers(sess),
                         temperature=ctx.preset.temperature,
                         max_tokens=ctx.preset.max_tokens,
                         prompt_type=preset_id,
@@ -2356,7 +2348,7 @@ def setup_chat_routes(
                     sess.endpoint_url,
                     sess.model,
                     messages,
-                    headers=sess.headers,
+                    headers=resolve_session_headers(sess),
                     temperature=0.7,
                     # 0 = let the server decide (no cap). A hardcoded 4096 made
                     # local reasoning models (Qwen3 / R1) burn the whole budget

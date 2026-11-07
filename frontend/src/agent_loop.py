@@ -6851,12 +6851,10 @@ async def _stream_agent_loop_impl(
             # No-op when the user has an explicit `agent_input_token_budget`
             # (that branch ignores hard_max). Falls back to DEFAULT_HARD_MAX
             # on missing/malformed values so misconfig can't zero the budget.
-            try:
-                hard_max = int(get_setting("agent_input_token_hard_max", DEFAULT_HARD_MAX) or DEFAULT_HARD_MAX)
-            except (TypeError, ValueError):
-                hard_max = DEFAULT_HARD_MAX
-            if hard_max <= 0:
-                hard_max = DEFAULT_HARD_MAX
+            # None/unset/0 = AUTO (model-aware: 0.60 x window on windows >= 500K, else the 48K cost cap); any
+            # explicit number is honoured exactly (ORW-219).
+            from src.context_budget import resolve_hard_max
+            hard_max = resolve_hard_max(get_setting("agent_input_token_hard_max", 0))
             # Scale the default budget to the model's context window so long-context
             # models aren't silently capped at 6000; an explicit user setting is
             # still honoured (clamped to the window). (#1170)
@@ -6877,6 +6875,7 @@ async def _stream_agent_loop_impl(
                 messages,
                 effective_budget,
                 reserve_tokens=reserve_tokens,
+                preserve_system=bool(game_mode),  # ORW-219: never cut the GM prompt / HARD CONSTRAINTS
             )
             after_trim_tokens = estimate_tokens(trimmed_messages)
             if after_trim_tokens < before_trim_tokens:

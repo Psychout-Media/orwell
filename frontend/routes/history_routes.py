@@ -613,7 +613,7 @@ def setup_history_routes(session_manager) -> APIRouter:
         try:
             from src.model_context import estimate_tokens, get_context_length
             from src.llm_core import llm_call_async
-            from src.endpoint_resolver import resolve_endpoint
+            from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
 
             if len(session.history) < 6:
                 return {"status": "ok", "message": "Not enough messages to compact"}
@@ -640,7 +640,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             util_url, util_model, util_headers = resolve_endpoint("utility", owner=owner or None)
             compact_url = util_url or session.endpoint_url
             compact_model = util_model or session.model
-            compact_headers = util_headers if util_url else session.headers
+            compact_headers = util_headers if util_url else resolve_session_headers(session)
 
             from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT
             compaction_count = sum(1 for m in session.history if isinstance(m, ChatMessage) and "[Conversation summary" in (m.content or ""))

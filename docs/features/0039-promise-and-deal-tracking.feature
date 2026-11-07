@@ -45,3 +45,10 @@ Feature: Promise & deal tracking
     When a binding action implicates it
     Then kept or broken is decided from the action and the deal's condition
     And it is never inferred from chat prose
+
+  Scenario: An NPC who distrusts the player refuses a deal and no deal is recorded
+    Given a houseguest who distrusts the player
+    When the player proposes a safety deal to them
+    Then the houseguest refuses the deal
+    And no deal is recorded
+    And the refusal carries no numbers

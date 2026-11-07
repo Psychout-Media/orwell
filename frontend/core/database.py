@@ -130,7 +130,10 @@ class Session(TimestampMixin, Base):
     crew_member_id = Column(String, nullable=True)  # links to crew_members.id
 
     # Relationship to chat messages
-    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    # ORW-197: explicit order. Without it SQLite serves the rows in whatever index order it picks (the UNIQUE
+    # (session_id, client_msg_id) index puts every assistant row first), so a hydrated history was scrambled.
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan",
+                            order_by="[ChatMessage.seq, ChatMessage.timestamp]")
     
     @property
     def is_active(self):
@@ -1801,6 +1804,7 @@ def _init_db_inner():
     _migrate_encrypt_signatures()
     _migrate_encrypt_endpoint_keys()
     _migrate_backfill_task_folders()
+    _migrate_strip_session_auth_headers()
 
 
 def init_db():
@@ -1853,6 +1857,21 @@ def init_db():
             )
         except Exception:
             pass
+
+
+def _migrate_strip_session_auth_headers():
+    """ORW-199/200: provider credentials were persisted on session rows. The endpoint record is
+    now the source of truth (resolved at call time), so strip Authorization / x-api-key from
+    existing session rows whose URL resolves to a keyed endpoint. Idempotent; rows with no
+    resolvable endpoint are never touched. Fail-soft."""
+    try:
+        from src.endpoint_resolver import migrate_strip_session_auth_headers
+        n = migrate_strip_session_auth_headers()
+        if n:
+            logging.getLogger(__name__).info(
+                "Migrated: stripped stored auth headers from %d session row(s)", n)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"session auth-header strip migration failed: {e}")
 
 
 def _migrate_backfill_task_folders():
