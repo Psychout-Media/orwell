@@ -28,8 +28,13 @@ def _run(coro):
 @pytest.fixture(autouse=True)
 def _clear_runway():
     chat_helpers.clear_social_runway("u")
+    chat_helpers.consume_pre_resolved_advance("u")
     yield
     chat_helpers.clear_social_runway("u")
+    # the pre-resolve these tests drive directly marks the #670 one-shot flag that the agent loop would
+    # consume in a real turn; leaving it set made a later test's turn for the same owner skip its advance
+    chat_helpers.consume_pre_resolved_advance("u")
+    chat_helpers.clear_preresolve_debt("u")
 
 
 class _Engine:
