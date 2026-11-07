@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 
 import pytest
 
@@ -55,6 +56,42 @@ _WAIT_LABEL = re.compile(r"^(Responding|The (house is in motion|producers are)|T
 # two polls ("the streaming bubble never painted before settle"). With first_paint=True the stub holds the stream open after its last delta (a
 # threading.Event gate on the scripted entry, test_m0_3_midgen_join's stub) until this poll has captured the streaming bubble, so settle can never
 # overtake the capture, however slowly the poll runs. What is captured is unchanged: the same task-level snapshot as before (see A88 drift 2 below).
+_GATE_RELEASE_S = 20.0  # a gated poll that has not captured the streaming bubble by then lets the stream finish (the test then fails on `mid`)
+_TURN_BUDGET_S = 45.0   # THIS turn must settle within this long after the send, gated or not
+
+
+def _drive_turn(page, entries, text, base_n, *, gate=None, poll_ms=150, script=None, clock=None):
+    """Queue the scripted stub entries, send `text`, and poll until THIS turn's bubble settles. Returns (live, mid, settled).
+
+    `mid` is the first paint of the STREAMING bubble (reply text, not settled yet). With a gate, the stub holds the stream open after its last delta
+    until the poll that captures `mid` releases it, or until _GATE_RELEASE_S has passed, whether or not this turn's bubble has appeared. The gate is
+    also released on every exit, a send that fails included, so the stub is never left waiting. Deadlines are on `clock`, not a count of polls."""
+    script = STUB.script if script is None else script
+    clock = clock or time.monotonic
+    live = mid = None
+    settled = False
+    try:
+        script.extend(entries)
+        page.fill("#message", text)
+        page.keyboard.press("Enter")
+        sent = clock()
+        while clock() - sent < _TURN_BUDGET_S:
+            page.wait_for_timeout(poll_ms)
+            live = page.evaluate(SNAP)
+            fresh = bool(live) and live["n"] > base_n  # THIS turn's bubble; until it appears, the last bubble is the previous turn's
+            if fresh and mid is None and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]):
+                mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
+            if gate is not None and not gate.is_set() and (mid is not None or clock() - sent >= _GATE_RELEASE_S):
+                gate.set()  # captured (or the deadline passed: let it settle and fail on `mid`): the stub may finish the stream
+            if fresh and live["footer"]:
+                settled = True
+                break
+    finally:
+        if gate is not None:
+            gate.set()  # never leave the stub waiting
+    return live, mid, settled
+
+
 def _send_and_snapshot(stack, entries, text, *, first_paint=False, poll_ms=150):
     from playwright.sync_api import sync_playwright
     gate = threading.Event() if first_paint else None
@@ -71,28 +108,8 @@ def _send_and_snapshot(stack, entries, text, *, first_paint=False, poll_ms=150):
         page.wait_for_timeout(2500)
         before = page.evaluate(SNAP)
         base_n = before["n"] if before else 0
-        for en in entries:
-            STUB.script.append(en)
-        page.fill("#message", text)
-        page.keyboard.press("Enter")
-        live = None
-        mid = None
-        try:
-            for i in range(max(160, 24_000 // poll_ms)):
-                page.wait_for_timeout(poll_ms)
-                live = page.evaluate(SNAP)
-                if live and live["n"] <= base_n:
-                    continue  # the previous turn's bubble is still the last one - wait for THIS turn's
-                if live and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
-                    mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
-                if gate is not None and not gate.is_set() and (mid is not None or i * poll_ms >= 20_000):
-                    gate.set()  # captured (or 20 s passed: let it settle and fail below): the stub may finish the stream
-                if live and live["footer"]:
-                    break
-        finally:
-            if gate is not None:
-                gate.set()  # never leave the stub waiting
-        assert live and live["footer"], "the live turn never settled (no footer)"
+        live, mid, settled = _drive_turn(page, entries, text, base_n, gate=gate, poll_ms=poll_ms)
+        assert settled, "the live turn never settled (no footer)"
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
         reloaded = page.evaluate(SNAP)
@@ -149,3 +166,79 @@ def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id,
     # A88 drift 2 was a MEASUREMENT artifact, not a render drift: the avatar-initials chip ("PR") is attached by orwellChatFaces.js's MutationObserver in a queued MICROTASK, so a MutationObserver callback
     # (what the CI trace used) sees the bare "Production" one microtask early, while every painted frame (and this harness's polling) already reads "PRProduction", exactly like the reload. No normalisation needed.
     assert mid["role"] == reloaded["role"], f"{case_id}: role label at first paint differs from the reload: {mid['role']!r} vs {reloaded['role']!r}"
+
+
+# ── the harness itself (no browser, no stack): a fake page on a fake clock ─────────────────────────────────────────────────────────────────────────
+# Review of #2302 (cubic, greptile): the gate must be released on time even when THIS turn's bubble never appears, and on every exit, including a
+# send that fails before the poll starts; a turn that never shows up must fail within the poll budget, and the previous turn's settled bubble must
+# never count as this turn's settle.
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class _FakePage:
+    """Stands in for the Playwright page: wait_for_timeout advances the fake clock, evaluate returns the next scripted snapshot (the last one
+    repeats) and records the clock and whether the gate was already released at that poll."""
+
+    def __init__(self, clock, snaps, gate=None, fail_on=None):
+        self.clock, self.snaps, self.gate, self.fail_on = clock, list(snaps), gate, fail_on
+        self.seen = []
+        self.keyboard = self
+
+    def fill(self, _selector, _text):
+        if self.fail_on == "fill":
+            raise RuntimeError("page closed")
+
+    def press(self, _key):
+        if self.fail_on == "press":
+            raise RuntimeError("page closed")
+
+    def wait_for_timeout(self, ms):
+        self.clock.now += ms / 1000
+
+    def evaluate(self, _js):
+        self.seen.append((self.clock.now, self.gate.is_set() if self.gate is not None else None))
+        return self.snaps.pop(0) if len(self.snaps) > 1 else self.snaps[0]
+
+
+_PREVIOUS_TURN = {"n": 1, "footer": ["copy"], "body": "The previous turn."}
+
+
+@pytest.mark.parametrize("fail_on", ["fill", "press"])
+def test_harness_releases_the_gate_when_the_send_itself_fails(fail_on):
+    gate, clock = threading.Event(), _FakeClock()
+    page = _FakePage(clock, [_PREVIOUS_TURN], gate, fail_on=fail_on)
+    with pytest.raises(RuntimeError):
+        _drive_turn(page, [{"deltas": ["x"], "gate": gate}], "hi", 1, gate=gate, poll_ms=1000, script=[], clock=clock)
+    assert gate.is_set(), "a failed send left the stub's gate closed (the next consumer of the entry would wait 60 s)"
+
+
+def test_harness_releases_the_gate_on_time_when_this_turn_never_appears():
+    gate, clock = threading.Event(), _FakeClock()
+    page = _FakePage(clock, [_PREVIOUS_TURN], gate)
+    live, mid, settled = _drive_turn(page, [], "hi", 1, gate=gate, poll_ms=1000, script=[], clock=clock)
+    assert not settled, "the previous turn's settled bubble was taken for this turn's settle"
+    assert mid is None
+    released = [t for t, is_set in page.seen if is_set]
+    assert released, "the gate was only released on exit, not by the deadline inside the poll loop"
+    assert 20 <= released[0] <= 22, f"released at {released[0]} s, not at the 20 s mark"
+    assert clock.now <= 60, f"a turn that never appears polled for {clock.now:.0f} s before failing"
+
+
+def test_harness_releases_the_gate_in_the_poll_that_captures_the_streaming_bubble():
+    gate, clock = threading.Event(), _FakeClock()
+    snaps = [
+        _PREVIOUS_TURN,                                            # this turn's bubble is not there yet
+        {"n": 2, "footer": [], "body": "Responding"},              # the spinner's wait label is not reply text
+        {"n": 2, "footer": [], "body": "The kitchen hums."},       # first paint of the reply
+        {"n": 2, "footer": [], "body": "The kitchen hums. Someone laughs."},
+        {"n": 2, "footer": ["copy"], "body": "The kitchen hums. Someone laughs."},
+    ]
+    page = _FakePage(clock, snaps, gate)
+    live, mid, settled = _drive_turn(page, [], "hi", 1, gate=gate, poll_ms=1000, script=[], clock=clock)
+    assert settled and live["footer"] and mid["body"] == "The kitchen hums."
+    assert [is_set for _, is_set in page.seen] == [False, False, False, True, True], page.seen
