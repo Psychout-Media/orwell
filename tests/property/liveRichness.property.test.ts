@@ -1,3 +1,4 @@
+process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
@@ -39,10 +40,13 @@ function playLiveStretch(seed: number) {
   reg.setCommit((u) => orch.commitPlayerTurn(u));
   const sb = reg.sandboxFor(user);
   sb.session.createCharacter({ playerName: "The Player", seed });
+  // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
+  sb.session.setBedtimeGateEnabled(false);
   const edgesBefore = JSON.stringify(sb.engine.relationships.serialize());
 
   for (let i = 0; i < 600; i++) {
     const v = sb.session.advanceGame();
+    if (v.held) sb.session.turnIn(); // ORW-116: a held night is the player's to end - this headless player turns in
     if (v.pending) resolve(sb.session, v.pending);
     if (v.status.week > WEEKS || v.finished) break;
   }

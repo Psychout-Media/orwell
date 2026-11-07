@@ -2018,6 +2018,18 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
   if (hours > 0) advanceClockBy(s, hours, false);
 }
 
+/** ORW-116 (b): record that the night in front of the CURRENT beat's day-break has been crossed (by the player's own turn-in). */
+function markNightGateCrossed(s: LiveSeasonState): void {
+  switch (s.beat) {
+    case "hoh-competition": s.firstNightPassed = true; break;
+    case "nominations": s.preNomsNightPassed = true; break;
+    case "veto-competition": s.preVetoNightPassed = true; break;
+    case "veto-ceremony": s.preVetoCeremonyNightPassed = true; break;
+    case "eviction": s.preEvictionNightPassed = true; break;
+    default: break;
+  }
+}
+
 /** ORW-116 (b): would the NEXT ordinary advance be a night-gate day-break (the beat that rolls the night)? Pure read of the same one-shot flags `advance` tests. */
 export function nightBreakPending(s: LiveSeasonState): boolean {
   if (s.twist?.phase === "running" || s.nightDepth === undefined) return false;
@@ -2092,6 +2104,9 @@ export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   s.lastSleepDepth = hour;
   s.lastSleepPhase = hour; // legacy field name; now the clock-hour the player was last awake to
   s.playerRetired = true;
+  // ORW-116 (b): the night the player just took IS the night the pending day-break would have rolled. Mark that gate crossed (the turn-in already rolled the day), or the clock ticks that follow (which clear
+  // `playerRetired`) would leave the gate held again - a second night nobody asked for.
+  if (nightBreakPending(s)) markNightGateCrossed(s);
   // P4d: wake = min(8am, bedtime + 8h) - an EVENING bed wakes early; midnight or later wakes at 8am (debt as before).
   const wake = wakeHourAfterBed(hour);
   s.wakeHour = wake === WAKE_HOUR ? undefined : wake;

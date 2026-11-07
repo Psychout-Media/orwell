@@ -5679,7 +5679,7 @@ export class GameSessionAdapter implements GameSession {
   private advancePremiereEntrance(): AdvanceView {
     const s = this.live!;
     this.ensurePremiereClock();
-    if (this.perConversationClockLive()) tickPremiereClock(s, PREMIERE_STEP_HOURS); // ORW-116: the entrances take real time
+    if (this.perConversationClockLive()) { s.clockInteractive = true; tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
     const pe = s.premiereEntrance!;
     const me = this.house!.player.id;
     if (pe.stage === "entrances") {
@@ -7977,7 +7977,7 @@ export class GameSessionAdapter implements GameSession {
       // and the calibration harness (master clock off) both leave it inert ⇒ byte-identical.
       nightGate: this.perConversationClockEnabled && this.timeOfDayEnabled,
       // ORW-116 (b): hold the night-roll until the player turns in or the clock reaches 8am (never for the spectator / the engine's own fast-forward).
-      nightHold: this.perConversationClockEnabled && this.timeOfDayEnabled && !this.scheduleGateBypass && !this.live?.spectator,
+      nightHold: this.perConversationClockEnabled && this.timeOfDayEnabled && !this.scheduleGateBypass && !this.live?.spectator && !(this.live && playerHasLeft(this.live, PLAYER)), // a player who has left the game has no night to spend
       // Open deals binding the houseguest (0039 → 0044): the vote leans to honor; the ledger still
       // reconciles a break with its full betrayal consequence downstream.
       dealsOf: (id) => this.deals.open().filter((d) => d.condition.promisors.includes(id)),
@@ -9831,7 +9831,7 @@ export class GameSessionAdapter implements GameSession {
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, spectated) : spectated;
     }
     // ORW-116 (b), Ryne's rule: the night is NEVER auto-run. If the next beat would roll the night and the player has not turned in (nor reached 8am), hold: typed `held`, no commit, no beatSeq bump.
-    if (this.perConversationClockLive() && !this.scheduleGateBypass && !this.live.spectator && !this.live.pending && !this.live.finished
+    if (this.perConversationClockLive() && !this.scheduleGateBypass && !this.live.spectator && !playerHasLeft(this.live, PLAYER) && !this.live.pending && !this.live.finished
         && nightBreakPending(this.live) && nightHeld(this.live)) {
       return { ...this.advanceView(null), held: { next: this.live.beat as never, minutesUntil: Math.max(0, Math.round((DAY_END_HOUR - (this.live.nightDepth ?? DAY_END_HOUR)) * 60)) } };
     }
