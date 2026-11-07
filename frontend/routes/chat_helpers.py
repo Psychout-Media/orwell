@@ -3311,15 +3311,22 @@ def _presence_facts(state: dict) -> Optional[dict]:
         return None  # no live scene → nothing to ground against
     in_view: set = set()
     room_present: set = set()
+    adjacent: set = set()  # ORW-249: people in an ADJACENT room - legitimately glimpsed or overheard, never in the player's scene
+    adjacent_rooms: set = set()
     for p in (wa.get("present") or []):
         if isinstance(p, dict) and p.get("name"):
             in_view.add(p["name"])
             room_present.add(p["name"])
     for nb in (wa.get("nearby") or []):
         if isinstance(nb, dict):
+            _nr = str(nb.get("room") or "").replace("-", " ").strip().lower()
+            if _nr:
+                adjacent_rooms.add(_nr)
             for p in (nb.get("present") or []):
                 if isinstance(p, dict) and p.get("name"):
                     in_view.add(p["name"])
+                    adjacent.add(p["name"])
+    adjacent -= room_present
     evicted: set = set()
     active_offscene: set = set()
     for h in (state.get("house") or []):
@@ -3336,7 +3343,8 @@ def _presence_facts(state: dict) -> Optional[dict]:
     if tonight and tonight in evicted:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
-            "evicted": evicted, "active_offscene": active_offscene}
+            "evicted": evicted, "active_offscene": active_offscene,
+            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms}
 
 
 def _first_name_counts(names) -> dict:
@@ -3431,7 +3439,28 @@ def _sentence_stages_absent_npc(sentence: str, facts: dict, first_counts: dict) 
     for n in facts.get("active_offscene") or ():
         if _name_staged_unique(sentence, n, first_counts):
             return n
+    # ORW-249 (the hard roster): someone in an ADJACENT room who is staged speaking or acting IN the player's scene is as absent as someone across the house. The one legitimate form is the
+    # glimpse/overhear framed as the OTHER room ("you hear Mara laughing in the backyard", "from next door, Mara's voice..."), which stays.
+    if not _sentence_frames_elsewhere(sentence, facts):
+        for n in facts.get("adjacent") or ():
+            if _name_staged_unique(sentence, n, first_counts):
+                return n
     return None
+
+
+# ORW-249: cues that a sentence places a sound or glimpse in ANOTHER room (so it is an overhear, not a presence in the player's scene).
+_ELSEWHERE_CUE_RE = re.compile(
+    r"\b(?:next\s+door|other\s+room|through\s+the\s+(?:wall|door)|down\s+the\s+hall(?:way)?|across\s+the\s+house|from\s+(?:the\s+)?(?:other|next|another)\s+room|"
+    r"overhear\w*|muffled|faintly|distant(?:ly)?|drifts?\s+(?:in|through|from)|carries?\s+(?:in|through|from)|audible|you\s+(?:hear|glimpse|catch\s+sight\s+of)|"
+    r"(?:in|from)\s+the\s+(?:next|adjacent)\s+room)\b", re.IGNORECASE)
+
+
+def _sentence_frames_elsewhere(sentence: str, facts: dict) -> bool:
+    """True when the sentence frames the action as happening in another room: an elsewhere cue, or the NAME OF AN ADJACENT ROOM (the engine's own room labels)."""
+    if _ELSEWHERE_CUE_RE.search(sentence or ""):
+        return True
+    low = (sentence or "").lower()
+    return any(r and re.search(rf"\b{re.escape(r)}\b", low) for r in (facts.get("adjacent_rooms") or ()))
 
 
 def _mentioned_anywhere(text: str, full_name: str, first_counts: dict) -> bool:
@@ -3551,8 +3580,8 @@ async def screen_presence_wall(user, text: str) -> str:
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if not facts or (not facts.get("evicted") and not facts.get("active_offscene")):
-        return text  # nothing off-scene/evicted this turn — the overwhelmingly common path
+    if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
+        return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
     roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
     first_counts = _first_name_counts(roster)
     parts = re.split(r"(?<=[.!?\n])", text)
