@@ -8,10 +8,14 @@ const ci = read(".github/workflows/ci.yml");
 const nightly = read(".github/workflows/ci-nightly.yml");
 
 describe("flaky-test rule wiring", () => {
-  it("every engine vitest lane retries a failed test once", () => {
+  it("the engine unit and coverage lanes retry a failed test once; the seeded heavy sims never retry", () => {
     expect(ci).toContain("npm run test:unit:fast -- --shard=${{ matrix.shard }}/4 --retry=1");
     expect(ci).toMatch(/--reporter=blob --outputFile=\.vitest-reports\/blob-\$\{\{ matrix\.shard \}\}\.json --retry=1/);
-    expect(ci).toContain('npm run "test:heavy:$s" -- --retry=1');
+    expect(ci).toContain('npm run "test:heavy:$s" || {');
+    expect(ci).not.toMatch(/test:heavy:\$s" -- --retry/);
+  });
+  it("a retried property test replays the same fast-check seed (review MEDIUM, tests/unit/fastCheckSeedReplay.test.ts)", () => {
+    expect(read("vitest.config.ts")).toMatch(/setupFiles: \[[^\]]*"tests\/support\/fastCheckSeed\.ts"[^\]]*\]/);
   });
   it("both pytest lanes rerun a failed test once", () => {
     expect(ci).toContain('python3 -m pytest tests/ -m "not browser" -n 4 --reruns 1');
@@ -28,5 +32,8 @@ describe("flaky-test rule wiring", () => {
     expect(nightly).toMatch(/\nenv:\n(?: {2}.*\n)*? {2}ORWELL_RUN_QUARANTINED: "1"\n/);
     expect(nightly).toMatch(/schedule:\n {4}- cron: /);
     expect(nightly).toContain("runs-on: ubuntu-24.04");
+    // both guards run every night, so an expired quarantine is caught even when no PR runs that lane (review LOW)
+    expect(nightly).toContain("run: npx vitest run tests/unit/ciQuarantineGuard.test.ts");
+    expect(nightly).toContain("python3 -m pytest tests/test_ci_quarantine_guard.py -q");
   });
 });

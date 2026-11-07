@@ -3,7 +3,8 @@ name: ci-nightly
 # ORW-229 (docs/CI.md "Nightly"), every night on ubuntu-24.04:
 #   - `full-suite` calls ci.yml with `nightly: true`: every lane (a scheduled run has no diff base, so every path filter is true), the quarantined
 #     tests, the SHOWRUNNER_REWEIGHT heavy sims and coverage over EVERY test file with the floors enforced. The suite is defined once, in ci.yml.
-#   - `quarantined` runs the quarantined tests alone, with NO automatic retry, so a still-flaky one shows up red.
+#   - `quarantined` runs the quarantined tests alone, with NO automatic retry, so a still-flaky one shows up red, and both quarantine guards,
+#     so a quarantine past its 7 days turns the night red even when no PR touches that lane.
 #   - A failing night opens or updates ONE GitHub issue (label `ci-nightly`) naming the run, the failing jobs, the tracking card ORW-234 and each
 #     quarantine's card. The Plane instance is not reachable from GitHub-hosted runners, so the issue points at the cards. Never a required check; no secrets.
 on:
@@ -61,28 +62,30 @@ jobs:
             echo "- front-end files: ${frontend:-none}"
             echo "- Plane cards: ${cards:-none}"
           } >> "$GITHUB_STEP_SUMMARY"
-      - if: steps.which.outputs.engine != '' || steps.which.outputs.frontend != ''
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - if: steps.which.outputs.engine != '' || steps.which.outputs.frontend != ''
-        name: build the engine (unit tests and the real-stack browser tests use dist/)
+      - name: build the engine (unit tests and the real-stack browser tests use dist/)
         run: |
           npm ci
           npm run build
+      # Every night, whatever changed: a quarantine older than 7 days (or without a card or a date) turns this run red, even when no PR touches
+      # that lane (ORW-229 review).
+      - name: quarantine guard (engine)
+        run: npx vitest run tests/unit/ciQuarantineGuard.test.ts
       - if: steps.which.outputs.engine != ''
         name: engine quarantined tests (no retry)
         env:
           FILES: ${{ steps.which.outputs.engine }}
         run: npx vitest run $FILES
-      - if: steps.which.outputs.frontend != ''
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - if: steps.which.outputs.frontend != ''
-        run: pip install -r frontend/requirements.lock.txt
+      - run: pip install -r frontend/requirements.lock.txt
+      - name: quarantine guard (front end)
+        run: cd frontend && python3 -m pytest tests/test_ci_quarantine_guard.py -q
       - if: steps.which.outputs.frontend != ''
         uses: ./.github/actions/setup-playwright
       - if: steps.which.outputs.frontend != ''
