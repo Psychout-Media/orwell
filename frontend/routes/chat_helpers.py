@@ -8133,8 +8133,185 @@ def _extract_thinking_meta(text: str) -> dict | None:
     return None
 
 
+# ORW-230 — the narrator's think markup, for the game-turn split below. The opener grammar is the clients'
+# (`<think>`, `<thinking>` and `<thought>` with ANY attributes, plus Gemma's `<|channel>thought`); a closer is the
+# matching close tag or Gemma's `<channel|>`. A Gemma RESPONSE channel's opener is read too, so the `<channel|>`
+# that closes it is not taken for the end of a think.
+_GAME_THINK_OPEN_RE = re.compile(r'<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>|<\|channel>thought', re.IGNORECASE)
+_GAME_THINK_CLOSE_RE = re.compile(r'</(?:think(?:ing)?|thought)(?:\s+[^>]*)?>|<channel\|>', re.IGNORECASE)
+_GAME_RESPONSE_OPEN_RE = re.compile(r'<\|channel>response', re.IGNORECASE)
+_GAME_THINK_MARK_RE = re.compile(
+    rf'(?P<open>{_GAME_THINK_OPEN_RE.pattern})|(?P<close>{_GAME_THINK_CLOSE_RE.pattern})'
+    rf'|(?P<response>{_GAME_RESPONSE_OPEN_RE.pattern})',
+    re.IGNORECASE,
+)
+_GAME_THINK_TIME_RE = re.compile(r'\btime\s*=\s*"([\d.]+)"', re.IGNORECASE)
+# A CUT-OFF game turn (the disconnect save) whose reasoning began but was never seen to end: it opens with a
+# reasoning label (the label forms of the clients' `startsWithReasoningPrefix`), or with an EMPTY think pair and
+# no second closer after it (the model reasoned outside the tags; the clients stream that as thinking too).
+_GAME_REASONING_LABEL_RE = re.compile(r'\s*thinking(?:\s+process)?\s*:', re.IGNORECASE)
+_GAME_EMPTY_THINK_PAIR_RE = re.compile(
+    r'\s*<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>\s*</(?:think(?:ing)?|thought)(?:\s+[^>]*)?>', re.IGNORECASE)
+# A cut in the middle of a tag leaves a fragment at the very end: a proper prefix of one of these markers, or a
+# think tag whose attributes began but whose `>` never came (`<think time="3.`).
+_GAME_THINK_MARKERS = ("<thinking>", "<thought>", "</thinking>", "</thought>",
+                       "<|channel>thought", "<|channel>response", "<channel|>")
+_GAME_THINK_TAG_UNFINISHED_RE = re.compile(r'</?(?:think(?:ing)?|thought)\s[^<>]*\Z', re.IGNORECASE)
+
+
+def _strip_partial_think_tag(text: str) -> str:
+    """ORW-230 — drop a think tag that was cut mid-way at the very end of a game turn's text (`<thi`, `</thi`,
+    `<|chan`, `<channel|`), so neither the saved content nor the reasoning keeps the fragment. Any other text,
+    including a trailing `<` that cannot start one of those tags ("I <3 this house"), is returned unchanged."""
+    if not isinstance(text, str) or not text:
+        return text
+    cut = text.rfind("<")
+    if cut < 0:
+        return text
+    tail = text[cut:]
+    low = tail.lower()
+    if any(m != low and m.startswith(low) for m in _GAME_THINK_MARKERS) or _GAME_THINK_TAG_UNFINISHED_RE.match(tail):
+        return text[:cut].rstrip()
+    return text
+
+
+def _split_game_reasoning(text: str, *, cut_off: bool = False) -> dict | None:
+    """ORW-230 — split a GAME turn's text into the narrator's private reasoning and the reply, so no
+    reasoning is ever saved as the reply. Returns {thinking, reply, time}, or None when the text carries
+    no think markup at all (the caller then uses `_extract_thinking_meta` as before).
+
+    Unlike `_extract_thinking_meta` — which, for an ordinary chat, keeps an unclosed or reply-less think
+    as the content so the bubble is not blank — every think block here is reasoning: closed or cut off
+    mid-think (Stop, a dropped connection, the token cap), at the start or opened after earlier
+    narration (agent rounds are joined into one reply), nested (a block ends at its OWN closer), and a
+    closer with no think open: everything since the last block was reasoning (R1-style, where the chat
+    template opened the think so only `</think>` arrived, or a second closer after an empty pair). The
+    grammar is `_GAME_THINK_MARK_RE`: any attributes, `<thought>`, and the Gemma channels. The reply keeps
+    only the narration outside the blocks and may be empty.
+
+    `cut_off` (the disconnect save only): a turn that opens with a reasoning label ("Thinking Process:") is
+    reasoning up to its first closer, and one that opens with an empty think pair and has no second closer
+    is reasoning to the end. Without that boundary the cut-off text is all reasoning and the reply is empty.
+
+    Markup only, by design: the plain-text preamble heuristics in `_normalize_thinking` can split the wrong
+    way (a capitalised paragraph read as the reply), so they are not used here."""
+    if not text:
+        return None
+    body, depth, think_time = text, 0, None
+    if cut_off:
+        label = _GAME_REASONING_LABEL_RE.match(body)
+        empty = None if label else _GAME_EMPTY_THINK_PAIR_RE.match(body)
+        if label is not None:
+            body, depth = body[label.end():], 1  # the label opens the reasoning
+        elif empty is not None and not _GAME_THINK_CLOSE_RE.search(body, empty.end()):
+            time_attr = _GAME_THINK_TIME_RE.search(empty.group(0))
+            think_time = time_attr.group(1) if time_attr else None
+            body, depth = body[empty.end():], 1  # the reasoning after the pair never reached its closer
+    if depth == 0 and _GAME_THINK_MARK_RE.search(body) is None:
+        return None
+    thinking, reply, block, pending = [], [], [], []
+    in_response, pos = False, 0
+    for mark in _GAME_THINK_MARK_RE.finditer(body):
+        (block if depth else pending).append(body[pos:mark.start()])
+        pos = mark.end()
+        if mark.group("open"):
+            if depth == 0:
+                reply += pending
+                pending = []
+            depth += 1
+            if think_time is None:
+                time_attr = _GAME_THINK_TIME_RE.search(mark.group("open"))
+                think_time = time_attr.group(1) if time_attr else None
+        elif mark.group("close"):
+            if depth:
+                depth -= 1
+                if depth == 0:
+                    thinking.append("\n".join(block))
+                    block = []
+            elif in_response and mark.group("close").lower() == "<channel|>":
+                in_response = False  # the end of a Gemma response channel: its text was the reply
+            else:
+                thinking.append("".join(pending))  # a closer with no think open: what came before was reasoning
+                pending = []
+        elif depth == 0:
+            in_response = True  # a Gemma response channel: its text is the reply
+    if depth:
+        thinking.append("\n".join(block + [body[pos:]]))  # cut off inside the think: the rest is all reasoning
+    else:
+        reply += pending + [body[pos:]]
+    return {
+        "thinking": "\n\n".join(p.strip() for p in thinking if p.strip()),
+        "reply": "".join(reply).strip(),
+        "time": think_time,
+    }
+
+
+# R-VLT-2 (ORW-230) — what a GAME or casting session's history serves the player. The narrator's reasoning is
+# Vault-bearing (its prompt carries hidden game state), so a reload withholds it. The stored rows are unchanged.
+_WITHHELD_REASONING_KEYS = ("thinking", "thinking_time")
+_PLAYER_SHOWN_METADATA_KEYS = ("tool_events", "announcements", "web_sources", "research_sources",
+                               "research_findings", "rag_sources")
+
+
+def _game_narration(text):
+    """The narration of a game turn's text, every think block removed (markup only, see `_split_game_reasoning`).
+    Text with no think markup, and anything that is not a string, comes back unchanged."""
+    info = _split_game_reasoning(text) if isinstance(text, str) else None
+    return info["reply"] if info else text
+
+
+def _row_shows_nothing(content, md: dict) -> bool:
+    """True when an assistant row, its reasoning withheld, has nothing left for the reload to render."""
+    if (content.strip() if isinstance(content, str) else content):
+        return False
+    rounds = md.get("round_texts")
+    if isinstance(rounds, list) and any(isinstance(t, str) and t.strip() for t in rounds):
+        return False
+    return not any(md.get(key) for key in _PLAYER_SHOWN_METADATA_KEYS)
+
+
+def withhold_game_reasoning(entry: dict) -> dict | None:
+    """R-VLT-2 (ORW-230): one history row of a game or casting session, as the player may see it.
+
+    Drops `metadata.thinking` / `thinking_time`, and keeps only the narration of an assistant row's content and
+    of each `metadata.round_texts` entry (agent rounds keep their inline think blocks for the reload accordion, and
+    a row saved before ORW-230 can hold the reasoning as its content). The player's own rows are verbatim. Returns
+    a new dict and never mutates `entry`; None for an assistant row whose reasoning was all it had to show (the
+    history leaves it out, like a hidden row, so a reload never paints an empty bubble)."""
+    if not isinstance(entry, dict):
+        return entry
+    md = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else None
+    md_out = {k: v for k, v in (md or {}).items() if k not in _WITHHELD_REASONING_KEYS}
+    out = dict(entry)
+    if md is not None:
+        out["metadata"] = md_out
+    if entry.get("role") != "assistant":
+        return out
+    rounds = md_out.get("round_texts")
+    if isinstance(rounds, list):
+        md_out["round_texts"] = [_game_narration(t) for t in rounds]
+    out["content"] = _game_narration(entry.get("content"))
+    withheld = (md is not None and len(md_out) != len(md)) or out["content"] != entry.get("content") or (
+        isinstance(rounds, list) and md_out["round_texts"] != rounds)
+    if withheld and _row_shows_nothing(out["content"], md_out):
+        return None
+    return out
+
+
+def player_visible_history(session, history: list) -> list:
+    """R-VLT-2 (ORW-230): the rows `/api/history` serves the player. For a game or casting session (ORW-224's
+    `is_game_or_casting_session`: every session while the game build is on; otherwise one holding game or casting
+    rows, or bound as the owner's game session) every row goes through `withhold_game_reasoning`. Any other
+    session's rows are returned as they are."""
+    from src.context_compactor import is_game_or_casting_session
+    if not is_game_or_casting_session(session):
+        return history
+    return [row for row in (withhold_game_reasoning(r) for r in history) if row is not None]
+
+
 def clean_thinking_for_save(
-    content: str, metadata: dict | None = None, reasoning: str = ""
+    content: str, metadata: dict | None = None, reasoning: str = "", *, game: bool = False,
+    cut_off: bool = False,
 ) -> tuple[str, dict]:
     """Extract thinking from content into metadata. Use for save paths that bypass save_assistant_response.
 
@@ -8142,9 +8319,17 @@ def clean_thinking_for_save(
     deltas), which never appears in `content` — so without it the accordion is shown live but
     LOST on reload / in a second browser session. Persist it into metadata.thinking when the
     content itself didn't already carry an inline <think> block.
+
+    `game` (ORW-230): a framed game turn. Every think block is moved out of the content (see
+    `_split_game_reasoning`), so a turn cut off mid-think saves its reasoning to metadata.thinking and
+    an EMPTY reply — never the reasoning as the reply. A tag cut mid-way at the end is dropped. `cut_off`
+    (with `game`): the turn was cut off (the disconnect save), so the conservative cut-off cases apply. A
+    non-game chat keeps today's behaviour.
     """
     md = dict(metadata) if metadata else {}
-    info = _extract_thinking_meta(content)
+    if game:
+        content = _strip_partial_think_tag(content)
+    info = (_split_game_reasoning(content, cut_off=cut_off) if game else None) or _extract_thinking_meta(content)
     if info:
         if info.get("thinking"):
             md["thinking"] = info["thinking"]
@@ -8156,6 +8341,32 @@ def clean_thinking_for_save(
     if reasoning and reasoning.strip() and not md.get("thinking"):
         md["thinking"] = reasoning.strip()
     return out, md
+
+
+def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None,
+                         announcements: Optional[list] = None, incognito: bool = False):
+    """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
+    the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
+
+    ORW-230: with `game=True` a turn cut off inside an open `<think>` saves its reasoning to
+    metadata.thinking and only the narration around it as the content (`clean_thinking_for_save`, with the
+    cut-off cases: a leading reasoning label, or a leading empty think pair with no second closer, make the
+    rest reasoning). A game partial left with nothing to show (no narration, no reasoning, no owed cards) is
+    not saved, so a reload never shows a blank bubble. M2-6: `game_moment` stamps the in-world moment; the
+    announcement cards the player was shown survive a cut-short turn. Returns the saved ChatMessage, or None."""
+    content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game, cut_off=True)
+    if game_moment:
+        md["game_moment"] = game_moment
+    if announcements:
+        md["announcements"] = announcements
+    if game and not (content or "").strip() and not md.get("thinking") and not md.get("announcements"):
+        return None
+    message = ChatMessage("assistant", content, metadata=md)
+    sess.add_message(message)
+    if not incognito:
+        session_manager.save_sessions()
+    return message
 
 
 def save_assistant_response(
@@ -8176,8 +8387,12 @@ def save_assistant_response(
     phase: str = None,
     reasoning: str = "",
     game_moment: str = None,
+    game: bool = False,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
+
+    `game` (ORW-230): a framed game turn — every think block is moved out of the saved content (see
+    `_split_game_reasoning`), so a turn that hit the token cap inside a think saves no reasoning as the reply.
 
     `phase` (Vault Wall / casting-leak fix): when this reply is part of the OOC pre-game
     casting interview (game not yet started), stamp `phase=casting` so the in-game narrator's
@@ -8221,7 +8436,9 @@ def save_assistant_response(
         md["tool_events"] = tool_events
 
     # Extract thinking into metadata (don't pollute message content with <think> tags)
-    _think_info = _extract_thinking_meta(full_response)
+    if game:
+        full_response = _strip_partial_think_tag(full_response)  # ORW-230: the token cap can land inside a tag
+    _think_info = (_split_game_reasoning(full_response) if game else None) or _extract_thinking_meta(full_response)
     if _think_info:
         if _think_info.get("thinking"):
             md["thinking"] = _think_info["thinking"]
