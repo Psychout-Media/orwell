@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 
 import pytest
 
@@ -49,8 +50,16 @@ CASES = [
 _WAIT_LABEL = re.compile(r"^(Responding|The (house is in motion|producers are)|The feeds are rolling|Cameras are still rolling)")
 
 
-def _send_and_snapshot(stack, entries, text):
+# ORW-229 flake fix (the most frequent fe-browser-tests flake on 2026-11-06/07, sometimes on every rerun): the first-paint test caught the streaming
+# bubble by polling every 150 ms while the stub streamed and then FINISHED on its own clock, so on a loaded runner the whole stream could end between
+# two polls ("the streaming bubble never painted before settle"). With first_paint=True the stub holds the stream open after its last delta (a
+# threading.Event gate on the scripted entry, test_m0_3_midgen_join's stub) until this poll has captured the streaming bubble, so settle can never
+# overtake the capture, however slowly the poll runs. What is captured is unchanged: the same task-level snapshot as before (see A88 drift 2 below).
+def _send_and_snapshot(stack, entries, text, *, first_paint=False, poll_ms=150):
     from playwright.sync_api import sync_playwright
+    gate = threading.Event() if first_paint else None
+    if gate is not None:
+        [e for e in entries if e.get("deltas")][-1]["gate"] = gate  # the stub holds the stream open after its last delta until we release it
     sid = _session(stack, "a58-" + text[:6])
     with sync_playwright() as pw:
         try:
@@ -68,15 +77,21 @@ def _send_and_snapshot(stack, entries, text):
         page.keyboard.press("Enter")
         live = None
         mid = None
-        for _ in range(160):
-            page.wait_for_timeout(150)
-            live = page.evaluate(SNAP)
-            if live and live["n"] <= base_n:
-                continue  # the previous turn's bubble is still the last one - wait for THIS turn's
-            if live and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
-                mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
-            if live and live["footer"]:
-                break
+        try:
+            for i in range(max(160, 24_000 // poll_ms)):
+                page.wait_for_timeout(poll_ms)
+                live = page.evaluate(SNAP)
+                if live and live["n"] <= base_n:
+                    continue  # the previous turn's bubble is still the last one - wait for THIS turn's
+                if live and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
+                    mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
+                if gate is not None and not gate.is_set() and (mid is not None or i * poll_ms >= 20_000):
+                    gate.set()  # captured (or 20 s passed: let it settle and fail below): the stub may finish the stream
+                if live and live["footer"]:
+                    break
+        finally:
+            if gate is not None:
+                gate.set()  # never leave the stub waiting
         assert live and live["footer"], "the live turn never settled (no footer)"
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
@@ -109,15 +124,25 @@ STREAMING_CASES = [
     # A88 drift 3 was a HARNESS artifact (see _WAIT_LABEL): the old poll took the spinner's wait-label shell for the reply's first paint. Measured on the real reply paint, the producer aside's class and text land in the SAME
     # synchronous step (chat.js `_renderStream` calls applyOocClass before the first renderer.update, and a still-open `((` aside is HELD behind the spinner and painted whole + classed at once) - for both a complete-in-first-delta
     # aside and a slowly streamed one. Plain passing tests now; if the live path ever paints aside text before the class, these go red.
-    pytest.param(*[c for c in CASES if c[0] == "ooc-complete-first-delta"][0], id="ooc-complete-first-delta"),
-    pytest.param(*[c for c in CASES if c[0] == "ooc-producer-aside"][0], id="ooc-producer-aside"),
+    # ORW-244, quarantined under the ORW-229 flaky-test rule on 2026-11-07 (they run nightly): the front-end server holds an aside back until it is
+    # complete (agent_loop.py's open-`((` buffer and live-game scrub), so an aside-only reply first reaches the page when the model stream ENDS, a
+    # milliseconds-wide window before settle. Gating the stub cannot widen it (nothing is flushed until the stream ends), and the poll misses it on
+    # a loaded runner. Card ORW-244: redesign these two cases (and check a one-frame unstyled flash seen on the finalize path).
+    pytest.param(*[c for c in CASES if c[0] == "ooc-complete-first-delta"][0], id="ooc-complete-first-delta",
+                 marks=pytest.mark.quarantine(card="ORW-244", added="2026-11-07")),
+    pytest.param(*[c for c in CASES if c[0] == "ooc-producer-aside"][0], id="ooc-producer-aside",
+                 marks=pytest.mark.quarantine(card="ORW-244", added="2026-11-07")),
 ]
+# The cases whose reply paints WHILE the stub is still streaming: only those can be gated (see _send_and_snapshot).
+_GATED = {"plain-reply"}
 
 
 @pytest.mark.parametrize("case_id,entries,expect", STREAMING_CASES)
 def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id, entries, expect):  # noqa: F811
-    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}")
-    assert mid is not None, "the streaming bubble never painted before settle (the stub should be slow enough)"
+    gated = case_id in _GATED
+    # poll_ms=1000 on purpose for a gated case: the capture must not depend on how often the harness looks (a loaded runner is a slow poller)
+    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}", first_paint=gated, poll_ms=1000 if gated else 150)
+    assert mid is not None, "the streaming bubble never showed reply text before settle, although the stub held the stream open (a render bug)"
     # A88 (from the CI MutationObserver trace): the live bubble is created with a TRANSIENT `streaming` class (spinner/skeleton) that the reload never has - by design, normalised here.
     _norm = lambda c: " ".join(x for x in c.split() if x != "streaming")  # noqa: E731
     assert _norm(mid["cls"]) == _norm(reloaded["cls"]), f"{case_id}: wrapper classes at first paint differ from the reload: {mid['cls']!r} vs {reloaded['cls']!r}"
