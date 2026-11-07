@@ -29,8 +29,9 @@ Feature: 0060 — Story-thread trigger/resolution scheduler (0058 Phase 2)
     Then that thread becomes active and folds its hidden weight
 
   # §4.2 / §7 — surfacing is a pathway BELIEF (gossip-drifted), never a premise on a projection
+  # Re-selected 2026-11-07 (ORW-116: the clock now runs from the premiere entry and the night is the player's, which moved this fixed seed's path so the rare to-player surfacing no longer landed on 0060-3; 0060-1, -2, -4 and -5 all land - a seed pick, not a weakened assertion).
   Scenario: a surfaced thread reaches the player only as an anchored belief, never as a fact or a premise
-    Given a deep-profile season with seeded story threads at seed "0060-3"
+    Given a deep-profile season with seeded story threads at seed "0060-1"
     When the season is simulated until a thread surfaces toward the player
     Then the player holds a belief about it with a source and a confidence
     And the thread's verbatim premise never appears on any player surface
