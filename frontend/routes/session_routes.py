@@ -92,6 +92,13 @@ def _reject_compact_during_active_run(session_id: str) -> None:
         raise HTTPException(409, "Session has an active run; try compacting after it finishes")
 
 
+def _reject_compact_for_game_session(session) -> None:
+    """ORW-224: manual compaction rewrites stored rows; refuse it for game and casting sessions."""
+    from src.context_compactor import GAME_COMPACTION_REFUSAL, is_game_or_casting_session
+    if is_game_or_casting_session(session):
+        raise HTTPException(409, GAME_COMPACTION_REFUSAL)
+
+
 def _verify_session_owner(request: Request, session_id: str, session_manager=None):
     """Verify the current user owns the session. Raises 404 if not.
 
@@ -1020,6 +1027,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             session = session_manager.get_session(session_id)
         except KeyError:
             raise HTTPException(404, f"Session {session_id} not found")
+        _reject_compact_for_game_session(session)
         _reject_compact_during_active_run(session_id)
 
         history = list(session.history or [])

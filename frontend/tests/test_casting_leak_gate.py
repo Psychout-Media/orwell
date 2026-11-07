@@ -115,7 +115,10 @@ class _FakeChatProcessor:
         return ([{"role": "system", "content": "GM-FRAME"}], [], [])
 
 
-async def _drive_build_chat_context(monkeypatch, *, started: bool, new_user_text: str):
+_COMPACT_KWARGS: list = []
+
+
+async def _drive_build_chat_context(monkeypatch, *, started: bool, new_user_text: str, framing=None):
     """Run the REAL build_chat_context against a seeded session, with leaf collaborators
     stubbed and the engine's started-state forced. Returns (ctx, sess)."""
     # No session manager: history + the phase stamp stay in-memory (enough to exercise the
@@ -133,7 +136,7 @@ async def _drive_build_chat_context(monkeypatch, *, started: bool, new_user_text
 
     # Force the engine boundary: started=True ⇒ in-game; started=False ⇒ casting.
     async def fake_framing(preface, user, incognito=False, **kwargs):
-        return (True, started, False)  # (engine_available, game_active, feed_down)
+        return framing or (True, started, False)  # (engine_available, game_active, feed_down)
 
     monkeypatch.setattr(chat_helpers, "apply_game_framing", fake_framing)
     monkeypatch.setattr(chat_helpers, "extract_preset", lambda ch, pid: chat_helpers.PresetInfo(
@@ -152,6 +155,7 @@ async def _drive_build_chat_context(monkeypatch, *, started: bool, new_user_text
     monkeypatch.setattr(chat_helpers, "normalize_model_id", lambda url, model: None)
 
     async def fake_compact(sess, url, model, messages, headers, owner=None, **kw):
+        _COMPACT_KWARGS.append(dict(kw))
         return messages, 8000, False
 
     monkeypatch.setattr(chat_helpers, "maybe_compact", fake_compact)
@@ -192,6 +196,24 @@ def test_pre_game_turn_stamps_casting_and_keeps_the_interview(monkeypatch):
         for m in ctx.messages
     )
     assert CASTING_SENTINEL in blob
+
+
+def test_orw224_game_and_casting_turns_never_persist_compaction(monkeypatch):
+    """ORW-224: build_chat_context tells maybe_compact NOT to persist (compaction deletes stored rows) when
+    the turn is a live game (game_active) or a framed casting turn; and to persist for a plain chat."""
+    _COMPACT_KWARGS.clear()
+    _run(_drive_build_chat_context(monkeypatch, started=True, new_user_text="live game turn"))
+    assert _COMPACT_KWARGS[-1].get("persist_history") is False, "game_active turn"
+
+    # framed but pre-game (casting): framing returns (engine_available, game_active=False, feed_down) and framed=True
+    _COMPACT_KWARGS.clear()
+    _run(_drive_build_chat_context(monkeypatch, started=False, new_user_text="casting turn"))
+    assert _COMPACT_KWARGS[-1].get("persist_history") is False, "framed casting turn"
+
+    # a plain, unframed chat (no engine): compaction behaves as before
+    _COMPACT_KWARGS.clear()
+    _run(_drive_build_chat_context(monkeypatch, started=False, new_user_text="plain chat", framing=(False, False, False)))
+    assert _COMPACT_KWARGS[-1].get("persist_history") is True, "unframed chat"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
