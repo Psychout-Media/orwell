@@ -398,7 +398,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: >-
+      - env:
+          # ORW-229: per push the legs skip the slow season-replaying files in COVERAGE_NIGHTLY_ONLY (vitest.config.ts); they still run in
+          # test-unit. The nightly call measures coverage over every file.
+          ORWELL_COVERAGE_FULL: ${{ inputs.nightly && '1' || '' }}
+        run: >-
           npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
           --coverage.reporter=json --shard=${{ matrix.shard }}/4 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1

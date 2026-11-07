@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { COVERAGE_NIGHTLY_ONLY, HEAVY_SIM_FILES } from "../../vitest.config";
 
 /**
  * ORW-229 nightly split (docs/CI.md "Nightly"): what left the per-push path still runs every night, and nothing was dropped.
@@ -54,5 +55,21 @@ describe("nightly split wiring", () => {
       });
       expect(r.stdout.trim(), event).toBe("4b825dc642cb6eb9a060e54bf8d69288fbee4904");
     }
+  });
+  it("the coverage files skipped per push still run in test-unit on every push, and the nightly call measures them", () => {
+    expect(COVERAGE_NIGHTLY_ONLY.length).toBeGreaterThan(0);
+    const fast = pkg.scripts["test:unit:fast"]!;
+    for (const f of COVERAGE_NIGHTLY_ONLY) {
+      if (f.includes("*")) {
+        // a glob: it must match at least one test file
+        const [dir, pattern] = [f.slice(0, f.lastIndexOf("/")), f.slice(f.lastIndexOf("/") + 1)];
+        const re = new RegExp(`^${pattern.replace(/[.]/g, "\\.").replace(/\*/g, ".*")}$`);
+        expect(readdirSync(fileURLToPath(new URL(`../../${dir}`, import.meta.url))).some((n) => re.test(n)), f).toBe(true);
+      } else expect(existsSync(fileURLToPath(new URL(`../../${f}`, import.meta.url))), f).toBe(true);
+      expect(fast, f).not.toContain(f); // not excluded from test-unit
+      expect(HEAVY_SIM_FILES, f).not.toContain(f);
+    }
+    expect(job("coverage-shard")).toContain("ORWELL_COVERAGE_FULL: ${{ inputs.nightly && '1' || '' }}");
+    expect(read("vitest.shard.config.ts")).toContain('process.env.ORWELL_COVERAGE_FULL === "1" ? configDefaults.exclude : [...configDefaults.exclude, ...COVERAGE_NIGHTLY_ONLY]');
   });
 });
