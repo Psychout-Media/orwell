@@ -87,3 +87,26 @@ def test_a_supposition_in_an_earlier_clause_does_not_hide_a_real_denial():
     """The exemption stays scoped to the denial's own clause: a hypothetical first clause cannot cover a later claim."""
     line = "Imagine the look on her face, but the nominees haven't been named yet."
     assert chat_helpers._stale_denial_contradiction(line, dict(_LIVE))
+
+
+# A colon ends the cue's clause: "Imagine that:" is an exclamation, and the claim after it is still a claim (the review
+# of #2290 found the same shape in the outcome gate).
+def test_a_colon_ends_the_cue_clause_for_a_stale_denial():
+    assert chat_helpers._stale_denial_contradiction("Imagine that: the nominees haven't been named yet.", dict(_LIVE))
+
+
+def test_a_colon_ends_the_cue_clause_for_veto_possession():
+    assert chat_helpers._veto_possession_without_holder("Imagine that: she won the veto.", dict(_NO_HOLDER))
+
+
+_N1_ACTIVE = ["Holder", "Rival", "Bystander", "Playerone"]
+_N1_BOARD = {"week": 1, "phase": "veto-ceremony", "pending": None, "hoh": "npc:7", "hohName": "Hoh", "noms": [],
+             "vetoHolder": "npc:1", "vetoHolderName": "Holder", "vetoUsed": False, "playerIsHoh": False,
+             "playerHasVeto": False, "evicted": 0, "finished": False, "activeNames": _N1_ACTIVE}
+
+
+def test_the_wrong_veto_winner_check_stands_down_on_a_supposition_but_not_after_a_colon():
+    assert chat_helpers._veto_holder_contradiction("Imagine Rival gets there first and the bell rings.",
+                                                   dict(_N1_BOARD)) is None
+    assert chat_helpers._veto_holder_contradiction("Imagine that: Rival gets there first and the bell rings.",
+                                                   dict(_N1_BOARD))
