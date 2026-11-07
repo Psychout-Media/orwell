@@ -5511,7 +5511,8 @@ def _sentence_has_met_everyone_claim(text: str) -> bool:
 # that door"), led in by a clause start or a copula ("that's", "there are", "it's"). A subgroup ("the three
 # of them are laughing", "four of them by the fence"), a time ("nine in the morning"), a hedge ("about ten
 # of you"), a conditional ("once all sixteen are in"), a past or future count ("ten of you were inside",
-# "there will be sixteen") and the cast total in prose never match. Counts are checked only while the
+# "there will be sixteen"), an anchor that does not end its clause ("three in the house have already clocked
+# you", where "in the house" picks out who) and the cast total in prose never match. Counts are checked only while the
 # engine reports the entrances or the toast; outside them, or on any engine hiccup, the sentence emits
 # unchanged (fail-open: a false hold on creative prose is worse than a missed count).
 
@@ -5537,10 +5538,14 @@ _HC_CONDITIONAL_RE = re.compile(
     r"\b(?:once|when|whenever|until|till|after|before|if|unless|as\s+soon\s+as|by\s+the\s+time)\b",
     re.IGNORECASE,
 )
-# What may follow an "in" / "to go" for it to close the count (else "in total", "in and out", "to go home").
+# What may follow an anchor for it to close the count (else "in total", "in and out", "to go home"). The anchor
+# must END its clause (ORW-205 review): after it come optional time adverbs ("now", "already", "so far"), then
+# the end, punctuation or a conjunction. A finite verb after it ("Three in the house have already clocked you",
+# "Eight in the house know your name") makes the anchor a modifier of the subject, not an arrival count.
 _HC_BOUNDARY = (
-    r"(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_(\n]|-\s|--"
-    r"|(?:now|already|so\s+far|and|but|then|before|until|till|tonight|plus|including|counting|officially|yet)\b))"
+    r"(?=(?:\s+(?:now|already|so\s+far|tonight|officially|yet)\b)*"
+    r"\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_(\n]|-\s|--"
+    r"|(?:and|but|then|before|until|till|plus|including|counting)\b))"
 )
 _HC_NOUNS = r"houseguests|people|strangers|guests|contestants|players|newcomers|arrivals|cast\s+members"
 _HC_SUBJ = (
@@ -5552,9 +5557,9 @@ _HC_AUX = r"(?:\s+(?:are|now|already|all|officially|finally|safely|have|has|been
 _HC_INSIDE_TAIL_RE = re.compile(
     _HC_SUBJ + _HC_AUX + r"\s+(?:"
     r"(?:in|inside)(?!\s+and\s+out\b)" + _HC_BOUNDARY
-    + r"|(?:in|inside)\s+the\s+(?:house(?!['’]s)|front\s+door|door(?!\s*(?:frame|jamb)))\b"
-    + r"|through\s+the\s+(?:front\s+)?door\b"
-    + r"|(?:arrived|walked\s+in|moved\s+in|made\s+it\s+in|checked\s+in)" + _HC_BOUNDARY
+    + r"|(?:in|inside)\s+the\s+(?:house(?!['’]s)|front\s+door|door(?!\s*(?:frame|jamb)))\b" + _HC_BOUNDARY
+    + r"|through\s+the\s+(?:front\s+)?door\b" + _HC_BOUNDARY
+    + r"|(?:arrived|walked\s+in|moved\s+in|made\s+it\s+in(?:side)?|checked\s+in)" + _HC_BOUNDARY
     + r"|(?:fill|fills|crowd|crowds|pack|packs|cram|crams|jam|jams)(?:\s+into)?\s+the\s+"
       r"(?:living\s+room|room|house|lounge|place)" + _HC_BOUNDARY
     + r")",
