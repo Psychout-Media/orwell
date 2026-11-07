@@ -147,6 +147,16 @@ def test_a_busy_db_is_left_alone_and_never_fails_the_update(tmp_path):
         holder.close()
     assert len(_ids(db)) == len(_ROWS)
     assert "the next update retries" in out
+    assert "database is locked" in out, "the note carries the reason, not just 'busy or unreadable'"
+
+
+@not_root
+def test_a_corrupt_db_is_left_alone_and_the_note_says_why(tmp_path):
+    path = _bin(tmp_path)
+    app, db = _app(tmp_path)
+    db.write_bytes(b"this is not a sqlite database" * 50)
+    out = run_cleanup(tmp_path, path, app)
+    assert "could not clean inherited MCP-server rows" in out and "file is not a database" in out
 
 
 @not_root
@@ -180,8 +190,9 @@ def test_as_root_without_a_usable_service_user_the_db_is_never_written(tmp_path)
     _fake(path, "id", f'if [[ "$*" == "-u" ]]; then echo 0; else exec {real_id} "$@"; fi\n')   # root, and no runuser on PATH
     app, db = _app(tmp_path)
     before = db.read_bytes()
-    run_cleanup(tmp_path, path, app, {"SVC_USER": "no-such-user-xyz"})
+    out = run_cleanup(tmp_path, path, app, {"SVC_USER": "no-such-user-xyz"})
     assert db.read_bytes() == before, "never write the front end's DB as root (root-owned sidecars break it)"
+    assert "cruft cleanup skipped: no service user to drop to" in out, "a skip is said out loud, never silent"
 
 
 @needs_sqlite_cli
