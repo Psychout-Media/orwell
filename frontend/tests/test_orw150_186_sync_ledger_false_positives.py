@@ -13,11 +13,16 @@ ch = importlib.import_module("routes.chat_helpers")
 orwell_engine = importlib.import_module("src.orwell_engine")
 
 
-def _clear_rings():
-    try:
-        log_rings.OVERSEER.clear()
-    except Exception:
-        pass
+_RING_MARK = 0
+
+
+def _mark_rings():
+    """Remember where the process-wide OVERSEER ring is NOW, so a test reads only the events it produced itself.
+    The ring has no clear(): the old clear-the-ring helper raised AttributeError, which its try/except swallowed, so a
+    test read every dropped-fold event an earlier test in the same xdist worker left behind (e.g. a deferred-fold queue
+    overflow from test_0065_backfill_cas.py) and failed depending on which tests shared its worker."""
+    global _RING_MARK
+    _RING_MARK = log_rings.OVERSEER.since(0, limit=1)[0]
 
 
 @pytest.fixture
@@ -26,7 +31,7 @@ def _tmp_ledger(tmp_path, monkeypatch):
     for d in (ledger._PENDING_STALE, ledger._LAST_BEAT_AFTER, ledger._PENDING_FE_WRITES,
               ledger._PENDING_BELTS, ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED):
         d.clear()
-    _clear_rings()
+    _mark_rings()
     yield
     for d in (ledger._PENDING_STALE, ledger._LAST_BEAT_AFTER, ledger._PENDING_FE_WRITES,
               ledger._PENDING_BELTS, ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED):
@@ -34,7 +39,7 @@ def _tmp_ledger(tmp_path, monkeypatch):
 
 
 def _dropped_fold_events():
-    _, lines = log_rings.OVERSEER.since(0, limit=100000)
+    _, lines = log_rings.OVERSEER.since(_RING_MARK, limit=100000)
     return [e for e in lines if e.get("kind") == "sync:dropped-fold" and e.get("ok") is False]
 
 
