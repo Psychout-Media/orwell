@@ -48,6 +48,7 @@ from test_update_script_failure_revert import (  # the shared sandboxed-box harn
 _NPM = r"""#!/usr/bin/env bash
 echo "npm $*" >> "$STUB_LOG"
 printf '%s\t%s\n' "$*" "$PWD" >> "$STUB_LOG.npm"
+printf '%s\t%s\n' "$*" "${ONNXRUNTIME_NODE_INSTALL-<unset>}" >> "$STUB_LOG.onnx"   # what each npm call was told
 tree() { printf 'TREE %s %s\n' "$(sha256sum < package-lock.json | cut -c1-16)" "$1" > node_modules/.package-lock.json; }
 case "$1" in
   -v) echo "${STUB_NPM_VERSION:-10.0.0}" ;;

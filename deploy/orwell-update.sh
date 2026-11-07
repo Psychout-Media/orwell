@@ -195,6 +195,14 @@ fi
 # ── In-container (or direct) update ────────────────────────────────────────────────────────────
 APP_DIR="$(find_app || true)"; APP_DIR="${APP_DIR:-/opt/orwell}"
 
+# ORW-229: onnxruntime-node's postinstall downloads its GPU (CUDA / TensorRT) execution providers from nuget on
+# every `npm ci` (about 45 s of a 55 s install on the dev box). The engine never loads them: fastembed runs
+# onnxruntime on the CPU, and the CPU runtime ships inside the npm package. So every npm ci / npm install this
+# script runs (build, build-tools restore, revert, rollback) skips that download; an operator's explicit value
+# still wins. Proven on the dev box: after a clean `npm ci` with the skip the engine boots with fastembed and
+# `orwell-doctor.sh --status` reports `embeddings: provider=fastembed, degraded=false`. (Same in orwell-install.sh.)
+export ONNXRUNTIME_NODE_INSTALL="${ONNXRUNTIME_NODE_INSTALL:-skip}"
+
 # ── ORW-206: don't restart the app in the middle of a live game. Runs BEFORE the update lock on purpose:
 # a deferred run holds nothing, so `--force`, --rollback and a manual run are never blocked behind it.
 # Only a plain update is guarded: --rollback / --set-token are operator actions, and --no-restart is the
