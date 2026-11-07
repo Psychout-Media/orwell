@@ -114,6 +114,12 @@ record is deleted when a run starts and written only at its commit point). It is
 
 To force a full reinstall, delete `dist/.orwell-deps-stamp`.
 
+Every `npm ci` / `npm install` the updater and the installer run sets `ONNXRUNTIME_NODE_INSTALL=skip` (an
+explicit value in the environment wins): onnxruntime-node then skips downloading its GPU (CUDA / TensorRT)
+execution providers, which the engine never loads (fastembed runs on the CPU runtime that ships in the
+package). A full `npm ci` takes about 8 s instead of about 56 s on the dev box, and embeddings are unchanged
+(`orwell-doctor.sh --status`: `embeddings: provider=fastembed, degraded=false`).
+
 The React `/play` app (`frontend/web`, when the commit has it) is built by the update too, and never
 fails it: a failed build logs a warning and `/play` keeps its current build (or its "not built yet"
 page). It builds from a clean export of the commit in a temp dir (`npm ci --prefer-offline
