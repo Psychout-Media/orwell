@@ -461,9 +461,25 @@ engine_inputs_fp() {
   { node -v || true; npm -v || true; awk -F'\t' -v re="$_ENGINE_NOT_INPUTS" '$2 !~ re' <<<"$tree"; } 2>/dev/null | _fp_sum
 }
 # What `npm ci` itself consumes, plus this updater's own text (how it installs).
+# The npm environment and config that change what an install produces: npm_config_* / NPM_CONFIG_* (registry,
+# omit/include, ignore-scripts, ...), ONNXRUNTIME_NODE_INSTALL*, NODE_ENV, and the user + global npmrc files.
+# Only ever hashed (an npmrc or an npm_config_ value can hold a registry token). Computed once per run.
+_NPM_ENV_FP=""
+npm_env_fp() {
+  local f
+  if [[ -z "$_NPM_ENV_FP" ]]; then
+    _NPM_ENV_FP="$( {
+      env | LC_ALL=C grep -E '^(npm_config_|NPM_CONFIG_|ONNXRUNTIME_NODE_INSTALL|NODE_ENV=)' | LC_ALL=C sort || true
+      for f in "${HOME:-/root}/.npmrc" "$(npm config get globalconfig 2>/dev/null || true)"; do
+        if [[ -n "$f" && -f "$f" ]]; then printf 'npmrc %s %s\n' "$f" "$(_fp_sum < "$f")"; fi
+      done
+    } 2>/dev/null | _fp_sum )"
+  fi
+  printf '%s' "$_NPM_ENV_FP"
+}
 engine_deps_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- package.json package-lock.json npm-shrinkwrap.json patches .npmrc 2>/dev/null)" || { echo none; return 0; }
-  { node -v || true; npm -v || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
+  { node -v || true; npm -v || true; printf 'updater=%s\nnpmenv=%s\n%s\n' "$__UPDATER_FP" "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
 }
 # What install_frontend_deps consumes, plus the venv's interpreter and this updater's own text.
 frontend_deps_fp() {
@@ -474,23 +490,31 @@ frontend_deps_fp() {
 # classic markdown module /play imports through its `@classic` alias), plus node + npm and this updater's text.
 play_inputs_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
-  { node -v || true; npm -v || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
+  { node -v || true; npm -v || true; printf 'updater=%s\nnpmenv=%s\n%s\n' "$__UPDATER_FP" "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
 }
-engine_tree_witness() {
-  local f="${APP_DIR}/node_modules/.package-lock.json"
-  if [[ -f "$f" && ! -L "$f" ]]; then _fp_sum < "$f"; else echo none; fi
+# Every entry under a tree: directories by name, files and links by name + size + mtime (+ link target), so a file
+# edited in place shows even when npm's / pip's own records stay the same. Bytecode caches are not package content.
+_tree_listing() {
+  find "$1" -xdev -name __pycache__ -prune -o -type d -printf 'd %P\n' -o ! -name '*.pyc' -printf '%y %P %s %T@ %l\n' 2>/dev/null \
+    | LC_ALL=C sort
+}
+engine_tree_witness() {   # npm's hidden lockfile (rewritten by every npm ci / install / prune) + the whole tree
+  local d="${APP_DIR}/node_modules"
+  if [[ -f "${d}/.package-lock.json" && ! -L "${d}/.package-lock.json" ]]; then
+    { _fp_sum < "${d}/.package-lock.json"; _tree_listing "$d"; } | _fp_sum
+  else
+    echo none
+  fi
 }
 dist_witness() {
   local d="${APP_DIR}/dist"
   if [[ -f "${d}/main.js" && -f "${d}/embedWorker.js" ]]; then cat "${d}/main.js" "${d}/embedWorker.js" | _fp_sum; else echo none; fi
 }
-frontend_tree_witness() {   # the installed distributions (name + version) in the venv's site-packages
-  local sp f
+frontend_tree_witness() {   # the venv's site-packages: installed distributions and every package file
+  local sp
   for sp in "${APP_DIR}/frontend/.venv/lib"/python*/site-packages; do
     [[ -d "$sp" ]] || continue
-    for f in "$sp"/*.dist-info "$sp"/*.egg-info; do
-      if [[ -e "$f" ]]; then printf '%s\n' "${f##*/}"; fi
-    done | LC_ALL=C sort | _fp_sum
+    _tree_listing "$sp" | _fp_sum
     return 0
   done
   echo none
