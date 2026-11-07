@@ -4448,7 +4448,12 @@ _CLAIM_VETO_INTENT_RE = re.compile(
 _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
-    r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+    r"think(?:s|ing)?\s+about|whether"
+    # ORW-25 (A80): a supposition ("Imagine the nominees aren't set yet") and a negated report ("Nobody says the
+    # nominees haven't been named") assert nothing about the current board either.
+    r"|imagine|imagining|suppose|supposing|assuming|in\s+case|hypothetically|pretend(?:s|ed|ing)?"
+    r"|(?:nobody|no\s+one|none\s+of\s+them)\s+(?:says?|said|claims?|claimed|thinks?|thought|believes?|"
+    r"pretends?|mentions?|suggests?))\b", re.IGNORECASE)
 
 # N-6: a hypothetical / conditional / past-week sentence ("If Ian wins the veto...", "whoever wins", "when she wins", "last week's HOH") is not an assertion
 # about the CURRENT board, so it is never a contradiction. The narration path's hypothetical detector plus the aside-specific temporal cues.
