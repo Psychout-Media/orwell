@@ -213,6 +213,7 @@ import {
 import type { CeremonyAct } from "../../engine/relationshipConstants";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
+import { buildShowBrief } from "../../engine/showBrief";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
@@ -12736,6 +12737,10 @@ export class GameSessionAdapter implements GameSession {
     // into the leading system-prompt stack (the measured "lost in the middle" region). Absent when
     // there is nothing to pin (pre-game / no live whereabouts this turn) ⇒ byte-identical response.
     const hardConstraints = renderHardConstraints(view);
+    // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
+    // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
+    // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
+    const showBrief = req.brief !== undefined ? buildShowBrief(view, req.brief) : undefined;
     return {
       moment,
       systemPrompt: buildSystemPrompt(
@@ -12748,6 +12753,7 @@ export class GameSessionAdapter implements GameSession {
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
       // feature). Vault-free: `producer()` is public voice flavor only.
       producerName: this.producer().name,
+      ...(showBrief ? { showBrief } : {}),
     };
   }
 
