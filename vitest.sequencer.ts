@@ -71,7 +71,7 @@ export default class DurationShardSequencer extends BaseSequencer {
     const legs = assignShards([...byRel.keys()], durations, count);
     assertPartition([...byRel.keys()], legs);
     const mine = legs[index - 1] ?? [];
-    // Cross-leg proof (ci/check-shard-union.mjs, run by the `coverage` job over all four legs): every leg records the full list vitest handed it and its own slice.
+    // Cross-leg proof (ci/check-shard-union.mjs, run by the `coverage` job over all six coverage-shard legs): every leg records the full list vitest handed it and its own slice.
     const manifestDir = process.env.ORWELL_SHARD_MANIFEST_DIR;
     if (manifestDir) {
       mkdirSync(manifestDir, { recursive: true });

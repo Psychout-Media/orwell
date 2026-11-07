@@ -1,6 +1,8 @@
-"""ORW-218: regenerate _ci_durations.json from the logs of green CI runs of the FE lanes (fe-unit and fe-browser-tests), run with `--durations=0`.
+"""ORW-218: regenerate _ci_durations.json from the logs of green CI runs of the FE lanes (fe-unit and fe-browser-tests). Both lanes run with
+`--durations=0` (ci.yml, ORW-229), so their logs carry every test's time; a log without those lines (a local run without the flag) only refreshes
+the files it shows.
 
-    gh api repos/<owner>/<repo>/actions/jobs/<job id>/logs > leg.log        (one per fe-unit / fe-browser-tests shard job)
+    gh api repos/<owner>/<repo>/actions/jobs/<job id>/logs > leg.log        (one per fe-unit / fe-browser-tests shard job: 2 + 5 logs)
     python3 frontend/tests/_ci_refresh_durations.py leg-1.log leg-2.log ...
 
 Sums the setup + call + teardown seconds of every test per file (reruns included) and merges them over the existing table (files not seen keep their old value).

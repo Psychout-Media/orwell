@@ -118,20 +118,21 @@ jobs:
           matches() { echo "$changed" | grep -qE "$1"; }
 
           # `ci/` (the scripts this workflow runs, e.g. ci/resolve-base.sh) counts like this workflow file in EVERY filter: a change to them must run
-          # everything (ORW-218 review), never skip every lane.
+          # everything (ORW-218 review), never skip every lane. So do the shared composite actions in `.github/actions/`: they are steps of every job
+          # that uses them (setup-fe-python runs in engine, deploy and FE jobs), so a change to ONLY an action still runs each of those jobs (ORW-229).
           # ENGINE: TS sources, all tests, BDD step code (features/) AND the Gherkin itself — the .feature
           # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
           # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
           # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/)'
+          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
-          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/)'
+          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
           # change can never move a calibration result, so the heavy lane skips for those. `deploy/orwell-env-defaults.sh` is in the set
           # because it still writes the gameplay flags to a box's .env (an `=0` there overrides the code default), so a change to it re-plays the game.
-          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/)'
+          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # ORW-193 PRECISION (pull requests ONLY; a push to main always uses the broad sets above, so main never loses coverage):
           #   - `heavy`: the heavy sims import only src/ plus their own tests/{uat,property,calibration} files and the tests/support
           #     setup files, so an edit under tests/{unit,integration,architecture,dev} cannot move a calibration result.
@@ -459,7 +460,8 @@ jobs:
           ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
           ORWELL_SKIP_LANE: unit
           ORWELL_CI_SHARD: ${{ matrix.shard }}/2
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs
+        # --durations=0: every test's time is in the log, so frontend/tests/_ci_refresh_durations.py can refresh the shard table from any green run
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 -q -rs --durations=0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -515,7 +517,8 @@ jobs:
           ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
           ORWELL_SKIP_LANE: browser
           ORWELL_CI_SHARD: ${{ matrix.shard }}/5
-        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=8
+        # --durations=0 (was 8): every test's time is in the log, so the shard table can be refreshed from any green run (_ci_refresh_durations.py)
+        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=0
 
   fe-browser:
     needs: changes

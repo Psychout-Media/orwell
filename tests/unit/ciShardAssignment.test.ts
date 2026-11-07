@@ -58,6 +58,16 @@ describe("duration-aware shard assignment (ORW-218)", () => {
     const withNew = [...files, "tests/unit/brandNewFile.test.ts"];
     const legs = assignShards(withNew, { ...durations, "tests/unit/deletedLongAgo.test.ts": 999_999 }, 4);
     expect(() => assertPartition(withNew, legs)).not.toThrow();
+    // Bot review: pin the WEIGHT too, not only the partition: the new file is placed exactly as if the table recorded it at the median. (The real
+    // table's median, about 120 ms, is under the 250 ms floor, so the times are scaled up here; otherwise median and floor would look the same.)
+    const scaled = Object.fromEntries(Object.entries(durations).map(([f, ms]) => [f, ms * 20]));
+    const known = Object.values(scaled).sort((a, b) => a - b);
+    const median = known[Math.floor(known.length / 2)]!;
+    expect(median).toBeGreaterThan(MIN_WEIGHT_MS * 4);
+    const allKnown = Object.fromEntries(withNew.map((f) => [f, scaled[f] ?? median]));
+    expect(assignShards(withNew, scaled, 4)).toEqual(assignShards(withNew, allKnown, 4));
+    // and with every file known, a stale entry for a deleted file changes nothing at all
+    expect(assignShards(withNew, { ...allKnown, "tests/unit/deletedLongAgo.test.ts": 999_999 }, 4)).toEqual(assignShards(withNew, allKnown, 4));
   });
 
   // Drift note: this bound is computed from the committed table, not from fresh timings, so it only fails when the table or the split algorithm changes

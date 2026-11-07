@@ -14,9 +14,11 @@ const ansi = /\x1b\[[0-9;]*m/g;
 let seen = 0;
 for (const log of process.argv.slice(2)) {
   for (const raw of readFileSync(log, "utf8").split("\n")) {
-    const m = raw.replace(ansi, "").match(/✓ (tests\/\S+\.test\.ts)(?: \(\d+ tests?(?: \| \d+ \w+)*\))?(?: (\d+)ms)?\s*$/);
+    // vitest 2.1.9 (pinned) prints whole milliseconds even for long files ("836526ms"); a seconds suffix ("1.23s") is accepted too, so a reporter
+    // change on a vitest upgrade cannot silently leave the slow files' weights stale.
+    const m = raw.replace(ansi, "").match(/✓ (tests\/\S+\.test\.ts)(?: \(\d+ tests?(?: \| \d+ \w+)*\))?(?: (\d+(?:\.\d+)?)(ms|s))?\s*$/);
     if (m) {
-      durations[m[1]] = Number(m[2] ?? 0);
+      durations[m[1]] = m[2] === undefined ? 0 : Math.round(Number(m[2]) * (m[3] === "s" ? 1000 : 1));
       seen++;
     }
   }
