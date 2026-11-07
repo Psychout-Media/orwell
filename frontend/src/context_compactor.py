@@ -38,6 +38,35 @@ def _content_as_text(content: Any) -> str:
     return ""
 
 
+GAME_COMPACTION_REFUSAL = "Compaction is off for game sessions; the narrator's memory is handled automatically"
+_GAME_PHASES = ("game", "casting")
+
+
+def is_game_or_casting_session(session) -> bool:
+    """ORW-224: True when compaction must be refused for this session. Compaction rewrites stored rows, so it is
+    refused (a) for EVERY session while the game build is on (the default product: an old game session with no
+    phase stamps and no canonical binding must still be safe from a direct POST), and (b) regardless of build
+    for a session that carries game/casting rows (any stored row stamped ``phase`` game/casting) or is the
+    owner's bound canonical game session. Only the workspace build (ORWELL_GAME_BUILD=0) keeps compaction for
+    sessions that never held a game."""
+    try:
+        from src.settings import game_build_enabled
+        if game_build_enabled():
+            return True
+    except Exception:  # noqa: BLE001 - fall through to the per-session checks
+        pass
+    for m in (getattr(session, "history", None) or []):
+        md = (m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", None)) or {}
+        if md.get("phase") in _GAME_PHASES:
+            return True
+    try:
+        from src.orwell_game_session import get_game_session
+        sid = getattr(session, "id", None)
+        return bool(sid) and get_game_session(getattr(session, "owner", None)) == sid
+    except Exception:  # noqa: BLE001 - the binding store is optional; the phase check above already ran
+        return False
+
+
 COMPACT_THRESHOLD = 0.85  # Trigger compaction at 85% of context window
 # ORW-219: the destructive trim runs at the effective INPUT budget, which is far below 85% of the raw
 # window (48K of a 1M window before; 600K now). Compaction must run FIRST, so when the caller knows the
@@ -524,12 +553,17 @@ async def maybe_compact(
     headers: Optional[Dict] = None,
     owner: Optional[str] = None,
     input_budget_fn: Optional[Callable[[int], int]] = None,
+    persist_history: bool = True,
 ) -> tuple:
     """Check context usage and compact if above threshold.
 
     ``input_budget_fn(context_length) -> effective input-token budget`` (ORW-219): when given, the
     threshold is ``min(85% of window, COMPACT_BUDGET_FRACTION x budget)`` so summarizing always
     happens before ``trim_for_context`` has to drop anything.
+
+    ``persist_history=False`` (ORW-224, every game/casting session): never summarize. Compaction ends in
+    ``replace_messages``, which deletes and re-inserts every stored row; a game transcript must never be
+    rewritten (non-degradation, mandate #4). The caller's ``trim_for_context`` shortens the prompt only.
 
     Returns (messages, context_length, was_compacted).
     """
@@ -548,6 +582,10 @@ async def maybe_compact(
         if budget > 0:
             threshold_tokens = min(threshold_tokens, COMPACT_BUDGET_FRACTION * budget)
     if used < threshold_tokens:
+        return messages, context_length, False
+
+    if not persist_history or is_game_or_casting_session(session):
+        logger.info("Context at %.1f%% — compaction skipped (game/casting session: stored history is never rewritten)", pct)
         return messages, context_length, False
 
     logger.info(
