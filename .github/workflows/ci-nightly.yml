@@ -1,9 +1,11 @@
 name: ci-nightly
 
-# ORW-229 flaky-test rule (docs/CI.md): a QUARANTINED test is skipped in PR, merge-queue and main runs and runs HERE, every night, so it is still
-# watched while its Plane card is open. ORWELL_RUN_QUARANTINED=1 turns the quarantine off for every test step below; there is no automatic retry, so
-# a still-flaky test shows up red. A failing night opens or updates ONE GitHub issue (label `ci-nightly`) naming the run and each quarantine's Plane
-# card (the Plane instance is not reachable from GitHub-hosted runners). Never a required check; no secrets.
+# ORW-229 (docs/CI.md "Nightly"), every night on ubuntu-24.04:
+#   - `full-suite` calls ci.yml with `nightly: true`: every lane (a scheduled run has no diff base, so every path filter is true), the quarantined
+#     tests, the SHOWRUNNER_REWEIGHT heavy sims and coverage over EVERY test file with the floors enforced. The suite is defined once, in ci.yml.
+#   - `quarantined` runs the quarantined tests alone, with NO automatic retry, so a still-flaky one shows up red.
+#   - A failing night opens or updates ONE GitHub issue (label `ci-nightly`) naming the run, the failing jobs, the tracking card ORW-234 and each
+#     quarantine's card. The Plane instance is not reachable from GitHub-hosted runners, so the issue points at the cards. Never a required check; no secrets.
 on:
   schedule:
     - cron: "23 4 * * *"
@@ -91,32 +93,45 @@ jobs:
           # exit 5 = no test carried the marker after all (e.g. it is only mentioned in a comment): nothing to run is not a failure.
           [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ]
 
-  # Open or update the ONE tracking issue on a failing night. Plane is not reachable from GitHub-hosted runners, so the issue names each quarantine's
-  # Plane card and the rule's card (ORW-229); whoever triages updates those cards.
+  # The full suite, defined once in ci.yml. Skipped on the PR trigger: that PR's own CI run already exercises ci.yml.
+  full-suite:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/ci.yml
+    with:
+      nightly: true
+
+  # Open or update the ONE tracking issue on a failing night. Plane is not reachable from GitHub-hosted runners, so the issue names the tracking
+  # card (ORW-234) and each quarantine's card; whoever triages updates those cards.
   report:
-    needs: [quarantined]
-    if: always() && needs.quarantined.result != 'success' && github.event_name != 'pull_request'
+    needs: [quarantined, full-suite]
+    if: always() && github.event_name != 'pull_request' && (needs.quarantined.result != 'success' || needs.full-suite.result != 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       issues: write
+      actions: read
     steps:
       - name: open or update the tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
           RESULT: ${{ needs.quarantined.result }}
+          FULL: ${{ needs.full-suite.result }}
           CARDS: ${{ needs.quarantined.outputs.cards }}
         run: |
           set -euo pipefail
           label=ci-nightly
           gh label create "$label" --color B60205 --description "The nightly CI run failed (docs/CI.md)" 2>/dev/null || true
+          failed="$(gh run view "$RUN_ID" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .name] | join(", ")' 2>/dev/null || true)"
           body="The nightly CI run failed: $RUN_URL
 
-          - quarantined tests: \`$RESULT\` (Plane cards: ${CARDS:-none})
+          - full suite (ci.yml, nightly): \`$FULL\`
+          - quarantined tests (no retry): \`$RESULT\` (their Plane cards: ${CARDS:-none})
+          - failing jobs: ${failed:-see the run}
 
-          Rule and triage: docs/CI.md (Plane ORW-229). Fix the test and close its card, or delete it; a quarantine expires after 7 days."
+          Tracked in Plane as ORW-234 (rule: ORW-229, docs/CI.md). Fix what broke, or quarantine a flaky test with its own card; a quarantine expires after 7 days."
           n="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
           if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "Nightly CI failed" --label "$label" --body "$body"; fi

@@ -22,7 +22,9 @@ describe("flaky-test rule wiring", () => {
     expect(ci.match(/passed only on attempt \$attempt, counted as a flake/g)?.length).toBe(6);
   });
   it("quarantined tests run only in the nightly workflow", () => {
-    expect(ci).not.toContain("ORWELL_RUN_QUARANTINED");
+    // ci.yml turns them on only when ci-nightly.yml calls it with `nightly: true` (a caller's env does not reach a called workflow).
+    expect(ci.match(/ORWELL_RUN_QUARANTINED/g)?.length).toBe(1);
+    expect(ci).toContain("ORWELL_RUN_QUARANTINED: ${{ inputs.nightly && '1' || '' }}");
     expect(nightly).toMatch(/\nenv:\n(?: {2}.*\n)*? {2}ORWELL_RUN_QUARANTINED: "1"\n/);
     expect(nightly).toMatch(/schedule:\n {4}- cron: /);
     expect(nightly).toContain("runs-on: ubuntu-24.04");

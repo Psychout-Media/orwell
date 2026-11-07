@@ -11,6 +11,14 @@ on:
   # The coming merge queue (ORW-226): always the full suite.
   merge_group:
     types: [checks_requested]
+  # ORW-229 nightly split: `ci-nightly.yml` calls THIS workflow with `nightly: true`, so the full suite is defined once. A nightly run has no diff
+  # base, so ci/resolve-base.sh diffs against the empty tree and every lane runs; `nightly` adds what left the per-push path (docs/CI.md "Nightly").
+  workflow_call:
+    inputs:
+      nightly:
+        description: "Run as the nightly full suite: quarantined tests, the SHOWRUNNER_REWEIGHT heavy sims and coverage over every test file."
+        type: boolean
+        default: false
 
 # Cancel the in-flight run for a ref the moment a newer commit arrives, so a
 # superseded commit doesn't burn runner minutes finishing a run nobody is waiting
@@ -38,6 +46,8 @@ concurrency:
 # and that nuget fetch is the intermittent install timeout seen on #1929. Skip it.
 env:
   ONNXRUNTIME_NODE_INSTALL: "skip"
+  # ORW-229: quarantined tests run only in the nightly call (docs/CI.md); everywhere else this is empty and they are deselected or skipped.
+  ORWELL_RUN_QUARANTINED: ${{ inputs.nightly && '1' || '' }}
   NPM_CONFIG_FETCH_RETRIES: "5"
   NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "10000"
   NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "60000"
@@ -245,10 +255,11 @@ jobs:
   # completion — the same files `test:ci` excludes — via `npm run test:heavy`, which runs all five
   # heavy files in ONE vitest process. Vitest fans them out across the runner's cores internally.
   #
-  # Topology (ORW-193): a MATRIX of four legs, each running its group of `npm run test:heavy:<script>` scripts back to back
-  # (UAT 12-seed in three shards + 5-seed + decisions + reweight; jury + jury-reweight; gradient + gradient-reweight). juryReach and calibrationGradient run
+  # Topology (ORW-193, ORW-229): a MATRIX of three legs, each running its group of `npm run test:heavy:<script>` scripts back to back
+  # (UAT 12-seed in three shards; jury; gradient + UAT 5-seed + decisions). juryReach and calibrationGradient run
   # UNSHARDED inside their own leg and assert the full band inline (see each file's header). The code defaults are the
   # deployed profile, so this lane replaces the old flags-off `heavy-sims` AND the retired advisory `heavy-sims-deployed`.
+  # The three SHOWRUNNER_REWEIGHT variants moved to the nightly-only `heavy-sims-nightly` job below (ORW-229).
   #
   # PATH-GATED (`changes.heavy`): runs only when calibration-relevant files change. On a skip it
   # doesn't run — `ci-gate` reports the required green status so a docs/frontend-only PR never deadlocks.
@@ -261,8 +272,10 @@ jobs:
     # real-HTTP decisions test, which yields to the event loop).
     #
     # ORW-193: measured on 25 post-ORW-39 runs, each of the ten per-file legs ran 35-140 s of real work behind 20-30 s of runner start-up
-    # and (under load) a 4-13 min queue for a slot, so ten slots were spent on about 15 minutes of work. The same ten npm scripts now run in
-    # four balanced legs (about 2-4 min each). Every script still runs exactly once; a failing script does not hide the later ones in its leg.
+    # and (under load) a 4-13 min queue for a slot, so ten slots were spent on about 15 minutes of work. The ten npm scripts then ran in
+    # four balanced legs (about 2-4 min each). Every script runs exactly once; a failing script does not hide the later ones in its leg.
+    # ORW-229: per-script medians (7 runs, 2026-11-06): jury 144 s, gradient 74, uat-5seed 41, uat-decisions 35, uat-12seed-a/b/c 31/21/27 s, so
+    # the three legs below are about 150, 144 and 79 s of work (the old jury leg, with jury-reweight, was 287 s).
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -270,12 +283,10 @@ jobs:
         include:
           - leg: uat-12seed
             scripts: "uat-12seed-a uat-12seed-b uat-12seed-c"
-          - leg: uat-rest
-            scripts: "uat-5seed uat-decisions uat-reweight"
           - leg: jury
-            scripts: "jury jury-reweight"
-          - leg: gradient
-            scripts: "gradient gradient-reweight"
+            scripts: "jury"
+          - leg: gradient-uat
+            scripts: "gradient uat-5seed uat-decisions"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4
@@ -291,6 +302,38 @@ jobs:
         env:
           UAT_TIMEOUT_SCALE: "10"
           SCRIPTS: ${{ matrix.scripts }}
+        run: |
+          rc=0
+          for s in $SCRIPTS; do
+            echo "::group::npm run test:heavy:$s"
+            npm run "test:heavy:$s" -- --retry=1 || { echo "::error::heavy sim '$s' FAILED"; rc=1; }
+            echo "::endgroup::"
+          done
+          exit $rc
+
+  # ── Nightly-only heavy sims (ORW-229) ───────────────────────────────────────────────
+  # The SHOWRUNNER_REWEIGHT variants of the three heavy gates (juryReach, calibrationGradient, the full-game UAT). The flag is OFF by default
+  # (src/domain/flagDefaults.ts), so they test a profile the game does not ship, and over the 7 days measured (2026-10-31 to 11-06) each one
+  # failed only together with its base sibling: 4 failing PRs, 0 failures of their own. They cost about 4 runner-minutes on every heavy push,
+  # so they run in the nightly call only (`nightly: true`, ci-nightly.yml) and never gate a merge. docs/CI.md "Nightly".
+  heavy-sims-nightly:
+    needs: changes
+    if: inputs.nightly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: heavy sims, SHOWRUNNER_REWEIGHT variants (jury-reweight gradient-reweight uat-reweight)
+        env:
+          UAT_TIMEOUT_SCALE: "10"
+          SCRIPTS: "jury-reweight gradient-reweight uat-reweight"
         run: |
           rc=0
           for s in $SCRIPTS; do

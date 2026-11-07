@@ -1,7 +1,8 @@
 name: calibration-nightly
 
 # CADENCE (AMEND Round-2 card 21, Ryne 2026-11-05): the balance gate need not run daily. It runs WEEKLY (Monday 03:17 UTC), on demand (workflow_dispatch), and on PULL REQUESTS that
-# FLIP a default flag or touch tuning constants (the `paths` below, incl. relationshipConstants -> COMP_WON_IMPACT; adding the `balance` label re-runs it on such a PR). It is never a required
+# FLIP a default flag or touch tuning constants (the `paths` below, incl. relationshipConstants -> COMP_WON_IMPACT; adding any label, e.g. `balance`, re-runs it on such a PR, but
+# on a DRAFT PR it runs only with the `full-ci` label or once the draft is marked ready: the ORW-218 two tiers, see the job `if:`s below). It is never a required
 # check and nobody should spend pre-playtest time on it - but it is on the pre-playtest/release checklist (docs/ROAD-TO-MARKET.md). The PO bands live ONLY in tests/calibration/poTargetBands.ts.
 
 # The PO-target calibration gate (tests/calibration/calibrationPoTarget.test.ts): passive / solid / reckless over 300 seeds on the DEFAULT flag
