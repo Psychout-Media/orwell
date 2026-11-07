@@ -124,3 +124,10 @@ prompt/output is aliased forward (`normalizeTieNature`, `migrateSeededRelationsh
 `prior-romance`, `family`, `ex`, `old-friend`, `rival`, plus the two PROPOSED extras `former-teammate` and `online-acquaintance` (still
 pending coordinator confirmation per that log entry — treat them as provisional vocabulary). A nature is flavour only; the standing
 affinity bias is identical for every tie, so no nature is a competition or vote input.
+
+
+## ORW-132 (Ryne, 2026-11-06): ties are a huge minority, marked secret or public from the start
+- Rare, like reserve twists: a budgeted tie slot loads with `TIE_LOAD_PROB` (ASSUMED 0.25, pending Ryne; reserve twists load at 0.5), so most seasons have no pre-show tie at all.
+- Every tie carries a `visibility` mark, `secret` or `public`, decided at season start from a dedicated seeded draw whose chance depends on the pair (`PUBLIC_TIE_CHANCE`: family and former teammates are usually out in the open, an ex or a prior romance usually kept quiet; ASSUMED pending Ryne).
+- A PUBLIC tie starts at exposure `public` and is announced on Day 1 as an event the whole house (player included) witnessed, so it is an ordinary house fact. A SECRET tie stays sealed and spreads only by the normal rules (0059 section 5, 0095).
+- Hostility is the pair's own: an ex or a rival starts cold, each side by its own temperament (`tieDirectedBias`: strategy style and volatility); every friendly nature keeps the original small warm bias. Engine: `src/engine/tieVisibility.ts`. Tests: `tests/unit/preShowTiesVisibility.test.ts`.

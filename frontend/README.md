@@ -1,6 +1,6 @@
 # Orwell
 
-> **Branch note:** `dev` is the default branch and contains the latest development changes, but it may be unstable. For the more stable curated branch, use [`main`](https://github.com/kevinhirsch/orwell/tree/main).
+> **Branch note:** `dev` is the default branch and contains the latest development changes, but it may be unstable. For the more stable curated branch, use [`main`](https://github.com/Psychout-Media/orwell/tree/main).
 
 ```
 ───────────────────────────────────────────────
@@ -61,7 +61,7 @@ pull request guidelines.
 
 ### Docker (recommended)
 ```bash
-git clone https://github.com/kevinhirsch/orwell.git
+git clone https://github.com/Psychout-Media/orwell.git
 cd Orwell
 cp .env.example .env       # optional, but recommended for explicit defaults
 docker compose up -d --build
@@ -75,7 +75,7 @@ only when you intentionally want LAN/reverse-proxy access.
 
 ### Native Linux / macOS
 ```bash
-git clone https://github.com/kevinhirsch/orwell.git
+git clone https://github.com/Psychout-Media/orwell.git
 cd Orwell
 python3 -m venv venv
 source venv/bin/activate
@@ -93,7 +93,7 @@ Docker on macOS cannot use the Metal GPU. For GPU-accelerated Cookbook on an
 M-series Mac, run Orwell natively:
 
 ```bash
-git clone https://github.com/kevinhirsch/orwell.git
+git clone https://github.com/Psychout-Media/orwell.git
 cd Orwell
 ./start-macos.sh
 ```
@@ -267,7 +267,7 @@ do not run on macOS. MLX-only models are not served by Orwell.
 server; safe to re-run):
 
 ```powershell
-git clone https://github.com/kevinhirsch/orwell.git
+git clone https://github.com/Psychout-Media/orwell.git
 cd Orwell
 powershell -ExecutionPolicy Bypass -File .\launch-windows.ps1
 ```
@@ -275,7 +275,7 @@ powershell -ExecutionPolicy Bypass -File .\launch-windows.ps1
 Or do it by hand:
 
 ```powershell
-git clone https://github.com/kevinhirsch/orwell.git
+git clone https://github.com/Psychout-Media/orwell.git
 cd Orwell
 py -3.11 -m venv venv
 venv\Scripts\Activate.ps1
@@ -429,9 +429,9 @@ All user data lives in `data/` (gitignored): `app.db` (sessions, messages, docum
 
 <a href="https://www.star-history.com/?repos=kevinhirsch%2Forwell&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=kevinhirsch/orwell&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=kevinhirsch/orwell&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=kevinhirsch/orwell&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Psychout-Media/orwell&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Psychout-Media/orwell&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Psychout-Media/orwell&type=date&legend=top-left" />
  </picture>
 </a>
 

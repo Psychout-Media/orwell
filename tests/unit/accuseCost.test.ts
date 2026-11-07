@@ -58,7 +58,7 @@ describe("a MISS dings the accuser (flag on); a free miss stays free (flag off)"
 describe("an honest HIT sometimes sours and sometimes earns respect", () => {
   it("over many seeds both reactions occur; each is bounded; the same seed gives the same reaction; flag off folds neither", () => {
     let sour = 0, respect = 0, seen = 0;
-    for (let seed = 1; seed <= 40; seed++) {
+    for (let seed = 1; seed <= 120; seed++) { // ORW-132 made pre-show ties rare, so more seeds are needed to see enough accusable ties
       const g = game(seed); const tie = g.ties[0]; if (!tie) continue;
       g.g.setAccuseCostEnabled(true);
       const before = g.rel.edge(tie.a, PLAYER).trust;

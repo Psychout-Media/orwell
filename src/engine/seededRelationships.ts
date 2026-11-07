@@ -45,10 +45,15 @@ export type ShowmanceStage = "spark" | "bond" | "visible" | "resolved";
  */
 export type TieExposure = "sealed" | "surfaced-to-house" | "public";
 
+/** ORW-132 - whether a tie starts SECRET (sealed, spreads only by the normal rules) or PUBLIC (a house fact from Day 1). Decided once at season start. Absent on a pre-ORW-132 save => treated as `secret`. */
+export type TieVisibility = "secret" | "public";
+
 export interface PreGameTie {
   a: EntityId;
   b: EntityId;
   nature: TieNature;
+  /** ORW-132 - the visibility mark decided at season start (see `markTieVisibility`). */
+  visibility?: TieVisibility;
   /** 0095 — absent (⇒ `sealed`) on a pre-0095 save; use `tieExposureOf` to read it defensively. */
   exposure?: TieExposure;
 }
@@ -112,6 +117,8 @@ export function migrateSeededRelationships(sr: SeededRelationships): SeededRelat
 }
 /** Chance an enabled tie/showmance slot is actually loaded (often none, even when budgeted). */
 export const SEED_LOAD_PROB = 0.5;
+/** ORW-132 (ASSUMED 0.25, pending Ryne): the chance a budgeted TIE slot actually loads - a huge minority (reserve twists load at 0.5 per slot). Showmance slots keep `SEED_LOAD_PROB`. */
+export const TIE_LOAD_PROB = 0.25;
 /** The small standing affinity bias a pre-game tie folds between the pair (each direction). Never large. */
 export const TIE_AFFINITY_BIAS = 0.14;
 /** A showmance's initial standing affinity bias at `spark` — a touch warmer than a plain tie, still small. */
@@ -171,7 +178,7 @@ export function loadSeededRelationships(
 
   const tieSlots = Math.max(0, Math.min(tieBudget, Math.floor(ids.length / 2)));
   for (let i = 0; i < tieSlots; i++) {
-    if (rng.next() < 1 - SEED_LOAD_PROB) continue; // often none
+    if (rng.next() < 1 - TIE_LOAD_PROB) continue; // ORW-132: a huge minority - most seasons have no pre-show tie at all
     const pair = drawPair();
     if (!pair) break;
     ties.push({ a: pair[0], b: pair[1], nature: TIE_NATURES[rng.int(TIE_NATURES.length)]! });

@@ -6020,6 +6020,43 @@ _POSTSEASON_OFFTOPIC_TURNS: Dict[str, int] = {}
 _REAPPROACH_LEVEL: Dict[str, int] = {}
 
 
+# ORW-231 — every per-owner store in this module is PER-SEASON pacing state kept in process memory and
+# keyed only by the owner, so a new season for the same owner (the first game, a confirmed restart, the
+# next season, `/api/orwell/new-game`, a God-Mode sandbox reset) used to inherit the last season's
+# force-advance streak, anti-stale holds, stall level and flags, loop-break streak and the rest, and
+# leftover state could decide whether the new season advanced early. They all reset when the engine
+# creates or resets a season (`orwell_engine.on_season_reset`). A test pins that every store declared
+# empty at module level is listed here, so a new one cannot dodge the reset.
+_SEASON_PACING_STORES = (
+    _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
+    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
+    _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL,
+)
+
+
+def _forget_season_pacing(user) -> None:
+    """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
+    stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
+    and the faith queue's canonical-session key), so every variant is cleared; another owner's state is
+    never touched. Registered on `orwell_engine.on_season_reset`; never raises."""
+    keys = {user, user or "", _belt_key(user)}
+    try:
+        keys.add(_faith_key(user))
+    except Exception:
+        pass
+    for store in _SEASON_PACING_STORES:
+        for key in keys:
+            store.pop(key, None)
+
+
+try:  # register at import; fail-soft so a missing engine module never breaks the agent loop
+    from src import orwell_engine as _oe_season_reset
+    _oe_season_reset.on_season_reset(_forget_season_pacing)
+except Exception:
+    pass
+
+
 def _player_escaped_reunion(messages) -> bool:
     """True when the player's last message has wandered OFF the reunion — i.e. they're in free
     chat, not paying off the season just played. A message that's still about the season / the
@@ -6828,12 +6865,10 @@ async def _stream_agent_loop_impl(
             # No-op when the user has an explicit `agent_input_token_budget`
             # (that branch ignores hard_max). Falls back to DEFAULT_HARD_MAX
             # on missing/malformed values so misconfig can't zero the budget.
-            try:
-                hard_max = int(get_setting("agent_input_token_hard_max", DEFAULT_HARD_MAX) or DEFAULT_HARD_MAX)
-            except (TypeError, ValueError):
-                hard_max = DEFAULT_HARD_MAX
-            if hard_max <= 0:
-                hard_max = DEFAULT_HARD_MAX
+            # None/unset/0 = AUTO (model-aware: 0.60 x window on windows >= 500K, else the 48K cost cap); any
+            # explicit number is honoured exactly (ORW-219).
+            from src.context_budget import resolve_hard_max
+            hard_max = resolve_hard_max(get_setting("agent_input_token_hard_max", 0))
             # Scale the default budget to the model's context window so long-context
             # models aren't silently capped at 6000; an explicit user setting is
             # still honoured (clamped to the window). (#1170)
@@ -6854,6 +6889,7 @@ async def _stream_agent_loop_impl(
                 messages,
                 effective_budget,
                 reserve_tokens=reserve_tokens,
+                preserve_system=bool(game_mode),  # ORW-219: never cut the GM prompt / HARD CONSTRAINTS
             )
             after_trim_tokens = estimate_tokens(trimmed_messages)
             if after_trim_tokens < before_trim_tokens:

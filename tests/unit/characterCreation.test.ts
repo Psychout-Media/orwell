@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   runPlayerOOBE, startNewGame, generateHouse, ARCHETYPES,
   NPC_STAT_RANGE, playerAptitudesWithinNpcBounds,
-  NAME_CORPORA, isCorpusName, DEFAULT_ARCHETYPE,
+  NAME_CORPORA, isCorpusName, DEFAULT_ARCHETYPE, resolveStrategyStyle,
 } from "../../src/engine/characterFactory";
 import type { Houseguest } from "../../src/engine/characterFactory";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -175,3 +175,33 @@ describe("0015 — character creation (OOBE)", () => {
     expect(archetypes.size).toBeGreaterThanOrEqual(5);
   });
 });
+
+/** ORW-208 - a requested strategy style outside the archetype's own list is substituted, but never silently. */
+describe("ORW-208 — strategy-style substitution is reported, not silent", () => {
+  it("resolveStrategyStyle keeps an in-list style and reports nothing", () => {
+    expect(resolveStrategyStyle("mastermind", "strategic")).toEqual({ applied: "strategic" });
+  });
+  it("an out-of-list style is replaced by the archetype's first style AND the substitution is reported", () => {
+    // the archetype whose list does not offer `strategic` (the live case: a wildcard asked for strategic)
+    const r = resolveStrategyStyle("wildcard", "strategic");
+    expect(r.applied).toBe("emotional");
+    expect(r.adjusted).toEqual({ requested: "strategic", applied: "emotional" });
+  });
+  it("no requested style or an unauthored archetype reports nothing (the neutral placeholder is not a coercion)", () => {
+    expect(resolveStrategyStyle("wildcard", undefined).adjusted).toBeUndefined();
+    expect(resolveStrategyStyle(undefined, "strategic").adjusted).toBeUndefined();
+  });
+  it("runPlayerOOBE stores exactly what resolveStrategyStyle applies (the stored closed set is unchanged)", () => {
+    expect(runPlayerOOBE({ name: "Author", archetype: "wildcard", strategyStyle: "strategic" }).character.strategyStyle).toBe("emotional");
+    expect(runPlayerOOBE({ name: "Author", archetype: "wildcard", strategyStyle: "aggressive" }).character.strategyStyle).toBe("aggressive");
+  });
+  it("createCharacter surfaces the substitution in its result (and only then)", () => {
+    const adjusted = new GameSessionAdapter().createCharacter({ playerName: "Author", seed: 7, archetype: "wildcard", strategyStyle: "strategic" });
+    expect(adjusted.strategyStyleAdjusted).toEqual({ requested: "strategic", applied: "emotional", archetype: "wildcard" });
+    const clean = new GameSessionAdapter().createCharacter({ playerName: "Author", seed: 7, archetype: "wildcard", strategyStyle: "aggressive" });
+    expect(clean.strategyStyleAdjusted).toBeUndefined();
+    const none = new GameSessionAdapter().createCharacter({ playerName: "Author", seed: 7 });
+    expect(none.strategyStyleAdjusted).toBeUndefined();
+  });
+});
+

@@ -368,6 +368,7 @@ def _msgs(n_convo: int):
 
 
 def test_maybe_compact_backgrounds_over_threshold(monkeypatch):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")  # ORW-224: compaction is refused in the game build; these test the mechanics
     async def fake_ctx(url, model):
         return 100  # tiny window ⇒ far over the 85% threshold
 
@@ -413,6 +414,7 @@ def test_maybe_compact_under_threshold_is_noop(monkeypatch):
 
 
 def test_background_compaction_abandons_on_concurrent_history_edit(monkeypatch):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")  # ORW-224: compaction is refused in the game build; these test the mechanics
     import core.models as core_models
 
     async def fake_ctx(url, model):
@@ -460,6 +462,7 @@ def test_background_compaction_abandons_on_concurrent_history_edit(monkeypatch):
 
 
 def test_background_compaction_abandons_on_in_place_content_edit(monkeypatch):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")  # ORW-224: compaction is refused in the game build; these test the mechanics
     # CR-MAJOR: history_routes.edit_message mutates the SAME message object's `content` IN PLACE —
     # identity is unchanged, only content changes. The content-digest revalidation must catch it (an
     # object-identity check would MISS it and overwrite the newer edit).
