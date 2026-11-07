@@ -305,6 +305,10 @@ def _session_client(monkeypatch, live_ids, cfg_model=_NARRATOR):
     monkeypatch.setattr(chat_routes, "_default_chat_target",
                         lambda owner: ("ep-or", cfg_model))
     sm = _StubSessionManager()
+    # `session_routes.router` is a module-global APIRouter that every setup_session_routes() call appends to, so
+    # without a fresh one these handlers outlived the test and answered a LATER test's requests first.
+    from fastapi import APIRouter
+    monkeypatch.setattr(session_routes, "router", APIRouter(prefix="/api", tags=["sessions"]))
     app = FastAPI()
     app.include_router(session_routes.setup_session_routes(sm, {"REQUEST_TIMEOUT": 2}))
     return TestClient(app, raise_server_exceptions=False), sm

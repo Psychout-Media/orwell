@@ -13,7 +13,7 @@ from fastapi import APIRouter, Request, HTTPException, Form, Query
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata
 from src.request_models import ChatRequest
 from src.llm_core import llm_call_async, stream_llm, stream_llm_with_fallback
 from src.agent_loop import stream_agent_loop
@@ -1866,7 +1866,7 @@ def setup_chat_routes(
                                     _reported_model = last_metrics.get("model")
                                     last_metrics["requested_model"] = last_metrics.get("requested_model") or _requested_model
                                     last_metrics["model"] = _reported_model or _actual_model or _answered_by or _requested_model
-                                    yield f'data: {json.dumps({"type": "metrics", "data": last_metrics})}\n\n'
+                                    yield f'data: {json.dumps({"type": "metrics", "data": public_metadata(last_metrics)})}\n\n'  # ORW-187: the stream/mirror/resume replay never carries engine_result
                                 elif data.get("type") == "realign_body":
                                     # S2a in-turn realignment (RC2 / #1664): the mid-stream guard missed
                                     # an ungrounded closed-set claim — EXCISE the phantom sentence(s) from

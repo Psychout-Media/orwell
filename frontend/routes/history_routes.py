@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, Request, HTTPException
 
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata, client_metadata_update
 from core.database import SessionLocal, ChatMessage as DbChatMessage, Session as DbSession
 from src.topic_analyzer import analyze_topics
 from routes.session_routes import (
@@ -17,6 +17,17 @@ from routes.session_routes import (
     _reject_compact_for_game_session,
     _verify_session_owner,
 )
+
+def _without_admin_engine_results(entries):
+    """ORW-187 - return copies of the history entries whose `metadata` went through `core.models.public_metadata` (admin-only tool-event fields removed; storage untouched)."""
+    out = []
+    for e in entries:
+        md = e.get("metadata") if isinstance(e, dict) else None
+        if isinstance(md, dict) and "tool_events" in md:
+            e = {**e, "metadata": public_metadata(md)}
+        out.append(e)
+    return out
+
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +142,7 @@ def setup_history_routes(session_manager) -> APIRouter:
                 db.close()
 
         return {
-            "history": history_dict,
+            "history": _without_admin_engine_results(history_dict),
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "name": session.name,
@@ -215,7 +226,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             content = body.get("content", "")
             if not content:
                 raise HTTPException(400, "content is required")
-            msg = ChatMessage(role=role, content=content, metadata=body.get("metadata"))
+            msg = ChatMessage(role=role, content=content, metadata=public_metadata(body.get("metadata")))  # ORW-187: a client can never store an admin-only engine_result
             session_manager.add_message(session_id, msg)
             return {"status": "ok"}
         except KeyError:
@@ -398,7 +409,7 @@ def setup_history_routes(session_manager) -> APIRouter:
         _verify_session_owner(request, session_id)
         try:
             body = await request.json()
-            meta_update = body.get("metadata", {})
+            meta_update = client_metadata_update(body.get("metadata", {}))  # ORW-187: a client can never overwrite/forge/delete the server-owned tool_events (admin ledger)
             session = session_manager.get_session(session_id)
 
             # Update in-memory
