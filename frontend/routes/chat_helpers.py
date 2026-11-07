@@ -1051,17 +1051,22 @@ def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
         npresent = _names(nb.get("present"))
         nearby_bits.append(f"{nr} ({', '.join(npresent) if npresent else 'empty'})")
     here = ", ".join(present) if present else "no other houseguest"
-    nearby_line = ("\nAdjacent rooms right now: " + "; ".join(nearby_bits) + "."
+    nearby_line = ("\nAdjacent rooms right now: " + "; ".join(nearby_bits) + ". Those people STAY in their rooms this turn."
                    if nearby_bits else "")
+    if present:
+        roster_line = (f"HARD ROSTER (this turn): the ONLY people in the room with the player are: {here}. "
+                       "Nobody else speaks, acts, reacts, laughs, overhears or is described as present this turn - a name that is not on this list may be MENTIONED in conversation, never seen or heard in the room. ")
+    else:
+        roster_line = ("HARD ROSTER (this turn): the player is alone - nobody else is in the room. Nobody else speaks, acts, reacts, overhears or is described as present this turn; "
+                       "a name may be MENTIONED in conversation, never seen or heard in the room. ")
     return (
-        "LOCATION IS GROUNDED BY THE ENGINE (the source of truth — do not contradict it). Right now "
+        "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
         f"the player is in the {room}, with: {here}.{nearby_line}\n"
-        "Houseguests MAY move between rooms during the scene — narrate it naturally and the engine will "
-        "record it — but hold these hard rules so the scene never contradicts the board: (1) NEVER place "
-        "a houseguest who has already been evicted in any room — they have left the house for good; "
-        "(2) NEVER invent a room that is not part of the house; (3) a houseguest is in exactly ONE place "
-        "at a time. Voice only the people who are here or who plausibly walk in from an adjacent room; "
-        "do not silently teleport anyone or empty a room the engine says is occupied."
+        + roster_line +
+        "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
+        "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
+        "the prose foldable into the board: (1) NEVER place a houseguest who has already been evicted in any room - they have left the house for good; (2) NEVER invent a room that is not part of "
+        "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied."
     )
 
 
