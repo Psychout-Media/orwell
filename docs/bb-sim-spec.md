@@ -22,7 +22,7 @@ actual contents are designed/migrated separately under access control.
 The v3 spec below remains the domain baseline; these accepted refinements (in `docs/decisions/`
 and `docs/features/`) supersede or extend it where they conflict:
 
-- **Name & shape.** The project is now **Orwell** (repo `kevinhirsch/orwell`), and the game is
+- **Name & shape.** The project is now **Orwell** (repo `Psychout-Media/orwell`), and the game is
   **folded into the main chat** — a vendored Orwell front-end (`frontend/`, Python) drives play
   through the engine's permissioned MCP tools. The engine is game-master; the chat is the window.
 - **Mechanics refinements** (`docs/decisions/0001`, `0002`): drop Luck → soul **emotional

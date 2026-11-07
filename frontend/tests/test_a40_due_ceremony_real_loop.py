@@ -27,9 +27,13 @@ EARLY = [
 ]
 
 
-def _fresh(stack):
-    """A fresh season through the FE's own sanctioned restart door (the stack is shared by the real-stack pins)."""
-    r = _post_json(stack["fe"], "/api/orwell/new-game", {"playerName": "P", "confirm": True}, timeout=120)
+def _fresh(stack, seed=None):
+    """A fresh season through the FE's own sanctioned restart door (the stack is shared by the real-stack pins). `seed` pins the season (the door's optional `seed`; explicit seeds are
+    first-class for tests and replays); None = real entropy, a different game every run (as in play)."""
+    body = {"playerName": "P", "confirm": True}
+    if seed is not None:
+        body["seed"] = seed
+    r = _post_json(stack["fe"], "/api/orwell/new-game", body, timeout=120)
     assert r.get("started"), r
 
 

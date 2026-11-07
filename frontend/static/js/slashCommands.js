@@ -19,6 +19,7 @@ import themeModule from './theme.js';
 import workspaceModule from './workspace.js';
 import settingsModule from './settings.js';
 import { DEFAULT_KEYBINDS } from './keyboard-shortcuts.js';
+import { isGameBuild } from './orwellToolBeats.js';
 // Game build (feature 0032): workspace verticals removed — null stubs for guarded usage sites.
 const documentModule = null, cookbookModule = null, EVAL_PROMPTS = {};
 
@@ -1791,6 +1792,8 @@ Uploads:   ${d.uploads || '?'}</pre>`);
 
 async function _cmdCompact(args, ctx) {
   if (!ctx.sid) { slashReply('No active chat to compact'); return true; }
+  // ORW-224: compaction rewrites stored chat rows; it is off for game sessions (server refuses too).
+  if (isGameBuild()) { slashReply("Compaction is off for game sessions; the narrator's memory is handled automatically"); return true; }
   const reply = slashReply('Compacting context ');
   const compactSpinner = spinnerModule.create('Compacting context', 'inline', 'whirlpool');
   if (reply?.body) {

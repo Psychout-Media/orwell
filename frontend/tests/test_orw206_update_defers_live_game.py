@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
 LIB = DEPLOY / "orwell-live-game.sh"
 needs_bash = pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
-needs_sqlite = pytest.mark.skipif(shutil.which("sqlite3") is None, reason="sqlite3 CLI required")
 # As root the signal reader (correctly) drops to the service user, who cannot read a root-made tmp DB.
 not_root = pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="reader drops privileges when run as root")
 
@@ -138,16 +137,14 @@ def _db(tmp_path, rows):
 
 
 @needs_bash
-@needs_sqlite
 @not_root
-def test_idle_seconds_uses_newest_player_message_only(tmp_path):
+def test_idle_seconds_uses_newest_player_message_only(tmp_path):   # ORW-233: python3 reads it; no sqlite3 CLI needed
     db = _db(tmp_path, [("user", 3000), ("user", 120), ("assistant", 5)])
     got = int(bash(f"live_game_idle_seconds '{db}'"))
     assert 118 <= got <= 130          # the assistant row (5s) must not count as a player message
 
 
 @needs_bash
-@needs_sqlite
 @not_root
 def test_idle_seconds_none_for_no_db_table_or_player_rows_error_for_corrupt(tmp_path):
     assert bash(f"live_game_idle_seconds '{tmp_path}/missing.db'") == "none"
@@ -161,10 +158,10 @@ def test_idle_seconds_none_for_no_db_table_or_player_rows_error_for_corrupt(tmp_
 
 
 @needs_bash
-@needs_sqlite
 def test_sqlite_is_never_run_as_root_without_dropping_privileges(tmp_path):
     db = _db(tmp_path, [("user", 10)])
-    # Pretend to be root (id -u -> 0) with no usable service user: must answer "none" and never invoke sqlite3.
+    # Pretend to be root (id -u -> 0) with no usable service user: must answer "none" and never open the DB —
+    # neither through python3 (ORW-233) nor the sqlite3 CLI (a real read would answer ~10, not "none").
     out = bash(f"id() {{ if [[ \"$1\" == -u ]]; then echo 0; else return 1; fi; }}; "
                f"sqlite3() {{ echo SQLITE_RAN_AS_ROOT >&2; echo 5; }}; live_game_idle_seconds '{db}'",
                {"ORWELL_SERVICE_USER": "no-such-user-xyz"})

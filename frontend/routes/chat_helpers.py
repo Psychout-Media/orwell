@@ -12,7 +12,7 @@ from core.models import ChatMessage
 from core.database import SessionLocal
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
-from src.endpoint_resolver import normalize_base
+from src.endpoint_resolver import normalize_base, resolve_session_headers
 from src.context_compactor import maybe_compact, trim_for_context
 from src.auth_helpers import get_current_user
 from src.prompt_security import untrusted_context_message
@@ -3778,9 +3778,37 @@ def forget_knowledge_wall(user) -> None:
         _KW_SOURCE_LAST_GOOD.pop(k, None)
 
 
+def _forget_season_pacing(user) -> None:
+    """ORW-231 — a new season starts with none of the last season's turn-steering state. The
+    active→inactive framing edge already drops some of it, but a direct restart (`/api/orwell/new-game`,
+    a confirmed restart, a God-Mode reset) never passes through an inactive turn, so the season start
+    clears it too:
+      * the held social runway, steers, production hold and premiere counters (`clear_social_runway`);
+      * the armed S1b forced-advance escalation;
+      * an owed chyron or aired-fact steer (`clear_preresolve_debt`);
+      * the ORW-10 cut streak and the queued next-turn re-grounds;
+      * the premiere entrance stash.
+    Registered on `orwell_engine.on_season_reset`; another user's state is never touched; never raises."""
+    for clear in (clear_social_runway, clear_advance_escalation, clear_preresolve_debt):
+        try:
+            clear(user)
+        except Exception:
+            logger.debug("[orwell] season-pacing reset step %s skipped for user=%s", clear.__name__, user)
+    try:
+        dkey = _desync_key(user)
+        _CUT_STREAK.pop(dkey, None)
+        _DESYNC_REGROUND.pop(dkey, None)
+        rkey = _runway_key(user)
+        _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
+        _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
+    except Exception:
+        logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
+
+
 try:  # register at import; fail-soft so a missing engine module never breaks chat_helpers
     from src import orwell_engine as _oe_for_reset
     _oe_for_reset.on_season_reset(forget_knowledge_wall)
+    _oe_for_reset.on_season_reset(_forget_season_pacing)  # ORW-231
 except Exception:
     pass
 
@@ -7362,7 +7390,7 @@ async def auto_name_session(session_manager, sess):
 
         owner = getattr(sess, "owner", None)
         t_url, t_model, t_headers = resolve_task_endpoint(
-            sess.endpoint_url, sess.model, sess.headers, owner=owner,
+            sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
         )
         if not t_model:
             logger.debug("[auto-name] No model provided, skipping")
@@ -7411,9 +7439,16 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     current_url = sess.endpoint_url or ""
     db = SessionLocal()
     try:
-        endpoints = db.query(ModelEndpoint).filter(
-            ModelEndpoint.is_enabled == True
-        ).all()
+        # Owner-scoped (own + shared, no admin bypass): never adopt another user's endpoint
+        # or persist their key on this session.
+        from src.auth_helpers import owner_filter
+        _q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+        _own = getattr(sess, "owner", None)
+        if _own:
+            _q = owner_filter(_q, ModelEndpoint, _own, include_shared=True)
+        else:
+            _q = _q.filter(ModelEndpoint.owner.is_(None))
+        endpoints = _q.all()
     finally:
         db.close()
 
@@ -7450,10 +7485,12 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             # Persist
             _db = SessionLocal()
             try:
+                from src.endpoint_resolver import persistable_session_headers
                 _db.query(DBSession).filter(DBSession.id == session_id).update({
                     "model": new_model,
                     "endpoint_url": chat_url,
-                    "headers": json.dumps(new_headers),
+                    "headers": persistable_session_headers(
+                        chat_url, new_headers, getattr(sess, "owner", None)) or {},
                 })
                 _db.commit()
             finally:
@@ -7582,13 +7619,11 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 if not ep.api_key:
                     return
                 base = normalize_base(ep.base_url or "")
+                # ORW-199/200: in-memory only. The endpoint record is the source of truth and
+                # `resolve_session_headers` supplies auth at call time; persisting a plain-text
+                # copy of the provider key on the session row is what let it go stale.
                 sess.headers = build_headers(ep.api_key, base)
-                update_q = db.query(DBSession).filter(DBSession.id == session_id)
-                if owner:
-                    update_q = update_q.filter(DBSession.owner == owner)
-                update_q.update({"headers": sess.headers})
-                db.commit()
-                logger.info(f"Resolved and persisted auth headers for session {session_id} from endpoint {ep.name}")
+                logger.info(f"Resolved auth headers for session {session_id} from endpoint {ep.name}")
                 return
         finally:
             db.close()
@@ -7830,10 +7865,15 @@ async def build_chat_context(
     )
 
     # Auto-compact
+    # ORW-219: maybe_compact deliberately gets NO input_budget_fn here. Compaction rewrites (deletes) stored
+    # chat rows, which breaks non-degradation (mandate #4); it stays on its legacy 85%-of-window trigger
+    # (unchanged; reachable at 85% of the raw window; game sessions guarded by ORW-224). The trimmer only drops old turns from the PROMPT, never from the database.
     messages, context_length, was_compacted = await maybe_compact(
-        sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
+        sess, sess.endpoint_url, sess.model, messages, resolve_session_headers(sess, user), owner=user,
+        # ORW-224: a game/casting transcript is never rewritten; the trimmer shortens the prompt only.
+        persist_history=not (game_active or framed),
     )
-    messages = trim_for_context(messages, context_length)
+    messages = trim_for_context(messages, context_length, preserve_system=bool(game_active or framed))
 
     # #1735 (A4) — append this turn's terminal HARD-CONSTRAINTS block as the caller's OWN LAST message,
     # AFTER the transcript (the last user turn included) and AFTER compaction/trimming, so it can never
@@ -8375,7 +8415,7 @@ def run_post_response_tasks(
         t_url, t_model, t_headers = resolve_endpoint("utility", owner=owner)
         if not (t_url and t_model):
             t_url, t_model, t_headers = resolve_task_endpoint(
-                sess.endpoint_url, sess.model, sess.headers, owner=owner,
+                sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
             )
         asyncio.create_task(extract_and_store(
             sess, memory_manager, memory_vector,
@@ -8413,7 +8453,7 @@ def run_post_response_tasks(
             from services.memory.skill_extractor import maybe_extract_skill
             from src.task_endpoint import resolve_task_endpoint
             s_url, s_model, s_headers = resolve_task_endpoint(
-                sess.endpoint_url, sess.model, sess.headers, owner=owner,
+                sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
             )
             logger.debug("[skill-extract] dispatching extractor (model=%s)", s_model)
             asyncio.create_task(maybe_extract_skill(
