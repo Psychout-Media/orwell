@@ -196,10 +196,27 @@ def test_the_wrapper_sends_brief_only_when_given(monkeypatch):
 
 def test_the_brief_is_appended_after_the_trim_and_right_before_hard_constraints():
     src = inspect.getsource(chat_helpers.build_chat_context)
-    trim = src.index("messages = trim_for_context(messages, context_length)")
+    # Match the call, not its exact arguments (ORW-219 added `preserve_system=`; more may follow).
+    trim = src.index("messages = trim_for_context(messages, context_length")
     brief = src.index("_brief_text = _show_brief.pop(session_id)")
     brief_append = src.index('messages = messages + [{"role": "system", "content": _brief_text}]')
     hc_append = src.index('messages = messages + [{"role": "system", "content": _hard_constraints}]')
     assert trim < brief < brief_append < hc_append
     # Off: the framing call carries no extra keyword and nothing is popped.
     assert "**_brief_kw," in src and "if _brief_kw:" in src
+
+
+# ── the go-live gate: the brief survives the game-turn trim, in place (ORW-219, #2263) ────────────────────────
+
+def test_the_game_turn_trim_keeps_the_brief_intact_and_terminal():
+    from src.context_compactor import trim_for_context
+    msgs = [{"role": "system", "content": "GM PROMPT " * 200}]
+    for i in range(30):
+        msgs += [{"role": "user", "content": f"turn {i} " * 40}, {"role": "assistant", "content": f"reply {i} " * 40}]
+    msgs += [{"role": "user", "content": "now"},
+             {"role": "system", "content": "SHOW BRIEF. test"},
+             {"role": "system", "content": "HARD CONSTRAINTS — test"}]
+    out = trim_for_context(msgs, 3000, preserve_system=True)
+    assert len(out) < len(msgs), "the budget must actually force a trim"
+    assert [m["content"] for m in out[-2:]] == ["SHOW BRIEF. test", "HARD CONSTRAINTS — test"]
+    assert out[-3]["content"] == "now"
