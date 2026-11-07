@@ -148,6 +148,11 @@ class _StubHandler(BaseHTTPRequestHandler):
                 emit({"content": piece})
                 if entry["delay"]:
                     time.sleep(entry["delay"])
+            # A58 (ORW-229 flake): an optional GATE (a threading.Event) holds the stream open after the last delta, before it finishes, until the test
+            # has seen what it needs while the bubble is still streaming. That removes the race between the stub's speed and settle; the timeout only
+            # keeps a broken test from hanging the stub forever.
+            if entry.get("gate") is not None:
+                entry["gate"].wait(timeout=60)
             if entry.get("drop"):  # A57b: the upstream connection silently DROPS - no finish_reason, no [DONE]
                 self.wfile.flush()
                 self.close_connection = True
