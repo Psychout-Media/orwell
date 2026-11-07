@@ -90,6 +90,7 @@ describe(`reactive twists ON under the deployed profile: ${SEEDS}-seed full-seas
     expect(Object.values(byKind).flat().filter((w) => w <= 6).length, "no reactive twist fires in weeks 1-6").toBe(0);
     // A9 flip (2026-11-04, deliberate + reviewed): with the premiere entrances ON (the deployed default, which this lane runs) the first-read fold re-seeds the society, and the earliest secret
     // veto in the 50-seed sample moved from week 12 to week 11 (CI measurement on the flip). The floor is the measured window, never an exact seed pin.
+    // ORW-37 flip (2026-11-06, deliberate + reviewed): lasting game philosophies ON re-seed who nominates whom, and the earliest secret veto in the 50-seed sample moved from week 11 to week 9 (CI measurement on the flip). The floor is the measured window, never an exact seed pin; the "no twist in weeks 1-6" rule above is unchanged.
     // ORW-116 (2026-11-06): the clock now runs from the premiere entry and the night is held until the player turns in, which re-seeds the society again; the earliest secret veto in the 50-seed sample moved from week 11 to week 8 (a measurement, not a pin).
     const FLOOR: Record<string, number> = { "battle-back": 7, "double-eviction": 8, "secret-veto": 8 };
     for (const [kind, floor] of Object.entries(FLOOR)) {
