@@ -2635,7 +2635,8 @@ def setup_email_routes():
                         # a str, not a dict — and llm_call_async's h.update()
                         # then throws "dictionary update sequence element…".
                         # Unwrap until we have a dict (or give up → no headers).
-                        _h = sess.headers
+                        from src.endpoint_resolver import resolve_session_headers as _rsh_e
+                        _h = _rsh_e(sess)
                         for _ in range(3):
                             if isinstance(_h, str):
                                 try:

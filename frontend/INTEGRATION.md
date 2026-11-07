@@ -2,7 +2,7 @@
 
 ## What this is
 
-A vendored copy of **Orwell** (https://github.com/kevinhirsch/orwell, MIT —
+A vendored copy of **Orwell** (https://github.com/Psychout-Media/orwell, MIT —
 see [`LICENSE`](./LICENSE) and [`ACKNOWLEDGMENTS.md`](./ACKNOWLEDGMENTS.md), retained intact).
 Orwell is a self-hosted AI workspace: **Python (FastAPI) backend + vanilla-JS PWA**, with a
 multi-provider LLM connection (Ollama, OpenAI, OpenRouter, Anthropic, llama.cpp, vLLM) and an

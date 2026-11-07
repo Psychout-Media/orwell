@@ -137,10 +137,11 @@ def test_explicit_override_is_honoured():
 
 def test_default_sentinel_scales_to_window_capped_at_hard_max():
     # The persisted-default / unset case scales to the window, capped at 48000.
-    assert compute_input_token_budget(6000, 1_000_000, explicit=False) == DEFAULT_HARD_MAX
+    # ORW-219: the cap is model-aware, so use a sub-500K window here to pin the 48K cap.
+    assert compute_input_token_budget(6000, 400_000, explicit=False) == DEFAULT_HARD_MAX
     assert DEFAULT_HARD_MAX == 48_000
     # A persisted default reported as "explicit" is still treated as non-explicit.
-    assert compute_input_token_budget(6000, 1_000_000, explicit=True) == DEFAULT_HARD_MAX
+    assert compute_input_token_budget(6000, 400_000, explicit=True) == DEFAULT_HARD_MAX
 
 
 def test_unknown_window_falls_back_to_configured_or_default():

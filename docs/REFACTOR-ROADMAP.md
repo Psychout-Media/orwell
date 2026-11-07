@@ -19,7 +19,7 @@ Dependencies/sequencing · Verification.** Severity per the brief: **[LAUNCH-BLO
 
 > **GitHub issue tracking (added 2026-06-23; updated 2026-07-21).** The highest-value post-launch latent,
 > **R1c / A-S3** (a stale-409 dropping a scene's only consequence fold), was tracked as
-> [#591](https://github.com/kevinhirsch/orwell/issues/591) and is now **RESOLVED** — closed across #591 /
+> [#591](https://github.com/Psychout-Media/orwell/issues/591) and is now **RESOLVED** — closed across #591 /
 > CON-11 / A10-#1305 / #1537 / #1659-R3 / #1725-C1 and **#1731-C2** (bounded deferred-fold retry that
 > fail-closes + surfaces a genuine loss). See R1c below. The remaining R-items here stay roadmap-only
 > until scheduled; file them as `type:enhancement` + `post-launch` issues when picked up. This document
