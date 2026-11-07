@@ -123,7 +123,7 @@ jobs:
           # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
           # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
           # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/)'
+          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
@@ -322,10 +322,19 @@ jobs:
           pattern: coverage-blob-*
           path: .vitest-reports
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shard-manifest-*
+          path: .shard-manifests
+          merge-multiple: true
       - name: all four shard reports must be present
         run: |
           ls -l .vitest-reports
           test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 4
+      # ORW-218: the duration-balanced split must have run every test file exactly once across the four legs (nothing unassigned, nothing twice, set == files on disk minus the heavy exclusions).
+      - name: shard union equals the full test set
+        run: >-
+          node ci/check-shard-union.mjs .shard-manifests --count 4 --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
       # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all four shards.
       - run: >-
           npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
@@ -352,7 +361,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: >-
+      - name: coverage leg (duration-balanced slice; writes its file manifest for the union check in `coverage`)
+        env:
+          ORWELL_SHARD_MANIFEST_DIR: .shard-manifests
+        run: >-
           npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
           --coverage.reporter=json --shard=${{ matrix.shard }}/4 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json
@@ -361,6 +373,14 @@ jobs:
           name: coverage-blob-${{ matrix.shard }}
           path: .vitest-reports/
           # the folder is hidden (leading dot): upload-artifact@v4 skips hidden files unless told otherwise ("Found 0 artifact(s)")
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      # Kept out of .vitest-reports: `vitest --merge-reports` parses every file in that folder as a blob.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shard-manifest-${{ matrix.shard }}
+          path: .shard-manifests/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
