@@ -37,7 +37,7 @@ REPO = Path(__file__).resolve().parents[2]
 VOCAB = json.loads((REPO / "frontend" / "tests" / "fixtures" / "engine_voice_vocabulary.json").read_text("utf-8"))
 
 # A seeded roster clause, in the engine's `voiceFingerprint` format (the brief the model is given).
-SEEDED_NONE_HUMOR = "talks in a crude, rambling, blunt voice — manic, none humor; under pressure gets clipped"
+SEEDED_NONE_HUMOR = "talks in a crude, rambling, blunt voice — manic, no humor; under pressure gets clipped"
 SEEDED_DRY_HUMOR = "talks in a polished, measured, candid voice — warm, dry humor; under pressure goes quiet"
 
 BIO_MAN = ("He grew up in a small coastal town and always loved a good challenge. He applied on a whim "
@@ -344,12 +344,22 @@ def test_the_clause_parser_inverts_the_engine_fingerprint_template():
     repair = importlib.import_module("src.orwell_voice_repair")
     template = VOCAB["fingerprintTemplate"]
     dials = VOCAB["dials"]
+    words = VOCAB["humorWords"]
     for humor in dials["humor"]:
         for tell in dials["stressTell"]:
             sample = {"register": dials["register"][0], "rhythm": dials["rhythm"][-1],
                       "directness": dials["directness"][1], "energy": dials["energy"][2],
                       "humor": humor, "stressTell": tell}
-            assert repair.parse_voice_clause(template.format(**sample)) == sample
+            rendered = template.format(**{**sample, "humor": words.get(humor, humor)})
+            assert repair.parse_voice_clause(rendered) == sample
+
+
+def test_no_humor_reads_back_as_the_humor_dial_none():
+    repair = importlib.import_module("src.orwell_voice_repair")
+    assert repair.parse_voice_clause(SEEDED_NONE_HUMOR)["humor"] == "none"
+    # A card rendered before the wording fix still parses the same way.
+    old = "talks in a crude, rambling, blunt voice — manic, none humor; under pressure gets clipped"
+    assert repair.parse_voice_clause(old)["humor"] == "none"
 
 
 @pytest.mark.parametrize("clause", [
@@ -369,5 +379,5 @@ def test_the_fixture_template_matches_the_engine_source_literally():
     src = (REPO / "src" / "engine" / "voice.ts").read_text("utf-8")
     m = re.search(r"return `(talks in a [^`]+)`;", src)
     assert m, "voiceFingerprint's template literal moved; update the fixture and both halves of the gate"
-    as_format = re.sub(r"\$\{voice\.(\w+)\}", r"{\1}", m.group(1))
+    as_format = re.sub(r"\$\{(?:voice\.)?(\w+)\}", r"{\1}", m.group(1))
     assert as_format == VOCAB["fingerprintTemplate"]
