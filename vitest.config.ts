@@ -40,12 +40,18 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     // A9 flip: pin the premiere-entrances flag per test file (unit lane OFF; property/uat/calibration lanes run the deployed default). See the file.
-    setupFiles: ["tests/support/premiereTestDefault.ts"],
+    // ORW-229 review: tests/support/fastCheckSeed.ts makes each test's fast-check seed a function of the run seed and the test id, so CI's one
+    // automatic retry replays the same cases (a real counterexample can never be retried into green).
+    setupFiles: ["tests/support/premiereTestDefault.ts", "tests/support/fastCheckSeed.ts"],
     // One private, auto-removed TMPDIR per run (the ~95 mkdtemp sites leaked ~8 GB into the RAM-backed /tmp). Guard: tests/unit/tmpRunIsolation.test.ts.
     globalSetup: ["tests/support/tmpRunGlobalSetup.ts"],
     // The architecture test shells out to dependency-cruiser, which can take a
     // moment on a cold cache; give the whole suite generous headroom.
     testTimeout: 30_000,
+    // ORW-229 flaky-test rule (docs/CI.md): on GitHub Actions, also list every test that needed CI's automatic retry (`--retry=1` in ci.yml) in the
+    // job summary, so a flake is counted, not hidden (tests/support/flakyReporter.ts). A lane that passes its own `--reporter` (the coverage-shard
+    // blobs) replaces this list; the `coverage` merge job reads those blobs back and reports their retries.
+    reporters: process.env.GITHUB_ACTIONS === "true" ? ["default", "./tests/support/flakyReporter.ts"] : ["default"],
     coverage: {
       provider: "v8",
       include: ["src/**"],
