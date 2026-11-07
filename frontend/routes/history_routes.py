@@ -14,6 +14,7 @@ from routes.session_routes import (
     _message_role,
     _message_text,
     _reject_compact_during_active_run,
+    _reject_compact_for_game_session,
     _verify_session_owner,
 )
 
@@ -597,6 +598,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             session = session_manager.get_session(session_id)
         except KeyError:
             raise HTTPException(404, "Session not found")
+        _reject_compact_for_game_session(session)
         _reject_compact_during_active_run(session_id)
 
         try:

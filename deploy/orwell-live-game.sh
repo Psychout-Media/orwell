@@ -7,7 +7,9 @@
 # "is someone playing right now?" and, if so, DEFERS until the game has been idle for a while.
 #
 # SIGNAL: the age of the newest PLAYER chat message (chat_messages.role='user') in the front-end's
-# SQLite DB, read as the service user. No new app endpoint, no new state.
+# SQLite DB, read as the service user. No new app endpoint, no new state. It is read with python3's built-in
+# sqlite3 module (read-only); the sqlite3 command-line tool is only a fallback, because a production box has
+# python3 but not that tool (ORW-233). Nothing is installed for it.
 #
 # NEVER STUCK, by construction (see update_defer_decision): --force / ORWELL_UPDATE_FORCE=1 skip the
 # check; an unreadable/absent signal means RUN (fail open); and a hard maximum defer proceeds anyway.
@@ -80,17 +82,76 @@ update_defer_decision() {
   echo "defer:live"
 }
 
+# The question both readers ask: the age, in seconds, of the newest PLAYER message.
+_LG_SQL="SELECT CAST(strftime('%s','now') - strftime('%s', max(timestamp)) AS INTEGER) FROM chat_messages WHERE role='user';"
+
+# ORW-233: the reader is python3's built-in sqlite3 module. The production box has python3 (the front end needs it)
+# but NO sqlite3 command-line tool, so the CLI-only reader always answered "none" there and no update ever waited.
+# Read-only URI, a 2 s busy timeout, and an isolated interpreter (-I: no PYTHON* env, no user site-packages, no cwd
+# on sys.path — a module planted where it runs is never imported). Exit codes: 0 = printed the age (or nothing: no
+# player message yet) · 4 = no such table · 5 = no sqlite3 module · anything else = the read failed.
+_LG_PY='
+import sys
+try:
+    import sqlite3
+    from urllib.parse import quote
+except ImportError:
+    sys.exit(5)
+try:
+    con = sqlite3.connect("file:" + quote(sys.argv[1]) + "?mode=ro", uri=True, timeout=2)
+    try:
+        row = con.execute(sys.argv[2]).fetchone()
+    finally:
+        con.close()
+except sqlite3.Error as e:
+    sys.stderr.write("%s\n" % e)
+    sys.exit(4 if "no such table" in str(e) else 3)
+if row and row[0] is not None:
+    print(int(row[0]))
+'
+
+# One reader each. $1 db, then the privilege-dropping prefix (empty unless root). Prints <integer> | none | error,
+# or "unavailable" when this reader cannot run on this box (the caller then tries the next one).
+_live_game_read_python() {
+  local db="$1" out rc=0; shift
+  command -v python3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  # `|| rc=$?`: a failing read must not trip the caller's `set -e`. `cd /`: the service user may not be able to
+  # enter the directory the updater was started in.
+  out="$(cd / && timeout 10 "$@" python3 -I -c "$_LG_PY" "$db" "$_LG_SQL" 2>/dev/null)" || rc=$?
+  case "$rc" in
+    0) out="${out//[$'\r\n ']/}"
+       if [[ "$out" =~ ^-?[0-9]+$ ]]; then printf '%s' "$out"; else echo none; fi ;;
+    4) echo none ;;
+    5) echo unavailable ;;
+    *) echo error ;;
+  esac
+  return 0
+}
+# The fallback for a box without python3: the sqlite3 command-line tool (the ORW-206 reader).
+_live_game_read_cli() {
+  local db="$1" out err rc=0; shift
+  command -v sqlite3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
+  out="$(cd / && timeout 10 "$@" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$_LG_SQL" 2>"$err")" || rc=$?
+  if (( rc != 0 )); then
+    if grep -qi 'no such table' "$err" 2>/dev/null; then rm -f "$err"; echo none; return 0; fi
+    rm -f "$err"; echo error; return 0
+  fi
+  rm -f "$err"
+  out="${out//[$'\r\n ']/}"
+  if [[ "$out" =~ ^-?[0-9]+$ ]]; then printf '%s' "$out"; else echo none; fi
+  return 0
+}
+
 # Seconds since the newest player message in the FE DB. Prints exactly one of:
 #   <integer>  the age (may be negative on clock skew)
-#   none       nothing to wait on: no DB, no sqlite3, no table, no player message, or we cannot read it
-#              safely (as root with no way to drop privileges) -> the update runs
+#   none       nothing to wait on: no DB, no table, no player message, no reader on this box (neither python3 nor
+#              the sqlite3 CLI), or we cannot read it safely (as root with no way to drop privileges) -> the update runs
 #   error      the read failed in a way that may be transient (locked, timeout) -> caller retries
-# sqlite is NEVER run as root against the service DB (root-owned -wal/-shm sidecars break the FE).
+# The DB is NEVER opened as root (root-owned -wal/-shm sidecars break the FE): as root, the read runs as the service user.
 live_game_idle_seconds() {
-  local db="$1" out err rc svcu sql
+  local db="$1" svcu got
   [[ -f "$db" ]] || { echo none; return 0; }
-  command -v sqlite3 >/dev/null 2>&1 || { echo none; return 0; }
-  sql="SELECT CAST(strftime('%s','now') - strftime('%s', max(timestamp)) AS INTEGER) FROM chat_messages WHERE role='user';"
   local -a runner=()
   if [[ "$(id -u)" -eq 0 ]]; then
     svcu="$(_live_game_svc_user)"
@@ -100,16 +161,10 @@ live_game_idle_seconds() {
       echo none; return 0
     fi
   fi
-  err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
-  rc=0   # `|| rc=$?`: a failing read must not trip the caller's `set -e`
-  out="$(timeout 10 "${runner[@]}" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$sql" 2>"$err")" || rc=$?
-  if (( rc != 0 )); then
-    if grep -qi 'no such table' "$err" 2>/dev/null; then rm -f "$err"; echo none; return 0; fi
-    rm -f "$err"; echo error; return 0
-  fi
-  rm -f "$err"
-  out="${out//[$'\r\n ']/}"
-  if [[ "$out" =~ ^-?[0-9]+$ ]]; then printf '%s' "$out"; else echo none; fi
+  got="$(_live_game_read_python "$db" "${runner[@]}")"
+  if [[ "$got" == unavailable ]]; then got="$(_live_game_read_cli "$db" "${runner[@]}")"; fi
+  if [[ "$got" == unavailable ]]; then got=none; fi
+  printf '%s' "$got"
   return 0
 }
 
