@@ -11,11 +11,15 @@ regard for a conditional in front of them, so a hypothetical was treated as an o
 
 ORW-10 already exempted hypotheticals for nominations and the player's own veto win, inside the board
 verify only (#2221). These gates pin the same rule for every weekly-loop claim kind on every path: a
-match whose sentence, before it, carries a conditional lead-in (if, unless, whether, what if, whoever,
-suppose, imagine, ...) is not a claim; a committed claim — including one in another sentence of the same
-text, or one with the conditional AFTER it — is still caught.
+match whose OWN clause, before it, carries a conditional lead-in (if, unless, what if, whoever, suppose,
+imagine, ...) is not a claim; a committed claim — including one in another sentence of the same text,
+one with the conditional AFTER it, or one in a later clause than the lead-in — is still caught.
 
-Roles only: no names.
+Review of #2290: a lead-in anywhere earlier in the sentence was enough, and the "if" in "as if" / "even if"
+counted, so fabricated outcomes passed every detector ("As if on cue, Marcus wins the veto."). A lead-in now
+governs only its own clause (a comma, semicolon, colon or dash ends it), and "as if", "even if" and
+"whether" are never lead-ins. The review's phrasings are kept verbatim below (their names are fictional);
+everything else uses roles only.
 """
 
 import asyncio
@@ -41,7 +45,6 @@ HYPOTHETICALS = [
     "\"If he wins HOH, we're safe,\" she says.",
     "\"If I won the veto and you were on the block.\" He says it back to you slowly.",   # #2221's line
     "What if the nominee wins the veto?",
-    "Even if he wins the veto, he's going home.",
     "Unless someone wins the veto, the noms stay the same.",
     "If he is evicted Thursday, nobody will miss him.",
     "If you won HOH, what would you even do with it?",
@@ -53,6 +56,27 @@ COMMITTED = [
     "The houseguest wins the veto, if you can believe it.",   # the conditional comes AFTER the claim
     "The houseguest is evicted from the house.",
     "You won HOH!",
+    # "even if" is concessive and "as if" is manner, not conditionals, and "whether" introduces both, so none
+    # of them makes a claim talk, even inside the claim's own clause (review of #2290)
+    "Even if he wins the veto, he's going home.",
+    "As if on cue the houseguest wins the veto.",
+    "Whether anyone likes it or not the houseguest wins HOH.",
+    # a dash ends the lead-in's clause just like a comma or a colon
+    "And then — as if on cue — the houseguest wins the veto.",
+    "Imagine it - the houseguest wins HOH.",
+]
+
+# The review of #2290: every one of these passed the hard-drop rail, the closed-set pre-filter and the board
+# verify on the branch, and every one is a fabricated outcome. (phase, line): the phase is the outcome's own.
+REVIEW_FABRICATIONS = [
+    ("veto-competition", "As if on cue, Marcus wins the veto."),
+    ("hoh-competition", "Even if nobody saw it coming, Dana wins HOH."),
+    ("eviction", "As if the house had been waiting, Priya is evicted."),
+    ("hoh-competition", "Whether or not you believe it, you won HOH."),
+    ("veto-competition", "Wondering if it was fair, you watch as Marcus wins the veto."),
+    ("veto-competition", "Then, as if it were nothing, Dana wins the Power of Veto, and Marcus is evicted."),
+    ("veto-competition", "Thanks, if you must know, I won the veto."),
+    ("hoh-competition", "Imagine that: Dana wins HOH."),
 ]
 
 
@@ -97,6 +121,23 @@ def test_a_hypothetical_is_not_a_closed_set_claim(text):
 def test_a_committed_claim_is_still_caught(text):
     assert chat_helpers._sentence_has_chyron_covered_claim(text), text
     assert chat_helpers._sentence_has_closed_set_claim(text), text
+
+
+@pytest.mark.parametrize("phase,text", REVIEW_FABRICATIONS)
+def test_a_lead_in_outside_the_claims_clause_never_hides_a_fabrication(phase, text):
+    """Review of #2290: each line still hard-drops, still trips the pre-filter, and the board verify still
+    catches it in the outcome's own phase."""
+    assert chat_helpers._sentence_has_chyron_covered_claim(text), text
+    assert chat_helpers._sentence_has_closed_set_claim(text), text
+    board = _board(phase)
+    assert chat_helpers._narration_claims_outcome(text, board, dict(board)), text
+
+
+def test_the_stream_guard_drops_a_review_fabrication_and_keeps_the_hypothetical():
+    chat_helpers._LAST_BEAT_SIG[_USER] = _board("veto-competition")
+    out = _run(agent_loop._pre_emission_outcome_guard("As if on cue, Marcus wins the veto. " + _A96, _USER))
+    assert "Marcus wins the veto" not in out
+    assert _A96 in out
 
 
 # ── the board verify, in the outcome's own phase (what cut the scene) ────────────────────────────── #
