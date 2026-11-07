@@ -1,0 +1,25 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: var(--font); background: var(--surface-0); color: var(--text); font-size: 1rem; }
+a { color: var(--accent); }
+.center-card { max-width: 30rem; margin: 4rem auto; padding: 0 var(--space-4); }
+.btn-link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+
+/* Rendered markdown (inside .md-block) and speaker chips */
+.md-block > :first-child { margin-top: 0; }
+.md-block > :last-child { margin-bottom: 0; }
+.md-block p { margin: 0 0 0.6rem; }
+.md-block pre { overflow-x: auto; background: var(--surface-0); padding: var(--space-2); border-radius: var(--radius-2); }
+.md-block code { font-size: 0.9em; }
+.md-block blockquote { margin: 0.5rem 0; padding-left: var(--space-3); border-left: 3px solid var(--border); color: var(--text-dim); }
+.md-block table { border-collapse: collapse; }
+.md-block th, .md-block td { border: 1px solid var(--border); padding: 0.25rem 0.5rem; }
+.ow-aside { font-style: italic; color: var(--text-dim); border-left: 3px solid var(--warn); padding-left: var(--space-3); }
+.ow-speaker-line { display: block; }
+.ow-speaker-name { margin-right: 0.15rem; }
+.ow-chip { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; margin-right: 0.4rem; border-radius: 50%; font-size: 0.65rem; font-weight: 700; color: #fff; vertical-align: middle; background: hsl(210 45% 40%); }
+.ow-hue-0 { background: hsl(0 45% 42%); } .ow-hue-1 { background: hsl(30 50% 38%); } .ow-hue-2 { background: hsl(55 45% 34%); }
+.ow-hue-3 { background: hsl(90 38% 34%); } .ow-hue-4 { background: hsl(140 38% 32%); } .ow-hue-5 { background: hsl(170 42% 32%); }
+.ow-hue-6 { background: hsl(200 48% 38%); } .ow-hue-7 { background: hsl(230 42% 46%); } .ow-hue-8 { background: hsl(260 40% 48%); }
+.ow-hue-9 { background: hsl(290 36% 44%); } .ow-hue-10 { background: hsl(320 40% 44%); } .ow-hue-11 { background: hsl(345 45% 44%); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }

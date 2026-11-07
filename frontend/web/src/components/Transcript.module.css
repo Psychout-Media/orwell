@@ -1,0 +1,2 @@
+.scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-4); }
+.inner { display: flex; flex-direction: column; gap: var(--space-3); max-width: 52rem; margin: 0 auto; }
