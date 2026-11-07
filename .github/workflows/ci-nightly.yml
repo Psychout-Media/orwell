@@ -1,8 +1,9 @@
 name: ci-nightly
 
 # ORW-229 (docs/CI.md "Nightly"), every night on ubuntu-24.04:
-#   - `full-suite` calls ci.yml with `nightly: true`: every lane (a scheduled run has no diff base, so every path filter is true), the quarantined
-#     tests, the SHOWRUNNER_REWEIGHT heavy sims and coverage over EVERY test file with the floors enforced. The suite is defined once, in ci.yml.
+#   - `full-suite` calls ci.yml with `nightly: true`: every lane and the full tier (a nightly call counts every file as changed, whatever event
+#     started it), the quarantined tests, the SHOWRUNNER_REWEIGHT heavy sims and coverage over EVERY test file with the floors enforced. The
+#     suite is defined once, in ci.yml.
 #   - `quarantined` runs the quarantined tests alone, with NO automatic retry, so a still-flaky one shows up red, and both quarantine guards,
 #     so a quarantine past its 7 days turns the night red even when no PR touches that lane.
 #   - A failing night opens or updates ONE GitHub issue (label `ci-nightly`) naming the run, the failing jobs, the tracking card ORW-234 and each
@@ -11,7 +12,7 @@ on:
   schedule:
     - cron: "23 4 * * *"
   workflow_dispatch:
-  # A PR that edits this workflow runs it once, so the change is proven before it merges (no issue is filed from a PR run).
+  # A PR that edits this workflow runs it once, the full suite included, so the change is proven before it merges (no issue is filed from a PR run).
   pull_request:
     paths:
       - ".github/workflows/ci-nightly.yml"
@@ -81,7 +82,8 @@ jobs:
         name: engine quarantined tests (no retry)
         env:
           FILES: ${{ steps.which.outputs.engine }}
-        run: npx vitest run $FILES
+        # only the quarantined tests (their names carry the tag); the rest of those files runs in full-suite (#2305 review)
+        run: npx vitest run $FILES -t '\[quarantined ' --passWithNoTests
       - if: ${{ !cancelled() }}
         uses: actions/setup-python@v5
         with:
@@ -102,9 +104,9 @@ jobs:
           # exit 5 = no test carried the marker after all (e.g. it is only mentioned in a comment): nothing to run is not a failure.
           [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ]
 
-  # The full suite, defined once in ci.yml. Skipped on the PR trigger: that PR's own CI run already exercises ci.yml.
+  # The full suite, defined once in ci.yml. It also runs on the PR trigger (a PR that edits this file), so nightly-only wiring is proven before it
+  # merges (#2305 review); such PRs are rare.
   full-suite:
-    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/ci.yml
     with:
       nightly: true

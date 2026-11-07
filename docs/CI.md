@@ -8,7 +8,7 @@ A flaky test is one that fails and then passes on the same code. Flakes waste ev
 
 ### 1. One automatic retry
 
-When a test fails in CI, it gets one more try:
+When a test fails in one of these CI lanes, it gets one more try (the other lanes, such as BDD and the heavy sims, do not retry):
 
 - engine tests (vitest): `--retry=1` in `test-unit` and `coverage-shard`;
 - front-end tests (pytest): `--reruns 1` in `fe-unit` and `fe-browser-tests`;
@@ -56,13 +56,13 @@ When the guard goes red, either fix the test and remove the marker, or delete th
 
 Some checks cost a lot on every push and almost never tell us anything new there. Those moved to the nightly run. Kevin approved this on 2026-11-06 ("decided by measured cost and value, and coverage is still measured there").
 
-**How it runs.** `.github/workflows/ci-nightly.yml` runs every night at 04:23 UTC, and on demand from the Actions tab ("Run workflow"). It calls `ci.yml` itself with `nightly: true`, so the suite is written down once. A nightly run has no "before" commit, so every lane runs, plus everything below. A failing night opens or updates one GitHub issue labelled `ci-nightly` (tracked in Plane as ORW-234).
+**How it runs.** `.github/workflows/ci-nightly.yml` runs every night at 04:23 UTC, and on demand from the Actions tab ("Run workflow"). It calls `ci.yml` itself with `nightly: true`, so the suite is written down once. A nightly call always runs the full tier and every lane, plus everything below. A PR that edits `ci-nightly.yml` runs it once too, full suite included, so a change to the nightly is proven before it merges. A failing night opens or updates one GitHub issue labelled `ci-nightly` (tracked in Plane as ORW-234).
 
 **What moved, and why.** We measured cost from the committed duration tables and 7 days of CI history (2026-10-31 to 11-06), and value as "did it catch a problem on a PR or on main, that nothing else caught?":
 
 - **The three SHOWRUNNER_REWEIGHT heavy sims** (`jury-reweight`, `gradient-reweight`, `uat-reweight`). That flag is off by default, so these test a version of the game we do not ship. In those 7 days each one failed only on PRs where its normal twin failed too, and never alone. Together they took about 4 runner-minutes on every push that runs the heavy sims, and `jury-reweight` made its leg the slowest heavy job.
 - **The coverage run of the 13 slowest season-replaying unit files** (listed in `COVERAGE_NIGHTLY_ONLY` in `vitest.config.ts`: the Vault sentinel sweep, the eviction and reactive-twist tests and a few more). These tests still run on every push in `test-unit`, so a failure in them is still caught on the PR. Only their second run, the one in `coverage-shard` that measures coverage, moved. That second run was about three quarters of the coverage lane's test time, and it is the only cover for about 140 branch arms (1% of the covered ones). So on a push, coverage of the checked folders reads a little lower than at night. Measured on CI on 2026-11-07, per push vs every file: engine 93.6% vs 93.8%, adapters/engine 91.7% vs 92.0%, all of `src/` 92.4% vs 92.6%. Composition read 91.2% vs 90.7%: higher, because v8 counts fewer branches when fewer files run. The floors are 90, 82, 80 and 88. The nightly run measures coverage over every file, against the same floors.
 
-**What stayed on every push.** Every test still runs on every push, except the three reweight sims above. That includes every slow test that failed on a PR or on main in those 7 days: the base heavy sims (they caught a vault-leak and a stuck pending decision on PRs), the Vault sentinel property test, the eviction and reactive-twist tests, and `test_a64_week1_clock_real_loop.py` (it caught a real regression on 2026-11-06).
+**What stayed on every push.** Every test still runs on every push, except the three reweight sims above and any quarantined test (see the flaky-test rule). That includes every slow test that failed on a PR or on main in those 7 days: the base heavy sims (they caught a vault-leak and a stuck pending decision on PRs), the Vault sentinel property test, the eviction and reactive-twist tests, and `test_a64_week1_clock_real_loop.py` (it caught a real regression on 2026-11-06).
 
 **Changing the list.** Moving a test off the per-push path needs the same evidence in the PR: its cost per push, and that it caught nothing on its own recently. For the coverage list, also run coverage twice (every file, and the list skipped) and put both sets of numbers in the PR. Anything that guards the Vault Wall keeps running on every push unless Kevin says otherwise.

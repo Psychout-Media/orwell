@@ -43,6 +43,9 @@ describe("quarantine rule checker", () => {
       expect(quarantineProblems(one(`quarantine({ card: "ORW-123", added: "${added}" }).it("x", () => {});`)[0]!, today), added).toEqual([]);
     }
   });
+  it("reads a call with a space before the parenthesis (#2305 review)", () => {
+    expect(one(`quarantine ({ card: "ORW-1", added: "2026-11-09" }).it("x", f);`).map((q) => [q.card, q.added])).toEqual([["ORW-1", "2026-11-09"]]);
+  });
   it("finds every call, with its line", () => {
     const qs = one(`a\nquarantine({ card: "ORW-1", added: "2026-11-09" }).it("x", f);\nquarantine({ card: "ORW-2", added: "2026-11-09" }).describe("y", g);\n`);
     expect(qs.map((q) => [q.line, q.card])).toEqual([[2, "ORW-1"], [3, "ORW-2"]]);
@@ -80,13 +83,14 @@ describe("quarantine helper (a real nested vitest run)", () => {
   const vitest = fileURLToPath(new URL("../../node_modules/vitest/vitest.mjs", import.meta.url));
   const today = new Date().toISOString().slice(0, 10);
 
-  function run(env: Record<string, string>): string {
+  function run(env: Record<string, string>, body?: string, status = 0): string {
     const dir = mkdtempSync(join(tmpdir(), "quarantine-run-"));
     writeFileSync(
       join(dir, "parked.test.ts"),
-      `import { quarantine } from ${JSON.stringify(helper)};\n` +
-        `quarantine({ card: "ORW-1", added: "${today}" }).it("parked test", () => { console.log("PARKED-RAN"); });\n` +
-        `test("steady", () => {});\n`,
+      body ??
+        `import { quarantine } from ${JSON.stringify(helper)};\n` +
+          `quarantine({ card: "ORW-1", added: "${today}" }).it("parked test", () => { console.log("PARKED-RAN"); });\n` +
+          `test("steady", () => {});\n`,
     );
     const r = spawnSync(process.execPath, [vitest, "run", "--root", dir, "--globals", "--reporter=verbose", `--reporter=${reporter}`], {
       cwd: dir,
@@ -94,7 +98,7 @@ describe("quarantine helper (a real nested vitest run)", () => {
       env: { ...process.env, ORWELL_RUN_QUARANTINED: "", GITHUB_STEP_SUMMARY: "", ...env },
       timeout: 60_000,
     });
-    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(status);
     return r.stdout;
   }
 
@@ -104,6 +108,20 @@ describe("quarantine helper (a real nested vitest run)", () => {
     expect(out).toContain(`parked test [quarantined ORW-1 since ${today}]`);
     expect(out).toContain("1 quarantined and skipped");
   }, 60_000);
+  // #2305 review (cubic, greptile): an alias (`const q = quarantine`) or a space before the parenthesis hides a call from the static scan, so the
+  // helper checks the rule itself: a quarantine past its 7 days, or without a valid card or date, FAILS in every run, whatever form the call takes.
+  it("an aliased, expired quarantine fails the run instead of hiding (the helper checks the rule itself)", () => {
+    const body =
+      `import { quarantine } from ${JSON.stringify(helper)};\n` +
+      `const q = quarantine;\n` +
+      `q ({ card: "ORW-1", added: "2020-01-01" }).it("parked test", () => { console.log("PARKED-RAN"); });\n` +
+      `test("steady", () => {});\n`;
+    for (const env of [{}, { ORWELL_RUN_QUARANTINED: "1" }] as Record<string, string>[]) {
+      const out = run(env, body, 1);
+      expect(out).not.toContain("PARKED-RAN");
+      expect(out).toMatch(/quarantine rule \(docs\/CI\.md\): quarantined \d+ days ago \(2020-01-01, ORW-1\)/);
+    }
+  }, 120_000);
   it("runs when ORWELL_RUN_QUARANTINED=1 (the nightly workflow)", () => {
     const out = run({ ORWELL_RUN_QUARANTINED: "1" });
     expect(out).toContain("PARKED-RAN");

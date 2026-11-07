@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { matchesGlob } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COVERAGE_NIGHTLY_ONLY, HEAVY_SIM_FILES } from "../../vitest.config";
 
@@ -40,7 +43,8 @@ describe("nightly split wiring", () => {
   });
   it("the nightly calls ci.yml itself with nightly: true, on schedule and on demand", () => {
     expect(ci).toMatch(/\n {2}workflow_call:\n {4}inputs:\n {6}nightly:\n(?: {8}.*\n)*? {8}type: boolean\n/);
-    expect(nightly).toMatch(/\n {2}full-suite:\n {4}if: github\.event_name != 'pull_request'\n {4}uses: \.\/\.github\/workflows\/ci\.yml\n {4}with:\n {6}nightly: true\n/);
+    // no `if:`: a PR that edits ci-nightly.yml runs the full suite in nightly mode too, so nightly-only wiring is proven before it merges (#2305 review)
+    expect(nightly).toMatch(/\n {2}full-suite:\n {4}uses: \.\/\.github\/workflows\/ci\.yml\n {4}with:\n {6}nightly: true\n/);
     expect(nightly).toMatch(/schedule:\n {4}- cron: /);
     expect(nightly).toContain("workflow_dispatch:");
     expect(nightly).toMatch(/needs: \[quarantined, full-suite\]/);
@@ -66,7 +70,14 @@ describe("nightly split wiring", () => {
         const re = new RegExp(`^${pattern.replace(/[.]/g, "\\.").replace(/\*/g, ".*")}$`);
         expect(readdirSync(fileURLToPath(new URL(`../../${dir}`, import.meta.url))).some((n) => re.test(n)), f).toBe(true);
       } else expect(existsSync(fileURLToPath(new URL(`../../${f}`, import.meta.url))), f).toBe(true);
-      expect(fast, f).not.toContain(f); // not excluded from test-unit
+      expect(fast, f).not.toContain(f); // not excluded from test-unit by name...
+      // ...nor by any --exclude glob of test:unit:fast (#2305 review: a glob such as tests/unit/** would drop it from every push)
+      const excludes = [...fast.matchAll(/--exclude '([^']+)'/g)].map((m) => m[1]!);
+      expect(excludes.length).toBeGreaterThan(3);
+      const dir = f.slice(0, f.lastIndexOf("/"));
+      const files = readdirSync(fileURLToPath(new URL(`../../${dir}`, import.meta.url))).map((n) => `${dir}/${n}`).filter((p) => matchesGlob(p, f));
+      expect(files.length, f).toBeGreaterThan(0);
+      for (const file of files) for (const g of excludes) expect(matchesGlob(file, g), `${file} is excluded from test-unit by ${g}`).toBe(false);
       expect(HEAVY_SIM_FILES, f).not.toContain(f);
     }
     expect(job("coverage-shard")).toContain("ORWELL_COVERAGE_FULL: ${{ inputs.nightly && '1' || '' }}");
@@ -86,6 +97,51 @@ describe("ci-nightly quarantined job (#2279 review)", () => {
     expect(first).toBeGreaterThan(0);
     const later = steps.slice(first);
     expect(later.length).toBeGreaterThanOrEqual(7);
-    for (const st of later) expect(st.match(/(?:^|\n\s+)if: (.*)/)?.[1] ?? "", st.split("\n")[0]).toContain("!cancelled()");
+    for (const st of later) {
+      const cond = st.match(/(?:^|\n\s+)if: (.*)/)?.[1] ?? "";
+      // it must START with !cancelled() and never ask for success() (#2305 review: `success() && !cancelled()` would still skip after a failure)
+      expect(cond, st.split("\n")[0]).toMatch(/^\$\{\{ !cancelled\(\)( && [^}]+)? \}\}$/);
+      expect(cond, st.split("\n")[0]).not.toMatch(/success\(\)|failure\(\)/);
+    }
+  });
+});
+
+describe("a nightly call runs everything, whatever event started it (#2305 review)", () => {
+  // A PR that edits ci-nightly.yml runs the full suite in nightly mode, and a pull_request event would otherwise path-filter the called ci.yml and
+  // could pick the draft fast tier. So `nightly` forces the full tier and every lane.
+  const block = (from: string, to: string): string => {
+    const a = ci.indexOf(from);
+    const b = ci.indexOf(to, a);
+    expect(a > 0 && b > a, from).toBe(true);
+    return ci.slice(a, b).split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+  };
+  const tier = (): string => block("          if [ -z \"${NIGHTLY:-}\" ] && [ \"$EVENT_NAME\" = \"pull_request\" ]", "      - name: detect changed paths");
+  const filter = (): string => block("          # ORW-229: a nightly call (ci-nightly.yml, `nightly: true`) runs every lane", "\n          done\n") + "\ndone\n";
+  const out = (script: string, env: Record<string, string>): Record<string, string> => {
+    const dir = mkdtempSync(join(tmpdir(), "ci-nightly-"));
+    try {
+      const file = join(dir, "out");
+      const r = spawnSync("bash", ["-c", `set -euo pipefail\n${script}`], {
+        cwd: fileURLToPath(new URL("../..", import.meta.url)),
+        encoding: "utf8",
+        env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: file, ...env },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      return Object.fromEntries(readFileSync(file, "utf8").trim().split("\n").map((kv) => kv.split("=") as [string, string]));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const draft = { EVENT_NAME: "pull_request", IS_DRAFT: "true", HAS_LABEL: "false" };
+  it("the full tier, even for a draft pull request", () => {
+    expect(out(tier(), { ...draft, NIGHTLY: "1" }).full).toBe("true");
+    expect(out(tier(), { ...draft, NIGHTLY: "" }).full).toBe("false");
+  });
+  it("every lane, even when the event's own diff touches only docs", () => {
+    const lanes = ["engine", "frontend", "fe_render", "deploy", "heavy"];
+    const nightlyRun = out(filter(), { EVENT_NAME: "pull_request", changed: "docs/CI.md", NIGHTLY: "1" });
+    for (const l of lanes) expect(nightlyRun[l], l).toBe("true");
+    const prRun = out(filter(), { EVENT_NAME: "pull_request", changed: "docs/CI.md", NIGHTLY: "" });
+    for (const l of lanes) expect(prRun[l], l).toBe("false");
   });
 });

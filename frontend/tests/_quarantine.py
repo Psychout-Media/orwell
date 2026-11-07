@@ -158,7 +158,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:
         return
     today = _dt.datetime.now(_dt.timezone.utc).date()
     ran = os.environ.get(RUN_ENV) == "1"
-    head = f"{len(found)} quarantined test(s) " + ("RAN in this run (nightly)" if ran else "deselected here; they run in the nightly workflow")
+    # a source-level inventory of the files collected here (a -k or node-id selection can still leave some out): #2305 review
+    head = f"{len(found)} quarantine marker(s) in these files; " + ("not deselected in this run (ORWELL_RUN_QUARANTINED=1)" if ran else "their tests are deselected here and run in the nightly workflow")
     terminalreporter.write_sep("=", f"quarantine (ORW-229): {head}")
     lines = summary_lines(found, today)
     for line in lines:

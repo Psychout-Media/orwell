@@ -153,7 +153,7 @@ def test_a_quarantined_test_is_deselected_not_skipped_in_a_normal_run(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert "1 passed, 1 deselected" in r.stdout and "skipped" not in r.stdout
     assert "PARKED-RAN" not in r.stdout
-    assert "1 quarantined test(s) deselected here; they run in the nightly workflow" in r.stdout
+    assert "1 quarantine marker(s) in these files; their tests are deselected here and run in the nightly workflow" in r.stdout
     assert "ORW-1: test_parked.py::test_parked" in r.stdout
 
 
@@ -161,4 +161,4 @@ def test_a_quarantined_test_runs_in_the_nightly_run(tmp_path):
     r = _nested(tmp_path, run_quarantined=True)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "2 passed" in r.stdout and "PARKED-RAN" in r.stdout
-    assert "1 quarantined test(s) RAN in this run (nightly)" in r.stdout
+    assert "1 quarantine marker(s) in these files; not deselected in this run (ORWELL_RUN_QUARANTINED=1)" in r.stdout

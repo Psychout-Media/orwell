@@ -29,6 +29,18 @@ export function quarantine(q: Quarantine): {
   describe: (name: string, fn: () => void) => void;
 } {
   const tag = ` [quarantined ${q.card} since ${q.added}]`;
+  // The helper checks the rule itself (#2305 review): a quarantine past its 7 days, or without a valid card or date, FAILS in every run, nightly or
+  // not, whatever form the call takes. The static guard (ciQuarantineGuard.test.ts) reads literal calls only; an alias or a computed card would hide.
+  const broken = ruleProblems(q.card, q.added, new Date());
+  if (broken.length > 0) {
+    const fail = (): never => {
+      throw new Error(`quarantine rule (docs/CI.md): ${broken.join("; ")}`);
+    };
+    return {
+      it: (name) => it(name + tag, fail),
+      describe: (name) => describe(name + tag, () => it("follows the quarantine rule", fail)),
+    };
+  }
   return {
     it: (name, fn, options) => (RUN_QUARANTINED ? it : it.skip)(name + tag, fn, options),
     describe: (name, fn) => (RUN_QUARANTINED ? describe : describe.skip)(name + tag, fn),
@@ -45,8 +57,8 @@ export interface FoundQuarantine {
   alias?: string;
 }
 
-const CALL = /\bquarantine\(/g;
-const LITERAL = /^quarantine\(\s*\{\s*card:\s*"([^"]*)",\s*added:\s*"([^"]*)"\s*,?\s*\}\s*\)/;
+const CALL = /\bquarantine\s*\(/g;
+const LITERAL = /^quarantine\s*\(\s*\{\s*card:\s*"([^"]*)",\s*added:\s*"([^"]*)"\s*,?\s*\}\s*\)/;
 const ALIASED_IMPORT = /import\s*\{[^}]*\bquarantine\s+as\s+(\w+)[^}]*\}\s*from\s*["'][^"']*support\/quarantine["']/g;
 
 /** Every `quarantine(` call in a source file, with the card and date when written in the literal form, and any aliased import of the helper. */
@@ -71,19 +83,24 @@ export function quarantineProblems(q: FoundQuarantine, today: Date): string[] {
     return [`${where}: import quarantine without an alias (\`as ${q.alias}\`), so the guard can read each call's card and date (#2279 review)`];
   if (q.card === undefined || q.added === undefined)
     return [`${where}: write it as quarantine({ card: "ORW-123", added: "YYYY-MM-DD" }) so the card and the date can be checked`];
+  return ruleProblems(q.card, q.added, today).map((p) => `${where}: ${p}`);
+}
+
+/** The rule itself, for one card and added-on date: shared by the static guard and the helper's own check. */
+function ruleProblems(card: string, added: string, today: Date): string[] {
   const problems: string[] = [];
-  if (!PLANE_CARD.test(q.card)) problems.push(`${where}: "${q.card}" is not a Plane card id (like ORW-123)`);
-  const added = /^\d{4}-\d{2}-\d{2}$/.test(q.added) ? new Date(`${q.added}T00:00:00Z`) : new Date(NaN);
-  if (Number.isNaN(added.getTime()) || added.toISOString().slice(0, 10) !== q.added) {
-    problems.push(`${where}: added "${q.added}" is not a date (YYYY-MM-DD)`);
+  if (typeof card !== "string" || !PLANE_CARD.test(card)) problems.push(`"${card}" is not a Plane card id (like ORW-123)`);
+  const day = typeof added === "string" && /^\d{4}-\d{2}-\d{2}$/.test(added) ? new Date(`${added}T00:00:00Z`) : new Date(NaN);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== added) {
+    problems.push(`added "${added}" is not a date (YYYY-MM-DD)`);
     return problems;
   }
   const midnight = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-  const age = Math.round((midnight - added.getTime()) / DAY_MS);
-  if (age < -1) problems.push(`${where}: added ${q.added} is in the future`);
+  const age = Math.round((midnight - day.getTime()) / DAY_MS);
+  if (age < -1) problems.push(`added ${added} is in the future`);
   if (age > MAX_QUARANTINE_DAYS)
     problems.push(
-      `${where}: quarantined ${age} days ago (${q.added}, ${q.card}); the rule allows ${MAX_QUARANTINE_DAYS}. Fix the test and remove the quarantine, or delete the test.`,
+      `quarantined ${age} days ago (${added}, ${card}); the rule allows ${MAX_QUARANTINE_DAYS}. Fix the test and remove the quarantine, or delete the test.`,
     );
   return problems;
 }

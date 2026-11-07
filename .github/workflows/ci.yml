@@ -96,8 +96,10 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft }}
           HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          # ORW-229: a nightly call (ci-nightly.yml) is always the full tier, whatever event started it (a PR that edits ci-nightly.yml runs it too).
+          NIGHTLY: ${{ inputs.nightly && '1' || '' }}
         run: |
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "$IS_DRAFT" = "true" ] && [ "$HAS_LABEL" != "true" ]; then
+          if [ -z "${NIGHTLY:-}" ] && [ "$EVENT_NAME" = "pull_request" ] && [ "$IS_DRAFT" = "true" ] && [ "$HAS_LABEL" != "true" ]; then
             echo "full=false" >> "$GITHUB_OUTPUT"
             echo "::notice::draft PR: fast tier only (changes, typecheck+build, test-unit, fe-unit). Mark it ready for review, or add the full-ci label and push, for the full suite."
           else
@@ -110,6 +112,7 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           MG_BASE: ${{ github.event.merge_group.base_sha }}
           PUSH_BEFORE: ${{ github.event.before }}
+          NIGHTLY: ${{ inputs.nightly && '1' || '' }}
         run: |
           set -euo pipefail
           # Base per event (ci/resolve-base.sh, tested in tests/unit/ciResolveBase.test.ts): PR base sha, merge_group base_sha, or push `before`.
@@ -121,6 +124,12 @@ jobs:
           if [ -z "$changed" ]; then
             changed="$(git ls-files)"
             echo "::warning::empty diff against $base: treating every tracked file ($(echo "$changed" | wc -l)) as changed, so every lane runs"
+          fi
+          # ORW-229: a nightly call (ci-nightly.yml, `nightly: true`) runs every lane, whatever event started it. A scheduled run has no base anyway;
+          # a PR that edits ci-nightly.yml also calls the full suite, and its own small diff must not path-filter that run (#2305 review).
+          if [ -n "${NIGHTLY:-}" ]; then
+            changed="$(git ls-files)"
+            echo "nightly call: every tracked file counts as changed, so every lane runs"
           fi
           echo "Changed files:"; echo "$changed" | sed 's/^/  /'
 

@@ -55,6 +55,11 @@ describe("flaky reporter", () => {
   it("lists the tests inside a quarantined describe too (the tag is on the suite's name) (#2279 review)", () => {
     const q = collectFlakes([fakeFile([{ name: "inner", mode: "skip", suite: "parked suite [quarantined ORW-12 since 2026-11-06]" }])]);
     expect(q.quarantined).toEqual([{ file: "tests/unit/x.test.ts", test: "parked suite [quarantined ORW-12 since 2026-11-06] > inner" }]);
+    // #2305 review: also when the skip is recorded on the result rather than on the mode (vitest 2.1.9 sets the mode; a later version might not)
+    const file = fakeFile([{ name: "inner", mode: "run", suite: "parked suite [quarantined ORW-12 since 2026-11-06]" }]);
+    const inner = (file.tasks[0] as unknown as { tasks: { result?: unknown }[] }).tasks[0]!;
+    inner.result = { state: "skip" };
+    expect(collectFlakes([file]).quarantined).toEqual([{ file: "tests/unit/x.test.ts", test: "parked suite [quarantined ORW-12 since 2026-11-06] > inner" }]);
   });
   it("a real vitest run with --retry=1 reports the test that failed once in the job summary", () => {
     const dir = mkdtempSync(join(tmpdir(), "flaky-run-"));

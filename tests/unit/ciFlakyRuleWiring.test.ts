@@ -30,6 +30,10 @@ describe("flaky-test rule wiring", () => {
     expect(ci.match(/ORWELL_RUN_QUARANTINED/g)?.length).toBe(1);
     expect(ci).toContain("ORWELL_RUN_QUARANTINED: ${{ inputs.nightly && '1' || '' }}");
     expect(nightly).toMatch(/\nenv:\n(?: {2}.*\n)*? {2}ORWELL_RUN_QUARANTINED: "1"\n/);
+    // ...and the call passes it on as the input, which is what turns quarantined tests on inside ci.yml (#2305 review)
+    expect(nightly).toMatch(/uses: \.\/\.github\/workflows\/ci\.yml\n {4}with:\n {6}nightly: true\n/);
+    // the quarantine job runs only the quarantined engine tests, not the rest of their files (#2305 review)
+    expect(nightly).toContain("run: npx vitest run $FILES -t '\\[quarantined ' --passWithNoTests");
     expect(nightly).toMatch(/schedule:\n {4}- cron: /);
     expect(nightly).toContain("runs-on: ubuntu-24.04");
     // both guards run every night, so an expired quarantine is caught even when no PR runs that lane (review LOW)
