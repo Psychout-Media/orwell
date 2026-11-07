@@ -55,12 +55,12 @@ describe("the seeded draw", () => {
   });
 });
 
-describe("pure only: nothing in src calls it yet", () => {
+describe("pure only: the only caller in src is the adapter's nomination-style read (ORW-37 wired it)", () => {
   const files = (d: string, out: string[] = []): string[] => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (p.endsWith(".ts")) out.push(p); } return out; };
   // Any import/export-from or dynamic import whose specifier ENDS in /philosophy or /philosophyConstants (any depth: ./x, ../engine/x, ../../engine/x).
   const IMPORT = /(?:from|import)\s*\(?\s*["'][^"']*\/philosophy(?:Constants)?["']/;
   const users = (): string[] => files("src").filter((f) => !/\/philosophy(Constants)?\.ts$/.test(f)).filter((f) => IMPORT.test(readFileSync(f, "utf8")));
-  it("no src file other than the philosophy modules imports them", () => { expect(users()).toEqual([]); });
+  it("no src file other than the philosophy modules and the adapter imports them", () => { expect(users()).toEqual(["src/adapters/engine/GameSessionAdapter.ts"]); });
   it("the pin recognises every import shape (a mutant that wires it from an adapter would be caught)", () => {
     for (const line of ['import { x } from "../engine/philosophy";', "import { x } from '../../engine/philosophyConstants';", 'import { x } from "./philosophy";', 'import("../engine/philosophy");', 'export * from "../engine/philosophy";']) expect(IMPORT.test(line), line).toBe(true);
     for (const line of ['import { x } from "../engine/philosophyOther";', 'import { x } from "../engine/notphilosophy2";']) expect(IMPORT.test(line), line).toBe(false);

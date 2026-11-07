@@ -14,7 +14,8 @@ on:
     - cron: "17 3 * * 1"
   workflow_dispatch:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    # ORW-218 two tiers: a DRAFT PR skips this (three legs of up to 60 min) unless it carries `full-ci`; `ready_for_review` runs it when the draft is marked ready.
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
     paths:
       - "src/domain/temperatureConstants.ts"
       - "src/engine/relationshipConstants.ts"
@@ -35,6 +36,7 @@ concurrency:
 
 jobs:
   shards:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'full-ci')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -76,7 +78,7 @@ jobs:
 
   aggregate:
     needs: shards
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

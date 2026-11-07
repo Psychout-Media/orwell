@@ -1884,7 +1884,7 @@ export function displayMetrics(messageElement, metrics) {
           <div><span class="ctx-label">Usage</span> <span style="color:${ctxColor};font-weight:600;">${ctxPct}%</span></div>
           <div><span class="ctx-label">Window</span> ${fmtNum(totalCtx)} tokens</div>
         </div>
-        ${ctxPct >= 70 ? `<button class="ctx-compact-btn" title="Summarize older messages to free up context">Compact context</button>` : ''}
+        ${ctxPct >= 70 && !isGameBuild() ? `<button class="ctx-compact-btn" title="Summarize older messages to free up context">Compact context</button>` : ''}
       `;
 
       const compactBtn = popup.querySelector('.ctx-compact-btn');

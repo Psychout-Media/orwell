@@ -56,7 +56,7 @@ updates and resets never re-prompt and the token never lands in a remote URL or 
 # before VAR= applies, so curl gets an EMPTY token → 404/401). Fetch via the contents API, not
 # raw.githubusercontent.com (which 404s for fine-grained PATs). Works with fine-grained OR classic.
 export GIT_TOKEN=github_pat_xxx
-bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 
 # update — host or inside the container: run the LOCAL checked-out copy (no GitHub fetch)
 bash /opt/orwell/deploy/orwell-update.sh
@@ -87,6 +87,41 @@ if you renamed the container or run more than one. A container provisioned **bef
 `bbai → orwell` rename (app in `/opt/bbai`, `bbai-*` services) is auto-detected and updated in place
 — the engine and front-end still honor the deprecated `BBAI_*` env, so its `data/.env` keeps working
 untouched.
+
+### Fast updates: what an update skips (ORW-229)
+
+An update reinstalls and rebuilds only what the new commit actually changes. After every update that
+fully succeeds, `orwell-update.sh` records in `dist/.orwell-deps-stamp` (root-owned, beside the
+`dist/.orwell-build-sha` build stamp) what each step consumed (the git ids of the lockfiles and sources
+it reads, plus the node/npm/python versions) and what it left on disk (npm's
+`node_modules/.package-lock.json`, the engine build, the venv's installed packages). On the next update:
+
+| What changed since the last successful update | Engine (`node_modules` + `dist/`) | Front-end venv |
+|---|---|---|
+| Nothing the engine reads (front end, deploy scripts, docs, tests, CI) | kept as is: no `npm ci`, no rebuild | kept if `frontend/requirements*.txt` are unchanged |
+| Engine code only (`src/`, …), same `package.json` / `package-lock.json` / `patches/` | only the build tools that `npm prune` removed come back, from the local npm cache (`npm install --include=dev --no-save --prefer-offline`), then build + prune | same as above |
+| `package.json`, `package-lock.json`, `patches/`, or the node/npm version | full `npm ci` (as before) | same as above |
+| `frontend/requirements.lock.txt` / `requirements.txt`, or the venv's Python | (per the rows above) | `pip install` (as before) |
+
+Everything is reinstalled in full when there is no record: the first update with this updater, a
+fresh install, or right after an update or rollback that failed, was reverted or was interrupted (the
+record is deleted when a run starts and written only at its commit point). It is also redone:
+- when the disk no longer matches the record, for example after someone ran `npm` or `pip` by hand on
+  the box;
+- once after `orwell-update.sh` itself changes (its own text is part of the record);
+- when the record, `dist/`, `node_modules` or `frontend/.venv` is not owned by root, or is writable by
+  anyone else (the ownership pass then fixes the tree, and the next update can skip again).
+
+To force a full reinstall, delete `dist/.orwell-deps-stamp`.
+
+The React `/play` app (`frontend/web`, when the commit has it) is built by the update too, and never
+fails it: a failed build logs a warning and `/play` keeps its current build (or its "not built yet"
+page). It builds from a clean export of the commit in a temp dir (`npm ci --prefer-offline
+--ignore-scripts && npm run build`; no dependency install scripts run) and is swapped into
+`frontend/web/dist` only after the update commits, so `/play` keeps serving the old build while the new
+one builds, and a failed update never changes it. It is skipped when nothing under `frontend/web` or
+`frontend/static/js` (the classic markdown module it imports) changed. The previous build is kept in
+`frontend/web/dist.prev`, which `--rollback` puts back when it matches the commit it rolls back to.
 
 ## Control panel — the `orwell` menu
 
@@ -534,7 +569,7 @@ few minutes.
 # fully non-interactive example (the 4 vCPU / 8 GB baseline is the default — shown here explicitly)
 export GIT_TOKEN=github_pat_xxx
 CTID=104 CORES=4 RAM_MB=8192 DISK_GB=12 NET=dhcp ORWELL_PORT=8080 \
-  bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")" --default
+  bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")" --default
 ```
 
 ## Layout
