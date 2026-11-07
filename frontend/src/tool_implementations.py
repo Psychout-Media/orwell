@@ -4913,16 +4913,24 @@ async def do_create_character(
             # #1842: engine-computed cast-identity auto-correction diagnostic → wire to health rollup
             cast_coherence = res.get("castCoherence") if isinstance(res, dict) else None
             if cast_coherence and isinstance(cast_coherence, dict):
-                repaired = cast_coherence.get("repaired", 0)
-                houseguests = cast_coherence.get("houseguests", [])
-                if repaired and repaired > 0:
+                # ORW-145: record WHAT was corrected (each houseguest's action and the public field NAMES the
+                # engine cleared), and never drop a FLOORED houseguest (its prose stripped, the worse
+                # outcome): the 11-06 record carried only the repaired ids, so the cause was unrecoverable.
+                # Vault-free: only the id, the action and the field names are copied, never any other key.
+                repaired = int(cast_coherence.get("repaired") or 0)
+                floored = int(cast_coherence.get("floored") or 0)
+                corrected = [
+                    {"id": str(h.get("id", "?")), "action": str(h.get("action") or ""),
+                     "fields": [str(f) for f in (h.get("fields") or []) if isinstance(f, str)]}
+                    for h in (cast_coherence.get("houseguests") or []) if isinstance(h, dict)
+                ]
+                if repaired > 0 or floored > 0:
                     from src import enrichment_policy
-                    ids = [h.get("id", "?") for h in houseguests if h.get("action") == "repaired"]
                     enrichment_policy.record_runtime_failure(
                         owner, "cast-coherence",
-                        f"engine enforceCastCoherence repaired {repaired} houseguest(s) at game start — "
-                        f"auto-corrected but RED-eligible per #1599",
-                        detail=json.dumps({"repaired": repaired, "houseguests": ids})
+                        f"engine enforceCastCoherence repaired {repaired} and floored {floored} "
+                        f"houseguest(s) at game start — auto-corrected but RED-eligible per #1599",
+                        detail=json.dumps({"repaired": repaired, "floored": floored, "houseguests": corrected})
                     )
             # (the player's name is intentionally NOT read here — cast authoring is player-independent)
 
