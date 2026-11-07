@@ -21,7 +21,7 @@ SNAP = """() => { const box = document.getElementById('chat-history'); const ai 
   const c = e.cloneNode(true); c.querySelectorAll('svg,.ow-chatface,.role-timestamp,.spinner-container').forEach(x => x.remove());
   const body = c.querySelector('.body'); const think = e.querySelector('.thinking-section, .thinking-content');
   return { n: ai.length, cls: e.className.split(/\\s+/).sort().join(' '), kids: Array.from(e.children).map(k => k.className.split(/\\s+/).sort().join(' ')),
-    role: ((e.querySelector('.role')||{}).textContent||'').replace(/\\s+/g,' ').trim().replace(/Week \\d+ . [A-Za-z ]+$/, '').replace(/\\d{1,2}:\\d{2}\\s?[AP]M$/i, '').trim(),
+    role: ((e.querySelector('.role')||{}).textContent||'').replace(/\\s+/g,' ').trim().replace(/Week \\d+( . [A-Za-z ]+)+$/, '').replace(/\\d{1,2}:\\d{2}\\s?[AP]M$/i, '').trim(),
     body: (body ? body.textContent : '').replace(/\\s+/g,' ').trim(),
     bodyBlocks: body ? Array.from(body.querySelectorAll('p,li,strong,em,ul,ol,pre,code,blockquote')).map(n => n.tagName.toLowerCase()) : [],
     footer: Array.from(e.querySelectorAll('.msg-footer button')).map(b => b.dataset.action || b.title),

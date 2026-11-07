@@ -32,14 +32,28 @@ def _walk_week_one(stack, sid):
     """Drive week 1 to the eviction vote card; returns the list of (message_index, sched, phase, pending_kind) observations taken AFTER every message."""
     obs = []
     n = 0
-    for _ in range(420):
+    seg = 0  # a new segment starts after every bedtime or fast-forwarded stretch: the exact-5-minute invariant is checked within a segment only
+    for _ in range(600):
         s, st = _schedule(stack)
         pend = (st.get("pending") or {}).get("kind")
-        obs.append((n, s, st.get("phase"), pend))
+        obs.append((n, s, st.get("phase"), pend, seg))
         if pend == "eviction-vote":
             return obs
         if pend:
             _decide(stack, st["pending"])
+            continue
+        if st.get("timeOfDay") in ("night", "late-night"):
+            _engine(stack, "turnIn")  # ORW-116: the night is the player's - a player who goes to bed is what rolls the day (nothing else does)
+            _send(stack, sid, f"Good morning {n}.", f"a64-wake-{n}")  # the first message after a turn-in is the wake itself
+            seg += 1
+            continue
+        mu = s.get("minutesUntil") if isinstance(s, dict) else None
+        if isinstance(mu, int) and mu > 60 and not s.get("due"):
+            # ORW-116: a day is 16 awake hours (~190 messages) and nothing but the clock moves it. Let the idle stretch pass as the very same player-message ticks the FE announces
+            # (engine noteMessage, 5 min each) and re-enter the real chat route for the last hour before the milestone.
+            for k in range(mu // 5 - 12):
+                _engine(stack, "noteMessage", {"messageId": f"a64-ff-{n}-{k}"})
+            seg += 1
             continue
         _send(stack, sid, f"Plain chat line {n}.", f"a64-{n}")
         n += 1
@@ -53,26 +67,26 @@ def test_week_one_milestones_honour_the_clock(_stack):  # noqa: F811
     obs = _walk_week_one(_stack, sid)
     saw_phases = []
     prev = None
-    for (n, s, phase, pend) in obs:
+    for (n, s, phase, pend, day) in obs:
         if prev is not None:
-            pn, ps, pphase, ppend = prev
+            pn, ps, pphase, ppend, pseg = prev
             if phase != pphase:
                 # (2) a phase change happens only on the message that BRINGS the previous milestone due (<= one 5-minute message away) or after it was due - never earlier
                 assert ps["due"] is True or ppend or ps["minutesUntil"] <= 5, f"phase {pphase} -> {phase} at message {n} but the previous milestone was not due: {ps}"
-            elif ps["next"] == s["next"] and not ps["due"] and not s["due"] and ppend is None and pend is None:
+            elif ps["next"] == s["next"] and not ps["due"] and not s["due"] and ppend is None and pend is None and pseg == day and ps["phase"] == s["phase"]:  # (ORW-116: the veto draw -> veto comp moves the milestone from the morning slot to the afternoon one; that re-targeting is not an undue message)
                 # (1) an undue message in the same milestone costs exactly 5 minutes
                 assert ps["minutesUntil"] - s["minutesUntil"] in (5, 0), f"message {n}: {ps} -> {s}"
         if pend:
             assert s["due"] is True, f"(3) a {pend} card was staged at message {n} before the milestone was due: {s}"
         if phase not in saw_phases:
             saw_phases.append(phase)
-        prev = (n, s, phase, pend)
+        prev = (n, s, phase, pend, day)
     # (5) every week-1 phase was visited in order and the eviction vote came last
-    assert saw_phases[:1] == ["hoh-competition"]
+    assert saw_phases[:1] in (["premiere"], ["hoh-competition"])  # ORW-116: the premiere is exited when the first HOH comes due on Day 2
     for want in ("nominations", "veto-competition", "veto-ceremony", "eviction"):
         assert want in saw_phases, f"week 1 skipped {want}: {saw_phases}"
     assert saw_phases.index("nominations") < saw_phases.index("veto-competition") < saw_phases.index("veto-ceremony") < saw_phases.index("eviction")
-    n_last, s_last, _, pend_last = obs[-1]
+    n_last, s_last, _, pend_last, _ = obs[-1]
     assert pend_last == "eviction-vote" and s_last["due"] is True and s_last["next"] == "eviction"
 
 

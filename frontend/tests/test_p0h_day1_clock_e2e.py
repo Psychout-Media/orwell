@@ -59,27 +59,51 @@ def _session(stack, name):
     return sid
 
 
+def _clock_hour(stack):
+    """The engine clock as an hour of the 8->32 play-day, read from the public clockLabel ("H:MMam, Day N"): 12:xx am is hour 24+ (the night of the same game day)."""
+    import re
+    st = _engine(stack, "getGameState")
+    m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", st.get("clockLabel") or "")
+    if not m:
+        return None
+    h = int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0)
+    h += int(m.group(2)) / 60.0
+    return (h + 24 if h < 8 else h), int(m.group(4))
+
+
 def _start_day(stack, session):
-    """Real order: first chat turn (the day does not exist yet), then the day-break advances."""
-    assert _schedule(stack)[0] is None, "the clock must be dormant before the day starts"
+    """ORW-116 real order (Ryne: no phase advance moves the clock): the FIRST chat turn starts the clock at the afternoon premiere entry; the player then socializes through the premiere
+    evening and night (plain messages, 5 in-game minutes each); the night is the player's, so at midnight they turn in (a bed at midnight or later wakes at exactly 8:00) and it is Day 2 morning.
+    Returns (the day-2 schedule, the schedule the very first message produced)."""
+    assert _schedule(stack)[0] is None, "the clock must be dormant before the first message"
     _send(stack, session, "Hello house, settling in.", "p0h-first")
-    sched, _ = _schedule(stack)
-    first_message_effect = sched  # what the very first message did to the (dormant) clock
-    for _ in range(80):
-        sched, _ = _schedule(stack)
-        if sched is not None:
+    first_message_effect, _ = _schedule(stack)  # the clock is live from the first message (afternoon premiere entry), nothing is due on Day 1
+    for _ in range(80):  # the premiere's staged entrances + toast (the narrator's advanceGame, one release each) - real time passes with each
+        ent = (_engine(stack, "premiereIntros") or {}).get("entrance")
+        if not ent or ent.get("stage") == "done":
             break
         adv = _engine(stack, "advanceGame")
-        assert not adv.get("pending"), f"unexpected player decision before the day started: {json.dumps(adv['pending'])[:300]}"
+        assert not adv.get("pending"), f"unexpected player decision during the premiere: {json.dumps(adv.get('pending'))[:300]}"
+    for i in range(1, 400):
+        hd = _clock_hour(stack)
+        assert hd is not None, "the clock must be running after the first message"
+        if hd[0] >= 24.0:
+            break
+        _send(stack, session, f"Settling in line {i}.", f"p0h-night-{i}")
+    for _ in range(3):  # the night is held: advances do not roll it (ORW-116), only the player's own bedtime does
+        adv = _engine(stack, "advanceGame")
+        assert not adv.get("pending"), f"unexpected player decision on the premiere night: {json.dumps(adv.get('pending'))[:300]}"
+    _engine(stack, "turnIn")
+    _send(stack, session, "Good morning, house.", "p0h-wake")  # the first message after a turn-in is the wake itself (the clock sits AT the wake; it bills no 5 minutes)
     sched, st = _schedule(stack)
-    assert sched is not None, f"the day never started: phase={st.get('phase')} tod={st.get('timeOfDay')} keys={sorted(st)[:60]}"
+    assert sched is not None, f"Day 2 never started: phase={st.get('phase')} tod={st.get('timeOfDay')}"
     return sched, first_message_effect
 
 
 def test_day1_48_plain_messages_through_the_real_chat_route(_stack):  # noqa: F811
     sid = _session(_stack, "p0h-day1")
     sched, first_effect = _start_day(_stack, sid)
-    assert first_effect is None, f"the first message (before the day exists) must leave the clock dormant, got {first_effect!r}"
+    assert first_effect is not None and first_effect["due"] is False, f"the first message starts the clock on Day 1 with nothing due, got {first_effect!r}"
     assert sched["next"] == "hoh-competition" and sched["phase"] == "afternoon"
     assert sched["minutesUntil"] == 240, f"the day must start at exactly 8:00 (240 min to noon), got {sched}"
     assert sched["due"] is False
