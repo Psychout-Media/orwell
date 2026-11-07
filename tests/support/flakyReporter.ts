@@ -41,7 +41,8 @@ export function collectFlakes(files: readonly File[]): FlakeReport {
       const row = { file: file.name, test: fullName(t, file), retries };
       if (retries > 0 && t.result?.state === "pass") report.flaky.push(row);
       else if (retries > 0 && t.result?.state === "fail") report.stillRed.push(row);
-      if (t.mode === "skip" && QUARANTINE_TAG.test(t.name)) report.quarantined.push({ file: file.name, test: row.test });
+      // the full name, so a test inside a quarantine(...).describe(...) (the tag is on the suite's name) is listed too (#2279 review)
+      if (t.mode === "skip" && QUARANTINE_TAG.test(row.test)) report.quarantined.push({ file: file.name, test: row.test });
     }
   }
   return report;

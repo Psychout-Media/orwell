@@ -73,3 +73,19 @@ describe("nightly split wiring", () => {
     expect(read("vitest.shard.config.ts")).toContain('process.env.ORWELL_COVERAGE_FULL === "1" ? configDefaults.exclude : [...configDefaults.exclude, ...COVERAGE_NIGHTLY_ONLY]');
   });
 });
+
+describe("ci-nightly quarantined job (#2279 review)", () => {
+  // greptile: a failing engine quarantine skipped every later step (their `if:` implied success()), so one red lane hid the front-end quarantines
+  // and the front-end guard. Every step after the first test step must run whatever happened before it.
+  it("every step after the first test step runs even when an earlier step failed (!cancelled())", () => {
+    const start = nightly.indexOf("\n  quarantined:\n");
+    const end = nightly.indexOf("\n  full-suite:\n");
+    expect(start > 0 && end > start).toBe(true);
+    const steps = nightly.slice(start, end).split("\n      - ").slice(1);
+    const first = steps.findIndex((st) => st.includes("name: quarantine guard (engine)"));
+    expect(first).toBeGreaterThan(0);
+    const later = steps.slice(first);
+    expect(later.length).toBeGreaterThanOrEqual(7);
+    for (const st of later) expect(st.match(/(?:^|\n\s+)if: (.*)/)?.[1] ?? "", st.split("\n")[0]).toContain("!cancelled()");
+  });
+});

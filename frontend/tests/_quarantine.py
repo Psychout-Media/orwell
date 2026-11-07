@@ -44,7 +44,9 @@ def _dotted(node: ast.AST) -> str:
 
 
 def _is_marker(node: ast.AST) -> bool:
-    return _dotted(node).endswith("mark.quarantine")
+    # `pytest.mark.quarantine`, `mark.quarantine`, and an aliased mark (`from pytest import mark as m` -> `m.quarantine`, which pytest deselects
+    # too: #2279 review). The scan reads the AST, so a comment or a string never counts; a marker kept in a variable is reported as bare.
+    return _dotted(node).endswith(".quarantine")
 
 
 def find_quarantines(source: str, path: str) -> list[Quarantine]:

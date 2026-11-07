@@ -89,6 +89,28 @@ def test_a_quarantine_without_literal_card_and_date_fails(src):
     assert "write it as @pytest.mark.quarantine(card=" in " ".join(problems(_one(src), TODAY))
 
 
+def test_an_aliased_mark_is_still_read_with_its_card_and_date():
+    # #2279 review (cubic P1): pytest deselects `@m.quarantine(...)` after `from pytest import mark as m`, so the guard must check it too.
+    q = _one('''
+        from pytest import mark as m
+        @m.quarantine(card="ORW-7", added="2026-11-02")
+        def test_y(): pass
+    ''')
+    assert (q.card, q.added, q.target) == ("ORW-7", "2026-11-02", "test_y")
+    assert "quarantined 8 days ago" in " ".join(problems(q, TODAY))
+
+
+def test_a_marker_kept_in_a_variable_fails_closed():
+    # the guard cannot follow a variable to the call, so it reports the bare marker and asks for the literal form
+    found = find_quarantines(textwrap.dedent('''
+        import pytest
+        q = pytest.mark.quarantine
+        @q(card="ORW-7", added="2026-11-09")
+        def test_y(): pass
+    '''), "tests/test_x.py")
+    assert found and all("write it as @pytest.mark.quarantine(card=" in " ".join(problems(f, TODAY)) for f in found)
+
+
 class _Item:
     def __init__(self, name: str, parked: bool):
         self.name, self._parked = name, parked

@@ -41,20 +41,25 @@ export interface FoundQuarantine {
   line: number;
   card?: string;
   added?: string;
+  /** Set when the helper is imported under another name: the guard cannot follow the alias to its calls. */
+  alias?: string;
 }
 
 const CALL = /\bquarantine\(/g;
 const LITERAL = /^quarantine\(\s*\{\s*card:\s*"([^"]*)",\s*added:\s*"([^"]*)"\s*,?\s*\}\s*\)/;
+const ALIASED_IMPORT = /import\s*\{[^}]*\bquarantine\s+as\s+(\w+)[^}]*\}\s*from\s*["'][^"']*support\/quarantine["']/g;
 
-/** Every `quarantine(` call in a source file, with the card and date when written in the literal form. */
+/** Every `quarantine(` call in a source file, with the card and date when written in the literal form, and any aliased import of the helper. */
 export function findQuarantines(file: string, source: string): FoundQuarantine[] {
   const out: FoundQuarantine[] = [];
+  const lineAt = (at: number): number => source.slice(0, at).split("\n").length;
+  for (const m of source.matchAll(ALIASED_IMPORT)) out.push({ file, line: lineAt(m.index ?? 0), alias: m[1] });
   for (const m of source.matchAll(CALL)) {
     const at = m.index ?? 0;
     const lit = LITERAL.exec(source.slice(at));
-    out.push({ file, line: source.slice(0, at).split("\n").length, ...(lit ? { card: lit[1], added: lit[2] } : {}) });
+    out.push({ file, line: lineAt(at), ...(lit ? { card: lit[1], added: lit[2] } : {}) });
   }
-  return out;
+  return out.sort((a, b) => a.line - b.line);
 }
 
 const DAY_MS = 86_400_000;
@@ -62,6 +67,8 @@ const DAY_MS = 86_400_000;
 /** The problems with one quarantine on `today` (UTC). Empty means it follows the rule. */
 export function quarantineProblems(q: FoundQuarantine, today: Date): string[] {
   const where = `${q.file}:${q.line}`;
+  if (q.alias !== undefined)
+    return [`${where}: import quarantine without an alias (\`as ${q.alias}\`), so the guard can read each call's card and date (#2279 review)`];
   if (q.card === undefined || q.added === undefined)
     return [`${where}: write it as quarantine({ card: "ORW-123", added: "YYYY-MM-DD" }) so the card and the date can be checked`];
   const problems: string[] = [];

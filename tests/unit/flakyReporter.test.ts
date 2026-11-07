@@ -52,6 +52,10 @@ describe("flaky reporter", () => {
     expect(summaryMarkdown(q, "")).toContain("1 quarantined test(s) skipped here");
     expect(summaryMarkdown(collectFlakes([fakeFile([{ name: "steady", state: "pass" }])]), "")).toBe("");
   });
+  it("lists the tests inside a quarantined describe too (the tag is on the suite's name) (#2279 review)", () => {
+    const q = collectFlakes([fakeFile([{ name: "inner", mode: "skip", suite: "parked suite [quarantined ORW-12 since 2026-11-06]" }])]);
+    expect(q.quarantined).toEqual([{ file: "tests/unit/x.test.ts", test: "parked suite [quarantined ORW-12 since 2026-11-06] > inner" }]);
+  });
   it("a real vitest run with --retry=1 reports the test that failed once in the job summary", () => {
     const dir = mkdtempSync(join(tmpdir(), "flaky-run-"));
     const flag = join(dir, "failed-once");

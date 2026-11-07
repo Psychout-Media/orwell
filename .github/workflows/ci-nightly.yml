@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           engine="$(grep -rlE "from ['\"][./]*([[:alnum:]_-]+/)*support/quarantine['\"]" tests --include='*.ts' \
             | grep -vE '^tests/(support/quarantine\.ts|unit/ciQuarantineGuard\.test\.ts)$' | sort | tr '\n' ' ' || true)"
-          frontend="$(grep -rlE 'mark\.quarantine' frontend/tests --include='*.py' \
+          frontend="$(grep -rlE '\.quarantine\b' frontend/tests --include='*.py' \
             | grep -vE '/(_quarantine|test_ci_quarantine_guard)\.py$' | sort | tr '\n' ' ' || true)"
           cards="$(grep -rhoE 'card[=:] *"[A-Z][A-Z0-9]*-[0-9]+"' $engine $frontend /dev/null | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u | tr '\n' ' ' || true)"
           {
@@ -72,23 +72,29 @@ jobs:
           npm run build
       # Every night, whatever changed: a quarantine older than 7 days (or without a card or a date) turns this run red, even when no PR touches
       # that lane (ORW-229 review).
-      - name: quarantine guard (engine)
+      # From here on every step runs whatever happened before it (`!cancelled()`): a failing engine quarantine (they are flaky, so that is expected)
+      # must not skip the front-end guard and the front-end quarantines (#2279 review).
+      - if: ${{ !cancelled() }}
+        name: quarantine guard (engine)
         run: npx vitest run tests/unit/ciQuarantineGuard.test.ts
-      - if: steps.which.outputs.engine != ''
+      - if: ${{ !cancelled() && steps.which.outputs.engine != '' }}
         name: engine quarantined tests (no retry)
         env:
           FILES: ${{ steps.which.outputs.engine }}
         run: npx vitest run $FILES
-      - uses: actions/setup-python@v5
+      - if: ${{ !cancelled() }}
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r frontend/requirements.lock.txt
-      - name: quarantine guard (front end)
+      - if: ${{ !cancelled() }}
+        run: pip install -r frontend/requirements.lock.txt
+      - if: ${{ !cancelled() }}
+        name: quarantine guard (front end)
         run: cd frontend && python3 -m pytest tests/test_ci_quarantine_guard.py -q
-      - if: steps.which.outputs.frontend != ''
+      - if: ${{ !cancelled() && steps.which.outputs.frontend != '' }}
         uses: ./.github/actions/setup-playwright
-      - if: steps.which.outputs.frontend != ''
+      - if: ${{ !cancelled() && steps.which.outputs.frontend != '' }}
         name: front-end quarantined tests, browser and non-browser (serial, no rerun)
         run: |
           cd frontend

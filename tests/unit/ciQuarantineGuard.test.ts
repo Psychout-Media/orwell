@@ -47,6 +47,11 @@ describe("quarantine rule checker", () => {
     const qs = one(`a\nquarantine({ card: "ORW-1", added: "2026-11-09" }).it("x", f);\nquarantine({ card: "ORW-2", added: "2026-11-09" }).describe("y", g);\n`);
     expect(qs.map((q) => [q.line, q.card])).toEqual([[2, "ORW-1"], [3, "ORW-2"]]);
   });
+  it("fails an aliased import of the helper, which the guard could not follow (#2279 review)", () => {
+    const qs = one(`import { describe } from "vitest";\nimport { quarantine as q } from "../support/quarantine";\nq({ card: "ORW-1", added: "2020-01-01" }).it("x", f);\n`);
+    const p = qs.flatMap((x) => quarantineProblems(x, today)).join("\n");
+    expect(p).toMatch(/tests\/unit\/x\.test\.ts:2: import quarantine without an alias \(`as q`\)/);
+  });
   it("fails a quarantine older than 7 days, naming the card", () => {
     const p = quarantineProblems(one(`quarantine({ card: "ORW-123", added: "2026-11-02" })`)[0]!, today);
     expect(p.join()).toMatch(/quarantined 8 days ago \(2026-11-02, ORW-123\); the rule allows 7/);
