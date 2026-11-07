@@ -37,6 +37,10 @@ describe("re-shard wiring", () => {
     expect(action).toContain("path: ${{ env.pythonLocation }}");
     expect(action).toContain("key: fe-python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('frontend/requirements.lock.txt') }}");
     expect(action).toMatch(/if: steps\.deps\.outputs\.cache-hit != 'true'\n\s+name: install front-end deps \(cache miss\)\n\s+shell: bash\n\s+run: pip install -r frontend\/requirements\.lock\.txt/);
+    // restore everywhere, save only on main: a PR never pays the ~1 min compression (every job of the first cold run did)
+    expect(action).toContain("uses: actions/cache/restore@v4");
+    expect(action).toMatch(/if: steps\.deps\.outputs\.cache-hit != 'true' && github\.ref == 'refs\/heads\/main'\n\s+uses: actions\/cache\/save@v4/);
+    expect(action).not.toMatch(/uses: actions\/cache@v4/);
   });
   it("the new bdd job is a required input of ci-gate", () => {
     const gate = job("ci-gate");
