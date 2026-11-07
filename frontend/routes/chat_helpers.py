@@ -4619,8 +4619,9 @@ def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
 
 
 # the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
-# first clause cannot hide an explicit later contradiction
-_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
+# first clause cannot hide an explicit later contradiction. ORW-25: a colon ends a clause too, so the exclamation in
+# "Imagine that: the nominees haven't been named." does not cover the denial after it.
+_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
 
 
 def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
@@ -4772,7 +4773,8 @@ def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
                 name = next((g for g in m.groups() if g), None)
                 if not name or _name_matches(name, holder) or not _name_matches_active(name, live):
                     continue
-                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1]
+                # ORW-25: the lead also ends at a colon ("Imagine that: <name> gets there first" is a claim)
+                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1].rsplit(":", 1)[-1]
                 if _VETO_N1_HYP_RE.search(lead):
                     continue
                 return ("the WRONG houseguest as the veto winner / user (the engine's Power of Veto holder is "
