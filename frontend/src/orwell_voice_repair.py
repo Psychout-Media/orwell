@@ -42,6 +42,8 @@ _ENTRY_RE = re.compile(r"^(lexicon|catchphrases)\[(\d+)\]$")
 # Seeded values come from a closed vocabulary with no commas, so the split counts are exact. Anything that
 # does not split into exactly 3 + 2 parts is ambiguous (e.g. an AUTHORED clause whose dial has a comma) and
 # is refused: no floor is better than a wrong floor.
+# The engine prints the humor dial "none" as "no humor" (`HUMOR_WORDS` in src/engine/voice.ts); read it back as "none".
+_HUMOR_FROM_WORD = {"no": "none"}
 _HEAD = "talks in a "
 _VOICE_SEP = " voice — "
 _HUMOR_SEP = " humor; under pressure "
@@ -62,6 +64,7 @@ def parse_voice_clause(clause: Optional[str]) -> Optional[dict]:
         return None
     register, rhythm, directness = (p.strip() for p in head_parts)
     energy, humor = (p.strip() for p in mid_parts)
+    humor = _HUMOR_FROM_WORD.get(humor, humor)
     out = {"register": register, "rhythm": rhythm, "directness": directness,
            "energy": energy, "humor": humor, "stressTell": tell.strip()}
     if not all(out.values()):

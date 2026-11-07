@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { VOICE_DIALS, voiceFingerprint, type VoiceProfile } from "../../src/engine/voice";
+import { HUMOR_WORDS, VOICE_DIALS, voiceFingerprint, type VoiceProfile } from "../../src/engine/voice";
 
 /**
  * ORW-184, ENGINE half of the voice-vocabulary drift gate. `frontend/tests/fixtures/engine_voice_vocabulary.json`
@@ -14,6 +14,7 @@ import { VOICE_DIALS, voiceFingerprint, type VoiceProfile } from "../../src/engi
 const FIX = JSON.parse(readFileSync("frontend/tests/fixtures/engine_voice_vocabulary.json", "utf8")) as {
   dials: Record<string, string[]>;
   fingerprintTemplate: string;
+  humorWords: Record<string, string>;
 };
 
 describe("the shared voice-vocabulary fixture matches the engine", () => {
@@ -27,7 +28,30 @@ describe("the shared voice-vocabulary fixture matches the engine", () => {
       register: "formal", rhythm: "clipped", energy: "flat", directness: "evasive", humor: "none",
       stressTell: "deflects with a joke", signature: "a signature sentence", lexicon: ["filler"],
     };
-    const expected = FIX.fingerprintTemplate.replace(/\{(\w+)\}/g, (_m, key: string) => String(voice[key as keyof VoiceProfile]));
+    const slot = (key: string): string => (key === "humor" ? (FIX.humorWords[voice.humor] ?? voice.humor) : String(voice[key as keyof VoiceProfile]));
+    const expected = FIX.fingerprintTemplate.replace(/\{(\w+)\}/g, (_m, key: string) => slot(key));
     expect(voiceFingerprint(voice)).toBe(expected);
+  });
+
+  it("reads 'no humor' for the humor dial 'none' (never the broken 'none humor'), every other value as itself", () => {
+    const base: VoiceProfile = {
+      register: "formal", rhythm: "clipped", energy: "flat", directness: "evasive", humor: "none",
+      stressTell: "goes quiet", signature: "s", lexicon: ["x"],
+    };
+    for (const humor of VOICE_DIALS.humor) {
+      const line = voiceFingerprint({ ...base, humor });
+      expect(line).not.toContain("none humor");
+      expect(line).toContain(humor === "none" ? ", no humor;" : `, ${humor} humor;`);
+    }
+  });
+
+  it("keeps HUMOR_WORDS equal to the fixture's humorWords, and reads only its own keys", () => {
+    expect({ ...HUMOR_WORDS }).toEqual(FIX.humorWords);
+    const base: VoiceProfile = {
+      register: "formal", rhythm: "clipped", energy: "flat", directness: "evasive", humor: "constructor",
+      stressTell: "goes quiet", signature: "s", lexicon: ["x"],
+    };
+    // An authored humor word that happens to name an Object.prototype member still reads as itself.
+    expect(voiceFingerprint(base)).toContain(", constructor humor;");
   });
 });
