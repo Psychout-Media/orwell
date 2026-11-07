@@ -286,7 +286,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # ORW-229: one automatic retry per test; a test that passes only on the retry is listed in the job summary (docs/CI.md).
+      # ORW-229: NO automatic retry here. The heavy sims play fixed seeds, so a retry could only hide a real failure, never fix a flake (docs/CI.md).
       - name: heavy sims (${{ matrix.scripts }})
         env:
           UAT_TIMEOUT_SCALE: "10"
@@ -295,7 +295,7 @@ jobs:
           rc=0
           for s in $SCRIPTS; do
             echo "::group::npm run test:heavy:$s"
-            npm run "test:heavy:$s" -- --retry=1 || { echo "::error::heavy sim '$s' FAILED"; rc=1; }
+            npm run "test:heavy:$s" || { echo "::error::heavy sim '$s' FAILED"; rc=1; }
             echo "::endgroup::"
           done
           exit $rc
