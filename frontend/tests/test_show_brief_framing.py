@@ -85,18 +85,19 @@ def test_asked_about_resolves_full_names_and_unique_first_names_only():
 
 def test_build_request_carries_only_what_it_has():
     assert sb.build_request("s", {"house": HOUSE}, "hello", None) == {}
-    sb._SEEN["s"] = {"v": 1, "beatSeq": 4, "room": "kitchen", "here": [], "inView": []}
-    req = sb.build_request("s", {"house": HOUSE}, "Where did Alpha go?", "Bravo Other waved.")
-    assert req == {"seen": sb._SEEN["s"], "askedAbout": ["npc:1", "npc:3"], "lastShown": "Bravo Other waved."}
+    sb._SEEN["owner-1"] = {"v": 1, "beatSeq": 4, "room": "kitchen", "here": [], "inView": []}
+    req = sb.build_request("s", {"house": HOUSE}, "Where did Alpha go?", "Bravo Other waved.", user="owner-1")
+    assert req == {"seen": sb._SEEN["owner-1"], "askedAbout": ["npc:1", "npc:3"], "lastShown": "Bravo Other waved."}
 
 
 def test_stash_and_pop_are_per_session_one_shot_and_remember_what_was_served():
     sb.stash("A", {"showBrief": {"text": "BRIEF-A", "seen": {"v": 1, "beatSeq": 1}}})
     sb.stash("B", {"showBrief": {"text": "BRIEF-B", "seen": {"v": 1, "beatSeq": 2}}})
-    assert sb.pop("B") == "BRIEF-B"
-    assert sb.pop("A") == "BRIEF-A"
-    assert sb.pop("A") is None
-    assert sb._SEEN == {"A": {"v": 1, "beatSeq": 1}, "B": {"v": 1, "beatSeq": 2}}
+    assert sb.pop("B", "owner-B") == "BRIEF-B"
+    assert sb.pop("A", "owner-A") == "BRIEF-A"
+    assert sb.pop("A", "owner-A") is None
+    # What was served is remembered per game OWNER (the narrator's tools only know the owner).
+    assert sb._SEEN == {"owner-A": {"v": 1, "beatSeq": 1}, "owner-B": {"v": 1, "beatSeq": 2}}
     # A turn whose response has no brief clears any earlier one for that session only.
     sb.stash("A", {"showBrief": {"text": "STALE", "seen": None}})
     sb.stash("A", {"systemPrompt": "x"})
@@ -160,7 +161,7 @@ def test_flag_on_asks_for_the_brief_and_stashes_it_by_session(monkeypatch):
     assert req == {"askedAbout": ["npc:1", "npc:3"], "lastShown": "Bravo Other left for the yard."}
     # The brief never rides in the leading system prompt (that is the cached prefix).
     assert "SHOW BRIEF" not in preface[0]["content"]
-    assert sb.pop("sess-on") == "SHOW BRIEF. test"
+    assert sb.pop("sess-on", "u") == "SHOW BRIEF. test"
     # The next turn echoes what was served.
     _run(chat_helpers.apply_game_framing([], "u", False, session_id="sess-on", player_msg="ok"))
     assert calls[-1]["brief"]["seen"] == served["seen"]
@@ -198,7 +199,7 @@ def test_the_brief_is_appended_after_the_trim_and_right_before_hard_constraints(
     src = inspect.getsource(chat_helpers.build_chat_context)
     # Match the call, not its exact arguments (ORW-219 added `preserve_system=`; more may follow).
     trim = src.index("messages = trim_for_context(messages, context_length")
-    brief = src.index("_brief_text = _show_brief.pop(session_id)")
+    brief = src.index("_brief_text = _show_brief.pop(session_id, user)")
     brief_append = src.index('messages = messages + [{"role": "system", "content": _brief_text}]')
     hc_append = src.index('messages = messages + [{"role": "system", "content": _hard_constraints}]')
     assert trim < brief < brief_append < hc_append

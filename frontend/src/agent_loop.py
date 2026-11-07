@@ -3027,8 +3027,17 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         # Deliberately NOT `defer_fold=True`: a move is a positional/physical belt, not a hidden-impact
         # fold (CON-11) — applying a much-later, stale location after further turns have moved on could
         # actively contradict what's since been narrated, so skip-and-rederive stays correct here.
-        if await _backfill_with_cas(owner, _oe.move_to, room, user=owner) is None:
+        _move_res = await _backfill_with_cas(owner, _oe.move_to, room, user=owner)
+        if _move_res is None:
             return False
+        # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ a no-op): the reply already narrated this walk, so the
+        # Show Brief's "last seen" marker takes the room the player now stands in and the next brief does not
+        # report the walk again (K6 §5.1).
+        try:
+            from src import orwell_show_brief as _sb
+            _sb.note_tool_result(owner, _move_res)
+        except Exception as _sb_e:  # pragma: no cover - the marker must never break the belt
+            logger.debug(f"[show-brief] last-seen marker not moved after the player move: {_sb_e}")
         logger.info(f"[orwell] auto-moved player → {room} user={owner}")
         return True
     except Exception as _e:
@@ -3177,6 +3186,13 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                     # so the gadget shows the move the player just read (preserves D2). Best-effort.
                     if _ch is not None:
                         _ch.freeze_record_npc_move(owner, hid, room, _roster_names.get(hid))
+                    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ a no-op): the reply already narrated
+                    # this walk, so the Show Brief's "last seen" marker moves just this houseguest (K6 §5.1).
+                    try:
+                        from src import orwell_show_brief as _sb
+                        _sb.note_narrated_npc_move(owner, hid, res)
+                    except Exception as _sb_e:  # pragma: no cover - the marker must never break the belt
+                        logger.debug(f"[show-brief] last-seen marker not moved after a houseguest move: {_sb_e}")
             except Exception as e:
                 logger.warning(f"[orwell] auto move_houseguest failed for {hid}: "
                                f"{type(e).__name__}: {e}".rstrip(': '))

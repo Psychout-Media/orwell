@@ -7176,7 +7176,7 @@ async def apply_game_framing(
             if _brief_on:
                 mp = await orwell_engine.get_moment_prompt(
                     moment, user=user,
-                    brief=_show_brief.build_request(session_id, game_state, player_msg, last_scene_tail))
+                    brief=_show_brief.build_request(session_id, game_state, player_msg, last_scene_tail, user=user))
             else:
                 mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
@@ -8320,6 +8320,9 @@ async def build_chat_context(
     from src import orwell_show_brief as _show_brief
     _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(getattr(sess, "history", None))}
                  if _show_brief.show_brief_enabled() else {})
+    if _brief_kw:
+        # K6 §5.1: after a restart, pick up what the narrator last saw from the newest assistant row that carries it.
+        _show_brief.adopt_history_seen(user, getattr(sess, "history", None))
     engine_available, game_active, feed_down = await apply_game_framing(
         preface, user, incognito,
         session_id=session_id,                              # P2: re-entry on a fresh context
@@ -8408,7 +8411,7 @@ async def build_chat_context(
     # transcript and right BEFORE the HARD CONSTRAINTS block (which keeps its measured last position). The cached
     # prefix (system prompt + transcript) is untouched. Off, or no brief this turn ⇒ nothing is appended.
     if _brief_kw:
-        _brief_text = _show_brief.pop(session_id)
+        _brief_text = _show_brief.pop(session_id, user)
         if _brief_text:
             messages = messages + [{"role": "system", "content": _brief_text}]
     if _hard_constraints:
@@ -8917,6 +8920,7 @@ def save_assistant_response(
     reasoning: str = "",
     game_moment: str = None,
     game: bool = False,
+    brief_seen: dict = None,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
 
@@ -8936,6 +8940,10 @@ def save_assistant_response(
         md["phase"] = phase
     if game_moment:
         md["game_moment"] = game_moment
+    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF; the caller passes None when off): what the narrator last saw,
+    # kept on the row so a restart or another window picks the Show Brief's "changed since" up from here (K6 §5.1).
+    if isinstance(brief_seen, dict):
+        md["briefSeen"] = brief_seen
     def _model_value(value) -> str:
         if value is None:
             return ""
