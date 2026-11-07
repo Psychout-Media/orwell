@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # ORW-218 (two-tier CI): `ready_for_review` starts the full run when a draft is marked ready. (Label events are deliberately NOT triggers: every label
+    # change would cancel and restart the in-flight run. A `full-ci` label is read on the next push, reopen or ready_for_review.)
+    types: [opened, synchronize, reopened, ready_for_review]
+  # The coming merge queue (ORW-226): always the full suite.
+  merge_group:
+    types: [checks_requested]
 
 # Cancel the in-flight run for a ref the moment a newer commit arrives, so a
 # superseded commit doesn't burn runner minutes finishing a run nobody is waiting
@@ -14,6 +20,10 @@ on:
 permissions:
   contents: read
 
+# TWO TIERS (ORW-218). Draft PRs run only the FAST tier: `changes`, typecheck + build (`test`, BDD skipped), `test-unit`, `fe-unit`. Everything else (the HEAVY tier:
+# BDD, coverage*, heavy-sims, smoke, fe-browser-tests, fe-browser, fe-responsive, mirror-parity, a11y-matrix) runs on a non-draft PR, a draft labelled `full-ci`, a push to
+# main and a merge_group. `ci-gate` FAILS CLOSED for a draft without the label (and for any applicable job that was skipped when it should have run), so a
+# fast-tier result can never be merged. Non-draft PRs, main and the merge queue behave exactly as before.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # Never cancel on main: each merge was cancelling the previous run (19 of 39 in 24h), so main rarely finished a verdict.
@@ -51,7 +61,8 @@ jobs:
   #
   # CRITICAL: gated jobs that SKIP must not deadlock a required check. The single `ci-gate` job at the
   # bottom (`if: always()`) is the ONE required check — it passes when no needed job FAILED/was
-  # CANCELLED (a SKIP counts as a pass). Point branch protection at `ci-gate`, not the individual jobs.
+  # CANCELLED, and a SKIP counts as a pass only when the job's path filter says it does not apply
+  # (ORW-218). Point branch protection at `ci-gate`, not the individual jobs.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -62,47 +73,66 @@ jobs:
       heavy: ${{ steps.filter.outputs.heavy }}
       fe_render: ${{ steps.filter.outputs.fe_render }}
       web: ${{ steps.filter.outputs.web }}
+      full: ${{ steps.tier.outputs.full }}
     steps:
       - uses: actions/checkout@v4
         with:
           # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
-          # Need the base ref to diff against on a PR; on push, HEAD~1 is enough.
+          # Full history: the diff base (ci/resolve-base.sh) is the PR base sha, the merge_group base_sha or the push `before`, all of which must be local.
           fetch-depth: 0
+      - name: CI tier (fast tier for a draft PR without the full-ci label; full otherwise)
+        id: tier
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$IS_DRAFT" = "true" ] && [ "$HAS_LABEL" != "true" ]; then
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::draft PR: fast tier only (changes, typecheck+build, test-unit, fe-unit). Mark it ready for review, or add the full-ci label and push, for the full suite."
+          else
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: detect changed paths
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # On a PR, diff the base..head; on push, diff against the previous commit.
-          if [ -n "${BASE_SHA:-}" ]; then
-            base="$BASE_SHA"
-            git fetch --no-tags --depth=1 origin "$base" 2>/dev/null || true
-          else
-            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
-          fi
+          # Base per event (ci/resolve-base.sh, tested in tests/unit/ciResolveBase.test.ts): PR base sha, merge_group base_sha, or push `before`.
+          base="$(bash ci/resolve-base.sh)"
           echo "Diffing against base: $base"
           changed="$(git diff --name-only "$base" HEAD)"
+          # NEVER UNDER-TEST (ORW-218 review): an EMPTY diff (a PR or queue entry that changes nothing, or a resolver that fell back to HEAD) must not
+          # skip every lane and go green, so it counts as "every tracked file changed" and every lane runs.
+          if [ -z "$changed" ]; then
+            changed="$(git ls-files)"
+            echo "::warning::empty diff against $base: treating every tracked file ($(echo "$changed" | wc -l)) as changed, so every lane runs"
+          fi
           echo "Changed files:"; echo "$changed" | sed 's/^/  /'
 
           # Helper: does any changed file match the given ERE?
           matches() { echo "$changed" | grep -qE "$1"; }
 
+          # `ci/` (the scripts this workflow runs, e.g. ci/resolve-base.sh) counts like this workflow file in EVERY filter: a change to them must run
+          # everything (ORW-218 review), never skip every lane.
           # ENGINE: TS sources, all tests, BDD step code (features/) AND the Gherkin itself — the .feature
           # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
           # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
           # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$)'
+          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/)'
           # FRONTEND: the vendored Python app + this workflow.
-          FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$)'
+          FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
-          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$)'
+          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
           # change can never move a calibration result, so the heavy lane skips for those. `deploy/orwell-env-defaults.sh` is in the set
           # because it still writes the gameplay flags to a box's .env (an `=0` there overrides the code default), so a change to it re-plays the game.
-          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$)'
+          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/)'
           # ORW-193 PRECISION (pull requests ONLY; a push to main always uses the broad sets above, so main never loses coverage):
           #   - `heavy`: the heavy sims import only src/ plus their own tests/{uat,property,calibration} files and the tests/support
           #     setup files, so an edit under tests/{unit,integration,architecture,dev} cannot move a calibration result.
@@ -111,12 +141,12 @@ jobs:
           #     deploy smoke boot. The pytest lanes (fe-unit, fe-browser-tests) still run for any frontend/ change.
           # `/play` (frontend/web/**) has its own lane (`fe-web`); it must not wake the classic render lanes.
           changed_nw="$(echo "$changed" | grep -vE '^frontend/web/' || true)"
-          WEB_RE='^(frontend/web/|frontend/static/js/markdown(/|\.js$)|frontend/app\.py$|frontend/routes/(play|chat|orwell|session|auth|ws)_routes\.py$|frontend/routes/(chat_helpers|history_routes)\.py$|frontend/src/llm_core\.py$|frontend/core/session_manager\.py$|frontend/static/js/emojiShortcodes\.js$|frontend/src/(orwell_|agent_|session_)[a-z_]*\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
+          WEB_RE='^(frontend/web/|frontend/static/js/markdown(/|\.js$)|frontend/app\.py$|frontend/routes/(play|chat|orwell|session|auth|ws)_routes\.py$|frontend/routes/(chat_helpers|history_routes)\.py$|frontend/src/llm_core\.py$|frontend/core/session_manager\.py$|ci/|frontend/static/js/emojiShortcodes\.js$|frontend/src/(orwell_|agent_|session_)[a-z_]*\.py$|docs/audits/playtest-harness/fake_model_server\.mjs$|\.github/workflows/ci\.yml$)'
           fe_changed="$changed_nw"
           if [ "${EVENT_NAME:-}" = "pull_request" ]; then
-            HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|\.github/actions/)'
+            HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
             fe_changed="$(echo "$changed_nw" | grep -vE '^frontend/(tests/|.*\.md$)' || true; echo "$changed_nw" | grep -E '^frontend/tests/vendor/' || true)"
-            DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|\.github/actions/)'
+            DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           fi
           FRONTEND_RE="$FRONTEND_RE|^\.github/actions/"
           for name in engine frontend fe_render deploy heavy web; do
@@ -165,7 +195,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v5
+      - if: needs.changes.outputs.full == 'true'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -174,11 +205,15 @@ jobs:
       # vendored front-end's pytest (the authoritative game-build-wall / gateway assertions, which
       # import the FE app). Those wrappers shell out to `python3 -m pytest`, so the engine test job
       # needs the FE deps too — without them the BDD gate fails with "No module named pytest".
-      - run: pip install -r frontend/requirements.lock.txt
+      # Only the BDD gate needs them, so a draft (fast tier, BDD skipped) skips setup-python and the install too (ORW-218).
+      - if: needs.changes.outputs.full == 'true'
+        run: pip install -r frontend/requirements.lock.txt
       # ORW-39: the unit suite runs in the sharded `test-unit` job below; this job keeps the typecheck, the build and the BDD gate (same checks, no unit tests here).
       - run: npm run typecheck
       - run: npm run build
-      - run: npm run test:bdd
+      # Heavy tier (ORW-218): the BDD gate is skipped for a draft PR; ci-gate fails closed for a draft, so this can never be merged unrun.
+      - if: needs.changes.outputs.full == 'true'
+        run: npm run test:bdd
 
   # ── Unit suite, SHARDED (ORW-39) ────────────────────────────────────────────────
   # `test:unit:fast` (everything but the heavy sims) split four ways with vitest's own --shard; every file still runs exactly once across the legs.
@@ -224,7 +259,7 @@ jobs:
   # doesn't run — `ci-gate` reports the required green status so a docs/frontend-only PR never deadlocks.
   heavy-sims:
     needs: changes
-    if: needs.changes.outputs.heavy == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     # The code defaults ARE the deployed profile now (the 2026-11 default flip): the heavy lane plays what ships. `ORWELL_FLAGS_OFF=1` is the
     # diagnostic legacy profile and is NOT run here. UAT_TIMEOUT_SCALE widens the one UAT test whose per-test timeout actually fires (the
@@ -276,7 +311,7 @@ jobs:
   # the gated dirs the rest of the live-loop suite doesn't already cover). PATH-GATED (`changes.engine`).
   coverage:
     needs: [changes, coverage-shard]
-    if: needs.changes.outputs.engine == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -307,7 +342,7 @@ jobs:
   # the `coverage` job below merges the blobs and enforces the ORIGINAL thresholds once on the merged measurement.
   coverage-shard:
     needs: changes
-    if: needs.changes.outputs.engine == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -341,7 +376,7 @@ jobs:
   # token-enforcing engine, drive a full turn. PATH-GATED (`changes.deploy` — engine/FE/deploy scripts).
   smoke:
     needs: changes
-    if: needs.changes.outputs.deploy == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -436,7 +471,7 @@ jobs:
   # by the shared `setup-playwright` composite action (cache + bounded `--with-deps` + fallback).
   fe-browser-tests:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # ORW-193: three parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
@@ -476,7 +511,7 @@ jobs:
 
   fe-browser:
     needs: changes
-    if: needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -498,7 +533,7 @@ jobs:
 
   fe-responsive:
     needs: changes
-    if: needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     # 25 min: the engine-staged run adds npm ci + build (~2 min) and the ORWELL_MATRIX_FINISH
     # season fast-forward (~2 min of Echo-narrator advance calls) to the ~2-min sweep itself.
@@ -571,7 +606,7 @@ jobs:
   # (a self-hosted-runner boot blip), not the mechanism the gate relies on to be green.
   mirror-parity:
     needs: changes
-    if: needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20  # one group of gate legs, each with bounded retries (was 40 for all six in one job)
     # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane). Split into two parallel jobs of three-ish
@@ -735,7 +770,7 @@ jobs:
   # so it never gates a merge. Fold it into ci-gate to flip it blocking once the ratchet is trusted.
   a11y-matrix:
     needs: changes
-    if: needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -785,18 +820,19 @@ jobs:
   #
   # THE single required check — point branch protection HERE, not at the individual gated jobs. It
   # ALWAYS runs (`if: always()`), so its conclusion always resolves even when every upstream job was
-  # path-skipped. It passes when no needed job FAILED or was CANCELLED — a `skipped` (path-filtered) or
-  # `success` result both count as a pass — and fails otherwise.
+  # path-skipped. It passes when no needed job FAILED or was CANCELLED and every SKIPPED job was skipped
+  # because its path filter is false; it fails otherwise, and always fails for a draft PR's fast tier
+  # (ORW-218, pinned by tests/unit/ciGateLogic.test.ts).
   #
   # Why this is genuinely deadlock-free on an all-skip (e.g. a docs-only PR): the gated jobs report
-  # `skipped`; `ci-gate` still runs (always()); each `needs.*.result` is `skipped`; the loop below
-  # treats `skipped`/`success` as OK and exits 0. No required check is ever left "expected / pending".
+  # `skipped` with their filters false; `ci-gate` still runs (always()); the loop below accepts each
+  # filter-false skip and exits 0. No required check is ever left "expected / pending".
   # ── /play (the new React front end): typecheck, build + size budget, unit, Playwright smoke ──
-  # PATH-GATED (`changes.web`): runs only when frontend/web/**, the /play route, the fake model harness or this file change.
+  # HEAVY TIER (needs `changes.full`; a draft without `full-ci` skips it) and PATH-GATED (`changes.web`): runs only when frontend/web/**, the /play route, the fake model harness or this file change.
   # The smoke boots the real engine + front end + the deterministic fake model (no API key) via frontend/web/scripts/run-smoke.sh.
   fe-web:
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -881,17 +917,56 @@ jobs:
             mirror-parity=${{ needs.mirror-parity.result }}
             heavy-sims=${{ needs.heavy-sims.result }}
             fe-web=${{ needs.fe-web.result }}
+          FULL: ${{ needs.changes.outputs.full }}
+          ENGINE: ${{ needs.changes.outputs.engine }}
+          HEAVY: ${{ needs.changes.outputs.heavy }}
+          DEPLOY: ${{ needs.changes.outputs.deploy }}
+          FRONTEND: ${{ needs.changes.outputs.frontend }}
+          FE_RENDER: ${{ needs.changes.outputs.fe_render }}
+          WEB: ${{ needs.changes.outputs.web }}
         run: |
           set -euo pipefail
           echo "Needed job results: $RESULTS"
+          echo "Tier: full=$FULL  filters: engine=$ENGINE heavy=$HEAVY deploy=$DEPLOY frontend=$FRONTEND fe_render=$FE_RENDER web=$WEB"
+          # Which path filter makes each job APPLICABLE. A skipped job is only acceptable when its filter is false: GitHub treats a skipped
+          # required check as passing, so a job that SHOULD have run but was skipped (e.g. a draft's heavy tier) must fail the gate (ORW-218).
+          applicable() {
+            case "$1" in
+              changes) echo true ;;
+              test|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;
+              heavy-sims) echo "$HEAVY" ;;
+              smoke) echo "$DEPLOY" ;;
+              fe-unit|fe-browser-tests) echo "$FRONTEND" ;;
+              fe-browser|fe-responsive|mirror-parity) echo "$FE_RENDER" ;;
+              fe-web) echo "$WEB" ;;
+              *) echo true ;;
+            esac
+          }
+          # The fast tier (the only jobs a draft PR runs).
+          is_fast() { case "$1" in changes|test|test-unit|fe-unit) return 0 ;; *) return 1 ;; esac; }
           fail=0
+          # The tier and filter outputs decide which skips are acceptable, so each must be exactly `true` or `false` (ORW-218 review). An empty or
+          # garbled value (e.g. a broken `changes` job) fails the gate instead of silently accepting every skip.
+          for kv in "full=$FULL" "engine=$ENGINE" "heavy=$HEAVY" "deploy=$DEPLOY" "frontend=$FRONTEND" "fe_render=$FE_RENDER" "web=$WEB"; do
+            case "${kv#*=}" in
+              true|false) ;;
+              *)
+                echo "::error::changes output '${kv%%=*}' is '${kv#*=}' (expected true or false), so the gate cannot tell which jobs apply"
+                fail=1
+                ;;
+            esac
+          done
           for kv in $RESULTS; do
             name="${kv%%=*}"
             result="${kv#*=}"
-            # A required job is OK iff it succeeded or was skipped (path-filtered). Anything else
-            # (failure / cancelled / — an unexpected empty result) fails the gate.
             case "$result" in
-              success|skipped)
+              success) ;;
+              skipped)
+                # Skipped is fine only if the path filter said the job does not apply, or it is a heavy-tier job on a draft (reported below).
+                if [ "$(applicable "$name")" = "true" ] && { [ "$FULL" = "true" ] || is_fast "$name"; }; then
+                  echo "::error::needed job '$name' was SKIPPED although it applies to this change (a skipped required check must not count as a pass)"
+                  fail=1
+                fi
                 ;;
               *)
                 echo "::error::needed job '$name' did not pass (result: '$result')"
@@ -903,4 +978,9 @@ jobs:
             echo "ci-gate: FAIL"
             exit 1
           fi
-          echo "ci-gate: PASS (all needed jobs succeeded or were skipped)"
+          if [ "$FULL" != "true" ]; then
+            echo "::error::draft: fast checks only — mark ready for the full suite (or add the full-ci label and push). ci-gate stays red so a draft can never be merged on the fast tier alone."
+            echo "ci-gate: FAIL (draft, fast tier only)"
+            exit 1
+          fi
+          echo "ci-gate: PASS (all needed jobs succeeded, or were skipped because their path filter does not apply)"

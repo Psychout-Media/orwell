@@ -185,7 +185,7 @@ A4_DIR="$(mktemp -d /tmp/orwell-smoke-a4-XXXXXX)"
   git -C "${A4_DIR}/repo" config credential.helper \
     '!f(){ echo username=x-access-token; echo "password=$(sed -n s/^GIT_TOKEN=//p '"${A4_DIR}/app"'/data/.env)"; };f'
   # Isolate from the machine's own helpers/prompts: this must pass on the configured line alone.
-  out="$(printf 'protocol=https\nhost=github.com\npath=kevinhirsch/orwell.git\n\n' \
+  out="$(printf 'protocol=https\nhost=github.com\npath=Psychout-Media/orwell.git\n\n' \
     | env HOME="$A4_DIR" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true \
       git -C "${A4_DIR}/repo" credential fill 2>/dev/null)"
   tok="$(sed -n 's/^GIT_TOKEN=//p' "${A4_DIR}/app/data/.env")"

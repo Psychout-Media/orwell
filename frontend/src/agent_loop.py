@@ -3240,13 +3240,14 @@ async def _auto_mark_premiere_intros(narration, owner) -> int:
 # without exception"), and the machinery prefixes are the EXACT strings chat.js puppeteers back
 # into the conversation as a synthetic user turn when a stream drops (`_renderStreamDropRetry` /
 # the auto-continue prompt) — never real player speech.
-_OOC_WRAP_RE = re.compile(r"^\s*\(\(.*\)\)\s*$", re.DOTALL)
-_OOC_PREFIX_RE = re.compile(r"^\s*ooc\s*:", re.IGNORECASE)
 _NONDIEGETIC_MACHINERY_PREFIXES = (
     "the stream dropped before you finished",
     "your previous response was interrupted",
     "connection dropped",
 )
+
+
+from src.ooc_aside import is_aside_only  # noqa: E402
 
 
 def _is_nondiegetic_scene_text(text: Optional[str]) -> bool:
@@ -3257,10 +3258,16 @@ def _is_nondiegetic_scene_text(text: Optional[str]) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    if _OOC_WRAP_RE.match(t) or _OOC_PREFIX_RE.match(t):
+    if is_aside_only(t):  # span-based shared detector (src/ooc_aside.py): `((a)) real scene ((b))` is NOT an aside
         return True
     low = t.lower()
     return any(low.startswith(p) for p in _NONDIEGETIC_MACHINERY_PREFIXES)
+
+
+def _is_ooc_aside_text(text: Optional[str]) -> bool:
+    """ORW-207 - True when `text` is purely an out-of-character aside (shared span-based detector). Such a turn is the INTENDED format for answering an OOC question
+    ("whos left?"), so the recorder skips it quietly. FE stream-recovery machinery is NOT an aside and still goes through the nondiegetic gate (the backstop)."""
+    return is_aside_only(text)
 
 
 # ── #1734 (B4) — normalize + validate withIds at the extraction boundary ───────────────────────
@@ -3347,10 +3354,16 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                            for h in house if h.get("id") and h.get("name"))
         if not roster:
             return False
-        # #1729 (B1) — reject non-diegetic content BEFORE folding: an OOC vent or a stream-recovery
-        # machinery fragment must never become an "(overheard, clearly)" world event. Checked on
-        # BOTH the player's own turn and the model's narration (the narrator marks its own HUD/
-        # producer asides with the identical ((wrap)) convention — momentPrompts.ts).
+        # ORW-207: an OOC question answered in a ((aside)) (or an OOC player message) is not a scene: skip quietly BEFORE the gate, no soft-fail. The gate
+        # below stays as the backstop for what is left (stream-recovery machinery).
+        if _is_ooc_aside_text(last_user) or _is_ooc_aside_text(narration):
+            logger.info(f"[orwell] auto-record: skipped OOC aside turn (ORW-207) user={owner}")
+            return False
+        # #1729 (B1) — reject non-diegetic content BEFORE folding: a stream-recovery machinery fragment
+        # (or any OOC text the quiet ORW-207 skip above did not already take) must never become an
+        # "(overheard, clearly)" world event. Checked on BOTH the player's own turn and the model's
+        # narration. NOTE: since ORW-207 a pure ((aside)) / `ooc:` turn never reaches here (skipped quietly
+        # above), so this RED path is now the backstop for machinery text and anything the aside check missed.
         _nondiegetic_side = ("player" if _is_nondiegetic_scene_text(last_user)
                             else "narration" if _is_nondiegetic_scene_text(narration) else None)
         if _nondiegetic_side is not None:
@@ -6007,6 +6020,43 @@ _POSTSEASON_OFFTOPIC_TURNS: Dict[str, int] = {}
 _REAPPROACH_LEVEL: Dict[str, int] = {}
 
 
+# ORW-231 — every per-owner store in this module is PER-SEASON pacing state kept in process memory and
+# keyed only by the owner, so a new season for the same owner (the first game, a confirmed restart, the
+# next season, `/api/orwell/new-game`, a God-Mode sandbox reset) used to inherit the last season's
+# force-advance streak, anti-stale holds, stall level and flags, loop-break streak and the rest, and
+# leftover state could decide whether the new season advanced early. They all reset when the engine
+# creates or resets a season (`orwell_engine.on_season_reset`). A test pins that every store declared
+# empty at module level is listed here, so a new one cannot dodge the reset.
+_SEASON_PACING_STORES = (
+    _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
+    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
+    _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL,
+)
+
+
+def _forget_season_pacing(user) -> None:
+    """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
+    stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
+    and the faith queue's canonical-session key), so every variant is cleared; another owner's state is
+    never touched. Registered on `orwell_engine.on_season_reset`; never raises."""
+    keys = {user, user or "", _belt_key(user)}
+    try:
+        keys.add(_faith_key(user))
+    except Exception:
+        pass
+    for store in _SEASON_PACING_STORES:
+        for key in keys:
+            store.pop(key, None)
+
+
+try:  # register at import; fail-soft so a missing engine module never breaks the agent loop
+    from src import orwell_engine as _oe_season_reset
+    _oe_season_reset.on_season_reset(_forget_season_pacing)
+except Exception:
+    pass
+
+
 def _player_escaped_reunion(messages) -> bool:
     """True when the player's last message has wandered OFF the reunion — i.e. they're in free
     chat, not paying off the season just played. A message that's still about the season / the
@@ -6815,12 +6865,10 @@ async def _stream_agent_loop_impl(
             # No-op when the user has an explicit `agent_input_token_budget`
             # (that branch ignores hard_max). Falls back to DEFAULT_HARD_MAX
             # on missing/malformed values so misconfig can't zero the budget.
-            try:
-                hard_max = int(get_setting("agent_input_token_hard_max", DEFAULT_HARD_MAX) or DEFAULT_HARD_MAX)
-            except (TypeError, ValueError):
-                hard_max = DEFAULT_HARD_MAX
-            if hard_max <= 0:
-                hard_max = DEFAULT_HARD_MAX
+            # None/unset/0 = AUTO (model-aware: 0.60 x window on windows >= 500K, else the 48K cost cap); any
+            # explicit number is honoured exactly (ORW-219).
+            from src.context_budget import resolve_hard_max
+            hard_max = resolve_hard_max(get_setting("agent_input_token_hard_max", 0))
             # Scale the default budget to the model's context window so long-context
             # models aren't silently capped at 6000; an explicit user setting is
             # still honoured (clamped to the window). (#1170)
@@ -6841,6 +6889,7 @@ async def _stream_agent_loop_impl(
                 messages,
                 effective_budget,
                 reserve_tokens=reserve_tokens,
+                preserve_system=bool(game_mode),  # ORW-219: never cut the GM prompt / HARD CONSTRAINTS
             )
             after_trim_tokens = estimate_tokens(trimmed_messages)
             if after_trim_tokens < before_trim_tokens:
@@ -8197,8 +8246,14 @@ async def _stream_agent_loop_impl(
                 except Exception:
                     _framed_phase = None
                 _in_eviction = str(_framed_phase or "").lower().startswith("eviction")
-                _want_drain_eviction = (_in_eviction and (not _progressed)
-                                        and _turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN)
+                try:
+                    from routes import chat_helpers as _ch_hold
+                    _production_holding_now = bool(_ch_hold.production_is_holding(owner))
+                except Exception:
+                    _production_holding_now = False
+                _want_drain_eviction = _gates.want_drain_eviction(
+                    in_eviction=_in_eviction, progressed=_progressed, turn_advance_nudges=_turn_advance_nudges,
+                    max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN, production_holding=_production_holding_now)
                 # 0118 — the TIMED ceremony interrupt. When the engine reports the scheduled ceremony time
                 # has ARRIVED (the day-schedule `due` flag, cached at framing), fire the forced advance even
                 # during ENGAGING play — production calls the house together at the scheduled hour, whether

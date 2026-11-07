@@ -70,9 +70,12 @@ export function renderReply(text: string): RenderedReply {
   // A reply that ENDS inside an open <think> (Stop pressed mid-think, a dropped connection, out of tokens) must not show the
   // reasoning. Classic's settled-text "stray opener" rule would show an unclosed leading <think> body as the reply; in the game
   // build we cut at the unclosed opener instead. When unsure, hide.
+  const game = document.body.hasAttribute('data-game-build');
+  // A turn stopped exactly mid-tag must not commit or reload a literal fragment (`<t`, `<thinking`).
+  if (game) text = dropPartialTag(text);
   let src = text;
   let tail = '';
-  if (document.body.hasAttribute('data-game-build') && hasUnclosedThinkTag(text)) {
+  if (game && hasUnclosedThinkTag(text)) {
     const cut = firstUnclosedOpener(text);
     if (cut >= 0) {
       src = text.slice(0, cut);

@@ -105,12 +105,13 @@ def test_unknown_window_falls_back_to_configured():
 
 
 def test_default_hard_max_is_cost_bounded():
-    """The auto-derived ceiling is bounded so a 1M-context model can't blow the bill —
-    but still far above the old 6000 cap."""
+    """The auto-derived ceiling is bounded so a mid-size window can't blow the bill —
+    but still far above the old 6000 cap. (ORW-219: a >=500K window now lifts the cap to
+    0.60 x window; see tests/test_orw219_narrator_context.py.)"""
     from src.context_budget import DEFAULT_HARD_MAX, compute_input_token_budget
     assert 32000 <= DEFAULT_HARD_MAX <= 64000
-    # A million-token model is held to the cost-bounded cap, not its full window.
-    assert compute_input_token_budget(6000, 1_000_000, explicit=False) == DEFAULT_HARD_MAX
+    # A 400K-window model (below the long-window threshold) is still held to the cap.
+    assert compute_input_token_budget(6000, 400_000, explicit=False) == DEFAULT_HARD_MAX
 
 
 # ───────────────────────── Bug 2: one narration per turn (no rewind) ─────────────────────────
@@ -141,7 +142,10 @@ def test_advance_nudge_is_still_capped_to_once_per_turn():
     importlib.reload(al)
     assert al._MAX_ADVANCE_NUDGES_PER_TURN == 1
     js = _read("src", "agent_loop.py")
-    assert "_turn_advance_nudges < _MAX_ADVANCE_NUDGES_PER_TURN" in js
+    gates = _read("src", "agent_gates.py")
+    # The cap now lives in the pure gates (want_advance / want_drain_eviction, ORW-228); the loop feeds both the per-turn counter.
+    assert js.count("max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN") >= 2
+    assert "turn_advance_nudges < max_advance_nudges" in gates
 
 
 def test_silent_commit_does_not_append_the_forced_advance_narration_nudge():

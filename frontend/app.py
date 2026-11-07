@@ -902,6 +902,11 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
         html = f.read()
     nonce = getattr(request.state, "csp_nonce", "")
     html = html.replace("{{CSP_NONCE}}", nonce)
+    # ORW-203: stamp the shell with the build that served it, so a stale cached shell can
+    # detect (vs /api/version's "build") that a deploy happened and self-correct once.
+    from src.orwell_version import get_build as _fe_build
+    import html as _html_esc
+    html = html.replace("{{BUILD_ID}}", _html_esc.escape(_fe_build(), quote=True))
     from src.settings import strip_dropped_scripts, game_build_enabled, ws_transport_enabled
     html = strip_dropped_scripts(html)
     if game_build_enabled():
@@ -970,7 +975,10 @@ async def get_version():
     # and cached; falls back to a committed string when git is unavailable. See
     # src/orwell_version.py.
     from src.orwell_version import get_version as _fe_version
-    return {"version": _fe_version()}
+    from src.orwell_version import get_build as _fe_build
+    # "build" = the deployed commit's short SHA (changes on EVERY deploy, unlike the
+    # PR-derived "version"); the page shell compares its stamped copy against this (ORW-203).
+    return {"version": _fe_version(), "build": _fe_build()}
 
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:
@@ -1040,6 +1048,8 @@ async def _startup_event():
         from src.deepseek_seed import pin_legacy_model_defaults, seed_deepseek_endpoint_from_env
         pin_legacy_model_defaults()  # existing installs keep their effective models (PR #1935 review)
         seed_deepseek_endpoint_from_env()
+        from src.deepseek_seed import seed_default_model_fallbacks
+        seed_default_model_fallbacks()  # ORW-144: DeepSeek -> OpenRouter per-call fallback default
     except Exception as _e:
         logger.warning("DeepSeek endpoint seed skipped (fail-open): %s", _e)
     webhook_manager.set_loop(asyncio.get_running_loop())

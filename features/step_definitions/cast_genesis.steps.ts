@@ -525,30 +525,39 @@ Then("the proposal commits", function (this: BbWorld) {
 // ── Rule: hidden material routes to the Vault; the tie graph is validated for sanity ─────────────────
 
 Given("a committed cast whose proposal carried hidden elements, tie backstories, and a private orientation", function (this: BbWorld) {
-  // A seed whose warmed cast seals ≥1 private orientation, so the "no private orientation leaks" sweep is meaningful.
-  let seed = -1;
-  for (let sd = 1; sd <= 80; sd++) {
+  // A seed whose warmed cast seals >=1 private orientation (so the "no private orientation leaks" sweep is meaningful) AND whose committed ties include >=1 SECRET one (ORW-132 marks each tie secret or
+  // public at season start; the sealed-state rule is about the secret ones).
+  let built = false;
+  for (let sd = 1; sd <= 200 && !built; sd++) {
     const layer = generateDiversityLayer(sd, startNewGame({ seed: sd, playerName: "The Player" }).npcs);
-    if (Object.keys(layer.privateOrientations).length > 0) { seed = sd; break; }
+    if (Object.keys(layer.privateOrientations).length === 0) continue;
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor(`cg-seal-${cgUsers++}`);
+    const ids = sb.session.preSeedCast({ seed: sd }).house.map((h) => h.id);
+    const sentinel = `SENTINEL-0116-SEAL-${cgUsers}`;
+    const proposal = fullProposal(ids);
+    (proposal.npcs[0] as { hiddenElements: { detail: string }[] }).hiddenElements[0]!.detail = `secret ${sentinel}`;
+    (proposal.ties[0] as { backstory?: string }).backstory = `they met at ${sentinel}`;
+    sb.session.recordCastGenesis(proposal as never);
+    sb.session.createCharacter({ playerName: "The Player" });
+    const ties = sb.session.snapshot().seededRelationships?.ties ?? [];
+    if (!ties.some((t) => (t as { visibility?: string }).visibility !== "public")) continue;
+    sb.syncAdmin();
+    cg(this).cgSentinel = sentinel;
+    cg(this).cgSandbox = sb;
+    built = true;
   }
-  assert.ok(seed > 0, "no seed sealed a private orientation");
-  const reg = new GameSessionRegistry();
-  const sb = reg.sandboxFor(`cg-seal-${cgUsers++}`);
-  const ids = sb.session.preSeedCast({ seed }).house.map((h) => h.id);
-  const sentinel = `SENTINEL-0116-SEAL-${cgUsers}`;
-  cg(this).cgSentinel = sentinel;
-  const proposal = fullProposal(ids);
-  (proposal.npcs[0] as { hiddenElements: { detail: string }[] }).hiddenElements[0]!.detail = `secret ${sentinel}`;
-  (proposal.ties[0] as { backstory?: string }).backstory = `they met at ${sentinel}`;
-  sb.session.recordCastGenesis(proposal as never);
-  sb.session.createCharacter({ playerName: "The Player" });
-  sb.syncAdmin();
-  cg(this).cgSandbox = sb;
+  assert.ok(built, "no seed sealed a private orientation with a secret committed tie");
 });
 
 Given("every committed tie's exposure is sealed and no reveal pathway has fired", function (this: BbWorld) {
   const ties = cg(this).cgSandbox!.session.snapshot().seededRelationships?.ties ?? [];
-  assert.ok(ties.every((t) => tieExposureOf(t) === "sealed"), "every committed tie is sealed (no pathway fired)");
+  // ORW-132: each tie is marked secret or public at season start, and a PUBLIC tie is meant to be known (it starts exposed and is announced on Day 1). The hidden-info rule is about the SECRET ones: every
+  // secret tie must still be sealed (no pathway fired). The leak sweep below is unchanged and still covers EVERY tie backstory (a public tie's backstory text stays off the surfaces too).
+  const secret = ties.filter((t) => (t as { visibility?: string }).visibility !== "public");
+  assert.ok(secret.length > 0, "the scenario needs at least one SECRET tie to be meaningful");
+  assert.ok(secret.every((t) => tieExposureOf(t) === "sealed"), "every SECRET committed tie is sealed (no pathway fired)");
+  assert.ok(ties.filter((t) => (t as { visibility?: string }).visibility === "public").every((t) => tieExposureOf(t) === "public"), "a public tie starts exposed");
 });
 
 When("the player and admin projections are assembled", function (this: BbWorld) {

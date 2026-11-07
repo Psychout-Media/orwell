@@ -74,3 +74,11 @@ describe('partial openers never flash as literal tag text', () => {
     expect(visible(renderLive(`Natalia nods. ${frag}`).blocks)).toBe('Natalia nods.');
   });
 });
+
+describe('a turn stopped exactly mid-tag commits no tag fragment', () => {
+  it.each(['<t', '<thinking', '</thi', '<think time="2.', '<|channel>'])('%s', (frag) => {
+    const { text, html } = commitAndRender(`Natalia nods slowly. ${frag}`);
+    expect(visible(renderReply(text).blocks)).toBe('Natalia nods slowly.');
+    expect(html).not.toContain('&lt;');
+  });
+});

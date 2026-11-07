@@ -12,7 +12,7 @@
 # the box answered "connection refused" with nothing explaining why; this framework is that fix).
 set -Eeuo pipefail
 
-REPO="${REPO:-https://github.com/kevinhirsch/orwell.git}"
+REPO="${REPO:-https://github.com/Psychout-Media/orwell.git}"
 BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/opt/orwell}"
 DATA_DIR="${DATA_DIR:-/opt/orwell/data}"

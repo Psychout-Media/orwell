@@ -1,4 +1,4 @@
-"""Recording + render integrity — kevinhirsch/orwell #1728, #1729, #1730, #1734.
+"""Recording + render integrity — Psychout-Media/orwell #1728, #1729, #1730, #1734.
 
 These four issues all center on the FE render-row list and the `_auto_record_scene` hidden-layer
 fold, so they land together (splitting would self-conflict):
@@ -201,22 +201,23 @@ def test_ordinary_scene_still_records(monkeypatch):
     assert cap["with_ids"] == ["npc:3"]
 
 
-# ---- #1729 (B1) / #1599: the reject path is NEVER silent — a RED-eligible health event lands
-#      on the overseer ring (the no-silent-fail-soft ruling: even an auto-corrected fault is RED).
+# ---- #1729 (B1) / #1599: the gate's reject path is NEVER silent for MACHINERY text — a RED-eligible health event lands
+#      on the overseer ring (the no-silent-fail-soft ruling: even an auto-corrected fault is RED). A pure ((aside)) / `ooc:` turn is the
+#      intended OOC format and is skipped quietly BEFORE the gate (ORW-207), so only machinery reaches this RED path now.
 
-def test_ooc_rejection_records_a_red_eligible_overseer_event(monkeypatch):
+def test_ooc_turn_is_skipped_quietly_with_no_health_event(monkeypatch):
+    """ORW-207: an OOC player message / an aside-only ((reply)) is the intended OOC format, not a fault. The recorder skips it before the gate and raises no
+    soft-fail (it used to raise `recorder:nondiegetic-content-rejected` on every OOC answer). The gate stays the backstop for machinery text (next test)."""
     from src import log_rings as lr
-    lr.OVERSEER.buf.clear()
-    ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"x"}',
-                     last_user="((that was fucking weird, so combative))")
-    assert ok is False
-    events = list(lr.OVERSEER.buf)
-    assert events, "the reject must land a health event — #1599 bans a silent fail-soft"
-    ev = events[-1]
-    assert ev["overseerLevel"] == "anomaly"
-    assert ev["ok"] is False, "RED per #1599 — an auto-corrected fault is still RED, not a cloak"
-    assert ev["lever"] == "nondiegetic-gate"
-    assert "recorder:nondiegetic-content-rejected" in ev["kind"]
+    for kw in ({"last_user": "((that was fucking weird, so combative))"},
+               {"narration": "((There are 4 houseguests left: ...))"},
+               {"last_user": "ooc: whos left?"}):
+        lr.OVERSEER.buf.clear()
+        ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"x"}', **kw)
+        assert ok is False and cap["llm_called"] is False and cap["record_called"] is False
+        kinds = [e.get("kind") for e in lr.OVERSEER.buf]
+        assert "recorder:nondiegetic-content-rejected" not in kinds, kw
+        assert not [e for e in lr.OVERSEER.buf if e.get("ok") is False], kw
 
 
 def test_stream_drop_rejection_records_a_red_eligible_overseer_event(monkeypatch):
@@ -1320,3 +1321,32 @@ def test_settle_pending_fold_checks_row_existence_before_applying():
     assert "entry_exists_at_settle" in fn, (
         "settle must check the anchored row still exists before applying (#1825 fix #2, item 4)"
     )
+
+
+# ---- ORW-207 review: the aside check is SPAN-based - a real scene with asides in it, or an unbalanced `((`, is still recorded.
+
+def test_a_scene_with_mid_text_asides_still_records(monkeypatch):
+    ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"a real scene"}',
+                     narration="((note)) They schemed in the backyard for a while. ((another note))")
+    assert ok is True and cap["record_called"] is True
+
+
+def test_a_player_message_with_a_trailing_aside_still_records(monkeypatch):
+    ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"a real scene"}',
+                     last_user="((quick ooc)) I pull npc:3 aside and tell them the plan ((end ooc))")
+    assert ok is True and cap["record_called"] is True
+
+
+def test_an_unbalanced_open_paren_pair_still_records(monkeypatch):
+    ok, cap = _drive(monkeypatch, '{"withIds":["npc:3"],"kind":"strategy","content":"a real scene"}',
+                     narration="((They schemed in the backyard for a while.")
+    assert ok is True and cap["record_called"] is True
+
+
+def test_shared_aside_detector_cases():
+    from src.ooc_aside import is_aside_only
+    assert is_aside_only("((a))") and is_aside_only("((a)) ((b))") and is_aside_only("ooc: hi")
+    assert is_aside_only("((day 12 (HOH: X)))")            # nested parens leave a stray ")"
+    assert not is_aside_only("((a)) real scene ((b))")
+    assert not is_aside_only("((unbalanced scene") and not is_aside_only("plain") and not is_aside_only("")
+
