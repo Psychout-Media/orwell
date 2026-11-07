@@ -74,7 +74,7 @@ import {
   runFinale as buildFinaleScript, castJuryVote, juryLean, appealEffect, bestAppeal, gameRespectTerm, JURY_WEIGHTS,
   FINALE_APPEALS, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
 } from "./jury";
-import { MANNER_THRESHOLDS, MANNER_GRADING } from "./juryConstants";
+import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
@@ -822,6 +822,10 @@ export interface SeasonCtx {
   hcMemoryFor?: (candidate: EntityId, holder: EntityId) => number;
   /** B7 M3 (ORWELL_DEAL_NOMS): the nomination-score push from the HOH's open protective deals with `target` (<= 0). Absent => byte-identical. */
   dealNomPushFor?: (target: EntityId, holder: EntityId) => number;
+  /** ORW-37 half 2 (B41, ORWELL_TIE_BEHAVIOR): the HOH's nomination-score push from a pre-show tie they themselves hold with `target` (family shield, rival push). Absent => 0 => byte-identical. */
+  tieNomPushFor?: (target: EntityId, holder: EntityId) => number;
+  /** ORW-37 half 2 (B41): the eviction-vote push from a pre-show tie `voter` holds with `nominee` (positive evicts, negative keeps). Absent => 0 => byte-identical. */
+  tieVotePushFor?: (nominee: EntityId, voter: EntityId) => number;
   /** B4 slice 4 (ORWELL_ASSURANCES): the bounded shield a KEPT 'vote'/'safe' assurance `voter` made to nominee `n` adds against evicting `n`. Absent => 0, byte-identical. */
   assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
   /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
@@ -1774,6 +1778,8 @@ export function voteChoice(
   const score = (n: EntityId): number =>
     ctx.rel.edge(voter, n).threat * (1 + paranoia * V.moodSelfProtectWeight) +
     blocTerm(blocs, voter, n) +
+    // ORW-37 half 2 (B41): a pre-show tie this voter holds with `n` (positive evicts, negative keeps: family keeps, a rival evicts). Absent provider => 0 => byte-identical.
+    (ctx.tieVotePushFor?.(n, voter) ?? 0) +
     // 0085: a campaign to evict `n` that this voter is aware of pushes the vote toward `n` — bounded,
     // character-mediated, engine-tallied. Absent provider ⇒ 0 ⇒ byte-identical (the juryReach spine).
     (ctx.campaignTiltFor?.(n, voter) ?? 0) +
@@ -2533,8 +2539,10 @@ export function mannerForVote(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgr
   const base = mannerFor(s, juror, fin);
   if (!ctx.jurorProfiles || !s.mistakenBlame?.[juror]?.includes(fin)) return base;
   if (f.appeals[fin]?.[juror] !== "mend") return { ...base, mistaken: true };
-  const { betrayed: _b, blindsided: _bl, disrespected: _d, mistaken: _m, ...rest } = base;
-  return rest;
+  // ORW-129: a mend FADES the mistaken grievance, it does not erase it - the grievance flags stay, at MEND_TRACE.residual of their strength (a small lingering doubt). A TRUE grievance is never touched here.
+  const { mistaken: _m, ...rest } = base;
+  const hadGrievance = !!(rest.betrayed || rest.blindsided || rest.disrespected);
+  return hadGrievance ? { ...rest, intensity: (rest.intensity ?? 1) * MEND_TRACE.residual } : rest;
 }
 
 /** Record the appeal a finalist made to a juror (appeals[finalist][juror]). */
@@ -2776,7 +2784,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
-        ...(ctx.dealNomPushFor ? { dealPush: (t: EntityId) => ctx.dealNomPushFor!(t, s.hoh!) } : {}),
+        ...(ctx.dealNomPushFor || ctx.tieNomPushFor ? { dealPush: (t: EntityId) => (ctx.dealNomPushFor?.(t, s.hoh!) ?? 0) + (ctx.tieNomPushFor?.(t, s.hoh!) ?? 0) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
       });

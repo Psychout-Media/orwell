@@ -152,15 +152,15 @@ TODOs, empty XFAIL registry, one opt-in test skip `fastembedReal.test.ts`).
 > **GitHub issue tracking (added 2026-06-23).** The items below are now filed as GitHub issues
 > (labelled `type:*`/`area:*`), except where noted "doc-only" (deferred-by-design or not yet
 > scheduled):
-> 1. ADR 0010 token-economy (4) → [#572](https://github.com/kevinhirsch/orwell/issues/572).
+> 1. ADR 0010 token-economy (4) → [#572](https://github.com/Psychout-Media/orwell/issues/572).
 > 2. Live-mirror/concurrency verification (ADR 0008/0011/0012) → **doc-only** (owed manual runs/pins).
-> 3. Architecture latents R1–R7 → **A-S3** = [#591](https://github.com/kevinhirsch/orwell/issues/591); rest **doc-only** (`REFACTOR-ROADMAP.md`).
-> 4. Window refactor (A0/A2/B) → [#573](https://github.com/kevinhirsch/orwell/issues/573).
-> 5. UX Phase-4 polish (~34) → [#606](https://github.com/kevinhirsch/orwell/issues/606).
-> 6. Ops: Proxmox host smoke → [#577](https://github.com/kevinhirsch/orwell/issues/577); A4 private-repo flip → [#579](https://github.com/kevinhirsch/orwell/issues/579).
+> 3. Architecture latents R1–R7 → **A-S3** = [#591](https://github.com/Psychout-Media/orwell/issues/591); rest **doc-only** (`REFACTOR-ROADMAP.md`).
+> 4. Window refactor (A0/A2/B) → [#573](https://github.com/Psychout-Media/orwell/issues/573).
+> 5. UX Phase-4 polish (~34) → [#606](https://github.com/Psychout-Media/orwell/issues/606).
+> 6. Ops: Proxmox host smoke → [#577](https://github.com/Psychout-Media/orwell/issues/577); A4 private-repo flip → [#579](https://github.com/Psychout-Media/orwell/issues/579).
 > 7. Perf: R3 O(Δ) export → **doc-only** (late-season only).
-> 8. Tuning/small: session TTL → [#581](https://github.com/kevinhirsch/orwell/issues/581); `ORWELL_TIME_OF_DAY` default → [#583](https://github.com/kevinhirsch/orwell/issues/583); J1-30 → [#606](https://github.com/kevinhirsch/orwell/issues/606); settings F5 → [#586](https://github.com/kevinhirsch/orwell/issues/586).
-> 9. Deferred-by-design: ADR 0006 Phase-2 → [#604](https://github.com/kevinhirsch/orwell/issues/604); 0059 follow-on → [#605](https://github.com/kevinhirsch/orwell/issues/605); 0022 + Postgres+pgvector = **doc-only** (deferred).
+> 8. Tuning/small: session TTL → [#581](https://github.com/Psychout-Media/orwell/issues/581); `ORWELL_TIME_OF_DAY` default → [#583](https://github.com/Psychout-Media/orwell/issues/583); J1-30 → [#606](https://github.com/Psychout-Media/orwell/issues/606); settings F5 → [#586](https://github.com/Psychout-Media/orwell/issues/586).
+> 9. Deferred-by-design: ADR 0006 Phase-2 → [#604](https://github.com/Psychout-Media/orwell/issues/604); 0059 follow-on → [#605](https://github.com/Psychout-Media/orwell/issues/605); 0022 + Postgres+pgvector = **doc-only** (deferred).
 > 10. Doc hygiene → **doc-only**.
 
 1. **ADR 0010 token-economy (4 → 2 remaining):** ~~per-class `max_tokens` runtime-editable~~ **DONE
