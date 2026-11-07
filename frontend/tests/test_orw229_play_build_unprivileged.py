@@ -105,9 +105,9 @@ exit 0
         return r.stdout + r.stderr
 
     def calls(self):
-        """Every recorded call except `npm -v` (the inputs fingerprint asks for the npm version; not an install)."""
+        """Every recorded call except the fingerprint's own npm queries (`npm -v`, `npm config get`): not installs."""
         lines = self.log.read_text().splitlines() if self.log.exists() else []
-        return [c for c in lines if not c.startswith("npm -v ")]
+        return [c for c in lines if not c.startswith(("npm -v ", "npm config "))]
 
     def staged(self):
         p = self.app / "frontend" / "web" / "dist.next" / "index.html"
