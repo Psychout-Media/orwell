@@ -1,3 +1,4 @@
+import { toDayTwoMorning } from "../support/dayTwoMorning";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -8,9 +9,9 @@ function runningDay(gate: boolean) {
   const s = new GameSessionRegistry().sandboxFor(`gate-${gate}-${Math.random()}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed: 7 });
   s.setPerConversationClockEnabled(true);
-  s.setAdvanceGateEnabled(gate);
   const live = () => s.snapshot().live as unknown as { timeOfDay?: string; pending?: unknown };
-  for (let i = 0; i < 80 && live().timeOfDay === undefined; i++) s.advanceGame(); // up to the day-break (the clock starts); no milestone exists yet
+  toDayTwoMorning(s); // ORW-116: Day 2, 8am (no phase advance moves the clock)
+  s.setAdvanceGateEnabled(gate); // (set after the setup advances: an ON gate would hold them)
   expect(live().timeOfDay, "precondition: the day is running").toBeDefined();
   return s;
 }
@@ -35,7 +36,7 @@ describe("A65 - the engine schedule gate", () => {
     const after = s.getGameState() as { beatSeq: number; phase: string };
     expect(after.beatSeq).toBe(before.beatSeq);
     expect(after.phase).toBe(before.phase);
-    s.advanceGame(); s.advanceGame();
+    s.advanceGame(); s.advanceGame(); s.advanceGame(); // ordinary advances
     expect(s.getGameState().beatSeq).toBe(before.beatSeq);
   });
   it("ON: once the milestone is due the same advance goes through", () => {

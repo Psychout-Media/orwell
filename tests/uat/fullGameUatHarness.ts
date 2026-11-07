@@ -8,7 +8,8 @@
  *
  * This module holds NO `it`/`describe` (it is `*.ts`, not `*.test.ts`, so vitest's
  * `include: tests/**\/*.test.ts` never picks it up directly). The three split test
- * files import the driver + invariant checkers from here and each own a disjoint slice
+ * files
+ * import the driver + invariant checkers from here and each own a disjoint slice
  * of the work:
  *
  *   fullGameUat.12seed.test.ts    — 12 seeds, never-use-veto (direct callTool)
@@ -31,6 +32,7 @@
  *   - Final-2 roster: exactly 1 active NPC in the house when the player survives to finale
  */
 
+import { endHeldNight } from "../support/heldNight";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { createHttpMcpServer } from "../../src/adapters/mcp/HttpMcpServer";
@@ -312,6 +314,7 @@ export async function runFullGame(
   for (let i = 0; i < MAX_ITERATIONS && !finished; i++) {
     const adv = await call<AdvanceResult>("advanceGame", {});
     if (!adv) break; // HTTP error or body.error — already pushed as http-error anomaly
+    if ((adv as { held?: unknown }).held) { await endHeldNight(async (n, a) => call<unknown>(n, a), `uat${seed}`, undefined, { direct: true }); continue; } // ORW-116: a held night is the player's - time passes, then they turn in
 
     // createCharacter failed silently: game never started → infinite started=false loop without this guard
     if (!adv.started) {
@@ -413,6 +416,7 @@ export async function runFullGameDirect(
   for (let i = 0; i < MAX_ITERATIONS && !finished; i++) {
     const adv = await call<AdvanceResult>("advanceGame", {});
     if (!adv) break;
+    if ((adv as { held?: unknown }).held) { await endHeldNight(async (n, a) => call<unknown>(n, a), `uat${seed}`, undefined, { direct: true }); continue; } // ORW-116: see above
 
     if (!adv.started) {
       anomalies.push({ seed, strategy, week: 0, beat: "advanceGame", kind: "stale-loop",
@@ -487,6 +491,7 @@ export interface UatHarness {
  */
 export async function startUatHarness(): Promise<UatHarness> {
   const clock = new FakeClock();
+  process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: the HTTP UAT player turns in directly when a night is held (the bedtime gate is a separate narrator-facing guard; the night HOLD stays fully on)
   const runtime = composeRuntime({
     clock,
         seed: 1,

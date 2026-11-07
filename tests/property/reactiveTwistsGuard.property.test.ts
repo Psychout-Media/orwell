@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { freshTmpDir } from "../support/freshTmpDir";
 import { execFileSync } from "node:child_process";
@@ -41,6 +42,7 @@ function playSeason(seed: number, integrity = false): SeasonResult {
   let lastHoh: string | undefined;
   for (let i = 0; i < 9000; i++) {
     const v = s.advanceGame();
+    if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
     const live = s.snapshot().live as NonNullable<Live>;
     // cast conserved; nobody in two places
@@ -87,7 +89,8 @@ describe(`reactive twists ON under the deployed profile: ${SEEDS}-seed full-seas
     // A9 flip (2026-11-04, deliberate + reviewed): with the premiere entrances ON (the deployed default, which this lane runs) the first-read fold re-seeds the society, and the earliest secret
     // veto in the 50-seed sample moved from week 12 to week 11 (CI measurement on the flip). The floor is the measured window, never an exact seed pin.
     // ORW-37 flip (2026-11-06, deliberate + reviewed): lasting game philosophies ON re-seed who nominates whom, and the earliest secret veto in the 50-seed sample moved from week 11 to week 9 (CI measurement on the flip). The floor is the measured window, never an exact seed pin; the "no twist in weeks 1-6" rule above is unchanged.
-    const FLOOR: Record<string, number> = { "battle-back": 7, "double-eviction": 8, "secret-veto": 9 };
+    // ORW-116 (2026-11-06): the clock now runs from the premiere entry and the night is held until the player turns in, which re-seeds the society again; the earliest secret veto in the 50-seed sample moved from week 11 to week 8 (a measurement, not a pin).
+    const FLOOR: Record<string, number> = { "battle-back": 7, "double-eviction": 8, "secret-veto": 8 };
     for (const [kind, floor] of Object.entries(FLOOR)) {
       const weeks = byKind[kind] ?? [];
       expect(Math.min(...(weeks.length ? weeks : [floor])), `${kind} never fires before week ${floor}`).toBeGreaterThanOrEqual(floor);

@@ -11,6 +11,7 @@ import json
 import os
 import sys
 
+import time
 import httpx
 
 FE = os.environ["ORWELL_SMOKE_FE"].rstrip("/")
@@ -23,6 +24,16 @@ def engine_call(name: str, args: dict | None = None) -> dict:
     r = httpx.post(f"{ENGINE}/player/call", json={"name": name, "args": args or {}}, headers=AUTH, timeout=30)
     r.raise_for_status()
     return r.json()["result"]
+
+
+def end_held_night() -> None:
+    for i in range(800):
+        tod = (engine_call("gameStatus") or {}).get("timeOfDay")
+        if tod in ("evening", "night", "late-night"):
+            engine_call("turnIn")
+            return
+        engine_call("noteMessage", {"messageId": f"smoke-held-{i}-{time.time()}"})
+    engine_call("turnIn")
 
 
 def main() -> int:
@@ -44,6 +55,10 @@ def main() -> int:
         if adv.get("pending"):
             pending = adv["pending"]
             break
+        if adv.get("held"):
+            # ORW-116/ORW-236: the night is never auto-run - an advance that would roll it comes back `held`. Do what a real player does: let time pass
+            # (player messages, ~5 in-game minutes each) until it is evening, then turn in.
+            end_held_night()
     if not pending:
         print("FAIL: no player decision pended within the advance budget")
         return 1

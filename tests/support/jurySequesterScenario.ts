@@ -1,3 +1,4 @@
+import { endHeldNight } from "./heldNight";
 import { expect } from "vitest";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
@@ -49,6 +50,7 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
     let probed = false;
     for (let i = 0; i < 8000 && weeksSince < WEEKS_AFTER_FIRST_JUROR; i++) {
       const adv = (await mcp.callTool("advanceGame", {})) as Adv;
+      if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `js${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
       if (adv.finished) break;
       // A refused decision here is a real failure, never an early exit.
       if (adv.pending) await mcp.callTool("submitDecision", answer(adv.pending));

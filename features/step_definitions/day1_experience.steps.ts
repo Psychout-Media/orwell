@@ -456,43 +456,64 @@ Then("the toast seats and pins the whole house", function (this: BbWorld) {
   assert.equal(session.whereabouts()!.room, wa.room, "the player is pinned to the toast: a walk-off is a no-op");
 });
 
-When("the toast closes and the premiere is exited", function (this: BbWorld) {
+When("the toast closes", function (this: BbWorld) {
   const fm = bag(this).fm!;
   const close = fm.session.advanceGame();
   assert.equal(close.pending ?? null, null, "closing the toast raises no decision");
   assert.equal(fm.session.getGameState().phase, "premiere", "the toast close does not leave the premiere");
-  fm.exit = fm.session.advanceGame();
 });
 
-Then("the exit is a one-shot day-break to 8am with no competition card", function (this: BbWorld) {
+When("the player socializes into the first night", function (this: BbWorld) {
   const fm = bag(this).fm!;
-  assert.equal(fm.exit!.event?.beat, "day-break", "the premiere exit is a day-break");
-  assert.equal(fm.exit!.pending ?? null, null, "no competition card at 8am");
+  for (let i = 0; i < 70; i++) fm.session.noteMessage({ messageId: `night-${i}` }); // the clock started at the afternoon entry; ~5 in-game minutes a message
   const live = fm.session.snapshot().live!;
-  assert.equal(Math.floor(live.nightDepth!), 8, "it is 8am (the committed turn may tick a few minutes past the hour)");
-  assert.equal(live.timeOfDay, "morning");
-  assert.equal(live.firstMorningPassed, true, "the one-shot is spent");
-  assert.equal(fm.session.perConversationClockLive(), true, "the in-game clock is now running");
-  assert.equal(fm.session.getGameState().phase, "hoh-competition", "the HOH is the next beat");
+  assert.ok((live.nightDepth ?? 0) > 20, "it is the premiere night");
+  assert.equal(live.timeOfDay, "night");
+  fm.hour = live.nightDepth;
+});
+
+Then("the premiere exit moves no time and rolls no night", function (this: BbWorld) {
+  const fm = bag(this).fm!;
+  for (let i = 0; i < 3; i++) {
+    const v = fm.session.advanceGame();
+    assert.ok(v.held, "the exit is held: the night is the player's to spend");
+    assert.equal(v.event ?? null, null, "no overnight beat");
+    assert.equal(v.pending ?? null, null, "no competition card on the first night");
+  }
+  const live = fm.session.snapshot().live!;
+  assert.equal(live.nightDepth, fm.hour, "advancing moved no time");
+  assert.equal(live.dayNumber ?? 1, 1, "still Day 1");
 });
 
 Then("the first HOH has not fired and is not yet due", function (this: BbWorld) {
   const { session } = bag(this).fm!;
   assert.equal(session.gameStatus().hoh, null, "no HOH is crowned");
-  assert.equal(session.milestoneDue(), false, "the HOH is not due in the morning");
+  assert.equal(session.milestoneDue(), false, "the HOH is not due on the first night");
   // A7 (#2078) added `minutesUntil` to the schedule view; the claim here is WHICH event, WHEN, and that it is not due - not the countdown, so compare those fields.
   const ds = session.getGameState().daySchedule as { next?: string; phase?: string; due?: boolean; minutesUntil?: number } | undefined;
   assert.deepEqual({ next: ds?.next, phase: ds?.phase, due: ds?.due }, { next: "hoh-competition", phase: "afternoon", due: false });
-  assert.ok(typeof ds?.minutesUntil === "number" && ds.minutesUntil > 0, "the countdown to the scheduled hour is reported and positive");
+  assert.ok(typeof ds?.minutesUntil === "number", "the countdown to the scheduled hour is reported (ORW-116: on the first night the afternoon slot is tomorrow, so it is not asserted positive)");
+});
+
+When("the player turns in for the premiere night", function (this: BbWorld) {
+  bag(this).fm!.session.turnIn();
+});
+
+Then("it is Day 2 and the first HOH is not due in the morning", function (this: BbWorld) {
+  const { session } = bag(this).fm!;
+  const live = session.snapshot().live!;
+  assert.equal(live.dayNumber, 2, "it is Day 2");
+  assert.equal(session.gameStatus().hoh, null, "no HOH is crowned at dawn");
+  assert.equal(session.milestoneDue(), false, "the HOH is not due in the morning");
 });
 
 When("the player spends the morning block in social scenes", function (this: BbWorld) {
   const sb = bag(this).sandbox!;
-  const npc = firstActiveNpc(sb);
-  for (let t = 0; t < 60 && !sb.session.milestoneDue(); t++) {
-    // The HOH must still be unfired at every scene of the morning block.
+  // The player turned in at night, so they wake before 8am with most of the house asleep: the morning passes as player messages (5 in-game minutes each).
+  for (let t = 0; t < 200 && !sb.session.milestoneDue(); t++) {
+    // The HOH must still be unfired at every message of the morning block.
     assert.equal(sb.session.gameStatus().hoh, null, "no HOH fires while the morning block is being spent");
-    sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: `morning scene ${t}`, kind: "bonding" });
+    sb.session.noteMessage({ messageId: `morning-${t}` });
   }
 });
 
@@ -500,7 +521,7 @@ Then("the first HOH is now due in the afternoon", function (this: BbWorld) {
   const { session } = bag(this).fm!;
   assert.equal(session.milestoneDue(), true, "the morning block is spent: the HOH is due");
   assert.equal(session.getGameState().daySchedule!.due, true, "the view flag says due");
-  assert.ok((session.inGameHour() ?? 0) >= 12, "it is the afternoon");
+  assert.ok((session.inGameHour() ?? 0) >= 12 - 1e-6, "it is the afternoon");
   assert.equal(session.gameStatus().hoh, null, "being due does not crown anyone by itself");
 });
 

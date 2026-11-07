@@ -1,6 +1,6 @@
 import type { Beat, LiveSeasonState } from "./liveSeason";
 import type { TimeOfDay } from "./timeOfDay";
-import { WAKE_HOUR, eventSpanHours } from "./timeOfDay";
+import { WAKE_HOUR, eventSpanHours, DAY_END_HOUR } from "./timeOfDay";
 import { CLOCK } from "./sleepConstants";
 
 /**
@@ -33,13 +33,16 @@ export type StructuralMilestone =
  */
 export const DAY_SCHEDULE: Record<StructuralMilestone, TimeOfDay> = {
   "hoh-competition": "afternoon",
-  "nominations": "afternoon",
+  "nominations": "evening",
   "veto-competition": "afternoon",
-  "veto-ceremony": "afternoon",
+  "veto-ceremony": "evening",
   "eviction": "evening",
   "final-eviction": "evening",
   "finale": "evening",
 };
+
+/** ORW-116: the veto player draw happens in the MORNING of the veto-competition day (the competition itself follows in the afternoon, `DAY_SCHEDULE["veto-competition"]`). */
+export const VETO_DRAW_PHASE: TimeOfDay = "morning";
 
 /** Readable names for the telegraphed milestones (narration priming + the HUD cue). Public, Vault-free. */
 export const MILESTONE_LABEL: Record<StructuralMilestone, string> = {
@@ -84,7 +87,9 @@ export function nextMilestone(live: LiveSeasonState | null | undefined): NextMil
   const beat = live?.beat;
   if (!beat || !MILESTONE_BEATS.has(beat)) return null;
   const m = beat as StructuralMilestone;
-  const phase = DAY_SCHEDULE[m];
+  // ORW-116 (Ryne: "veto player draw in the morning", "the day of the veto comp"): the veto DRAW is the first advance of the veto-competition beat and is scheduled for the MORNING of the veto
+  // day; the competition itself (once the field is drawn) is the afternoon. `vetoField` is set exactly when the draw has happened.
+  const phase = m === "veto-competition" && !live?.vetoField ? VETO_DRAW_PHASE : DAY_SCHEDULE[m];
   return { beat: m, phase, targetHour: phaseStartHour(phase) };
 }
 
@@ -97,6 +102,8 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return false;
   const hour = live.nightDepth ?? WAKE_HOUR;
+  // ORW-116 (a): the first HOH is the afternoon of the NEXT day after the premiere evening and the social night - never that same night (the clock reads past the afternoon hour at night).
+  if (live.beat === "hoh-competition" && live.week === 1 && !live.firstNightPassed && (live.dayNumber ?? 1) < 2 && hour < DAY_END_HOUR - 0.01) return false; // ...unless the night has run out: then the advance IS the day-break to the first morning (no stall on a player who never turns in)
   // Float-safe: the clock accrues in 0.2h steps (0.2 * 20 = 3.999999999999986...), so a scene that reaches EXACTLY the scheduled hour (the 8am wake + a 4h scene
   // cap = the 12:00 afternoon start) landed at 11.999999999999986 and was never "due" - a stall once the front-end stopped firing events ahead of the schedule.
   return hour + 1e-6 >= m.targetHour;

@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { resolvePending } from "../../features/support/answerPending";
@@ -45,6 +46,7 @@ function play(seed: number, plan: Plan, watch?: (live: any, v: any, s: any) => v
   let stall = 0, lastSeq = -1;
   for (; i < 9000; i++) {
     const v = s.advanceGame();
+    if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) {
       if (v.pending.kind === "secret-veto") s.submitDecision({ kind: "secret-veto", use: secretVetoUse });
       else resolvePending(v.pending, (req) => void s.submitDecision(req));

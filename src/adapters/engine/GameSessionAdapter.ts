@@ -243,7 +243,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
-  competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  nightBreakPending, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -251,7 +251,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -1096,6 +1096,8 @@ export class GameSessionAdapter implements GameSession {
     const nowOcc = this.witnessOccupancy();
     this.sendOccupancy = nowOcc ? new Map(nowOcc) as Occupancy : null;
     this.messageMode = true;
+    this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
+    if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
@@ -5603,6 +5605,15 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
+  /** ORW-116 (Ryne): the clock STARTS at the premiere entry (afternoon) when the clock pacing is on - no later jump starts it. Idempotent; no-op once it is running or with the clock pacing off. */
+  private ensurePremiereClock(): void {
+    const s = this.live;
+    if (!s || s.nightDepth !== undefined || !(this.perConversationClockEnabled && this.timeOfDayEnabled)) return;
+    if (s.week !== 1 || s.firstNightPassed || (s.dayNumber ?? 1) >= 2) return;
+    s.nightDepth = PREMIERE_ENTRY_HOUR;
+    s.timeOfDay = phaseForHour(PREMIERE_ENTRY_HOUR);
+  }
+
   /** A9 - season start (flag on): plan the seeded order and seat those who are already inside when the player walks in. */
   private startPremiereEntrances(seed: number | string): void {
     if (!this.house || !this.live) return;
@@ -5674,6 +5685,8 @@ export class GameSessionAdapter implements GameSession {
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
   private advancePremiereEntrance(): AdvanceView {
     const s = this.live!;
+    this.ensurePremiereClock();
+    if (this.perConversationClockLive()) { s.clockInteractive = true; tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
     const pe = s.premiereEntrance!;
     const me = this.house!.player.id;
     if (pe.stage === "entrances") {
@@ -7993,6 +8006,8 @@ export class GameSessionAdapter implements GameSession {
       // fix and rides the same pair, so the golden replay (which pins `ORWELL_TIME_PER_CONVERSATION=0`)
       // and the calibration harness (master clock off) both leave it inert ⇒ byte-identical.
       nightGate: this.perConversationClockEnabled && this.timeOfDayEnabled,
+      // ORW-116 (b): hold the night-roll until the player turns in or the clock reaches 8am (never for the spectator / the engine's own fast-forward).
+      nightHold: this.perConversationClockEnabled && this.timeOfDayEnabled && !this.scheduleGateBypass && !this.live?.spectator && !(this.live && playerHasLeft(this.live, PLAYER)), // a player who has left the game has no night to spend
       // Open deals binding the houseguest (0039 → 0044): the vote leans to honor; the ledger still
       // reconciles a break with its full betrayal consequence downstream.
       dealsOf: (id) => this.deals.open().filter((d) => d.condition.promisors.includes(id)),
@@ -9856,6 +9871,11 @@ export class GameSessionAdapter implements GameSession {
     if (this.live.spectator && !this.live.pending && !this.live.finished) {
       const spectated = this.inOneCommit(() => this.spectatorFastForward());
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, spectated) : spectated;
+    }
+    // ORW-116 (b), Ryne's rule: the night is NEVER auto-run. If the next beat would roll the night and the player has not turned in (nor reached 8am), hold: typed `held`, no commit, no beatSeq bump.
+    if (this.perConversationClockLive() && !this.scheduleGateBypass && !this.live.spectator && !playerHasLeft(this.live, PLAYER) && !this.live.pending && !this.live.finished
+        && nightBreakPending(this.live) && nightHeld(this.live)) {
+      return { ...this.advanceView(null), held: { next: this.live.beat as never, minutesUntil: Math.max(0, Math.round((DAY_END_HOUR - (this.live.nightDepth ?? DAY_END_HOUR)) * 60)) } };
     }
     // A65: defense in depth for the production schedule. With the gate on, the clock running and the next milestone NOT yet due, an ordinary beat is REFUSED here (typed `held`, no commit, no beatSeq
     // bump, not cached for idempotency) so the schedule no longer rests on the FE hold alone. Pending decisions, the premiere stages, the spectator fast-forward and the engine's own fast-forward

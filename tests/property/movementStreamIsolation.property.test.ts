@@ -1,3 +1,4 @@
+import { endHeldNight } from "../support/heldNight";
 import "../support/pinFlagsOff";
 import { describe, it, expect } from "vitest";
 import { composeRuntime } from "../../src/composition/runtime";
@@ -120,6 +121,7 @@ async function seasonBeatLog(seed: number): Promise<string[]> {
   let finished = false;
   for (let i = 0; i < 5_000 && !finished; i++) {
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult;
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `mv${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
     finished = adv.finished;
     note(adv.event);
     if (adv.pending) {

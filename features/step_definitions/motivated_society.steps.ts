@@ -124,7 +124,7 @@ function advanceToPhase(s: GameSessionAdapter, target: string, cap = 40): boolea
  */
 function advanceUntilThinned(s: GameSessionAdapter, cap = 40): boolean {
   for (let i = 0; i < cap; i++) {
-    if (s.gameStatus().timeOfDay) {
+    if (s.gameStatus().timeOfDay && s.getGameState().phase !== "premiere") { // ORW-116: during the premiere the whole house is pinned to the toast - the night only thins the house once the premiere is over
       const ids = s.livingIds().filter((id) => id !== PLAYER);
       if (s.awakeAmong(ids).length < ids.length) return true;
       linger(s);
@@ -322,6 +322,8 @@ Given("the night has thinned the awake set", function (this: BbWorld) {
     if (!advanceUntilThinned(sandbox.session)) continue;
     // P4b: presence refreshes at a COMMITTED beat and the helper can return the instant the clock passes bedtime (after a linger); seat one beat before reading it (the day-1
     // first-morning day-break shifted where in the cadence that moment lands).
+    // P4b: presence refreshes at a COMMITTED beat and the helper can return the instant the clock passes bedtime (after a linger); seat one beat before reading it. (ORW-116: in this headless flow no
+    // night-gate day-break is pending at that moment, so the settle beat is the next ceremony beat, not a night roll.)
     const settle = sandbox.session.advanceGame();
     if (settle.pending) resolvePending(settle.pending, (req) => sandbox.session.submitDecision(req));
     const npcs = sandbox.session.livingIds().filter((id) => id !== PLAYER);
@@ -374,7 +376,7 @@ Then("it yields a well-formed outcome the band gate can score", function (this: 
   assert.ok(typeof r.playerCompWins === "number" && r.playerCompWins >= 0, "the public comp-win count the EARNED_WINS teeth read");
   // AMEND 0078 #3: a SPECIFIC, deterministic expected outcome (the wiring-only check accepted all three statuses). Seed 1 / passive on the current model: the player makes the jury,
   // does not reach Final 2, with one public comp win. Re-pin DELIBERATELY when calibration moves (A10 / any movement-strength change) - a silent drift here is the point.
-  // Re-pinned 2026-11-06 for ORW-132 (pre-show ties are now rare, so the seed-1 cast seeds differently): same status, the player's one public comp win became zero.
+  // Re-pinned 2026-11-06 for ORW-132 (pre-show ties are now rare, so the seed-1 cast seeds differently): same status, the player's one public comp win became zero. (ORW-116, 2026-11-07: measured again with the clock-from-entry flow merged - unchanged.)
   assert.deepEqual(r, { seed: 1, status: "jury", f2Win: false, playerCompWins: 0 }, "seed 1, passive, current model");
   assert.ok(MOVEMENT_INTENT.moveIntentStrength > 0, "the intentional-movement lever is live in the measured model");
 });

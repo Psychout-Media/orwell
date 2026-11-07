@@ -219,7 +219,7 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
     // honors the same lull gate as a plain advanceGame call (the offer opportunity is never skipped).
     // PO ruling 2026-11-01: a floated offer is open state the narrator voices — it NEVER blocks the week,
     // so the chained step still draws its beat in the same single commit.
-    // Seed 2 (re-selected 2026-11-04: the one-turn eviction reveal shortened the trajectory; 2,3,10,17,24,25,34,35 all qualify): an offer floats on a chained call.
+    // Seed 2 (re-selected 2026-11-04: the one-turn eviction reveal shortened the trajectory; 2,10,24,25 qualify under the ORW-116 clock-from-entry flow): an offer floats on a chained call.
     const { session } = startedGame(2);
     session.setNpcDealOffersEnabled(true);
 

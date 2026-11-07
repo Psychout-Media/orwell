@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../../tests/support/heldNight";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
@@ -29,6 +30,7 @@ function newGame(seed: number, shippedPremiere = false): GameSessionAdapter {
 function playToEnd(s: GameSessionAdapter): void {
   for (let i = 0; i < 8000; i++) {
     const v = s.advanceGame();
+    if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) resolve(s, v.pending);
     if (v.finished) return;
   }
@@ -154,7 +156,7 @@ Then("no hidden stat, score, or sealed state appears anywhere in them", function
 // and replays the pre-0130 eviction order byte-for-byte under ORWELL_FLAGS_OFF=1 rests on tests/unit/exitInterview.test.ts
 // ("is an INERT beat", "byte-identical spine"). The seed-108 anchor is RE-ANCHORED on every owner-approved balance change.
 // Re-captured 2026-11-04 (#2059, memories ON by default): the tail after npc:3 moved from [npc:4,npc:13,npc:9] to [npc:9,npc:13,npc:14]; the two same-seed runs still agree (determinism holds).
-const BASELINE_108 = ["npc:6","npc:1","npc:10","npc:8","npc:12","npc:7","npc:15","npc:11","npc:5","npc:13","npc:9","npc:3","npc:14","player"]; // re-anchored 2026-11-05 for the 23 strategy layers + DRIVE_DECISIONS ON by default (PO: "if it's built, turn it on"; determinism confirmed: both runs identical); earlier: re-captured 2026-11-04 for REACTIVE TWISTS ON by default (PO ruling 2026-11-03; a battle-back/double eviction reshape this seed late); earlier: re-anchored again 2026-11-03 under the SAME default-flag profile for the comp-win threat retune (#1953); earlier: the DEFAULT FLIP (26 flags now code defaults — the deployed game; the owner-approved balance change). Earlier: 0044 §9; #1948 (replacement branches on the stored HOH target)
+const BASELINE_108 = ["npc:6","npc:1","npc:10","npc:8","npc:12","npc:7","npc:15","npc:11","npc:5","npc:3","npc:4","npc:13","npc:14","player"]; // re-anchored 2026-11-07 for ORW-116 (Ryne's ruling: the clock runs from the afternoon premiere entry, no phase advance moves it, the night is the player's; both same-seed runs identical, the first nine evictions unchanged); earlier: re-anchored 2026-11-05 for the 23 strategy layers + DRIVE_DECISIONS ON by default (PO: "if it's built, turn it on"; determinism confirmed: both runs identical); earlier: re-captured 2026-11-04 for REACTIVE TWISTS ON by default (PO ruling 2026-11-03; a battle-back/double eviction reshape this seed late); earlier: re-anchored again 2026-11-03 under the SAME default-flag profile for the comp-win threat retune (#1953); earlier: the DEFAULT FLIP (26 flags now code defaults — the deployed game; the owner-approved balance change). Earlier: 0044 §9; #1948 (replacement branches on the stored HOH target)
 Given("the same seed played to completion twice", function (this: BbWorld) {
   const a = newGame(108, true); playToEnd(a);
   const b = newGame(108, true); playToEnd(b);

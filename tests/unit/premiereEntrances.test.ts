@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -166,6 +167,7 @@ describe("A9 engine entrances", () => {
       const sb = start(7, on);
       for (let i = 0; i < 8000; i++) {
         const v = sb.session.advanceGame();
+        if (v.held) endHeldNightSync(sb.session, { direct: true }); // ORW-116: a held night is the player's: time passes, then they turn in
         if (v.pending) resolvePending(v.pending, (r) => void sb.session.submitDecision(r));
         if (v.finished) break;
       }

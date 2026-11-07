@@ -23,7 +23,7 @@ function parked(seed: number, user = `ho${seed}`, afterFirstCeremony = false): S
     const v = s.advanceGame();
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
     const st = s.getGameState() as { daySchedule?: { due: boolean } };
-    if (st.daySchedule && st.daySchedule.due === false && !(s.getGameState() as { pending?: unknown }).pending && (!afterFirstCeremony || (s.snapshot() as unknown as { live: { hoh?: string } }).live.hoh !== undefined)) return s;
+    if (st.daySchedule && st.daySchedule.due === false && ((s.snapshot() as unknown as { live: { dayNumber?: number } }).live.dayNumber ?? 1) >= 2 && !(s.getGameState() as { pending?: unknown }).pending && (!afterFirstCeremony || (s.snapshot() as unknown as { live: { hoh?: string } }).live.hoh !== undefined)) return s;
   }
   return null;
 }
@@ -128,6 +128,7 @@ describe("hangOut lever", () => {
     expect(a.hangOut()).toEqual(b.hangOut());
     const snap = a.snapshot();
     const c = new GameSessionRegistry().sandboxFor("ho5c").session as S; c.setHangOutEnabled(true); c.setPerConversationClockEnabled(true);
+    c.setDesireClockEnabled(false); c.setWantMovementEnabled(false); c.setMorningApproachEnabled(false); c.setMoodApproachEnabled(false); c.setApproachMemoryEnabled(false); c.setNpcTellsEnabled(false); // the SAME flags `parked` pins (the restored session must run the same layers as the original)
     GameSessionAdapter.setTimeOfDayEnabled(true);
     c.restore(snap);
     expect(live(c).hangOutCount).toBe(1);
