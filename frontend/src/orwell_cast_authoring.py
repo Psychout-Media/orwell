@@ -538,48 +538,130 @@ def _gendered_descriptor_flip(text: str, pin: str) -> bool:
     return False
 
 
+# ── ORW-184: reason codes + per-dial repair (behind ORWELL_VOICE_REPAIR, default OFF) ─────────────────
+#
+# On 2026-11-06 the check below dropped three authored voices WHOLE. Two were the model echoing the
+# engine's OWN seeded humor dial: `humor: "none"` is a real value of the engine's controlled vocabulary
+# (`VOICE_DIALS.humor` in src/engine/voice.ts; the roster clause the model is briefed with renders it
+# "none humor"), and `_DEGENERATE_DIAL_VALUES` rejects "none" as an empty answer. The third was one bad
+# OPTIONAL catchphrase (a CJK slip), which the engine itself would simply omit. With the flag ON:
+#   • `voice_conflict_reasons` names every failing field with a reason code (`script` / `degenerate` /
+#     `gender-descriptor`), list entries by index (`catchphrases[2]`);
+#   • a value the engine's own dial vocabulary uses is never "degenerate" (the shared fixture
+#     `frontend/tests/fixtures/engine_voice_vocabulary.json` + both halves of its drift gate keep this
+#     honest: tests/unit/voiceVocabularyFixture.test.ts and frontend/tests/test_orw184_voice_repair.py);
+#   • `repair_authored_voice` mends the voice per field (a bad dial → the SEEDED dial read back from the
+#     roster card's clause; a bad list entry → removed) instead of dropping the whole object, so the engine
+#     still receives a WHOLE voice (its `sanitizeAuthoredVoice` whole-or-nothing contract is unchanged).
+#     Only an unrepairable voice (a bad signature, an emptied lexicon, no seeded dial) still drops whole.
+# With the flag OFF every verdict, log line and ledger row is byte-identical to the legacy check.
+_VOICE_REPAIR_FLAG = "ORWELL_VOICE_REPAIR"
+
+# The engine's own dial values that the degenerate list would otherwise reject (normalized like
+# `_is_degenerate_dial`). Today only humor "none" collides; the FE drift test fails if the engine adds another.
+_ENGINE_DIAL_VALUES_NOT_DEGENERATE = {"humor": frozenset({"none"})}
+
+
+def voice_repair_enabled() -> bool:
+    """ORW-184 flag: `ORWELL_VOICE_REPAIR=1|true|yes|on` turns on reason codes + per-dial repair."""
+    return str(os.environ.get(_VOICE_REPAIR_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _is_engine_dial_value(key: str, value: str) -> bool:
+    norm = str(value or "").strip().strip(".").lower()
+    return norm in _ENGINE_DIAL_VALUES_NOT_DEGENERATE.get(key, frozenset())
+
+
+def _voice_field_reason(key: str, val, pin: str, vocab_aware: bool) -> Optional[str]:
+    """The FIRST failing check for one voice field, in the legacy check order, or None when it passes."""
+    if not isinstance(val, str):
+        return None
+    if _has_script_garble(val):
+        return "script"
+    # The dial fields (everything but the prose `signature`) are single short words/phrases — a degenerate
+    # non-answer here is what breaks the rendered template. `signature` is free prose, never checked for
+    # degeneracy (a real sentence is never literally "none").
+    if key != "signature" and _is_degenerate_dial(val) and not (vocab_aware and _is_engine_dial_value(key, val)):
+        return "degenerate"
+    # Every rendered dial (AND the signature) is self-referential — a gendered descriptor on ANY of them
+    # contradicts the pin exactly like it would in prose.
+    if _gendered_descriptor_flip(val, pin):
+        return "gender-descriptor"
+    return None
+
+
+def voice_conflict_reasons(profile: dict, npc: dict, *, vocab_aware: Optional[bool] = None) -> list:
+    """ORW-184: every reason the authored `voice` fails the E1 (#1733) check, as `(field, code)` pairs —
+    `field` is a dial key, `signature`, or a list entry (`lexicon[1]`, `catchphrases[2]`); `code` is
+    `script` | `degenerate` | `gender-descriptor`. Empty ⇒ coherent. Vault-free: field names and codes only,
+    never the prose. `vocab_aware` (default: the ORWELL_VOICE_REPAIR flag) accepts the engine's own dial
+    values (`humor: "none"`); off, the verdict is exactly the legacy `voice_conflicts` one."""
+    voice = profile.get("voice") if isinstance(profile, dict) else None
+    if not isinstance(voice, dict):
+        return []
+    if vocab_aware is None:
+        vocab_aware = voice_repair_enabled()
+    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
+    reasons: list = []
+    for key in _VOICE_DIAL_KEYS:  # register, rhythm, energy, directness, humor, stressTell, signature
+        code = _voice_field_reason(key, voice.get(key), pin, vocab_aware)
+        if code:
+            reasons.append((key, code))
+    for list_key in ("lexicon", "catchphrases"):
+        entries = voice.get(list_key)
+        if isinstance(entries, list):
+            for i, entry in enumerate(entries):
+                if _has_script_garble(str(entry)):
+                    reasons.append((f"{list_key}[{i}]", "script"))
+    return reasons
+
+
 def voice_conflicts(profile: dict, npc: dict) -> bool:
     """E1 (#1733): True iff the authored `voice` object (register/rhythm/energy/directness/humor/
     stressTell/signature/lexicon/catchphrases) should be dropped WHOLE before write-back — script
     garble in any dial/signature/lexicon/catchphrase entry, a degenerate non-answer dial value (an
-    "empty dial", e.g. `humor: "none"`), or a gendered self-descriptor that contradicts the pinned
+    "empty dial", e.g. `humor: "n/a"`), or a gendered self-descriptor that contradicts the pinned
     gender. Voice folds WHOLE-or-NOTHING (owner ruling 2026-06-25, mirrored by the engine's
-    `sanitizeAuthoredVoice`), so any one garbled entry drops the whole object rather than leaving a
-    Frankenstein voice half seeded-floor, half authored. A well-formed, coherent voice ⇒ False (a
-    byte-identical no-op) — the common case.
+    `sanitizeAuthoredVoice`). A well-formed, coherent voice ⇒ False (a byte-identical no-op) — the
+    common case.
 
-    P1 (Greptile on #1750): the gendered-descriptor check must run on EVERY dial `voiceFingerprint`
+    P1 (Greptile on #1750): the gendered-descriptor check runs on EVERY dial `voiceFingerprint`
     (`src/engine/voice.ts`) renders into the authoritative roster line — `register`, `rhythm`,
-    `directness`, `energy`, `humor`, `stressTell` — not just the free-prose `signature` (which never
-    reaches the template at all). A pinned woman authoring `register: "fatherly"` or `stressTell:
-    "gets paternal"` is the SAME gender-incoherent authoritative voice cue this lint already rejects
-    in a signature; it must not slip through on a dial."""
+    `directness`, `energy`, `humor`, `stressTell` — not just the free-prose `signature`.
+
+    ORW-184: now the boolean view of `voice_conflict_reasons`. With ORWELL_VOICE_REPAIR off it is the
+    legacy verdict exactly (humor "none" still trips it); with it on, the engine's own dial values pass,
+    and `_author_one` first mends the voice per field via `repair_authored_voice`, so this only fires on a
+    voice that could not be repaired."""
+    return bool(voice_conflict_reasons(profile, npc))
+
+
+def _seeded_voice_floor(npc: dict) -> dict:
+    """ORW-184: the SEEDED dials read back from the roster card's `voice` clause (the brief the model was
+    given), keeping only dials that themselves pass the check for this houseguest. `{}` when the card has
+    no parseable clause (then no dial can be repaired, and a failing dial drops the voice as before)."""
+    from src.orwell_voice_repair import parse_voice_clause
+    parsed = parse_voice_clause((npc or {}).get("voice")) or {}
+    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
+    return {k: v for k, v in parsed.items() if _voice_field_reason(k, v, pin, True) is None}
+
+
+def repair_authored_voice(profile: dict, npc: dict):
+    """ORW-184: mend the authored voice per field (see `src.orwell_voice_repair`). Returns a `VoiceRepair`:
+    `.voice` is the mended (or untouched, when nothing failed) voice, or None when it cannot be mended; the
+    mended voice is re-checked before it is offered. Pure; the caller decides what to write."""
+    from src.orwell_voice_repair import VoiceRepair, repair_voice
     voice = profile.get("voice") if isinstance(profile, dict) else None
     if not isinstance(voice, dict):
-        return False
-    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
-    for key in _VOICE_DIAL_KEYS:  # register, rhythm, energy, directness, humor, stressTell, signature
-        val = voice.get(key)
-        if not isinstance(val, str):
-            continue
-        if _has_script_garble(val):
-            return True
-        # The dial fields (everything but the prose `signature`) are single short words/phrases — a
-        # degenerate non-answer here is what breaks the rendered template. `signature` is free prose,
-        # never checked for degeneracy (a real sentence is never literally "none").
-        if key != "signature" and _is_degenerate_dial(val):
-            return True
-        # Every rendered dial (AND the signature) is self-referential — a gendered descriptor on ANY
-        # of them contradicts the pin exactly like it would in prose.
-        if _gendered_descriptor_flip(val, pin):
-            return True
-    lexicon = voice.get("lexicon")
-    if isinstance(lexicon, list) and _any_script_garble(*[str(x) for x in lexicon]):
-        return True
-    catchphrases = voice.get("catchphrases")
-    if isinstance(catchphrases, list) and _any_script_garble(*[str(x) for x in catchphrases]):
-        return True
-    return False
+        return VoiceRepair(voice=None)
+    reasons = voice_conflict_reasons(profile, npc, vocab_aware=True)
+    if not reasons:
+        return VoiceRepair(voice=voice)
+    result = repair_voice(voice, reasons, _seeded_voice_floor(npc))
+    if result.voice is not None and voice_conflict_reasons({"voice": result.voice}, npc, vocab_aware=True):
+        return VoiceRepair(voice=None, reasons=result.reasons, actions=result.actions,
+                           unrepairable=(("voice", "recheck"),))
+    return result
 
 
 def coherence_conflicts(profile: dict, npc: dict) -> list[str]:
@@ -1240,6 +1322,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     identity_pinned = 0     # F1 (#1660): NPCs whose authored STRUCTURED field crosswired the committed roster
     secret_pinned = 0       # F5 (#1660): NPCs whose hidden threads were dropped (authored around a crosswired job)
     facet_stripped = 0      # T0-6: NPCs whose biography was dropped after a failed dealt-facet regenerate
+    voice_repaired = 0      # ORW-184: NPCs whose authored voice was mended per field (flag on)
     ukey = _safe_user(user)  # M1-10: the give-up ledger scope
 
     async def _call_with_retries(npc: dict, hid: str):
@@ -1373,7 +1456,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     async def _author_one(npc: dict) -> int:
         nonlocal floor_no_json, floor_empty, floor_truncated, floor_degradation, floor_below, \
             floor_gaveup, floor_call_failed, coherence_stripped, identity_pinned, secret_pinned, \
-            facet_stripped
+            facet_stripped, voice_repaired
         hid = npc.get("id")
         if not hid or hid == "player":
             return 0
@@ -1441,20 +1524,48 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # guarantees at game start). Record a RED-eligible `identity-incoherence` health event —
             # a genuine fault surfaced even though auto-corrected (#1599). Vault-free: the id + the
             # dropped FIELD names only, never the prose. A coherent dossier ⇒ no-op (byte-identical).
+            # ORW-184 (ORWELL_VOICE_REPAIR, default off ⇒ this block is skipped and everything below is
+            # byte-identical): mend the authored voice PER FIELD before the lint, so one bad dial or one bad
+            # optional entry no longer costs the whole voice. A mended voice is still a recorded fault
+            # (#1599: a correction is not a cloak), as auto-corrected. An unmendable one falls through to the
+            # lint below, which drops it whole as before, now with its reason codes.
+            voice_note = ""
+            if voice_repair_enabled() and isinstance(profile.get("voice"), dict):
+                from src.orwell_voice_repair import format_actions, format_reasons
+                repair = repair_authored_voice(profile, npc)
+                if repair.repaired:
+                    profile["voice"] = repair.voice
+                    voice_repaired += 1
+                    logger.warning(
+                        f"[cast-authoring] repaired the authored voice for {hid} per field "
+                        f"({format_actions(repair.actions)}) — the rest of the authored voice stands")
+                    try:
+                        from src import log_rings
+                        log_rings.record_soft_failure(
+                            "cast-authoring:voice-repaired",
+                            f"authored voice for {hid} failed the voice check on "
+                            f"{format_reasons(repair.reasons)} — repaired per field "
+                            f"({format_actions(repair.actions)}) instead of dropping the whole voice",
+                            corrected="seeded-voice-dial", user=user, houseguest=hid)
+                    except Exception:  # pragma: no cover - the health record must never break authoring
+                        pass
+                elif repair.voice is None and repair.reasons:
+                    voice_note = f" [voice: {format_reasons(repair.reasons)}]"
             dropped = coherence_conflicts(profile, npc)
             if dropped:
                 for k in dropped:
                     profile.pop(k, None)
                 coherence_stripped += 1
+                note = voice_note if "voice" in dropped else ""
                 logger.warning(
                     f"[cast-authoring] authored dossier for {hid} contradicts the pinned identity "
-                    f"(dropped {', '.join(dropped)} to the coherent floor) — identity-incoherence")
+                    f"(dropped {', '.join(dropped)} to the coherent floor){note} — identity-incoherence")
                 try:
                     from src import enrichment_policy
                     enrichment_policy.record_runtime_failure(
                         user, "identity-incoherence",
                         f"authored dossier for {hid} contradicts the pinned identity — dropped "
-                        f"{', '.join(dropped)} to the coherent seeded floor before write-back")
+                        f"{', '.join(dropped)} to the coherent seeded floor before write-back{note}")
                 except Exception:  # pragma: no cover - the health record must never break authoring
                     pass
                 # Only the houseguestId survived the strip — nothing coherent left to write; the whole
@@ -1595,7 +1706,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         f"{coherence_stripped} identity-incoherent prose-strip(s), "
         f"{identity_pinned} roster-contradiction field-strip(s), "
         f"{secret_pinned} crosswired-vocation secret-strip(s), "
-        f"{facet_stripped} closed-facet-conflict biography-strip(s))")
+        f"{facet_stripped} closed-facet-conflict biography-strip(s)"
+        + (f", {voice_repaired} voice repair(s)" if voice_repair_enabled() else "") + ")")
     # STRICT enrichment policy (owner directive 2026-07-11): any houseguest left on the deterministic
     # floor after the bounded retry ladder is a LOUD failure — an ERROR + an admin-visible ledger
     # entry (the #1313 house-entry gate is what blocks the flow itself). Under `soft` the tally above
