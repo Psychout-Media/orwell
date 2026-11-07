@@ -28,7 +28,7 @@ from core.database import SessionLocal
 from src.llm_core import llm_call_async
 from services.memory.memory_extractor import audit_memories
 from src.auth_helpers import get_current_user, require_user
-from src.endpoint_resolver import resolve_endpoint
+from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
 from src.upload_limits import read_upload_limited
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,7 @@ def setup_memory_routes(memory_manager: MemoryManager, session_manager: SessionM
                 messages,
                 temperature=0.2,
                 max_tokens=500,
-                headers=sess.headers,
+                headers=resolve_session_headers(sess),
             )
             try:
                 suggestions = json.loads(suggestion_text)
@@ -296,7 +296,7 @@ def setup_memory_routes(memory_manager: MemoryManager, session_manager: SessionM
                 _assert_session_owner(sess, _owner(request))
                 endpoint_url = sess.endpoint_url
                 model = sess.model
-                headers = sess.headers
+                headers = resolve_session_headers(sess)
             except KeyError:
                 pass
 
@@ -347,7 +347,7 @@ def setup_memory_routes(memory_manager: MemoryManager, session_manager: SessionM
                 _assert_session_owner(sess, _owner(request))
                 endpoint_url = sess.endpoint_url
                 model = sess.model
-                headers = sess.headers
+                headers = resolve_session_headers(sess)
             except KeyError:
                  raise HTTPException(404, "Session not found — needed for LLM config")
         else:

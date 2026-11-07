@@ -196,7 +196,12 @@ def _persist_session_headers(session_id: str, headers: dict | None) -> None:
     try:
         db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
         if db_session:
-            db_session.headers = headers or {}
+            # ORW-199/200: the endpoint record supplies auth at call time; do not persist a
+            # plain-text copy of the provider key when an endpoint resolves for this URL.
+            from src.endpoint_resolver import persistable_session_headers
+            db_session.headers = persistable_session_headers(
+                db_session.endpoint_url or "", headers or {}, getattr(db_session, "owner", None),
+            ) or {}
             db_session.updated_at = datetime.utcnow()
             db.commit()
     except Exception:
@@ -588,7 +593,10 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                 if db_session:
                     db_session.model = model
                     db_session.endpoint_url = endpoint_url
-                    db_session.headers = session.headers or {}
+                    from src.endpoint_resolver import persistable_session_headers
+                    db_session.headers = persistable_session_headers(
+                        endpoint_url, session.headers or {}, getattr(db_session, "owner", None),
+                    ) or {}
                     db_session.updated_at = datetime.utcnow()
                     db.commit()
             finally:
@@ -1027,13 +1035,13 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             raise HTTPException(400, "Nothing old enough to compact")
 
         from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT
-        from src.endpoint_resolver import resolve_endpoint
+        from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
         from src.llm_core import llm_call_async
 
         owner = getattr(session, "owner", None) or effective_user(request)
         url, model, headers = resolve_endpoint("utility", owner=owner)
         if not url or not model:
-            url, model, headers = session.endpoint_url, session.model, session.headers
+            url, model, headers = session.endpoint_url, session.model, resolve_session_headers(session)
         if not url or not model:
             raise HTTPException(400, "No model configured for compaction")
 

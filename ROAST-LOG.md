@@ -37,57 +37,57 @@ tracker. Finding-code → issue map (roundup issues bundle several codes):
 
 | Issue | Finding(s) |
 |---|---|
-| [#540](https://github.com/kevinhirsch/orwell/issues/540) | LIVE-7 |
-| [#541](https://github.com/kevinhirsch/orwell/issues/541) | LIVE-4 |
-| [#542](https://github.com/kevinhirsch/orwell/issues/542) | NARR-7 |
-| [#558](https://github.com/kevinhirsch/orwell/issues/558) | SEC-1 |
-| [#559](https://github.com/kevinhirsch/orwell/issues/559) | SEC-2 |
-| [#560](https://github.com/kevinhirsch/orwell/issues/560) | SEC-3 |
-| [#562](https://github.com/kevinhirsch/orwell/issues/562) | SEC-4 |
-| [#563](https://github.com/kevinhirsch/orwell/issues/563) | SOC-NEW-2 |
-| [#565](https://github.com/kevinhirsch/orwell/issues/565) | SOC-NEW-3 |
-| [#567](https://github.com/kevinhirsch/orwell/issues/567) | SOC-NEW-4 |
-| [#570](https://github.com/kevinhirsch/orwell/issues/570) | SYNC-FOCUS-1 |
-| [#571](https://github.com/kevinhirsch/orwell/issues/571) | SYNC-RING-1 |
-| [#574](https://github.com/kevinhirsch/orwell/issues/574) | NARR-8 |
-| [#576](https://github.com/kevinhirsch/orwell/issues/576) | NARR-9 |
-| [#578](https://github.com/kevinhirsch/orwell/issues/578) | NARR-10 |
-| [#580](https://github.com/kevinhirsch/orwell/issues/580) | NARR-11 |
-| [#582](https://github.com/kevinhirsch/orwell/issues/582) | SET-NEW-1 |
-| [#585](https://github.com/kevinhirsch/orwell/issues/585) | ENG-NEW-3 |
-| [#587](https://github.com/kevinhirsch/orwell/issues/587) | ENG-NEW-2 |
-| [#588](https://github.com/kevinhirsch/orwell/issues/588) | ADM-NEW-2 |
-| [#589](https://github.com/kevinhirsch/orwell/issues/589) | ADM-NEW-3 |
-| [#590](https://github.com/kevinhirsch/orwell/issues/590) | RESP-NEW-1 |
-| [#591](https://github.com/kevinhirsch/orwell/issues/591) | PERS-NEW-1 (A-S3) |
-| [#592](https://github.com/kevinhirsch/orwell/issues/592) | PERS-NEW-2 |
-| [#593](https://github.com/kevinhirsch/orwell/issues/593) | F-NEW-1 |
-| [#594](https://github.com/kevinhirsch/orwell/issues/594) | F-NEW-2, F-NEW-3 |
-| [#595](https://github.com/kevinhirsch/orwell/issues/595) | F-NEW-6 |
-| [#596](https://github.com/kevinhirsch/orwell/issues/596) | F-NEW-7 |
-| [#597](https://github.com/kevinhirsch/orwell/issues/597) | F-NEW-11, F-NEW-12 |
-| [#598](https://github.com/kevinhirsch/orwell/issues/598) | A11Y-3, A11Y-6, A11Y-7, A11Y-8, A11Y-10, A11Y-11 |
-| [#599](https://github.com/kevinhirsch/orwell/issues/599) | TX-1, TX-2, TX-3, TX-4, TX-5, TX-6 |
-| [#600](https://github.com/kevinhirsch/orwell/issues/600) | F-NEW-4, F-NEW-5, F-NEW-8, F-NEW-9, F-NEW-10, F-NEW-13 |
-| [#601](https://github.com/kevinhirsch/orwell/issues/601) | CAST-NEW-2, SET-NEW-2, SET-NEW-3 |
-| [#602](https://github.com/kevinhirsch/orwell/issues/602) | CONT-1, CONT-2, CONT-3 |
-| [#612](https://github.com/kevinhirsch/orwell/issues/612) | SOC-1 |
-| [#613](https://github.com/kevinhirsch/orwell/issues/613) | NARR-3 |
-| [#614](https://github.com/kevinhirsch/orwell/issues/614) | FEJS-1 |
-| [#615](https://github.com/kevinhirsch/orwell/issues/615) | TRANS-1 |
-| [#616](https://github.com/kevinhirsch/orwell/issues/616) | UX-1 |
-| [#618](https://github.com/kevinhirsch/orwell/issues/618) | OPS-CI-1 |
-| [#619](https://github.com/kevinhirsch/orwell/issues/619) | ENG-2 |
-| [#620](https://github.com/kevinhirsch/orwell/issues/620) | NARR-1, NARR-4, NARR-5, NARR-6 |
-| [#621](https://github.com/kevinhirsch/orwell/issues/621) | FEPY-1, FEPY-2, FEPY-3, FEPY-5 |
-| [#622](https://github.com/kevinhirsch/orwell/issues/622) | FEJS-2, FEJS-3, FEJS-4, FEJS-5, FEJS-6 |
-| [#623](https://github.com/kevinhirsch/orwell/issues/623) | EXPOSE-1, EXPOSE-2, EXPOSE-4, EXPOSE-5 |
-| [#624](https://github.com/kevinhirsch/orwell/issues/624) | SOC-2, SOC-3, SOC-4 |
-| [#625](https://github.com/kevinhirsch/orwell/issues/625) | RESP-1, RESP-2, RESP-3, RESP-4 |
-| [#626](https://github.com/kevinhirsch/orwell/issues/626) | UX-2, UX-3, UX-4, UX-5, UX-6, UX-7, UX-8, UX-9, UX-10 |
-| [#627](https://github.com/kevinhirsch/orwell/issues/627) | TRANS-2, TRANS-3, TRANS-4 |
-| [#628](https://github.com/kevinhirsch/orwell/issues/628) | ENG-3, R-BND-1, R-BND-2, TEST-3 |
-| [#629](https://github.com/kevinhirsch/orwell/issues/629) | DOC-1..DOC-8, R-DOC-1 |
+| [#540](https://github.com/Psychout-Media/orwell/issues/540) | LIVE-7 |
+| [#541](https://github.com/Psychout-Media/orwell/issues/541) | LIVE-4 |
+| [#542](https://github.com/Psychout-Media/orwell/issues/542) | NARR-7 |
+| [#558](https://github.com/Psychout-Media/orwell/issues/558) | SEC-1 |
+| [#559](https://github.com/Psychout-Media/orwell/issues/559) | SEC-2 |
+| [#560](https://github.com/Psychout-Media/orwell/issues/560) | SEC-3 |
+| [#562](https://github.com/Psychout-Media/orwell/issues/562) | SEC-4 |
+| [#563](https://github.com/Psychout-Media/orwell/issues/563) | SOC-NEW-2 |
+| [#565](https://github.com/Psychout-Media/orwell/issues/565) | SOC-NEW-3 |
+| [#567](https://github.com/Psychout-Media/orwell/issues/567) | SOC-NEW-4 |
+| [#570](https://github.com/Psychout-Media/orwell/issues/570) | SYNC-FOCUS-1 |
+| [#571](https://github.com/Psychout-Media/orwell/issues/571) | SYNC-RING-1 |
+| [#574](https://github.com/Psychout-Media/orwell/issues/574) | NARR-8 |
+| [#576](https://github.com/Psychout-Media/orwell/issues/576) | NARR-9 |
+| [#578](https://github.com/Psychout-Media/orwell/issues/578) | NARR-10 |
+| [#580](https://github.com/Psychout-Media/orwell/issues/580) | NARR-11 |
+| [#582](https://github.com/Psychout-Media/orwell/issues/582) | SET-NEW-1 |
+| [#585](https://github.com/Psychout-Media/orwell/issues/585) | ENG-NEW-3 |
+| [#587](https://github.com/Psychout-Media/orwell/issues/587) | ENG-NEW-2 |
+| [#588](https://github.com/Psychout-Media/orwell/issues/588) | ADM-NEW-2 |
+| [#589](https://github.com/Psychout-Media/orwell/issues/589) | ADM-NEW-3 |
+| [#590](https://github.com/Psychout-Media/orwell/issues/590) | RESP-NEW-1 |
+| [#591](https://github.com/Psychout-Media/orwell/issues/591) | PERS-NEW-1 (A-S3) |
+| [#592](https://github.com/Psychout-Media/orwell/issues/592) | PERS-NEW-2 |
+| [#593](https://github.com/Psychout-Media/orwell/issues/593) | F-NEW-1 |
+| [#594](https://github.com/Psychout-Media/orwell/issues/594) | F-NEW-2, F-NEW-3 |
+| [#595](https://github.com/Psychout-Media/orwell/issues/595) | F-NEW-6 |
+| [#596](https://github.com/Psychout-Media/orwell/issues/596) | F-NEW-7 |
+| [#597](https://github.com/Psychout-Media/orwell/issues/597) | F-NEW-11, F-NEW-12 |
+| [#598](https://github.com/Psychout-Media/orwell/issues/598) | A11Y-3, A11Y-6, A11Y-7, A11Y-8, A11Y-10, A11Y-11 |
+| [#599](https://github.com/Psychout-Media/orwell/issues/599) | TX-1, TX-2, TX-3, TX-4, TX-5, TX-6 |
+| [#600](https://github.com/Psychout-Media/orwell/issues/600) | F-NEW-4, F-NEW-5, F-NEW-8, F-NEW-9, F-NEW-10, F-NEW-13 |
+| [#601](https://github.com/Psychout-Media/orwell/issues/601) | CAST-NEW-2, SET-NEW-2, SET-NEW-3 |
+| [#602](https://github.com/Psychout-Media/orwell/issues/602) | CONT-1, CONT-2, CONT-3 |
+| [#612](https://github.com/Psychout-Media/orwell/issues/612) | SOC-1 |
+| [#613](https://github.com/Psychout-Media/orwell/issues/613) | NARR-3 |
+| [#614](https://github.com/Psychout-Media/orwell/issues/614) | FEJS-1 |
+| [#615](https://github.com/Psychout-Media/orwell/issues/615) | TRANS-1 |
+| [#616](https://github.com/Psychout-Media/orwell/issues/616) | UX-1 |
+| [#618](https://github.com/Psychout-Media/orwell/issues/618) | OPS-CI-1 |
+| [#619](https://github.com/Psychout-Media/orwell/issues/619) | ENG-2 |
+| [#620](https://github.com/Psychout-Media/orwell/issues/620) | NARR-1, NARR-4, NARR-5, NARR-6 |
+| [#621](https://github.com/Psychout-Media/orwell/issues/621) | FEPY-1, FEPY-2, FEPY-3, FEPY-5 |
+| [#622](https://github.com/Psychout-Media/orwell/issues/622) | FEJS-2, FEJS-3, FEJS-4, FEJS-5, FEJS-6 |
+| [#623](https://github.com/Psychout-Media/orwell/issues/623) | EXPOSE-1, EXPOSE-2, EXPOSE-4, EXPOSE-5 |
+| [#624](https://github.com/Psychout-Media/orwell/issues/624) | SOC-2, SOC-3, SOC-4 |
+| [#625](https://github.com/Psychout-Media/orwell/issues/625) | RESP-1, RESP-2, RESP-3, RESP-4 |
+| [#626](https://github.com/Psychout-Media/orwell/issues/626) | UX-2, UX-3, UX-4, UX-5, UX-6, UX-7, UX-8, UX-9, UX-10 |
+| [#627](https://github.com/Psychout-Media/orwell/issues/627) | TRANS-2, TRANS-3, TRANS-4 |
+| [#628](https://github.com/Psychout-Media/orwell/issues/628) | ENG-3, R-BND-1, R-BND-2, TEST-3 |
+| [#629](https://github.com/Psychout-Media/orwell/issues/629) | DOC-1..DOC-8, R-DOC-1 |
 
 Codes absent from this map are either already `VERIFIED-FIXED` in `AUDIT-LOG.md`, positives, or
 environmental (e.g. OPS-1). The session-3 live-LLM findings (NARR-NEW-*, CARRY-*, NAME-1, EVT-1)

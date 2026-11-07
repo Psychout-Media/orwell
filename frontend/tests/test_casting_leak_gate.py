@@ -151,11 +151,11 @@ async def _drive_build_chat_context(monkeypatch, *, started: bool, new_user_text
     monkeypatch.setattr(chat_helpers, "_normalize_model_id_from_cache", lambda s: None)
     monkeypatch.setattr(chat_helpers, "normalize_model_id", lambda url, model: None)
 
-    async def fake_compact(sess, url, model, messages, headers, owner=None):
+    async def fake_compact(sess, url, model, messages, headers, owner=None, **kw):
         return messages, 8000, False
 
     monkeypatch.setattr(chat_helpers, "maybe_compact", fake_compact)
-    monkeypatch.setattr(chat_helpers, "trim_for_context", lambda messages, ctx_len: messages)
+    monkeypatch.setattr(chat_helpers, "trim_for_context", lambda messages, ctx_len, **kw: messages)
 
     ctx = await chat_helpers.build_chat_context(
         sess, request=object(), chat_handler=_FakeChatHandler(),

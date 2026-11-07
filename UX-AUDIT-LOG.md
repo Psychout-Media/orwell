@@ -13,12 +13,12 @@ Subject: **Orwell** — immersive single-player Big Brother social-game web app 
 ## 🔗 GitHub issue tracking (added 2026-06-23)
 
 The remaining open **UX Phase-4 polish** `J*` items in this ledger are tracked as one umbrella issue,
-[**#606**](https://github.com/kevinhirsch/orwell/issues/606) (decision-card copy, wayfinding, premiere
+[**#606**](https://github.com/Psychout-Media/orwell/issues/606) (decision-card copy, wayfinding, premiere
 motion, theme/cast IA, contrast misses, incl. **J1-30**). This ledger stays the per-finding evidence
 record; #606 is the live status tracker for the open set. `J*` items already marked `FIXED`/`VERIFIED`
 below (and in `docs/audits/2026-06-21-open-items-verification.md`) need no issue. A few cross-cutting
-UX findings escalated to their own issues (e.g. **UX-1** → [#616](https://github.com/kevinhirsch/orwell/issues/616);
-the **UX-2..10** roundup → [#626](https://github.com/kevinhirsch/orwell/issues/626)); the full
+UX findings escalated to their own issues (e.g. **UX-1** → [#616](https://github.com/Psychout-Media/orwell/issues/616);
+the **UX-2..10** roundup → [#626](https://github.com/Psychout-Media/orwell/issues/626)); the full
 finding-code → issue map lives at the top of `ROAST-LOG.md`.
 
 ---

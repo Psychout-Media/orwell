@@ -56,7 +56,7 @@ updates and resets never re-prompt and the token never lands in a remote URL or 
 # before VAR= applies, so curl gets an EMPTY token → 404/401). Fetch via the contents API, not
 # raw.githubusercontent.com (which 404s for fine-grained PATs). Works with fine-grained OR classic.
 export GIT_TOKEN=github_pat_xxx
-bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 
 # update — host or inside the container: run the LOCAL checked-out copy (no GitHub fetch)
 bash /opt/orwell/deploy/orwell-update.sh
@@ -534,7 +534,7 @@ few minutes.
 # fully non-interactive example (the 4 vCPU / 8 GB baseline is the default — shown here explicitly)
 export GIT_TOKEN=github_pat_xxx
 CTID=104 CORES=4 RAM_MB=8192 DISK_GB=12 NET=dhcp ORWELL_PORT=8080 \
-  bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")" --default
+  bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")" --default
 ```
 
 ## Layout
