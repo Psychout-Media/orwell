@@ -4482,10 +4482,22 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
 # engine decides outcomes and enforces the Vault Wall; we only relay Vault-free
 # results back to the model so it can narrate as the game master.
 
+def _note_narrator_view(owner, res) -> None:
+    """Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ a no-op): the whereabouts in a tool result the NARRATOR
+    reads moves the Show Brief's "last seen" marker (K6 §5.1), so the next brief does not report it again. Only the
+    narrator's own tools call this, never the front end's internal engine reads. Fail-open."""
+    try:
+        from src import orwell_show_brief
+        orwell_show_brief.note_tool_result(owner, res)
+    except Exception as e:  # pragma: no cover - the marker must never break a tool call
+        logger.debug(f"[show-brief] last-seen marker not moved for {owner}: {e}")
+
+
 async def do_get_game_state(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
         st = await orwell_engine.get_game_state(user=owner)
+        _note_narrator_view(owner, st)
         return {"output": json.dumps(st, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine unreachable: {e}", "exit_code": 1}
@@ -5588,6 +5600,7 @@ async def do_whereabouts(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.whereabouts(user=owner)
         if res is None:
             return {"output": "No game is running yet — the house is empty until a game starts.", "exit_code": 0}
+        _note_narrator_view(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5606,6 +5619,7 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         if res is None:
             return {"output": "No game is running yet.", "exit_code": 0}
         await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
+        _note_narrator_view(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
