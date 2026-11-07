@@ -1,4 +1,4 @@
-process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: headless drivers turn in the moment a night is held
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -12,8 +12,6 @@ function start(seed: number, on = true) {
   const sb = new GameSessionRegistry().sandboxFor(`pe${n++}`);
   sb.session.setPremiereEntrancesEnabled(on);
   sb.session.createCharacter({ playerName: "The Player", seed });
-  // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
-  sb.session.setBedtimeGateEnabled(false);
   return sb;
 }
 const ids16 = (s: GameSessionAdapter): string[] => {
@@ -169,7 +167,7 @@ describe("A9 engine entrances", () => {
       const sb = start(7, on);
       for (let i = 0; i < 8000; i++) {
         const v = sb.session.advanceGame();
-        if (v.held) sb.session.turnIn(); // ORW-116: a held night is the player's to end
+        if (v.held) endHeldNightSync(sb.session, { direct: true }); // ORW-116: a held night is the player's: time passes, then they turn in
         if (v.pending) resolvePending(v.pending, (r) => void sb.session.submitDecision(r));
         if (v.finished) break;
       }

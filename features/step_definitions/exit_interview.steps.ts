@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../../tests/support/heldNight";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
@@ -23,14 +24,13 @@ function newGame(seed: number, shippedPremiere = false): GameSessionAdapter {
   const sb = reg.sandboxFor(`xi${eiUsers++}`);
   // A9 flip: the BDD lane pins the premiere-entrances flag OFF (cucumber.cjs); the seed-108 ANCHOR is the SHIPPED trajectory, so it opts the entrances back IN.
   if (shippedPremiere) sb.session.setPremiereEntrancesEnabled(true);
-  sb.session.setBedtimeGateEnabled(false); // ORW-116: this headless driver turns in the moment a night is held
   sb.session.createCharacter({ playerName: "P", seed });
   return sb.session;
 }
 function playToEnd(s: GameSessionAdapter): void {
   for (let i = 0; i < 8000; i++) {
     const v = s.advanceGame();
-    if (v.held) s.turnIn(); // ORW-116: a held night is the player's to end
+    if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) resolve(s, v.pending);
     if (v.finished) return;
   }

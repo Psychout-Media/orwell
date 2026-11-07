@@ -1,4 +1,4 @@
-process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { resolvePending } from "../../features/support/answerPending";
@@ -30,8 +30,6 @@ let n = 0;
 function newForcedGame(seed: number, plan: Plan) {
   const s = new GameSessionRegistry().sandboxFor(`pp${n++}`).session;
   s.createCharacter({ playerName: "P", seed });
-  // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
-  s.setBedtimeGateEnabled(false);
   const core = JSON.parse(JSON.stringify(s.snapshot())) as SessionCore;
   core.live!.twistPlan = plan as never;
   s.restore(core);
@@ -48,7 +46,7 @@ function play(seed: number, plan: Plan, watch?: (live: any, v: any, s: any) => v
   let stall = 0, lastSeq = -1;
   for (; i < 9000; i++) {
     const v = s.advanceGame();
-    if (v.held) s.turnIn(); // ORW-116: a held night is the player's to end
+    if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) {
       if (v.pending.kind === "secret-veto") s.submitDecision({ kind: "secret-veto", use: secretVetoUse });
       else resolvePending(v.pending, (req) => void s.submitDecision(req));

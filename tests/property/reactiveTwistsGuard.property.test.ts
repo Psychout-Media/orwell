@@ -1,4 +1,4 @@
-process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { freshTmpDir } from "../support/freshTmpDir";
 import { execFileSync } from "node:child_process";
@@ -39,12 +39,10 @@ function playSeason(seed: number, integrity = false): SeasonResult {
   const runtime = integrity ? composeRuntime({ saveStore: new FileSaveStore(freshTmpDir("orwell-twist-guard-")) }) : null;
   const s = (runtime ? runtime.registry : new GameSessionRegistry()).sandboxFor(user).session;
   s.createCharacter({ playerName: "P", seed });
-  // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
-  s.setBedtimeGateEnabled(false);
   let lastHoh: string | undefined;
   for (let i = 0; i < 9000; i++) {
     const v = s.advanceGame();
-    if (v.held) s.turnIn(); // ORW-116: a held night is the player's to end
+    if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
     const live = s.snapshot().live as NonNullable<Live>;
     // cast conserved; nobody in two places

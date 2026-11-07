@@ -1,3 +1,4 @@
+import { endHeldNight } from "../support/heldNight";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
@@ -108,6 +109,7 @@ function passiveAnswer(p: PendingView): Record<string, unknown> {
  * so this is order-independent and runnable in any shard.
  */
 export async function playSeed(seed: number): Promise<SeasonResult> {
+  process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: the sim player turns in directly when a night is held (the bedtime gate is a separate narrator-facing guard; the night HOLD stays fully on)
   const runtime = composeRuntime({
     clock: new FakeClock(),
         seed,
@@ -132,6 +134,7 @@ export async function playSeed(seed: number): Promise<SeasonResult> {
     finished = adv.finished;
     winner = adv.winner ?? winner;
     countWin(adv.event ?? null);
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `jr${seed}`, undefined, { direct: true }); // ORW-116: a held night is the player's - time passes, then they turn in
     if (adv.pending) {
       const sub = (await mcp.callTool("submitDecision", passiveAnswer(adv.pending))) as AdvanceResult & {
         winner?: { id: string } | null;

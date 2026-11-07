@@ -1,4 +1,4 @@
-process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
+import { endHeldNight } from "../support/heldNight";
 import "../support/pinFlagsOff";
 import { describe, it, expect } from "vitest";
 import { composeRuntime } from "../../src/composition/runtime";
@@ -114,8 +114,6 @@ async function seasonBeatLog(seed: number): Promise<string[]> {
   sandbox.session.setTriggersEnabled(false);
   const mcp = runtime.registry.resolver()("player", `move-iso-${seed}`);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
-  // ORW-116: this headless driver turns in the moment a night is held; the narrator-facing bedtime gate is its own test
-  sandbox.session.setBedtimeGateEnabled(false);
   const log: string[] = [];
   const note = (ev: BeatEv | null | undefined): void => {
     if (ev?.beat && ev?.content) log.push(`${ev.beat}::${ev.content}`);
@@ -123,7 +121,7 @@ async function seasonBeatLog(seed: number): Promise<string[]> {
   let finished = false;
   for (let i = 0; i < 5_000 && !finished; i++) {
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult;
-    if ((adv as { held?: unknown }).held) await mcp.callTool("turnIn", {}); // ORW-116: a held night is the player's to end
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `mv${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
     finished = adv.finished;
     note(adv.event);
     if (adv.pending) {

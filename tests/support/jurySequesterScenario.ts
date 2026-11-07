@@ -1,4 +1,4 @@
-process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: the scenario turns in the moment a night is held
+import { endHeldNight } from "./heldNight";
 import { expect } from "vitest";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
@@ -41,7 +41,6 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
     const runtime = composeRuntime({ clock: new FakeClock(), seed: 1 });
     const user = `jury-sequester-${seed}`;
     const mcp = runtime.registry.resolver()("player", user);
-    runtime.registry.sandboxFor(user).session.setBedtimeGateEnabled(false); // ORW-116: headless driver; turns in the moment a night is held
     await mcp.callTool("createCharacter", { playerName: "The Player", seed });
     const events = () => runtime.registry.sandboxFor(user).engine.events.queryAll();
     const outAt = new Map<string, number>(); // anyone out of the game (evicted or seated on the jury) -> event index
@@ -51,7 +50,7 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
     let probed = false;
     for (let i = 0; i < 8000 && weeksSince < WEEKS_AFTER_FIRST_JUROR; i++) {
       const adv = (await mcp.callTool("advanceGame", {})) as Adv;
-      if ((adv as { held?: unknown }).held) await mcp.callTool("turnIn", {}); // ORW-116: a held night is the player's to end
+      if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `js${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
       if (adv.finished) break;
       // A refused decision here is a real failure, never an early exit.
       if (adv.pending) await mcp.callTool("submitDecision", answer(adv.pending));
