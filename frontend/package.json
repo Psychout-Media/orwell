@@ -1,7 +1,7 @@
 {
   "repository": {
     "type": "git",
-    "url": "https://github.com/kevinhirsch/orwell.git"
+    "url": "https://github.com/Psychout-Media/orwell.git"
   },
   "devDependencies": {
     "@antithesishq/bombadil": "^0.3.2"

@@ -198,7 +198,7 @@ function isUsableTagline(s: string): boolean {
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
-import { startNewGame, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -6266,6 +6266,9 @@ export class GameSessionAdapter implements GameSession {
     // castingIntake validator/repair REACHED — a model-authored cast can never go live internally
     // contradictory (Lily Evans). A deterministic floor cast is always coherent ⇒ a no-op (byte-neutral).
     const castCoherence = this.enforceCastCoherence();
+    // ORW-208: report (never silently swallow) a requested strategy style the chosen archetype does not offer.
+    const _res = resolveStrategyStyle(archetype, strategyStyle);
+    const styleAdjusted = _res.adjusted && archetype ? { ..._res.adjusted, archetype } : undefined;
     this.persist(); // durable save (0030): a started game must survive a restart
     // 0051: attach the season-start portrait prompts — present ONLY on this response (the FE calls
     // the image API once at move-in and stores the results). Built from PUBLIC appearance facets
@@ -6274,6 +6277,7 @@ export class GameSessionAdapter implements GameSession {
       ...this.view(),
       portraitPrompts: this.castPortraitPrompts(),
       ...(castCoherence ? { castCoherence } : {}),
+      ...(styleAdjusted ? { strategyStyleAdjusted: styleAdjusted } : {}), // ORW-208: never a silent coercion
     };
   }
 

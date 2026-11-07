@@ -248,6 +248,14 @@ class SessionManager:
         new chat_messages insert), so the row + restored transcript commit atomically. Headers
         are serialised the same way `create_session` stores them."""
         headers = getattr(cached, "headers", None) or {}
+        try:
+            # ORW-199/200: never persist a provider key an endpoint supplies at call time.
+            from src.endpoint_resolver import persistable_session_headers
+            headers = persistable_session_headers(
+                getattr(cached, "endpoint_url", "") or "", headers, getattr(cached, "owner", None),
+            ) or {}
+        except Exception:
+            pass
         db_session = DbSession(
             id=session_id,
             name=getattr(cached, "name", None) or "Recovered session",

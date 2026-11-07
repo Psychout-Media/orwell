@@ -3,14 +3,14 @@
 # orwell — one-liner Proxmox LXC installer.
 #
 # On the Proxmox host shell (the repo is PRIVATE — this is the ONE authenticated moment, ever).
-# Use a fine-grained PAT (Contents: Read-only on kevinhirsch/orwell) OR a classic PAT (repo scope)
+# Use a fine-grained PAT (Contents: Read-only on Psychout-Media/orwell) OR a classic PAT (repo scope)
 # — A4/ruling #17. Two non-obvious requirements, both baked into the command below:
 #   1. EXPORT the token. In `VAR=x bash -c "$(curl …$VAR…)"` the command substitution is expanded
 #      by the OUTER shell BEFORE the `VAR=` prefix applies, so curl would get an EMPTY token
 #      (→ 404 from raw / 401 from the API). `export` puts it in scope at substitution time.
 #   2. Fetch via the GitHub CONTENTS API, not raw.githubusercontent.com (which 404s for fine-grained PATs).
 #   export GIT_TOKEN=github_pat_xxx
-#   bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+#   bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 #
 # The token is persisted ONCE into the container's data/.env (the file every reset preserves)
 # and git reads it through a credential helper at use time — no later command ever re-prompts,
@@ -24,7 +24,7 @@
 # Every setting can also be supplied / overridden via env, e.g.:
 #   export GIT_TOKEN=github_pat_xxx
 #   CTID=104 CORES=6 RAM_MB=12288 DISK_GB=16 STORAGE=local-lvm BRANCH=main \
-#     bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+#     bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 # Pass --default (or set USE_DEFAULTS=1 / ORWELL_NONINTERACTIVE=1) to skip the menu.
 set -euo pipefail
 
@@ -147,7 +147,7 @@ NET="${NET:-dhcp}"                 # "dhcp" or a static CIDR, e.g. 192.168.1.50/
 GATEWAY="${GATEWAY:-}"             # required only for a static NET
 STORAGE="${STORAGE:-$(storage_for rootdir)}";          STORAGE="${STORAGE:-local-lvm}"
 TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-$(storage_for vztmpl)}"; TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-local}"
-REPO="${REPO:-https://github.com/kevinhirsch/orwell.git}"
+REPO="${REPO:-https://github.com/Psychout-Media/orwell.git}"
 BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/opt/orwell}"
 # The private-repo deploy credential (A4/ruling #17): a fine-grained PAT, Contents: Read-only.
