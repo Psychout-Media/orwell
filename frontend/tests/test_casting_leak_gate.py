@@ -216,6 +216,26 @@ def test_orw224_game_and_casting_turns_never_persist_compaction(monkeypatch):
     assert _COMPACT_KWARGS[-1].get("persist_history") is True, "unframed chat"
 
 
+def test_orw224b_workspace_build_turn_is_not_stamped_casting_and_can_compact(monkeypatch):
+    """ORW-224b: in the workspace build (ORWELL_GAME_BUILD=0) an unframed turn gets NO casting stamp, so the session is
+    not treated as a game session by the compaction guard; the game build still stamps casting (test above)."""
+    from src.context_compactor import is_game_or_casting_session
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")
+    ctx, sess = _run(_drive_build_chat_context(
+        monkeypatch, started=False, new_user_text="plain workspace chat", framing=(False, False, False)))
+    assert sess.history[-1].role == "user"
+    assert (sess.history[-1].metadata or {}).get("phase") is None
+    assert is_game_or_casting_session(sess) is False, "workspace-build chat keeps compaction"
+
+
+def test_orw224b_game_build_casting_turn_is_still_stamped_and_refused(monkeypatch):
+    from src.context_compactor import is_game_or_casting_session
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
+    ctx, sess = _run(_drive_build_chat_context(monkeypatch, started=False, new_user_text="casting answer"))
+    assert (sess.history[-1].metadata or {}).get("phase") == "casting"
+    assert is_game_or_casting_session(sess) is True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. The assistant-reply plumbing — save_assistant_response(phase=...) stamps, and
 #    both chat-route call sites pass the casting phase when pre-game.
