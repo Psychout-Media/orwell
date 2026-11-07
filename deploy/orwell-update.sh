@@ -544,13 +544,46 @@ play_build_fp() {   # the inputs fingerprint a /play build dir was made from; ""
   head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
 }
 # Copy a finished /play build to dist.next. dist.next must not exist when the copy starts (removed, then
-# checked), so a leftover — or anything planted there — is never merged into or nested under.
+# checked), so a leftover — or anything planted there — is never merged into or nested under. A build is plain
+# files and directories only: one with a symlink, device or FIFO in it is refused, and the copy belongs to root
+# like the rest of the code tree (the build account's ownership is not kept).
 _stage_play_build() {
   rm -rf "$PLAY_NEXT"
   [[ ! -e "$PLAY_NEXT" && ! -L "$PLAY_NEXT" ]] || return 1
-  cp -aT "$1" "$PLAY_NEXT" && return 0
+  if [[ -n "$(find "$1" ! -type f ! -type d -print -quit 2>/dev/null)" ]]; then
+    echo "WARN: the /play build contains something other than files and directories — refusing it"
+    return 1
+  fi
+  cp -RT --preserve=mode,timestamps "$1" "$PLAY_NEXT" && return 0
   rm -rf "$PLAY_NEXT"
   return 1
+}
+# Who runs the /play build: never root. Building /play runs its dependencies' code (tsc, vite, plugins), so as root
+# it runs as an unprivileged account (ORWELL_PLAY_BUILD_USER, default `nobody`) that can neither write the code tree
+# nor read the service user's data/.env, in a clean environment (nothing of this script's environment reaches it),
+# with its own npm cache (ORWELL_PLAY_NPM_CACHE). Root takes the output back before reading it, so nothing the build
+# left running can change it afterwards. If privileges cannot be dropped, /play is not built at all.
+ORWELL_PLAY_BUILD_USER="${ORWELL_PLAY_BUILD_USER:-nobody}"
+ORWELL_PLAY_NPM_CACHE="${ORWELL_PLAY_NPM_CACHE:-/var/cache/orwell/play-npm}"
+_PLAY_BUILD_CMD='cd "$1" && npm ci --prefer-offline --ignore-scripts --no-audit --no-fund && npm run build'
+_play_run_build() {   # $1 = the exported frontend/web dir, inside $PLAY_TMP
+  local u="$ORWELL_PLAY_BUILD_USER" g rc=0
+  if [[ "$(id -u)" -ne 0 ]]; then
+    bash -c "$_PLAY_BUILD_CMD" _ "$1"
+    return
+  fi
+  if ! command -v runuser >/dev/null 2>&1 || ! id "$u" >/dev/null 2>&1 || [[ "$u" == root ]]; then
+    echo "WARN: no way to drop privileges for the /play build (runuser or the '${u}' account is missing) — not building it as root"
+    return 1
+  fi
+  g="$(id -gn "$u" 2>/dev/null)" || return 1
+  install -d -m 755 "${ORWELL_PLAY_NPM_CACHE%/*}" && install -d -m 700 -o "$u" -g "$g" "$ORWELL_PLAY_NPM_CACHE" || return 1
+  chown -R "${u}:${g}" "$PLAY_TMP" || return 1
+  runuser -u "$u" -- env -i PATH="$PATH" HOME="$PLAY_TMP" LANG=C.UTF-8 npm_config_cache="$ORWELL_PLAY_NPM_CACHE" \
+    npm_config_update_notifier=false ONNXRUNTIME_NODE_INSTALL="${ONNXRUNTIME_NODE_INSTALL:-skip}" \
+    bash -c "$_PLAY_BUILD_CMD" _ "$1" || rc=$?
+  chown -R -h root:root "$PLAY_TMP" || return 1
+  return "$rc"
 }
 build_play_app() {
   local fp out
@@ -572,10 +605,10 @@ build_play_app() {
     return 0
   fi
   out="${PLAY_TMP}/frontend/web"
-  # --ignore-scripts: building /play needs no package install script, so none of its dependencies' scripts
-  # run (as root). The build itself is the commit's own `npm run build`, as for the engine.
+  # --ignore-scripts: building /play needs no package install script, so none of its dependencies' scripts run.
+  # The build itself (the commit's own `npm run build`) runs unprivileged — see _play_run_build.
   if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x --no-same-owner -C "$PLAY_TMP" \
-     && ( cd "$out" && npm ci --prefer-offline --ignore-scripts --no-audit --no-fund && npm run build ) \
+     && _play_run_build "$out" \
      && [[ -f "${out}/dist/index.html" ]] \
      && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
      && _stage_play_build "${out}/dist"; then
