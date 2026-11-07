@@ -17,6 +17,7 @@ keeps its state, and that no per-owner store can be added to the agent loop with
 Roles only; no names.
 """
 
+import collections
 import importlib
 import os
 import re
@@ -205,12 +206,72 @@ def test_season_twos_first_stall_is_not_held_by_season_ones_streak(monkeypatch):
 
 # ── completeness: a new per-owner store cannot dodge the reset ──────────────────────────────────── #
 
+# A module-level container declared empty is per-owner process state: `{}`, `dict()`, `set()`, and (review of
+# #2287) `defaultdict(...)`, `OrderedDict()` and `deque(...)`, with or without the `collections.` prefix.
+_STORE_DECL_RE = re.compile(
+    r"^(_[A-Z][A-Z0-9_]*)\s*(?::[^=\n]+)?=\s*"
+    r"(?:\{\}|dict\(\)|set\(\)|(?:collections\.)?(?:defaultdict|OrderedDict|deque)\()",
+    re.MULTILINE,
+)
+
+
+def _declared_stores(src):
+    return set(_STORE_DECL_RE.findall(src))
+
+
+@pytest.mark.parametrize("decl,name", [
+    ("_A: Dict[str, int] = {}", "_A"),
+    ("_B = dict()", "_B"),
+    ("_C: Set[str] = set()", "_C"),
+    ("_D = defaultdict(int)", "_D"),
+    ("_E = collections.defaultdict(list)", "_E"),
+    ('_F: "OrderedDict[str, int]" = OrderedDict()', "_F"),
+    ("_G = collections.OrderedDict()", "_G"),
+    ("_H = deque(maxlen=8)", "_H"),
+    ("_I: collections.deque = collections.deque()", "_I"),
+])
+def test_the_store_scan_sees_every_container_kind(decl, name):
+    assert _declared_stores(decl + "\n") == {name}
+
+
+@pytest.mark.parametrize("decl", ['_CAP = 3', '_NAMES = {"a": 1}', '_RE = re.compile(r"x")', "_PAIR = ()",
+                                  "_LOCK = asyncio.Lock()"])
+def test_the_store_scan_ignores_constants(decl):
+    assert _declared_stores(decl + "\n") == set()
+
+
+def test_the_reset_clears_every_store_kind_and_never_raises(monkeypatch):
+    """Review of #2287: the reset popped every store with `store.pop(key, None)`, which raises on a set (and on a
+    deque), while the gate made a `set()` store join the reset. Each kind now forgets the owner its own way, the
+    other owner's entries stay, and a deque keeps its maxlen."""
+    keys = _keys_for(_PLAYER)
+    other = agent_loop._belt_key(_OTHER)
+    plain = {k: 1 for k in keys} | {other: 1}
+    counts = collections.defaultdict(int, {k: 2 for k in keys} | {other: 2})
+    ordered = collections.OrderedDict([(k, 3) for k in keys] + [(other, 3)])
+    members = set(keys) | {other}
+    recent = collections.deque([(k, "old") for k in keys] + [other, (other, "keep")], maxlen=16)
+    monkeypatch.setattr(agent_loop, "_SEASON_PACING_STORES", (plain, counts, ordered, members, recent))
+    agent_loop._forget_season_pacing(_PLAYER)
+    for store in (plain, counts, ordered, members):
+        assert not set(keys) & set(store), store
+        assert other in store
+    assert list(recent) == [other, (other, "keep")] and recent.maxlen == 16
+
+
+def test_every_season_pacing_store_is_a_kind_the_reset_can_clear():
+    import collections.abc as abc
+    for store in agent_loop._SEASON_PACING_STORES:
+        assert isinstance(store, (abc.MutableMapping, abc.MutableSet, collections.deque)), type(store)
+
+
 def test_every_per_owner_store_in_the_agent_loop_joins_the_season_reset():
-    """Any module-level store declared empty in agent_loop.py (`_NAME: Dict[...] = {}`, `= set()`) is
-    per-owner process state; it must be in `_SEASON_PACING_STORES` so a new season starts it at zero."""
+    """Any module-level store declared empty in agent_loop.py (`_NAME: Dict[...] = {}`, `= set()`,
+    `defaultdict(...)`, `OrderedDict()`, `deque(...)`) is per-owner process state; it must be in
+    `_SEASON_PACING_STORES` so a new season starts it at zero."""
     with open(os.path.join(FRONTEND, "src", "agent_loop.py"), encoding="utf-8") as fh:
         src = fh.read()
-    declared = set(re.findall(r"^(_[A-Z][A-Z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:\{\}|dict\(\)|set\(\))", src, re.MULTILINE))
+    declared = _declared_stores(src)
     assert declared, "the scan found no stores (the declaration style changed?)"
     reset = {name for name, value in vars(agent_loop).items()
              if any(value is store for store in agent_loop._SEASON_PACING_STORES)}
