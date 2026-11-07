@@ -100,14 +100,15 @@ it reads, plus the node/npm/python versions) and what it left on disk (npm's
 |---|---|---|
 | Nothing the engine reads (front end, deploy scripts, docs, tests, CI) | kept as is: no `npm ci`, no rebuild | kept if `frontend/requirements*.txt` are unchanged |
 | Engine code only (`src/`, …), same `package.json` / `package-lock.json` / `patches/` | only the build tools that `npm prune` removed come back, from the local npm cache (`npm install --include=dev --no-save --prefer-offline`), then build + prune | same as above |
-| `package.json`, `package-lock.json`, `patches/`, or the node/npm version | full `npm ci` (as before) | same as above |
+| `package.json`, `package-lock.json`, `patches/`, the node/npm version, or the npm environment (`npm_config_*` / `NPM_CONFIG_*` such as the registry, `ONNXRUNTIME_NODE_INSTALL`, `NODE_ENV`, the user or global npmrc) | full `npm ci` (as before) | same as above |
 | `frontend/requirements.lock.txt` / `requirements.txt`, or the venv's Python | (per the rows above) | `pip install` (as before) |
 
 Everything is reinstalled in full when there is no record: the first update with this updater, a
 fresh install, or right after an update or rollback that failed, was reverted or was interrupted (the
 record is deleted when a run starts and written only at its commit point). It is also redone:
 - when the disk no longer matches the record, for example after someone ran `npm` or `pip` by hand on
-  the box;
+  the box, or edited a file inside `node_modules` or the venv (every file's path, size and modification
+  time is part of the record; Python bytecode caches are not);
 - once after `orwell-update.sh` itself changes (its own text is part of the record);
 - when the record, `dist/`, `node_modules` or `frontend/.venv` is not owned by root, or is writable by
   anyone else (the ownership pass then fixes the tree, and the next update can skip again).
@@ -123,7 +124,11 @@ package). A full `npm ci` takes about 8 s instead of about 56 s on the dev box, 
 The React `/play` app (`frontend/web`, when the commit has it) is built by the update too, and never
 fails it: a failed build logs a warning and `/play` keeps its current build (or its "not built yet"
 page). It builds from a clean export of the commit in a temp dir (`npm ci --prefer-offline
---ignore-scripts && npm run build`; no dependency install scripts run) and is swapped into
+--ignore-scripts && npm run build`; no dependency install scripts run). As root, the build runs as an
+unprivileged account (`ORWELL_PLAY_BUILD_USER`, default `nobody`) in a clean environment, with its own npm
+cache (`ORWELL_PLAY_NPM_CACHE`, default `/var/cache/orwell/play-npm`); root then takes the output back,
+refuses it if it holds anything but plain files and directories, and copies it in as root's own. If
+privileges cannot be dropped, `/play` is not built at all (a warning). The build is swapped into
 `frontend/web/dist` only after the update commits, so `/play` keeps serving the old build while the new
 one builds, and a failed update never changes it. It is skipped when nothing under `frontend/web` or
 `frontend/static/js` (the classic markdown module it imports) changed. The previous build is kept in
