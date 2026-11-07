@@ -93,7 +93,7 @@ def test_chatmessage_to_dict_and_the_provider_context_never_carry_it():
     assert SECRET not in str(s.get_context_messages())
 
 
-def test_every_route_returning_message_metadata_strips_it():
+def test_every_route_returning_message_metadata_strips_it(monkeypatch):
     """GET /api/history/{id}, GET /history/{sid} (session_routes), POST /api/session/{id}/message round-trip; the SSE metrics replay helper."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -112,8 +112,14 @@ def test_every_route_returning_message_metadata_strips_it():
             pass
 
     sm = SM()
-    hist._verify_session_owner = lambda *a, **k: None
-    sess_routes._verify_session_owner = lambda *a, **k: None
+    # Restored after the test (a bare assignment leaked a no-op owner check into every later test in the worker).
+    monkeypatch.setattr(hist, "_verify_session_owner", lambda *a, **k: None)
+    monkeypatch.setattr(sess_routes, "_verify_session_owner", lambda *a, **k: None)
+    # `session_routes.router` is a MODULE-GLOBAL APIRouter: every setup_session_routes() call in the process appends
+    # its handlers to it, so an earlier test's /history/{sid} (bound to ITS session manager) answered first and 404'd
+    # this one under xdist. A fresh router per test, as test_drawer_hides_nongame_sessions does.
+    from fastapi import APIRouter
+    monkeypatch.setattr(sess_routes, "router", APIRouter(prefix="/api", tags=["sessions"]))
     app_h = FastAPI()
     app_h.include_router(hist.setup_history_routes(sm))
     app_s = FastAPI()  # session_routes' own /history/{sid} serializer, mounted alone so it is the one answering
