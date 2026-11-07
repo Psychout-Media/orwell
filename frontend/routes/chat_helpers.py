@@ -12,7 +12,7 @@ from core.models import ChatMessage
 from core.database import SessionLocal
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
-from src.endpoint_resolver import normalize_base
+from src.endpoint_resolver import normalize_base, resolve_session_headers
 from src.context_compactor import maybe_compact, trim_for_context
 from src.auth_helpers import get_current_user
 from src.prompt_security import untrusted_context_message
@@ -7362,7 +7362,7 @@ async def auto_name_session(session_manager, sess):
 
         owner = getattr(sess, "owner", None)
         t_url, t_model, t_headers = resolve_task_endpoint(
-            sess.endpoint_url, sess.model, sess.headers, owner=owner,
+            sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
         )
         if not t_model:
             logger.debug("[auto-name] No model provided, skipping")
@@ -7411,9 +7411,16 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     current_url = sess.endpoint_url or ""
     db = SessionLocal()
     try:
-        endpoints = db.query(ModelEndpoint).filter(
-            ModelEndpoint.is_enabled == True
-        ).all()
+        # Owner-scoped (own + shared, no admin bypass): never adopt another user's endpoint
+        # or persist their key on this session.
+        from src.auth_helpers import owner_filter
+        _q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+        _own = getattr(sess, "owner", None)
+        if _own:
+            _q = owner_filter(_q, ModelEndpoint, _own, include_shared=True)
+        else:
+            _q = _q.filter(ModelEndpoint.owner.is_(None))
+        endpoints = _q.all()
     finally:
         db.close()
 
@@ -7450,10 +7457,12 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             # Persist
             _db = SessionLocal()
             try:
+                from src.endpoint_resolver import persistable_session_headers
                 _db.query(DBSession).filter(DBSession.id == session_id).update({
                     "model": new_model,
                     "endpoint_url": chat_url,
-                    "headers": json.dumps(new_headers),
+                    "headers": persistable_session_headers(
+                        chat_url, new_headers, getattr(sess, "owner", None)) or {},
                 })
                 _db.commit()
             finally:
@@ -7582,13 +7591,11 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 if not ep.api_key:
                     return
                 base = normalize_base(ep.base_url or "")
+                # ORW-199/200: in-memory only. The endpoint record is the source of truth and
+                # `resolve_session_headers` supplies auth at call time; persisting a plain-text
+                # copy of the provider key on the session row is what let it go stale.
                 sess.headers = build_headers(ep.api_key, base)
-                update_q = db.query(DBSession).filter(DBSession.id == session_id)
-                if owner:
-                    update_q = update_q.filter(DBSession.owner == owner)
-                update_q.update({"headers": sess.headers})
-                db.commit()
-                logger.info(f"Resolved and persisted auth headers for session {session_id} from endpoint {ep.name}")
+                logger.info(f"Resolved auth headers for session {session_id} from endpoint {ep.name}")
                 return
         finally:
             db.close()
@@ -7834,7 +7841,7 @@ async def build_chat_context(
     # chat rows, which breaks non-degradation (mandate #4); it stays on its legacy 85%-of-window trigger
     # (unchanged; reachable at 85% of the raw window; game sessions guarded by ORW-224). The trimmer only drops old turns from the PROMPT, never from the database.
     messages, context_length, was_compacted = await maybe_compact(
-        sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
+        sess, sess.endpoint_url, sess.model, messages, resolve_session_headers(sess, user), owner=user,
     )
     messages = trim_for_context(messages, context_length, preserve_system=bool(game_active or framed))
 
@@ -8298,7 +8305,7 @@ def run_post_response_tasks(
         t_url, t_model, t_headers = resolve_endpoint("utility", owner=owner)
         if not (t_url and t_model):
             t_url, t_model, t_headers = resolve_task_endpoint(
-                sess.endpoint_url, sess.model, sess.headers, owner=owner,
+                sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
             )
         asyncio.create_task(extract_and_store(
             sess, memory_manager, memory_vector,
@@ -8336,7 +8343,7 @@ def run_post_response_tasks(
             from services.memory.skill_extractor import maybe_extract_skill
             from src.task_endpoint import resolve_task_endpoint
             s_url, s_model, s_headers = resolve_task_endpoint(
-                sess.endpoint_url, sess.model, sess.headers, owner=owner,
+                sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
             )
             logger.debug("[skill-extract] dispatching extractor (model=%s)", s_model)
             asyncio.create_task(maybe_extract_skill(
