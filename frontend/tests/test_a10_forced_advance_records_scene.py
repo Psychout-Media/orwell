@@ -28,13 +28,23 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_belt_state():
     """The belt ladders keep per-owner module state (silent-force streak, stall level, anti-stale holds);
-    earlier forced advances in this file would otherwise trip the anti-stale CAP and hold the next one."""
+    earlier forced advances in this file would otherwise trip the anti-stale CAP and hold the next one.
+
+    Other test files drive the same owner ("u"), so the owner's whole turn-steering state is reset too: the
+    season-reset listeners clear every per-season store, and the #670 one-shot pre-resolve flag is consumed.
+    A pre-resolve driven directly by another file (test_social_runway.py) used to leave that flag set, and
+    the agent loop then read this turn as already advanced and skipped the forced advance (an order-dependent
+    fe-unit failure under xdist)."""
     from src import agent_loop as al
+    from routes import chat_helpers as ch
     for name in ("_SILENT_FORCE_ADVANCE_STREAK", "_ADVANCE_STALL_LEVEL", "_ADVANCE_STALL_FLAGS",
                  "_TURNS_SINCE_PROGRESS", "_ANTI_STALE_CAP_HOLDS", "_LOOP_STREAK"):
         d = getattr(al, name, None)
         if isinstance(d, dict):
             d.clear()
+    al._forget_season_pacing("u")
+    ch._forget_season_pacing("u")
+    ch.consume_pre_resolved_advance("u")
     yield
 
 
