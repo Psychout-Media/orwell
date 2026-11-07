@@ -112,6 +112,7 @@ import {
 // (chat.js passes its `_lastToolName` local). None are on chatModule / called cross-file, so no
 // re-export. Imported here only, so #1399 single-eval holds.
 import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner } from './chatStreamLoop.js';
+import { frameBatched, liveAddedElements } from './frameBatch.js';
 
   // #1399: chat.js must be evaluated EXACTLY ONCE per page. It was previously loaded by two
   // different urls at once — app.js's bare `import './js/chat.js'` AND index.html's versioned
@@ -5486,15 +5487,13 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     if (window._cmpPreObserverWired) return;
     window._cmpPreObserverWired = true;
     _scanCompactPres(document.body);
-    const obs = new MutationObserver((muts) => {
-      for (const m of muts) {
-        for (const n of m.addedNodes) {
-          if (n.nodeType !== 1) continue;
-          if (n.tagName === 'PRE') _markCompactPre(n);
-          if (n.querySelectorAll) _scanCompactPres(n);
-        }
+    // ORW-157: once per frame over the nodes still attached (not per streamed token).
+    const obs = new MutationObserver(frameBatched((muts) => {
+      for (const n of liveAddedElements(muts)) {
+        if (n.tagName === 'PRE') _markCompactPre(n);
+        if (n.querySelectorAll) _scanCompactPres(n);
       }
-    });
+    }));
     obs.observe(document.body, { childList: true, subtree: true });
   })();
 
