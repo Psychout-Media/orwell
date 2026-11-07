@@ -663,6 +663,51 @@ _svc_sqlite3() {
   fi
 }
 
+# The inherited MCP-server rows the game build drops (issue #636): a browser / playwright server, or the RAG /
+# Memory / Email built-ins. A fixed clause of this script (never data), shared by both cleanup paths below.
+_CRUFT_MCP_WHERE="lower(name) LIKE '%browser%' OR lower(name) LIKE '%playwright%' OR lower(command) LIKE '%playwright%' OR lower(args) LIKE '%@playwright/mcp%' OR lower(name) IN ('memory','rag','email') OR lower(id) IN ('memory','rag','email','builtin_browser')"
+# The production box has python3 but NO sqlite3 command-line tool, so a CLI-only cleanup never ran there (the
+# ORW-233 gap). This uses python3's built-in sqlite3 module instead: the existing DB only (mode=rw never creates
+# one), a 2 s busy timeout, one transaction, an isolated interpreter (-I). Exit codes: 0 = printed the number of
+# rows removed (nothing printed: no mcp_servers table) · 5 = no sqlite3 module · anything else = not written.
+_CRUFT_MCP_PY='
+import sys
+try:
+    import sqlite3
+    from urllib.parse import quote
+except ImportError:
+    sys.exit(5)
+try:
+    con = sqlite3.connect("file:" + quote(sys.argv[1]) + "?mode=rw", uri=True, timeout=2)
+    try:
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type=? AND name=?", ("table", "mcp_servers")).fetchone() is None:
+            sys.exit(0)
+        with con:
+            removed = con.execute("DELETE FROM mcp_servers WHERE " + sys.argv[2]).rowcount
+    finally:
+        con.close()
+except sqlite3.Error as e:
+    sys.stderr.write("%s\n" % e)
+    sys.exit(3)
+print(removed)
+'
+# Run it as the service user, NEVER as root (root-owned -journal/-wal sidecars break the FE). As root with no
+# way to drop privileges it does not write at all (4). 5 = python3 or its sqlite3 module is missing.
+_svc_cleanup_mcp_rows_py() {
+  local db="$1" u="${SVC_USER:-orwell}"
+  command -v python3 >/dev/null 2>&1 || return 5
+  local -a runner=()
+  if [[ "$(id -u)" -eq 0 ]]; then
+    if command -v runuser >/dev/null 2>&1 && id "$u" >/dev/null 2>&1 && [[ "$u" != root ]]; then
+      runner=(runuser -u "$u" --)
+    else
+      return 4
+    fi
+  fi
+  # `cd /`: the service user may not be able to enter the directory the updater was started in.
+  ( cd / && timeout 20 "${runner[@]}" python3 -I -c "$_CRUFT_MCP_PY" "$db" "$_CRUFT_MCP_WHERE" )
+}
+
 # ── data/.env reconcile: opt-in feature flags + the two security keys install.sh writes that the
 #    updater used to miss (ROOT CAUSE of "a built feature / admin is silently OFF on an old box") ───────
 # orwell-install.sh writes a set of deploy defaults into data/.env, but the updater reconciled NONE of
@@ -830,22 +875,33 @@ cleanup_inherited_cruft() {
 
   # 2) Drop any admin-added MCP-server DB rows referencing browser/playwright/memory/rag/email.
   #    Built-in servers are NOT persisted (registered at boot), so this only ever touches a row an
-  #    operator added by hand. Guarded: skip silently if there's no sqlite3, no db, or no table.
-  # FINDING #3 — every sqlite3 here goes through _svc_sqlite3 (drop privileges to the service user).
-  # As ROOT while the FE is up, even a SELECT can create/checkpoint root-owned app.db-wal/-shm
-  # sidecars that then make the unprivileged FE hit "readonly database" / "database is locked"; the
-  # DELETE is the same hazard. Running as the DB's owner keeps every sidecar owned by that user.
+  #    operator added by hand. Guarded: skip if there's no db or no table; never fails the update.
+  # FINDING #3 — every write here runs as the service user, never as root: as ROOT while the FE is up,
+  # even a SELECT can create/checkpoint root-owned app.db-wal/-shm sidecars that then make the
+  # unprivileged FE hit "readonly database" / "database is locked"; the DELETE is the same hazard.
+  # Running as the DB's owner keeps every sidecar owned by that user. python3's sqlite3 module first
+  # (the production box has no sqlite3 CLI); the CLI path only on a box without python3.
   local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"   # the FE store (frontend/data), not engine data/
-  if command -v sqlite3 >/dev/null 2>&1 && [[ -f "$db" ]]; then
-    if _svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null | grep -q 1; then
-      local pat="'%browser%' OR lower(name) LIKE '%playwright%' OR lower(command) LIKE '%playwright%' OR lower(args) LIKE '%@playwright/mcp%' OR lower(name) IN ('memory','rag','email') OR lower(id) IN ('memory','rag','email','builtin_browser')"
-      local before after
-      before="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null || echo 0)"
-      _svc_sqlite3 "$db" "DELETE FROM mcp_servers WHERE lower(name) LIKE ${pat};" 2>/dev/null || true
-      after="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null || echo 0)"
-      if [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ ]] && (( before > after )); then
-        echo "    removed $(( before - after )) inherited MCP-server config row(s) from app.db"
+  local removed="" rc=0
+  if [[ -f "$db" ]]; then
+    removed="$(_svc_cleanup_mcp_rows_py "$db" 2>/dev/null)" || rc=$?
+    if (( rc == 5 )); then
+      if command -v sqlite3 >/dev/null 2>&1 \
+         && _svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null | grep -q 1; then
+        local before after
+        before="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null || echo 0)"
+        _svc_sqlite3 "$db" "DELETE FROM mcp_servers WHERE ${_CRUFT_MCP_WHERE};" 2>/dev/null || true
+        after="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null || echo 0)"
+        if [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ ]] && (( before > after )); then
+          removed=$(( before - after ))
+        fi
       fi
+      rc=0
+    fi
+    if (( rc == 0 )) && [[ "$removed" =~ ^[0-9]+$ ]] && (( removed > 0 )); then
+      echo "    removed ${removed} inherited MCP-server config row(s) from app.db"
+    elif (( rc != 0 && rc != 4 )); then
+      echo "    note: could not clean inherited MCP-server rows from app.db this time (busy or unreadable); the next update retries"
     fi
   fi
 
