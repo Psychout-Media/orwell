@@ -1524,104 +1524,114 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # guarantees at game start). Record a RED-eligible `identity-incoherence` health event —
             # a genuine fault surfaced even though auto-corrected (#1599). Vault-free: the id + the
             # dropped FIELD names only, never the prose. A coherent dossier ⇒ no-op (byte-identical).
-            # ORW-184 (ORWELL_VOICE_REPAIR, default off ⇒ this block is skipped and everything below is
-            # byte-identical): mend the authored voice PER FIELD before the lint, so one bad dial or one bad
-            # optional entry no longer costs the whole voice. A mended voice is still a recorded fault
-            # (#1599: a correction is not a cloak), as auto-corrected. An unmendable one falls through to the
-            # lint below, which drops it whole as before, now with its reason codes.
-            voice_note = ""
-            if voice_repair_enabled() and isinstance(profile.get("voice"), dict):
-                from src.orwell_voice_repair import format_actions, format_reasons
-                repair = repair_authored_voice(profile, npc)
-                if repair.repaired:
-                    profile["voice"] = repair.voice
-                    voice_repaired += 1
+            # The author-time identity lint (the ORW-184 voice repair, F2 coherence, F1/F5 roster) as ONE function, so a
+            # dealt-facet REGENERATE (below) is checked exactly like the first draft before it can be adopted. Before
+            # this, an adopted regenerate skipped all of it and a flipped identity could commit. Mutates `p` in place;
+            # False ⇒ nothing writable is left (the caller decides: the first draft falls to the floor, a regenerate
+            # is simply not adopted).
+            def _lint_identity(p: dict) -> bool:
+                nonlocal voice_repaired, coherence_stripped, identity_pinned, secret_pinned
+                # ORW-184 (ORWELL_VOICE_REPAIR, default off ⇒ this block is skipped and everything below is
+                # byte-identical): mend the authored voice PER FIELD before the lint, so one bad dial or one bad
+                # optional entry no longer costs the whole voice. A mended voice is still a recorded fault
+                # (#1599: a correction is not a cloak), as auto-corrected. An unmendable one falls through to the
+                # lint below, which drops it whole as before, now with its reason codes.
+                voice_note = ""
+                if voice_repair_enabled() and isinstance(p.get("voice"), dict):
+                    from src.orwell_voice_repair import format_actions, format_reasons
+                    repair = repair_authored_voice(p, npc)
+                    if repair.repaired:
+                        p["voice"] = repair.voice
+                        voice_repaired += 1
+                        logger.warning(
+                            f"[cast-authoring] repaired the authored voice for {hid} per field "
+                            f"({format_actions(repair.actions)}) — the rest of the authored voice stands")
+                        try:
+                            from src import log_rings
+                            log_rings.record_soft_failure(
+                                "cast-authoring:voice-repaired",
+                                f"authored voice for {hid} failed the voice check on "
+                                f"{format_reasons(repair.reasons)} — repaired per field "
+                                f"({format_actions(repair.actions)}) instead of dropping the whole voice",
+                                corrected="seeded-voice-dial", user=user, houseguest=hid)
+                        except Exception:  # pragma: no cover - the health record must never break authoring
+                            pass
+                    elif repair.voice is None and repair.reasons:
+                        voice_note = f" [voice: {format_reasons(repair.reasons)}]"
+                dropped = coherence_conflicts(p, npc)
+                if dropped:
+                    for k in dropped:
+                        p.pop(k, None)
+                    coherence_stripped += 1
+                    note = voice_note if "voice" in dropped else ""
                     logger.warning(
-                        f"[cast-authoring] repaired the authored voice for {hid} per field "
-                        f"({format_actions(repair.actions)}) — the rest of the authored voice stands")
+                        f"[cast-authoring] authored dossier for {hid} contradicts the pinned identity "
+                        f"(dropped {', '.join(dropped)} to the coherent floor){note} — identity-incoherence")
+                    try:
+                        from src import enrichment_policy
+                        enrichment_policy.record_runtime_failure(
+                            user, "identity-incoherence",
+                            f"authored dossier for {hid} contradicts the pinned identity — dropped "
+                            f"{', '.join(dropped)} to the coherent seeded floor before write-back{note}")
+                    except Exception:  # pragma: no cover - the health record must never break authoring
+                        pass
+                    # Only the houseguestId survived the strip — nothing coherent left to write; the whole
+                    # NPC falls to the seeded floor (already RED-recorded above).
+                    if len(p) <= 1:
+                        return False
+                # F1 (#1660): roster-constrained authoring — drop any authored STRUCTURED identity field
+                # (vocation / genderPresentation / age) that CONTRADICTS the committed roster's immutable
+                # value, so the committed identity STANDS (authored fields EXTEND, never OVERWRITE). This is
+                # the "occupation-crosswired" complement to F2's prose lint. RED-recorded via log_rings
+                # (#1599 — a real fault surfaced even when auto-corrected), Vault-free (field names only).
+                id_drop = identity_contradictions(p, npc)
+                if id_drop:
+                    # F5 (#1660): a crosswired vocation means the hidden threads (secrets/goals/weakness),
+                    # authored in the SAME call, were grounded in the WRONG job — compute them BEFORE the
+                    # vocation is popped so they are re-derived by the engine off the committed vocation.
+                    secret_drop = secret_vocation_conflicts(p, npc)
+                    for k in id_drop:
+                        p.pop(k, None)
+                    identity_pinned += 1
+                    logger.warning(
+                        f"[cast-authoring] authored dossier for {hid} contradicts the committed roster "
+                        f"(dropped {', '.join(id_drop)} — the committed identity stands) — identity-contradiction")
                     try:
                         from src import log_rings
                         log_rings.record_soft_failure(
-                            "cast-authoring:voice-repaired",
-                            f"authored voice for {hid} failed the voice check on "
-                            f"{format_reasons(repair.reasons)} — repaired per field "
-                            f"({format_actions(repair.actions)}) instead of dropping the whole voice",
-                            corrected="seeded-voice-dial", user=user, houseguest=hid)
+                            "cast-authoring:identity-contradiction",
+                            f"authored dossier for {hid} contradicts the committed roster — dropped "
+                            f"{', '.join(id_drop)} so the committed identity stands (authored fields extend, "
+                            f"never overwrite)",
+                            corrected="committed-roster-identity", user=user, houseguest=hid)
                     except Exception:  # pragma: no cover - the health record must never break authoring
                         pass
-                elif repair.voice is None and repair.reasons:
-                    voice_note = f" [voice: {format_reasons(repair.reasons)}]"
-            dropped = coherence_conflicts(profile, npc)
-            if dropped:
-                for k in dropped:
-                    profile.pop(k, None)
-                coherence_stripped += 1
-                note = voice_note if "voice" in dropped else ""
-                logger.warning(
-                    f"[cast-authoring] authored dossier for {hid} contradicts the pinned identity "
-                    f"(dropped {', '.join(dropped)} to the coherent floor){note} — identity-incoherence")
-                try:
-                    from src import enrichment_policy
-                    enrichment_policy.record_runtime_failure(
-                        user, "identity-incoherence",
-                        f"authored dossier for {hid} contradicts the pinned identity — dropped "
-                        f"{', '.join(dropped)} to the coherent seeded floor before write-back{note}")
-                except Exception:  # pragma: no cover - the health record must never break authoring
-                    pass
-                # Only the houseguestId survived the strip — nothing coherent left to write; the whole
-                # NPC falls to the seeded floor (already RED-recorded above).
-                if len(profile) <= 1:
-                    floor_below += 1
-                    return 0
-            # F1 (#1660): roster-constrained authoring — drop any authored STRUCTURED identity field
-            # (vocation / genderPresentation / age) that CONTRADICTS the committed roster's immutable
-            # value, so the committed identity STANDS (authored fields EXTEND, never OVERWRITE). This is
-            # the "occupation-crosswired" complement to F2's prose lint. RED-recorded via log_rings
-            # (#1599 — a real fault surfaced even when auto-corrected), Vault-free (field names only).
-            id_drop = identity_contradictions(profile, npc)
-            if id_drop:
-                # F5 (#1660): a crosswired vocation means the hidden threads (secrets/goals/weakness),
-                # authored in the SAME call, were grounded in the WRONG job — compute them BEFORE the
-                # vocation is popped so they are re-derived by the engine off the committed vocation.
-                secret_drop = secret_vocation_conflicts(profile, npc)
-                for k in id_drop:
-                    profile.pop(k, None)
-                identity_pinned += 1
-                logger.warning(
-                    f"[cast-authoring] authored dossier for {hid} contradicts the committed roster "
-                    f"(dropped {', '.join(id_drop)} — the committed identity stands) — identity-contradiction")
-                try:
-                    from src import log_rings
-                    log_rings.record_soft_failure(
-                        "cast-authoring:identity-contradiction",
-                        f"authored dossier for {hid} contradicts the committed roster — dropped "
-                        f"{', '.join(id_drop)} so the committed identity stands (authored fields extend, "
-                        f"never overwrite)",
-                        corrected="committed-roster-identity", user=user, houseguest=hid)
-                except Exception:  # pragma: no cover - the health record must never break authoring
-                    pass
-                if secret_drop:
-                    for k in secret_drop:
-                        profile.pop(k, None)
-                    secret_pinned += 1
-                    logger.warning(
-                        f"[cast-authoring] hidden threads for {hid} were authored around a crosswired "
-                        f"vocation (dropped {', '.join(secret_drop)}) — the engine re-grounds the hidden "
-                        f"stakes off the committed job — secret-identity-contradiction")
-                    try:
-                        from src import log_rings
-                        log_rings.record_soft_failure(
-                            "cast-authoring:secret-identity-contradiction",
-                            f"hidden threads for {hid} were authored around a crosswired vocation — "
-                            f"dropped {', '.join(secret_drop)} so the engine re-grounds the hidden stakes "
-                            f"off the committed vocation",
-                            corrected="committed-roster-vocation", user=user, houseguest=hid)
-                    except Exception:  # pragma: no cover - the health record must never break authoring
-                        pass
-                # Nothing coherent left after the identity strip — the whole NPC falls to the seeded floor.
-                if len(profile) <= 1:
-                    floor_below += 1
-                    return 0
+                    if secret_drop:
+                        for k in secret_drop:
+                            p.pop(k, None)
+                        secret_pinned += 1
+                        logger.warning(
+                            f"[cast-authoring] hidden threads for {hid} were authored around a crosswired "
+                            f"vocation (dropped {', '.join(secret_drop)}) — the engine re-grounds the hidden "
+                            f"stakes off the committed job — secret-identity-contradiction")
+                        try:
+                            from src import log_rings
+                            log_rings.record_soft_failure(
+                                "cast-authoring:secret-identity-contradiction",
+                                f"hidden threads for {hid} were authored around a crosswired vocation — "
+                                f"dropped {', '.join(secret_drop)} so the engine re-grounds the hidden stakes "
+                                f"off the committed vocation",
+                                corrected="committed-roster-vocation", user=user, houseguest=hid)
+                        except Exception:  # pragma: no cover - the health record must never break authoring
+                            pass
+                    # Nothing coherent left after the identity strip — the whole NPC falls to the seeded floor.
+                    if len(p) <= 1:
+                        return False
+                return True
+
+            if not _lint_identity(profile):
+                floor_below += 1
+                return 0
             # T0-6 — the TRANSACTIONAL adopt-or-regenerate guard for the dealt CLOSED facets (visible-ink
             # today; table-driven for whatever else joins `_CLOSED_FACET_DIMENSIONS`). The engine's
             # generic closed-facet-diff validator (`src/engine/facetDiff.ts`) is the airtight backstop at
@@ -1645,8 +1655,11 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     retried_profile = parse_authored_profile(retry_text or "", hid)
                 except Exception as e:
                     logger.warning(f"[cast-authoring] facet-conflict regenerate call failed for {hid}: {e}")
-                if retried_profile is not None and not facet_hand_conflicts(retried_profile, npc):
-                    profile = retried_profile  # the regenerate ADOPTED the dealt hand cleanly
+                if (retried_profile is not None and not facet_hand_conflicts(retried_profile, npc)
+                        and _lint_identity(retried_profile)):
+                    # The regenerate ADOPTED the dealt hand cleanly AND passed the same identity lint as the first
+                    # draft. One that cannot pass it is not adopted: the first draft's handling below stands.
+                    profile = retried_profile
                 elif "biography" in profile:
                     # Regeneration didn't land cleanly (or the call itself failed) — ADOPT the skeleton
                     # rather than commit a graft: drop the biography (the one field the engine's per-facet
