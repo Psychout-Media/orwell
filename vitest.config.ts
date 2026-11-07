@@ -38,9 +38,11 @@ export const HEAVY_SIM_FILES = [
 
 /**
  * ORW-229 nightly split: the slowest SEASON-REPLAYING unit/property files. They still run on EVERY push, un-instrumented, in the `test-unit`
- * legs; only their second, v8-instrumented run in the per-push `coverage-shard` legs is skipped (vitest.shard.config.ts), because it costs the
- * most coverage time and adds no gated-dir branch coverage the rest of the suite lacks (COVERAGE_MEASUREMENT_PLACEHOLDER). The nightly run
- * (`ORWELL_COVERAGE_FULL=1`, ci-nightly.yml) measures coverage over every file with the same floors. Re-measure before adding a file (docs/CI.md).
+ * legs; only their second, v8-instrumented run in the per-push `coverage-shard` legs is skipped (vitest.shard.config.ts). Measured 2026-11-07 (the
+ * coverage-shard command, unsharded, one commit, every file vs this list skipped): they are about 75% of the lane's test time (1,597 of 2,130 s in
+ * #2240's duration table) and the only cover for about 140 branch arms in the gated dirs (1% of the 12,664 covered), so per push the gated dirs read
+ * 0.2-0.7 points lower: engine 93.50, composition 88.93, adapters/engine 88.77, all of src 90.90 (floors 90/88/82/80). The nightly run
+ * (`ORWELL_COVERAGE_FULL=1`, ci-nightly.yml) measures every file with the same floors. Re-measure before adding a file (docs/CI.md).
  */
 export const COVERAGE_NIGHTLY_ONLY = [
   // a glob, so the list stays right if the sweep is split into several files (as #2240 proposes)
