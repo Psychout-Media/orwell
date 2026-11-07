@@ -57,7 +57,7 @@ import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deal
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
-import { applyForgiveness, forgivenessTraitOf } from "../../engine/forgiveness";
+import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { confideToDisclosure, dripToDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
@@ -78,6 +78,8 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candid
 import { decideDealConsent } from "../../engine/dealConsent";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
+import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
+import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
 
@@ -232,6 +234,7 @@ import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
+import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
@@ -270,6 +273,7 @@ import {
   tieExposureOf, tieNatureProse, exposedTies, nextTieExposure,
 } from "../../engine/seededRelationships";
 import type { SeededRelationships, PreGameTie } from "../../engine/seededRelationships";
+import { TIE_BEHAVIOR } from "../../engine/tieBehavior";
 import { validateCastGenesis, generateSeasonBrief } from "../../engine/castGenesis";
 import type { CastGenesisProposal, SeasonBrief, GenesisContext } from "../../engine/castGenesis";
 import { surfaceSeededTies } from "../../engine/seededTieSurfacing";
@@ -6998,17 +7002,36 @@ export class GameSessionAdapter implements GameSession {
     const ties: PreGameTie[] = this.genesisTies
       ? this.genesisTies.filter((t) => knownIds.has(t.a) && knownIds.has(t.b))
       : floor.ties;
-    this.seededRels = { ties, showmances: floor.showmances };
+    // ORW-132: every tie is marked SECRET or PUBLIC here, at season start, from a DEDICATED seeded draw (never the loader's or the shared stream). A PUBLIC tie starts at exposure `public` (a settled house fact).
+    const marked = markTieVisibility(ties, new SeededRandom(hashSeed(`${seed}:tie-visibility`)))
+      .map((t) => (t.visibility === "public" ? { ...t, exposure: "public" as const } : t));
+    this.seededRels = { ties: marked, showmances: floor.showmances };
     // Fold the small standing affinity bias between each seeded pair (both directions). NEVER a
     // deterministic advantage — just unconscious warmth a careful player reads only as behavior (§3).
     const bias = (a: EntityId, b: EntityId, amount: number): void => {
       this.rel.edge(a, b).affinity = clamp01(this.rel.edge(a, b).affinity + amount);
       this.rel.edge(b, a).affinity = clamp01(this.rel.edge(b, a).affinity + amount);
     };
-    for (const t of this.seededRels.ties) bias(t.a, t.b, TIE_AFFINITY_BIAS);
+    // ORW-132: friendly natures keep the original warm bias (byte-identical); an ex / rival starts COLD, each direction scaled by that houseguest's OWN temperament.
+    const npcById = new Map(this.house.npcs.map((n) => [n.id, n] as const));
+    for (const t of this.seededRels.ties) {
+      for (const [from, to] of [[t.a, t.b], [t.b, t.a]] as const) {
+        const hg = npcById.get(from);
+        const amount = tieDirectedBias(t.nature, hg?.character.strategyStyle, hg?.soul.volatility ?? 0.3);
+        this.rel.edge(from, to).affinity = clamp01(this.rel.edge(from, to).affinity + amount);
+      }
+    }
     for (const s of this.seededRels.showmances) bias(s.a, s.b, SHOWMANCE_SPARK_BIAS);
     if (this.seededRels.ties.length || this.seededRels.showmances.length) {
       this.onSealSeededRels?.(this.seededRels);
+    }
+    // ORW-132: a PUBLIC tie is a house fact from Day 1 - recorded as a witnessed event the WHOLE house (and the player) saw, so it lives in the normal knowledge layer. A secret tie stays sealed (above).
+    if (this.onPlayerEvent) {
+      const everyone: EntityId[] = [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+      for (const t of this.seededRels.ties) {
+        if (t.visibility !== "public") continue;
+        this.onPlayerEvent(publicTieAnnouncement(this.nameOf(t.a), this.nameOf(t.b), tieNatureProse(t.nature)), everyone, "pre-show-tie");
+      }
     }
   }
 
@@ -7960,7 +7983,7 @@ export class GameSessionAdapter implements GameSession {
       // 0044 §9: an NPC's style comes from their archetype; the player's NPC proxy (admin fast-forward)
       // always reads as a threat hunter — the player's own character never picks an NPC lens.
       nominationStyleOf: (id) =>
-        id === PLAYER ? "threat-hunter" : NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
+        id === PLAYER ? "threat-hunter" : this.philosophiesEnabled ? styleOfPhilosophy(this.philosophyOf(id)) : NOMINATION_STYLE_BY_ARCHETYPE[this.archetypeReadOf(id) ?? ""] ?? "threat-hunter",
       // #1320 night-gate: the HOH→nominations day boundary is live ONLY when the clock pacing is running
       // (the per-conversation clock AND the master clock) — it is the "deeper half" of the fast-forward
       // fix and rides the same pair, so the golden replay (which pins `ORWELL_TIME_PER_CONVERSATION=0`)
@@ -7975,6 +7998,7 @@ export class GameSessionAdapter implements GameSession {
       // trust × progress (the engine tallies; narration only voices). Bounded; never crosses the wall.
       ...(this.campaignsEnabled ? { campaignTiltFor: (target, voter) => this.campaignTiltFor(target, voter) } : {}),
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
+      ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
@@ -9429,6 +9453,17 @@ export class GameSessionAdapter implements GameSession {
     return (r) => { recordRumorClaim((live.beliefs ??= {}), r, live.week); };
   }
 
+  /**
+   * ORW-37 / B40 - lasting GAME PHILOSOPHIES: each NPC plays one philosophy for the whole game (shark / chaos agent / loyal soldier / protector / social climber), a seeded draw conditioned on their archetype
+   * (`philosophy.ts`: most keep their archetype's default, so the table below still describes the modal house; some play against type). The philosophy sets the nomination style they play. ON unless
+   * `ORWELL_PHILOSOPHIES=0`; OFF => the archetype table (today's behaviour). Deterministic in (game seed, houseguest id): no shared rng, nothing persisted.
+   */
+  private philosophiesEnabled = flagDefaultOn("ORWELL_PHILOSOPHIES");
+  setPhilosophiesEnabled(on: boolean): void { this.philosophiesEnabled = on; }
+  philosophyOf(id: EntityId): GamePhilosophy {
+    return drawPhilosophy(this.archetypeReadOf(id) ?? "", hashSeed(`${this.gameSeed ?? 0}:philosophy:${id}`));
+  }
+
   private archetypeOf(id: EntityId): string {
     return this.house?.npcs.find((n) => n.id === id)?.character.archetype ?? "floater";
   }
@@ -10534,7 +10569,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
-    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER]) : undefined;
+    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER], PLAYER) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
     const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
     const decay = this.memoryDecayScale(npcId);
@@ -11797,6 +11832,27 @@ export class GameSessionAdapter implements GameSession {
    *   (2) a `betrayal` rumor they heard about someone ⇒ "they may turn on me" (confidence = the rumor's confidence x 0.5; usually not about the HOH at all).
    * Never reads the relationship edge; never draws the shared rng; the PLAYER is never a holder here.
    */
+  /**
+   * ORW-37 half 2 / B41 - how a pre-show tie's NATURE shapes decisions (`tieBehavior.ts`, decision terms only - NEVER competition odds): the HOH shields a family member / pushes a rival in nominations,
+   * and a voter keeps family / evicts a rival. Applies only between the two PEOPLE the tie binds (they know their own tie). ON unless `ORWELL_TIE_BEHAVIOR=0`; OFF => no ctx provider => byte-identical.
+   * The old friend's pressure-flip (`pressureFlipAt`) and the ex's scene awkwardness are NOT wired here (ASSUMED, pending Ryne): the shield stays.
+   */
+  private tieBehaviorEnabled = flagDefaultOn("ORWELL_TIE_BEHAVIOR");
+  setTieBehaviorEnabled(on: boolean): void { this.tieBehaviorEnabled = on; }
+  private tieBetween(a: EntityId, b: EntityId): PreGameTie | undefined {
+    return this.seededRels?.ties?.find((t) => (t.a === a && t.b === b) || (t.a === b && t.b === a));
+  }
+  tieNomPushFor(target: EntityId, holder: EntityId): number {
+    if (!this.tieBehaviorEnabled || holder === PLAYER || target === PLAYER || target === holder) return 0;
+    const t = this.tieBetween(holder, target);
+    return t ? TIE_BEHAVIOR[t.nature].nominationPush : 0;
+  }
+  tieVotePushFor(nominee: EntityId, voter: EntityId): number {
+    if (!this.tieBehaviorEnabled || voter === PLAYER || nominee === PLAYER || nominee === voter) return 0;
+    const t = this.tieBetween(voter, nominee);
+    return t ? TIE_BEHAVIOR[t.nature].votePush : 0;
+  }
+
   /** B7 M3 - open protective deals feed the HOH's nominations (approved tie-in #3). OFF unless exactly `ORWELL_DEAL_NOMS=1`; never-flipped. OFF => no ctx provider => byte-identical. */
   private dealNomsEnabled = flagDefaultOn("ORWELL_DEAL_NOMS");
   setDealNomsEnabled(on: boolean): void { this.dealNomsEnabled = on; }
@@ -11900,13 +11956,20 @@ export class GameSessionAdapter implements GameSession {
     return RELATIONSHIP_CONSTANTS.dispositionFactors[this.dispositionReadOf(holder) ?? "neutral"].decayScale;
   }
 
-  /** B27 - the FORGIVENESS trait layer (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). OFF unless exactly `ORWELL_FORGIVENESS=1`; never-flipped. OFF => the ledger is read as it always was. */
+  /** B27 - the FORGIVENESS trait layer (ORW-130: whether a houseguest holds a grudge comes from who they are and the relationship - temperament, how bad, repeats, favors, closeness - not a coin). OFF unless exactly `ORWELL_FORGIVENESS=1`; never-flipped. OFF => the ledger is read as it always was. */
   private forgivenessEnabled = flagDefaultOn("ORWELL_FORGIVENESS");
   setForgivenessEnabled(on: boolean): void { this.forgivenessEnabled = on; }
   /** The memory entries `holder` actually reads: the ledger row, with the forgiveness trait applied when the layer is on. Pure; no rng stream is touched. */
-  private memoryEntriesSeenBy(holder: EntityId, entries: readonly MemoryEntry[] | undefined): readonly MemoryEntry[] | undefined {
+  private memoryEntriesSeenBy(holder: EntityId, entries: readonly MemoryEntry[] | undefined, subject: EntityId): readonly MemoryEntry[] | undefined {
     if (!this.forgivenessEnabled || !this.live) return entries;
-    return applyForgiveness(entries, forgivenessTraitOf(hashSeed(`${this.gameSeed ?? 0}:forgive:${holder}`)), this.live.week);
+    // ORW-130: whether THIS holder holds a grudge against THIS subject is a readable function of who the holder is and what happened between them (no coin): their style, their volatility, the bond, the record.
+    const hg = this.house?.npcs.find((n) => n.id === holder);
+    const trait = forgivenessTraitFor(entries, {
+      ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}),
+      volatility: this.soulObj(holder)?.volatility ?? 0.5,
+      closeness: this.rel.bondStrength(holder, subject),
+    });
+    return applyForgiveness(entries, trait, this.live.week);
   }
 
   /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
@@ -11914,7 +11977,7 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER || !this.live) return 0;
     const raw = this.live.npcMemory?.[holder]?.[subject];
     if (!raw || raw.length === 0) return 0;
-    const entries = this.memoryEntriesSeenBy(holder, raw);
+    const entries = this.memoryEntriesSeenBy(holder, raw, subject);
     if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
     return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
   }
@@ -11924,7 +11987,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.npcMemoryEnabled || !this.live) return false;
     const raw = this.live.npcMemory?.[npcId]?.[PLAYER];
     if (!raw || raw.length === 0) return false;
-    const entries = this.memoryEntriesSeenBy(npcId, raw);
+    const entries = this.memoryEntriesSeenBy(npcId, raw, PLAYER);
     return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
   }
 

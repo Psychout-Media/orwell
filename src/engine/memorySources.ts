@@ -9,15 +9,15 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "hcMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
 
 export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
-  evictionVote: ["dealsOf", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor"],
+  evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
-  hohNominations: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor"],
+  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor"],
   // The NPC HOH's replacement pick (`replacementPick(...)`).
   replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
