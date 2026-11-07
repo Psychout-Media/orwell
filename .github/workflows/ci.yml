@@ -133,8 +133,10 @@ jobs:
           fi
           echo "Changed files:"; echo "$changed" | sed 's/^/  /'
 
-          # Helper: does any changed file match the given ERE?
-          matches() { echo "$changed" | grep -qE "$1"; }
+          # Helper: does any changed file match the given ERE? Every test here reads a HERE-STRING, never `echo ... | grep -q`: under pipefail,
+          # grep -q exits at the first match, echo dies of SIGPIPE once the list is bigger than a pipe buffer (64 KB, about 1,300 paths), and
+          # the test reads as "no match", so the lane was skipped exactly when every lane must run (tests/unit/ciPathFilter.test.ts).
+          matches() { grep -qE "$1" <<<"$changed"; }
 
           # `ci/` (the scripts this workflow runs, e.g. ci/resolve-base.sh) counts like this workflow file in EVERY filter: a change to them must run
           # everything (ORW-218 review), never skip every lane.
@@ -173,7 +175,7 @@ jobs:
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
               heavy)     re="$HEAVY_RE" ;;
             esac
-            if echo "$subject" | grep -qE "$re"; then
+            if grep -qE "$re" <<<"$subject"; then
               echo "${name}=true" >> "$GITHUB_OUTPUT"
               echo "==> ${name}: WILL run"
             else
