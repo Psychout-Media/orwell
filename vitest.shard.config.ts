@@ -1,5 +1,5 @@
-import { defineConfig, mergeConfig } from "vitest/config";
-import base from "./vitest.config";
+import { configDefaults, defineConfig, mergeConfig } from "vitest/config";
+import base, { COVERAGE_NIGHTLY_ONLY } from "./vitest.config";
 
 /**
  * ORW-39 (faster release pipeline) - the config the SHARDED coverage legs use.
@@ -12,6 +12,9 @@ export default mergeConfig(
   base,
   defineConfig({
     test: {
+      // ORW-229: per push the coverage legs skip COVERAGE_NIGHTLY_ONLY (those files still run in test-unit on every push); the nightly call sets
+      // ORWELL_COVERAGE_FULL=1 so its coverage covers every file. The floors are unchanged and still enforced once, on the merged blobs.
+      exclude: process.env.ORWELL_COVERAGE_FULL === "1" ? configDefaults.exclude : [...configDefaults.exclude, ...COVERAGE_NIGHTLY_ONLY],
       coverage: {
         thresholds: {
           branches: 0,

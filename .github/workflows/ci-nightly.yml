@@ -1,0 +1,148 @@
+name: ci-nightly
+
+# ORW-229 (docs/CI.md "Nightly"), every night on ubuntu-24.04:
+#   - `full-suite` calls ci.yml with `nightly: true`: every lane and the full tier (a nightly call counts every file as changed, whatever event
+#     started it), the quarantined tests, the SHOWRUNNER_REWEIGHT heavy sims and coverage over EVERY test file with the floors enforced. The
+#     suite is defined once, in ci.yml.
+#   - `quarantined` runs the quarantined tests alone, with NO automatic retry, so a still-flaky one shows up red, and both quarantine guards,
+#     so a quarantine past its 7 days turns the night red even when no PR touches that lane.
+#   - A failing night opens or updates ONE GitHub issue (label `ci-nightly`) naming the run, the failing jobs, the tracking card ORW-234 and each
+#     quarantine's card. The Plane instance is not reachable from GitHub-hosted runners, so the issue points at the cards. Never a required check; no secrets.
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+  # A PR that edits this workflow runs it once, the full suite included, so the change is proven before it merges (no issue is filed from a PR run).
+  pull_request:
+    paths:
+      - ".github/workflows/ci-nightly.yml"
+
+permissions:
+  contents: read
+
+# Serialize without cancelling: a scheduled and a manual run must not both see "no open issue" and each create one.
+concurrency:
+  group: ci-nightly-${{ github.event_name == 'pull_request' && github.ref || 'scheduled' }}
+  cancel-in-progress: false
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: "skip"
+  NPM_CONFIG_FETCH_RETRIES: "5"
+  NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "10000"
+  NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "60000"
+  ORWELL_RUN_QUARANTINED: "1"
+
+jobs:
+  quarantined:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      cards: ${{ steps.which.outputs.cards }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: which tests are quarantined
+        id: which
+        run: |
+          set -euo pipefail
+          engine="$(grep -rlE "from ['\"][./]*([[:alnum:]_-]+/)*support/quarantine['\"]" tests --include='*.ts' \
+            | grep -vE '^tests/(support/quarantine\.ts|unit/ciQuarantineGuard\.test\.ts)$' | sort | tr '\n' ' ' || true)"
+          frontend="$(grep -rlE '\.quarantine\b' frontend/tests --include='*.py' \
+            | grep -vE '/(_quarantine|test_ci_quarantine_guard)\.py$' | sort | tr '\n' ' ' || true)"
+          cards="$(grep -rhoE 'card[=:] *"[A-Z][A-Z0-9]*-[0-9]+"' $engine $frontend /dev/null | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u | tr '\n' ' ' || true)"
+          {
+            echo "engine=$engine"
+            echo "frontend=$frontend"
+            echo "cards=$cards"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Quarantined tests tonight"
+            echo
+            echo "- engine files: ${engine:-none}"
+            echo "- front-end files: ${frontend:-none}"
+            echo "- Plane cards: ${cards:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: build the engine (unit tests and the real-stack browser tests use dist/)
+        run: |
+          npm ci
+          npm run build
+      # Every night, whatever changed: a quarantine older than 7 days (or without a card or a date) turns this run red, even when no PR touches
+      # that lane (ORW-229 review).
+      # From here on every step runs whatever happened before it (`!cancelled()`): a failing engine quarantine (they are flaky, so that is expected)
+      # must not skip the front-end guard and the front-end quarantines (#2279 review).
+      - if: ${{ !cancelled() }}
+        name: quarantine guard (engine)
+        run: npx vitest run tests/unit/ciQuarantineGuard.test.ts
+      - if: ${{ !cancelled() && steps.which.outputs.engine != '' }}
+        name: engine quarantined tests (no retry)
+        env:
+          FILES: ${{ steps.which.outputs.engine }}
+        # only the quarantined tests (their names carry the tag); the rest of those files runs in full-suite (#2305 review)
+        run: npx vitest run $FILES -t '\[quarantined ' --passWithNoTests
+      - if: ${{ !cancelled() }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - if: ${{ !cancelled() }}
+        run: pip install -r frontend/requirements.lock.txt
+      - if: ${{ !cancelled() }}
+        name: quarantine guard (front end)
+        run: cd frontend && python3 -m pytest tests/test_ci_quarantine_guard.py -q
+      - if: ${{ !cancelled() && steps.which.outputs.frontend != '' }}
+        uses: ./.github/actions/setup-playwright
+      - if: ${{ !cancelled() && steps.which.outputs.frontend != '' }}
+        name: front-end quarantined tests, browser and non-browser (serial, no rerun)
+        run: |
+          cd frontend
+          rc=0; python3 -m pytest tests/ -m quarantine -q -rfEs || rc=$?
+          # exit 5 = no test carried the marker after all (e.g. it is only mentioned in a comment): nothing to run is not a failure.
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ]
+
+  # The full suite, defined once in ci.yml. It also runs on the PR trigger (a PR that edits this file), so nightly-only wiring is proven before it
+  # merges (#2305 review); such PRs are rare.
+  full-suite:
+    uses: ./.github/workflows/ci.yml
+    with:
+      nightly: true
+
+  # Open or update the ONE tracking issue on a failing night. Plane is not reachable from GitHub-hosted runners, so the issue names the tracking
+  # card (ORW-234) and each quarantine's card; whoever triages updates those cards.
+  report:
+    needs: [quarantined, full-suite]
+    if: always() && github.event_name != 'pull_request' && (needs.quarantined.result != 'success' || needs.full-suite.result != 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - name: open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          RESULT: ${{ needs.quarantined.result }}
+          FULL: ${{ needs.full-suite.result }}
+          CARDS: ${{ needs.quarantined.outputs.cards }}
+        run: |
+          set -euo pipefail
+          label=ci-nightly
+          gh label create "$label" --color B60205 --description "The nightly CI run failed (docs/CI.md)" 2>/dev/null || true
+          failed="$(gh run view "$RUN_ID" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .name] | join(", ")' 2>/dev/null || true)"
+          body="The nightly CI run failed: $RUN_URL
+
+          - full suite (ci.yml, nightly): \`$FULL\`
+          - quarantined tests (no retry): \`$RESULT\` (their Plane cards: ${CARDS:-none})
+          - failing jobs: ${failed:-see the run}
+
+          Tracked in Plane as ORW-234 (rule: ORW-229, docs/CI.md). Fix what broke, or quarantine a flaky test with its own card; a quarantine expires after 7 days."
+          n="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "Nightly CI failed" --label "$label" --body "$body"; fi

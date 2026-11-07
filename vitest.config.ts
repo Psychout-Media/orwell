@@ -36,16 +36,47 @@ export const HEAVY_SIM_FILES = [
   "tests/calibration/**",
 ];
 
+/**
+ * ORW-229 nightly split: the slowest SEASON-REPLAYING unit/property files. They still run on EVERY push, un-instrumented, in the `test-unit`
+ * legs; only their second, v8-instrumented run in the per-push `coverage-shard` legs is skipped (vitest.shard.config.ts). Measured 2026-11-07: they
+ * are about 75% of the lane's test time (1,597 of 2,128 s in #2240's duration table) and the only cover for about 140 branch arms in the gated dirs
+ * (1% of the 12,664 covered; local, one commit, every file vs this list skipped). On CI the per-push gate then read engine 93.64, composition 91.17,
+ * adapters/engine 91.67, all of src 92.36 (every file: 93.81 / 90.69 / 91.99 / 92.55; floors 90/88/82/80; runs 42339153240 vs 42336377505). The
+ * nightly run (`ORWELL_COVERAGE_FULL=1`, ci-nightly.yml) measures every file with the same floors. Re-measure before adding a file (docs/CI.md).
+ */
+export const COVERAGE_NIGHTLY_ONLY = [
+  // a glob, so the list stays right if the sweep is split into several files (as #2240 proposes)
+  "tests/property/vaultSentinelAnnouncements*.property.test.ts",
+  "tests/unit/earlyEviction.test.ts",
+  "tests/unit/contestedEvictionIntegrity.test.ts",
+  "tests/unit/spectatorReraise.test.ts",
+  "tests/property/reactiveTwistsGuard.property.test.ts",
+  "tests/unit/evictedModePrompt.test.ts",
+  "tests/property/reactiveTwistsPlayerPaths.property.test.ts",
+  "tests/unit/showrunnerReweight.test.ts",
+  "tests/unit/copresenceRumorClaims.test.ts",
+  "tests/unit/socialFatigueNeutral.test.ts",
+  "tests/property/movementStreamIsolation.property.test.ts",
+  "tests/unit/beatAnnouncementBoundary.test.ts",
+  "tests/unit/beliefProvenance.test.ts",
+];
+
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     // A9 flip: pin the premiere-entrances flag per test file (unit lane OFF; property/uat/calibration lanes run the deployed default). See the file.
-    setupFiles: ["tests/support/premiereTestDefault.ts"],
+    // ORW-229 review: tests/support/fastCheckSeed.ts makes each test's fast-check seed a function of the run seed and the test id, so CI's one
+    // automatic retry replays the same cases (a real counterexample can never be retried into green).
+    setupFiles: ["tests/support/premiereTestDefault.ts", "tests/support/fastCheckSeed.ts"],
     // One private, auto-removed TMPDIR per run (the ~95 mkdtemp sites leaked ~8 GB into the RAM-backed /tmp). Guard: tests/unit/tmpRunIsolation.test.ts.
     globalSetup: ["tests/support/tmpRunGlobalSetup.ts"],
     // The architecture test shells out to dependency-cruiser, which can take a
     // moment on a cold cache; give the whole suite generous headroom.
     testTimeout: 30_000,
+    // ORW-229 flaky-test rule (docs/CI.md): on GitHub Actions, also list every test that needed CI's automatic retry (`--retry=1` in ci.yml) in the
+    // job summary, so a flake is counted, not hidden (tests/support/flakyReporter.ts). A lane that passes its own `--reporter` (the coverage-shard
+    // blobs) replaces this list; the `coverage` merge job reads those blobs back and reports their retries.
+    reporters: process.env.GITHUB_ACTIONS === "true" ? ["default", "./tests/support/flakyReporter.ts"] : ["default"],
     coverage: {
       provider: "v8",
       include: ["src/**"],

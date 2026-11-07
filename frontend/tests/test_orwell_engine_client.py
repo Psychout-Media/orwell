@@ -48,8 +48,16 @@ def _patch(monkeypatch, *, resp=None, exc=None):
 
 
 def _run(coro):
+    # A PRIVATE event loop per call (ORW-229 review flake). With the thread's shared loop, a fire-and-forget task another test left on it
+    # (e.g. the competition-fiction kickoff, which calls competitionStagingView) woke up while this module drove the loop, went through the
+    # transport patched here and overwrote the recorded last error: under xdist, last_engine_error() named competitionStagingView instead of
+    # advanceGame. A private loop never runs anyone else's tasks. Not asyncio.run(): it clears the thread's current loop for later tests.
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +117,27 @@ def test_health_detail_reports_the_concrete_reason_when_down(monkeypatch):
 
 
 # --- last-error tracking: "engine up but erroring" is reported, normal states are not ----
+
+def test_run_drives_a_private_loop_so_a_stray_task_on_the_shared_loop_never_wakes_up():
+    """The root cause of the xdist flake: another test's background task on the shared loop must not run during this module's calls."""
+    import asyncio
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        shared = asyncio.get_event_loop()
+    woke = []
+
+    async def stray():
+        woke.append(True)
+
+    task = shared.create_task(stray())
+    try:
+        _run(asyncio.sleep(0))
+        assert woke == [] and not task.done()
+    finally:
+        task.cancel()
+        shared.run_until_complete(asyncio.gather(task, return_exceptions=True))
+
 
 def test_failed_tool_call_records_the_last_error_and_success_clears_it(monkeypatch):
     _patch(monkeypatch, resp=_resp(500, payload={"error": "internal error"}))
