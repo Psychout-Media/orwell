@@ -3,6 +3,8 @@ description: >-
   Python 3.12 with the front-end's pinned dependencies (frontend/requirements.lock.txt). ORW-229 re-shard: the installed interpreter
   directory is cached by the lockfile hash, so each of the many FE/engine legs restores it in a few seconds instead of running its own
   pip install (about 20 s each). A changed lockfile or runner Python is a new key, so the cache can never serve stale packages.
+  Only a run on main SAVES the cache (once per lockfile): saving compresses about 460 MB, which cost 35-89 s in EVERY job of the first
+  re-shard run because every job missed at once. Pull requests only restore main's cache (a PR can read its base branch's caches).
 runs:
   using: composite
   steps:
@@ -10,7 +12,7 @@ runs:
       with:
         python-version: "3.12"
     - id: deps
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: ${{ env.pythonLocation }}
         key: fe-python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('frontend/requirements.lock.txt') }}
@@ -18,3 +20,8 @@ runs:
       name: install front-end deps (cache miss)
       shell: bash
       run: pip install -r frontend/requirements.lock.txt
+    - if: steps.deps.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ env.pythonLocation }}
+        key: fe-python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('frontend/requirements.lock.txt') }}
