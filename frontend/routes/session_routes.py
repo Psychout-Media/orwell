@@ -857,7 +857,10 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             session = session_manager.get_session(sid)
         except KeyError:
             raise HTTPException(404, f"Session {sid} not found")
-        return {"history": [msg.to_dict() for msg in session.history]}
+        # R-VLT-2 (ORW-230): a game or casting session's reload never carries the narrator's reasoning. This
+        # handler is registered before history_routes' `/api/history/{session_id}`, so it is the one served.
+        from routes.chat_helpers import player_visible_history
+        return {"history": player_visible_history(session, [msg.to_dict() for msg in session.history])}
     
     @router.get("/session/{sid}/export")
     def export_session(request: Request, sid: str, fmt: str = "md", filename: str = ""):
