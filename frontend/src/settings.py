@@ -150,16 +150,14 @@ DEFAULT_SETTINGS = {
     "agent_max_tool_calls": 0,
     "agent_max_rounds": 20,  # per-message agent step cap (clamped 1..200)
     "agent_input_token_budget": 6000,
-    # Ceiling on the *auto-derived* input budget that #1230 introduced. Has
-    # no effect when `agent_input_token_budget` is explicitly changed off its
-    # default (the user's value is honoured regardless). Default matches
-    # `src.context_budget.DEFAULT_HARD_MAX` (48k — a cost-bounded fraction of a
-    # long-context window that still fits the whole narrative conversation, so
-    # NPCs stay consistent turn to turn); lower this for cost-paranoid setups,
-    # raise it on premium APIs with very large windows that you want to actually
-    # use (e.g. 900_000 to fill a 1M-context model). See `compute_input_token_budget`
-    # in src/context_budget.py.
-    "agent_input_token_hard_max": 48_000,
+    # Ceiling on the *auto-derived* input budget (#1230). No effect when `agent_input_token_budget` is
+    # explicitly changed off its default. 0 (the default) means AUTO: a model whose context window is
+    # 500,000 tokens or more gets 0.60 x its window (600,000 for a 1M model, so a long game keeps its
+    # history), and a smaller window keeps a 48,000 cap. Any other number is an explicit cap and is
+    # honoured exactly, 48000 included, on every model. Saved files that still carry 48000 from the old
+    # default count as an explicit 48K cap; set 0 (or remove the key) to get AUTO. See
+    # `compute_input_token_budget` in src/context_budget.py.
+    "agent_input_token_hard_max": 0,
     "agent_stream_timeout_seconds": 300,
     # N4 (2026-07-16 live-playthrough forensics): `agent_stream_timeout_seconds` above only
     # guards the STREAMING path (agent_loop.py's `stream_llm` call). The async NON-stream
@@ -723,11 +721,39 @@ def load_settings() -> dict:
             saved = json.load(f)
         if not isinstance(saved, dict):
             raise ValueError("settings must be an object")
+        saved = _migrate_legacy_hard_max(saved)
         merged = {**DEFAULT_SETTINGS, **saved}
     except (FileNotFoundError, PermissionError, json.JSONDecodeError, ValueError):
         merged = dict(DEFAULT_SETTINGS)
     _settings_cache = (now, merged)
     return merged
+
+
+_LEGACY_HARD_MAX = 48_000
+_hard_max_migration_logged = False
+
+
+def _migrate_legacy_hard_max(saved: dict) -> dict:
+    """ORW-219 one-time migration: the old default for ``agent_input_token_hard_max`` was 48000 and settings-repair
+    persisted it, so such installs would read it as an EXPLICIT 48K cap and stay truncated on big-window models.
+    Rewrite exactly 48000 to 0 (auto; auto still gives 48K on windows under 500K, so only 500K+ windows change).
+    Any other value is an operator choice and is left alone. Applied in memory always, and written back once
+    (best effort); logged once per process."""
+    global _hard_max_migration_logged
+    v = saved.get("agent_input_token_hard_max")
+    if isinstance(v, bool) or v != _LEGACY_HARD_MAX:
+        return saved
+    migrated = {**saved, "agent_input_token_hard_max": 0}
+    if not _hard_max_migration_logged:
+        _hard_max_migration_logged = True
+        logger.warning("settings: migrated legacy agent_input_token_hard_max=48000 to 0 (auto; 0.60 x window on windows "
+                       ">= 500K tokens, 48K cap below). Set an explicit other number to pin a cap.")
+    try:
+        from core.atomic_io import atomic_write_json
+        atomic_write_json(SETTINGS_FILE, migrated, indent=2)
+    except Exception as e:  # noqa: BLE001 - read-only store etc.: the in-memory value is already migrated
+        logger.debug("settings: could not persist hard_max migration: %s", e)
+    return migrated
 
 
 def save_settings(settings: dict):

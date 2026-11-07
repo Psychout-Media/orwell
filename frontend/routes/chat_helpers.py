@@ -7830,10 +7830,13 @@ async def build_chat_context(
     )
 
     # Auto-compact
+    # ORW-219: maybe_compact deliberately gets NO input_budget_fn here. Compaction rewrites (deletes) stored
+    # chat rows, which breaks non-degradation (mandate #4); it stays on its legacy 85%-of-window trigger
+    # (unchanged; reachable at 85% of the raw window; game sessions guarded by ORW-224). The trimmer only drops old turns from the PROMPT, never from the database.
     messages, context_length, was_compacted = await maybe_compact(
         sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
     )
-    messages = trim_for_context(messages, context_length)
+    messages = trim_for_context(messages, context_length, preserve_system=bool(game_active or framed))
 
     # #1735 (A4) — append this turn's terminal HARD-CONSTRAINTS block as the caller's OWN LAST message,
     # AFTER the transcript (the last user turn included) and AFTER compaction/trimming, so it can never
