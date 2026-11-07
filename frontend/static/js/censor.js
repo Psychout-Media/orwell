@@ -18,6 +18,8 @@
 let _enabled = true;
 let _observer = null;
 const PREF_KEY = 'orwell-sensitive-blur';
+import { frameBatched, liveAddedElements } from './frameBatch.js';
+
 export const _prefEnabled = () => {
   try {
     return localStorage.getItem(PREF_KEY) === 'on';
@@ -94,20 +96,18 @@ function _loadState() {
 function _startObserver() {
   if (_observer) return;
   // Observe chat-history, compare panes, and split panes for new messages
-  _observer = new MutationObserver((mutations) => {
+  // ORW-157: once per frame over the still-attached added nodes (a streamed reply replaces its tail every token)
+  _observer = new MutationObserver(frameBatched((mutations) => {
     if (!_enabled) return;
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        // Process any .body elements within newly added nodes
-        if (node.classList && node.classList.contains('body')) {
-          _scheduleProcess(node);
-        } else if (node.querySelectorAll) {
-          node.querySelectorAll('.msg .body, .msg-ai .body').forEach(b => _scheduleProcess(b));
-        }
+    for (const node of liveAddedElements(mutations)) {
+      // Process any .body elements within newly added nodes
+      if (node.classList && node.classList.contains('body')) {
+        _scheduleProcess(node);
+      } else if (node.querySelectorAll) {
+        node.querySelectorAll('.msg .body, .msg-ai .body').forEach(b => _scheduleProcess(b));
       }
     }
-  });
+  }));
 
   // Observe the entire main area for new messages
   const targets = [

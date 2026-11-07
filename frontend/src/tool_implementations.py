@@ -5158,9 +5158,30 @@ async def do_create_character(
                 orwell_producer_authoring.kickoff_producer_authoring(owner)
             except Exception as e:  # noqa: BLE001 — persona flavor; never block game start
                 logger.warning("[create] producer-authoring kickoff failed: %s", e)
-        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+        # ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an auto-corrected change is not a cloak)
+        # and a plain line for the narrator so the casting card and the player are told the STORED style, never the one asked for.
+        _out = json.dumps(res, indent=2)
+        _adj = res.get("strategyStyleAdjusted") if isinstance(res, dict) else None
+        if isinstance(_adj, dict) and _adj.get("applied"):
+            try:
+                from src import enrichment_policy as _ep_style
+                _ep_style.record_runtime_failure(
+                    owner, "casting-strategy-style",
+                    f"engine stored strategy style '{_adj.get('applied')}' instead of the requested '{_adj.get('requested')}' "
+                    f"(not offered by archetype '{_adj.get('archetype')}') - auto-corrected, RED-eligible per #1599",
+                    detail=json.dumps(_adj))
+            except Exception:
+                pass
+            _out += STRATEGY_STYLE_ADJUSTED_NOTE.format(applied=_adj.get("applied"), requested=_adj.get("requested"), archetype=_adj.get("archetype"))
+        return {"output": _out, "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+STRATEGY_STYLE_ADJUSTED_NOTE = (
+    "\n\nNOTE (engine truth): the stored strategy style is \"{applied}\" - the \"{archetype}\" archetype does not offer \"{requested}\", so the engine kept \"{applied}\". "
+    "The casting card shows the stored style; tell the player plainly if they asked for \"{requested}\" and do not describe their strategy as \"{requested}\"."
+)
 
 
 async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:

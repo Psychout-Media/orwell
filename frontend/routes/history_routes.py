@@ -7,15 +7,27 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, Request, HTTPException
 
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata, client_metadata_update
 from core.database import SessionLocal, ChatMessage as DbChatMessage, Session as DbSession
 from src.topic_analyzer import analyze_topics
 from routes.session_routes import (
     _message_role,
     _message_text,
     _reject_compact_during_active_run,
+    _reject_compact_for_game_session,
     _verify_session_owner,
 )
+
+def _without_admin_engine_results(entries):
+    """ORW-187 - return copies of the history entries whose `metadata` went through `core.models.public_metadata` (admin-only tool-event fields removed; storage untouched)."""
+    out = []
+    for e in entries:
+        md = e.get("metadata") if isinstance(e, dict) else None
+        if isinstance(md, dict) and "tool_events" in md:
+            e = {**e, "metadata": public_metadata(md)}
+        out.append(e)
+    return out
+
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +142,7 @@ def setup_history_routes(session_manager) -> APIRouter:
                 db.close()
 
         return {
-            "history": history_dict,
+            "history": _without_admin_engine_results(history_dict),
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "name": session.name,
@@ -214,7 +226,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             content = body.get("content", "")
             if not content:
                 raise HTTPException(400, "content is required")
-            msg = ChatMessage(role=role, content=content, metadata=body.get("metadata"))
+            msg = ChatMessage(role=role, content=content, metadata=public_metadata(body.get("metadata")))  # ORW-187: a client can never store an admin-only engine_result
             session_manager.add_message(session_id, msg)
             return {"status": "ok"}
         except KeyError:
@@ -397,7 +409,7 @@ def setup_history_routes(session_manager) -> APIRouter:
         _verify_session_owner(request, session_id)
         try:
             body = await request.json()
-            meta_update = body.get("metadata", {})
+            meta_update = client_metadata_update(body.get("metadata", {}))  # ORW-187: a client can never overwrite/forge/delete the server-owned tool_events (admin ledger)
             session = session_manager.get_session(session_id)
 
             # Update in-memory
@@ -597,12 +609,13 @@ def setup_history_routes(session_manager) -> APIRouter:
             session = session_manager.get_session(session_id)
         except KeyError:
             raise HTTPException(404, "Session not found")
+        _reject_compact_for_game_session(session)
         _reject_compact_during_active_run(session_id)
 
         try:
             from src.model_context import estimate_tokens, get_context_length
             from src.llm_core import llm_call_async
-            from src.endpoint_resolver import resolve_endpoint
+            from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
 
             if len(session.history) < 6:
                 return {"status": "ok", "message": "Not enough messages to compact"}
@@ -629,7 +642,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             util_url, util_model, util_headers = resolve_endpoint("utility", owner=owner or None)
             compact_url = util_url or session.endpoint_url
             compact_model = util_model or session.model
-            compact_headers = util_headers if util_url else session.headers
+            compact_headers = util_headers if util_url else resolve_session_headers(session)
 
             from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT
             compaction_count = sum(1 for m in session.history if isinstance(m, ChatMessage) and "[Conversation summary" in (m.content or ""))

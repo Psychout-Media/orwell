@@ -6,6 +6,7 @@
 
 import uiModule from './ui.js';
 import { splitTableRow } from './markdown/tableRow.js';
+import { frameBatched, liveAddedElements } from './frameBatch.js';
 import { replaceEmojiShortcodes, hasEmojiShortcode } from './emojiShortcodes.js';
 
 var escapeHtml = uiModule.esc;
@@ -1953,13 +1954,10 @@ document.addEventListener('keydown', function(e) {
     const root = document.body;
     if (!root) return;
     _apply(root);
-    new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes) {
-          if (node.nodeType === 1) _apply(node);
-        }
-      }
-    }).observe(root, { childList: true, subtree: true });
+    // ORW-157: once per frame over the nodes still attached (a streamed reply replaces its tail every token).
+    new MutationObserver(frameBatched((mutations) => {
+      for (const node of liveAddedElements(mutations)) _apply(node);
+    })).observe(root, { childList: true, subtree: true });
   };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });

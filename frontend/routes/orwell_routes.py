@@ -883,7 +883,7 @@ def setup_orwell_routes() -> APIRouter:
             # chat-blocking frame — so it uses the wider POLL timeout, not the tight framing default.
             # A generation-busy engine briefly slowed this read enough to ReadTimeout at 3s (prod
             # bundle 2026-06-22); the poll bound lets the transient resolve instead of 502-ing.
-            st = await orwell_engine.get_game_state(
+            st = await orwell_engine.get_game_state_polled(
                 user=_current_user(request), timeout=orwell_engine._POLL_TIMEOUT)
             _clear_warn("state")
             # #1313: while the house-entry gate holds, report the casting/holding state, never a
@@ -919,7 +919,7 @@ def setup_orwell_routes() -> APIRouter:
         Pre-game ("no active game") is an honest 200 {started:false} — NOT a fake 502 outage
         (field bug: the panel's poll logged a 502 per refresh on a healthy, game-less box)."""
         try:
-            st = await orwell_engine.game_status(user=_current_user(request))
+            st = await orwell_engine.game_status_polled(user=_current_user(request))
             # D3/E66: the current pending decision rides along so the decision card can re-arm after
             # a reload. The engine's own `pending` (now on gameStatus, persisted 0030) is AUTHORITATIVE
             # — a present value, INCLUDING null, is engine truth and is trusted as-is. Only fall back to
@@ -1087,7 +1087,7 @@ def setup_orwell_routes() -> APIRouter:
         # L15: a roster read tolerates a busier engine than a chat-framing read — use the wider
         # POLL timeout (still bounded) so a generation-busy queue doesn't blank the cast on every poll.
         try:
-            state = await orwell_engine.get_game_state(user=user, timeout=orwell_engine._POLL_TIMEOUT)
+            state = await orwell_engine.get_game_state_polled(user=user, timeout=orwell_engine._POLL_TIMEOUT)
         except Exception as e:
             # Transient read failure (e.g. the per-user queue is busy committing portraits): keep
             # the cast on screen by serving the last roster we built, never an empty one.
@@ -1161,7 +1161,7 @@ def setup_orwell_routes() -> APIRouter:
         # often under load.
         state: dict = {}
         try:
-            got = await orwell_engine.get_game_state(user=user, timeout=orwell_engine._POLL_TIMEOUT)
+            got = await orwell_engine.get_game_state_polled(user=user, timeout=orwell_engine._POLL_TIMEOUT)
             if isinstance(got, dict):
                 state = got
         except Exception as e:
@@ -1179,7 +1179,7 @@ def setup_orwell_routes() -> APIRouter:
         Vault-freedom argument."""
         user = _current_user(request)
         try:
-            state = await orwell_engine.get_game_state(user=user, timeout=orwell_engine._POLL_TIMEOUT)
+            state = await orwell_engine.get_game_state_polled(user=user, timeout=orwell_engine._POLL_TIMEOUT)
         except Exception as e:
             _warn_throttled("dossier", f"[orwell] dossier state read failed: {_err_detail(e)}")
             return {"found": False}

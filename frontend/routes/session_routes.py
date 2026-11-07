@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, HTTPException, Response, Request
 import logging
 
 from core.session_manager import SessionManager
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata
 from src.request_models import SessionResponse
 from core.database import Session as DbSession, SessionLocal, Document, GalleryImage
 from src.auth_helpers import get_current_user, effective_user, _auth_disabled
@@ -90,6 +90,13 @@ def _reject_compact_during_active_run(session_id: str) -> None:
     from src import agent_runs
     if agent_runs.is_active(session_id):
         raise HTTPException(409, "Session has an active run; try compacting after it finishes")
+
+
+def _reject_compact_for_game_session(session) -> None:
+    """ORW-224: manual compaction rewrites stored rows; refuse it for game and casting sessions."""
+    from src.context_compactor import GAME_COMPACTION_REFUSAL, is_game_or_casting_session
+    if is_game_or_casting_session(session):
+        raise HTTPException(409, GAME_COMPACTION_REFUSAL)
 
 
 def _verify_session_owner(request: Request, session_id: str, session_manager=None):
@@ -196,7 +203,12 @@ def _persist_session_headers(session_id: str, headers: dict | None) -> None:
     try:
         db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
         if db_session:
-            db_session.headers = headers or {}
+            # ORW-199/200: the endpoint record supplies auth at call time; do not persist a
+            # plain-text copy of the provider key when an endpoint resolves for this URL.
+            from src.endpoint_resolver import persistable_session_headers
+            db_session.headers = persistable_session_headers(
+                db_session.endpoint_url or "", headers or {}, getattr(db_session, "owner", None),
+            ) or {}
             db_session.updated_at = datetime.utcnow()
             db.commit()
     except Exception:
@@ -588,7 +600,10 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                 if db_session:
                     db_session.model = model
                     db_session.endpoint_url = endpoint_url
-                    db_session.headers = session.headers or {}
+                    from src.endpoint_resolver import persistable_session_headers
+                    db_session.headers = persistable_session_headers(
+                        endpoint_url, session.headers or {}, getattr(db_session, "owner", None),
+                    ) or {}
                     db_session.updated_at = datetime.utcnow()
                     db.commit()
             finally:
@@ -609,7 +624,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
         messages = body.get("messages", [])
         from core.models import ChatMessage
         for m in messages:
-            sess.add_message(ChatMessage(m["role"], m["content"], metadata=m.get("metadata")))
+            sess.add_message(ChatMessage(m["role"], m["content"], metadata=public_metadata(m.get("metadata"))))
         session_manager.save_sessions()
         return {"ok": True, "count": len(messages)}
 
@@ -1012,6 +1027,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             session = session_manager.get_session(session_id)
         except KeyError:
             raise HTTPException(404, f"Session {session_id} not found")
+        _reject_compact_for_game_session(session)
         _reject_compact_during_active_run(session_id)
 
         history = list(session.history or [])
@@ -1027,13 +1043,13 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             raise HTTPException(400, "Nothing old enough to compact")
 
         from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT
-        from src.endpoint_resolver import resolve_endpoint
+        from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
         from src.llm_core import llm_call_async
 
         owner = getattr(session, "owner", None) or effective_user(request)
         url, model, headers = resolve_endpoint("utility", owner=owner)
         if not url or not model:
-            url, model, headers = session.endpoint_url, session.model, session.headers
+            url, model, headers = session.endpoint_url, session.model, resolve_session_headers(session)
         if not url or not model:
             raise HTTPException(400, "No model configured for compaction")
 

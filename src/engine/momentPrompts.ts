@@ -1880,6 +1880,38 @@ function premiereEntranceLines(
 }
 
 /**
+ * ORW-249 / ORW-248 - COMMIT BEFORE VOICE (slice 1). The ceremony SCRIPT (the nominations key ritual, the veto draw grammar, the eviction reveal) is delivered only once the engine has committed what it scripts.
+ * While the outcome is UNCOMMITTED and the engine is not asking the player for a decision (`pending`), the narrator gets the social moment plus a plain "has NOT happened" line instead - so a narrator
+ * that is holding the house social (production has not called the event) has no ritual in its context to voice. Pure read of the Vault-free view; null = the fragment is delivered unchanged.
+ */
+/** The fragment that stands in for a ceremony script while the engine has not run it. Its OWN constant (not the managed `social` entry), so editing one managed moment never moves another moment's prompt (0018). */
+const UNCOMMITTED_CEREMONY_FRAGMENT =
+  "MOMENT — The house is social. Play the player's conversations, the scheming and the lingering as ordinary play; the game's closed-set events (nominees, the veto, a vote, a result) exist only once the game has run them.";
+
+function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace: boolean; note: string } | null {
+  if (view.pending) return null; // the engine is asking for the player's own decision: that card keeps its script
+  const c = view.ceremony;
+  switch (moment) {
+    case "nominations":
+      if ((c?.nominees?.length ?? 0) > 0) return null;
+      return { replace: true, note: "MOMENT NOTE - the nomination ceremony has NOT happened yet: the game has not run it, so no nominee exists. Do not narrate the ceremony, its ritual (the keys, the names, the speeches) or any nominee. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    case "veto-competition":
+      if ((c?.veto?.players?.length ?? 0) === 0) {
+        return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+      }
+      if (!c?.veto?.holder) {
+        return { replace: false, note: "MOMENT NOTE - the veto winner has NOT been decided: the game has drawn the six players but has not run the competition. Voice the draw and the field the game gave you; never name a winner, a result or a drop until advanceGame returns it." };
+      }
+      return null;
+    case "eviction":
+      if (view.eviction) return null;
+      return { replace: true, note: "MOMENT NOTE - the eviction has NOT happened yet: the game has not run the vote, so there is no tally and no evictee. Do not narrate the vote, the reveal or the result. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    default:
+      return null;
+  }
+}
+
+/**
  * Compose the full system prompt to inject for a moment: base persona + beat fragment + Vault-free
  * context. `worldContext` (feature 0062) is the OPTIONAL "the world you all moved in with" block — the
  * frozen, shared real-world flavor (built Vault-free by the engine adapter from the persisted snapshot,
@@ -1901,11 +1933,14 @@ export function buildSystemPrompt(
   if (levers?.npcTells === true) base = withTellsInstruction(base);
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
+  const gate = uncommittedCeremonyGate(moment, view);
   return [
     base,
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)
       ? premiereEntrancesFragment()
-      : momentFragment(moment),
+      : gate
+        ? (gate.replace ? UNCOMMITTED_CEREMONY_FRAGMENT : momentFragment(moment)) + "\n\n" + gate.note
+        : momentFragment(moment),
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.
     ...(producerVoice ? [producerVoice] : []),
