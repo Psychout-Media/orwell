@@ -3778,9 +3778,37 @@ def forget_knowledge_wall(user) -> None:
         _KW_SOURCE_LAST_GOOD.pop(k, None)
 
 
+def _forget_season_pacing(user) -> None:
+    """ORW-231 — a new season starts with none of the last season's turn-steering state. The
+    active→inactive framing edge already drops some of it, but a direct restart (`/api/orwell/new-game`,
+    a confirmed restart, a God-Mode reset) never passes through an inactive turn, so the season start
+    clears it too:
+      * the held social runway, steers, production hold and premiere counters (`clear_social_runway`);
+      * the armed S1b forced-advance escalation;
+      * an owed chyron or aired-fact steer (`clear_preresolve_debt`);
+      * the ORW-10 cut streak and the queued next-turn re-grounds;
+      * the premiere entrance stash.
+    Registered on `orwell_engine.on_season_reset`; another user's state is never touched; never raises."""
+    for clear in (clear_social_runway, clear_advance_escalation, clear_preresolve_debt):
+        try:
+            clear(user)
+        except Exception:
+            logger.debug("[orwell] season-pacing reset step %s skipped for user=%s", clear.__name__, user)
+    try:
+        dkey = _desync_key(user)
+        _CUT_STREAK.pop(dkey, None)
+        _DESYNC_REGROUND.pop(dkey, None)
+        rkey = _runway_key(user)
+        _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
+        _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
+    except Exception:
+        logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
+
+
 try:  # register at import; fail-soft so a missing engine module never breaks chat_helpers
     from src import orwell_engine as _oe_for_reset
     _oe_for_reset.on_season_reset(forget_knowledge_wall)
+    _oe_for_reset.on_season_reset(_forget_season_pacing)  # ORW-231
 except Exception:
     pass
 
