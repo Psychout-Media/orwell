@@ -2359,7 +2359,14 @@ _CLAIM_EVICT_RESULT_RE = re.compile(
 # didn't move, the engine never committed a nomination.
 _CLAIM_NOMINATED_RE = re.compile(
     r"\b(?:nominat(?:e[sd]?|ing)|put(?:s|ting)?\s+(?:\w+\s+){0,3}?on the block|"
-    r"on the (?:chopping )?block|the nominees are|named (?:as )?(?:a )?nominee)\b",
+    r"on the (?:chopping )?block|the nominees are|named (?:as )?(?:a )?nominee|"
+    # ORW-248 (prod 2026-11-07): the nominations RITUAL narrated without ever saying "nominate" - the key walk ("turns a key for each safe houseguest", "the two without a key"), "up for eviction", and a
+    # ceremony narrated as begun ("the nomination ceremony begins"). The nominations moment prompt itself prescribes the key ritual, so a narrator told to stay social still reached the player with it.
+    r"(?:are|is|were|been|now|both)\s+up\s+for\s+eviction|up\s+for\s+eviction\s+(?:this\s+week|tonight)|"
+    r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b|"
+    r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
+    r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
+    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
     re.IGNORECASE,
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
