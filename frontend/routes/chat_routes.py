@@ -853,7 +853,10 @@ def setup_chat_routes(
             max_tokens=ctx.preset.max_tokens,
             prompt_type=preset_id,
         )
-        _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model})
+        # ORW-230: a framed turn here is the casting interview or the feeds-down framing (a live game turn was
+        # refused above). Its think blocks never become the saved reply, and the caller is sent that same
+        # narration, not the raw reply (R-VLT-2).
+        _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model}, game=bool(ctx.framed))
         sess.add_message(ChatMessage("assistant", _clean_reply, metadata=_clean_md))
 
         from core.database import update_session_last_accessed
@@ -870,7 +873,7 @@ def setup_chat_routes(
             allow_background_extraction=not tool_policy.block_all_tool_calls,
         )
 
-        return {"response": reply}
+        return {"response": _clean_reply if ctx.framed else reply}
 
     # ------------------------------------------------------------------ #
     # The shared narration pipeline behind POST /api/chat_stream. Extracted as
