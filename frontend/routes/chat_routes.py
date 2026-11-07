@@ -1310,8 +1310,9 @@ def setup_chat_routes(
             research_sources = None
             web_sources = ctx.web_sources
 
-            # Register active stream for partial-save safety net
-            _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode}
+            # Register active stream for partial-save safety net. ORW-243: `framed` notes a game, casting or
+            # feeds-down turn, whose streamed `partial` stream_status never returns (R-VLT-2).
+            _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode, "framed": bool(ctx.framed)}
 
             # Early SSE keepalive (E): flush the connection — commit the 200 + a byte — BEFORE the
             # model's first token, which can be many seconds out on a cold/loaded provider. An
@@ -2258,7 +2259,13 @@ def setup_chat_routes(
             # exact path sessions.js polls each turn. Both client consumers already branch on
             # `status !== 'streaming'`, so the idle payload is drop-in compatible.
             return {"status": "idle"}
-        return rec
+        # ORW-243 (R-VLT-2): `partial` is the raw streamed text, any open <think> included, so a framed (game,
+        # casting, feeds-down) turn never returns it. Fail closed: only a record registered as unframed does. No
+        # client reads it (sessions.js reads status/mode/is_research). The internal flag is never echoed.
+        status = {k: v for k, v in rec.items() if k != "framed"}
+        if rec.get("framed") is not False:
+            status.pop("partial", None)
+        return status
 
     # ------------------------------------------------------------------ #
     # POST /api/inject_context
