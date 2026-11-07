@@ -129,7 +129,7 @@ def test_committed_table_is_valid_and_matches_the_real_test_files():
     # Refresh the table now and then (tests/_ci_refresh_durations.py); a missing entry only costs balance, never coverage.
 
 
-@pytest.mark.parametrize("total", [2, 3, 4])
+@pytest.mark.parametrize("total", [2, 3, 4, 5])
 def test_every_real_test_file_is_in_exactly_one_shard(total):
     files = [f"tests/{n}" for n in _real_test_files() for _ in range(2)]  # two collected tests per file
     parts = [select_shard(files, i, total) for i in range(1, total + 1)]  # the real committed table

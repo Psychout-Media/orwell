@@ -1,0 +1,20 @@
+name: setup-fe-python
+description: >-
+  Python 3.12 with the front-end's pinned dependencies (frontend/requirements.lock.txt). ORW-229 re-shard: the installed interpreter
+  directory is cached by the lockfile hash, so each of the many FE/engine legs restores it in a few seconds instead of running its own
+  pip install (about 20 s each). A changed lockfile or runner Python is a new key, so the cache can never serve stale packages.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - id: deps
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.pythonLocation }}
+        key: fe-python-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('frontend/requirements.lock.txt') }}
+    - if: steps.deps.outputs.cache-hit != 'true'
+      name: install front-end deps (cache miss)
+      shell: bash
+      run: pip install -r frontend/requirements.lock.txt

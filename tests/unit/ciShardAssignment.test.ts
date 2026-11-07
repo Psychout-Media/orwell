@@ -29,7 +29,7 @@ describe("duration-aware shard assignment (ORW-218)", () => {
     expect(Object.keys(durations).length).toBeGreaterThan(400);
   });
 
-  for (const count of [2, 3, 4, 5]) {
+  for (const count of [2, 3, 4, 5, 6]) {
     it(`${count} legs: every test file is in exactly one leg (union == full set, none dropped, none twice)`, () => {
       const legs = assignShards(files, durations, count);
       expect(legs).toHaveLength(count);
