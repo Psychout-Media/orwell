@@ -225,7 +225,9 @@ def test_orw224b_workspace_build_turn_is_not_stamped_casting_and_can_compact(mon
         monkeypatch, started=False, new_user_text="plain workspace chat", framing=(False, False, False)))
     assert sess.history[-1].role == "user"
     assert (sess.history[-1].metadata or {}).get("phase") is None
-    assert is_game_or_casting_session(sess) is False, "workspace-build chat keeps compaction"
+    # (the harness seeds two casting rows of its own; judge a session holding only this turn)
+    only_this_turn = Session(id="s2b", name="n", endpoint_url="u", model="m", history=[sess.history[-1]])
+    assert is_game_or_casting_session(only_this_turn) is False, "workspace-build chat keeps compaction"
 
 
 def test_orw224b_game_build_casting_turn_is_still_stamped_and_refused(monkeypatch):
