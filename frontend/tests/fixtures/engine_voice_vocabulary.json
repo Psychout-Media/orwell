@@ -1,0 +1,12 @@
+{
+  "_comment": "ORW-184: the engine's seeded VOICE vocabulary, shared by both halves of one contract. `dials` must equal VOICE_DIALS in src/engine/voice.ts, and `fingerprintTemplate` must equal the format voiceFingerprint() renders (the roster card's `voice` clause the cast-authoring prompt hands the model as its brief). Guarded both ways: tests/unit/voiceVocabularyFixture.test.ts (the engine matches this file) and frontend/tests/test_orw184_voice_repair.py (the FE voice lint accepts every engine dial value, and the FE clause parser inverts the template). Change the engine vocabulary or template HERE too, which forces the FE side to be checked in the same PR.",
+  "dials": {
+    "register": ["formal", "polished", "plainspoken", "folksy", "crude"],
+    "rhythm": ["clipped", "staccato", "measured", "rambling"],
+    "energy": ["flat", "even", "warm", "buzzy", "manic"],
+    "directness": ["evasive", "diplomatic", "candid", "blunt"],
+    "humor": ["none", "dry", "self-deprecating", "goofy", "cutting"],
+    "stressTell": ["goes quiet", "gets clipped", "over-explains", "talks faster", "deflects with a joke"]
+  },
+  "fingerprintTemplate": "talks in a {register}, {rhythm}, {directness} voice — {energy}, {humor} humor; under pressure {stressTell}"
+}
