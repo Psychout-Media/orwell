@@ -14,7 +14,7 @@ community-scripts:
 # by the OUTER shell — actually sees it; fetch via the GitHub contents API, not raw.githubusercontent
 # (which 404s for fine-grained PATs). Works with a fine-grained (Contents: Read) OR classic (repo) PAT.
 export GIT_TOKEN=github_pat_xxx
-bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 # update — run the LOCAL checked-out copy (no GitHub fetch; audit E84)
 bash /opt/orwell/deploy/orwell-update.sh
 ```

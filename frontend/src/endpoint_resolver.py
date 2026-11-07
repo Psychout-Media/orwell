@@ -243,7 +243,7 @@ def build_headers(api_key: Optional[str], base: str) -> Dict[str, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if provider == "openrouter":
-        headers.setdefault("HTTP-Referer", "https://github.com/kevinhirsch/orwell")
+        headers.setdefault("HTTP-Referer", "https://github.com/Psychout-Media/orwell")
         headers.setdefault("X-OpenRouter-Title", "Orwell")
     return headers
 
