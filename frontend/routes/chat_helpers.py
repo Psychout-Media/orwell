@@ -4397,7 +4397,12 @@ _CLAIM_VETO_INTENT_RE = re.compile(
 _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
-    r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+    r"think(?:s|ing)?\s+about|whether"
+    # ORW-25 (A80): a supposition ("Imagine the nominees aren't set yet") and a negated report ("Nobody says the
+    # nominees haven't been named") assert nothing about the current board either.
+    r"|imagine|imagining|suppose|supposing|assuming|in\s+case|hypothetically|pretend(?:s|ed|ing)?"
+    r"|(?:nobody|no\s+one|none\s+of\s+them)\s+(?:says?|said|claims?|claimed|thinks?|thought|believes?|"
+    r"pretends?|mentions?|suggests?))\b", re.IGNORECASE)
 
 # N-6: a hypothetical / conditional / past-week sentence ("If Ian wins the veto...", "whoever wins", "when she wins", "last week's HOH") is not an assertion
 # about the CURRENT board, so it is never a contradiction. The narration path's hypothetical detector plus the aside-specific temporal cues.
@@ -4563,8 +4568,9 @@ def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
 
 
 # the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
-# first clause cannot hide an explicit later contradiction
-_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
+# first clause cannot hide an explicit later contradiction. ORW-25: a colon ends a clause too, so the exclamation in
+# "Imagine that: the nominees haven't been named." does not cover the denial after it.
+_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
 
 
 def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
@@ -4716,7 +4722,8 @@ def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
                 name = next((g for g in m.groups() if g), None)
                 if not name or _name_matches(name, holder) or not _name_matches_active(name, live):
                     continue
-                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1]
+                # ORW-25: the lead also ends at a colon ("Imagine that: <name> gets there first" is a claim)
+                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1].rsplit(":", 1)[-1]
                 if _VETO_N1_HYP_RE.search(lead):
                     continue
                 return ("the WRONG houseguest as the veto winner / user (the engine's Power of Veto holder is "
