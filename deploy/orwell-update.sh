@@ -1157,9 +1157,17 @@ cleanup_inherited_cruft() {
   # Running as the DB's owner keeps every sidecar owned by that user. python3's sqlite3 module first
   # (the production box has no sqlite3 CLI); the CLI path only on a box without python3.
   local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"   # the FE store (frontend/data), not engine data/
-  local removed="" rc=0
+  local removed="" rc=0 errf="" why=""
   if [[ -f "$db" ]]; then
-    removed="$(_svc_cleanup_mcp_rows_py "$db" 2>/dev/null)" || rc=$?
+    # Keep the writer's stderr so a failure note can say WHY (locked, corrupt, permission): its first line,
+    # printable characters only, capped.
+    errf="$(mktemp 2>/dev/null)" || errf=""
+    removed="$(_svc_cleanup_mcp_rows_py "$db" 2>"${errf:-/dev/null}")" || rc=$?
+    if [[ -n "$errf" ]]; then
+      IFS= read -r why < "$errf" 2>/dev/null || true
+      why="${why//[^[:print:]]/}"; why="${why:0:160}"
+      rm -f "$errf"
+    fi
     if (( rc == 5 )); then
       if command -v sqlite3 >/dev/null 2>&1 \
          && _svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null | grep -q 1; then
@@ -1175,8 +1183,11 @@ cleanup_inherited_cruft() {
     fi
     if (( rc == 0 )) && [[ "$removed" =~ ^[0-9]+$ ]] && (( removed > 0 )); then
       echo "    removed ${removed} inherited MCP-server config row(s) from app.db"
-    elif (( rc != 0 && rc != 4 )); then
-      echo "    note: could not clean inherited MCP-server rows from app.db this time (busy or unreadable); the next update retries"
+    elif (( rc == 4 )); then
+      # Never silent: the cleanup did not run because the front end's DB is never written as root.
+      echo "    note: cruft cleanup skipped: no service user to drop to (set ORWELL_SERVICE_USER); the DB is never written as root"
+    elif (( rc != 0 )); then
+      echo "    note: could not clean inherited MCP-server rows from app.db this time (${why:-busy or unreadable}); the next update retries"
     fi
   fi
 
