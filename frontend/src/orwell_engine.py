@@ -11,6 +11,8 @@ import time
 
 import httpx
 
+from src import engine_read_cache
+
 logger = logging.getLogger(__name__)
 
 # ORWELL_* are primary; BBAI_* are kept as silent deprecated fallbacks so a pre-rename .env
@@ -425,10 +427,17 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    if name not in engine_read_cache.PURE_READS:
+        engine_read_cache.invalidate(user)  # ORW-166: a possible mutation starts - nothing cached for this user may be served or joined
     if name in _DISCLOSURE_TOOLS:
         _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
-        res = await _call_inner(name, args, user=user, timeout=timeout)
+        try:
+            res = await _call_inner(name, args, user=user, timeout=timeout)
+        finally:
+            if name not in engine_read_cache.PURE_READS:
+                # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
+                engine_read_cache.invalidate(user)
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
@@ -880,6 +889,17 @@ async def game_status(user: str | None = None) -> dict:
     instead of inventing who competes.
     """
     return await _call("gameStatus", {}, user=user)
+
+
+async def get_game_state_polled(user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-166: :func:`get_game_state` for the HUD POLLERS only - a <=400 ms-old, single-flight, per-user, mutation-invalidated copy
+    (``engine_read_cache``). The chat framing path keeps calling :func:`get_game_state` directly, so the narrator reads state exactly as fresh as its own turn."""
+    return await engine_read_cache.read("getGameState", user, lambda: get_game_state(user=user, timeout=timeout))
+
+
+async def game_status_polled(user: str | None = None) -> dict:
+    """ORW-166: :func:`game_status` for the HUD pollers (same cache contract as :func:`get_game_state_polled`)."""
+    return await engine_read_cache.read("gameStatus", user, lambda: game_status(user=user))
 
 
 async def state_delta(since_beat_seq: int | None = None, user: str | None = None) -> dict:
@@ -1355,7 +1375,11 @@ async def _admin_call(name: str, args: dict | None = None, user: str | None = No
     """Invoke an admin/God-Mode tool over the engine's HTTP MCP transport, for `user`'s sandbox.
     Shares `_post_tool`'s semantics: structured engine errors raise :class:`EngineToolError`, real
     outages propagate as httpx errors, and failures feed the visible health banner."""
-    return await _post_tool("/admin/call", name, args, user)
+    engine_read_cache.invalidate(user)  # ORW-166: an admin tool may mutate (override, reset...): never serve a cached read across it
+    try:
+        return await _post_tool("/admin/call", name, args, user)
+    finally:
+        engine_read_cache.invalidate(user)
 
 
 async def inspect_non_vault_state(user: str | None = None) -> dict:
