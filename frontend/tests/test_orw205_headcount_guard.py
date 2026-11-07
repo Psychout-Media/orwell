@@ -169,6 +169,44 @@ def test_non_headcount_numbers_are_never_claims(sentence):
     assert chat_helpers._headcount_mismatch(sentence, _ent(inside=3, player_inside=True)) is None
 
 
+# ── review of #2283: an anchor that does not end its clause modifies the subject; it is not a count ── #
+
+# With 12 inside, each of these is true narration ("three [of the people] in the house have clocked you"), and
+# the first version read the number as the arrival count and deleted the sentence.
+_MODIFIER_NOT_A_COUNT = [
+    "Three in the house have already clocked you.",
+    "Two people in the house are already crying.",
+    "Eight in the house know your name.",
+    "Four of them inside the house are laughing.",
+    "Three in the house already know your name.",
+    "Two through the door are still talking about the shoes.",
+]
+
+
+@pytest.mark.parametrize("sentence", _MODIFIER_NOT_A_COUNT)
+def test_an_anchor_followed_by_a_verb_is_not_a_headcount(sentence):
+    assert not chat_helpers._sentence_has_headcount_claim(sentence), sentence
+    assert chat_helpers._headcount_mismatch(sentence, _ent(inside=12, player_inside=True)) is None
+
+
+@pytest.mark.parametrize("sentence", _MODIFIER_NOT_A_COUNT[:4])
+def test_a_modifier_streams_byte_identical_with_twelve_inside(sentence, monkeypatch):
+    _no_scene_break(monkeypatch)
+    _fake_intros(monkeypatch, _view(inside=12, player_inside=True))
+    assert _scene(sentence).text == sentence
+    assert _USER not in chat_helpers._DESYNC_REGROUND
+
+
+def test_made_it_inside_is_a_headcount():
+    """Review of #2283: the "made it in" anchor needed a boundary right after "in", so "made it inside" never
+    matched."""
+    sentence = "Ten houseguests have made it inside."
+    assert chat_helpers._sentence_has_headcount_claim(sentence)
+    assert chat_helpers._headcount_mismatch(sentence, _ent(inside=12, player_inside=True)) is not None
+    assert chat_helpers._headcount_mismatch(sentence, _ent(inside=10, player_inside=False)) is None
+    assert chat_helpers._headcount_mismatch("Ten houseguests have made it in.", _ent(inside=12, player_inside=True))
+
+
 # ── stage scoping ────────────────────────────────────────────────────────────────────────────────── #
 
 def test_toast_stage_checks_the_inside_count_but_not_a_remaining_count():
