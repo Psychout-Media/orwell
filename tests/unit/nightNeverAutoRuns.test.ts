@@ -47,6 +47,34 @@ describe("ORW-116 (b) - the night is never auto-run", () => {
     expect(v.pending?.kind).toBe("comp-round"); // the production due-gate (not this hold) keeps it until the afternoon
   });
 
+  it("the narrator alone (no player message at all) can never roll the premiere night: entrances ON + clock ON, 80 plain advances", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const s = new GameSessionRegistry().sandboxFor(`nn-solo-${Math.random()}`).session;
+    s.setPremiereEntrancesEnabled(true);
+    s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
+    s.setPerConversationClockEnabled(true);
+    let held = 0;
+    for (let i = 0; i < 80; i++) {
+      const v = s.advanceGame();
+      expect(v.event?.beat, "no day-break from the narrator alone").not.toBe("day-break");
+      if (v.held) held++;
+    }
+    expect(held, "after the entrances and toast the exit is held").toBeGreaterThan(0);
+    expect(s.snapshot().live!.dayNumber ?? 1).toBe(1);
+  });
+
+  it("a turn-in crosses the pending night gate: the next advance after a mid-week turn-in is not held again", () => {
+    const s = start();
+    s.turnIn(); // the premiere night
+    let v = s.advanceGame();
+    for (let i = 0; i < 6 && !v.held && !v.finished; i++) {
+      if (v.pending) { s.submitDecision({ kind: v.pending.kind, intent: "compete", vote: v.pending.options?.[0]?.id } as never); }
+      v = s.advanceGame();
+    }
+    // whatever the next hold is, it is a NEW night's, and the player ending it moves on (never a stuck gate)
+    if (v.held) { s.turnIn(); expect(s.advanceGame().held ?? null).toBeNull(); }
+  });
+
   it("clock off (the calibration spine): nothing is held - the premiere exit stages the HOH as before", () => {
     const s = start(false);
     const v = s.advanceGame();
