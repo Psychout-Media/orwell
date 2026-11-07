@@ -195,6 +195,14 @@ fi
 # ── In-container (or direct) update ────────────────────────────────────────────────────────────
 APP_DIR="$(find_app || true)"; APP_DIR="${APP_DIR:-/opt/orwell}"
 
+# ORW-229: onnxruntime-node's postinstall downloads its GPU (CUDA / TensorRT) execution providers from nuget on
+# every `npm ci` (about 45 s of a 55 s install on the dev box). The engine never loads them: fastembed runs
+# onnxruntime on the CPU, and the CPU runtime ships inside the npm package. So every npm ci / npm install this
+# script runs (build, build-tools restore, revert, rollback) skips that download; an operator's explicit value
+# still wins. Proven on the dev box: after a clean `npm ci` with the skip the engine boots with fastembed and
+# `orwell-doctor.sh --status` reports `embeddings: provider=fastembed, degraded=false`. (Same in orwell-install.sh.)
+export ONNXRUNTIME_NODE_INSTALL="${ONNXRUNTIME_NODE_INSTALL:-skip}"
+
 # ── ORW-206: don't restart the app in the middle of a live game. Runs BEFORE the update lock on purpose:
 # a deferred run holds nothing, so `--force`, --rollback and a manual run are never blocked behind it.
 # Only a plain update is guarded: --rollback / --set-token are operator actions, and --no-restart is the
@@ -453,9 +461,25 @@ engine_inputs_fp() {
   { node -v || true; npm -v || true; awk -F'\t' -v re="$_ENGINE_NOT_INPUTS" '$2 !~ re' <<<"$tree"; } 2>/dev/null | _fp_sum
 }
 # What `npm ci` itself consumes, plus this updater's own text (how it installs).
+# The npm environment and config that change what an install produces: npm_config_* / NPM_CONFIG_* (registry,
+# omit/include, ignore-scripts, ...), ONNXRUNTIME_NODE_INSTALL*, NODE_ENV, and the user + global npmrc files.
+# Only ever hashed (an npmrc or an npm_config_ value can hold a registry token). Computed once per run.
+_NPM_ENV_FP=""
+npm_env_fp() {
+  local f
+  if [[ -z "$_NPM_ENV_FP" ]]; then
+    _NPM_ENV_FP="$( {
+      env | LC_ALL=C grep -E '^(npm_config_|NPM_CONFIG_|ONNXRUNTIME_NODE_INSTALL|NODE_ENV=)' | LC_ALL=C sort || true
+      for f in "${HOME:-/root}/.npmrc" "$(npm config get globalconfig 2>/dev/null || true)"; do
+        if [[ -n "$f" && -f "$f" ]]; then printf 'npmrc %s %s\n' "$f" "$(_fp_sum < "$f")"; fi
+      done
+    } 2>/dev/null | _fp_sum )"
+  fi
+  printf '%s' "$_NPM_ENV_FP"
+}
 engine_deps_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- package.json package-lock.json npm-shrinkwrap.json patches .npmrc 2>/dev/null)" || { echo none; return 0; }
-  { node -v || true; npm -v || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
+  { node -v || true; npm -v || true; printf 'updater=%s\nnpmenv=%s\n%s\n' "$__UPDATER_FP" "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
 }
 # What install_frontend_deps consumes, plus the venv's interpreter and this updater's own text.
 frontend_deps_fp() {
@@ -466,23 +490,31 @@ frontend_deps_fp() {
 # classic markdown module /play imports through its `@classic` alias), plus node + npm and this updater's text.
 play_inputs_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
-  { node -v || true; npm -v || true; printf 'updater=%s\n%s\n' "$__UPDATER_FP" "$tree"; } 2>/dev/null | _fp_sum
+  { node -v || true; npm -v || true; printf 'updater=%s\nnpmenv=%s\n%s\n' "$__UPDATER_FP" "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
 }
-engine_tree_witness() {
-  local f="${APP_DIR}/node_modules/.package-lock.json"
-  if [[ -f "$f" && ! -L "$f" ]]; then _fp_sum < "$f"; else echo none; fi
+# Every entry under a tree: directories by name, files and links by name + size + mtime (+ link target), so a file
+# edited in place shows even when npm's / pip's own records stay the same. Bytecode caches are not package content.
+_tree_listing() {
+  find "$1" -xdev -name __pycache__ -prune -o -type d -printf 'd %P\n' -o ! -name '*.pyc' -printf '%y %P %s %T@ %l\n' 2>/dev/null \
+    | LC_ALL=C sort
+}
+engine_tree_witness() {   # npm's hidden lockfile (rewritten by every npm ci / install / prune) + the whole tree
+  local d="${APP_DIR}/node_modules"
+  if [[ -f "${d}/.package-lock.json" && ! -L "${d}/.package-lock.json" ]]; then
+    { _fp_sum < "${d}/.package-lock.json"; _tree_listing "$d"; } | _fp_sum
+  else
+    echo none
+  fi
 }
 dist_witness() {
   local d="${APP_DIR}/dist"
   if [[ -f "${d}/main.js" && -f "${d}/embedWorker.js" ]]; then cat "${d}/main.js" "${d}/embedWorker.js" | _fp_sum; else echo none; fi
 }
-frontend_tree_witness() {   # the installed distributions (name + version) in the venv's site-packages
-  local sp f
+frontend_tree_witness() {   # the venv's site-packages: installed distributions and every package file
+  local sp
   for sp in "${APP_DIR}/frontend/.venv/lib"/python*/site-packages; do
     [[ -d "$sp" ]] || continue
-    for f in "$sp"/*.dist-info "$sp"/*.egg-info; do
-      if [[ -e "$f" ]]; then printf '%s\n' "${f##*/}"; fi
-    done | LC_ALL=C sort | _fp_sum
+    _tree_listing "$sp" | _fp_sum
     return 0
   done
   echo none
@@ -536,13 +568,46 @@ play_build_fp() {   # the inputs fingerprint a /play build dir was made from; ""
   head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
 }
 # Copy a finished /play build to dist.next. dist.next must not exist when the copy starts (removed, then
-# checked), so a leftover — or anything planted there — is never merged into or nested under.
+# checked), so a leftover — or anything planted there — is never merged into or nested under. A build is plain
+# files and directories only: one with a symlink, device or FIFO in it is refused, and the copy belongs to root
+# like the rest of the code tree (the build account's ownership is not kept).
 _stage_play_build() {
   rm -rf "$PLAY_NEXT"
   [[ ! -e "$PLAY_NEXT" && ! -L "$PLAY_NEXT" ]] || return 1
-  cp -aT "$1" "$PLAY_NEXT" && return 0
+  if [[ -n "$(find "$1" ! -type f ! -type d -print -quit 2>/dev/null)" ]]; then
+    echo "WARN: the /play build contains something other than files and directories — refusing it"
+    return 1
+  fi
+  cp -RT --preserve=mode,timestamps "$1" "$PLAY_NEXT" && return 0
   rm -rf "$PLAY_NEXT"
   return 1
+}
+# Who runs the /play build: never root. Building /play runs its dependencies' code (tsc, vite, plugins), so as root
+# it runs as an unprivileged account (ORWELL_PLAY_BUILD_USER, default `nobody`) that can neither write the code tree
+# nor read the service user's data/.env, in a clean environment (nothing of this script's environment reaches it),
+# with its own npm cache (ORWELL_PLAY_NPM_CACHE). Root takes the output back before reading it, so nothing the build
+# left running can change it afterwards. If privileges cannot be dropped, /play is not built at all.
+ORWELL_PLAY_BUILD_USER="${ORWELL_PLAY_BUILD_USER:-nobody}"
+ORWELL_PLAY_NPM_CACHE="${ORWELL_PLAY_NPM_CACHE:-/var/cache/orwell/play-npm}"
+_PLAY_BUILD_CMD='cd "$1" && npm ci --prefer-offline --ignore-scripts --no-audit --no-fund && npm run build'
+_play_run_build() {   # $1 = the exported frontend/web dir, inside $PLAY_TMP
+  local u="$ORWELL_PLAY_BUILD_USER" g rc=0
+  if [[ "$(id -u)" -ne 0 ]]; then
+    bash -c "$_PLAY_BUILD_CMD" _ "$1"
+    return
+  fi
+  if ! command -v runuser >/dev/null 2>&1 || ! id "$u" >/dev/null 2>&1 || [[ "$u" == root ]]; then
+    echo "WARN: no way to drop privileges for the /play build (runuser or the '${u}' account is missing) — not building it as root"
+    return 1
+  fi
+  g="$(id -gn "$u" 2>/dev/null)" || return 1
+  install -d -m 755 "${ORWELL_PLAY_NPM_CACHE%/*}" && install -d -m 700 -o "$u" -g "$g" "$ORWELL_PLAY_NPM_CACHE" || return 1
+  chown -R "${u}:${g}" "$PLAY_TMP" || return 1
+  runuser -u "$u" -- env -i PATH="$PATH" HOME="$PLAY_TMP" LANG=C.UTF-8 npm_config_cache="$ORWELL_PLAY_NPM_CACHE" \
+    npm_config_update_notifier=false ONNXRUNTIME_NODE_INSTALL="${ONNXRUNTIME_NODE_INSTALL:-skip}" \
+    bash -c "$_PLAY_BUILD_CMD" _ "$1" || rc=$?
+  chown -R -h root:root "$PLAY_TMP" || return 1
+  return "$rc"
 }
 build_play_app() {
   local fp out
@@ -564,10 +629,10 @@ build_play_app() {
     return 0
   fi
   out="${PLAY_TMP}/frontend/web"
-  # --ignore-scripts: building /play needs no package install script, so none of its dependencies' scripts
-  # run (as root). The build itself is the commit's own `npm run build`, as for the engine.
+  # --ignore-scripts: building /play needs no package install script, so none of its dependencies' scripts run.
+  # The build itself (the commit's own `npm run build`) runs unprivileged — see _play_run_build.
   if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x --no-same-owner -C "$PLAY_TMP" \
-     && ( cd "$out" && npm ci --prefer-offline --ignore-scripts --no-audit --no-fund && npm run build ) \
+     && _play_run_build "$out" \
      && [[ -f "${out}/dist/index.html" ]] \
      && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
      && _stage_play_build "${out}/dist"; then

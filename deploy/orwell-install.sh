@@ -162,6 +162,9 @@ checkout() {
 build_engine() {
   step "build engine"
   cd "$APP_DIR"
+  # ORW-229: skip onnxruntime-node's GPU (CUDA / TensorRT) provider download — the engine's fastembed runs on the
+  # CPU runtime that ships in the package (same as orwell-update.sh; an operator's explicit value still wins).
+  export ONNXRUNTIME_NODE_INSTALL="${ONNXRUNTIME_NODE_INSTALL:-skip}"
   npm ci
   # Engine contract (provided by the implementer): `npm run build` + `npm start`. Verify it's
   # present before building, so a not-yet-runnable checkout fails clearly instead of
