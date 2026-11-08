@@ -6239,7 +6239,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
         # afternoon. The model's own advanceGame (the premiere exit) would stage the HOH card at wake; hold it like any other not-yet-due scheduled event.
         _prem_exit_held = (phase == "premiere" and isinstance(game_state.get("daySchedule"), dict)
-                           and isinstance(game_state.get("premiere"), dict) and game_state["premiere"].get("complete") is True)
+                           and isinstance(game_state.get("premiere"), dict) and game_state["premiere"].get("complete") is True
+                           and _entrance_stage_of(game_state) in (None, "done"))  # HOT FIX: staged entrances + the toast are released by advanceGame and are NEVER held; only the exit after them waits
         if phase not in _CEREMONY_RESOLVE_PHASES and phase not in _COMP_DRIVE_PHASES and not _prem_exit_held:
             return game_state
         status = await orwell_engine.game_status(user=user)
