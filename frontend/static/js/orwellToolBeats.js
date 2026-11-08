@@ -175,6 +175,12 @@ export function orwellBeatOutcome(tool, output) {
   const ev = r.event;
   if (!ev || !ev.content) return null;
   const icon = _BEAT_ICON[ev.beat] || '•';
+  // ORW-232 slice 1: a competition's per-round drop is told in the narrator's one continuous scene, so its box is COMPACTED to a short progress line (who falters and how is prose, not a box).
+  // The crown beat keeps its full outcome (and the ceremony slate); only the interim rounds shrink.
+  if (ev.beat === 'comp-elimination') {
+    const left = /(\d+)\s+remain/i.exec(String(ev.content));
+    return left ? `${icon} The competition: ${left[1]} remain` : `${icon} The competition continues`;
+  }
   let content = String(ev.content);
   // Append the anonymized ballot tally for a resolved eviction, when the staged ballots are present.
   if (/eviction|final-eviction/.test(ev.beat || '') && r.eviction && Array.isArray(r.eviction.votesRevealed) && r.eviction.votesRevealed.length) {

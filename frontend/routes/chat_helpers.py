@@ -6184,12 +6184,32 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         logger.debug("[orwell] spectator re-raise skipped for user=%s: %s", user, e)
         return False
 
+_COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition pass began, per user
+
+
+def _competition_scene_steer(log) -> str:
+    """ORW-232 slice 1 (Ryne: the first HOH felt awkward - transitions in and out not role-played, a few boxes of who was eliminated and who won): the competition the engine walked this turn, in ENGINE
+    ORDER, as FACTS for the narrator to voice as ONE continuous scene in the same chat - the lead-in from the house, every round as its own beat (never released as a list or a recap), the winner by name,
+    the walk back inside. The engine decided every outcome; the narrator only voices them."""
+    rounds = [c for k, c in log if k == "comp-elimination"]
+    crown = next((c for k, c in reversed(log) if k in ("hoh-competition", "veto-competition") and re.search(r"\bwins\b", c, re.I)), None)
+    lines = [f"  {i}. {c}" for i, c in enumerate(rounds, 1)]
+    return (
+        "THE COMPETITION JUST RAN (engine truth, already decided - you voice it, you never change it). Voice it as ONE continuous scene in THIS reply, in this order: (1) the lead-in from the house - someone "
+        "calls everyone out, the setting, the nerves; (2) EVERY round below, in the order given, each as its own beat of the scene (who falters, how, the room's reaction) - never skip a round, never reorder, "
+        "never merge them into a list or a summary; (3) the winner, by name, exactly as the game gives it"
+        + (f" ({crown})" if crown else "") + "; (4) the walk back inside. The wording of each round below is the game's; dress it, do not contradict it."
+        + ("\nROUNDS IN ORDER:\n" + "\n".join(lines) if lines else "")
+        + ("\nWINNER: " + crown if crown else "")
+    )
+
+
 # A/B 2026-11-04: a READY player's staged competition is driven to its result in ONE pre-resolve pass (bounded), so the narration voices the engine's real winner.
 _COMP_RUN_HOPS = 8
 
 
 async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None,
-                                    _after_day_break: bool = False, _comp_hops: int = 0) -> dict:
+                                    _after_day_break: bool = False, _comp_hops: int = 0, _comp_log: Optional[list] = None) -> dict:
     """If the live game sits at an unresolved engine-driven beat with NO player decision pending,
     advance that single beat (one advanceGame) so the moment prompt carries the engine's real
     outcome — but ONLY after the player has had their SOCIAL RUNWAY in the current beat (the
@@ -6397,6 +6417,14 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             _wm = re.search(r"\b([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+){0,2})\s+wins\s+(?:the\s+)?(?:Head of Household|HOH|Power of Veto|Veto)\b", str(_beat))
             if _wm:
                 note_ceremony_beat_for_voicing(user, str(_beat), [_wm.group(1)])
+        if _beat and phase in ("hoh-competition", "veto-competition") and _beat_kind in ("comp-elimination", "hoh-competition", "veto-competition"):
+            # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
+            if _comp_log is None:
+                _comp_log = []
+                _COMP_STEER_BASE[_runway_key(user)] = _SCHEDULE_STEER.get(_runway_key(user)) or ""
+            _comp_log.append((_beat_kind, str(_beat)))
+            _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
+            _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log)
         if phase == "nominations" and _beat:
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
@@ -6447,10 +6475,10 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         # ballots AND the committed evictee instead of a half-revealed night. Only reveal -> result is collapsed: goodbyes / exit interview stay one per turn.
         if (_beat_kind == "eviction-reveal" and phase == "eviction" and _comp_hops < _COMP_RUN_HOPS):
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
-                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
         if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig):
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
-                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
 
         # ARM a fresh runway when the resolved beat landed the player in a NEW spectator ceremony
         # beat (a different week:phase, no new pending) — so the NEXT turns are theirs to socialize
