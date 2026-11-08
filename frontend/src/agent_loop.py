@@ -2428,7 +2428,12 @@ def _toast_batch_voiced(text: str, speakers) -> bool:
     return True
 
 
-def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, stale: bool):
+# Ryne (2026-11-08, live): "pretty quick in between new people. Like 2-3 messages or something like that." A STAGED ARRIVAL is released once this many player messages have passed since the last
+# release (so a new houseguest walks in about every 2-3 messages); the toast keeps its own pacing. Supersedes the ORW-148 cue-only cadence for the arrivals stage.
+_ENTRANCE_ARRIVAL_EVERY = 2
+
+
+def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, stale: bool, stage=None):
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
     cue = bool(s) and not _is_production_cue(s) and bool(_ENTRANCE_CUE_RE.search(s))
@@ -2438,6 +2443,8 @@ def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, s
     # narrator's own advance_game call otherwise paces entrances. turns_since_progress is kept for the signature.
     if cue:
         return True, True
+    if stage == "entrances" and turns_since_progress >= _ENTRANCE_ARRIVAL_EVERY and not _is_production_cue(s):
+        return True, True  # Ryne 2026-11-08: the next arrival every 2-3 player messages until everyone is in
     return is_lull, stale
 
 
@@ -8211,7 +8218,8 @@ async def _stream_agent_loop_impl(
                 try:
                     if _ch.premiere_entrance_active(owner):
                         _is_lull, _stale = _entrance_pacing(
-                            _TURNS_SINCE_PROGRESS.get(_bk, 0), _extract_last_user_message(messages) or "", _is_lull, _stale)
+                            _TURNS_SINCE_PROGRESS.get(_bk, 0), _extract_last_user_message(messages) or "", _is_lull, _stale,
+                            stage=_ch._PREMIERE_ENTRANCE_STAGE.get(_ch._runway_key(owner)))
                         # Toast voice-hold: do not release the NEXT batch of speakers until the narrator has voiced the CURRENT one (bounded: _TOAST_VOICE_HOLD_CAP turns).
                         _sp = _ch._PREMIERE_TOAST_SPEAKERS.get(_ch._runway_key(owner))
                         if _sp and (_is_lull or _stale):

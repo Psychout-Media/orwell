@@ -55,7 +55,18 @@ def test_nudge_fires_after_the_lull_and_not_mid_exchange():
     # branch let the stall-L0 belt silently release an arrival mid-conversation and fast-forwarded the premiere
     # in the live 11-06 playtest. Only an explicit cue (next test) releases an arrival.
     assert al._entrance_pacing(al._ENTRANCE_LULL_TURNS, "hm ok", False, False) == (False, False)
-    assert al._entrance_pacing(al._ENTRANCE_LULL_TURNS + 5, "hm ok", False, False) == (False, False)
+    assert al._entrance_pacing(al._ENTRANCE_LULL_TURNS + 5, "hm ok", False, False) == (False, False)  # (no stage given: unchanged - the toast keeps its own pacing)
+
+
+def test_arrivals_come_every_two_to_three_player_messages_until_everyone_is_in():
+    """Ryne 2026-11-08 (live): "pretty quick in between new people. Like 2-3 messages or something like that." During the ARRIVALS stage a new houseguest is released once
+    _ENTRANCE_ARRIVAL_EVERY player messages have passed since the last one; sooner is still the narrator's own pacing; the toast and a production cue are unchanged."""
+    assert al._ENTRANCE_ARRIVAL_EVERY == 2
+    assert al._entrance_pacing(1, "ok hi there", False, False, stage="entrances") == (False, False), "one message after an arrival: not yet"
+    assert al._entrance_pacing(2, "ok hi there", False, False, stage="entrances") == (True, True), "two messages later: the next arrival walks in"
+    assert al._entrance_pacing(3, "what do you do", False, False, stage="entrances") == (True, True)
+    assert al._entrance_pacing(5, "hm ok", False, False, stage="toast") == (False, False), "the toast batches keep their own pacing"
+    assert al._entrance_pacing(5, "(Production cue) hm", False, False, stage="entrances") == (False, False), "a production cue is never a player release"
 
 
 def test_next_or_watch_cue_advances_immediately():
