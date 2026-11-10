@@ -40,12 +40,16 @@ def test_the_steer_without_a_crown_yet_still_orders_the_rounds_and_names_no_winn
     assert "WINNER:" not in t and "1. Houseguest One" in t and "2. Houseguest Three" in t
 
 
-def test_the_pre_resolve_hops_accumulate_the_whole_competition_for_the_one_scene(monkeypatch):
-    """A READY player's competition is driven to its result in one pass (up to 8 hops); every hop's beat lands in the record, so the narrator is handed rounds AND the winner, never only the last beat."""
-    ch.clear_social_runway("u232")
-    ch._SCHEDULE_STEER.pop(ch._runway_key("u232"), None)
-    seq = list(LOG)
-    state = {"phase": "hoh-competition", "week": 1, "beatSeq": 1}
+FIVE = [("comp-elimination", f"Houseguest R{n} is out; {6 - n} remain") for n in range(1, 6)] + [("hoh-competition", "Houseguest Six wins Head of Household")]
+
+
+def _segment_rig(monkeypatch, user):
+    """A competition of 5 rounds + the crown behind a stubbed engine; each call to the returned `run(msg)` is ONE player message through the pre-resolve."""
+    ch.clear_social_runway(user)
+    ch._COMP_PAUSED.pop(ch._runway_key(user), None)
+    ch._SCHEDULE_STEER.pop(ch._runway_key(user), None)
+    seq = list(FIVE)
+    base = {"phase": "hoh-competition", "week": 1, "beatSeq": 1}
 
     async def fake_status(user=None, **kw):
         return {"beatSeq": 1, "pending": None}
@@ -55,17 +59,48 @@ def test_the_pre_resolve_hops_accumulate_the_whole_competition_for_the_one_scene
         return {"event": {"beat": k, "content": c}, "beatSeq": 2}
 
     async def fake_state(user=None, **kw):
-        # the phase leaves the competition only after the crown
-        return dict(state, phase="nominations" if not seq else "hoh-competition")
+        return dict(base, phase="nominations" if not seq else "hoh-competition")
 
     monkeypatch.setattr(orwell_engine, "game_status", fake_status)
     monkeypatch.setattr(orwell_engine, "advance_game", fake_advance)
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
-    _run(ch._pre_resolve_npc_ceremony("u232", dict(state), retry=False, player_msg="run it, who won?"))
-    steer = ch._SCHEDULE_STEER.get(ch._runway_key("u232")) or ""
-    assert "1. Houseguest One" in steer and "3. Houseguest Four" in steer, steer
-    assert "WINNER: Houseguest Six wins Head of Household" in steer, steer
-    assert not seq, "all four beats were walked in the one pass"
+
+    def run(msg):
+        _run(ch._pre_resolve_npc_ceremony(user, dict(base), retry=False, player_msg=msg))
+        return ch._SCHEDULE_STEER.get(ch._runway_key(user)) or ""
+    return run, seq
+
+
+def test_the_competition_pauses_after_two_rounds_and_the_rest_stays_unrun(monkeypatch):
+    run, seq = _segment_rig(monkeypatch, "u232s")
+    steer = run("run it, who won?")
+    assert "1. Houseguest R1" in steer and "2. Houseguest R2" in steer
+    assert "Houseguest R3" not in steer, "the third round has not been run"
+    assert "WINNER" not in steer, "no winner is handed over mid-competition"
+    assert "PAUSE" in steer and "ENDS here" in steer and "changes nothing about the result" in steer
+    assert len(seq) == 4, "only two rounds were walked in the engine; the rest is unrun (rounds are never released all at once)"
+    assert ch._COMP_PAUSED.get(ch._runway_key("u232s")), "the pause is remembered"
+
+
+def test_any_next_message_continues_the_competition_and_it_pauses_again(monkeypatch):
+    run, seq = _segment_rig(monkeypatch, "u232t")
+    run("run it")
+    steer = run("Hey, I'm rooting for you two!")  # NOT a readiness phrase: any message continues a paused competition
+    assert "THE COMPETITION CONTINUES" in steer and "answering what they said" in steer
+    assert "1. Houseguest R3" in steer and "2. Houseguest R4" in steer and "R5" not in steer
+    assert "PAUSE" in steer and "WINNER" not in steer
+    assert len(seq) == 2
+
+
+def test_the_last_segment_voices_the_last_round_the_winner_and_the_walk_back(monkeypatch):
+    run, seq = _segment_rig(monkeypatch, "u232u")
+    run("run it")
+    run("go team")
+    steer = run("wow")
+    assert "THE COMPETITION CONTINUES" in steer and "1. Houseguest R5" in steer
+    assert "WINNER: Houseguest Six wins Head of Household" in steer, "the winner is ALWAYS handed over at the end"
+    assert "PAUSE" not in steer and "walk back inside" in steer
+    assert not seq and not ch._COMP_PAUSED.get(ch._runway_key("u232u")), "the competition is finished: no stale pause"
 
 
 # ── the per-round box is compacted (real JS executed in Node, like test_l42) ───────────────────

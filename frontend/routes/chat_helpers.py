@@ -6195,6 +6195,11 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         return False
 
 _COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition pass began, per user
+# ORW-232 slice 2 (Ryne: "B - talk inside it"): a competition is voiced in SEGMENTS. After every _COMP_PAUSE_EVERY rounds the pass STOPS (the engine has not run the rest), the narrator ends the reply on a moment the
+# player can answer in character, and the player's next message - whatever it says - continues the competition. What they say changes nothing about the result (the engine decided it).
+_COMP_PAUSE_EVERY = 2
+_COMP_PAUSED: dict = {}  # runway key -> the (week:phase) signature of a competition paused mid-run
+_COMP_CONT: dict = {}    # runway key -> True while this pass CONTINUES a paused competition
 
 
 def _veto_draw_steer(content: str) -> str:
@@ -6208,20 +6213,29 @@ def _veto_draw_steer(content: str) -> str:
     )
 
 
-def _competition_scene_steer(log) -> str:
+def _competition_scene_steer(log, continuing: bool = False, paused: bool = False) -> str:
     """ORW-232 slice 1 (Ryne: the first HOH felt awkward - transitions in and out not role-played, a few boxes of who was eliminated and who won): the competition the engine walked this turn, in ENGINE
     ORDER, as FACTS for the narrator to voice as ONE continuous scene in the same chat - the lead-in from the house, every round as its own beat (never released as a list or a recap), the winner by name,
     the walk back inside. The engine decided every outcome; the narrator only voices them."""
     rounds = [c for k, c in log if k == "comp-elimination"]
     crown = next((c for k, c in reversed(log) if k in ("hoh-competition", "veto-competition") and re.search(r"\bwins\b", c, re.I)), None)
     lines = [f"  {i}. {c}" for i, c in enumerate(rounds, 1)]
+    if continuing:
+        head = ("THE COMPETITION CONTINUES (engine truth, already decided - you voice it, you never change it). The player has just spoken in the middle of it: open by answering what they said or did, in "
+                "the scene, then voice EVERY round below, in the order given, each as its own beat (no new lead-in; never skip, reorder or merge them into a list)")
+    else:
+        head = ("THE COMPETITION JUST RAN (engine truth, already decided - you voice it, you never change it). Voice it as ONE continuous scene in THIS reply, in this order: (1) the lead-in from the house - someone "
+                "calls everyone out, the setting, the nerves; (2) EVERY round below, in the order given, each as its own beat of the scene (who falters, how, the room's reaction) - never skip a round, never reorder, "
+                "never merge them into a list or a summary")
+    if paused:
+        tail = ("; then STOP. PAUSE: this reply ENDS here, mid-competition. The game has not run the remaining rounds or the winner, so do NOT narrate them, name a winner, or say who is left in. End on a moment "
+                "the player can answer in character (a houseguest speaks to them, a look, a question). Whatever the player says changes nothing about the result - the next message continues the competition.")
+    else:
+        tail = ("; then (3) the winner, by name, exactly as the game gives it" + (f" ({crown})" if crown else "") + "; (4) the walk back inside.")
     return (
-        "THE COMPETITION JUST RAN (engine truth, already decided - you voice it, you never change it). Voice it as ONE continuous scene in THIS reply, in this order: (1) the lead-in from the house - someone "
-        "calls everyone out, the setting, the nerves; (2) EVERY round below, in the order given, each as its own beat of the scene (who falters, how, the room's reaction) - never skip a round, never reorder, "
-        "never merge them into a list or a summary; (3) the winner, by name, exactly as the game gives it"
-        + (f" ({crown})" if crown else "") + "; (4) the walk back inside. The wording of each round below is the game's; dress it, do not contradict it."
+        head + tail + " The wording of each round below is the game's; dress it, do not contradict it."
         + ("\nROUNDS IN ORDER:\n" + "\n".join(lines) if lines else "")
-        + ("\nWINNER: " + crown if crown else "")
+        + ("\nWINNER: " + crown if crown and not paused else "")
     )
 
 
@@ -6275,7 +6289,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             return game_state
 
         sig = _runway_sig(game_state)
-        ready = _player_signals_ready(player_msg)
+        ready = _player_signals_ready(player_msg) or (_COMP_PAUSED.get(_runway_key(user)) == sig)  # ORW-232 slice 2: any message continues a competition paused mid-run
         # PRODUCTION OWNS THE SCHEDULE (PO direction 2026-11-04). With the in-game clock live the engine puts `daySchedule` on the board; the event then fires when the CLOCK
         # reaches its hour - never earlier because the player said "ready" (#2041/#2044 readiness may only resolve an event that is already DUE), never later because a
         # message-count runway has not run out. Not due => the turn stays social with an in-fiction cue, up to a LOGGED safety cap of held messages (a stuck clock must never
@@ -6452,10 +6466,11 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
             if _comp_log is None:
                 _comp_log = []
-                _COMP_STEER_BASE[_runway_key(user)] = _SCHEDULE_STEER.get(_runway_key(user)) or ""
+                _COMP_STEER_BASE[_runway_key(user)] = (_SCHEDULE_STEER.get(_runway_key(user)) or "").split("THE COMPETITION")[0].rstrip()  # keep any production cue, never a stale competition record from an unconsumed earlier pass
+                _COMP_CONT[_runway_key(user)] = _runway_key(user) in _COMP_PAUSED  # (kept until the pass ends: the hops below still need it for `ready`)
             _comp_log.append((_beat_kind, str(_beat)))
             _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
-            _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log)
+            _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False))
         if phase == "nominations" and _beat:
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
@@ -6508,8 +6523,17 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
                                                    _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
         if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig and _beat_kind != "veto-draw"):  # ORW-250: the draw ends the pass
+            if _comp_log and sum(1 for _k, _c in _comp_log if _k == "comp-elimination") >= _COMP_PAUSE_EVERY:
+                # ORW-232 slice 2: the competition is still running (same week:phase) and this pass has voiced its share of rounds - PAUSE here. The rest stays UNRUN in the engine.
+                _COMP_PAUSED[_runway_key(user)] = sig
+                _prior = _COMP_STEER_BASE.get(_runway_key(user), "")
+                _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False), paused=True)
+                logger.info("[orwell] competition paused after %d round(s) for user=%s - the player can talk inside it", len(_comp_log), user)
+                return new_state
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
                                                    _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
+        if phase in _COMP_DRIVE_PHASES and _runway_key(user) in _COMP_PAUSED and _comp_log is not None and _runway_sig(new_state) != sig:
+            _COMP_PAUSED.pop(_runway_key(user), None)  # the competition left its phase (the crown landed): no stale pause
 
         # ARM a fresh runway when the resolved beat landed the player in a NEW spectator ceremony
         # beat (a different week:phase, no new pending) — so the NEXT turns are theirs to socialize
