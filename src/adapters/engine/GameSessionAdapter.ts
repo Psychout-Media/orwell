@@ -42,7 +42,7 @@ import {
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
 import { whisperConspicuousPairings } from "../../engine/houseSuspicion";
-import { runJuryHouseStretch, bearingWord } from "../../engine/juryHouse";
+import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
@@ -12561,11 +12561,15 @@ export class GameSessionAdapter implements GameSession {
       if (this.traitorsFuryEnabled) {
         const askingJurorId = q.juror;
         const playerFinalistId = f.finalists.includes(PLAYER) ? PLAYER : f.finalists[0];
-        let grudge = (this.live?.juryGrudge?.[askingJurorId]?.[playerFinalistId]) ?? 0;
+        const manner = this.live?.mannerByEvictee?.[askingJurorId];
+        // ORW-110: the juror's recorded MANNER toward the finalist (how they were treated on the way out) is read too - the jury-house grudge alone never carries the juror who took the grievance out of the house.
+        let grudge = Math.max((this.live?.juryGrudge?.[askingJurorId]?.[playerFinalistId]) ?? 0, mannerGrudge(manner?.[playerFinalistId]));
         if (!f.finalists.includes(PLAYER)) {
           grudge = Math.max(
             this.live?.juryGrudge?.[askingJurorId]?.[f.finalists[0]] ?? 0,
             this.live?.juryGrudge?.[askingJurorId]?.[f.finalists[1]] ?? 0,
+            mannerGrudge(manner?.[f.finalists[0]]),
+            mannerGrudge(manner?.[f.finalists[1]]),
           );
         }
         asking.bearing = bearingWord(grudge);
