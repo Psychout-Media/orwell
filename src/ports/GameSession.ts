@@ -1699,6 +1699,11 @@ export interface WhereaboutsView {
    */
   conspicuous?: string[];
   /**
+   * ORW-249 - who walked into / out of the player's room SINCE THE PLAYER LAST SENT (the engine re-seats the house after the send; the narrator was handed the send-time roster). Names only, Vault-free;
+   * present only when someone changed - so the story can voice a short arrival/departure beat and story and widget move together. Absent when nothing changed or the player changed rooms.
+   */
+  sinceSend?: { arrived: string[]; departed: string[] };
+  /**
    * 0106 — a LIVE whole-house EVENT is in session: an EXCLUSIVE set-piece (a competition, or a
    * nomination / veto / eviction ceremony). When present, the whole house is gathered for it — so
    * `present` lists everyone and `nearby` is empty (there are no side rooms to slip into, and the player

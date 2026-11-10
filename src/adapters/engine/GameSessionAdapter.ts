@@ -5299,7 +5299,24 @@ export class GameSessionAdapter implements GameSession {
       companions: presentPlain.map((p) => ({ ...p, turnsHere: this.presenceTenure?.get(p.id) ?? 0 })),
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
+      ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
     };
+  }
+
+  /**
+   * ORW-249 - the arrival/departure beat: diff the roster frozen at the player's last send (`sendOccupancy`) against who is in the player's room now. Only while the player is still in the room they sent
+   * from (a room change makes the old roster stale, exactly as `sendTimeOccupancy`). Names only; absent (empty spread) when nothing changed.
+   */
+  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[] } } {
+    const sent = this.sendOccupancy;
+    if (!sent || sent.get(me) !== room) return {};
+    const was = new Set<EntityId>();
+    for (const [id, where] of sent) if (where === room && id !== me && isUp(id) && !notHere?.has(id)) was.add(id);
+    const now = new Set(present.map((p) => p.id));
+    const arrived = present.filter((p) => !was.has(p.id)).map((p) => p.name);
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const departed = [...was].filter((id) => !now.has(id) && !evicted.has(id)).map((id) => this.nameOf(id));
+    return arrived.length || departed.length ? { sinceSend: { arrived, departed } } : {};
   }
 
   /** 0077: a houseguest's live sub-zone in a zoned big room (Vault-free flavor); undefined elsewhere. */
