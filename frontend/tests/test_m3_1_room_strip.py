@@ -318,3 +318,8 @@ def test_strip_scrolls_horizontally_instead_of_forcing_page_overflow():
 
 def test_narrow_viewport_media_query_shrinks_the_strip():
     assert "@media (max-width: 480px)" in ROOM_STRIP
+
+
+def test_orw246b_strip_is_led_first_in_the_notice_zone():
+    # live phone finding: a tall card above the strip clipped it out of the height-capped zone; it must lead the zone (NOT sticky: sticky overlapped a tall decision card)
+    assert "#orwell-room-strip { order: -1; flex: 0 0 auto; }" in ROOM_STRIP
