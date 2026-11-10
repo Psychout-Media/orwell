@@ -58,3 +58,18 @@ def test_machinery_pattern_does_not_flag_lowercase_prose():
     assert not ls.LEAK_RE.search("that's a vault with a cardigan")
     assert ls.LEAK_RE.search("the Vault holds the secret")
     assert not ls.COMP_PLAY_RE.search("sitting on a fence rail")
+
+
+def test_k1_no_skipped_time_unexplained_jump_fails_but_runner_bed_and_wake_do_not():
+    a = _turn("t1", "x", clock="4:05pm, Day 1")
+    skip = _turn("t2", "x", clock="8:05am, Day 2", msg="Can we start the competition?")
+    r = _score([a, skip])
+    assert not [c for k, c in r.items() if k.startswith("K1-no-skipped-time")][0]["ok"], "16 hours on an ordinary message is a skipped night"
+    by_runner = _score([a, _turn("t2", "x", clock="8:05am, Day 2", harness_jump=1)])
+    assert not [k for k in by_runner if k.startswith("K1-no-skipped-time")], "a move the runner made itself is not blamed on the game"
+    bed = _score([a, _turn("t2", "x", clock="5:45am, Day 2", msg="It's late. I say goodnight and go to bed.")])
+    assert not [k for k in bed if k.startswith("K1-no-skipped-time")]
+    small = _score([a, _turn("t2", "x", clock="4:10pm, Day 1")])
+    assert not [k for k in small if k.startswith("K1-")], "5 minutes is normal"
+    comp = _score([a, _turn("t2", "x", clock="7:10pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert [c for k, c in comp.items() if k.startswith("K1-clock-jump-competition")][0]["severity"] == "note"
