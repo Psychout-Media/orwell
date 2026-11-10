@@ -63,3 +63,23 @@ describe("nothing else changes", () => {
     expect(buildSystemPrompt("social", v)).toContain(MOMENT_PROMPTS["social"]!.slice(0, 60));
   });
 });
+
+describe("ORW-252: a competition that is not due has not started - its fragment (venue, rounds) is withheld", () => {
+  const sched = (next: string, due: boolean) => ({ next, phase: "morning", due, minutesUntil: due ? 0 : 45 }) as never;
+  const drawn = { hoh: { id: "npc:1", name: "HOH" }, nominees: [{ id: "npc:2", name: "A" }, { id: "npc:3", name: "B" }], veto: { holder: null, used: false, players: [{ id: "npc:1", name: "HOH" }, { id: "npc:2", name: "A" }, { id: "npc:3", name: "B" }, { id: "npc:4", name: "C" }, { id: "npc:5", name: "D" }, { id: "npc:6", name: "E" }] } };
+  it("veto: the draw is done, the competition not due: the competition fragment is replaced and the note says it has NOT started", () => {
+    const notDue = buildSystemPrompt("veto-competition", withPhase(base(), "veto-competition", { ceremony: drawn, daySchedule: sched("veto-competition", false) }));
+    const due = buildSystemPrompt("veto-competition", withPhase(base(), "veto-competition", { ceremony: drawn, daySchedule: sched("veto-competition", true) }));
+    expect(notDue).toMatch(/veto competition has NOT started/);
+    expect(due).not.toMatch(/veto competition has NOT started/);
+    expect(notDue.length).toBeLessThan(due.length);
+  });
+  it("hoh: not due -> the note; due -> the normal fragment; a player's own pending card keeps its script", () => {
+    const notDue = buildSystemPrompt("hoh-competition", withPhase(base(), "hoh-competition", { daySchedule: sched("hoh-competition", false) }));
+    const due = buildSystemPrompt("hoh-competition", withPhase(base(), "hoh-competition", { daySchedule: sched("hoh-competition", true) }));
+    const pend = buildSystemPrompt("hoh-competition", withPhase(base(), "hoh-competition", { daySchedule: sched("hoh-competition", false), pending: { kind: "comp-round", by: { id: "player", name: "P" }, prompt: "x", options: [] } as never }));
+    expect(notDue).toMatch(/Head of Household competition has NOT started/);
+    expect(due).not.toMatch(/has NOT started/);
+    expect(pend).not.toMatch(/has NOT started/);
+  });
+});
