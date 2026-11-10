@@ -188,3 +188,10 @@ def test_every_fe_silent_advance_belt_respects_a_fresh_pause():
     head = src[i:i + 2600]
     assert "comp_pause_holds(owner)" in head and "return True" in head[head.index("comp_pause_holds(owner)"):head.index("comp_pause_holds(owner)") + 300]
     assert src.count("async def _commit_advance_silently") == 1
+
+
+def test_the_final_segment_asks_for_everything_including_the_winner_in_one_reply():
+    """Live run 4: the last segment's rounds and the winner were spread over two replies (the winner landed late). The unpaused steer now asks for short rounds and the winner in THIS reply."""
+    t = ch._competition_scene_steer(LOG)
+    assert "lands in THIS reply" in t and "do not carry any round or the winner over" in t
+    assert "lands in THIS reply" not in ch._competition_scene_steer(LOG[:2], paused=True), "a paused segment ends mid-competition on purpose"
