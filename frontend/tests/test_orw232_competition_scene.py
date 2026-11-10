@@ -165,3 +165,15 @@ def test_the_hold_lifts_when_the_next_framed_turn_begins(monkeypatch):
     assert ch.comp_pause_holds("u232w")
     run("okay go on")  # the next player message: a fresh pass starts, last turn's hold is gone (and this pass pauses again, setting its own)
     assert len(seq) == 2
+
+
+def test_a_fresh_pause_also_stops_the_stall_nudge(monkeypatch):
+    """Live run 2026-11-10 (second build): with the model's tools held, the FE's OWN stall-nudge ('committed advanceGame silently, stall L0') finished the competition inside the paused turn. The agent loop's nudges
+    read production_is_holding(); a fresh competition pause now counts as one."""
+    run, seq = _segment_rig(monkeypatch, "u232x")
+    assert not ch.production_is_holding("u232x")
+    run("run it")
+    assert ch.production_is_holding("u232x"), "the nudges must treat a fresh pause as a hold"
+    run("go on")  # the next framed turn clears the old pause and, pausing again, sets a new one; after the crown nothing holds
+    run("and on")
+    assert not ch.production_is_holding("u232x"), "the competition finished: no stale hold"

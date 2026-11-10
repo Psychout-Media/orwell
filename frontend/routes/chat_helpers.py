@@ -801,7 +801,7 @@ def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
     try:
-        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user)
+        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or comp_pause_holds(user)  # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
     except Exception:
         return False
 
