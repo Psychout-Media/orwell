@@ -68,6 +68,12 @@ def _send_and_snapshot(stack, entries, text):
         page.keyboard.press("Enter")
         live = None
         mid = None
+        # ORW-251: sample the first paint IN the page, once per painted frame (rAF), instead of from Python at ~150ms. Under CI load the Python-side evaluate() calls stall past the whole streaming window,
+        # the poll never sees an unsettled bubble, and `mid` stays None (the flake). The in-page loop sees every painted frame, so it cannot miss a stream that lasts more than a frame.
+        page.evaluate("""([snap, base, waitSrc]) => { window.__mid = null; const fn = eval(snap); const wait = new RegExp(waitSrc);
+          const tick = () => { if (window.__mid) return; let s = null; try { s = fn(); } catch (e) {}
+            if (s && s.n > base && !s.footer && s.body && !wait.test(s.body)) { window.__mid = s; return; } requestAnimationFrame(tick); };
+          requestAnimationFrame(tick); }""", [SNAP, base_n, _WAIT_LABEL.pattern])
         for _ in range(160):
             page.wait_for_timeout(150)
             live = page.evaluate(SNAP)
@@ -78,6 +84,7 @@ def _send_and_snapshot(stack, entries, text):
             if live and live["footer"]:
                 break
         assert live and live["footer"], "the live turn never settled (no footer)"
+        mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
         reloaded = page.evaluate(SNAP)
