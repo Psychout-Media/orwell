@@ -243,7 +243,26 @@
     const { chips, next } = _diffPresence(_chipState, ctx.present);
     _chipState = next;
     if (!chips.length) {
-      if (notice.isShown()) notice.hide();
+      // ORW-246 (Ryne, phone playtest: "not accurate or always present"): the strip stays during play. An empty room reads "Just you here" instead of unmounting the whole strip, so a lone player
+      // still gets the same ground ("nobody is with me") and the strip never blinks out between rooms.
+      ensureCss();
+      const aloneBody = notice.ensure();
+      if (notice.el) {
+        const head = notice.el.querySelector(".on-head");
+        if (head) head.style.display = "none";
+        notice.el.setAttribute("aria-label", "Who's in the room with you");
+      }
+      if (aloneBody) {
+        let alone = aloneBody.querySelector(".ors-alone");
+        if (!alone) {
+          aloneBody.innerHTML = "";
+          alone = document.createElement("div");
+          alone.className = "ors-alone";
+          alone.textContent = "Just you here";
+          alone.style.cssText = "font-size:.85rem;opacity:.75;padding:.15rem 0;";
+          aloneBody.appendChild(alone);
+        }
+      }
       return;
     }
 
@@ -334,16 +353,13 @@
 
       // Portraits + role badges are enhancements over the bare NamedRef chips — a failure on
       // either never blanks the strip (it just falls back to designed monograms/no badge).
+      // ORW-246: the roster + status reads are independent of each other, so run them TOGETHER (they used to queue one behind the other, so a slow status read held the whole strip a few seconds behind the engine).
       let roster = [];
-      try {
-        const rosterData = await getJSON("/api/orwell/roster");
-        roster = (rosterData && Array.isArray(rosterData.roster)) ? rosterData.roster : [];
-      } catch (_) { /* fall back to monograms */ }
       let roles = {};
-      try {
-        const statusData = await getJSON("/api/orwell/status");
-        roles = (window.OrwellMonogram && statusData) ? window.OrwellMonogram.rolesFrom(statusData) : {};
-      } catch (_) { /* fall back to no role badges */ }
+      await Promise.all([
+        getJSON("/api/orwell/roster").then((d) => { roster = (d && Array.isArray(d.roster)) ? d.roster : []; }).catch(() => { /* fall back to monograms */ }),
+        getJSON("/api/orwell/status").then((statusData) => { roles = (window.OrwellMonogram && statusData) ? window.OrwellMonogram.rolesFrom(statusData) : {}; }).catch(() => { /* fall back to no role badges */ }),
+      ]);
 
       if (superseded()) return;
       render({ room: w.room, present: w.present, roster: roster, roles: roles, asleep: state.asleep });
@@ -352,7 +368,7 @@
       if (superseded()) return;
       _failures += 1;
       if (window.OrwellReport) window.OrwellReport.fail("roomstrip", "poll", _); // G11: fail open, never silent
-      render(null); // fail OPEN: the strip simply isn't there
+      // ORW-246: a failed poll (a blip, a 409, a slow engine) KEEPS the last-known strip instead of blanking it - stale for one cycle beats gone. Only a never-shown strip stays absent.
     } finally {
       if (timer) { clearTimeout(timer); timer = null; }
       // In WS mode the `state`/`hud` push (via orwell:gamechanged → refreshNow) supersedes the
