@@ -1,0 +1,44 @@
+# Live-run testing (ORW-109)
+
+A real narrator, a staged build, a written pass bar, one report. CI never talks to the real narrator, so this is the only gate that sees tool under-calls,
+narration that runs ahead of the engine, and stalls. Roles only; no cast name is hard-coded.
+
+## Tiers
+
+- **Short tier (this slice, `live_short.py`):** after every dev update. Casting -> premiere -> an early "run the competition" ask -> the engine clock is jumped
+  with the engine's own player API (turn-in / time-passing) to the veto morning of Week 1 -> four real chat turns (the draw, then the house waiting for the
+  competition). About 10 minutes, a few cents on DeepSeek, images OFF.
+- **Full week (not built yet):** a whole week played like a real player, before each playtest and release. The short tier should grow eviction night and the
+  finale before this one is started.
+
+## Running it
+
+1. Stage the build on the rehearsal rig with fresh data (kit: `stage2.sh`; add `MERGE_PR=<n>` or `MERGE_BRANCHES="..."` to include an unmerged change).
+   Set `image_gen_enabled=false` in the staged `frontend/data/settings.json`. Only one run at a time: the rig uses engine :18765 and FE :17000.
+2. `python3 scripts/live-run/live_short.py --run-dir <the staged run dir>` (use the FE venv for Playwright; `TMPDIR` on disk if `/tmp` is a nearly full tmpfs).
+3. Read `report.md` in the run dir. Exit code: 0 pass, 1 fail, 2 could not run. Stop the rig by PID when done.
+
+## Pass bar (short tier)
+
+A run PASSES when every FAIL check holds. WARN checks are listed in the report and do not fail the run.
+
+| Id | Check | Severity |
+|---|---|---|
+| G1 | The game starts: the phase leaves `setup` after the casting messages | FAIL |
+| G2 | The veto morning is reached (phase `veto-competition`) | FAIL |
+| P1 | Production hold: asking to run the HOH competition before it is called leaves the engine without a HOH | FAIL |
+| T1 | Every player message gets a settled reply (no missing, unsettled or timed-out bubble) | FAIL |
+| T2 | Every reply is a real scene: at least 200 characters and not a guard's replacement shell ("feed glitched ... say that again") | FAIL |
+| T3 | No machinery in a reply: no `npc:` id, `<think`, tool or lever name, `beatSeq`, "Vault" | FAIL |
+| T4 | A reply slower than 120 s | WARN |
+| T5 | A reply slower than 240 s | FAIL |
+| C1 | While the engine says the veto competition is not due, no reply narrates competition play (apparatus, rounds, eliminations, a winner) | FAIL |
+| C2 | A veto-morning reply voices the draw | FAIL |
+
+## Deliberately not covered yet
+
+- Hidden-information leaks beyond the machinery list (the Vault Wall is gated structurally in CI; this tier only catches visible leaks).
+- Claims the engine did not do other than the pre-narrated competition (nominees named before the ceremony, a winner before the result). Add as checks when
+  a staged break is available to prove each one fails.
+- "The short run catches the ORW-10 stall on the old build" (the card's must-pass): needs the old build staged; not done.
+- The BDD Auditor's approved-scenario pass bar: this table is a first draft from the live-run findings so far and is for the Auditor to amend.
