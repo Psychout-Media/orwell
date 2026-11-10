@@ -18,13 +18,13 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "test", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
-const HEAVY_TIER = ["coverage-shard", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "test", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims", "fe-web"];
+const HEAVY_TIER = ["coverage-shard", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims", "fe-web"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
   const env = {
     ...process.env,
-    ENGINE: "true", HEAVY: "true", DEPLOY: "true", FRONTEND: "true", FE_RENDER: "true", FULL: String(full), ...filters,
+    ENGINE: "true", HEAVY: "true", DEPLOY: "true", FRONTEND: "true", FE_RENDER: "true", WEB: "true", FULL: String(full), ...filters,
     RESULTS: JOBS.map((j) => `${j}=${results[j] ?? "success"}`).join(" "),
   };
   const r = spawnSync("bash", ["-c", script], { env, encoding: "utf8" });
@@ -51,26 +51,38 @@ describe("ci-gate (two-tier CI)", () => {
     expect(gate(false, { ...skipHeavy, "fe-unit": "skipped" }).rc).toBe(1);
   });
   it("passes a full run where every job was skipped because every filter is false (a docs-only PR)", () =>
-    expect(gate(true, skipAll, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" }).rc).toBe(0));
+    expect(gate(true, skipAll, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false", WEB: "false" }).rc).toBe(0));
   it("fails when a filter output is empty or not a boolean, even though every lane was skipped", () => {
     for (const bad of ["", "maybe", "True"]) {
-      const r = gate(true, skipAll, { ENGINE: bad, HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" });
+      const r = gate(true, skipAll, { ENGINE: bad, HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false", WEB: "false" });
       expect(r.rc, `ENGINE=${JSON.stringify(bad)}`).toBe(1);
       expect(r.out).toContain("changes output 'engine'");
     }
   });
   it("fails when the tier output is missing (a broken changes job)", () => {
-    const r = gate(true, skipAll, { FULL: "", ENGINE: "", HEAVY: "", DEPLOY: "", FRONTEND: "", FE_RENDER: "" });
+    const r = gate(true, skipAll, { FULL: "", ENGINE: "", HEAVY: "", DEPLOY: "", FRONTEND: "", FE_RENDER: "", WEB: "" });
     expect(r.rc).toBe(1);
     expect(r.out).toContain("changes output 'full'");
   });
+  it("the /play lane (fe-web): skipped is fine only when its own filter is false", () => {
+    expect(gate(true, { "fe-web": "skipped" }, { WEB: "false" }).rc).toBe(0);
+    const r = gate(true, { "fe-web": "skipped" }, { WEB: "true" });
+    expect(r.rc).toBe(1);
+    expect(r.out).toContain("needed job 'fe-web' was SKIPPED although it applies");
+    expect(gate(true, { "fe-web": "failure" }, { WEB: "false" }).rc).toBe(1);
+  });
+  it("fails when the web filter output is empty or not a boolean", () => {
+    const r = gate(true, skipAll, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false", WEB: "" });
+    expect(r.rc).toBe(1);
+    expect(r.out).toContain("changes output 'web'");
+  });
   it("a draft with no applicable fast jobs (path filters all false) still fails", () =>
-    expect(gate(false, { ...skipHeavy, test: "skipped", "test-unit": "skipped", "fe-unit": "skipped" }, { ENGINE: "false", FRONTEND: "false", HEAVY: "false", DEPLOY: "false", FE_RENDER: "false" }).rc).toBe(1));
+    expect(gate(false, { ...skipHeavy, test: "skipped", "test-unit": "skipped", "fe-unit": "skipped" }, { ENGINE: "false", FRONTEND: "false", HEAVY: "false", DEPLOY: "false", FE_RENDER: "false", WEB: "false" }).rc).toBe(1));
 });
 
 describe("ci.yml wiring (two-tier CI)", () => {
   it("every heavy-tier job is gated on the full tier", () => {
-    for (const job of ["heavy-sims", "coverage", "coverage-shard", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["heavy-sims", "coverage", "coverage-shard", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix", "fe-web"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m, job).toBeTruthy();
       expect(m![1], job).toContain("needs.changes.outputs.full == 'true'");

@@ -1,0 +1,5 @@
+.strip { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); background: var(--surface-1); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.room { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); white-space: nowrap; }
+.list { display: flex; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.person { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
+.empty { color: var(--text-dim); font-size: var(--text-sm); }

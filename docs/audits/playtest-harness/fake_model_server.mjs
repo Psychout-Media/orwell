@@ -39,6 +39,9 @@ const SCRIPT = process.env.FAKE_SCRIPT || 'echo'; // 'echo' | 'toolturn'
 // live on a slow box (the CI-flake root cause). It only changes PACING, never the bytes: two windows
 // on the same run still receive identical deltas, so the mirror byte-identity invariant is intact.
 const TOKEN_DELAY_MS = parseInt(process.env.FAKE_TOKEN_DELAY_MS || '0', 10);
+// FAKE_REPLY_REPEAT — repeat the fixed reply tail N times (default 1 = byte-identical to before) so a
+// perf run can stream a long, realistic-length reply. Pacing/length only; still deterministic.
+const REPLY_REPEAT = Math.max(1, parseInt(process.env.FAKE_REPLY_REPEAT || '1', 10));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
@@ -148,7 +151,8 @@ createServer((req, res) => {
       // the attach (issue #1560: a short ~3-5s stream let turn-2 settle before B attached, false-red).
       // It changes PACING/length only, never determinism: both windows on the same run get identical
       // bytes (the mirror byte-identity invariant is intact — the tail is fixed, not random).
-      const reply = `The house settles for a moment. [stub-echo] ${seed} Somewhere down the hall a door clicks shut and two low voices trade a quick word before the whole room drifts back to quiet again.`;
+      const reply = `The house settles for a moment. [stub-echo] ${seed} Somewhere down the hall a door clicks shut and two low voices trade a quick word before the whole room drifts back to quiet again.`
+        + (REPLY_REPEAT > 1 ? Array.from({ length: REPLY_REPEAT - 1 }, (_, i) => `\n\n**Beat ${i + 2}.** The kitchen hums, someone laughs at a joke only half the room heard, and a chair scrapes while the cameras drift slowly across the faces turned toward you.`).join('') : '');
       if (!stream) {
         return send(res, 200, { id: 'fake', object: 'chat.completion', model: MODEL, choices: [{ index: 0, message: { role: 'assistant', content: reply }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 16, total_tokens: 56 } });
       }

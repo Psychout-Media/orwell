@@ -597,6 +597,10 @@ app.include_router(setup_workspace_routes())
 from routes.orwell_routes import setup_orwell_routes
 app.include_router(setup_orwell_routes())
 
+# /play: the new React front end, served beside the classic UI (own routes only; no shared state).
+from routes.play_routes import setup_play_routes
+app.include_router(setup_play_routes())
+
 # Multi-platform gateway (feature 0072): lets a player reach their game from messaging
 # platforms (Telegram, etc.) over the Vault-free MCP player channel.
 # Mounted unconditionally — the Telegram adapter is a no-op when TELEGRAM_BOT_TOKEN is

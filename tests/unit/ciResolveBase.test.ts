@@ -81,7 +81,7 @@ const lines = YML.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const FILTER = lines.slice(0, end).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-type Filters = Record<"engine" | "frontend" | "fe_render" | "deploy" | "heavy", string>;
+type Filters = Record<"engine" | "frontend" | "fe_render" | "deploy" | "heavy" | "web", string>;
 
 function filters(env: Record<string, string>): Filters {
   const out = join(mkdtempSync(join(tmpdir(), "gh-output-")), "out");
@@ -90,8 +90,8 @@ function filters(env: Record<string, string>): Filters {
   expect(r.status, r.stderr).toBe(0);
   return Object.fromEntries(readFileSync(out, "utf8").trim().split("\n").map((l) => l.split("="))) as Filters;
 }
-const ALL_TRUE = { engine: "true", frontend: "true", fe_render: "true", deploy: "true", heavy: "true" };
-const ALL_FALSE = { engine: "false", frontend: "false", fe_render: "false", deploy: "false", heavy: "false" };
+const ALL_TRUE = { engine: "true", frontend: "true", fe_render: "true", deploy: "true", heavy: "true", web: "true" };
+const ALL_FALSE = { engine: "false", frontend: "false", fe_render: "false", deploy: "false", heavy: "false", web: "false" };
 
 let fRepo = "";
 let fBase = "";
