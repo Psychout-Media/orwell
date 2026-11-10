@@ -42,3 +42,4 @@ orwell-debug-bundle-unsealed*.json
 
 # ORW-39: vitest blob reports from sharded coverage runs (CI-only artifacts, never committed)
 .vitest-reports/
+__pycache__/
