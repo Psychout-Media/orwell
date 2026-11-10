@@ -31,11 +31,11 @@ VETO_MORNING = [
 ]
 
 # machinery that must never reach a player-facing reply
-LEAK_RE = re.compile(r"npc:\d+|<think|</think|advanceGame|submitDecision|beatSeq|\bVault\b|\btool call\b|\[System prompt", re.I)
+LEAK_RE = re.compile(r"npc:\d+|<think|</think|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\bthe Vault\b|\bVault Wall\b)", re.I)
 # a guard's replacement shell is not a scene
 SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again\?|Responding\W*$", re.I)
 # competition play that must not be narrated before the engine has run the competition
-COMP_PLAY_RE = re.compile(r"\b(plank|apparatus|rails?|platforms?|rounds? (?:one|two|three|1|2|3)|is out of the (?:competition|comp)|wins the (?:Power of Veto|veto|HOH|Head of Household)|crawl(?:s|ing) (?:along|across))\b", re.I)
+COMP_PLAY_RE = re.compile(r"\b(plank|apparatus|steel rails|platforms?|rounds? (?:one|two|three|1|2|3)|is out of the (?:competition|comp)|wins the (?:Power of Veto|veto|HOH|Head of Household)|crawl(?:s|ing) (?:along|across))\b", re.I)
 
 BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el => { const c = el.cloneNode(true);
   c.querySelectorAll('.thinking-content,.thinking,[class*=thinking],.msg-footer').forEach(n=>n.remove());

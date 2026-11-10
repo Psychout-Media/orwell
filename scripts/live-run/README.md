@@ -11,6 +11,13 @@ narration that runs ahead of the engine, and stalls. Roles only; no cast name is
 - **Full week (not built yet):** a whole week played like a real player, before each playtest and release. The short tier should grow eviction night and the
   finale before this one is started.
 
+## Automatic run: `run_short.sh`
+
+`scripts/live-run/run_short.sh [--if-new] [REF]` is the one command: stage origin/REF (default main) on the rehearsal rig with fresh data and images OFF, play
+`live_short.py`, stop the rig by PID, and print one line, `LIVE-SHORT PASS|FAIL|COULD-NOT-RUN <sha> <report path>` (exit 0/1/2; 3 = another run holds the rig).
+`--if-new` skips a sha that was already run, so a watcher can call it after every dev update without repeating itself. About 8 minutes, no agent turns.
+Hook it to whatever notices a dev update (the merge watcher or a deploy hook) and read the one line; open `report.md` only on FAIL.
+
 ## Running it
 
 1. Stage the build on the rehearsal rig with fresh data (kit: `stage2.sh`; add `MERGE_PR=<n>` or `MERGE_BRANCHES="..."` to include an unmerged change).
