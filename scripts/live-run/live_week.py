@@ -91,7 +91,10 @@ def main():
              "settled": r["settled"], "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
              "nominees": names(cer.get("nominees") or st.get("nominees")), "veto_holder": ((cer.get("veto") or {}).get("holder") or {}).get("name") if isinstance((cer.get("veto") or {}).get("holder"), dict) else None,
              "hoh": (cer.get("hoh") or {}).get("name") if isinstance(cer.get("hoh"), dict) else None}
+        t["harness_jump"] = eng.jumps; eng.jumps = 0; t["phase_before"] = facts.get("_last_phase"); facts["_last_phase"] = st.get("phase")
         turns.append(t)
+        try: open(f"{a.run_dir}/turns.jsonl", "a").write(json.dumps(t, default=str) + "\n")
+        except Exception: pass
         try: open(f"{a.run_dir}/progress.log", "a").write(f"{len(turns)}\t{t['label']}\tweek={t['week']} {t['phase']} {t['clock']}\t{t['secs']}s\t{len(t['text'])}c\n")
         except Exception: pass
         if not facts["phases"] or facts["phases"][-1][0] != (st.get("week"), st.get("phase")): facts["phases"].append(((st.get("week"), st.get("phase")), len(turns)))
@@ -99,7 +102,7 @@ def main():
 
     def play_until(pred, prefix, max_turns):
         """Social/ready turns + card answers until pred(state) holds. Returns True if reached within max_turns."""
-        n = 0; stuck = 0; bed_n = 0
+        n = 0; stuck = 0; bed_n = 0; flat = 0; last_key = None
         while n < max_turns:
             st = eng.call("getGameState")
             if pred(st): return True
@@ -114,6 +117,11 @@ def main():
                     if mu > 240 or st.get("phase") in ("veto-ceremony", "eviction"):
                         eng.sleep_through_night(f"{prefix}-n{n}")
                     eng.to_just_before_due(f"{prefix}-{n}"); stuck = 0
+            same = (st.get("week"), st.get("phase")) == last_key; last_key = (st.get("week"), st.get("phase"))
+            flat = flat + 1 if (same and ds.get("due")) else 0
+            if flat >= 6:  # due for 6 messages and nothing fired: the engine holds it for the player's night (nominations, veto, ceremony, eviction each need one). Linger the evening, then turn in.
+                facts.setdefault("night_holds", []).append({"phase": st.get("phase"), "week": st.get("week"), "clock": st.get("clockLabel"), "turn": len(turns)})
+                eng.sleep_through_night(f"{prefix}-hold{n}"); flat = 0
             late = clock_hour(st.get("clockLabel")) is not None and clock_hour(st.get("clockLabel")) >= 21
             if ds.get("due") and late and st.get("phase") in ("nominations", "veto-competition", "veto-ceremony", "eviction"):
                 text = BED[bed_n % len(BED)]; bed_n += 1  # the night is the player's: a due ceremony waits for them to turn in (ORW-116); a real player goes to bed
