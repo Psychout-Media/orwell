@@ -30,6 +30,10 @@ BED = ["It's late and I'm exhausted. I say goodnight and go to bed.", "I head to
 GOODBYE = "I'll miss you all. Play your own games, and good luck."
 
 
+class _Resume(Exception):
+    pass
+
+
 class Week(Chat):
     def answer_card(self, c):
         """Click the simplest legal option for the card on screen; returns a label for the report."""
@@ -78,10 +82,14 @@ def main():
     ap.add_argument("--engine", default="http://127.0.0.1:18765"); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
     ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
+    ap.add_argument("--resume", action="store_true", help="attach to the game already running on the rig (no casting, no Week 1 checks) and play on with --season")
     ap.add_argument("--max-turns-total", type=int, default=400); ap.add_argument("--max-turns-per-week", type=int, default=90)
     a = ap.parse_args()
     from playwright.sync_api import sync_playwright
     eng = Engine(a.engine, a.token); turns, checks, facts = [], [], {"phases": []}
+    if a.resume:
+        try: turns.extend(json.loads(l) for l in open(f"{a.run_dir}/turns.jsonl"))
+        except OSError: pass
 
     def check(cid, ok, detail, severity="fail"): checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
 
@@ -119,7 +127,7 @@ def main():
                     eng.to_just_before_due(f"{prefix}-{n}"); stuck = 0
             same = (st.get("week"), st.get("phase")) == last_key; last_key = (st.get("week"), st.get("phase"))
             flat = flat + 1 if (same and ds.get("due")) else 0
-            if flat >= 6:  # due for 6 messages and nothing fired: the engine holds it for the player's night (nominations, veto, ceremony, eviction each need one). Linger the evening, then turn in.
+            if flat >= 3:  # due for 6 messages and nothing fired: the engine holds it for the player's night (nominations, veto, ceremony, eviction each need one). Linger the evening, then turn in.
                 facts.setdefault("night_holds", []).append({"phase": st.get("phase"), "week": st.get("week"), "clock": st.get("clockLabel"), "turn": len(turns)})
                 eng.sleep_through_night(f"{prefix}-hold{n}"); flat = 0
             late = clock_hour(st.get("clockLabel")) is not None and clock_hour(st.get("clockLabel")) >= 21
@@ -135,12 +143,28 @@ def main():
             r = week.wait_new(before, t0); n += 1; snap(f"{prefix}-{n}", text, r)
         return pred(eng.call("getGameState"))
 
+    def season_loop():
+        def over(s): return bool(s.get("finished")) or bool(s.get("winner"))
+        wk = 1; per_week = 0; last_week = eng.call("getGameState").get("week", 2); facts["weeks"] = []
+        while not over(eng.call("getGameState")) and len(turns) < a.max_turns_total:
+            cur = eng.call("getGameState").get("week", last_week)
+            ok = play_until(lambda s: over(s) or s.get("week", cur) > cur, f"w{cur}", a.max_turns_per_week)
+            facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
+            check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")
+            if not ok: break
+        fin = eng.call("getGameState"); facts["final"] = {"finished": fin.get("finished"), "winner": fin.get("winner"), "phase": fin.get("phase"), "week": fin.get("week")}
+        check("S-finale-reached", over(fin), f"finished={fin.get('finished')} winner={fin.get('winner')} phase={fin.get('phase')} after {len(turns)} turns")
+        rec2 = eng.call("seasonRecap") or {}; check("S-evictions-recorded", len(names(rec2.get("evicted"))) >= 1, f"evicted in order: {names(rec2.get('evicted'))}")
+
+
     try:
         with sync_playwright() as p:
             b = p.chromium.launch(args=["--disable-dev-shm-usage", "--disable-gpu", "--headless=old"])
             page = b.new_context(viewport={"width": 1440, "height": 900}).new_page()
             page.goto(a.fe + "/", wait_until="load", timeout=60000); page.wait_for_timeout(6000)
             week = Week(page, a.fe)
+            if a.resume:
+                season_loop(); check("W6-no-stuck-card", page.evaluate(CARD) is None and not (eng.call("getGameState").get("pending")), "no decision card left on screen / pending"); b.close(); raise _Resume()
             for i, line in enumerate(CAST_LINES):
                 t0 = time.time(); before = len(page.evaluate(BUB)); page.fill("#message", line); page.wait_for_timeout(300)
                 if page.evaluate("document.querySelector('.send-btn')?.getAttribute('data-mode')") == "send": page.click(".send-btn")
@@ -178,20 +202,11 @@ def main():
             if ev:
                 ev_text = "\n".join(t["text"] for t in turns if t["label"].startswith("evict-"))
                 check("W5c-evictee-voiced", ev[0].split()[0] in ev_text, f"the engine's evictee ({ev[0]}) is named in the eviction-night replies")
-            if a.season:
-                def over(s): return bool(s.get("finished")) or bool(s.get("winner"))
-                wk = 1; per_week = 0; last_week = eng.call("getGameState").get("week", 2); facts["weeks"] = []
-                while not over(eng.call("getGameState")) and len(turns) < a.max_turns_total:
-                    cur = eng.call("getGameState").get("week", last_week)
-                    ok = play_until(lambda s: over(s) or s.get("week", cur) > cur, f"w{cur}", a.max_turns_per_week)
-                    facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
-                    check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")
-                    if not ok: break
-                fin = eng.call("getGameState"); facts["final"] = {"finished": fin.get("finished"), "winner": fin.get("winner"), "phase": fin.get("phase"), "week": fin.get("week")}
-                check("S-finale-reached", over(fin), f"finished={fin.get('finished')} winner={fin.get('winner')} phase={fin.get('phase')} after {len(turns)} turns")
-                rec2 = eng.call("seasonRecap") or {}; check("S-evictions-recorded", len(names(rec2.get("evicted"))) >= 1, f"evicted in order: {names(rec2.get('evicted'))}")
+            if a.season: season_loop()
             check("W6-no-stuck-card", page.evaluate(CARD) is None and not (eng.call("getGameState").get("pending")), "no decision card left on screen / pending")
             b.close()
+    except _Resume:
+        pass
     except Exception as e:  # noqa: BLE001
         print("could not run:", repr(e)[:300]); write(a.run_dir, turns, checks, str(e)); sys.exit(2)
 
