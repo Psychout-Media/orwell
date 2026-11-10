@@ -1,7 +1,7 @@
 import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { GameSessionAdapter, UNARRIVED_PLACEHOLDER_NAME } from "../../src/adapters/engine/GameSessionAdapter";
 import { planEntrances, toastSpeakers, PREMIERE_FIRST_READ } from "../../src/engine/premiereEntrances";
 import { resolvePending } from "../../features/support/answerPending";
 import type { AdvanceView } from "../../src/ports/GameSession";
@@ -130,9 +130,11 @@ describe("A9 engine entrances", () => {
       expect(w.present.length).toBe(pe.arrived - (pe.order.slice(0, pe.arrived).includes(me) ? 1 : 0));
       for (const a of s.socialInitiatives()) expect(outside.has(a.houseguest.id)).toBe(false);
       const view = s.premiereIntros()!;
-      expect(view.complete).toBe(true);
-      expect(view.powerReachable).toBe(true);
-      expect(view.remaining).toEqual([]);
+      // ORW-196: still arriving => NOT complete; the un-arrived are `remaining` as anonymous placeholders.
+      expect(view.complete).toBe(false);
+      expect(view.powerReachable).toBe(false);
+      expect(view.remaining.map((r) => r.houseguest.id)).toEqual(view.remaining.map((_, i) => `unarrived:${i + 1}`)); // ordinal ids only
+      expect(view.remaining.length).toBe([...outside].filter((x) => x !== me).length);
       for (const m of view.met) expect(outside.has(m.houseguest.id)).toBe(false);
       s.markHouseguestMet([...outside].find((x) => x !== me)!); // a stray belt mark of an un-arrived NPC is a no-op
       for (const m of s.premiereIntros()!.met) expect(outside.has(m.houseguest.id)).toBe(false);
@@ -216,3 +218,53 @@ describe("ORW-205 entrance headcount", () => {
   });
 });
 
+
+/** ORW-196 - `premiereIntros` complete/remaining/powerReachable must agree with `entrance.stage` at EVERY step. Roles only. */
+describe("ORW-196 premiereIntros agrees with the entrance stage", () => {
+  it("contract: entrances => incomplete + un-arrived remaining; toast/done => complete + nothing remaining", () => {
+    const sb = start(11);
+    const s = sb.session;
+    const me = s.snapshot().house!.player.id;
+    const seen = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      const view = s.premiereIntros();
+      if (!view) break;
+      const e = view.entrance!;
+      seen.add(e.stage);
+      const pe = s.snapshot().live!.premiereEntrance!;
+      if (e.stage === "entrances") {
+        const outside = pe.order.slice(pe.arrived).filter((x) => x !== me);
+        expect(view.complete).toBe(false);
+        expect(view.powerReachable).toBe(false);
+        expect(view.remaining.length).toBe(outside.length);
+        // not-yet-arrived are anonymous: no real name and no persona facet; none of them is in `met`
+        for (const r of view.remaining) {
+          expect(r.houseguest.name).toBe(UNARRIVED_PLACEHOLDER_NAME);
+          expect(r.houseguest.id).toMatch(/^unarrived:\d+$/); // never a real id: the narrator cannot join a placeholder to a houseguest
+          expect(Object.keys(r).sort()).toEqual(["houseguest", "met"]);
+          expect(view.met.some((m) => m.houseguest.id === r.houseguest.id)).toBe(false);
+        }
+        expect(view.metCount + view.remaining.length).toBe(view.total);
+      } else {
+        expect(view.complete).toBe(true);
+        expect(view.remaining).toEqual([]);
+        expect(view.metCount).toBe(view.total);
+      }
+      if (e.stage === "done") break;
+      s.advanceGame();
+    }
+    expect([...seen].sort()).toEqual(["done", "entrances", "toast"]);
+  });
+
+  it("the last arrival flips complete to true exactly when the stage leaves entrances", () => {
+    const sb = start(5);
+    const s = sb.session;
+    let last = s.premiereIntros()!;
+    for (let i = 0; i < 40 && last.entrance!.stage === "entrances"; i++) {
+      s.advanceGame();
+      last = s.premiereIntros()!;
+      expect(last.complete).toBe(last.entrance!.stage !== "entrances");
+    }
+    expect(last.entrance!.stage).not.toBe("entrances");
+  });
+});

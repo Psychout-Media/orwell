@@ -1562,7 +1562,7 @@ export interface FirstImpressionView {
  * answer to "who has the player met, and who is still to introduce, before the first HOH?". The
  * narrator is HANDED this so it never has to REMEMBER who's been introduced (the real bug: the
  * model under-tracked and skipped people). `complete` is the ALL-MET tally — true once the player has
- * met all 15 NPCs (the player counts themselves). It is NOT the power gate: the first HOH is REACHABLE
+ * met all 15 NPCs (the player counts themselves); with the staged entrances ON it reads false until the last arrival. It is NOT the power gate: the first HOH is REACHABLE
  * earlier, via `powerReachable` below (0111 — a couple of hot reads + nobody left invisible), WITHOUT
  * every formal introduction first.
  *
@@ -1576,12 +1576,10 @@ export interface PremiereIntrosView {
   metCount: number;
   total: number;
   /**
-   * @deprecated BL-005 — VESTIGIAL under the champagne circle (0111). The whole house is met at the
-   * opening toast (`meetWholeHouseAtChampagneCircle`), so this is ALWAYS `[]` during a live premiere —
-   * there is no roll-call left to grind through. Kept only as an always-empty back-compat field (a
-   * removal would break existing consumers/snapshots); it no longer advertises a progressive tracker.
-   * Read `met` for the whole cast; never treat this as a checklist to work through (the narrator prompt
-   * says "you do NOT track introductions").
+   * The houseguests still to meet. With the staged entrances OFF (champagne circle, 0111) the whole house is met at the opening toast, so this is `[]`. With the entrances ON
+   * (default) it is non-empty only while `entrance.stage === "entrances"`: one ANONYMOUS placeholder per houseguest who has not walked in yet (ordinal id `unarrived:N`,
+   * name "(not yet arrived)", no persona facets) - so the count is honest while the arrival order stays hidden - and `[]` from the toast on. Not a checklist to work through
+   * (the narrator prompt says "you do NOT track introductions"); nothing in the engine is gated on it.
    */
   remaining: FirstImpressionView[];
   /** Everyone met so far — the player's early observable reads, for a "first impressions" surface. */
