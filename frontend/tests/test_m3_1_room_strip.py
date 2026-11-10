@@ -151,13 +151,14 @@ def test_render_unmounts_the_notice_on_a_falsy_context():
     assert "notice.hide()" in fn
 
 
-def test_an_empty_room_also_unmounts_rather_than_rendering_a_hollow_card():
+def test_an_empty_room_shows_just_you_here_instead_of_unmounting():
     fn = ROOM_STRIP[ROOM_STRIP.index("function render(ctx) {"):]
     fn = fn[:fn.index("\n  async function tick")]
     assert "if (!chips.length) {" in fn
-    # Two hide() call sites: the falsy-context branch above, and the no-chips branch — never a
-    # visible-but-empty card (DoD: collapses gracefully, not a hollow bordered box).
-    assert fn.count("notice.hide()") == 2
+    # ORW-246 (Ryne): the strip stays during play. Only the falsy-context branch (pre-game / no room) hides; an empty room
+    # renders a "Just you here" label, never a hollow box and never a vanished strip.
+    assert fn.count("notice.hide()") == 1
+    assert "Just you here" in fn
 
 
 def test_game_build_gated_and_fails_open_on_poll_error():
@@ -166,7 +167,10 @@ def test_game_build_gated_and_fails_open_on_poll_error():
     # the catch branch fails open (never throws to the page)
     tick_fn = ROOM_STRIP[ROOM_STRIP.index("async function tick()"):]
     tick_fn = tick_fn[:tick_fn.index("function refreshNow")]
-    assert "} catch (_) {" in tick_fn and "render(null)" in tick_fn
+    assert "} catch (_) {" in tick_fn
+    # ORW-246: a failed poll keeps the last-known strip instead of blanking it (only the pre-game/no-room paths render(null))
+    catch_fn = tick_fn[tick_fn.index("} catch (_) {"):tick_fn.index("} finally {")]
+    assert "render(null)" not in catch_fn
 
 
 # ── 4. kit wiring (M2-2 reuse) ─────────────────────────────────────────────────────────
