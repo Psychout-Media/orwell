@@ -98,6 +98,9 @@
     const st = document.createElement("style");
     st.id = "orwell-room-strip-css";
     st.textContent = `
+      /* ORW-246b (live, phone width): the notice zone is a height-capped scroller, and a tall card (the premiere welcome guide) above the strip pushed it out of view - it existed but sat clipped below the card.
+         Pin it FIRST in the zone (order:-1) and sticky at the top, so "who's here" is always the first thing in view above the composer and the cards scroll beneath it. */
+      #orwell-room-strip { order: -1; position: sticky; top: 0; z-index: 2; flex: 0 0 auto; }
       #orwell-room-strip .ors-row {
         display: flex; gap: 10px; align-items: flex-start; flex-wrap: nowrap;
         overflow-x: auto; overflow-y: hidden;
