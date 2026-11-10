@@ -1903,8 +1903,18 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
       if ((c?.veto?.players?.length ?? 0) === 0) {
         return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
       }
+      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due) {
+        // ORW-252: the draw is done but the competition is NOT due - the house waits for its hour. The competition fragment (venue, rounds) must not ride along, or the narrator plays the comp ahead of the engine.
+        return { replace: true, note: "MOMENT NOTE - the veto competition has NOT started: the game has drawn the six players, but the competition is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: the players, the nominees and everyone else talk, scheme and kill time; the competition begins only when the game runs it." };
+      }
       if (!c?.veto?.holder) {
         return { replace: false, note: "MOMENT NOTE - the veto winner has NOT been decided: the game has drawn the six players but has not run the competition. Voice the draw and the field the game gave you; never name a winner, a result or a drop until advanceGame returns it." };
+      }
+      return null;
+    case "hoh-competition":
+      // ORW-252: the same guard for the Head of Household competition - not due yet means it has not started, so its venue and rounds are not narrated ahead of the engine.
+      if (view.daySchedule && view.daySchedule.next === "hoh-competition" && !view.daySchedule.due) {
+        return { replace: true, note: "MOMENT NOTE - the Head of Household competition has NOT started: it is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: everyone talks, schemes and kills time; the competition begins only when the game runs it." };
       }
       return null;
     case "eviction":
