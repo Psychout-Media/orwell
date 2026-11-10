@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""ORW-109 - the SHORT TIER of formal live-run testing: a real narrator, a staged build, a written pass bar, one report.
+
+Plays a real game through the real chat UI (headless Chromium) and, between player messages, jumps the engine clock with the engine's own player API (the same
+calls the player's turn-in / time-passing make) so a few messages reach the veto morning of Week 1. Every turn is compared with ENGINE TRUTH and scored against
+the pass bar in README.md. Writes report.md + report.json into the run dir and exits 0 (PASS) / 1 (FAIL) / 2 (could not run).
+
+  python3 live_short.py --run-dir DIR [--fe http://127.0.0.1:17000] [--engine http://127.0.0.1:18765] [--token rehlocal]
+
+The rig (engine + FE, fresh data, real narrator key, images OFF) is staged by the kit's stage script; this file never reads or prints a key. Roles only, no
+cast names are hard-coded: whatever the cast is, the checks read it from the engine.
+"""
+from __future__ import annotations
+
+import argparse, json, re, sys, time, urllib.request
+
+CAST_LINES = [
+    "Hi! My name is Rowan. I read rooms before I speak, and I want to win by being liked and quietly useful.",
+    "People bring me their problems. I'm a school librarian from Ohio, 29, I keep everyone's secrets. I want to prove the quiet read beats the loud move.",
+    "I listen first and decide late. My tell is I go still when I lie.",
+    "In ten minutes people read me as soft and harmless; the wrong part is that I keep careful track of who owes whom. I'd burn a confidence only to save myself in the final week.",
+    "That's everything. I'm ready, please put my name on the wall and start the season.",
+    "I step through the doors and look around.",
+]
+EARLY_ASK = "Can we start the Head of Household competition right now? Run it."
+VETO_MORNING = [
+    "I wake up and head to the kitchen for coffee, waiting for the veto draw.",
+    "I listen to the draw and see who got picked.",
+    "I hang around the living room chatting with whoever is near.",
+    "I keep chatting and wait for the veto competition to be called.",
+]
+
+# machinery that must never reach a player-facing reply
+LEAK_RE = re.compile(r"npc:\d+|<think|</think|advanceGame|submitDecision|beatSeq|\bVault\b|\btool call\b|\[System prompt", re.I)
+# a guard's replacement shell is not a scene
+SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again\?|Responding\W*$", re.I)
+# competition play that must not be narrated before the engine has run the competition
+COMP_PLAY_RE = re.compile(r"\b(plank|apparatus|rails?|platforms?|rounds? (?:one|two|three|1|2|3)|is out of the (?:competition|comp)|wins the (?:Power of Veto|veto|HOH|Head of Household)|crawl(?:s|ing) (?:along|across))\b", re.I)
+
+BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el => { const c = el.cloneNode(true);
+  c.querySelectorAll('.thinking-content,.thinking,[class*=thinking],.msg-footer').forEach(n=>n.remove());
+  return {txt:(c.innerText||'').trim(), done:!!el.querySelector('.msg-footer')}; })"""
+
+
+class Engine:
+    def __init__(self, base, token):
+        self.base, self.h = base, {"content-type": "application/json", "authorization": f"Bearer {token}"}
+
+    def call(self, name, args=None):
+        r = urllib.request.Request(self.base + "/player/call", data=json.dumps({"name": name, "args": args or {}}).encode(), headers=self.h, method="POST")
+        return json.load(urllib.request.urlopen(r, timeout=90)).get("result")
+
+    def hour(self):
+        st = self.call("getGameState"); m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", st.get("clockLabel") or "")
+        if not m: return None, st
+        h = int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+        return (h + 24 if h < 8 else h), st
+
+    def sleep_through_night(self, tag):
+        n = 0
+        while True:
+            h, _ = self.hour()
+            if h is None or h >= 24 or n > 700: break
+            self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
+        self.call("turnIn"); self.call("noteMessage", {"messageId": f"{tag}-wake"})
+
+    def to_just_before_due(self, tag):
+        n = 0
+        while n < 500:
+            _, st = self.hour(); ds = st.get("daySchedule") or {}
+            if ds.get("due") or (isinstance(ds.get("minutesUntil"), int) and ds["minutesUntil"] <= 5): return
+            self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
+
+    def entrances(self):
+        for _ in range(80):
+            ent = (self.call("premiereIntros") or {}).get("entrance") or {}
+            if not ent or ent.get("stage") == "done": return
+            a = self.call("advanceGame")
+            if a.get("pending"): return
+
+    def play_pendings_until(self, phase, tag, max_steps=40):
+        """Drive the closed-set loop with the simplest legal answers until `phase` is reached (never past it)."""
+        for i in range(max_steps):
+            st = self.call("getGameState")
+            if st.get("phase") == phase: return True
+            a = self.call("advanceGame"); p = a.get("pending")
+            if p:
+                k, o = p.get("kind"), [x.get("id") for x in (p.get("options") or [])]
+                d = {"kind": k}
+                if k in ("comp-round", "comp-intent"): d["intent"] = "compete"
+                elif k == "nominations": d["choice"] = o[:2]
+                elif k in ("veto-decision", "secret-veto"): d["use"] = False
+                elif k == "replacement": d["replacement"] = o[0]
+                else: d["vote"] = o[0] if o else "a"
+                self.call("submitDecision", d); continue
+            if a.get("held") or not a.get("event"): self.sleep_through_night(f"{tag}-{i}")
+        return False
+
+
+class Chat:
+    def __init__(self, page, base):
+        self.page, self.base = page, base
+
+    def send(self, text, limit=240):
+        t0 = time.time(); before = len(self.page.evaluate(BUB))
+        self.page.fill("#message", text); self.page.wait_for_timeout(300)
+        if self.page.evaluate("document.querySelector('.send-btn')?.getAttribute('data-mode')") == "send": self.page.click(".send-btn")
+        else: self.page.keyboard.press("Enter")
+        self.page.wait_for_timeout(3000); stable, prev = 0, None
+        while time.time() - t0 < limit:
+            self.page.wait_for_timeout(2000)
+            bs = self.page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
+            busy = self.page.evaluate("!!document.querySelector('.send-btn[data-mode=\"stop\"], .send-btn[data-mode=\"cancel\"]')")
+            stable = stable + 1 if (sig == prev and not busy) else 0
+            prev = sig
+            if stable >= 3: break
+        bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
+        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": "\n".join(x["txt"] for x in new), "settled": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default="http://127.0.0.1:17000")
+    ap.add_argument("--engine", default="http://127.0.0.1:18765"); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
+    ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
+    a = ap.parse_args()
+    if a.rescore:
+        turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
+        score(turns, checks, lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail}), a.turn_limit_secs)
+        write(a.run_dir, turns, checks, None); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
+        print("RESULT:", "FAIL" if hard else "PASS"); sys.exit(1 if hard else 0)
+    from playwright.sync_api import sync_playwright
+    eng = Engine(a.engine, a.token); turns = []; checks = []
+
+    def check(cid, ok, detail, severity="fail"):
+        checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
+
+    def play(label, text, expect_phase=None):
+        st0 = eng.call("getGameState")
+        r = chat.send(text)
+        st = eng.call("getGameState")
+        t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"],
+             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
+             "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
+        turns.append(t); return t
+
+    try:
+        with sync_playwright() as p:
+            b = p.chromium.launch(args=["--disable-dev-shm-usage", "--disable-gpu", "--headless=old"])
+            page = b.new_context(viewport={"width": 1440, "height": 900}).new_page()
+            page.goto(a.fe + "/", wait_until="load", timeout=60000); page.wait_for_timeout(6000)
+            chat = Chat(page, a.fe)
+            for i, line in enumerate(CAST_LINES): play(f"cast-{i + 1}", line)
+            st = eng.call("getGameState")
+            check("G1-game-started", st.get("phase") not in (None, "setup"), f"phase after casting: {st.get('phase')}")
+            eng.entrances()
+            eng.sleep_through_night("n1")
+            # the early ask: production has not called the competition yet, so the engine must not have run it
+            t = play("early-ask-hoh", EARLY_ASK)
+            check("P1-production-hold", t["phase"] in ("premiere", "hoh-competition") and not eng.call("getGameState").get("hoh"), f"asked for the HOH comp at {t['clock']}; engine phase {t['phase']}, hoh set: {bool(eng.call('getGameState').get('hoh'))}")
+            eng.to_just_before_due("m1")
+            eng.play_pendings_until("veto-competition", "w1")
+            eng.sleep_through_night("n3")  # the veto competition needs a night after nominations
+            st = eng.call("getGameState")
+            check("G2-reached-veto-morning", st.get("phase") == "veto-competition", f"phase {st.get('phase')} at {st.get('clockLabel')}")
+            for i, line in enumerate(VETO_MORNING): play(f"veto-morning-{i + 1}", line)
+            b.close()
+    except Exception as e:  # noqa: BLE001
+        print("could not run:", repr(e)[:300]); write(a.run_dir, turns, checks, str(e)); sys.exit(2)
+
+    score(turns, checks, check, a.turn_limit_secs)
+    write(a.run_dir, turns, checks, None)
+    hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
+    print("RESULT:", "FAIL" if hard else "PASS", f"({len(hard)} failing, {sum(1 for c in checks if not c['ok'] and c['severity'] == 'warn')} warnings)")
+    sys.exit(1 if hard else 0)
+
+
+def clock_hour(label):
+    m = re.match(r"^(\d{1,2}):(\d{2})(am|pm)", label or "")
+    return (int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60) if m else None
+
+
+def score(turns, checks, check, turn_limit):
+    for t in turns:
+        lab = t["label"]
+        check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
+        short_ok = lab.startswith("early-ask")  # a one-line deflection of an out-of-schedule request is legitimate; still reported
+        shell = SHELL_RE.search(t["text"])
+        check(f"T2-real-scene[{lab}]", not shell and (len(t["text"]) >= 200 or short_ok), f"{len(t['text'])} chars" + (" (guard shell text)" if shell else ""))
+        if short_ok and len(t["text"]) < 200: check(f"T2b-thin-reply[{lab}]", False, f"only {len(t['text'])} chars for a player request - a thin answer, not a scene", "warn")
+        m = LEAK_RE.search(t["text"]); check(f"T3-no-machinery[{lab}]", not m, f"leak: {m.group(0)!r}" if m else "clean")
+        check(f"T4-latency[{lab}]", t["secs"] <= turn_limit, f"{t['secs']}s (warn > {turn_limit}s)", "warn")
+        check(f"T5-latency-hard[{lab}]", t["secs"] <= 240, f"{t['secs']}s (fail > 240s)")
+        eh = clock_hour(t.get("clock")); cm = re.search(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))", t["text"]) if eh is not None else None
+        if cm:
+            nh = int(cm.group(1)) + int(cm.group(2)) / 60
+            nh = nh + 12 if nh < 8 and eh >= 12 else nh
+            check(f"C3-clock-claim[{lab}]", abs(nh - eh) <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
+    held = [t for t in turns if t["label"].startswith("veto-morning") and t["phase"] == "veto-competition" and (t["ds"] or {}).get("due") is False]
+    for t in held:
+        m = COMP_PLAY_RE.search(t["text"])
+        check(f"C1-no-pre-narrated-comp[{t['label']}]", not m, f"competition play narrated while the engine had not run it: {m.group(0)!r}" if m else "house talk only")
+    draw = [t for t in turns if t["label"].startswith("veto-morning")]
+    check("C2-draw-voiced", any(re.search(r"(?i)veto", t["text"]) and re.search(r"(?i)draw|chip|pull|playing for", t["text"]) for t in draw), "a veto-morning reply voices the draw")
+
+
+def write(run_dir, turns, checks, error):
+    hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]; warn = [c for c in checks if not c["ok"] and c["severity"] == "warn"]
+    verdict = "COULD NOT RUN" if error else ("FAIL" if hard else "PASS")
+    json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
+    L = [f"# Live run (short tier) - {verdict}", "", f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
+    if hard or warn:
+        L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
+    L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]
+    for t in turns:
+        L += [f"### {t['label']} - {t['secs']}s - {t['clock']} - phase {t['phase']}", f"Player: {t['msg']}", "", "> " + t["text"][:700].replace("\n", "\n> "), ""]
+    open(f"{run_dir}/report.md", "w").write("\n".join(L))
+
+
+if __name__ == "__main__":
+    main()
