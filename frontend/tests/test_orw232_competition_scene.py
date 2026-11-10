@@ -177,3 +177,14 @@ def test_a_fresh_pause_also_stops_the_stall_nudge(monkeypatch):
     run("go on")  # the next framed turn clears the old pause and, pausing again, sets a new one; after the crown nothing holds
     run("and on")
     assert not ch.production_is_holding("u232x"), "the competition finished: no stale hold"
+
+
+def test_every_fe_silent_advance_belt_respects_a_fresh_pause():
+    """Live run 3 (2026-11-10): after the model's tools were held, the 'decision-deliver' belt (the model called submitDecision, so the FE 'delivered' it) committed advanceGame silently and finished the competition through the pause.
+    All silent-advance belts (stall / decision-deliver / preview-commit) share _commit_advance_silently, which now stands down while a pause is fresh (source pin: it is the ONLY place the FE issues those advances)."""
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[1].joinpath("src", "agent_loop.py").read_text()
+    i = src.index("async def _commit_advance_silently")
+    head = src[i:i + 2600]
+    assert "comp_pause_holds(owner)" in head and "return True" in head[head.index("comp_pause_holds(owner)"):head.index("comp_pause_holds(owner)") + 300]
+    assert src.count("async def _commit_advance_silently") == 1

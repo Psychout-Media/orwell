@@ -8735,6 +8735,13 @@ async def _stream_agent_loop_impl(
                             spine — the re-ground fires next turn — and we report False so the caller
                             does NOT then blindly retry into a stomp."""
                             _silent_advance_reconciled[0] = False  # reset per call (finding 4)
+                            try:  # ORW-232 slice 2 (live run 3): a FRESH competition pause is the player's turn to talk - no FE belt (stall / decision-deliver / preview-commit) may advance it. True = "done this turn".
+                                from routes import chat_helpers as _ch_cp
+                                if _ch_cp.comp_pause_holds(owner):
+                                    logger.info(f"[orwell] silent advance ({_why}) skipped: the competition is paused for the player user={owner}")
+                                    return True
+                            except Exception:
+                                pass
                             _silent_advance_capped[0] = False       # reset per call (F1 anti-stale)
                             _silent_advance_unconfirmed[0] = False  # reset per call (unknown pre-state)
                             # F1 ANTI-STALE CAP — scoped to the emitted-visible PLAIN-stall silent commit
