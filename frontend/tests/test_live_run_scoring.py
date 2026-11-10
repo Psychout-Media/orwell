@@ -71,5 +71,7 @@ def test_k1_no_skipped_time_unexplained_jump_fails_but_runner_bed_and_wake_do_no
     assert not [k for k in bed if k.startswith("K1-no-skipped-time")]
     small = _score([a, _turn("t2", "x", clock="4:10pm, Day 1")])
     assert not [k for k in small if k.startswith("K1-")], "5 minutes is normal"
+    beat = _score([a, _turn("t2", "x", clock="7:10pm, Day 1", phase="nominations", phase_before="premiere")])
+    assert [c for k, c in beat.items() if k.startswith("K1-clock-jump-competition")][0]["severity"] == "note", "a non-competition beat inside one message is a note"
     comp = _score([a, _turn("t2", "x", clock="7:10pm, Day 1", phase="nominations", phase_before="hoh-competition")])
-    assert [c for k, c in comp.items() if k.startswith("K1-clock-jump-competition")][0]["severity"] == "note"
+    assert not [c for k, c in comp.items() if k.startswith("K2-competition-in-one-message")][0]["ok"], "Ryne: a competition is never one message"
