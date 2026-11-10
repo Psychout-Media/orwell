@@ -6187,6 +6187,17 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
 _COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition pass began, per user
 
 
+def _veto_draw_steer(content: str) -> str:
+    """ORW-250 (Ryne: "the veto player draw was seemingly skipped ... it was expressed as a call from production at the beginning of the comp instead"): the draw is its OWN small ceremony on the morning of the
+    veto day. The engine has already committed it; this hands the narrator the draw as FACTS to voice as a short scene in the room, and says the competition is later, so the draw is never folded into the comp."""
+    return (
+        "THE VETO DRAW JUST HAPPENED (engine truth, already decided - you voice it, you never change it): " + str(content).strip() + ". Voice it as its OWN short ceremony in the room THIS morning, before the "
+        "competition: the Head of Household and the nominees gather, the chips come out of the bag and each draw is read aloud, one houseguest at a time, in the order the game gives, with the reactions; if the game "
+        "names a Houseguest's Choice, voice who drew it and who they picked to play the sixth seat, exactly as given. Exactly these six play - never add, drop or swap a player. END there: the competition itself is "
+        "later today, so do not narrate it, its rounds or a winner in this reply."
+    )
+
+
 def _competition_scene_steer(log) -> str:
     """ORW-232 slice 1 (Ryne: the first HOH felt awkward - transitions in and out not role-played, a few boxes of who was eliminated and who won): the competition the engine walked this turn, in ENGINE
     ORDER, as FACTS for the narrator to voice as ONE continuous scene in the same chat - the lead-in from the house, every round as its own beat (never released as a list or a recap), the winner by name,
@@ -6418,6 +6429,15 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             _wm = re.search(r"\b([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+){0,2})\s+wins\s+(?:the\s+)?(?:Head of Household|HOH|Power of Veto|Veto)\b", str(_beat))
             if _wm:
                 note_ceremony_beat_for_voicing(user, str(_beat), [_wm.group(1)])
+        if _beat and phase == "veto-competition" and _beat_kind == "veto-draw":
+            # ORW-250: the draw is its own ceremony - hand the narrator the committed draw and END the pass here (the competition is a later milestone and is never walked in the same pass).
+            _SCHEDULE_STEER[_runway_key(user)] = _veto_draw_steer(str(_beat))
+            logger.info("[orwell] veto draw committed for user=%s - voiced as its own ceremony, the competition waits for its hour", user)
+            try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
+                _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
+                note_ceremony_beat_for_voicing(user, str(_beat), [n.strip() for n in (_dm.group(1).split(",") if _dm else [])][:6])
+            except Exception:
+                pass
         if _beat and phase in ("hoh-competition", "veto-competition") and _beat_kind in ("comp-elimination", "hoh-competition", "veto-competition"):
             # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
             if _comp_log is None:
@@ -6477,7 +6497,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         if (_beat_kind == "eviction-reveal" and phase == "eviction" and _comp_hops < _COMP_RUN_HOPS):
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
                                                    _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
-        if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig):
+        if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig and _beat_kind != "veto-draw"):  # ORW-250: the draw ends the pass
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
                                                    _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
 
