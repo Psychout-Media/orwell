@@ -1288,6 +1288,10 @@ export function renderGameContext(view: GameStateView): string {
       "  room changes, or \"still to arrive\" houseguests — the whole cast is already in the house):",
       `    Your room: the ${roomLabel(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
       `    With you: ${here}.`,
+      // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
+      ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
+        ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]
+        : []),
       ...(nearby.length
         ? ["    In view (each room you can SEE INTO and EXACTLY who is in it — voice this occupancy, never invent it; closed rooms are opaque and not listed):", ...nearby]
         : ["    No other rooms are in view (you can see into none from here)."]),
