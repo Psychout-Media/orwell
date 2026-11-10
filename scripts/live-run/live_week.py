@@ -35,11 +35,12 @@ class Week(Chat):
         """Click the simplest legal option for the card on screen; returns a label for the report."""
         title = (c.get("title") or "").lower(); opts = c["opts"]
         pick = [0]
-        if "nominat" in title: pick = [0, 1]
+        if "nominat" in title and len(opts) > 1: pick = [0, 1]
         else:
             for i, o in enumerate(opts):
                 if re.search(r"(?i)\bcompete\b", o): pick = [i]; break
                 if re.search(r"(?i)do not use|don'?t use|not use|keep", o): pick = [i]; break
+                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour)
         btns = self.page.query_selector_all("#orwell-decision-card .odec-opt")
         for i in pick:
             if i < len(btns): btns[i].click(); self.page.wait_for_timeout(150)
@@ -76,6 +77,8 @@ def main():
     ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default="http://127.0.0.1:17000")
     ap.add_argument("--engine", default="http://127.0.0.1:18765"); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
+    ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
+    ap.add_argument("--max-turns-total", type=int, default=400); ap.add_argument("--max-turns-per-week", type=int, default=90)
     a = ap.parse_args()
     from playwright.sync_api import sync_playwright
     eng = Engine(a.engine, a.token); turns, checks, facts = [], [], {"phases": []}
@@ -89,6 +92,8 @@ def main():
              "nominees": names(cer.get("nominees") or st.get("nominees")), "veto_holder": ((cer.get("veto") or {}).get("holder") or {}).get("name") if isinstance((cer.get("veto") or {}).get("holder"), dict) else None,
              "hoh": (cer.get("hoh") or {}).get("name") if isinstance(cer.get("hoh"), dict) else None}
         turns.append(t)
+        try: open(f"{a.run_dir}/progress.log", "a").write(f"{len(turns)}\t{t['label']}\tweek={t['week']} {t['phase']} {t['clock']}\t{t['secs']}s\t{len(t['text'])}c\n")
+        except Exception: pass
         if not facts["phases"] or facts["phases"][-1][0] != (st.get("week"), st.get("phase")): facts["phases"].append(((st.get("week"), st.get("phase")), len(turns)))
         return t, st
 
@@ -165,6 +170,18 @@ def main():
             if ev:
                 ev_text = "\n".join(t["text"] for t in turns if t["label"].startswith("evict-"))
                 check("W5c-evictee-voiced", ev[0].split()[0] in ev_text, f"the engine's evictee ({ev[0]}) is named in the eviction-night replies")
+            if a.season:
+                def over(s): return bool(s.get("finished")) or bool(s.get("winner"))
+                wk = 1; per_week = 0; last_week = eng.call("getGameState").get("week", 2); facts["weeks"] = []
+                while not over(eng.call("getGameState")) and len(turns) < a.max_turns_total:
+                    cur = eng.call("getGameState").get("week", last_week)
+                    ok = play_until(lambda s: over(s) or s.get("week", cur) > cur, f"w{cur}", a.max_turns_per_week)
+                    facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
+                    check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")
+                    if not ok: break
+                fin = eng.call("getGameState"); facts["final"] = {"finished": fin.get("finished"), "winner": fin.get("winner"), "phase": fin.get("phase"), "week": fin.get("week")}
+                check("S-finale-reached", over(fin), f"finished={fin.get('finished')} winner={fin.get('winner')} phase={fin.get('phase')} after {len(turns)} turns")
+                rec2 = eng.call("seasonRecap") or {}; check("S-evictions-recorded", len(names(rec2.get("evicted"))) >= 1, f"evicted in order: {names(rec2.get('evicted'))}")
             check("W6-no-stuck-card", page.evaluate(CARD) is None and not (eng.call("getGameState").get("pending")), "no decision card left on screen / pending")
             b.close()
     except Exception as e:  # noqa: BLE001

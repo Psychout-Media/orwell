@@ -22,6 +22,7 @@ CAST_LINES = [
     "That's everything. I'm ready, please put my name on the wall and start the season.",
     "I step through the doors and look around.",
 ]
+CAST: list = []
 EARLY_ASK = "Can we start the Head of Household competition right now? Run it."
 VETO_MORNING = [
     "I wake up and head to the kitchen for coffee, waiting for the veto draw.",
@@ -29,6 +30,19 @@ VETO_MORNING = [
     "I hang around the living room chatting with whoever is near.",
     "I keep chatting and wait for the veto competition to be called.",
 ]
+
+PREMIERE_MINGLE = [
+    "I take a seat and watch the new arrivals come in.", "I wave at the newest arrival and introduce myself.", "I ask the person next to me what they think of the house so far.",
+    "I wait by the door for whoever walks in next.", "I say hello to the person who just came in.", "I grab a drink and watch the doors.",
+    "I chat with the nearest person about who is still to come.", "I shake hands with the next arrival.", "I lean on the wall and watch the entrance.",
+    "I compliment the latest arrival on their outfit.",
+]
+# a nominations ceremony voiced before the engine committed one (ritual cues only - 'nominations' in general talk is fine)
+PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\bon the block\b")
+# one dialogue line: the chip initials, then the full name, then a dash ("TBTerrance Boyd — ...")
+SPEAKER_RE = re.compile(r"(?m)^[A-Z]{1,3}([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)+)\s*[\u2014-]")
+PAIR_AFTER_RE = re.compile(r"(?i)nominees?\W+(?:are|were|is)\W+([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
+PAIR_BEFORE_RE = re.compile(r"([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?),? (?:are|were)(?: both)? (?:the )?(?:nominees|nominated|on the block|up for eviction)")
 
 # machinery that must never reach a player-facing reply
 LEAK_RE = re.compile(r"npc:\d+|<think|</think|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\bthe Vault\b|\bVault Wall\b)", re.I)
@@ -140,7 +154,11 @@ def main():
         st0 = eng.call("getGameState")
         r = chat.send(text)
         st = eng.call("getGameState")
+        def room_of(s_):
+            w = (s_.get("whereabouts") or {}); return sorted({x.get("name") for x in (w.get("present") or []) if isinstance(x, dict)})
+        ent = (eng.call("premiereIntros") or {}).get("entrance") or {} if st.get("phase") == "premiere" else {}
         t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"],
+             "room_start": room_of(st0), "room_end": room_of(st), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
              "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
         turns.append(t); return t
@@ -154,7 +172,15 @@ def main():
             for i, line in enumerate(CAST_LINES): play(f"cast-{i + 1}", line)
             st = eng.call("getGameState")
             check("G1-game-started", st.get("phase") not in (None, "setup"), f"phase after casting: {st.get('phase')}")
+            # (a) the premiere through the REAL chat path: every few messages another houseguest must walk in (ORW prod: arrivals froze at 9 of 16)
+            for i, line in enumerate(PREMIERE_MINGLE): play(f"premiere-{i + 1}", line)
             eng.entrances()
+            st = eng.call("getGameState"); facts_clock = st.get("clockLabel") or ""
+            check("D1-day-one-not-skipped", "Day 1" in facts_clock, f"after the premiere the clock reads {facts_clock!r} (must still be Day 1: the night is the player's)")
+            ent = (eng.call("premiereIntros") or {}).get("entrance") or {}
+            check("A1-all-arrived", ent.get("insideCount") == ent.get("total") and (ent.get("total") or 0) >= 2, f"entrance {ent.get('insideCount')} of {ent.get('total')} inside at the end of the premiere")
+            global CAST
+            CAST = list(ent.get("arrivedNames") or [])
             eng.sleep_through_night("n1")
             # the early ask: production has not called the competition yet, so the engine must not have run it
             t = play("early-ask-hoh", EARLY_ASK)
@@ -197,6 +223,34 @@ def score(turns, checks, check, turn_limit):
             nh = int(cm.group(1)) + int(cm.group(2)) / 60
             nh = nh + 12 if nh < 8 and eh >= 12 else nh
             check(f"C3-clock-claim[{lab}]", abs(nh - eh) <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
+    # (a) arrivals keep coming during the real premiere chat: never 6 messages in a row with the same count while more are still to come
+    prem = [t for t in turns if t["label"].startswith("premiere-") and t.get("inside") is not None]
+    if prem:
+        run, worst, last = 0, 0, None
+        for t in prem:
+            run = run + 1 if t["inside"] == last else 0; worst = max(worst, run); last = t["inside"]
+        check("A2-arrivals-progress", worst < 6 and prem[-1]["inside"] > prem[0]["inside"], f"inside went {prem[0]['inside']} -> {prem[-1]['inside']} over {len(prem)} premiere messages; longest flat stretch {worst} messages")
+    # (c) no ceremony voiced before the engine committed it: before nominations the engine has no nominees and no HOH, so ritual cues are phantom
+    for t in turns:
+        if t["phase"] in ("premiere", "setup", "hoh-competition") and not t.get("nominees"):
+            m = PHANTOM_CER_RE.search(t["text"])
+            check(f"C4-no-phantom-ceremony[{t['label']}]", not m, f"ritual voiced with no nominees committed: {m.group(0)!r}" if m else "no ceremony voiced")
+    # (d) a stated nominee pair must be the engine's pair
+    for t in turns:
+        if not t.get("nominees") or len(t["nominees"]) != 2: continue
+        truth = {n.lower() for n in t["nominees"]}
+        for rx in (PAIR_AFTER_RE, PAIR_BEFORE_RE):
+            for m in rx.finditer(t["text"]):
+                said = {m.group(1).lower(), m.group(2).lower()}
+                same = all(any(x == n or x == n.split()[0] or n.startswith(x) for n in truth) for x in said)
+                check(f"C5-nominee-names[{t['label']}]", same, f"narration names {sorted(said)}; engine nominees {sorted(truth)}")
+    # (e) nobody speaks in the player's room unless the engine has them there (at the start or end of the turn - people can walk in or out within a reply)
+    for t in turns:
+        if t["phase"] in ("setup",) or t.get("room_end") is None: continue
+        ok_names = {n.lower() for n in (t.get("room_start") or []) + (t.get("room_end") or [])}
+        if not ok_names and not t.get("room_end"): continue
+        bad = sorted({n for n in SPEAKER_RE.findall(t["text"]) if n.lower() not in ok_names and not any(n.lower() == x or n.split()[0].lower() == x.split()[0] for x in ok_names)})
+        check(f"C6-speakers-in-room[{t['label']}]", not bad, f"spoke in the player's room but the engine has them elsewhere: {bad}" if bad else "every speaker is in the room")
     held = [t for t in turns if t["label"].startswith("veto-morning") and t["phase"] == "veto-competition" and (t["ds"] or {}).get("due") is False]
     for t in held:
         m = COMP_PLAY_RE.search(t["text"])
