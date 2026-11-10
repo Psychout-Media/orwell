@@ -436,6 +436,30 @@ def _board_unchanged_fakes(monkeypatch):
 @pytest.mark.parametrize(
     "purpose,narration", _DYNAMISM_CORPUS, ids=[c[0] for c in _DYNAMISM_CORPUS],
 )
+def test_creative_narration_streams_through_the_headcount_wall_untouched(purpose, narration, monkeypatch):
+    """ORW-205 on the same corpus: the premiere headcount wall polices a stated COUNT of who has arrived,
+    never creative prose. Against a live entrance whose count every number in the corpus would contradict
+    (the strictest setting), each entry must stream BYTE-IDENTICAL and queue no re-ground."""
+    user = "u-headcount-noncollapse"
+    chat_helpers._DESYNC_REGROUND.pop(user, None)
+
+    async def fake_premiere_intros(user=None):
+        return {"entrance": {"stage": "entrances", "index": 3, "total": 16, "playerPosition": 9,
+                             "insideCount": 3, "playerInside": False,
+                             "headcount": "3 of 16 are inside (the player has NOT walked in yet; they are not counted)"}}
+    monkeypatch.setattr(orwell_engine, "premiere_intros", fake_premiere_intros)
+
+    out = _run(agent_loop._headcount_wall_guard(narration, user))
+    assert out == narration, (
+        f"creative narration ({purpose}) was altered by the headcount wall (ADR 0005 #1).\nGot:\n{out!r}"
+    )
+    assert user not in chat_helpers._DESYNC_REGROUND
+    chat_helpers._DESYNC_REGROUND.pop(user, None)
+
+
+@pytest.mark.parametrize(
+    "purpose,narration", _DYNAMISM_CORPUS, ids=[c[0] for c in _DYNAMISM_CORPUS],
+)
 def test_creative_narration_streams_through_the_pre_emission_guard_untouched(purpose, narration, monkeypatch):
     """ADR 0005 principle #1 on the PRE-EMISSION path: every uncoded creative/social narration must
     stream through `agent_loop._pre_emission_outcome_guard` BYTE-IDENTICAL (no sentence held), and

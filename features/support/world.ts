@@ -853,6 +853,7 @@ export class BbWorld extends World {
     positions?: number[];
     orderB?: string[];
     gateAlwaysTrue?: boolean;
+    engineGatedOnTally?: boolean;
     hohDuringEntrances?: boolean;
   };
 

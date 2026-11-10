@@ -1,6 +1,7 @@
 """Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -1092,6 +1093,11 @@ def _premiere_progress_directive(premiere) -> Optional[str]:
     # opening toast), NEVER redirect toward power — the player is pinned in the living room for the toast
     # and the moment prompt already frames the gathered scene + the close edge. Stay silent here.
     if premiere.get("champagneCircle") == "gathered":
+        return None
+    # ORW-196: while the staged ENTRANCES run the engine reports complete=false (arrivals still coming). That is not a "go engage more people" gap: arrivals are
+    # released one at a time by the engine, so the directive stays silent (the entrance prompt fragment owns the framing).
+    _ent = premiere.get("entrance")
+    if isinstance(_ent, dict) and _ent.get("stage") == "entrances":
         return None
     # CHAMPAGNE CIRCLE (0111): the whole house is met at the toast, so `complete`/`powerReachable` are
     # true throughout a live premiere ⇒ STOP redirecting (the model is free to start the game the instant
@@ -2531,6 +2537,49 @@ _VETO_USE_SPECULATIVE_RE = re.compile(
 )
 
 
+# ORW-80 (A96, live replay 4) — a conditional / hypothetical / interrogative mention of a weekly-loop outcome
+# ("if somebody wins the veto tomorrow", "whoever wins HOH", "what if the nominee wins the veto", "unless
+# someone wins the veto", "if he is evicted Thursday") is open-set talk (ADR 0005), not a claim. The claim
+# regexes match committed-sounding verbs ("wins", "won", "is evicted") that a conditional uses too, so the
+# detectors ask `_committed_claim` instead of a bare `.search`: a match whose own clause carries a conditional
+# lead-in BEFORE it is talk about what MIGHT happen. ORW-10 (#2221) applied the same rule to nominations and
+# the player's own veto win in the board verify only; this extends it to every weekly-loop claim kind on every
+# path (the T0-3 hard-drop rail, the closed-set pre-filter, the premiere board-absence check, the board verify).
+# Bare modals (would / could / might) are deliberately NOT lead-ins here: in "he knew he could compete, and the
+# houseguest wins the veto" the claim is real, and the hard-drop rail must keep catching it.
+# ORW-80 review: "as if" and "even if" are manner / concessive phrases, not conditionals about the outcome ("As if
+# on cue, the houseguest wins the veto" asserts the win), and "whether" introduces both ("Whether or not you
+# believe it, you won HOH"), so none of the three is a lead-in.
+_CLAIM_HYPOTHETICAL_RE = re.compile(
+    r"\b(?:(?<!\bas\s)(?<!\beven\s)if|unless|suppose|supposing|imagine|assuming|in\s+case|what\s+if|whoever|"
+    r"whichever|hypothetically|were\s+(?:i|you|he|she|they|we)|had\s+(?:i|you|he|she|they|we))\b",
+    re.IGNORECASE,
+)
+# ORW-80 review: a lead-in governs only the clause it sits in. A comma, semicolon, colon or dash ends that clause,
+# so "Thanks, if you must know, I won the veto." and "Imagine that: the houseguest wins HOH." are claims.
+_CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
+
+
+def _committed_claim(regex, text: str) -> bool:
+    """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose OWN clause
+    (the text after the last comma, semicolon, colon or dash before it) carries a conditional lead-in
+    (`_CLAIM_HYPOTHETICAL_RE`) is talk about what might happen, not a claim that it did. A lead-in in an earlier
+    clause does not cover a later claim ("Wondering if it was fair, you watch as the houseguest wins the veto"),
+    and a committed claim in another sentence, or with the conditional after it ("she wins the veto, if you can
+    believe it"), still counts. The match's own first word is checked too: a name-capturing pattern reads
+    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match."""
+    if not text:
+        return False
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        for m in regex.finditer(sentence):
+            words = m.group(0).split(None, 1)
+            clause = _CLAIM_CLAUSE_SPLIT_RE.split(sentence[:m.start()])[-1]
+            lead = re.sub(r"\s+", " ", clause + (words[0] if words else ""))   # one space, so the as/even look-behinds hold
+            if not _CLAIM_HYPOTHETICAL_RE.search(lead):
+                return True
+    return False
+
+
 def _veto_use_claim_is_speculative(text: str) -> bool:
     """True when the matched veto-USE claim's OWN clause (cut at the last sentence/clause boundary
     before the match) is governed by a modal/conditional/interrogative lead-in — legitimate open-set
@@ -2938,7 +2987,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # gated on `if not desync` — independently evaluated, first genuine problem found still wins
     # (matching the prior priority order), but a clean verdict from an earlier category never
     # suppresses a LATER category's own check.
-    if _CLAIM_EVICTED_RE.search(text):
+    if _committed_claim(_CLAIM_EVICTED_RE, text):  # ORW-80: not a hypothetical ("if he is evicted Thursday")
         _count_unmoved = after.get("evicted") == before.get("evicted")
         # P3: tonight's eviction is ALREADY committed (the pre-resolve landed it at framing, so before == after) - narrating the result is a recap, not a phantom. Only a
         # WRONG evictee (an active houseguest named as leaving) is still a fabrication.
@@ -2965,13 +3014,13 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to FINALE phases: mid-season "crowned the winner" language is necessarily
     #     hypothetical flavor ("you could be crowned the winner someday"), never a committed
     #     outcome — policing it elsewhere would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_CLAIM_WINNER_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_WINNER_RE, text)
           and str(after.get("phase") or "").lower().startswith(_FINALE_PHASES)
           and not after.get("finished")):
         desync = "the SEASON WINNER being crowned"
     # (3) A finale vote TALLY was narrated, but the game isn't finished → narrated the count
     #     before the engine revealed all the jury votes.
-    if not desync and (_CLAIM_TALLY_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_TALLY_RE, text)
           and str(after.get("phase") or "").lower().startswith(_FINALE_PHASES)
           and not after.get("finished")):
         desync = "a FINAL VOTE TALLY (the jury count)"
@@ -2989,10 +3038,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      turn keeps its result-language narration unpoliced).
     #      PO ruling 2026-11-04 (the vote reveal is ALL IN ONE TURN): once the engine has handed over every ballot (`ballotCounts`), a tally that AGREES with
     #      those counts is simply the truth the BOARD block gave the narrator - only a tally that contradicts them is still a fabrication.
-    _tally_ok = bool(_CLAIM_TALLY_RE.search(text)) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
+    _tally_ok = _committed_claim(_CLAIM_TALLY_RE, text) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
     if not desync and str(after.get("phase") or "").lower().startswith(_EVICTION_PHASES) and (
-          (_CLAIM_TALLY_RE.search(text) and not _tally_ok)
-          or (_CLAIM_EVICT_RESULT_RE.search(text) and after.get("evicted") == before.get("evicted"))):
+          (_committed_claim(_CLAIM_TALLY_RE, text) and not _tally_ok)
+          or (_committed_claim(_CLAIM_EVICT_RESULT_RE, text) and after.get("evicted") == before.get("evicted"))):
         desync = "an EVICTION VOTE TALLY / RESULT (the count is sealed until the engine commits the eviction)"
     # (4a) A2 (2026-07-03): the model tells the PLAYER they won HOH, but the engine shows the player is
     #      NOT the Head of Household → a phantom self-crown. Verified DIRECTLY against `playerIsHoh` (an
@@ -3000,7 +3049,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      (the exact live-red-team failure: "you won HOH" narrated with zero tool calls, an NPC actually
     #      won). Fires only when the board KNOWS the player is not HOH (`playerIsHoh is False`, never on
     #      the unknown/None case — an old-style signature without the field can't trip it).
-    if not desync and _CLAIM_SELF_HOH_WIN_RE.search(text) and after.get("playerIsHoh") is False:
+    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text) and after.get("playerIsHoh") is False:
         desync = "a phantom HEAD OF HOUSEHOLD win (the engine shows you are NOT the Head of Household)"
     # (4b) A2: the model crowns a NAMED houseguest HOH who is NOT the one the engine crowned → the wrong
     #      identity on the throne. Scoped to the HOH beat AND a crown that really committed THIS turn
@@ -3018,7 +3067,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to HOH phases (like the tally branch): outside the HOH beat, "the new HOH…" /
     #     "wins HOH" reads as reflection or flavor, not a committed crown — policing it elsewhere
     #     would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_CLAIM_NEW_HOH_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text)
           and str(after.get("phase") or "").lower().startswith(_HOH_PHASES)
           and after.get("hoh") == before.get("hoh")
           and not (before.get("hoh") is None and after.get("hoh") is not None)):
@@ -3038,7 +3087,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     so plan/speculation language outside the beat ("I might nominate you") is never policed.
     #     ORW-10 (live replays 5 and 6): once nominees are COMMITTED (the veto ceremony, and every social turn left in the nominations beat after the engine pre-resolved them) ordinary prose about them
     #     ("those are the two on the block") is a recap, not a phantom nomination - there only a REPLACEMENT claim is suspect. While NO nominee is committed the original rule stands.
-    if not desync and (_CLAIM_NOMINATED_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_NOMINATED_RE, text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
           and (after.get("noms") or []) == (before.get("noms") or [])
           and not _nomination_claims_all_hypothetical(text)
@@ -3046,7 +3095,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
-    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
+    if not desync and _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
         desync = "a phantom POWER OF VETO win (the engine shows you do NOT hold the veto)"
     # (6b) A2: the model hands the veto to a NAMED houseguest who is NOT the actual holder → wrong
     #      identity (mirrors 4b). Scoped to the veto beat AND a holder that really committed this turn.
@@ -3058,7 +3107,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "the WRONG houseguest winning the Power of Veto (you named someone the engine did not)"
     # (6) NARR-8 (#574): a VETO WINNER was narrated, but the veto holder didn't change → no veto win
     #     committed. Scoped to the veto phase; the fresh-win guard mirrors the HOH branch.
-    if not desync and (_CLAIM_VETO_WINNER_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_VETO_WINNER_RE, text)  # ORW-80: "if somebody wins the veto tomorrow" is talk
           and str(after.get("phase") or "").lower().startswith(_VETO_PHASES)
           and after.get("vetoHolder") == before.get("vetoHolder")
           and not (before.get("vetoHolder") is None and after.get("vetoHolder") is not None)):
@@ -4448,7 +4497,12 @@ _CLAIM_VETO_INTENT_RE = re.compile(
 _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
-    r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+    r"think(?:s|ing)?\s+about|whether"
+    # ORW-25 (A80): a supposition ("Imagine the nominees aren't set yet") and a negated report ("Nobody says the
+    # nominees haven't been named") assert nothing about the current board either.
+    r"|imagine|imagining|suppose|supposing|assuming|in\s+case|hypothetically|pretend(?:s|ed|ing)?"
+    r"|(?:nobody|no\s+one|none\s+of\s+them)\s+(?:says?|said|claims?|claimed|thinks?|thought|believes?|"
+    r"pretends?|mentions?|suggests?))\b", re.IGNORECASE)
 
 # N-6: a hypothetical / conditional / past-week sentence ("If Ian wins the veto...", "whoever wins", "when she wins", "last week's HOH") is not an assertion
 # about the CURRENT board, so it is never a contradiction. The narration path's hypothetical detector plus the aside-specific temporal cues.
@@ -4614,8 +4668,9 @@ def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
 
 
 # the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
-# first clause cannot hide an explicit later contradiction
-_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
+# first clause cannot hide an explicit later contradiction. ORW-25: a colon ends a clause too, so the exclamation in
+# "Imagine that: the nominees haven't been named." does not cover the denial after it.
+_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
 
 
 def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
@@ -4767,7 +4822,8 @@ def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
                 name = next((g for g in m.groups() if g), None)
                 if not name or _name_matches(name, holder) or not _name_matches_active(name, live):
                     continue
-                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1]
+                # ORW-25: the lead also ends at a colon ("Imagine that: <name> gets there first" is a claim)
+                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1].rsplit(":", 1)[-1]
                 if _VETO_N1_HYP_RE.search(lead):
                     continue
                 return ("the WRONG houseguest as the veto winner / user (the engine's Power of Veto holder is "
@@ -4783,22 +4839,24 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
     someday' still streams — it never reaches the async verify, and would pass it anyway)."""
     if not text or not text.strip():
         return False
+    # ORW-80: the weekly-loop outcome kinds count only OUTSIDE a hypothetical ("if somebody wins the veto
+    # tomorrow" is talk, never worth a board read, a drop or a scene cut) — see `_committed_claim`.
     return bool(
-        _CLAIM_EVICTED_RE.search(text)
-        or _CLAIM_WINNER_RE.search(text)
-        or _CLAIM_NEW_HOH_RE.search(text)
-        or _CLAIM_SELF_HOH_WIN_RE.search(text)   # A2: "you won HOH" — a self-crown the board can deny
-        or _CLAIM_SELF_VETO_WIN_RE.search(text)  # A2: "you won the veto" — same
-        or _CLAIM_TALLY_RE.search(text)
-        or _CLAIM_EVICT_RESULT_RE.search(text)  # LIVE-7 (#540): self-counted majority/short
-        or _CLAIM_NOMINATED_RE.search(text)
-        or _CLAIM_VETO_WINNER_RE.search(text)
+        _committed_claim(_CLAIM_EVICTED_RE, text)
+        or _committed_claim(_CLAIM_WINNER_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)   # A2: "you won HOH" — a self-crown the board can deny
+        or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)  # A2: "you won the veto" — same
+        or _committed_claim(_CLAIM_TALLY_RE, text)
+        or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)  # LIVE-7 (#540): self-counted majority/short
+        or _committed_claim(_CLAIM_NOMINATED_RE, text)
+        or _committed_claim(_CLAIM_VETO_WINNER_RE, text)
         or _CLAIM_VETO_USE_RE.search(text)  # T0-3: the veto USE decision (distinct from who WON it)
         or _CLAIM_PLAYER_EXPULSION_RE.search(text)  # #1659 R2: "you're being removed/expelled from the game"
-        or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
+        or _committed_claim(_CLAIM_COMP_RESULT_RE, text)  # A-9: a specific competition event (verified against the board)
         or _CLAIM_COMP_ELIM_STRONG_RE.search(text)
         or _CLAIM_COMP_ELIM_WEAK_RE.search(text)
-        or _CLAIM_VETO_BELL_RE.search(text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
+        or _committed_claim(_CLAIM_VETO_BELL_RE, text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
         or _CLAIM_VETO_INTENT_RE.search(text)  # N-1: a non-holder 'going to use it'
         or _CLAIM_PLAYER_IN_FIELD_RE.search(text)  # F-3: the player seated in a veto field (verified against the engine's field)
         or _DENY_HOH_RE.search(text) or _DENY_NOMS_RE.search(text) or _DENY_VETO_RE.search(text)  # N-3: stale "not yet"
@@ -4827,22 +4885,24 @@ def _sentence_has_chyron_covered_claim(text: str) -> bool:
     `not _veto_use_claim_is_speculative(text)` — a modal/conditional/interrogative veto-use mention
     ("Priya wonders whether to use the veto on herself", "if he uses the veto, the whole week flips")
     is legitimate open-set color (ADR 0005), not a closed-set outcome claim, and must survive the
-    hard-drop rail untouched. The other 8 patterns don't need this: their committed-tense-only
-    construction (wins/won, is/was evicted, nominates — never a bare infinitive/modal form) already
-    excludes the equivalent speculative phrasing for those kinds without a separate clause scan; only
-    veto-use's present-tense "uses" is ambiguous enough (it is grammatically identical in a live
-    conditional and a declarative narration) to need one."""
+    hard-drop rail untouched. ORW-80 (A96, live replay 4): the other 8 patterns turned out to need the
+    same — present-tense "wins" / "is evicted" / "won" read identically in a conditional ("if somebody
+    wins the veto tomorrow", "whoever wins HOH") — so each is asked through `_committed_claim`, which
+    ignores a match with a conditional lead-in earlier in its sentence."""
     if not text or not text.strip():
         return False
+    # ORW-80: present-tense "wins" (and "is evicted", "won") is what a conditional uses too ("if somebody wins
+    # the veto tomorrow", "whoever wins HOH"), so — like veto-use — a match is a claim only outside a
+    # hypothetical (`_committed_claim`); a committed claim still hard-drops exactly as before.
     return bool(
-        _CLAIM_EVICTED_RE.search(text)
-        or _CLAIM_NEW_HOH_RE.search(text)
-        or _CLAIM_SELF_HOH_WIN_RE.search(text)
-        or _CLAIM_SELF_VETO_WIN_RE.search(text)
-        or _CLAIM_TALLY_RE.search(text)
-        or _CLAIM_EVICT_RESULT_RE.search(text)
-        or _CLAIM_NOMINATED_RE.search(text)
-        or _CLAIM_VETO_WINNER_RE.search(text)
+        _committed_claim(_CLAIM_EVICTED_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)
+        or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)
+        or _committed_claim(_CLAIM_TALLY_RE, text)
+        or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)
+        or _committed_claim(_CLAIM_NOMINATED_RE, text)
+        or _committed_claim(_CLAIM_VETO_WINNER_RE, text)
         or (_CLAIM_VETO_USE_RE.search(text) and not _veto_use_claim_is_speculative(text))
     )
 
@@ -5178,16 +5238,18 @@ def _unbacked_outcome_absent(text: str, live: dict) -> Optional[str]:
     if not phase.startswith(_PRE_CEREMONY_PHASES):
         return None
     t = text or ""
-    if (_CLAIM_NEW_HOH_RE.search(t) or _CLAIM_SELF_HOH_WIN_RE.search(t)) and not live.get("hoh"):
+    # ORW-80: a hypothetical ("if he wins HOH tomorrow, we're safe") is premiere talk, not a fabrication.
+    def _claims(*regexes) -> bool:
+        return any(_committed_claim(rx, t) for rx in regexes)
+    if _claims(_CLAIM_NEW_HOH_RE, _CLAIM_SELF_HOH_WIN_RE) and not live.get("hoh"):
         return "a HEAD OF HOUSEHOLD win (no Head of Household reigns yet)"
-    if _CLAIM_NOMINATED_RE.search(t) and not (live.get("noms") or []):
+    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []):
         return "a NOMINATION (no houseguest is on the block yet)"
-    if (_CLAIM_VETO_WINNER_RE.search(t) or _CLAIM_SELF_VETO_WIN_RE.search(t)) and not live.get("vetoHolder"):
+    if _claims(_CLAIM_VETO_WINNER_RE, _CLAIM_SELF_VETO_WIN_RE) and not live.get("vetoHolder"):
         return "a POWER OF VETO win (no one holds the veto yet)"
-    if (_CLAIM_EVICTED_RE.search(t) or _CLAIM_EVICT_RESULT_RE.search(t) or _CLAIM_TALLY_RE.search(t)) \
-            and not live.get("evicted"):
+    if _claims(_CLAIM_EVICTED_RE, _CLAIM_EVICT_RESULT_RE, _CLAIM_TALLY_RE) and not live.get("evicted"):
         return "an EVICTION / a vote result (no one has been evicted yet)"
-    if _CLAIM_WINNER_RE.search(t) and not live.get("finished"):
+    if _claims(_CLAIM_WINNER_RE) and not live.get("finished"):
         return "the SEASON WINNER being crowned (the season is not finished)"
     return None
 
@@ -5490,6 +5552,296 @@ def _sentence_has_met_everyone_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the player met the whole house? Keeps the S7
     guard off every sentence that never mentions it (mirrors `_sentence_has_closed_set_claim`)."""
     return bool(text and _MET_EVERYONE_RE.search(text))
+
+
+# ── ORW-205 — the PRE-EMISSION HEADCOUNT guard (the premiere entrances) ──────────────────────── #
+#
+# Playtest 2026-11-06: during the staged premiere entrances the narrator counted the room itself and got
+# it wrong ("Ten of the cast in the house now" with 12 inside, "Six in the door, nine to go" with 11
+# inside, "Eight of you fill the living room" while the player was still outside). #2244 hands the
+# narrator the engine's own count (`premiereIntros.entrance.insideCount` plus a ready-made `headcount`
+# sentence) and the prompt forbids its own counts. This is the structural half, so the rule does not rest
+# on prompt wording alone: a sentence that STATES how many are inside (or still to come) is checked
+# against the engine's LIVE entrance count and DROPPED before the player sees it when the engine
+# contradicts it, and a next-turn re-ground quoting the engine's headcount sentence is stashed.
+#
+# Jurisdiction (ADR 0005 #1): who has arrived is a CLOSED-SET fact, so a stated COUNT of it may be
+# policed, and nothing else. The grammar is deliberately narrow: a number bound to an arrival anchor
+# ("N in", "N of you are inside", "N in the house", "N through the door", "N have arrived", "N of you fill
+# the living room") or a remaining anchor ("N to go", "N more to come", "N more still have to walk through
+# that door"), led in by a clause start or a copula ("that's", "there are", "it's"). A subgroup ("the three
+# of them are laughing", "four of them by the fence"), a time ("nine in the morning"), a hedge ("about ten
+# of you"), a conditional ("once all sixteen are in"), a past or future count ("ten of you were inside",
+# "there will be sixteen"), an anchor that does not end its clause ("three in the house have already clocked
+# you", where "in the house" picks out who) and the cast total in prose never match. Counts are checked only while the
+# engine reports the entrances or the toast; outside them, or on any engine hiccup, the sentence emits
+# unchanged (fail-open: a false hold on creative prose is worse than a missed count).
+
+_HC_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+_HC_NUM_ALT = r"\d{1,2}|" + "|".join(sorted(_HC_NUMBER_WORDS, key=len, reverse=True))
+_HC_NUM_RE = re.compile(r"\b(" + _HC_NUM_ALT + r")\b", re.IGNORECASE)
+# The words that may lead straight into a stated count. Anything else right before the number ("waves two
+# in", "about ten", "were", "will be") means it is not a headcount statement — hedges are excluded simply
+# by not being here. A clause start (sentence start, punctuation, a quote or markdown opener) also leads in.
+_HC_LEAD_WORDS = frozenset({
+    "and", "so", "now", "then", "with", "but", "plus", "the", "all", "other", "just", "only",
+    "makes", "that's", "thats", "it's", "there's", "theres", "are", "we're", "you're", "they're",
+})
+_HC_CLAUSE_PUNCT = ".!?;:,(—–\n\"“”'‘’["
+_HC_CLAUSE_SPLIT_RE = re.compile(r"[.!?;:,(—–\n]")
+# A subordinate (conditional / temporal) clause states no current count: "once all sixteen are in", "when
+# there are ten of you in", "by the time twelve of you are inside".
+_HC_CONDITIONAL_RE = re.compile(
+    r"\b(?:once|when|whenever|until|till|after|before|if|unless|as\s+soon\s+as|by\s+the\s+time)\b",
+    re.IGNORECASE,
+)
+# What may follow an anchor for it to close the count (else "in total", "in and out", "to go home"). The anchor
+# must END its clause (ORW-205 review): after it come optional time adverbs ("now", "already", "so far"), then
+# the end, punctuation or a conjunction. A finite verb after it ("Three in the house have already clocked you",
+# "Eight in the house know your name") makes the anchor a modifier of the subject, not an arrival count.
+_HC_BOUNDARY = (
+    r"(?=(?:\s+(?:now|already|so\s+far|tonight|officially|yet)\b)*"
+    r"\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_(\n]|-\s|--"
+    r"|(?:and|but|then|before|until|till|plus|including|counting)\b))"
+)
+_HC_NOUNS = r"houseguests|people|strangers|guests|contestants|players|newcomers|arrivals|cast\s+members"
+_HC_SUBJ = (
+    r"(?:\s+(?P<subj>of\s+(?:you|y'?all|y’all|us|them)\b"
+    r"|of\s+(?:the\s+)?(?:cast|house|group|" + _HC_NOUNS + r"|" + _HC_NUM_ALT + r")\b"
+    r"|(?:" + _HC_NOUNS + r")\b))?"
+)
+_HC_AUX = r"(?:\s+(?:are|now|already|all|officially|finally|safely|have|has|been))*"
+_HC_INSIDE_TAIL_RE = re.compile(
+    _HC_SUBJ + _HC_AUX + r"\s+(?:"
+    r"(?:in|inside)(?!\s+and\s+out\b)" + _HC_BOUNDARY
+    + r"|(?:in|inside)\s+the\s+(?:house(?!['’]s)|front\s+door|door(?!\s*(?:frame|jamb)))\b" + _HC_BOUNDARY
+    + r"|through\s+the\s+(?:front\s+)?door\b" + _HC_BOUNDARY
+    + r"|(?:arrived|walked\s+in|moved\s+in|made\s+it\s+in(?:side)?|checked\s+in)" + _HC_BOUNDARY
+    + r"|(?:fill|fills|crowd|crowds|pack|packs|cram|crams|jam|jams)(?:\s+into)?\s+the\s+"
+      r"(?:living\s+room|room|house|lounge|place)" + _HC_BOUNDARY
+    + r")",
+    re.IGNORECASE,
+)
+_HC_REMAIN_NOUNS = r"houseguests?|arrivals?|people|strangers|guests|faces"
+_HC_REMAIN_TAIL_RE = re.compile(
+    r"(?:\s+more)?(?:\s+(?:" + _HC_REMAIN_NOUNS + r"))?(?:\s+(?:still|left))?\s+to\s+go" + _HC_BOUNDARY
+    + r"|\s+more(?:\s+(?:" + _HC_REMAIN_NOUNS + r"))?\s+(?:still\s+)?(?:to\s+come|on\s+the\s+way|"
+      r"waiting(?:\s+outside)?|(?:left\s+)?to\s+arrive|(?:have|has|need|needs)\s+to\s+(?:walk|come)\s+(?:through|in)|"
+      r"to\s+(?:walk|come)\s+(?:through|in))\b"
+    + r"|\s+(?:left|remaining|still)\s+to\s+(?:arrive|come|walk\s+in)\b",
+    re.IGNORECASE,
+)
+
+# One stated count: kind "inside" (how many are in) or "remaining" (how many are still to come); `subj` is
+# "you" ("N of you"), "us", or "them" (a bare number, a noun, "of the cast", "the other N").
+_HcClaim = collections.namedtuple("_HcClaim", ["kind", "n", "subj", "in_dialogue", "text"])
+
+
+def _hc_lead_word(pre: str) -> Optional[str]:
+    """The lead-in before a number: "" at a clause start, else the lowercased word right before it (or
+    None when what precedes it is neither)."""
+    p = pre.rstrip().rstrip("*_#>~`").rstrip()
+    if not p or not re.search(r"[A-Za-z0-9]", p) or p[-1] in _HC_CLAUSE_PUNCT or p.endswith((" -", "--")):
+        return ""
+    m = re.search(r"([A-Za-z’']+)$", p)
+    return m.group(1).lower().replace("’", "'") if m else None
+
+
+def _hc_in_dialogue(sentence: str, pos: int) -> bool:
+    """Is position `pos` inside quoted speech? Odd straight quotes on either side, or an open curly quote."""
+    before, after = sentence[:pos], sentence[pos:]
+    if before.count('"') % 2 == 1 or after.count('"') % 2 == 1:
+        return True
+    if before.rfind("“") > before.rfind("”"):
+        return True
+    close = after.find("”")
+    return close >= 0 and (after.find("“") < 0 or close < after.find("“"))
+
+
+def _headcount_claims(text: str) -> list:
+    """Every headcount STATEMENT in `text` (see the block comment for the grammar), as `_HcClaim`s.
+    Pure and engine-free. A number with no arrival/remaining anchor, a hedge or another non-lead word in
+    front of it, or a conditional clause around it is never a claim."""
+    if not text or not _HC_NUM_RE.search(text):
+        return []
+    claims = []
+    for m in _HC_NUM_RE.finditer(text):
+        word = m.group(1).lower()
+        pre = text[:m.start()]
+        lead = _hc_lead_word(pre)
+        if lead is None or (lead and lead not in _HC_LEAD_WORDS):
+            continue
+        clause = _HC_CLAUSE_SPLIT_RE.split(pre)[-1]
+        if _HC_CONDITIONAL_RE.search(clause):
+            continue
+        n = int(word) if word.isdigit() else _HC_NUMBER_WORDS[word]
+        tail = text[m.end():]
+        # "one in" is almost always the pronoun ("no one in the house", "the one in the corner").
+        im = None if word == "one" else _HC_INSIDE_TAIL_RE.match(tail)
+        if im:
+            subj_txt = (im.group("subj") or "").lower()
+            if lead == "other":
+                subj = "them"  # "the other eleven (of you) inside": the others, not the player
+            elif subj_txt.startswith(("of you", "of y'", "of y’", "of yall")):
+                subj = "you"
+            elif subj_txt.startswith("of us"):
+                subj = "us"
+            else:
+                subj = "them"
+            claims.append(_HcClaim("inside", n, subj, _hc_in_dialogue(text, m.start()),
+                                   (m.group(0) + im.group(0)).strip()))
+            continue
+        rm = _HC_REMAIN_TAIL_RE.match(tail)
+        if rm:
+            claims.append(_HcClaim("remaining", n, None, _hc_in_dialogue(text, m.start()),
+                                   (m.group(0) + rm.group(0)).strip()))
+    return claims
+
+
+def _sentence_has_headcount_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter (no engine read): does `text` state a headcount at all? Keeps the
+    ORW-205 guard off every sentence that does not (mirrors `_sentence_has_met_everyone_claim`)."""
+    try:
+        return bool(_headcount_claims(text))
+    except Exception:
+        return False
+
+
+def _headcount_entrance(intros) -> Optional[dict]:
+    """The live entrance count off a `premiereIntros` result, or None when there is nothing to check
+    against (outside the premiere, past the toast, or a malformed view). Reads the #2244 `insideCount` /
+    `playerInside` / `headcount`, falling back to `index` / `playerPosition` on an older engine."""
+    try:
+        ent = intros.get("entrance") if isinstance(intros, dict) else None
+        if not isinstance(ent, dict) or ent.get("stage") not in ("entrances", "toast"):
+            return None
+        inside = ent.get("insideCount", ent.get("index"))
+        total = ent.get("total")
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (inside, total)):
+            return None
+        if total <= 0 or not 0 <= inside <= total:
+            return None
+        player_inside = ent.get("playerInside")
+        if not isinstance(player_inside, bool):
+            pos = ent.get("playerPosition")
+            if not isinstance(pos, int) or isinstance(pos, bool):
+                return None
+            player_inside = inside >= pos
+        headcount = ent.get("headcount")
+        return {"stage": ent["stage"], "inside": inside, "total": total, "player_inside": player_inside,
+                "headcount": headcount.strip() if isinstance(headcount, str) and headcount.strip() else None}
+    except Exception:
+        return None
+
+
+def _headcount_claim_ok(claim, ent: dict) -> bool:
+    """Does the engine's live count back this stated count? Inside: the full count, or the others once the
+    player is in ("eleven houseguests, plus you"); "N of you" in narration also says the player is inside.
+    Remaining: the arrivals still to come (the player among them while outside, or not counted)."""
+    inside, total, player_inside = ent["inside"], ent["total"], ent["player_inside"]
+    if claim.kind == "remaining":
+        left = total - inside
+        return claim.n == left or (not player_inside and left >= 1 and claim.n == left - 1)
+    if claim.subj == "you" and not claim.in_dialogue:
+        return player_inside and claim.n == inside
+    return claim.n == inside or (player_inside and claim.n == inside - 1)
+
+
+def _headcount_mismatch(text: str, ent: Optional[dict], claims=None):
+    """The first stated count in `text` that the engine's entrance count contradicts, or None. At the toast
+    everyone is in, and "two more to go" there means speeches, not arrivals, so only inside counts apply."""
+    if not ent:
+        return None
+    for claim in (_headcount_claims(text) if claims is None else claims):
+        if claim.kind == "remaining" and ent["stage"] != "entrances":
+            continue
+        if not _headcount_claim_ok(claim, ent):
+            return claim
+    return None
+
+
+def _headcount_directive(claim, ent: dict) -> str:
+    """The next-turn re-ground: names the narrator's own count and quotes the engine's headcount sentence."""
+    headcount = ent.get("headcount") or (
+        f"{ent['inside']} of {ent['total']} are inside"
+        + (" (the player is one of them)" if ent["player_inside"]
+           else " (the player has NOT walked in yet; they are not counted)"))
+    return (
+        "RE-GROUND ON THE HEADCOUNT — last turn you counted the house yourself (\"" + claim.text[:80]
+        + "\"), but the engine's headcount is: " + headcount + ". Never count the room yourself: if a "
+        "number matters, quote the engine's HEADCOUNT line exactly; otherwise use no number at all."
+    )
+
+
+async def _live_headcount_entrance(user) -> Optional[dict]:
+    """The engine's LIVE entrance count (`premiereIntros`, not the turn-start board: an `advanceGame`
+    earlier in the same turn moves it), or None. A failed read is unverifiable, so None (fail-open)."""
+    from src import orwell_engine
+    try:
+        return _headcount_entrance(await orwell_engine.premiere_intros(user=user))
+    except Exception as e:
+        logger.debug("[orwell] headcount guard: premiere_intros lookup failed user=%s: %s", user, _exc_detail(e))
+        return None
+
+
+def _note_headcount_hold(user, bad, ent: dict) -> None:
+    """Stash the next-turn re-ground for a held headcount and log it. Never raises."""
+    try:
+        _reground_enqueue(_desync_key(user), _headcount_directive(bad, ent))
+        logger.warning("[orwell] pre-emission guard HELD a headcount for user=%s — stated %d (%s), engine has "
+                       "%d of %d inside (player inside: %s)", user, bad.n, bad.kind, ent["inside"],
+                       ent["total"], ent["player_inside"])
+    except Exception:
+        pass
+
+
+async def screen_headcount_wall(user, text: str) -> str:
+    """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
+    stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
+    rest, the same `[.!?\\n]` split the presence wall uses, so `_mirror_wall_drop` can mirror it). Cheap hot
+    path: no headcount statement anywhere ⇒ `text` verbatim with no engine read; otherwise ONE
+    `premiereIntros` read for the chunk. Outside the entrances/toast nothing is dropped. Fail-open: any
+    hiccup returns `text` unchanged."""
+    try:
+        if not text or not text.strip() or not _sentence_has_headcount_claim(text):
+            return text
+        ent = await _live_headcount_entrance(user)
+        if ent is None:
+            return text
+        kept = []
+        for part in re.split(r"(?<=[.!?\n])", text):
+            bad = _headcount_mismatch(part, ent)
+            if bad is not None:
+                _note_headcount_hold(user, bad, ent)
+                continue  # DROP — a count the engine contradicts never reaches the player
+            kept.append(part)
+        return "".join(kept)
+    except Exception as e:
+        logger.warning("[orwell] pre-emission headcount wall skipped for user=%s: %s", user, _exc_detail(e))
+        return text
+
+
+async def screen_streamed_headcount(user, sentence: str) -> bool:
+    """ORW-205 per-sentence form of `screen_headcount_wall` (the OOC-aside screen uses it): HOLD (return
+    False) a sentence whose stated headcount the engine's live entrance count contradicts, stashing the
+    next-turn re-ground; else EMIT (True). Fail-open: no claim, no entrance view, or any hiccup emits."""
+    try:
+        claims = _headcount_claims(sentence)
+        if not claims:
+            return True
+        ent = await _live_headcount_entrance(user)
+        bad = _headcount_mismatch(sentence, ent, claims)
+        if bad is None:
+            return True
+        _note_headcount_hold(user, bad, ent)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission headcount guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True  # fail-open: never suppress on an error.
 
 
 # ── ADR 0009 (D3 Part B) — the PRE-EMISSION LOCATION guard (evicted-houseguest-in-a-room) ──────── #
@@ -8282,8 +8634,185 @@ def _extract_thinking_meta(text: str) -> dict | None:
     return None
 
 
+# ORW-230 — the narrator's think markup, for the game-turn split below. The opener grammar is the clients'
+# (`<think>`, `<thinking>` and `<thought>` with ANY attributes, plus Gemma's `<|channel>thought`); a closer is the
+# matching close tag or Gemma's `<channel|>`. A Gemma RESPONSE channel's opener is read too, so the `<channel|>`
+# that closes it is not taken for the end of a think.
+_GAME_THINK_OPEN_RE = re.compile(r'<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>|<\|channel>thought', re.IGNORECASE)
+_GAME_THINK_CLOSE_RE = re.compile(r'</(?:think(?:ing)?|thought)(?:\s+[^>]*)?>|<channel\|>', re.IGNORECASE)
+_GAME_RESPONSE_OPEN_RE = re.compile(r'<\|channel>response', re.IGNORECASE)
+_GAME_THINK_MARK_RE = re.compile(
+    rf'(?P<open>{_GAME_THINK_OPEN_RE.pattern})|(?P<close>{_GAME_THINK_CLOSE_RE.pattern})'
+    rf'|(?P<response>{_GAME_RESPONSE_OPEN_RE.pattern})',
+    re.IGNORECASE,
+)
+_GAME_THINK_TIME_RE = re.compile(r'\btime\s*=\s*"([\d.]+)"', re.IGNORECASE)
+# A CUT-OFF game turn (the disconnect save) whose reasoning began but was never seen to end: it opens with a
+# reasoning label (the label forms of the clients' `startsWithReasoningPrefix`), or with an EMPTY think pair and
+# no second closer after it (the model reasoned outside the tags; the clients stream that as thinking too).
+_GAME_REASONING_LABEL_RE = re.compile(r'\s*thinking(?:\s+process)?\s*:', re.IGNORECASE)
+_GAME_EMPTY_THINK_PAIR_RE = re.compile(
+    r'\s*<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>\s*</(?:think(?:ing)?|thought)(?:\s+[^>]*)?>', re.IGNORECASE)
+# A cut in the middle of a tag leaves a fragment at the very end: a proper prefix of one of these markers, or a
+# think tag whose attributes began but whose `>` never came (`<think time="3.`).
+_GAME_THINK_MARKERS = ("<thinking>", "<thought>", "</thinking>", "</thought>",
+                       "<|channel>thought", "<|channel>response", "<channel|>")
+_GAME_THINK_TAG_UNFINISHED_RE = re.compile(r'</?(?:think(?:ing)?|thought)\s[^<>]*\Z', re.IGNORECASE)
+
+
+def _strip_partial_think_tag(text: str) -> str:
+    """ORW-230 — drop a think tag that was cut mid-way at the very end of a game turn's text (`<thi`, `</thi`,
+    `<|chan`, `<channel|`), so neither the saved content nor the reasoning keeps the fragment. Any other text,
+    including a trailing `<` that cannot start one of those tags ("I <3 this house"), is returned unchanged."""
+    if not isinstance(text, str) or not text:
+        return text
+    cut = text.rfind("<")
+    if cut < 0:
+        return text
+    tail = text[cut:]
+    low = tail.lower()
+    if any(m != low and m.startswith(low) for m in _GAME_THINK_MARKERS) or _GAME_THINK_TAG_UNFINISHED_RE.match(tail):
+        return text[:cut].rstrip()
+    return text
+
+
+def _split_game_reasoning(text: str, *, cut_off: bool = False) -> dict | None:
+    """ORW-230 — split a GAME turn's text into the narrator's private reasoning and the reply, so no
+    reasoning is ever saved as the reply. Returns {thinking, reply, time}, or None when the text carries
+    no think markup at all (the caller then uses `_extract_thinking_meta` as before).
+
+    Unlike `_extract_thinking_meta` — which, for an ordinary chat, keeps an unclosed or reply-less think
+    as the content so the bubble is not blank — every think block here is reasoning: closed or cut off
+    mid-think (Stop, a dropped connection, the token cap), at the start or opened after earlier
+    narration (agent rounds are joined into one reply), nested (a block ends at its OWN closer), and a
+    closer with no think open: everything since the last block was reasoning (R1-style, where the chat
+    template opened the think so only `</think>` arrived, or a second closer after an empty pair). The
+    grammar is `_GAME_THINK_MARK_RE`: any attributes, `<thought>`, and the Gemma channels. The reply keeps
+    only the narration outside the blocks and may be empty.
+
+    `cut_off` (the disconnect save only): a turn that opens with a reasoning label ("Thinking Process:") is
+    reasoning up to its first closer, and one that opens with an empty think pair and has no second closer
+    is reasoning to the end. Without that boundary the cut-off text is all reasoning and the reply is empty.
+
+    Markup only, by design: the plain-text preamble heuristics in `_normalize_thinking` can split the wrong
+    way (a capitalised paragraph read as the reply), so they are not used here."""
+    if not text:
+        return None
+    body, depth, think_time = text, 0, None
+    if cut_off:
+        label = _GAME_REASONING_LABEL_RE.match(body)
+        empty = None if label else _GAME_EMPTY_THINK_PAIR_RE.match(body)
+        if label is not None:
+            body, depth = body[label.end():], 1  # the label opens the reasoning
+        elif empty is not None and not _GAME_THINK_CLOSE_RE.search(body, empty.end()):
+            time_attr = _GAME_THINK_TIME_RE.search(empty.group(0))
+            think_time = time_attr.group(1) if time_attr else None
+            body, depth = body[empty.end():], 1  # the reasoning after the pair never reached its closer
+    if depth == 0 and _GAME_THINK_MARK_RE.search(body) is None:
+        return None
+    thinking, reply, block, pending = [], [], [], []
+    in_response, pos = False, 0
+    for mark in _GAME_THINK_MARK_RE.finditer(body):
+        (block if depth else pending).append(body[pos:mark.start()])
+        pos = mark.end()
+        if mark.group("open"):
+            if depth == 0:
+                reply += pending
+                pending = []
+            depth += 1
+            if think_time is None:
+                time_attr = _GAME_THINK_TIME_RE.search(mark.group("open"))
+                think_time = time_attr.group(1) if time_attr else None
+        elif mark.group("close"):
+            if depth:
+                depth -= 1
+                if depth == 0:
+                    thinking.append("\n".join(block))
+                    block = []
+            elif in_response and mark.group("close").lower() == "<channel|>":
+                in_response = False  # the end of a Gemma response channel: its text was the reply
+            else:
+                thinking.append("".join(pending))  # a closer with no think open: what came before was reasoning
+                pending = []
+        elif depth == 0:
+            in_response = True  # a Gemma response channel: its text is the reply
+    if depth:
+        thinking.append("\n".join(block + [body[pos:]]))  # cut off inside the think: the rest is all reasoning
+    else:
+        reply += pending + [body[pos:]]
+    return {
+        "thinking": "\n\n".join(p.strip() for p in thinking if p.strip()),
+        "reply": "".join(reply).strip(),
+        "time": think_time,
+    }
+
+
+# R-VLT-2 (ORW-230) — what a GAME or casting session's history serves the player. The narrator's reasoning is
+# Vault-bearing (its prompt carries hidden game state), so a reload withholds it. The stored rows are unchanged.
+_WITHHELD_REASONING_KEYS = ("thinking", "thinking_time")
+_PLAYER_SHOWN_METADATA_KEYS = ("tool_events", "announcements", "web_sources", "research_sources",
+                               "research_findings", "rag_sources")
+
+
+def _game_narration(text):
+    """The narration of a game turn's text, every think block removed (markup only, see `_split_game_reasoning`).
+    Text with no think markup, and anything that is not a string, comes back unchanged."""
+    info = _split_game_reasoning(text) if isinstance(text, str) else None
+    return info["reply"] if info else text
+
+
+def _row_shows_nothing(content, md: dict) -> bool:
+    """True when an assistant row, its reasoning withheld, has nothing left for the reload to render."""
+    if (content.strip() if isinstance(content, str) else content):
+        return False
+    rounds = md.get("round_texts")
+    if isinstance(rounds, list) and any(isinstance(t, str) and t.strip() for t in rounds):
+        return False
+    return not any(md.get(key) for key in _PLAYER_SHOWN_METADATA_KEYS)
+
+
+def withhold_game_reasoning(entry: dict) -> dict | None:
+    """R-VLT-2 (ORW-230): one history row of a game or casting session, as the player may see it.
+
+    Drops `metadata.thinking` / `thinking_time`, and keeps only the narration of an assistant row's content and
+    of each `metadata.round_texts` entry (agent rounds keep their inline think blocks for the reload accordion, and
+    a row saved before ORW-230 can hold the reasoning as its content). The player's own rows are verbatim. Returns
+    a new dict and never mutates `entry`; None for an assistant row whose reasoning was all it had to show (the
+    history leaves it out, like a hidden row, so a reload never paints an empty bubble)."""
+    if not isinstance(entry, dict):
+        return entry
+    md = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else None
+    md_out = {k: v for k, v in (md or {}).items() if k not in _WITHHELD_REASONING_KEYS}
+    out = dict(entry)
+    if md is not None:
+        out["metadata"] = md_out
+    if entry.get("role") != "assistant":
+        return out
+    rounds = md_out.get("round_texts")
+    if isinstance(rounds, list):
+        md_out["round_texts"] = [_game_narration(t) for t in rounds]
+    out["content"] = _game_narration(entry.get("content"))
+    withheld = (md is not None and len(md_out) != len(md)) or out["content"] != entry.get("content") or (
+        isinstance(rounds, list) and md_out["round_texts"] != rounds)
+    if withheld and _row_shows_nothing(out["content"], md_out):
+        return None
+    return out
+
+
+def player_visible_history(session, history: list) -> list:
+    """R-VLT-2 (ORW-230): the rows `/api/history` serves the player. For a game or casting session (ORW-224's
+    `is_game_or_casting_session`: every session while the game build is on; otherwise one holding game or casting
+    rows, or bound as the owner's game session) every row goes through `withhold_game_reasoning`. Any other
+    session's rows are returned as they are."""
+    from src.context_compactor import is_game_or_casting_session
+    if not is_game_or_casting_session(session):
+        return history
+    return [row for row in (withhold_game_reasoning(r) for r in history) if row is not None]
+
+
 def clean_thinking_for_save(
-    content: str, metadata: dict | None = None, reasoning: str = ""
+    content: str, metadata: dict | None = None, reasoning: str = "", *, game: bool = False,
+    cut_off: bool = False,
 ) -> tuple[str, dict]:
     """Extract thinking from content into metadata. Use for save paths that bypass save_assistant_response.
 
@@ -8291,9 +8820,17 @@ def clean_thinking_for_save(
     deltas), which never appears in `content` — so without it the accordion is shown live but
     LOST on reload / in a second browser session. Persist it into metadata.thinking when the
     content itself didn't already carry an inline <think> block.
+
+    `game` (ORW-230): a framed game turn. Every think block is moved out of the content (see
+    `_split_game_reasoning`), so a turn cut off mid-think saves its reasoning to metadata.thinking and
+    an EMPTY reply — never the reasoning as the reply. A tag cut mid-way at the end is dropped. `cut_off`
+    (with `game`): the turn was cut off (the disconnect save), so the conservative cut-off cases apply. A
+    non-game chat keeps today's behaviour.
     """
     md = dict(metadata) if metadata else {}
-    info = _extract_thinking_meta(content)
+    if game:
+        content = _strip_partial_think_tag(content)
+    info = (_split_game_reasoning(content, cut_off=cut_off) if game else None) or _extract_thinking_meta(content)
     if info:
         if info.get("thinking"):
             md["thinking"] = info["thinking"]
@@ -8305,6 +8842,32 @@ def clean_thinking_for_save(
     if reasoning and reasoning.strip() and not md.get("thinking"):
         md["thinking"] = reasoning.strip()
     return out, md
+
+
+def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None,
+                         announcements: Optional[list] = None, incognito: bool = False):
+    """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
+    the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
+
+    ORW-230: with `game=True` a turn cut off inside an open `<think>` saves its reasoning to
+    metadata.thinking and only the narration around it as the content (`clean_thinking_for_save`, with the
+    cut-off cases: a leading reasoning label, or a leading empty think pair with no second closer, make the
+    rest reasoning). A game partial left with nothing to show (no narration, no reasoning, no owed cards) is
+    not saved, so a reload never shows a blank bubble. M2-6: `game_moment` stamps the in-world moment; the
+    announcement cards the player was shown survive a cut-short turn. Returns the saved ChatMessage, or None."""
+    content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game, cut_off=True)
+    if game_moment:
+        md["game_moment"] = game_moment
+    if announcements:
+        md["announcements"] = announcements
+    if game and not (content or "").strip() and not md.get("thinking") and not md.get("announcements"):
+        return None
+    message = ChatMessage("assistant", content, metadata=md)
+    sess.add_message(message)
+    if not incognito:
+        session_manager.save_sessions()
+    return message
 
 
 def save_assistant_response(
@@ -8325,8 +8888,12 @@ def save_assistant_response(
     phase: str = None,
     reasoning: str = "",
     game_moment: str = None,
+    game: bool = False,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
+
+    `game` (ORW-230): a framed game turn — every think block is moved out of the saved content (see
+    `_split_game_reasoning`), so a turn that hit the token cap inside a think saves no reasoning as the reply.
 
     `phase` (Vault Wall / casting-leak fix): when this reply is part of the OOC pre-game
     casting interview (game not yet started), stamp `phase=casting` so the in-game narrator's
@@ -8370,7 +8937,9 @@ def save_assistant_response(
         md["tool_events"] = tool_events
 
     # Extract thinking into metadata (don't pollute message content with <think> tags)
-    _think_info = _extract_thinking_meta(full_response)
+    if game:
+        full_response = _strip_partial_think_tag(full_response)  # ORW-230: the token cap can land inside a tag
+    _think_info = (_split_game_reasoning(full_response) if game else None) or _extract_thinking_meta(full_response)
     if _think_info:
         if _think_info.get("thinking"):
             md["thinking"] = _think_info["thinking"]

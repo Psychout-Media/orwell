@@ -141,8 +141,10 @@ def setup_history_routes(session_manager) -> APIRouter:
             finally:
                 db.close()
 
+        # R-VLT-2 (ORW-230): a game or casting session's reload never carries the narrator's reasoning.
+        from routes.chat_helpers import player_visible_history
         return {
-            "history": _without_admin_engine_results(history_dict),
+            "history": _without_admin_engine_results(player_visible_history(session, history_dict)),
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "name": session.name,

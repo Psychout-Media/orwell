@@ -40,6 +40,7 @@ from routes.chat_helpers import (
     save_assistant_response,
     run_post_response_tasks,
     clean_thinking_for_save,
+    save_stopped_partial,
     _enforce_chat_privileges,
     auto_escalation_withhold,
     ensure_turn_recorded,
@@ -852,7 +853,10 @@ def setup_chat_routes(
             max_tokens=ctx.preset.max_tokens,
             prompt_type=preset_id,
         )
-        _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model})
+        # ORW-230: a framed turn here is the casting interview or the feeds-down framing (a live game turn was
+        # refused above). Its think blocks never become the saved reply, and the caller is sent that same
+        # narration, not the raw reply (R-VLT-2).
+        _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model}, game=bool(ctx.framed))
         sess.add_message(ChatMessage("assistant", _clean_reply, metadata=_clean_md))
 
         from core.database import update_session_last_accessed
@@ -869,7 +873,7 @@ def setup_chat_routes(
             allow_background_extraction=not tool_policy.block_all_tool_calls,
         )
 
-        return {"response": reply}
+        return {"response": _clean_reply if ctx.framed else reply}
 
     # ------------------------------------------------------------------ #
     # The shared narration pipeline behind POST /api/chat_stream. Extracted as
@@ -1310,8 +1314,9 @@ def setup_chat_routes(
             research_sources = None
             web_sources = ctx.web_sources
 
-            # Register active stream for partial-save safety net
-            _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode}
+            # Register active stream for partial-save safety net. ORW-243: `framed` notes a game, casting or
+            # feeds-down turn, whose streamed `partial` stream_status never returns (R-VLT-2).
+            _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode, "framed": bool(ctx.framed)}
 
             # Early SSE keepalive (E): flush the connection — commit the 200 + a byte — BEFORE the
             # model's first token, which can be many seconds out on a cold/loaded provider. An
@@ -1685,6 +1690,9 @@ def setup_chat_routes(
                                     # reply is stamped so the in-game narrator never receives it.
                                     phase=("casting" if (ctx.framed and not ctx.game_active) else None),
                                     game_moment=_game_moment,
+                                    # ORW-230: a game turn's think blocks never become the reply
+                                    # (the token cap inside a think saves the reasoning as thinking).
+                                    game=bool(ctx.framed),
                                 )
                                 if _saved_id:
                                     # ADR 0012 §2.2/§3.3: carry the SERVER-MINTED message timestamp so
@@ -1713,24 +1721,24 @@ def setup_chat_routes(
                 except (asyncio.CancelledError, GeneratorExit):
                     if full_response:
                         logger.info("Client disconnected mid-stream (chat mode) for session %s, saving partial (%d chars)", session, len(full_response))
-                        _stopped_content, _stopped_md = clean_thinking_for_save(
-                            full_response,
+                        # M2-6: a partial beat is still an in-game beat — stamp the in-world moment so a
+                        # disconnect/stopped save reloads with the game moment, not the wall clock (the
+                        # exact bug M2-6 removes). Same source + casting gate as the [DONE] save above.
+                        # ORW-230: a game turn cut off inside an open <think> saves its reasoning to
+                        # metadata.thinking, never as the reply (the one shared disconnect save).
+                        _stopped_moment = current_game_moment(ctx.user) if ctx.game_active else None
+                        save_stopped_partial(
+                            sess, session_manager, full_response,
                             {
                                 "stopped": True,
                                 "model": _actual_model or _answered_by or _requested_model,
                                 "requested_model": _requested_model,
                             },
                             reasoning=full_reasoning,
+                            game=bool(ctx.framed),
+                            game_moment=_stopped_moment,
+                            incognito=incognito,
                         )
-                        # M2-6: a partial beat is still an in-game beat — stamp the in-world moment so a
-                        # disconnect/stopped save reloads with the game moment, not the wall clock (the
-                        # exact bug M2-6 removes). Same source + casting gate as the [DONE] save above.
-                        _stopped_moment = current_game_moment(ctx.user) if ctx.game_active else None
-                        if _stopped_moment:
-                            _stopped_md["game_moment"] = _stopped_moment
-                        sess.add_message(ChatMessage("assistant", _stopped_content, metadata=_stopped_md))
-                        if not incognito:
-                            session_manager.save_sessions()
                     raise
                 finally:
                     _active_streams.pop(session, None)
@@ -1955,6 +1963,9 @@ def setup_chat_routes(
                                     # reply is stamped so the in-game narrator never receives it.
                                     phase=("casting" if (ctx.framed and not ctx.game_active) else None),
                                     game_moment=_game_moment,
+                                    # ORW-230: a game turn's think blocks never become the reply
+                                    # (the token cap inside a think saves the reasoning as thinking).
+                                    game=bool(ctx.framed),
                                 )
                                 if _saved_id and ctx.game_active:
                                     # #1728 (B2, PR #1825 fix #2): the SAME row id `dataset.dbId`
@@ -1998,26 +2009,25 @@ def setup_chat_routes(
                     try:
                         if full_response:
                             logger.info("Client disconnected mid-stream for session %s, saving partial response (%d chars)", session, len(full_response))
-                            _stopped_content2, _stopped_md2 = clean_thinking_for_save(
-                                full_response,
+                            # M2-6: stamp the in-world moment on a partial/stopped beat too (same source +
+                            # casting gate as the [DONE] save), so a disconnect reloads with the game
+                            # moment instead of the wall clock. The cards the player was shown survive a
+                            # cut-short turn. ORW-230: a game turn cut off inside an open <think> saves its
+                            # reasoning to metadata.thinking, never as the reply (the one shared save).
+                            _stopped_moment2 = current_game_moment(ctx.user) if ctx.game_active else None
+                            save_stopped_partial(
+                                sess, session_manager, full_response,
                                 {
                                     "stopped": True,
                                     "model": _actual_model or _answered_by or _requested_model,
                                     "requested_model": _requested_model,
                                 },
                                 reasoning=full_reasoning,
+                                game=bool(ctx.framed),
+                                game_moment=_stopped_moment2,
+                                announcements=_owed_anns,
+                                incognito=incognito,
                             )
-                            # M2-6: stamp the in-world moment on a partial/stopped beat too (same source +
-                            # casting gate as the [DONE] save), so a disconnect reloads with the game
-                            # moment instead of the wall clock.
-                            _stopped_moment2 = current_game_moment(ctx.user) if ctx.game_active else None
-                            if _stopped_moment2:
-                                _stopped_md2["game_moment"] = _stopped_moment2
-                            if _owed_anns:
-                                _stopped_md2["announcements"] = _owed_anns  # the cards the player was shown survive a cut-short turn
-                            sess.add_message(ChatMessage("assistant", _stopped_content2, metadata=_stopped_md2))
-                            if not incognito:
-                                session_manager.save_sessions()
                     except Exception:
                         logger.exception("Failed to save partial response on disconnect (session %s)", session)
                     raise
@@ -2258,7 +2268,13 @@ def setup_chat_routes(
             # exact path sessions.js polls each turn. Both client consumers already branch on
             # `status !== 'streaming'`, so the idle payload is drop-in compatible.
             return {"status": "idle"}
-        return rec
+        # ORW-243 (R-VLT-2): `partial` is the raw streamed text, any open <think> included, so a framed (game,
+        # casting, feeds-down) turn never returns it. Fail closed: only a record registered as unframed does. No
+        # client reads it (sessions.js reads status/mode/is_research). The internal flag is never echoed.
+        status = {k: v for k, v in rec.items() if k != "framed"}
+        if rec.get("framed") is not False:
+            status.pop("partial", None)
+        return status
 
     # ------------------------------------------------------------------ #
     # POST /api/inject_context
