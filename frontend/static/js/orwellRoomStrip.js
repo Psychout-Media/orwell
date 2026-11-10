@@ -99,8 +99,8 @@
     st.id = "orwell-room-strip-css";
     st.textContent = `
       /* ORW-246b (live, phone width): the notice zone is a height-capped scroller, and a tall card (the premiere welcome guide) above the strip pushed it out of view - it existed but sat clipped below the card.
-         Pin it FIRST in the zone (order:-1) and sticky at the top, so "who's here" is always the first thing in view above the composer and the cards scroll beneath it. */
-      #orwell-room-strip { order: -1; position: sticky; top: 0; z-index: 2; flex: 0 0 auto; }
+         Lead the zone with it (order:-1). NOT sticky: a sticky strip overlapped a tall decision card when the zone scrolled (responsive-matrix face-grid overlap at 320/390). */
+      #orwell-room-strip { order: -1; flex: 0 0 auto; }
       #orwell-room-strip .ors-row {
         display: flex; gap: 10px; align-items: flex-start; flex-wrap: nowrap;
         overflow-x: auto; overflow-y: hidden;
