@@ -685,6 +685,12 @@ def _token_economy(user: str | None) -> dict:
     # inclusive), so the fraction is well-defined in [0,1]; null when there is no input yet (avoids a
     # divide-by-zero and reads as "no data" rather than a fake 0%). Vault-free scalar — pure arithmetic
     # over two Vault-free counters. This is the meter you watch when tuning the cacheable prefix.
+    # ORW-198: slow-turn suspects - turns whose reasoning tokens exceeded the alarm bar (ids and counts only).
+    from src.orwell_token_ledger import REASONING_ALARM_TOKENS, reasoning_alarm
+    _alarms = [e for e in entries if reasoning_alarm(e)]
+    summary["reasoningAlarmTokens"] = REASONING_ALARM_TOKENS
+    summary["reasoningAlarmCount"] = len(_alarms)
+    summary["reasoningAlarms"] = [{"turnId": e.get("turnId"), "session": e.get("session"), "reasoningTokens": e.get("reasoningTokens")} for e in _alarms[-10:]]
     _inp = summary["inputTokens"]
     summary["cacheHitRate"] = round(summary["cachedTokens"] / _inp, 4) if _inp > 0 else None
     out["summary"] = summary
