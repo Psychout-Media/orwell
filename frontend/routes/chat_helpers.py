@@ -6200,6 +6200,18 @@ _COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition p
 _COMP_PAUSE_EVERY = 2
 _COMP_PAUSED: dict = {}  # runway key -> the (week:phase) signature of a competition paused mid-run
 _COMP_CONT: dict = {}    # runway key -> True while this pass CONTINUES a paused competition
+_COMP_PAUSE_FRESH: set = set()  # runway keys whose competition paused in THIS turn: the model's own progression tools are held until the player speaks again
+
+
+def comp_pause_holds(user) -> bool:
+    """ORW-232 slice 2 (live run 2026-11-10): the pause is the player's turn to talk. In the paused turn the narrator itself called submitDecision, which chain-advanced the rest of the competition and the winner
+    straight through the pause. While a pause is fresh, the model's advanceGame / submitDecision are answered with a plain 'the competition is paused' note and the engine is not called."""
+    try:
+        return _runway_key(user) in _COMP_PAUSE_FRESH
+    except Exception:
+        return False
+
+
 
 
 def _veto_draw_steer(content: str) -> str:
@@ -6269,6 +6281,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     ceremony. When the runway is spent (or the player asks to move on), we resolve the next ceremony
     for real and, if it landed the player in a NEW spectator beat, arm a fresh runway for it."""
     from src import orwell_engine
+    if _comp_hops == 0 and _comp_log is None and not _after_day_break:
+        _COMP_PAUSE_FRESH.discard(_runway_key(user))  # a new framed turn: last turn's pause no longer holds the model's tools
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -6526,6 +6540,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if _comp_log and sum(1 for _k, _c in _comp_log if _k == "comp-elimination") >= _COMP_PAUSE_EVERY:
                 # ORW-232 slice 2: the competition is still running (same week:phase) and this pass has voiced its share of rounds - PAUSE here. The rest stays UNRUN in the engine.
                 _COMP_PAUSED[_runway_key(user)] = sig
+                _COMP_PAUSE_FRESH.add(_runway_key(user))
                 _prior = _COMP_STEER_BASE.get(_runway_key(user), "")
                 _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False), paused=True)
                 logger.info("[orwell] competition paused after %d round(s) for user=%s - the player can talk inside it", len(_comp_log), user)

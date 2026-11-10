@@ -4501,6 +4501,14 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
     # holding a not-yet-due scheduled event the narrator must not learn it early (live 11-06 07:29:58 it got the first HOH comp's name and winner in the same batch where advanceGame
     # returned held). Same `held` shape as do_advance_game; the engine is not called and no outcome is returned.
     try:
+        from routes import chat_helpers as _ch_pause
+        if _ch_pause.comp_pause_holds(owner):
+            return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. It is the player's turn inside the scene: do not advance or resolve it this turn, "
+                                          "do not narrate further rounds or the winner. End on a moment they can answer; their next message continues it."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
+    try:
         from routes import chat_helpers as _ch_gate
         if _ch_gate.scheduled_event_is_held(owner):
             return {"output": json.dumps({"held": True, "note": "Production hasn't called the house in yet - the competition is set for later today and has not been "
@@ -5241,6 +5249,13 @@ async def _refresh_after_model_progression(owner, res) -> None:
 
 async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
+    try:  # ORW-232 slice 2: a paused competition is the player's turn - the model's advanceGame must not run the rest through the pause
+        from routes import chat_helpers as _ch_pause3
+        if _ch_pause3.comp_pause_holds(owner):
+            return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not advance or resolve it this turn, and do not narrate further rounds or the winner. "
+                                          "End on a moment the player can answer; their next message continues it."}), "exit_code": 0}
+    except Exception:
+        pass
     # P4b — PRODUCTION OWNS THE SCHEDULE on the MODEL's own lever too: while this turn's pre-resolve is holding a not-yet-due scheduled event (the HOH comp on day-1 morning, a
     # ceremony before its hour), the model's advanceGame must not start it ("run the HOH competition", "let's go to nominations"). Nothing advances; the model gets an
     # in-fiction note. The pre-resolve's logged safety cap pops the hold, so a stuck clock can't freeze the game. The premiere count is NOT a hold here (the champagne-circle
@@ -5332,6 +5347,14 @@ async def do_submit_decision(content: str, owner: Optional[str] = None) -> Dict:
     _DECISION_KINDS = orwell_engine.DECISION_KINDS  # ONE source (orwell_engine.DECISION_KINDS)
     if kind not in _DECISION_KINDS:
         return {"error": f"kind must be one of: {', '.join(sorted(_DECISION_KINDS))}", "exit_code": 1}
+    if kind in ("comp-round", "comp-intent"):
+        try:  # ORW-232 slice 2: a paused competition is the player's turn - the model must not answer its card and chain the rest through the pause
+            from routes import chat_helpers as _ch_pause2
+            if _ch_pause2.comp_pause_holds(owner):
+                return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not answer or advance its round this turn; end on a moment the player can answer in "
+                                              "character. Their next message continues it."}), "exit_code": 0}
+        except Exception:
+            pass
     # PO ruling 2026-11-03: a big irreversible choice binds ONLY on the player's own confirm on its card — the
     # model may not commit it from prose. Refused BEFORE any engine call; nothing is submitted or changed.
     if kind in orwell_engine.CARD_ONLY_KINDS:

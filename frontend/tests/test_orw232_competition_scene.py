@@ -135,3 +135,33 @@ def test_a_round_box_is_compacted_to_a_progress_line():
 def test_the_crown_keeps_its_full_outcome():
     out = _outcome("advanceGame", {"event": {"beat": "hoh-competition", "content": "Houseguest Six wins Head of Household"}})
     assert "Houseguest Six wins Head of Household" in out
+
+
+def test_a_paused_turn_holds_the_models_own_advance_and_submit(monkeypatch):
+    """Live run 2026-11-10: the pass paused after two rounds, but the narrator called submitDecision in the SAME turn and chain-advanced the rest of the competition and the winner through the pause."""
+    import json
+    from src import tool_implementations as ti
+    run, seq = _segment_rig(monkeypatch, "u232v")
+    run("run it")
+    assert ch.comp_pause_holds("u232v")
+    called = {"n": 0}
+
+    async def boom(*a, **k):
+        called["n"] += 1
+        return {}
+
+    monkeypatch.setattr(orwell_engine, "advance_game", boom)
+    monkeypatch.setattr(orwell_engine, "submit_decision", boom, raising=False)
+    out = _run(ti.do_submit_decision(json.dumps({"kind": "comp-round", "intent": "compete"}), owner="u232v"))
+    assert json.loads(out["output"])["held"] is True and "PAUSED" in json.loads(out["output"])["note"]
+    out2 = _run(ti.do_advance_game("{}", owner="u232v"))
+    assert json.loads(out2["output"])["held"] is True
+    assert called["n"] == 0, "the engine is not touched while the pause is fresh"
+
+
+def test_the_hold_lifts_when_the_next_framed_turn_begins(monkeypatch):
+    run, seq = _segment_rig(monkeypatch, "u232w")
+    run("run it")
+    assert ch.comp_pause_holds("u232w")
+    run("okay go on")  # the next player message: a fresh pass starts, last turn's hold is gone (and this pass pauses again, setting its own)
+    assert len(seq) == 2
