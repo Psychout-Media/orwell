@@ -3327,6 +3327,15 @@ def _presence_facts(state: dict) -> Optional[dict]:
                     in_view.add(p["name"])
                     adjacent.add(p["name"])
     adjacent -= room_present
+    # ORW-249 part (4): the engine's send-time snapshot (`whereabouts.sinceSend`, #2321) says who walked in or out SINCE the player's last message. The narrator is told to voice it as one short beat, so the
+    # guard must read the SAME snapshot: someone who left since the send is legitimately staged in that departure beat even though they are no longer in the room (an arrival is already in `present`).
+    exempt: set = set()
+    _ss = wa.get("sinceSend")
+    if isinstance(_ss, dict):
+        for _k in ("departed", "arrived"):
+            for _n in (_ss.get(_k) or []):
+                if isinstance(_n, str) and _n.strip():
+                    exempt.add(_n.strip())
     evicted: set = set()
     active_offscene: set = set()
     for h in (state.get("house") or []):
@@ -3344,7 +3353,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
-            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms}
+            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt}
 
 
 def _first_name_counts(names) -> dict:
@@ -3433,17 +3442,18 @@ def _presence_desync_directive(narration: str, facts: dict) -> Optional[str]:
 def _sentence_stages_absent_npc(sentence: str, facts: dict, first_counts: dict) -> Optional[str]:
     """The name of an off-scene/evicted houseguest STAGED as acting in `sentence`, or None. Evicted
     is checked first (the stronger, unambiguous claim) then off-scene."""
+    _exempt = facts.get("exempt") or ()
     for n in facts.get("evicted") or ():
-        if _name_staged_unique(sentence, n, first_counts):
+        if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
             return n
     for n in facts.get("active_offscene") or ():
-        if _name_staged_unique(sentence, n, first_counts):
+        if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
             return n
     # ORW-249 (the hard roster): someone in an ADJACENT room who is staged speaking or acting IN the player's scene is as absent as someone across the house. The one legitimate form is the
     # glimpse/overhear framed as the OTHER room ("you hear Mara laughing in the backyard", "from next door, Mara's voice..."), which stays.
     if not _sentence_frames_elsewhere(sentence, facts):
         for n in facts.get("adjacent") or ():
-            if _name_staged_unique(sentence, n, first_counts):
+            if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
                 return n
     return None
 

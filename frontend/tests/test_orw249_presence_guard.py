@@ -56,3 +56,30 @@ def test_the_people_in_the_room_are_never_touched(monkeypatch):
 def test_across_the_house_still_dropped_as_before(monkeypatch):
     out = _wall(monkeypatch, "Dana leans in the doorway. Dana: \"Everyone here?\" Alice looks up.")
     assert "Dana" not in out and "Alice looks up" in out
+
+
+# ── part (4): the guard reads the SAME send-time snapshot the narrator is handed (whereabouts.sinceSend, #2321) ──
+def _wall_state(monkeypatch, text, since):
+    state = dict(STATE, whereabouts=dict(STATE["whereabouts"], sinceSend=since))
+
+    async def fake_state(user=None, **k):
+        return state
+    monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    return _run(ch.screen_presence_wall("u249b", text))
+
+
+def test_someone_who_left_since_the_send_is_staged_in_their_departure_beat_not_dropped(monkeypatch):
+    # Cleo is now next door (backyard), but she walked out AFTER the player's last message - the narrator is told to voice it, so the guard must not eat it.
+    text = "Cleo leans on the counter, says, \"I'm out of here,\" and strides off. Alice shrugs."
+    assert _wall_state(monkeypatch, text, {"arrived": [], "departed": ["Cleo Park"]}) == text
+
+
+def test_the_same_line_without_the_snapshot_is_still_dropped(monkeypatch):
+    text = "Cleo leans on the counter, says, \"I'm out of here,\" and strides off. Alice shrugs."
+    out = _wall_state(monkeypatch, text, {"arrived": [], "departed": []})
+    assert "Cleo" not in out and "Alice shrugs" in out
+
+
+def test_the_facts_carry_the_snapshot_names():
+    facts = ch._presence_facts(dict(STATE, whereabouts=dict(STATE["whereabouts"], sinceSend={"arrived": ["Bruno Lane"], "departed": ["Cleo Park"]})))
+    assert facts["exempt"] == {"Bruno Lane", "Cleo Park"}
