@@ -30,6 +30,33 @@ def create_directories():
     for directory in (DATA_DIR, PERSONAL_DIR, RUNBOOK_DIR, UPLOAD_DIR):
         os.makedirs(directory, exist_ok=True)
         
+def _build_memory_vector(memory_manager, rag_manager):
+    """The semantic MemoryVectorStore, or None. ORW-237: the GAME BUILD has no ChromaDB (issue #636; deploy/orwell-update.sh neutralizes CHROMADB_HOST) and the game's memory is the ENGINE's, so the
+    store is not even attempted there - a failed attempt on every start only logged a "DEGRADED" warning that masked real ones. The full workspace (ORWELL_GAME_BUILD=0) still builds it."""
+    from src.settings import game_build_enabled
+    if game_build_enabled():
+        logger.info("MemoryVectorStore skipped: game build (the engine owns the game's memory)")
+        return None
+    try:
+        from src.memory_vector import MemoryVectorStore
+        embedding_model = getattr(rag_manager, '_model', None) if rag_manager else None
+        memory_vector = MemoryVectorStore(DATA_DIR, embedding_model=embedding_model)
+        if memory_vector.healthy:
+            # Rebuild index from existing memories if empty
+            if memory_vector.count() == 0:
+                existing = memory_manager.load()
+                if existing:
+                    memory_vector.rebuild(existing)
+                    logger.info(f"Rebuilt memory vector index from {len(existing)} existing entries")
+            logger.info("MemoryVectorStore initialized")
+            return memory_vector
+        logger.warning("MemoryVectorStore DEGRADED: ChromaDB vector memory unavailable")
+        return None
+    except Exception as e:
+        logger.warning(f"MemoryVectorStore DEGRADED: {e}")
+        return None
+
+
 def initialize_managers(base_dir: str, rag_manager=None) -> Dict[str, Any]:
     """
     Initialize all manager and handler instances.
@@ -53,26 +80,8 @@ def initialize_managers(base_dir: str, rag_manager=None) -> Dict[str, Any]:
     api_key_manager = APIKeyManager(DATA_DIR)
     preset_manager = PresetManager(DATA_DIR)
 
-    # Initialize memory vector store (share embedding model with RAG if available)
-    memory_vector = None
-    try:
-        from src.memory_vector import MemoryVectorStore
-        embedding_model = getattr(rag_manager, '_model', None) if rag_manager else None
-        memory_vector = MemoryVectorStore(DATA_DIR, embedding_model=embedding_model)
-        if memory_vector.healthy:
-            # Rebuild index from existing memories if empty
-            if memory_vector.count() == 0:
-                existing = memory_manager.load()
-                if existing:
-                    memory_vector.rebuild(existing)
-                    logger.info(f"Rebuilt memory vector index from {len(existing)} existing entries")
-            logger.info("MemoryVectorStore initialized")
-        else:
-            logger.warning("MemoryVectorStore DEGRADED: ChromaDB vector memory unavailable")
-            memory_vector = None
-    except Exception as e:
-        logger.warning(f"MemoryVectorStore DEGRADED: {e}")
-        memory_vector = None
+    # Initialize memory vector store (share embedding model with RAG if available). The game build has no ChromaDB (issue #636 / ORW-237): skipped, not attempted.
+    memory_vector = _build_memory_vector(memory_manager, rag_manager)
 
     memory_provider_registry = MemoryProviderRegistry([
         NativeMemoryProvider(memory_manager, memory_vector),
