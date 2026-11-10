@@ -58,6 +58,7 @@ BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el =>
 
 class Engine:
     def __init__(self, base, token):
+        self.jumps = 0  # runner-made clock moves (night sleeps, tick-to-due, entrance advances) since the last turn was recorded
         self.base, self.h = base, {"content-type": "application/json", "authorization": f"Bearer {token}"}
 
     def call(self, name, args=None):
@@ -71,6 +72,7 @@ class Engine:
         return (h + 24 if h < 8 else h), st
 
     def sleep_through_night(self, tag):
+        self.jumps += 1
         n = 0
         while True:
             h, _ = self.hour()
@@ -79,6 +81,7 @@ class Engine:
         self.call("turnIn"); self.call("noteMessage", {"messageId": f"{tag}-wake"})
 
     def to_just_before_due(self, tag):
+        self.jumps += 1
         n = 0
         while n < 500:
             _, st = self.hour(); ds = st.get("daySchedule") or {}
@@ -86,6 +89,7 @@ class Engine:
             self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
 
     def entrances(self):
+        self.jumps += 1
         for _ in range(80):
             ent = (self.call("premiereIntros") or {}).get("entrance") or {}
             if not ent or ent.get("stage") == "done": return
@@ -161,6 +165,7 @@ def main():
              "room_start": room_of(st0), "room_end": room_of(st), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
              "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
+        t["harness_jump"] = eng.jumps; eng.jumps = 0
         turns.append(t); return t
 
     try:
@@ -202,6 +207,14 @@ def main():
     sys.exit(1 if hard else 0)
 
 
+BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
+
+
+def abs_hours(label):
+    m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", label or "")
+    return None if not m else (int(m.group(4)) - 1) * 24 + int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+
+
 def clock_hour(label):
     m = re.match(r"^(\d{1,2}):(\d{2})(am|pm)", label or "")
     return (int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60) if m else None
@@ -223,6 +236,19 @@ def score(turns, checks, check, turn_limit):
             nh = int(cm.group(1)) + int(cm.group(2)) / 60
             nh = nh + 12 if nh < 8 and eh >= 12 else nh
             check(f"C3-clock-claim[{lab}]", abs(nh - eh) <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
+    # NO SKIPPED TIME (Ryne: "It shouldn't ever skip time"): between two consecutive player turns the clock may not move more than ~1 hour unless the
+    # player went to bed (a bed message) or the night reached 8am. Jumps the RUNNER made itself (night sleeps, tick-to-due, entrance advances) are tagged
+    # `harness_jump` and listed separately, never blamed on the game. A competition played inside one message moves the clock by its own length: reported as a note.
+    prev = None
+    for t in turns:
+        a_ = abs_hours(t.get("clock"))
+        if prev is not None and a_ is not None and a_ - prev > 1.0:
+            gap = a_ - prev; bed = bool(BED_MSG_RE.search(t.get("msg") or "")); wake8 = abs((a_ % 24) - 8.0) < 0.2 and ((prev % 24) >= 23.0 or (prev % 24) < 8.0)  # the night ran its course to 8am (the previous turn was already deep in the night), not a day cut short
+            if t.get("harness_jump"): check(f"K1-clock-jump-by-runner[{t['label']}]", True, f"+{gap:.1f}h, made by the runner's own engine call ({t['harness_jump']} move(s)) - not the game", "note")
+            elif bed or wake8: check(f"K1-clock-jump-bed[{t['label']}]", True, f"+{gap:.1f}h after a bed message or to 8am", "note")
+            elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
+            else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
+        if a_ is not None: prev = a_
     # (a) arrivals keep coming during the real premiere chat: never 6 messages in a row with the same count while more are still to come
     prem = [t for t in turns if t["label"].startswith("premiere-") and t.get("inside") is not None]
     if prem:
