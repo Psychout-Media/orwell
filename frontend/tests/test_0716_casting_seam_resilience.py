@@ -217,7 +217,9 @@ def test_premiere_recovery_latch_clears_only_on_non_thinking_delta():
     js = _read("static", "js", "chat.js")
     anchor = js.index("clear the premiere-recovery latch only on a real reply token")
     seg = js[anchor: anchor + 300]
-    assert "if (!json.thinking && _orwellPremiereRecoveryArmed) _orwellPremiereRecoveryArmed = false;" in seg
+    # ORW-59: "a real reply token" is now applyDelta's isReplyToken (= !json.thinking, pinned in test_orw59_stream_machine.py)
+    assert "if (_ad.isReplyToken && _orwellPremiereRecoveryArmed) _orwellPremiereRecoveryArmed = false;" in seg
+    assert "isReplyToken: !json.thinking" in _read("static", "js", "chatStreamMachine.js")
 
 
 def test_premiere_recovery_is_suppressed_on_an_intentional_user_stop():
