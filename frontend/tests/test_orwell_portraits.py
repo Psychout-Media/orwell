@@ -128,8 +128,21 @@ def test_portraits_start_immediately_not_chained_behind_authoring(tmp_portraits,
     assert res["exit_code"] == 0
     # Portraits kicked off, and BEFORE authoring is even scheduled — never chained behind it.
     assert ("portraits", ("player", "npc:1", "npc:2")) in order
+    # ORW-251i: when this red recurs on a CI worker, say WHY (the order flipped to authoring-first on gw1 of fe-unit 2/2 even with the gate pinned off): the prewarm gate, the env hatch, the gate result and the live
+    # background threads/tasks are all captured in the failure message.
+    import os
+    import threading
+    _prewarm = importlib.import_module("src.orwell_prewarm")
+    _diag = {
+        "order": order,
+        "env_floor_start": os.environ.get("ORWELL_ALLOW_FLOOR_START"),
+        "gate_now": _run(cast_authoring.house_entry_gate_active("bob")),
+        "warm_state_bob": _prewarm.warm_state("bob"),
+        "prewarm_keys": sorted(getattr(_prewarm, "_STATE", {}).keys()),
+        "threads": sorted(t.name for t in threading.enumerate())[:12],
+    }
     assert order.index(("portraits", ("player", "npc:1", "npc:2"))) < \
-        next(i for i, c in enumerate(order) if c[0] == "authoring")
+        next(i for i, c in enumerate(order) if c[0] == "authoring"), _diag
     # Authoring still runs, with a top-up callback to fill any not-yet-landed face from the
     # authored facet (idempotent). It is keyed by the OWNER, never the player's identity.
     assert ("authoring", "bob") in order
@@ -163,6 +176,60 @@ def _gate_off(monkeypatch):
     async def _off(owner):
         return False
     monkeypatch.setattr(ca, "house_entry_gate_active", _off)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_create_character(monkeypatch):
+    """ORW-251k: make every createCharacter test in this file HERMETIC. do_create_character reaches, besides what the individual tests patch, the engine pre-seed call, the cast-genesis run, the
+    cast-identity seed (a BACKGROUND asyncio task), the zeitgeist (web search) and producer-authoring kicks. With a model endpoint configured on the xdist worker those made REAL OpenRouter and web-search
+    calls, and the identity task outlived its test: when it finally finished it called `then()` -> `kickoff_authoring`, resolved at call time, i.e. the NEXT test's fake, so `("authoring", ...)` landed in
+    that test's order list BEFORE its portraits ('assert 1 < 0', fe-unit 2/2 on #2466/#2476/#2393). Every such path is stubbed to a deterministic no-op (identity runs its `then` inline, after the
+    portrait kick, exactly the order the real pipeline has), and any task a test leaves pending is cancelled at teardown so nothing can leak into the next test."""
+    eng = importlib.import_module("src.orwell_engine")
+    gen = importlib.import_module("src.orwell_cast_genesis")
+    ident = importlib.import_module("src.orwell_cast_identity")
+    zeit = importlib.import_module("src.orwell_zeitgeist")
+    prod = importlib.import_module("src.orwell_producer_authoring")
+    ca = importlib.import_module("src.orwell_cast_authoring")
+
+    async def _no_preseed(*a, **k):
+        return {"warmed": False}
+
+    async def _no_genesis(*a, **k):
+        return None
+
+    async def _no_model(*a, **k):
+        return None
+
+    async def _no_model_bool(*a, **k):
+        return False
+
+    def _identity_inline(cast, owner, then=None, write=None):
+        if then is not None:
+            then()
+
+    monkeypatch.setattr(eng, "pre_seed_cast", _no_preseed)
+    monkeypatch.setattr(gen, "run_genesis", _no_genesis)
+    monkeypatch.setattr(ident, "kickoff_identity", _identity_inline)
+    monkeypatch.setattr(zeit, "kickoff_capture", lambda owner: None)
+    monkeypatch.setattr(prod, "kickoff_producer_authoring", lambda owner: None)
+    monkeypatch.setattr(ca, "resolve_authoring_llm_fn", _no_model)
+    monkeypatch.setattr(ca, "_utility_model_available", _no_model_bool)
+    yield
+    loop = asyncio.get_event_loop()
+    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    for t in pending:
+        t.cancel()
+    if pending:
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+
+@pytest.fixture(autouse=True)
+def _pin_house_entry_gate_off(monkeypatch):
+    """ORW-251e: every createCharacter test in this file pins the house-entry gate OFF. They used to rely on "no utility model resolves in the test env", which another test's saved model settings
+    can falsify on the same xdist worker: the gate then goes ON, the immediate seeded-facet kick is skipped, authoring runs first and the portraits land after it ("assert 1 < 0", fe-unit 2/2). The
+    gate-ON contract is pinned in test_adr0013_photo_requires_authoring.py, which patches the gate itself."""
+    _gate_off(monkeypatch)
 
 
 def test_prewarmed_branch_falls_through_to_kickoff_when_warm_declines(tmp_portraits, monkeypatch):

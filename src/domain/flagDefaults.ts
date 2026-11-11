@@ -4,8 +4,9 @@
  * the one production runs. They are now code defaults: ON unless explicitly `0` / `false` / `off`, and the single
  * diagnostic switch `ORWELL_FLAGS_OFF=1` forces the whole flipped set OFF (the legacy all-off profile; it also wins over
  * the front-end's persisted time-of-day push).
- * Flags that are NOT flipped (SHOWRUNNER_REWEIGHT, FORESHADOW, TIE_REVEAL, GOSSIP_CONSEQUENCE,
- * MULTI_NIGHT_FATIGUE, WIPEOUT_REEL, NPC_MEMORY pending its measurement) keep their own opt-in readers.
+ * ORW-65 review (2026-11-11): TIE_REVEAL, GOSSIP_CONSEQUENCE, WIPEOUT_REEL, MULTI_NIGHT_FATIGUE and NPC_MEMORY are now default ON
+ * (see `src/featureFlags.ts`); FORESHADOW is gone with the retired 0103 (ORW-267). The one flag still NOT flipped is
+ * SHOWRUNNER_REWEIGHT (it perturbs the seeded outcome stream by design; its on/off is Ryne's call, tracked as a Needs Ryne card) and keeps its own opt-in reader.
  *
  * PURE: this module never touches ambient process state. The ONE parser is `defaultOnFrom`; callers pass the env values in
  * (the engine adapter passes `process.env`; `src/featureFlags.ts` reuses the same function for `/health`).

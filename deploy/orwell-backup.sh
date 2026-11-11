@@ -30,6 +30,18 @@ mkdir -p "$DEST"
 # EXCLUDE data/models — that is the fastembed ONNX embedding cache (ORWELL_EMBED_CACHE). It is
 # re-fetchable and RE-WARMS on the engine's first boot, so it is game-irrelevant weight: a daily
 # backup × the 30-day retention would otherwise bloat the very disk the saves/portraits live on.
+# ORW-174: the FE database runs in SQLite WAL mode, so recent commits can sit in app.db-wal. Fold them into app.db first (best effort, a no-op when the DB is absent or not WAL) so the archive's main file is
+# current even if the -wal/-shm pair is captured a moment apart. Run AS THE FILE'S OWNER when root, so SQLite never creates a root-owned -wal/-shm next to the service's database.
+FE_DB="${APP_DIR}/frontend/data/app.db"
+if [[ -f "$FE_DB" ]] && command -v python3 >/dev/null 2>&1; then
+  CKPT='import sqlite3,sys; c=sqlite3.connect(sys.argv[1], timeout=10); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()'
+  DB_OWNER="$(stat -c %U "$FE_DB" 2>/dev/null || true)"
+  if [[ "$(id -u)" -eq 0 && -n "$DB_OWNER" && "$DB_OWNER" != "root" ]] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$DB_OWNER" -- python3 -c "$CKPT" "$FE_DB" 2>/dev/null || echo "note: WAL checkpoint skipped (continuing)" >&2
+  else
+    python3 -c "$CKPT" "$FE_DB" 2>/dev/null || echo "note: WAL checkpoint skipped (continuing)" >&2
+  fi
+fi
 tar -czf "$OUT" -C "$APP_DIR" --exclude='data/models' \
   $( [[ -d "${APP_DIR}/data" ]] && echo "data" ) \
   $( [[ -d "${APP_DIR}/frontend/data" ]] && echo "frontend/data" )

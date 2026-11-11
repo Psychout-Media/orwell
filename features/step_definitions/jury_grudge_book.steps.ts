@@ -179,7 +179,7 @@ Then("the pre-jury-evictee takes part in no jury-house society", function (this:
   // …and their recorded grievance never folds a grudge (they are not in the room).
   const live = this.jh!.sandbox!.session.snapshot().live as LiveSeasonState;
   for (const juror of JURORS) {
-    assert.equal(live.juryGrudge?.[juror]?.[FINALIST] ?? 0 >= 0, true);
+    assert.equal(live.juryGrudge?.[juror]?.[FINALIST] ?? 0, 0, `a pre-jury evictee's grievance folds no grudge on juror ${juror}`);
   }
 });
 
@@ -351,8 +351,9 @@ When("the jury house passes between turns and the finale is played", function ()
 });
 
 Then("the respected jurors' leans hold or improve", function (this: BbWorld) {
-  // A cleanly-cut, warm jury crowns FINALIST a strong majority — the clean exit holds (no jury-house
-  // bitterness to erode it).
+  // WHAT THIS CHECKS: the finale run in the Given (warm edges, NO jury-house grievance) crowns FINALIST a strong majority. It does NOT run the
+  // jury house itself; that no grudge is minted for a clean exit is pinned by the "no grudge applied when off" and pre-jury steps above and by
+  // tests/unit/juryHouseAdapter.test.ts.
   assert.ok((this.jh!.cleanWinRate ?? 0) > 0.7, `a clean exit holds a strong majority (${this.jh!.cleanWinRate})`);
 });
 
@@ -459,16 +460,24 @@ Then("neither sees a jury-house scene, a grudge adjustment, or a juror's lean", 
   );
 });
 
+// ORW-27 (A91): the key names a per-voter attribution could travel under, matched as JSON KEYS (`"name":`), case-insensitive. The old check looked for two names only (`voteOf`, `"voteRecord"`).
+const VOTER_ATTRIBUTION_KEY = /voteOf|"(?:voters?|voterId|votedBy|castBy|ballots?ByVoter|voteRecord|unsealed\w*)"\s*:/i;
+
 Then("the per-voter ballot stays sealed until the post-season retrospective", function (this: BbWorld) {
-  // This feature changes the lean INPUT, never the reveal timing/anonymity — the voteRecord is engine-only
-  // (E12). No player/admin surface attributes a vote to a voter mid-season.
-  assert.ok(!/voteOf|"voteRecord"/i.test(this.lastOutput), "no per-voter ballot attribution crosses the wall");
+  // This feature changes the lean INPUT, never the reveal timing/anonymity. Eviction ballots are the SEALED ones (E12): the voteRecord is engine-only and
+  // no player/admin surface attributes an eviction vote to a voter before the retrospective. (The FINALE votes are different: they are read by name
+  // at the finale, and are not what this step guards.) The check is the key-name scan below over the surface output.
+  assert.ok(!VOTER_ATTRIBUTION_KEY.test(this.lastOutput), "no per-voter ballot attribution crosses the wall");
 });
 
 Then("the staged vote reveal is anonymized", function () {
   // Unchanged from 0037/E12 — the staged reveal reads anonymized ballots. This feature touches only the
   // lean input, never the reveal. (The 0037 finale Vault-free scenario already gates the reveal shape.)
-  assert.ok(true);
+  // ORW-27 (A91): was `assert.ok(true)`. Every revealed-ballot entry on any surface carries the nominee only, never a voter.
+  for (const m of this.lastOutput.matchAll(/"votesRevealed"\s*:\s*(\[[^\]]*\])/g)) {
+    for (const entry of JSON.parse(m[1]!) as Record<string, unknown>[]) assert.deepEqual(Object.keys(entry), ["votedFor"], "a revealed ballot names the nominee only");
+  }
+  assert.ok(!VOTER_ATTRIBUTION_KEY.test(this.lastOutput), "no per-voter attribution key on any surface");
 });
 
 // --- Rule: deterministic and calibration-neutral --------------------------------
@@ -493,8 +502,9 @@ Then("no jury-house stretch runs and no grudge adjustment is applied", function 
 });
 
 Then("the jury vote and winner are byte-identical to the run without this feature", async function (this: BbWorld) {
-  // Two independent finales from the same seed/edges with the flag OFF reproduce the SAME winner — the
-  // pre-feature behavior. (With OFF, edgeAsJuryRel reads a zero grudge ⇒ identical to before the feature.)
+  // WHAT THIS CHECKS: two independent finales from the same seed/edges with the flag OFF reproduce the SAME winner (the off path is deterministic and
+  // reads a zero grudge). It does NOT compare against a build without the feature; the byte-for-byte pin of that is the snapshot-SHA test
+  // tests/unit/juryHouseAdapter.test.ts.
   const even = (): Partial<EdgeRecord> => ({ trust: 0.6, affinity: 0.55, threat: 0.2 });
   const a = await finaleWinner("jh-byte-a", 5, even);
   const b = await finaleWinner("jh-byte-b", 5, even);

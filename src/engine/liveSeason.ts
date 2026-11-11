@@ -311,9 +311,18 @@ export interface EvictionProgress {
  * comp decisions already are; for now: always compete). Persisted + restart-safe (0030). Vault-free
  * by construction (ids only; no score, lean, or hidden number is ever stored here).
  */
+/** ORW-269 - how hard a competitor was SEEN to fight in a round (what a witness could see; no number, no hidden stat). */
+export type CompEffort = "all-out" | "steady" | "light";
+/** Per competitor: rounds they were in, and rounds they were seen all-out. */
+export type CompEffortTally = Record<EntityId, { rounds: number; hard: number }>;
+
 export interface CompetitionProgress {
   /** Which competition this stages — for the resume after a per-round pause + the right beat transition. */
   comp: "hoh-competition" | "veto-competition";
+  /** ORW-269: the visible-effort tally so far (played games only; absent otherwise). Observability only - never read by the outcome. */
+  effort?: CompEffortTally;
+  /** ORW-269: the player's approach as first committed this comp (consumed from `compIntent` at the first reveal), so later rounds still show how they carried themselves. */
+  playerApproach?: "compete" | "throw" | "play-safe";
   /** The competition type (0006/0042) — the resolution math's governing aptitude. */
   type: CompetitionType;
   /** The FULL original field that began the comp — surfaced on the crown event so the existing
@@ -485,6 +494,11 @@ export interface LiveSeasonState {
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number };
   lastDealOfferWeek?: number;
   /**
+   * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
+   * with `callInFavor`. Vault-free (it is the player's own deal history). Banked for played games only; absent otherwise => byte-identical. Persists with the season.
+   */
+  owedFavors?: Array<{ debtor: EntityId; n: number; madeWeek: number }>;
+  /**
    * How each evictee read the manner of their eviction toward each responsible houseguest
    * (0037): mannerByEvictee[evictee][responsible]. Recorded live at each eviction so jury
    * management has genuine effect at the finale. ENGINE-ONLY: never crosses the wall.
@@ -572,6 +586,8 @@ export interface LiveSeasonState {
   eventClock?: { key: string; spent: number };
   /** ORW-232 slice 3: the hours a staged competition has already charged (its own slot, so it never collides with the eviction/finale `eventClock` budget). */
   compClock?: { key: string; spent: number };
+  /** ORW-269: the finished comp's visible-effort tally, kept for the crown's deal adjudication (played games only; absent in headless sims). */
+  lastCompEffort?: { comp: "hoh-competition" | "veto-competition"; week: number; effort: CompEffortTally };
   /**
    * The SEALED reserve twists (0025/B53): what may fire and at which week. ENGINE-ONLY Vault
    * content carried in the loop state so it persists with the season (0030) — no projection
@@ -654,7 +670,7 @@ export interface LiveSeasonState {
    * when off => byte-identical. Persisted with the season.
    */
   desireApproachedAt?: Record<string, number>;
-  interruption?: { npc: string; desire: string; atHour: number };
+  interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   hangOutCount?: number;
   hangOutPulledDay?: number;
   hangOutLog?: Array<{ n: number; day: number; hour: number; beats: number; minutes: number; stopReason: string; detail?: Record<string, unknown> }>;
@@ -676,6 +692,8 @@ export interface LiveSeasonState {
   clockInteractive?: boolean;
   /** ORW-258: a PERSON is playing this game (set by their first announced message; persisted). `clockInteractive` is not enough - a staged premiere sets it for headless drivers too - so the event-per-day cadence keys on THIS, keeping calibration sims byte-identical. */
   playedGame?: boolean;
+  /** ORW-261 (spec 0141): houseguests who have already told the player their private orientation by their own choice (once each; persisted so a reload never re-tells). Played games only; absent => byte-identical. */
+  orientationTold?: Record<string, true>;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
@@ -707,6 +725,20 @@ export interface LiveSeasonState {
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
   /**
+   * ORW-282 — the highest game day that HAS a recap, and the append-only log of every day's digest (capped). Days that roll by the production schedule, the all-night wrap or a player who never turns in
+   * used to get none (and the next bedtime recap lumped them under one label); a played game now catches up one recap per crossed day (`GameSessionAdapter.catchUpDailyRecaps`). Absent on a save from
+   * before this field, and always absent in a headless sim ⇒ byte-identical there.
+   */
+  dailyRecapDay?: number;
+  dailyRecapLog?: DailyRecapEntry[];
+  /**
+   * ORW-271 — the append-only per-night DAY LEDGER (never trimmed, never overwritten except a day's own
+   * text being filled in once). A floor entry is pushed at each played-game `turnIn`; the FE-driven
+   * `recordDaySummary` write-back adds model-authored `text` and week-tier merges. Vault-free by
+   * construction (built only from the already-player-visible recap). Absent until the first turnIn.
+   */
+  dayLedger?: DaySummaryEntry[];
+  /**
    * C1 (#1788) — the season-spanning, MONOTONIC Wipeout Reel history per houseguest (mandate #4:
    * appended only, never trimmed or overwritten). Fed by each REVEALED staged-comp drop's failure-style
    * fact so the SAME houseguest's later wipeouts can call back to earlier ones ("the third time this
@@ -714,6 +746,17 @@ export interface LiveSeasonState {
    * (0030), plain JSON (ids + strings only) so save/restore round-trips losslessly.
    */
   wipeoutHistory?: Record<EntityId, WipeoutHistoryEntry[]>;
+}
+
+/** ORW-271 — one ledger entry (mirrors the port's `DaySummary`). */
+export interface DaySummaryEntry {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  text?: string;
+  coversDays?: [number, number];
+  merged?: boolean;
 }
 
 /** 0102 — the non-committal cliffhanger a `DailyRecapEntry` may carry (see `DailyRecapHook` in the port). */
@@ -818,6 +861,11 @@ export interface SeasonCtx {
    * flags-off stays BYTE-IDENTICAL. 0 for the PLAYER as holder. ENGINE-ONLY — never crosses the wall.
    */
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /**
+   * ORW-269 - how hard `id` is SEEN to fight in `round` of the current staged comp. Supplied only for a game a person is playing; drawn on a dedicated side stream by the adapter. Omitted => no tally kept
+   * (headless sims byte-identical). Observability only: the winner and the drop order are already fixed.
+   */
+  compEffortFor?: (id: EntityId, comp: "hoh-competition" | "veto-competition", round: number, playerApproach?: string) => CompEffort;
   /** B29 (ORWELL_TELL_REACTIONS): the holder's small, decaying exploit tilt toward `subject`, whom they saw visibly rattled. Absent => 0, byte-identical. */
   moodTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default ON; `=0` opts out). Absent ⇒ byte-identical. */
@@ -1249,6 +1297,15 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // (the outcome is already fixed), so we no longer pause to re-ask the player each round (PO review
   // 2026-06-28: the per-round ask was non-binding flavor that only added taps it could never change).
   // The reveals now play out as drama without interrupting the player for a choice that cannot matter.
+  if (ctx.compEffortFor) { // ORW-269: tally what a witness could see this round, for everyone still in (no rng here; the hook owns its side stream)
+    if (s.compIntent && !c.playerApproach) c.playerApproach = s.compIntent as "compete" | "throw" | "play-safe";
+    const tally = (c.effort ??= {});
+    for (const id of c.stillIn) {
+      const t = (tally[id] ??= { rounds: 0, hard: 0 });
+      t.rounds += 1;
+      if (ctx.compEffortFor(id, c.comp, c.round, c.playerApproach) === "all-out") t.hard += 1;
+    }
+  }
   s.compIntent = undefined; // round 1's committed approach is consumed on the first reveal, then cleared
   // Reveal a BATCH of the scheduled drops this round — FEWER, BIGGER rounds (audit 2026-06-20 owner
   // ruling: ~4-8 rounds per comp, not one drop per round which made a 15-player HOH a ~14-round slog).
@@ -1351,6 +1408,7 @@ function crownCompetition(s: LiveSeasonState): BeatEvent {
   // The CALIBRATED winner — the up-front single-roll crown (byte-identical to the non-staged model). A
   // trivial one-competitor field never decided an outcome — fall back to the lone id.
   const winner = c.winner ?? c.stillIn[0]!;
+  if (c.effort) s.lastCompEffort = { comp: c.comp, week: s.week, effort: c.effort }; // ORW-269
   s.competition = undefined;
   s.compIntent = undefined;
   s.competitionFiction = undefined; // #1400: the authored fiction is per-comp — clear it as the comp crowns

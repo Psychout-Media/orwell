@@ -38,7 +38,9 @@ CASES = [
     ("markdown", [{"deltas": ["**Bright idea.** ", "They say:\n\n- apples\n- pears\n\n", "*Quietly.*"], "delay": 0}], "Bright idea."),
     ("paragraphs", [{"deltas": ["First paragraph.\n\n", "Second paragraph.\n\n", "Third."], "delay": 0}], "Second paragraph."),
     ("ooc-producer-aside", [{"deltas": ["((Production: ", "the house ", "is settling ", "in.))"], "delay": 0.4}], "settling in"),
-    ("ooc-complete-first-delta", [{"deltas": ["((Production: the house is settling in.)) "], "delay": 1.5}], "settling in"),
+    # ORW-251h: this text must DIFFER from ooc-producer-aside's. Both cases share one chat session, and the CI failure (n == base_n although the stub consumed the turn) fits the live bubble
+    # being collapsed into the previous, identical OOC reply; distinct text per case removes that coupling.
+    ("ooc-complete-first-delta", [{"deltas": ["((Production: the whole house is settling in for the night.)) "], "delay": 1.5}], "settling in"),
     # A72 - the clock's three narrated surfaces: a production cut-in mid-reply, a hang-out stop line (the model calls hangOut, then voices where it stopped), the premiere champagne toast.
     ("clock-production-cutin", [{"deltas": ["You trade a few words by the sink. ", "((Production: it is noon - the Head of Household competition is about to begin.)) ", "Everyone drifts toward the backyard."], "delay": 0.2}], "about to begin"),
     ("clock-hangout-stop", [{"tool_calls": [{"name": "hangOut", "args": {}}]}, {"deltas": ["You lose track of the hours on the couch, until a houseguest sits down beside you and says they need a word."], "delay": 0}], "need a word"),
@@ -61,10 +63,16 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         except Exception as e:  # noqa: BLE001
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
+        # ORW-251j: record every WebSocket frame the page receives (type, channel, event type), so a turn that paints its whole reply but never settles can say whether the `done` frame ever arrived.
+        page.add_init_script("""(() => { const W = window.WebSocket; if (!W) return; window.__wsLog = [];
+          window.WebSocket = function (...a) { const ws = new W(...a); ws.addEventListener('message', (e) => { try { const f = JSON.parse(e.data); window.__wsLog.push([f.t, f.ch || '', (f.d && (f.d.type || f.d.done && 'done' || f.d.reason)) || ''].join('/')); if (window.__wsLog.length > 60) window.__wsLog.shift(); } catch (_) {} }); return ws; };
+          window.WebSocket.prototype = W.prototype; ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach((k) => { window.WebSocket[k] = W[k]; }); })();""")
         page.goto(stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
         before = page.evaluate(SNAP)
         base_n = before["n"] if before else 0
+        # ORW-251f: only the plain-reply case holds - it paints text DURING the stream. A producer aside is held behind the spinner until the stream FINISHES and paints whole then, so holding it just burned ~20s of the loop (and
+        # left too little time to settle on a loaded runner); `mid` for those is the first frame with reply text, with or without the footer.
         # ORW-251b: `hold` makes the first-paint check DETERMINISTIC. The stub holds the final entry's stream open (before finish) on a gate until the test has observed the streaming paint, so a slow CI
         # runner can no longer let the whole turn settle before the sampler sees an unsettled bubble. The gate is released as soon as `mid` is captured (or after ~20s, so a real failure fails the assertion, not the stub).
         gate = threading.Event() if hold else None
@@ -72,8 +80,29 @@ def _send_and_snapshot(stack, entries, text, hold=False):
             entries[-1]["gate"] = gate
         for en in entries:
             STUB.script.append(en)
-        page.fill("#message", text)
-        page.keyboard.press("Enter")
+        # ORW-251g: a DETERMINISTIC send. "The user bubble landed" is not enough (the optimistic bubble appears even when the request never reaches the server), so the signal is the stub CONSUMING this turn's first
+        # scripted entry. Per attempt: wait for the composer to exist and be enabled, focus it, type, press Enter, then wait up to 12s for the entry to be consumed; if it was not, try again (up to 3). Console
+        # errors and page errors are collected so a turn that still never starts says why.
+        diag = []
+        page.on("console", lambda m: diag.append(f"console.{m.type}: {m.text[:160]}") if m.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: diag.append(f"pageerror: {str(e)[:160]}"))
+        _users = "() => document.querySelectorAll('#chat-history .msg.msg-user').length"
+        users_before = page.evaluate(_users)
+        n_script = len(STUB.script)
+        attempts = 0
+        for attempts in (1, 2, 3):
+            page.wait_for_function("() => { const m = document.getElementById('message'); return !!m && !m.disabled; }", timeout=15000)
+            page.click("#message")
+            page.fill("#message", text)
+            page.keyboard.press("Enter")
+            consumed = False
+            for _w in range(80):  # 12s
+                if len(STUB.script) < n_script:
+                    consumed = True
+                    break
+                page.wait_for_timeout(150)
+            if consumed:
+                break
         live = None
         mid = None
         # ORW-251: sample the first paint IN the page, once per painted frame (rAF), instead of from Python at ~150ms. Under CI load the Python-side evaluate() calls stall past the whole streaming window,
@@ -82,7 +111,7 @@ def _send_and_snapshot(stack, entries, text, hold=False):
           const tick = () => { if (window.__mid) return; let s = null; try { s = fn(); } catch (e) {}
             if (s && s.n > base && s.body && !wait.test(s.body)) { window.__mid = s; return; } requestAnimationFrame(tick); };
           requestAnimationFrame(tick); }""", [SNAP, base_n, _WAIT_LABEL.pattern])
-        for _ in range(160):
+        for _ in range(240):
             page.wait_for_timeout(150)
             if gate is not None and not gate.is_set():
                 if mid is not None or page.evaluate("window.__mid") or _ >= 130:
@@ -96,7 +125,8 @@ def _send_and_snapshot(stack, entries, text, hold=False):
                 break
         if gate is not None:
             gate.set()
-        assert live and live["footer"], "the live turn never settled (no footer)"
+        assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'. attempts={attempts} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}/{n_script} diag={diag[-6:]}"
+        assert live and live["footer"], f"the live turn never settled (no footer): wsLog={page.evaluate('() => (window.__wsLog || []).slice(-14)')} ws={page.evaluate('() => window.OrwellWs ? [window.OrwellWs.mode(), window.OrwellWs.isChatSubscribed()] : null')} active={page.evaluate('() => window.chatModule && window.chatModule.hasActiveStream ? window.chatModule.hasActiveStream() : null')} last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
@@ -136,7 +166,7 @@ STREAMING_CASES = [
 
 @pytest.mark.parametrize("case_id,entries,expect", STREAMING_CASES)
 def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id, entries, expect):  # noqa: F811
-    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}", hold=True)
+    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}", hold=(case_id == "plain-reply"))
     assert mid is not None, "the streaming bubble never painted before settle (the stub should be slow enough)"
     # A88 (from the CI MutationObserver trace): the live bubble is created with a TRANSIENT `streaming` class (spinner/skeleton) that the reload never has - by design, normalised here.
     _norm = lambda c: " ".join(x for x in c.split() if x != "streaming")  # noqa: E731

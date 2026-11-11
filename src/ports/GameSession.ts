@@ -194,7 +194,7 @@ export interface DealView {
  */
 export interface DealRefusal {
   refused: true;
-  reason: "distrust" | "threat" | "targeted" | "grudge" | "cost";
+  reason: "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
   narratable: string;
   /** 0142: a lukewarm houseguest (reason `cost`) answers with terms instead of a flat no. Present only when one now stands as the open `openDealOffer` (the player accepts or declines it with submitDecision deal-offer). */
   counteroffer?: { kind: string; terms: string };
@@ -571,7 +571,7 @@ export interface GameStateView {
    * calibration spine / golden replay, which pin that clock off) ⇒ byte-identical (the 0108 golden fixture this once referenced was decommissioned 2026-07-21; nothing to re-record).
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
-  interruption?: { npc: string; desire: string };
+  interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
   daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
@@ -646,6 +646,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
 }
 
 /**
@@ -933,6 +935,12 @@ export interface ConfrontResult {
   landed: boolean;
 }
 
+/** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
+export interface OwedFavorView { from: NamedRef; n: number }
+
+/** 0142: a called-in favor. The ENGINE priced it; `honored` => an ordinary deal of `kind` now binds the houseguest; otherwise they ignored it (the favor is spent and the player's read of them drops). */
+export interface CallInFavorResult { honored: boolean; kind: string; narratable: string }
+
 /**
  * The result of a `confide` (feature 0075). The engine decided WHETHER the houseguest opened up,
  * WHICH tier (how much), and whether it was a real confidence or a fabricated one (a lie). The
@@ -1210,6 +1218,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
   /**
    * F3: whether the season is OVER (a winner is crowned). Mirrors the same public over-signal as
    * `AdvanceView.finished` / `SeasonRecap.finished` (`this.live.finished`). Surfaced here so a client
@@ -2007,6 +2017,33 @@ export interface DailyRecapHook {
  * layer never appears. `hook` is present only when an in-motion, player-perceivable thread is
  * eligible (a quiet day closes with none — never a manufactured cliffhanger).
  */
+export interface DaySummary {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  /** Model-authored summary (FE write-back), capped; absent = floor entry only. */
+  text?: string;
+  /** Week tier: the inclusive day range this entry condenses. */
+  coversDays?: [number, number];
+  /** Day tier: true once a week entry has condensed it (kept in the ledger, never deleted). */
+  merged?: boolean;
+}
+
+/** ORW-271 — FE-driven write-back: the model-authored summary for a closed day (or a week of days). */
+export interface RecordDaySummaryReq {
+  day: number;
+  text: string;
+  tier?: "day" | "week";
+  coversDays?: [number, number];
+}
+
+export interface RecordDaySummaryResult {
+  accepted: boolean;
+  /** Why not accepted (absent when accepted). */
+  reason?: "absent" | "unknown-day" | "empty";
+}
+
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
@@ -2214,6 +2251,8 @@ export interface HangOutView {
   beats: number;
   /** In-game minutes spent. */
   minutes: number;
+  /** ORW-22: the player-facing line for the stop (public facts only), present for every stop kind. */
+  stopLine?: string;
   /** Vault-free public detail of the stop (names, never ids/numbers). */
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
@@ -2701,6 +2740,11 @@ export interface GameSession {
    * marker. `null` pre-game / for an unknown or non-active houseguest / an unrecognized `factId`.
    */
   confront(npcId: EntityId, factId: string, expectedBeatSeq?: number): ConfrontResult | null;
+  /**
+   * 0142 (ORW-88 idea 2) - call in a favor a houseguest owes the player (they kept a deal). `ask` is the deal kind requested (default "vote": "you owe me a vote"). Returns null when no favor is
+   * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
+   */
+  callInFavor(npcId: EntityId, ask?: MakeDealReq["kind"], expectedBeatSeq?: number): CallInFavorResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /
@@ -2813,6 +2857,18 @@ export interface GameSession {
    * reproducible: re-reading returns the exact same materialized view every time.
    */
   dailyRecap(): DailyRecapView | null;
+
+  /**
+   * ORW-271 — the append-only per-night day ledger (Vault-free; `[]` before any night closed). FE read.
+   */
+  dayLedger(): DaySummary[];
+
+  /**
+   * ORW-271 — FE-driven write-back (like `recordWorldSnapshot`; NOT a model lever): attach the
+   * model-authored summary `text` to a closed day (idempotent per day+tier), or add a week-tier entry
+   * covering `coversDays` and mark those day entries `merged` (kept, never deleted).
+   */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult;
 
   /**
    * The Vault unsealing (0048 §1): the hidden story of THIS user's FINISHED season. Returns `null`

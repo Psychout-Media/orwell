@@ -21,6 +21,7 @@ export const DEAL_CONSENT = {
     threat: 0.45,      // the NPC's read of the player as a THREAT (a drag)
     grudge: 2.0,       // a remembered betrayal (npcMemory grudge, max 0.15) - a drag
     favor: 2.0,        // a remembered favor (npcMemory favor, max 0.06) - a bonus
+    opposed: 0.6,      // ORW-87: the NPC's OWN standing plan against the player (drive/campaign push, max ~0.2) - a drag
     targetsMe: 2.0,    // the NPC's BELIEF that the player is targeting them (belief store, max 0.18) - a drag
   },
   /** Cap on the favor bonus so a remembered kindness can tip a marginal NPC but never buy an ask on its own. */
@@ -38,6 +39,8 @@ export const DEAL_CONSENT = {
   } as Record<DealKind, number>,
   /** B55: what an OFFER by the player costs the NPC (the player is the promisor, so the cost is the player's; to the NPC it is a favor, priced like a defensive promise). Used for the active kinds only. */
   offerCost: -0.09,
+  /** 0142: willingness added when the ask is a CALLED-IN favor (the NPC owes the player one for a deal it kept). Tips a marginal ask, never buys an ask the NPC distrusts or fears. */
+  calledFavorBonus: 0.1,
   /** Half-width of the seeded per-decision jitter: a marginal NPC can wobble, a clear one never flips. */
   jitter: 0.03,
   /** A single drag at/above this is "material" enough to be named as THE reason even when the ask was dear anyway. */
@@ -45,13 +48,14 @@ export const DEAL_CONSENT = {
 } as const;
 
 /** Vault-free, in-fiction reason categories the narrator voices. Closed set. */
-export type DealRefusalReason = "distrust" | "threat" | "targeted" | "grudge" | "cost";
+export type DealRefusalReason = "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
 
 /** The narratable line per reason (no numbers, no Vault: how the houseguest would carry themselves, never why in terms of a hidden score). */
 export const DEAL_REFUSAL_LINE: Record<DealRefusalReason, string> = {
   distrust: "doesn't trust you enough yet to shake on this",
   threat: "sees you as too big a threat to tie themselves to",
   targeted: "believes you are already coming after them",
+  opposed: "is already working against you in this game and will not tie themselves to you",
   grudge: "is still holding a grudge over how you have treated them",
   cost: "this ask costs them too much for where the two of you stand",
 };

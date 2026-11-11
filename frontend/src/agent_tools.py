@@ -67,6 +67,8 @@ TOOL_TAGS = {"bash", "python", "web_search", "web_fetch", "read_file", "write_fi
              "exposeSecret", "tradeSecret",
              # 0094/0095: confront over a learned fact / accuse a pre-show tie (engine-decided).
              "confront", "accuseTie",
+             # 0142: call in a favor a houseguest owes the player (engine-decided).
+             "callInFavor",
              "premiereIntros", "markHouseguestMet",
              "seasonRecap", "seasonRetrospective", "npcVoice",
              # #1800 / #1793: the player's OWN Diary-Room record (receipts mirror + per-houseguest dossier).
@@ -121,6 +123,8 @@ GAME_TOOL_KEEP = frozenset({
     "exposeSecret", "tradeSecret",
     # 0094/0095: confront a houseguest over a learned fact / accuse a pre-show tie (engine-decided, Vault-free).
     "confront", "accuseTie",
+    # 0142: call in a favor a houseguest owes the player.
+    "callInFavor",
     # B64/0049: the Vault-free presence read (lingering play has engine ground truth).
     "whereabouts",
     # L21/L24: the player walks where they choose; the engine never auto-relocates a person.

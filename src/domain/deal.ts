@@ -122,6 +122,8 @@ export interface BindingAction {
    * throw-promise; `competed`/`won` breaks it (they tried when they swore to tank). Absent on non-compete.
    */
   outcome?: "threw" | "competed" | "won";
+  /** ORW-269 - the actor was SEEN fighting hard on most rounds of this comp (played games only). A kept throw-promise with this set still resolves kept (the result dominates) but draws suspicion. */
+  effortHard?: boolean;
   /** 0121 — a `veto-use` action's SAVED set (who the veto pulled off the block) — veto-save adjudication. */
   saved?: readonly EntityId[];
   /**

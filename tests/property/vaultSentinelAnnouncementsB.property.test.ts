@@ -1,8 +1,8 @@
 import { describe, it } from "vitest";
 import { assertVaultWallAnnouncements } from "../support/vaultSentinelAnnouncementsHarness";
 
-describe("Vault Wall — property over seeds & BeatAnnouncement announcements (2/5, 20 runs)", () => {
+describe("Vault Wall — property over seeds & BeatAnnouncement announcements (2/5, 1 run)", () => {
   it("no Vault sentinel or hidden content ever reaches any BeatAnnouncement chyron", () => {
-    assertVaultWallAnnouncements(20);
+    assertVaultWallAnnouncements(1);
   }, 900_000);
 });

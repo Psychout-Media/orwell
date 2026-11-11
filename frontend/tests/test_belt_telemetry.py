@@ -382,6 +382,7 @@ def test_every_agent_loop_belt_notes_its_fire_as_a_real_call():
         '"forced-tool-choice:"',          # the ONE gated note site (live beat-force + casting force)
         '"auto-record-scene"',
         '"auto-record-deal"',
+        '"auto-answer-deal-offer"',
         '"auto-confide"',
         '"auto-expose-secret"',
         '"auto-trade-secret"',
@@ -416,6 +417,7 @@ def test_success_gated_belts_fire_only_after_the_helper_applied():
         ("_auto_move_player", '"auto-move-player"'),
         ("_auto_move_npc", '"auto-move-npc"'),
         ("_auto_record_deal", '"auto-record-deal"'),
+        ("_auto_answer_deal_offer", '"auto-answer-deal-offer"'),
         ("_auto_confide", '"auto-confide"'),
         ("_auto_expose_secret", '"auto-expose-secret"'),
         ("_auto_trade_secret", '"auto-trade-secret"'),

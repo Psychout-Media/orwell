@@ -10,6 +10,9 @@ export const clamp01Raw = (v: number): number => Math.max(0, Math.min(1, v));
 /** `clamp(x, lo, hi)` with NO NaN guard (a NaN stays NaN), the bare `Math.max(lo, Math.min(hi, x))` form the engine's local copies used. */
 export const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
 
+/** `clampGuarded(x, lo, hi)`: like `clamp` but a NaN becomes `lo` (the guarded form assurances / disclosure / lobbying each carried). */
+export const clampGuarded = (x: number, lo: number, hi: number): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
+
 /** FNV-1a over a string -> unsigned 32-bit (a stable, seed-free string hash). Equivalent to both former copies (jurorProfile, portraitPrompts): `Math.imul` is int32-wrapped, so reducing with `>>> 0` per step or only at the end gives the same bits. */
 export function fnv1a(s: string): number {
   let h = 0x811c9dc5;

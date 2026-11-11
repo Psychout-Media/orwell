@@ -2213,8 +2213,20 @@ def _strip_pregame_context(messages: List[Dict]) -> int:
                         fn = tc.get("function") if isinstance(tc, dict) else None
                         if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
                             fn["arguments"] = _scrub_producer_fields(fn["arguments"])
-        except Exception:
-            pass
+        except Exception as _scrub_err:
+            # ORW-178: this purge keeps the player's private casting answers out of the premiere context (mandate #2). It used to swallow an error and KEEP the message as it was - i.e. unscrubbed. Fail CLOSED
+            # instead: log it and blank the retained text/arguments (the message keeps its role and tool-call shape, so providers still accept the request).
+            logger.warning("[orwell] casting-context scrub failed on one message (%s); blanking its content to stay closed", _scrub_err)
+            try:
+                if isinstance(m, dict):
+                    if isinstance(m.get("content"), str):
+                        m["content"] = ""
+                    for _tc in (m.get("tool_calls") if isinstance(m.get("tool_calls"), list) else []):
+                        _fn = _tc.get("function") if isinstance(_tc, dict) else None
+                        if isinstance(_fn, dict) and isinstance(_fn.get("arguments"), str):
+                            _fn["arguments"] = "{}"
+            except Exception:  # failsoft-ok: the last-resort blanking itself failed on a malformed entry; the warning above already recorded it and the entry is left as it was
+                pass
         kept.append(m)
     if dropped:
         # Restore a valid conversation shape when the purge removed EVERY user turn (the
@@ -3580,6 +3592,9 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 logger.info(f"[orwell] auto-record: dropped off-scene withIds {_off_scene} "
                            f"(#1730 — not in engine whereabouts) user={owner}")
             if not ids:
+                if session_id is not None:  # ORW-26: tell the E22 guard this turn's extraction already found nobody present (no second identical LLM call)
+                    from src import fold_ledger as _fl_decl
+                    _fl_decl.note_belt_declined(owner, session_id)
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
@@ -4405,6 +4420,67 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         return True
     except Exception as _e:
         logger.warning(f"[orwell] auto-record deal failed: {_e}")
+        return False
+
+
+# ── 0123 / ORW-86 — the in-chat DEAL-OFFER ANSWER under-call belt (the _auto_record_deal sibling) ──
+#
+# A houseguest's standing offer (`openDealOffer`) is open state voiced in chat, never a card. The player answers in
+# chat and the narrator must call `submitDecision({kind:"deal-offer", vote})`. When the model narrates the answer
+# but skips that call, an accepted offer is narrated-but-unrecorded: it silently lapses at week's end and cools the
+# houseguest. So when an offer STANDS after the turn (the engine's own state, read fresh - a model-driven answer
+# has already consumed it, which makes this a no-op) and the player's line reads as an answer, one constrained
+# extraction decides accept | decline | none and the FE submits it. The ENGINE adjudicates; `none` (not an answer /
+# ambiguous) records nothing. Model-driven submitDecision always wins.
+_OFFER_ANSWER_RE = re.compile(
+    r"\b(?:yes|yeah|yep|sure|okay|ok|deal|accept(?:ed)?|agreed?|i'?m in|count me in|you got it|let'?s do it|shake on it|"
+    r"no|nope|nah|decline|pass|no thanks|not interested|i can'?t|i won'?t|sorry)\b", re.I)
+
+
+async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, model, headers) -> bool:
+    """Record the player's in-chat answer to a standing NPC deal offer the model never submitted. True only when the
+    engine APPLIED a submitDecision (success-gated telemetry contract); any hiccup, no standing offer, or an
+    ambiguous answer is a silent no-op."""
+    try:
+        from src.llm_core import llm_call_async
+        from src import orwell_engine as _oe
+        state = await _oe.get_game_state(user=owner)
+        offer = (state or {}).get("openDealOffer") if isinstance(state, dict) else None
+        if not isinstance(offer, dict):
+            return False
+        who = (offer.get("from") or {}).get("name") or "a houseguest"
+        msgs = [
+            {"role": "system", "content":
+                _EXTRACTION_UNTRUSTED_FENCE +
+                "A houseguest has put a deal offer to the player. Decide whether the player's message CLEARLY answers it. "
+                "Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence:\n"
+                '{"answer":"<accept|decline|none>"}\n'
+                "accept = the player agreed to this offer; decline = the player turned it down; none = the message does "
+                "not answer the offer, or it is ambiguous / a counter-proposal / a question."},
+            {"role": "user", "content":
+                f"THE OFFER (from {who}): {str(offer.get('terms') or '')[:300]}\n\n"
+                f"THE PLAYER'S MESSAGE:\n{(last_user or '')[:800]}\n\nJSON:"},
+        ]
+        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                                   temperature=0.1, max_tokens=600, timeout=45,
+                                   call_class="utility-extraction", user=owner) or ""
+        ans = None
+        for cand in reversed(re.findall(r"\{[^{}]*\"answer\"[^{}]*\}", raw, re.DOTALL)):
+            try:
+                ans = (json.loads(cand).get("answer") or "").strip().lower()
+                break
+            except Exception:
+                continue
+        if ans not in ("accept", "decline"):
+            return False
+        res = await _backfill_with_cas(owner, _oe.submit_decision, {"kind": "deal-offer", "vote": ans},
+                                       user=owner, defer_fold=True)
+        if not isinstance(res, dict) or res.get("error") or res.get("refused") is True:
+            return False
+        logger.info(f"[orwell] auto-answered deal offer ({ans}) user={owner}")
+        return True
+    except Exception as _e:
+        logger.warning(f"[orwell] auto-answer deal offer failed: {_e}")
         return False
 
 
@@ -6320,6 +6396,11 @@ def _forget_season_pacing(user) -> None:
         except Exception:
             logger.warning("[orwell] season-pacing reset skipped a %s store for user=%s",
                            type(store).__name__, user, exc_info=True)
+    try:  # ORW-202: the persisted copy follows the in-memory reset, so a restart cannot resurrect last season's state
+        from src import belt_state_persist
+        belt_state_persist.save_now()
+    except Exception:  # failsoft-ok: best-effort; the in-memory stores are already cleared
+        logger.debug("ORW-202: belt-state save after reset failed", exc_info=True)
 
 
 try:  # register at import; fail-soft so a missing engine module never breaks the agent loop
@@ -6422,7 +6503,7 @@ _EMPTY_PRODUCER_LINE = (
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
 # names no machinery, and reads as production handling a beat off-camera (the momentPrompts contract).
 _SCENE_CUTAWAY_LINE = (
-    "The live feeds cut away — a slow pan over the empty backyard, the low hum of the walls — the way "
+    "The live feeds cut away — a slow pan over the quiet walls of the house, the low hum of the feeds — the way "
     "they do when the control room isn't ready to show you the next moment. Give it a beat and pick the "
     "scene back up."
 )
@@ -6727,6 +6808,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     finally:
         if _ptt is not None:
             _ptt.set("")
+        try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
+            from src import belt_state_persist
+            belt_state_persist.save_soon()
+        except Exception as _e:  # failsoft-ok: durability is best-effort and must never fail a turn
+            logger.debug("ORW-202: belt-state save_soon failed: %s", _e)
         _reset_turn_observability_context(_obs_token)
         if _user_token is not None:
             try:
@@ -7152,10 +7238,10 @@ async def _stream_agent_loop_impl(
             )
             # ADR 0010 slice D (opt-in non-degradation tier): before trimming older turns AWAY, grow
             # the budget toward the model window so a long game keeps its history instead of losing it
-            # to lossy compaction. Default off ⇒ effective_budget unchanged ⇒ byte-identical.
+            # to lossy compaction. ON by default (ORW-266); the setting False restores the lean budget.
             if get_setting("context_tiering_enabled", False):
                 effective_budget = escalate_budget(
-                    effective_budget, before_trim_tokens, context_length, enabled=True,
+                    effective_budget, before_trim_tokens, context_length, enabled=True, hard_max=hard_max,
                 )
             trimmed_messages = trim_for_context(
                 messages,
@@ -7355,6 +7441,7 @@ async def _stream_agent_loop_impl(
     _progressed = False
     _phase = None
     _turn_deal_nudges = 0  # 0039 deal back-fill: at most one auto-makeDeal per finishing turn
+    _turn_offer_nudges = 0  # 0123 deal-offer answer belt: at most one auto-answer per finishing turn
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
@@ -8633,6 +8720,7 @@ async def _stream_agent_loop_impl(
                 # The constrained extraction (npcId:null when no ally is pressed) AND the engine's motive
                 # gate (`{disclosed:false}` when unearned) are the real gatekeepers, not these gates.
                 _last_user_for_confide = _extract_last_user_message(messages) or ""
+                _want_offer_answer = (_turn_offer_nudges < 1 and bool(_OFFER_ANSWER_RE.search(_last_user_for_confide)))
                 _want_confide = (_turn_confide_nudges < 1
                                  and bool(_CONFIDE_PRESS_RE.search(_last_user_for_confide)))
                 # 0093/0099: the player OUTED or TRADED a secret they already know but the model never
@@ -8893,7 +8981,7 @@ async def _stream_agent_loop_impl(
                         scene record (0055). Called from the finishing block AND — A-10 — just before a
                         belt-forced silent advance ends the turn. Model-driven calls always win via the
                         `_want_*` gates and per-turn caps; telemetry is success-gated."""
-                        nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges
+                        nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
@@ -8910,6 +8998,13 @@ async def _stream_agent_loop_impl(
                                 # gap #3 telemetry — only a genuinely BANKED deal counts (struck=false
                                 # loose talk / a failed extraction is a no-op, not a correction)
                                 _note_belt(owner, "auto-record-deal")
+                        # 0123: a standing houseguest deal offer the player answered in chat but the model never
+                        # submitted - record the answer (the engine adjudicates). Only an APPLIED submit counts.
+                        if _want_offer_answer:
+                            _turn_offer_nudges += 1  # once per turn
+                            if await _auto_answer_deal_offer(_last_user_for_confide, _turn_narration,
+                                                             owner, _belt_endpoint, _belt_model, _belt_headers):
+                                _note_belt(owner, "auto-answer-deal-offer")
                         # 0075: the player pressed an ally to open up but the model never called confide, so
                         # the trust-gated disclosure never fired. Back-fill it — the ENGINE adjudicates
                         # (whether they disclose, how much, truth-vs-lie); an unearned motive returns
@@ -10391,6 +10486,8 @@ async def _stream_agent_loop_impl(
                 _turn_record_nudges = 1  # model recorded organically — don't also auto-record
             if _is_live_game and block.tool_type == "makeDeal":
                 _turn_deal_nudges = 1  # model struck the deal itself — don't also back-fill one
+            if _is_live_game and block.tool_type == "submitDecision":
+                _turn_offer_nudges = 1  # model submitted a decision itself - don't also auto-answer a deal offer (0123)
             if _is_live_game and block.tool_type == "confide":
                 _turn_confide_nudges = 1  # model called confide itself — don't also back-fill one (0075)
             if _is_live_game and block.tool_type == "exposeSecret":
@@ -10690,6 +10787,13 @@ async def _stream_agent_loop_impl(
             await record_post_turn_roster_check(owner, _turn_narration_full)
         except Exception as _roster_err:
             logger.warning(f"[orwell] post-turn roster check failed: {_roster_err}")
+
+        # ORW-216 - a houseguest staged in a room the engine does not have them in: next-turn re-ground, corrected in character. Closed-set, post-turn, never edits prose.
+        try:
+            from routes.chat_helpers import record_post_turn_wrong_room_check
+            await record_post_turn_wrong_room_check(owner, _turn_narration_full)
+        except Exception as _wr_err:
+            logger.warning(f"[orwell] post-turn wrong-room check failed: {_wr_err}")
 
         # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
         try:

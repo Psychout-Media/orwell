@@ -350,7 +350,8 @@
     } catch(e){}
   })();
   </script>
-  <script defer src="/static/lib/highlight.min.js"></script>
+  <!-- ORW-160: highlight.js loads on demand (first code block), not at boot -->
+  <script defer src="/static/js/hljsLazy.js"></script>
   <!-- Inter font — self-hosted, no Google dependencies -->
   <style>
     @font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-Regular.woff2') format('woff2'); }
@@ -2785,6 +2786,7 @@
 <script src="/static/js/orwellNotice.js"></script>  <!-- #642: THE notice kit — one card class + .on-* family every ABOVE-COMPOSER affordance composes (guide/decision/system-notice/continue); sibling to OrwellWindow/OrwellGadget -->
 <script src="/static/js/orwellSheet.js"></script>  <!-- #753: THE iOS bottom-sheet kit — one sheet class + .ow-sheet family with detents (medium/large), opaque-up, grabber + swipe-dismiss; drives the decision action-sheets (anchored, non-blocking — keep reading the room). NOTE: the cast-photo/casting surface deliberately stays a modal OrwellWindow (hard aria-modal/scrim/focus-trap a11y contract, P1/J1-23/J1-25), NOT a peek-through sheet. Loads AFTER orwellNotice so the anchored host can reuse the notice zone; sibling to OrwellWindow/OrwellGadget/OrwellNotice -->
 <script type="module" src="/static/js/orwellMenu.js"></script>  <!-- #1638 / KM-W10: THE menu/popover kit — OrwellPopoverKit (one anchored-surface flip/shift engine, escMenuStack dismiss, focus-trap/return) + OrwellMenuKit (declarative item model, role=menu/menuitem roving-tabindex nav, danger/disabled/checkbox/submenu/description, aria-haspopup/aria-expanded on the trigger). Anchored on EVERY viewport (owner ruling 2026-07-15: no sheet reflow). Sibling to OrwellWindow/OrwellSheet; loads AFTER escMenuStack + platform (its module imports). -->
+<script src="/static/js/orwellGameStore.js"></script>  <!-- ORW-165: the ONE client game-state store (state/status/roster): single-flight + 400ms freshness, LISTENS to orwell:gamechanged -->
 <script type="module" src="/static/js/orwellStatusPanel.js"></script>  <!-- BB status HUD: week/phase/HOH/noms/veto (Vault-free) -->
 <!-- NPC "wants a word" approaches are NOT a player-facing panel (owner ruling 2026-06-18): an NPC
      wanting to connect is in-fiction intent that must reach the player through CHAT (the GM voices

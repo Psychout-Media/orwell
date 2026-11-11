@@ -55,7 +55,7 @@ def test_chat_dispatches_announcements_from_the_same_branch_as_pending():
         "orwell:announcements must dispatch inside the SAME advanceGame/submitDecision branch as orwell:pending"
     block = js[idx_branch:idx_branch + 2000]
     assert "_adv.announcements" in block
-    assert "JSON.parse(json.output" in block
+    assert "orwellAdvanceView(json.tool, json.output)" in block  # ORW-264: the shared pure parse
 
 
 def test_announcements_dispatch_is_guarded_and_never_throws_on_malformed_output():
