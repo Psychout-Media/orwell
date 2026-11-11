@@ -549,22 +549,18 @@ jobs:
   # needs and `continue-on-error`: it never blocks a merge. Gating comes later, in the ratchet.
   fe-perf-report:
     needs: changes
-    if: needs.changes.outputs.fe_render == 'true'
-    runs-on: ubuntu-latest
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm ci
       - run: npm run build
       - uses: ./.github/actions/setup-playwright
