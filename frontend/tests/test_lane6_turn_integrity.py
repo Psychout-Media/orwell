@@ -43,7 +43,7 @@ def _live_game(monkeypatch, *, moment="social", prompt="GM-PROMPT"):
     async def fake_state(user=None, timeout=None):
         return {"started": True, "moment": moment}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         captured["moments"].append(m)
         return {"systemPrompt": prompt}
 
@@ -91,7 +91,7 @@ def test_the_casting_session_premiere_is_not_a_re_entry(monkeypatch):
     async def pre_state(user=None, timeout=None):
         return {"started": False, "moment": "character-creation"}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         captured["moments"].append(m)
         return {"systemPrompt": "PROMPT"}
 
@@ -192,7 +192,7 @@ def test_casting_turn_drops_the_preset_persona_too(monkeypatch):
     async def pre_state(user=None, timeout=None):
         return {"started": False}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         return {"systemPrompt": "INTERVIEW"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", pre_state)

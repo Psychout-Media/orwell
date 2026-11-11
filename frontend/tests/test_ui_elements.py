@@ -426,7 +426,7 @@ class TestRemainingOrwellRoutes:
         # E15: a non-admin caller never receives the GM system prompt. The bare TestClient
         # has no admin session, so require_admin must refuse (auth enabled, no auth manager
         # configured ⇒ fail closed).
-        async def fake_moment(moment=None, user=None):
+        async def fake_moment(moment=None, user=None, **_kw):
             return {"prompt": "You are the game master. Week 2 has begun."}
 
         client = _build_client(monkeypatch, {"get_moment_prompt": fake_moment})
@@ -441,7 +441,7 @@ class TestRemainingOrwellRoutes:
         # AUTH_ENABLED=false is require_admin's documented bypass — exercises the handler.
         monkeypatch.setenv("AUTH_ENABLED", "false")
 
-        async def fake_moment(moment=None, user=None):
+        async def fake_moment(moment=None, user=None, **_kw):
             return {"prompt": "You are the game master. Week 2 has begun."}
 
         client = _build_client(monkeypatch, {"get_moment_prompt": fake_moment})
@@ -452,7 +452,7 @@ class TestRemainingOrwellRoutes:
         monkeypatch.setenv("AUTH_ENABLED", "false")
         captured = {}
 
-        async def fake_moment(moment=None, user=None):
+        async def fake_moment(moment=None, user=None, **_kw):
             captured["moment"] = moment
             return {"prompt": "prompt text"}
 

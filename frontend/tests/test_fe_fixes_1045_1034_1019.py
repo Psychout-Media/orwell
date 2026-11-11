@@ -261,7 +261,7 @@ def _framing_fakes(monkeypatch, *, pending=None, moment="competition", phase="ho
         return {"started": True, "week": week, "phase": phase, "moment": moment,
                 "pending": pending, "beatSeq": 7}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     async def fake_status(user=None):

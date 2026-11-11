@@ -108,7 +108,7 @@ def test_premiere_moment_includes_identity_note(monkeypatch):
                          "champagneCircle": "gathered"},
         }
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     _wire_common(monkeypatch)
@@ -135,7 +135,7 @@ def test_non_premiere_started_moment_omits_identity_note(monkeypatch):
     async def fake_state(user=None, **kw):
         return {"started": True, "phase": "hoh-competition", "moment": "hoh-competition"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     _wire_common(monkeypatch)
@@ -157,7 +157,7 @@ def test_casting_moment_includes_no_reask_note_not_premiere_note(monkeypatch):
         # no started game ⇒ the casting branch
         return {"started": False, "moment": "casting-interview"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "CASTING-PROMPT"}
 
     # no headshot on file ⇒ isolate the F7 note from the headshot note
