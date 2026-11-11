@@ -1710,6 +1710,11 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
       // `chat` event frames into THIS already-created holder via the persistent consumer
       // (_onWsChatFrame). We pin the holder + spinner as the render target and skip the
       // fetch. Dormant when the flag is off (byte-identical SSE path preserved).
+      // ORW-44 S2 (Ryne: "drop it" - WebSocket only): the game build has NO SSE send path. Make sure the socket is up first (waits out an in-flight reconnect, forces one upgrade attempt for a
+      // pre-game / per-tab-pending fallback); if it cannot be, the turn is refused below with a clear message instead of silently POSTing /api/chat_stream.
+      if (isGameBuild() && streamSessionId && !_wsChatActive()) {
+        try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
+      }
       if (_wsChatActive() && streamSessionId) {
         const _bodyDiv = holder.querySelector('.body');
         let _sc = _bodyDiv && _bodyDiv.querySelector('.stream-content');
@@ -1768,6 +1773,19 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
           try { await softReloadHistory(streamSessionId); } catch (_) {}
           return;
         }
+      }
+
+      if (isGameBuild()) {
+        // ORW-44 S2: the live connection is down and could not be brought up. Refuse the send cleanly: nothing was sent, so give the text back, drop the optimistic bubble and say why.
+        try { _outboxReleaseInflightSend(_clientMsgId); } catch (_) {}
+        if (clearResponseTimeout) clearResponseTimeout();
+        try { if (spinner) spinner.destroy(); } catch (_) {}
+        if (chatState._streamSessionId === streamSessionId) chatState._streamSessionId = null;
+        try { if (holder) holder.remove(); } catch (_) {}
+        try { if (_userMsgEl) _userMsgEl.remove(); } catch (_) {}
+        try { const msgEl = document.getElementById('message'); if (msgEl) msgEl.value = _finalMsgWithInject; } catch (_) {}
+        try { uiModule.showToast('This network blocks the live connection Orwell needs to play. Your message is back in the box - try again on another network.', 7000); } catch (_) {}
+        return;
       }
 
       const res = await fetch(`${API_BASE}/api/chat_stream`, {
