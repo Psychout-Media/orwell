@@ -218,7 +218,7 @@ def test_e94_game_framing_does_not_strip_attachments(monkeypatch):
     async def fake_state(user=None, retry=None, timeout=None):
         return {"started": True, "week": 2, "phase": "nominations", "moment": "scene"}
 
-    async def fake_moment(moment, user=None, timeout=None):
+    async def fake_moment(moment, user=None, timeout=None, **_kw):
         return {"systemPrompt": "GM-FRAMING-SENTINEL: you are the house"}
 
     monkeypatch.setattr(ch, "_fetch_game_state", fake_state, raising=True)

@@ -251,7 +251,7 @@ def test_engine_down_mid_season_fails_closed(monkeypatch):
     async def fake_state(user=None):
         return {"started": True, "moment": "social"}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **_kw):
         return {"systemPrompt": "GM-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
@@ -288,7 +288,7 @@ def test_game_end_clears_the_marker(monkeypatch):
     async def ended(user=None):
         return {"started": False}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **_kw):
         return {"systemPrompt": "GM-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_moment_prompt", fake_mp)
@@ -327,7 +327,7 @@ def test_started_game_with_moment_prompt_failure_stays_in_character_not_feeds_do
     async def started(user=None):
         return {"started": True, "moment": "social"}
 
-    async def mp_down(moment=None, user=None):
+    async def mp_down(moment=None, user=None, **_kw):
         raise RuntimeError("moment prompt boom")
 
     monkeypatch.setattr(orwell_engine, "get_game_state", started)
@@ -354,7 +354,7 @@ def test_game_build_retries_state_once_so_a_brief_engine_blip_recovers(monkeypat
             raise RuntimeError("connection refused (restarting)")
         return {"started": True, "moment": "social"}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **_kw):
         return {"systemPrompt": "GM-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", flaky)

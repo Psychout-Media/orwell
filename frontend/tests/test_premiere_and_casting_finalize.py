@@ -34,7 +34,7 @@ def _pre_game_casting(monkeypatch):
     async def fake_state(user=None):
         return {"started": False, "moment": "character-creation"}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **_kw):
         return {"systemPrompt": "CASTING-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)

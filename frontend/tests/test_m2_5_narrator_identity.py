@@ -98,7 +98,7 @@ def test_the_producer_byline_is_cleared_at_the_reset_boundary_but_survives_casti
     async def not_started(user=None):
         return {"started": False, "moment": "character-creation"}
 
-    async def mp_no_producer(moment=None, user=None):
+    async def mp_no_producer(moment=None, user=None, **_kw):
         return {"systemPrompt": "CASTING"}  # a new season's interview — no producer resolved yet
 
     monkeypatch.setattr(orwell_engine, "get_game_state", not_started)
@@ -115,7 +115,7 @@ def test_the_producer_byline_is_cleared_at_the_reset_boundary_but_survives_casti
 
         # (2) STEADY CASTING HICCUP (Greptile P1): a later casting turn (NOT the active→inactive edge)
         # whose get_moment_prompt THROWS must PRESERVE the already-stashed producer, not wipe it.
-        async def mp_boom(moment=None, user=None):
+        async def mp_boom(moment=None, user=None, **_kw):
             raise RuntimeError("transient engine hiccup")
 
         monkeypatch.setattr(orwell_engine, "get_moment_prompt", mp_boom)
@@ -125,7 +125,7 @@ def test_the_producer_byline_is_cleared_at_the_reset_boundary_but_survives_casti
         assert ch.last_framed_producer_name("p") == "Stable Producer"
 
         # (3) at the boundary, a new season that DOES resolve a producer yields the NEW one.
-        async def mp_new_producer(moment=None, user=None):
+        async def mp_new_producer(moment=None, user=None, **_kw):
             return {"systemPrompt": "CASTING", "producerName": "New Producer"}
 
         monkeypatch.setattr(orwell_engine, "get_moment_prompt", mp_new_producer)

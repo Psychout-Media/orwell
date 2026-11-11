@@ -33,7 +33,7 @@ def _framing_fakes(monkeypatch, *, delta):
         return {"started": True, "moment": "social", "phase": "veto-competition",
                 "week": 3, "house": [{"id": "player", "status": "active"}], "beatSeq": 6}
 
-    async def fake_moment(moment=None, user=None, timeout=None):
+    async def fake_moment(moment=None, user=None, timeout=None, **_kw):
         return {"systemPrompt": "GAME CONTEXT: the full authoritative board for grounding."}
 
     async def fake_status(user=None):

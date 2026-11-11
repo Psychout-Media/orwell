@@ -276,7 +276,7 @@ def test_framing_injects_and_consumes_reground(monkeypatch):
     async def fake_state(user=None, **kw):
         return {"started": True, "phase": "eviction", "moment": "eviction"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     async def fake_status(user=None):

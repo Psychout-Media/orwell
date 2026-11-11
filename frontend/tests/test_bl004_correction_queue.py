@@ -155,7 +155,7 @@ def _patch_framing(monkeypatch):
     async def fake_state(user=None, **kw):
         return {"started": True, "phase": "eviction", "moment": "eviction"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     async def fake_status(user=None):
