@@ -86,3 +86,25 @@ def test_k3_a_due_evening_ceremony_unfired_for_more_than_two_messages_fails():
     assert not [k for k in _score(fired) if k.startswith("K3-")]
     not_due = [_turn(f"t{i}", "x", ds={**due, "due": False}, phase="nominations", week=1) for i in range(1, 8)]
     assert not [k for k in _score(not_due) if k.startswith("K3-")], "waiting for tomorrow is not an unfired due event"
+
+
+def _load(name):
+    import sys
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run"))
+    p = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_orw259_busy_selector_matches_the_apps_real_streaming_mode():
+    """ORW-259: the runners decided "the reply is still streaming" from `.send-btn[data-mode=stop|cancel]`, but the app marks a running turn
+    `data-mode="streaming"` (chatSubmitButton.js) - so busy was never true, a quiet stretch between the last visible delta and `message_saved`
+    (scene cut + post-turn belts, ~4-10s) read as settled, and the runner scored a still-running bubble (wall-clock header, no footer) as unsettled."""
+    js = (pathlib.Path(__file__).resolve().parents[1] / "static" / "js" / "chatSubmitButton.js").read_text()
+    assert "dataset.mode = 'streaming'" in js
+    for name in ("live_short", "live_week"):
+        busy = _load(name).BUSY_JS
+        assert 'data-mode=\\"streaming\\"' in busy or 'data-mode="streaming"' in busy, name
+        assert "stop" not in busy and "cancel" not in busy, name

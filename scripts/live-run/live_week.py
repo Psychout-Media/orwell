@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse, json, re, sys, time
 
-from live_short import clock_hour, BUB, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
+from live_short import clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
 
 CARD = """() => { const d=document.querySelector('#orwell-decision-card'); if(!d) return null;
   return {title:(d.querySelector('.odec-title')||{}).innerText||'', opts:[...d.querySelectorAll('.odec-opt')].map(o=>o.innerText.trim()), hasText:!!d.querySelector('textarea')}; }"""
@@ -59,7 +59,7 @@ class Week(Chat):
         while time.time() - t0 < limit:
             self.page.wait_for_timeout(2000)
             bs = self.page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
-            busy = self.page.evaluate("!!document.querySelector('.send-btn[data-mode=\"stop\"], .send-btn[data-mode=\"cancel\"]')")
+            busy = self.page.evaluate(BUSY_JS)
             stable = stable + 1 if (sig == prev and not busy) else 0
             prev = sig
             if stable >= 3: break
