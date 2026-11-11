@@ -311,9 +311,18 @@ export interface EvictionProgress {
  * comp decisions already are; for now: always compete). Persisted + restart-safe (0030). Vault-free
  * by construction (ids only; no score, lean, or hidden number is ever stored here).
  */
+/** ORW-269 - how hard a competitor was SEEN to fight in a round (what a witness could see; no number, no hidden stat). */
+export type CompEffort = "all-out" | "steady" | "light";
+/** Per competitor: rounds they were in, and rounds they were seen all-out. */
+export type CompEffortTally = Record<EntityId, { rounds: number; hard: number }>;
+
 export interface CompetitionProgress {
   /** Which competition this stages — for the resume after a per-round pause + the right beat transition. */
   comp: "hoh-competition" | "veto-competition";
+  /** ORW-269: the visible-effort tally so far (played games only; absent otherwise). Observability only - never read by the outcome. */
+  effort?: CompEffortTally;
+  /** ORW-269: the player's approach as first committed this comp (consumed from `compIntent` at the first reveal), so later rounds still show how they carried themselves. */
+  playerApproach?: "compete" | "throw" | "play-safe";
   /** The competition type (0006/0042) — the resolution math's governing aptitude. */
   type: CompetitionType;
   /** The FULL original field that began the comp — surfaced on the crown event so the existing
@@ -572,6 +581,8 @@ export interface LiveSeasonState {
   eventClock?: { key: string; spent: number };
   /** ORW-232 slice 3: the hours a staged competition has already charged (its own slot, so it never collides with the eviction/finale `eventClock` budget). */
   compClock?: { key: string; spent: number };
+  /** ORW-269: the finished comp's visible-effort tally, kept for the crown's deal adjudication (played games only; absent in headless sims). */
+  lastCompEffort?: { comp: "hoh-competition" | "veto-competition"; week: number; effort: CompEffortTally };
   /**
    * The SEALED reserve twists (0025/B53): what may fire and at which week. ENGINE-ONLY Vault
    * content carried in the loop state so it persists with the season (0030) — no projection
@@ -838,6 +849,11 @@ export interface SeasonCtx {
    * flags-off stays BYTE-IDENTICAL. 0 for the PLAYER as holder. ENGINE-ONLY — never crosses the wall.
    */
   memoryTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /**
+   * ORW-269 - how hard `id` is SEEN to fight in `round` of the current staged comp. Supplied only for a game a person is playing; drawn on a dedicated side stream by the adapter. Omitted => no tally kept
+   * (headless sims byte-identical). Observability only: the winner and the drop order are already fixed.
+   */
+  compEffortFor?: (id: EntityId, comp: "hoh-competition" | "veto-competition", round: number, playerApproach?: string) => CompEffort;
   /** B29 (ORWELL_TELL_REACTIONS): the holder's small, decaying exploit tilt toward `subject`, whom they saw visibly rattled. Absent => 0, byte-identical. */
   moodTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default ON; `=0` opts out). Absent ⇒ byte-identical. */
@@ -1269,6 +1285,15 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // (the outcome is already fixed), so we no longer pause to re-ask the player each round (PO review
   // 2026-06-28: the per-round ask was non-binding flavor that only added taps it could never change).
   // The reveals now play out as drama without interrupting the player for a choice that cannot matter.
+  if (ctx.compEffortFor) { // ORW-269: tally what a witness could see this round, for everyone still in (no rng here; the hook owns its side stream)
+    if (s.compIntent && !c.playerApproach) c.playerApproach = s.compIntent as "compete" | "throw" | "play-safe";
+    const tally = (c.effort ??= {});
+    for (const id of c.stillIn) {
+      const t = (tally[id] ??= { rounds: 0, hard: 0 });
+      t.rounds += 1;
+      if (ctx.compEffortFor(id, c.comp, c.round, c.playerApproach) === "all-out") t.hard += 1;
+    }
+  }
   s.compIntent = undefined; // round 1's committed approach is consumed on the first reveal, then cleared
   // Reveal a BATCH of the scheduled drops this round — FEWER, BIGGER rounds (audit 2026-06-20 owner
   // ruling: ~4-8 rounds per comp, not one drop per round which made a 15-player HOH a ~14-round slog).
@@ -1371,6 +1396,7 @@ function crownCompetition(s: LiveSeasonState): BeatEvent {
   // The CALIBRATED winner — the up-front single-roll crown (byte-identical to the non-staged model). A
   // trivial one-competitor field never decided an outcome — fall back to the lone id.
   const winner = c.winner ?? c.stillIn[0]!;
+  if (c.effort) s.lastCompEffort = { comp: c.comp, week: s.week, effort: c.effort }; // ORW-269
   s.competition = undefined;
   s.compIntent = undefined;
   s.competitionFiction = undefined; // #1400: the authored fiction is per-comp — clear it as the comp crowns

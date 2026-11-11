@@ -1995,17 +1995,22 @@ def _migrate_chat_messages_fts():
             END;
             """
         )
-        conn.execute(
-            """
-            INSERT INTO chat_messages_fts(content, message_id, session_id, role)
-            SELECT COALESCE(cm.content, ''), cm.id, cm.session_id, cm.role
-            FROM chat_messages cm
-            WHERE NOT EXISTS (
-                SELECT 1 FROM chat_messages_fts fts
-                WHERE fts.message_id = cm.id
+        # ORW-170: the backfill below probes the FTS table once PER MESSAGE with message_id UNINDEXED (a full index scan each), i.e. O(messages x index rows) on EVERY boot. The triggers keep the two in
+        # step, so in the normal case the row counts already match and there is nothing to backfill: compare the counts (one scan each) and only run the backfill when the index is short.
+        n_msgs = conn.execute("SELECT count(*) FROM chat_messages").fetchone()[0]
+        n_fts = conn.execute("SELECT count(*) FROM chat_messages_fts").fetchone()[0]
+        if n_fts < n_msgs:
+            conn.execute(
+                """
+                INSERT INTO chat_messages_fts(content, message_id, session_id, role)
+                SELECT COALESCE(cm.content, ''), cm.id, cm.session_id, cm.role
+                FROM chat_messages cm
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM chat_messages_fts fts
+                    WHERE fts.message_id = cm.id
+                )
+                """
             )
-            """
-        )
         conn.commit()
     except Exception as e:
         logging.getLogger(__name__).warning(f"chat_messages FTS migration failed: {e}")

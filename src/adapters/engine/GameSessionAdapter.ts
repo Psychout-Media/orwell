@@ -74,7 +74,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
-import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
+import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
@@ -213,6 +213,8 @@ import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
+import { COMP_EFFORT } from "../../engine/relationshipConstants";
+import type { CompEffort } from "../../engine/liveSeason";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
@@ -8229,6 +8231,8 @@ export class GameSessionAdapter implements GameSession {
       } : {}),
       // 0006b: NPCs carry a derived competition intent — present ONLY when enabled (off in the calibration
       // harness ⇒ absent ⇒ every NPC competes ⇒ byte-identical). Live-only strategic throw/play-safe.
+      // ORW-269: visible comp effort - a game a person is playing only (headless ctx has no hook => no tally => byte-identical).
+      ...(this.live?.playedGame === true ? { compEffortFor: (id: EntityId, comp: "hoh-competition" | "veto-competition", round: number, approach?: string) => this.compEffortSeen(id, comp, round, approach) } : {}),
       ...(this.compIntentEnabled ? { compIntentOf: (id: EntityId, field: readonly EntityId[]) => this.deriveCompIntent(id, field) } : {}),
       // 0110: fold the eviction jury grudge on the evictee's DEDUCED belief (process of elimination) —
       // present ONLY when enabled (off in the calibration harness ⇒ absent ⇒ true ballot folded ⇒ byte-identical).
@@ -10733,6 +10737,9 @@ export class GameSessionAdapter implements GameSession {
         },
       }, rng, req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {});
       const hour = live.nightDepth ?? WAKE_HOUR;
+      const stopLine = hangOutStopLine(result);
+      // ORW-22: the stops that had no witnessed record (approach / pulled / bedtime) get one - public and content-free, so the player-visible record shows EVERY stop (observed records itself in its probe; event-due is the ceremony's own record).
+      if (result.stopReason === "npc-approach" || result.stopReason === "pulled" || result.stopReason === "bedtime") this.onPlayerEvent?.(stopLine, [PLAYER], "house-event");
       (live.hangOutLog ??= []).push({
         n, day, hour, beats: result.beats, minutes: result.minutes, stopReason: result.stopReason,
         ...(result.detail ? { detail: result.detail as Record<string, unknown> } : {}),
@@ -10741,7 +10748,7 @@ export class GameSessionAdapter implements GameSession {
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();
       return {
-        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes,
+        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine,
         ...(result.detail ? { detail: result.detail } : {}),
         ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}),
         beatSeq: this.beatSeq,
@@ -11720,12 +11727,38 @@ export class GameSessionAdapter implements GameSession {
     return { tone: threat >= NEMESIS.threatThreshold + NEMESIS.handoffMargin ? "open" : "simmering" };
   }
 
+  /**
+   * ORW-269 - how hard `id` is SEEN to fight in `round` of the current comp: the player by the approach they committed (compete => all-out, play-safe => steady, throw => light); an NPC by a draw on its OWN
+   * side stream (never the shared rng), where an NPC who swore to throw is likelier to be seen fighting hard the weaker their bond to the promisee. Observability only - the outcome is already fixed.
+   */
+  private compEffortSeen(id: EntityId, comp: string, round: number, approach?: string): CompEffort {
+    if (id === PLAYER) return approach === "throw" ? "light" : approach === "play-safe" ? "steady" : "all-out";
+    const promised = this.deals.open().find((d) => d.kind === "comp-throw" && d.condition.promisors.includes(id));
+    const hardChance = promised
+      ? COMP_EFFORT.promisorHardFloor + COMP_EFFORT.promisorHardSpan * (1 - Math.min(1, Math.max(0, this.rel.bondStrength(id, promised.condition.protect))))
+      : COMP_EFFORT.baseHardChance;
+    const u = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:comp-effort:${this.live?.week ?? 0}:${comp}:${round}:${id}`)).next();
+    return u < hardChance ? "all-out" : u < hardChance + COMP_EFFORT.steadyChance ? "steady" : "light";
+  }
+
+  /** ORW-269 - was `id` seen fighting hard on most of the rounds they were in, in the comp that just crowned? */
+  private seenFightingHard(comp: "hoh-competition" | "veto-competition", id: EntityId): boolean {
+    const l = this.live?.lastCompEffort;
+    const t = l && l.comp === comp && l.week === this.live?.week ? l.effort[id] : undefined;
+    return !!t && t.rounds > 0 && t.hard / t.rounds >= COMP_EFFORT.hardShare;
+  }
+
   /** Reconcile a binding action against open player-party deals: kept/broken + the fallout (0039). */
   private reconcileDeals(action: BindingAction): void {
     if (!this.live) return;
     const { broken } = this.deals.reconcile(action, {
       rel: this.rel,
       rng: this.beatRng(),
+      // ORW-269: a kept comp-throw whose promisor was seen fighting hard - a small suspicion fold, on its own side stream (the shared beat rng is untouched).
+      suspicion: (promisor, promisee) => {
+        const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:comp-suspicion:${this.live?.week ?? 0}:${promisor}:${promisee}`));
+        this.rel.applyImpactDirected(promisee, promisor, COMP_EFFORT.suspicion, rng);
+      },
       // 0109 / #1993: the week the break lands in — lets an explicit negotiated term scale the betrayal-shock by
       // the life it had left. A deal with no `expiresWeek` scales by 1 either way ⇒ byte-identical to 0039.
       currentWeek: this.live.week,
@@ -11817,6 +11850,7 @@ export class GameSessionAdapter implements GameSession {
         return field.map((id) => ({
           actor: id, kind: "compete" as const, targets: [],
           outcome: (id === s.hoh ? "won" : "threw") as "won" | "threw",
+          ...(s.playedGame === true && this.seenFightingHard("hoh-competition", id) ? { effortHard: true } : {}),
         }));
       }
       case "veto-competition": {
@@ -11824,6 +11858,7 @@ export class GameSessionAdapter implements GameSession {
         return s.vetoField.map((id) => ({
           actor: id, kind: "compete" as const, targets: [],
           outcome: (id === s.vetoHolder ? "won" : "threw") as "won" | "threw",
+          ...(s.playedGame === true && this.seenFightingHard("veto-competition", id) ? { effortHard: true } : {}),
         }));
       }
       case "nominations":

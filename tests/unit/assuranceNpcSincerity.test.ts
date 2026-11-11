@@ -43,6 +43,13 @@ describe("recordAssurance sincerity", () => {
     g.recordAssurance({ from: speaker, to: PLAYER, kind: "safe", sincerity: 0.5, source: "npc" });
     expect([1, ASSURANCE.liarSincerity]).toContain(items(sb)[0]!.sincerity);
   });
+  it("the engine's roll uses the speaker's real loyalty: repeated assurances (distinct salted rolls) are not all sincere", () => {
+    const { sb, g, speaker } = started();
+    for (let i = 0; i < 40; i++) g.recordAssurance({ from: speaker, to: PLAYER, kind: "safe", sincerity: 1, source: "npc" });
+    const s = items(sb).map((x) => x.sincerity);
+    expect(s).toContain(ASSURANCE.liarSincerity);
+    expect(s).toContain(1);
+  });
   it("is deterministic: the same game and inputs give the same sincerity", () => {
     const a = started(); const b = started();
     a.g.recordAssurance({ from: a.speaker, to: PLAYER, kind: "vote", sincerity: 1, source: "npc" });

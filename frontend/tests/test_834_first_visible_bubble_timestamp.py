@@ -74,8 +74,13 @@ def test_live_path_keeps_the_turn_header_on_the_one_coalesced_bubble():
     # construction — the header can never be lost because the bubble is never replaced.
     js = _read("static/js/chat.js")
     # The one turn bubble carries the role + timestamp header at creation.
-    assert '<span class="role-timestamp">${roleTs}</span>' in js, (
+    # ORW-259: the creation-time stamp comes from `_stampSpanHtml(roleTs)`, which always emits a `.role-timestamp` span (the in-world moment when
+    # a game bubble is on screen, the neutral wall clock otherwise).
+    assert '${_stampSpanHtml(roleTs)}</div><div class="body"></div>`;\n      holder._requestedModel' in js, (
         "#834/#829: the ONE turn bubble must carry a .role-timestamp header at creation."
+    )
+    assert "return '<span class=\"role-timestamp\">' + wallClock + '</span>';" in js and 'class="role-timestamp role-timestamp-moment"' in js, (
+        "ORW-259: the stamp helper must always emit a .role-timestamp span."
     )
     # Rounds coalesce into that bubble (no per-round bubble, no promotion machinery).
     assert "_turnCoalesced" in js and "_commitRoundSegment" in js, (
