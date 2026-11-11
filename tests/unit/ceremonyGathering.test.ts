@@ -110,3 +110,42 @@ describe("a ceremony an NPC runs (no player pending) still gathers the house (OR
     expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();
   });
 });
+
+describe("a competition gathers the whole house in the backyard (ORW-281 slice 6)", () => {
+  it("seats every houseguest and the player in the backyard while a comp is in session, the living room for a ceremony", () => {
+    for (const compKind of ["comp-intent", "comp-round"]) {
+      const { sb, s, npcs } = setup();
+      sb.session.noteMessage({ messageId: "player-is-here-comp" }); // a person is playing (playedGame)
+      s.live.pending = { kind: compKind, comp: "hoh-competition" } as never;
+      const w = sb.session.whereabouts()!;
+      expect(w.room).toBe("backyard");
+      expect(w.houseEvent?.kind).toBe("hoh-competition");
+      for (const id of npcs) expect(s.presence.get(id)).toBe("backyard");
+      expect(s.presence.get(PLAYER)).toBe("backyard");
+      const wit = sb.session.witnessOccupancy()!;
+      for (const id of npcs) expect(wit.get(id)).toBe("backyard");
+      for (let i = 0; i < 4; i++) sb.session.presenceTick();
+      for (const id of npcs) expect(s.presence.get(id)).toBe("backyard"); // held through ticks
+      s.live.pending = { kind: "nominations" } as never; // the ceremony follows in the living room
+      expect(sb.session.whereabouts()!.room).toBe("living-room");
+      for (const id of npcs) expect(s.presence.get(id)).toBe("living-room");
+    }
+  });
+  it("disperses gradually after the comp", () => {
+    const { sb, s, npcs } = setup();
+    sb.session.noteMessage({ messageId: "player-is-here-comp2" });
+    s.live.pending = { kind: "comp-round", comp: "veto-competition" } as never;
+    sb.session.whereabouts();
+    s.live.pending = null;
+    for (let i = 0; i < 40; i++) sb.session.presenceTick();
+    expect(npcs.filter((id) => s.presence.get(id) === "backyard").length).toBeLessThan(npcs.length);
+  });
+  it("an unplayed (headless) game does not gather for a comp", () => {
+    const { sb, s, npcs } = setup();
+    (s.live as unknown as { playedGame?: boolean }).playedGame = false;
+    const before = new Map(s.presence);
+    s.live.pending = { kind: "comp-round", comp: "hoh-competition" } as never;
+    sb.session.whereabouts();
+    for (const id of npcs) expect(s.presence.get(id)).toBe(before.get(id));
+  });
+});

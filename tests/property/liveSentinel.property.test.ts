@@ -122,6 +122,7 @@ const args = (name: string, seed: number): Record<string, unknown> => {
     // lie) must NEVER carry a planted sealed sentinel; the engine only ever discloses the secret it
     // chose + recorded, blurred/glossed to the tier, and a lie is engine-authored, not a real secret.
     case "confide": return { npcId: npc(1) };
+    case "callInFavor": return { npcId: npc(1) };
     // 0129 slice 3: a juror id (the engine returns null while no jury exists; the per-beat sweep below asks every REAL juror).
     case "askJuror": return { jurorId: npc(1) };
     // 0095: accuse a pair of a prior connection. The sweep plants no seeded tie between npc(1)/npc(2),
@@ -162,6 +163,7 @@ const args = (name: string, seed: number): Record<string, unknown> => {
     // 0062: the FE zeitgeist write-back — PUBLIC real-world flavor only (no Vault, no game input).
     // The sweep proves the canary never bites its output (an empty subset is a valid capture).
     case "recordWorldSnapshot": return { slices: {} };
+    case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes
     // voiced prose — content-only. Point it at the real sentinel-bearing hidden event so the sweep
     // exercises the live write path; its result is a bare {ok} status that never echoes hidden content.
