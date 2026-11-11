@@ -6,7 +6,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordDaySummaryReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -359,6 +359,14 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (!isStr((p as Record<string, unknown>)["houseguestId"])) refuse("profile.houseguestId", "a houseguest id (string)");
       }
       return;
+    case "recordDaySummary": {
+      if (!Number.isFinite(args["day"] as number) || typeof args["day"] !== "number") refuse("day", "a number");
+      if (!isStr(args["text"])) refuse("text", "a string");
+      if (args["tier"] !== undefined && args["tier"] !== "day" && args["tier"] !== "week") refuse("tier", "'day' or 'week' when present");
+      const cd = args["coversDays"];
+      if (cd !== undefined && !(Array.isArray(cd) && cd.length === 2 && cd.every((n) => typeof n === "number" && Number.isFinite(n)))) refuse("coversDays", "a [from,to] number pair when present");
+      return;
+    }
     case "recordWorldSnapshot":
       // 0062: the FE zeitgeist write-back. `slices` is OPTIONAL — refuse only if present and not an
       // object (a string/array where an object is expected is the R6 class that dies deep in the merge);
@@ -643,6 +651,10 @@ export class McpServer {
         );
       case "seasonRecap":
         return this.deps.session.seasonRecap();
+      case "recordDaySummary":
+        return this.deps.session.recordDaySummary(args as unknown as RecordDaySummaryReq);
+      case "dayLedger":
+        return this.deps.session.dayLedger();
       case "dailyRecap":
         return this.deps.session.dailyRecap();
       case "seasonRetrospective":
