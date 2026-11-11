@@ -629,6 +629,9 @@ def _hang_out_steer(res: dict) -> str:
     obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
+    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
+    if shown:
+        line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
     return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. "
             "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % (mins, line))
 
@@ -1615,6 +1618,19 @@ _LAST_MILESTONE_DUE: dict = {}
 # agent loop CONSUMES this flag (`consume_pre_resolved_advance`) to treat the turn as already-progressed
 # (reset the staleness clock) AND suppress its backstop — exactly mirroring the `_peer_advanced` guard.
 _PRE_RESOLVED_ADVANCE: dict = {}
+
+
+# ORW-273: the pre-resolve walked competition ROUNDS for this user this turn (set where the walk is logged, consumed when the turn's baseline signature is captured - which happens AFTER the walk, so
+# before == live and the A-9 screen would otherwise read the narrator voicing the engine's own rounds as a result the engine never produced).
+_COMP_WALKED_THIS_TURN: dict = {}
+
+
+def mark_comp_walked(user) -> None:
+    _COMP_WALKED_THIS_TURN[_desync_key(user)] = True
+
+
+def consume_comp_walked(user) -> bool:
+    return bool(_COMP_WALKED_THIS_TURN.pop(_desync_key(user), False))
 
 
 def mark_pre_resolved_advance(user) -> None:
@@ -4483,7 +4499,8 @@ _CLAIM_COMP_RESULT_RE = re.compile(
 # STRONG forms use competition-elimination verbs ("goes out", "drops off", "slips down") and stand on their own;
 # idioms are excluded ("goes out for a walk", "out of your…", "out in the yard"). The WEAK copula forms
 # ("X is out", "you are out") are ambiguous prose and only count with competition context (`_COMP_CONTEXT_RE`).
-_ELIM_NAME = r"(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
+# ORW-273: a sentence-initial pronoun / determiner is not a houseguest ("He goes down hard on the plank" was cut as a named elimination).
+_ELIM_NAME = r"(?:(?!(?:He|She|They|It|We|I|His|Her|Their|This|That|There|Then|Everyone|Someone|Somebody|Nobody)\b)[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
 _ELIM_NOT_IDIOM = (r"(?!\s+(?:of\s+(?:your|my|his|her|their|our)\b|in\s+the\b|at\s+the\b|by\s+the\b|"
                    r"for\b|to\b|with\b|into\b|onto\b|there\b|again\b|later\b))")
 _CLAIM_COMP_ELIM_STRONG_RE = re.compile(
@@ -4589,6 +4606,9 @@ def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
     return None
 
 
+_COMP_ROUND_CUE_RE = re.compile(r"the (?:yard|house|crowd) erupts", re.IGNORECASE)
+
+
 def _unsettled_competition_result(text: str, live: dict, before: dict) -> Optional[str]:
     """A-9 — STRUCTURAL screen: the engine's competition is UNSETTLED (a competition phase, still waiting on
     the player's `comp-intent`/`comp-round` approach) and the COMPETITION did not progress this turn, so any
@@ -4609,6 +4629,7 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
     # approach pending, yet the competition is just as unsettled; a result narrated with NO progress is invented.
     if live.get("pending") not in (None, "comp-intent", "comp-round"):
         return None
+    walked = bool(before.get("compWalked"))
     for k in ("phase", "pending", "hoh", "vetoHolder", "compSig"):
         if before.get(k) != live.get(k):
             return None  # the competition moved (resolved, or a staged round advanced) — the engine produced events
@@ -4619,8 +4640,12 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
                 continue
-            if (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
-                    or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent))):
+            if walked:  # ORW-273: round-level cues (a crowd reaction, who dropped) are the rounds the engine walked; only a WINNER / crown / title claim is ahead of the engine
+                _hit = any(not _COMP_ROUND_CUE_RE.fullmatch(m.group(0)) for m in _CLAIM_COMP_RESULT_RE.finditer(clause))
+            else:
+                _hit = (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
+                        or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent)))
+            if _hit:
                 return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
                         "still waiting on the player's approach)")
     return None
@@ -7044,6 +7069,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 _COMP_STEER_BASE[_runway_key(user)] = (_SCHEDULE_STEER.get(_runway_key(user)) or "").split("THE COMPETITION")[0].rstrip()  # keep any production cue, never a stale competition record from an unconsumed earlier pass
                 _COMP_CONT[_runway_key(user)] = _runway_key(user) in _COMP_PAUSED  # (kept until the pass ends: the hops below still need it for `ready`)
             _comp_log.append((_beat_kind, str(_beat)))
+            mark_comp_walked(user)  # ORW-273
             _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
             _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False))
         if phase == "nominations" and _beat:
@@ -7503,6 +7529,8 @@ async def apply_game_framing(
                 # SUCCESS-GATED belt (one per segment) makes voiced-vs-queued measurable.
                 _note_belt(user, "desync-reground-voiced", _reground.count(_REGROUND_SEP) + 1)
             _LAST_BEAT_SIG[_dkey] = await _capture_beat_signature(user)
+            if consume_comp_walked(user) and isinstance(_LAST_BEAT_SIG.get(_dkey), dict):
+                _LAST_BEAT_SIG[_dkey]["compWalked"] = True  # ORW-273: rounds the engine walked this turn are voiced FROM the prompt; A-9 stands down on round-level cues
         except Exception as e:
             logger.warning("[orwell] beat-signature checkpoint skipped for user=%s: %s", _gkey, e)
         # 0065 Part E2: ADDITIVE — alongside the full authoritative GAME CONTEXT block (built into the

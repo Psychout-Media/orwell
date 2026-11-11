@@ -204,6 +204,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["terms"])) refuse("terms", "a non-empty string");
       // B55 - the optional direction of an ACTIVE-obligation deal (who promises): exactly "offer" or "ask" when present.
       if (args["direction"] !== undefined && args["direction"] !== "offer" && args["direction"] !== "ask") refuse("direction", '"offer" or "ask" when present');
+      // 0142 - the optional third houseguest of a protect-third deal: a houseguest id (string) when present (the engine refuses a protect-third without a valid one).
+      if (args["third"] !== undefined && !isStr(args["third"])) refuse("third", "a houseguest id (string) when present");
       // 0109 / #1993 — the optional negotiated term must be an object when present; the ENGINE bounds its
       // contents (a junk `weeks` is ignored there), so only the container shape is refused at the boundary.
       if (args["term"] !== undefined && (typeof args["term"] !== "object" || args["term"] === null || Array.isArray(args["term"]))) {
@@ -231,6 +233,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       if (!isStr(args["aId"])) refuse("aId", "a houseguest id (string)");
       if (!isStr(args["bId"])) refuse("bId", "a houseguest id (string)");
+      return;
+    case "callInFavor": // 0142
+      guardSyncFields(false);
+      if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
       return;
     case "confront": // 0094
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
@@ -586,6 +592,11 @@ export class McpServer {
         // the model only voices the result (landed/missed).
         return this.deps.session.accuseTie(
           args["aId"] as EntityId, args["bId"] as EntityId, args["expectedBeatSeq"] as number | undefined,
+        );
+      case "callInFavor":
+        // 0142 - the engine prices whether the houseguest honors a favor they owe the player.
+        return this.deps.session.callInFavor(
+          args["npcId"] as EntityId, args["ask"] as Parameters<GameSession["callInFavor"]>[1], args["expectedBeatSeq"] as number | undefined,
         );
       case "confront":
         // 0094 — the closed-set confrontation: the engine classifies the cited belief + resolves the

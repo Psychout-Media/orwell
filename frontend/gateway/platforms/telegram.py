@@ -96,6 +96,10 @@ class TelegramAdapter(PlatformAdapter):
         except Exception as exc:
             logger.warning("Telegram send error for %s: %s", identity, exc)
 
+    def inbound_dedupe_key(self, raw: dict):
+        uid = raw.get("update_id") if isinstance(raw, dict) else None
+        return f"telegram:update:{uid}" if isinstance(uid, int) and not isinstance(uid, bool) else None
+
     def parse_inbound(self, raw: dict) -> tuple[str, str]:
         """Parse a Telegram Update JSON object into ``(identity, text)``.
 

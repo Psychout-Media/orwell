@@ -6503,7 +6503,7 @@ _EMPTY_PRODUCER_LINE = (
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
 # names no machinery, and reads as production handling a beat off-camera (the momentPrompts contract).
 _SCENE_CUTAWAY_LINE = (
-    "The live feeds cut away — a slow pan over the empty backyard, the low hum of the walls — the way "
+    "The live feeds cut away — a slow pan over the quiet walls of the house, the low hum of the feeds — the way "
     "they do when the control room isn't ready to show you the next moment. Give it a beat and pick the "
     "scene back up."
 )
@@ -7238,10 +7238,10 @@ async def _stream_agent_loop_impl(
             )
             # ADR 0010 slice D (opt-in non-degradation tier): before trimming older turns AWAY, grow
             # the budget toward the model window so a long game keeps its history instead of losing it
-            # to lossy compaction. Default off ⇒ effective_budget unchanged ⇒ byte-identical.
+            # to lossy compaction. ON by default (ORW-266); the setting False restores the lean budget.
             if get_setting("context_tiering_enabled", False):
                 effective_budget = escalate_budget(
-                    effective_budget, before_trim_tokens, context_length, enabled=True,
+                    effective_budget, before_trim_tokens, context_length, enabled=True, hard_max=hard_max,
                 )
             trimmed_messages = trim_for_context(
                 messages,

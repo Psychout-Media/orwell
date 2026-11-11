@@ -245,9 +245,11 @@ Given("an evictee moved against by the HOH's nominations", function (this: VdWor
   this.vdHoh = npc(2); // the HOH is PUBLIC — no deduction needed
 });
 
-Then("the evictee holds a grudge toward the HOH without any deduction", function (this: VdWorld) {
-  // The HOH is always folded directly as `[s.hoh, ...believed]` — public responsibility is untouched.
-  assert.ok(this.vdHoh !== undefined, "the HOH drives a grudge as public responsibility");
+Then("the HOH is the public cause of the move with no deduction involved", function (this: VdWorld) {
+  // WHAT THIS CHECKS (ORW-285 reworded the old "holds a grudge" claim, which the step never measured): only that the scenario names the HOH as the public
+  // cause. The engine side - the HOH is always folded directly as `[s.hoh, ...believed]`, so the HOH grudge never depends on a deduction - is covered by the
+  // vote-deduction unit tests (tests/unit/voteDeduction*.test.ts), not by this step.
+  assert.ok(this.vdHoh !== undefined, "the scenario names the HOH as the public cause");
 });
 
 // --- Rule: the Vault Wall holds for player AND admin --------------------------
