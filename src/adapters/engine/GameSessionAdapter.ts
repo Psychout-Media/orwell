@@ -74,7 +74,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
-import { runHangOut, hangOutBedtime } from "../../engine/hangOut";
+import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
@@ -10672,6 +10672,9 @@ export class GameSessionAdapter implements GameSession {
         },
       }, rng, req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {});
       const hour = live.nightDepth ?? WAKE_HOUR;
+      const stopLine = hangOutStopLine(result);
+      // ORW-22: the stops that had no witnessed record (approach / pulled / bedtime) get one - public and content-free, so the player-visible record shows EVERY stop (observed records itself in its probe; event-due is the ceremony's own record).
+      if (result.stopReason === "npc-approach" || result.stopReason === "pulled" || result.stopReason === "bedtime") this.onPlayerEvent?.(stopLine, [PLAYER], "house-event");
       (live.hangOutLog ??= []).push({
         n, day, hour, beats: result.beats, minutes: result.minutes, stopReason: result.stopReason,
         ...(result.detail ? { detail: result.detail as Record<string, unknown> } : {}),
@@ -10680,7 +10683,7 @@ export class GameSessionAdapter implements GameSession {
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();
       return {
-        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes,
+        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine,
         ...(result.detail ? { detail: result.detail } : {}),
         ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}),
         beatSeq: this.beatSeq,
