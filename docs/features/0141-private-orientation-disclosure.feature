@@ -1,4 +1,4 @@
-# SPEC-ONLY (not wired into cucumber.cjs): 0141 — a private orientation can reach the player by the houseguest's own choice. Awaiting Ryne's approval (ORW-261).
+# spec-only: (not wired into the BDD gate; awaiting build, ORW-261) 0141 — a private orientation can reach the player by the houseguest's own choice. Awaiting Ryne's approval (ORW-261).
 Feature: A private orientation can reach you by the houseguest's own choice
   The engine decides whether a houseguest tells; the narrator only voices it. Roles only.
 
