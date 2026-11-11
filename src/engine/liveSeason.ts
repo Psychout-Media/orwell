@@ -178,22 +178,26 @@ export interface CeremonyProgress {
   outcome?: { nominees: [EntityId, EntityId]; target?: EntityId; fromPlayer?: boolean };
   /** ORW-281 4b: the veto DRAW's outcome, decided once up front (ENGINE-ONLY until the 'field' step publishes it; never projected). `hc` is present when the Houseguest's-Choice chip was drawn (`candidates` = the player's options when the PLAYER holds it; `picked` = the NPC holder's pick or, later, the player's). */
   draw?: { compId: string; compName: string; field: EntityId[]; hc?: { holder: EntityId; candidates: EntityId[]; picked?: EntityId } };
+  /** ORW-281 4c: the VETO CEREMONY's outcome, decided once (up front for an NPC holder, at the 'decide' step for the player) - ENGINE-ONLY until the 'result' step publishes it; never projected. `fromPlayer`: the player (HOH) named the replacement (so no assurance fold, as before). */
+  vetoOutcome?: { used: boolean; saved?: EntityId; replacement?: EntityId; fromPlayer?: boolean };
 }
 /** The Vault-free step handle every ceremony pending / advance result carries (`step` is 1-based). */
 export interface CeremonyRef { kind: CeremonyKind; step: number; of: number | null; stepId: string }
 /** Step lists per kind. */
 export const CEREMONY_STEPS: Record<CeremonyKind, { withChoice: string[]; npc: string[] } | undefined> = {
   nominations: { withChoice: ["hoh-speech", "choose", "named"], npc: ["hoh-speech", "named"] },
-  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": undefined, eviction: undefined, // 4b-4d add their step lists here
+  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": { withChoice: ["convene", "decide", "result"], npc: ["convene", "result"] }, eviction: undefined, // 4c: a "replacement" step is spliced in before "result" when the PLAYER (HOH) must name it; 4d add their step lists here
 };
 /** Binding steps (answered by `submitDecision` with the kind's existing pending); every other step id is a WATCH step. */
-export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice"]);
+export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice", "veto-ceremony/decide", "veto-ceremony/replacement"]);
 /** The Vault-free line a WATCH step shows (public names via `{hoh}` and the step id only - never an outcome ahead of the engine). 4b-4d just add rows. */
 export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "nominations/hoh-speech": "{hoh} is about to name the nominees",
   "nominations/named": "The nominees have been named",
   "veto-draw/chips": "The chips for the Power of Veto are being drawn",
   "veto-draw/field": "The Power of Veto players are set: {field}",
+  "veto-ceremony/convene": "{hoh} has called the house together for the Veto Ceremony",
+  "veto-ceremony/result": "The Veto Ceremony is over - the nominees are: {nominees}",
 };
 export function ceremonyRef(s: LiveSeasonState): CeremonyRef | null {
   const c = s.ceremony;
@@ -211,6 +215,8 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
   const id = c.steps[c.at]!;
   if (CEREMONY_BINDING.has(`${c.kind}/${id}`)) {
     if (c.kind === "veto-draw") s.pending = { kind: "houseguests-choice", by: ctx.player, options: [...c.draw!.hc!.candidates] };
+    else if (c.kind === "veto-ceremony" && id === "decide") s.pending = { kind: "veto-decision", by: ctx.player, nominees: s.nominees!, saveable: selectableReplacements(weekState(s, ctx)).length > 0 ? [...s.nominees!] : [] };
+    else if (c.kind === "veto-ceremony") s.pending = { kind: "replacement", by: ctx.player, saved: c.vetoOutcome!.saved!, options: replacementOptions(s, ctx, c.vetoOutcome!.saved) };
     else s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
     return null;
   }
@@ -222,6 +228,24 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
     s.vetoField = [...d.field, ...(hc?.picked !== undefined && !d.field.includes(hc.picked) ? [hc.picked] : [])];
     const hcNote = hc?.picked !== undefined ? ` — ${hc.holder} draws Houseguest's Choice and picks ${hc.picked}` : "";
     ev = { beat: "veto-draw", content: `the veto players are drawn for ${d.compName}: ${s.vetoField.join(", ")}${hcNote}`, participants: [...s.vetoField] };
+  }
+  if (c.kind === "veto-ceremony" && id === "result") { // the step that PUBLISHES the veto ceremony: commit exactly what the one-beat resolution would have
+    const o = c.vetoOutcome!;
+    const holder = s.vetoHolder!;
+    s.beat = "eviction";
+    if (!o.used) {
+      s.vetoUsed = false; s.finalNominees = [s.nominees![0], s.nominees![1]];
+      ev = { beat: "veto-ceremony", content: `${holder} does not use the veto`, participants: [holder] };
+    } else {
+      s.vetoUsed = true; s.saved = o.saved; s.replacement = o.replacement;
+      s.finalNominees = [otherNominee(s), o.replacement!];
+      if (!o.fromPlayer) ctx.assuranceNominated?.(s.hoh!, o.replacement!); // B4 review fix, as in resolveReplacement
+      ev = {
+        beat: "veto-ceremony",
+        content: `${holder} uses the veto on ${holder === o.saved ? "themselves" : o.saved}; ${s.hoh} names ${o.replacement} as the replacement`,
+        participants: [holder, o.saved!, s.hoh!, o.replacement!],
+      };
+    }
   }
   if (c.kind === "nominations" && id === "named") {
     const [a, b] = c.outcome!.nominees;
@@ -1856,12 +1880,12 @@ function weekState(s: LiveSeasonState, ctx: SeasonCtx): WeekState {
 }
 
 /** Replacement nominees the HOH may name after a save (excludes HOH, noms, veto winner, the saved). */
-function replacementOptions(s: LiveSeasonState, ctx: SeasonCtx): EntityId[] {
-  return selectableReplacements(weekState(s, ctx)).filter((h) => h !== s.saved);
+function replacementOptions(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId | undefined = s.saved): EntityId[] {
+  return selectableReplacements(weekState(s, ctx)).filter((h) => h !== saved);
 }
 
-function otherNominee(s: LiveSeasonState): EntityId {
-  return s.nominees!.find((n) => n !== s.saved)!;
+function otherNominee(s: LiveSeasonState, saved: EntityId | undefined = s.saved ?? s.ceremony?.vetoOutcome?.saved): EntityId {
+  return s.nominees!.find((n) => n !== saved)!;
 }
 
 /**
@@ -3104,6 +3128,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       const nominees = s.nominees!;
+      if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["veto-ceremony"]) { // ORW-281 4c: a played game stages the veto ceremony (convene -> [decide] -> [replacement] -> result)
+        s.ceremony = planVetoCeremony(s, ctx);
+        return openCeremonyStep(s, ctx);
+      }
       if (s.vetoHolder === ctx.player) {
         // The holder may save either nominee (incl. self if nominated) — the whole pair is saveable…
         // …UNLESS no legal replacement exists (the Final-4 rule, E36): then "use" is not a real
@@ -3115,15 +3143,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       }
       // NPC veto holder: save self if nominated, else the most save-worthy nominee — trust shaded
       // by demonstrated loyalty (E54), so a proven protector outranks an equally-liked stranger.
-      const saved = nominees.includes(s.vetoHolder!)
-        ? s.vetoHolder!
-        : ctx.rel.chooseVetoSave(
-          s.vetoHolder!, nominees,
-          // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
-            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
-            : undefined,
-        );
+      const saved = npcVetoSave(s, ctx);
       if (!saved) {
         s.vetoUsed = false; s.finalNominees = [nominees[0], nominees[1]]; s.beat = "eviction";
         return { beat: "veto-ceremony", content: `${s.vetoHolder} does not use the veto`, participants: [s.vetoHolder!] };
@@ -3266,6 +3286,54 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   };
 }
 
+/** The NPC veto holder's save read (shared by the one-beat resolution and the staged ceremony's up-front plan; no rng). */
+function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
+  const nominees = s.nominees!;
+  return nominees.includes(s.vetoHolder!)
+    ? s.vetoHolder!
+    : ctx.rel.chooseVetoSave(
+      s.vetoHolder!, nominees,
+      // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
+      ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
+        ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
+        : undefined,
+    );
+}
+
+/** The NPC HOH's replacement read (shared by the one-beat resolution and the staged ceremony; no rng). */
+function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[]): EntityId {
+  return replacementPick(s.hoh!, otherNominee(s, saved), options, s.active, ctx.rel, {
+    blocs: currentBlocs(s, ctx),
+    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+    style: ctx.nominationStyleOf?.(s.hoh!),
+    target: s.nominationTarget,
+    ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
+    ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
+    ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
+  });
+}
+
+/** ORW-281 4c: stage the veto ceremony. An NPC holder's use/save and an NPC HOH's replacement are decided HERE, once, by the same reads in the same order as the one-beat path (none draw rng); the player's own decisions are steps. */
+function planVetoCeremony(s: LiveSeasonState, ctx: SeasonCtx): CeremonyProgress {
+  const st = CEREMONY_STEPS["veto-ceremony"]!;
+  const base = { kind: "veto-ceremony" as const, hold: "veto-ceremony" as const, at: 0 };
+  if (s.vetoHolder === ctx.player) return { ...base, steps: [...st.withChoice] };
+  const steps = [...st.npc];
+  const saved = npcVetoSave(s, ctx);
+  let vetoOutcome: NonNullable<CeremonyProgress["vetoOutcome"]> = { used: false };
+  if (saved) {
+    const options = replacementOptions(s, ctx, saved);
+    if (options.length > 0) {
+      vetoOutcome = { used: true, saved };
+      if (s.hoh === ctx.player) steps.splice(steps.indexOf("result"), 0, "replacement");
+      else vetoOutcome.replacement = npcReplacementPick(s, ctx, saved, options);
+    }
+  }
+  return { ...base, steps, vetoOutcome };
+}
+
 /** After a veto save: the HOH names the replacement (player pends; NPC auto-picks). */
 function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null {
   const options = replacementOptions(s, ctx);
@@ -3282,17 +3350,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // The replacement reads the same blended strategy (0044): threat + the rattled-paranoia term + the
   // bloc shield + the HOH's style. If the target is still up (the pawn came down), the HOH names a new
   // PAWN; if the target came down — or this is a backdoor — they name the real target (0044 §9).
-  const replacement = replacementPick(s.hoh!, otherNominee(s), options, s.active, ctx.rel, {
-    blocs: currentBlocs(s, ctx),
-    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
-    style: ctx.nominationStyleOf?.(s.hoh!),
-    target: s.nominationTarget,
-    ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
-    ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
-        ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
-        ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
-    ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
-  });
+  const replacement = npcReplacementPick(s, ctx, s.saved!, options);
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   ctx.assuranceNominated?.(s.hoh!, replacement); // B4 review fix: naming an assured houseguest the REPLACEMENT breaks the HOH's assurance to them too
   return {
@@ -3395,7 +3453,7 @@ export function applyDecision(
   s: LiveSeasonState, input: DecisionInput, ctx: SeasonCtx,
   // Only the Houseguest's-Choice resume needs randomness (to run the veto comp once the field completes);
   // the live adapter passes the beat-deterministic rng, so the same seed reproduces the same outcome.
-  rng: RandomnessSource = new SeededRandom(1),
+  rng: RandomnessSource = new SeededRandom(1)
 ): BeatEvent {
   // `comp-intent` and `comp-round` are interchangeable aliases for the staged per-round approach (the
   // live pending is `comp-round`; the legacy/alias input may arrive as either). Every other kind must match.
@@ -3431,6 +3489,14 @@ export function applyDecision(
         throw new Error("the veto cannot be used — no legal replacement nominee exists, so the nominations stand");
       }
       s.pending = undefined;
+      if (s.ceremony?.kind === "veto-ceremony") { // ORW-281 4c: the decision is recorded, NOT published; the 'result' step (or the player's replacement) publishes it
+        const c = s.ceremony;
+        if (!input.use || replacementOptions(s, ctx, save).length === 0) c.vetoOutcome = { used: false };
+        else if (s.hoh === ctx.player) { c.vetoOutcome = { used: true, saved: save! }; c.steps.splice(c.steps.indexOf("result"), 0, "replacement"); }
+        else c.vetoOutcome = { used: true, saved: save!, replacement: npcReplacementPick(s, ctx, save!, replacementOptions(s, ctx, save)) };
+        c.at = c.steps.indexOf(c.vetoOutcome.used && !c.vetoOutcome.replacement ? "replacement" : "result");
+        return openCeremonyStep(s, ctx) as BeatEvent; // NULL (the player-HOH 'replacement' step opens, nothing published yet) is a legal commit(null); the declared type stays non-null so the many direct callers are untouched
+      }
       if (!input.use) {
         s.vetoUsed = false; s.finalNominees = [nominees[0], nominees[1]]; s.beat = "eviction";
         return { beat: "veto-ceremony", content: `${ctx.player} does not use the veto`, participants: [ctx.player] };
@@ -3482,6 +3548,14 @@ export function applyDecision(
       };
     }
     case "replacement": {
+      if (s.ceremony?.kind === "veto-ceremony") { // ORW-281 4c: the HOH's pick is the outcome; the 'result' step publishes it
+        const c = s.ceremony;
+        if (!new Set(replacementOptions(s, ctx, c.vetoOutcome!.saved)).has(input.replacement)) throw new Error("illegal replacement nominee");
+        s.pending = undefined;
+        c.vetoOutcome!.replacement = input.replacement; c.vetoOutcome!.fromPlayer = true;
+        c.at = c.steps.indexOf("result");
+        return openCeremonyStep(s, ctx)!; // the 'result' step publishes
+      }
       const legal = new Set(selectableReplacements(weekState(s, ctx)).filter((h) => h !== s.saved));
       if (!legal.has(input.replacement)) throw new Error("illegal replacement nominee");
       s.replacement = input.replacement; s.finalNominees = [otherNominee(s), input.replacement];
