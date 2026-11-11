@@ -1984,13 +1984,20 @@ const FINALE_EVENT_BEATS: ReadonlySet<Beat> = new Set<Beat>(["finale", "finale-r
  * it survives a save/restart mid-event. `weekBefore` is the week as it stood BEFORE the beat resolved
  * (the eviction result rolls the week inside the same step). No rng; clock-path only.
  */
-export function eventBeatHours(s: LiveSeasonState, beat: Beat, weekBefore: number, budgetHours: number): number | null {
+export function eventBeatHours(s: LiveSeasonState, beat: Beat, weekBefore: number, budgetHours: number, spreadSteps?: number): number | null {
   const key = EVICTION_EVENT_BEATS.has(beat) ? `eviction:w${weekBefore}`
     : FINALE_EVENT_BEATS.has(beat) ? "finale"
     : null;
   if (key === null) return null;
   const spent = s.eventClock?.key === key ? s.eventClock.spent : 0;
-  const hours = Math.max(0, budgetHours - spent);
+  const remaining = Math.max(0, budgetHours - spent);
+  // ORW-262 — for a game a person is playing (`spreadSteps` given) the budget is SPREAD over the event's
+  // steps (like a staged competition's rounds) so each message moves the clock a believable slice, and the
+  // closing step settles whatever is left. Omitted ⇒ the original front-loaded charge (headless sims stay byte-identical).
+  const closing = beat === "eviction-result" || beat === "final-eviction" || beat === "finale-result";
+  const hours = spreadSteps !== undefined && spreadSteps > 0 && !closing
+    ? Math.min(remaining, budgetHours / spreadSteps)
+    : remaining;
   s.eventClock = { key, spent: spent + hours };
   return hours;
 }

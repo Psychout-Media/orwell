@@ -34,6 +34,8 @@ import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
 import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent } from "../../engine/daySchedule";
+/** ORW-262: an eviction night / finale reveals over ~5 steps; its ~2h budget is spread across them for a played game. */
+const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
 import {
   formCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
@@ -10206,7 +10208,7 @@ export class GameSessionAdapter implements GameSession {
         // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
         // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
         const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"))
+          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.messageMode ? EVENT_SPREAD_STEPS : undefined)
           : null;
         if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
         else if (eventHours !== null) advanceClock(this.live!, eventHours);
