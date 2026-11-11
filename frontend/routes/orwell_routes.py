@@ -1707,6 +1707,45 @@ def setup_orwell_routes() -> APIRouter:
             _warn_throttled(f"decision-fail:{user or ''}", f"[orwell] decision failed: {e}")
             return JSONResponse(status_code=502, content={"error": f"engine unreachable: {e}"})
 
+    @router.post("/ceremony-continue")
+    async def orwell_ceremony_continue(request: Request):
+        """ORW-281 4b: the player pressed Continue on a staged-ceremony WATCH step (pending kind
+        `ceremony-step`). That kind is NOT a decision (the engine refuses submitDecision for it): it is
+        answered by advanceGame, which moves the ceremony exactly one step. Stale-beat safe (CAS on the
+        last-seen beatSeq) and idempotent per press; Vault-free (returns the engine's AdvanceView)."""
+        user = _current_user(request)
+        try:
+            from routes.chat_helpers import last_beat_seq as _lbs, _refresh_beat_seq, _mint_idempotency_key
+            ebs, ik = _lbs(user), _mint_idempotency_key()
+        except Exception:  # failsoft-ok: sync-spine token unavailable; the engine call stands un-CAS'd, as an un-wired caller would
+            _refresh_beat_seq = None  # type: ignore
+            ebs = ik = None
+        try:
+            res = await orwell_engine.advance_game(expected_beat_seq=ebs, idempotency_key=ik, user=user)
+            if _refresh_beat_seq is not None:
+                _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+            if isinstance(res, dict):
+                orwell_engine.remember_pending(res, user=user)
+            _publish_game_updated(user)
+            return res
+        except orwell_engine.EngineToolError as e:
+            if e.no_game:
+                return JSONResponse(status_code=409, content={"started": False, "error": "no active game"})
+            try:
+                from routes.chat_helpers import _is_stale_beat_error, _handle_stale_beat
+                if _is_stale_beat_error(e):
+                    await _handle_stale_beat(user, e)
+                    cur = await orwell_engine.get_game_state(user=user)
+                    orwell_engine.remember_pending(cur, user=user)
+                    _publish_game_updated(user)
+                    return cur
+            except Exception:  # failsoft-ok: reconcile failed; fall through to the typed error below
+                pass
+            status = e.status if isinstance(e.status, int) and 400 <= e.status < 600 else 502
+            return JSONResponse(status_code=status, content={"error": str(e)})
+        except Exception as e:
+            return JSONResponse(status_code=502, content={"error": f"engine unreachable: {e}"})
+
     @router.post("/self-eviction/request")
     async def orwell_self_eviction_request(request: Request):
         """0061 step 1 — the player expressed an OOC intent to LEAVE/quit. Raise the self-evict
