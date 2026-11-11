@@ -111,8 +111,8 @@ app.add_middleware(
         "Content-Type",
         "X-API-Key",
         "X-Auth-Token",
-        "X-Orwell-Internal-Token",
-        "X-Orwell-Owner",
+        # ORW-179 / SEC-18: the loopback credential headers (X-Orwell-Internal-Token, X-Orwell-Owner) are NEVER advertised to a cross-origin page. The in-process agent tools send them server-side, and the
+        # browser FE is same-origin and never sends either.
         "X-Requested-With",
         "X-TZ-Offset",
     ],
