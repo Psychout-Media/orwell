@@ -95,6 +95,18 @@ describe("0129 slice 3 — askJuror", () => {
     const learned = sb.engine.knowledge.knownTo(PLAYER).find((f) => f.content.includes("MARK-TOLD"));
     expect(learned?.pathway).toBe(`told-by:${a!.id}`);
   });
+  it("folds nothing: a telling moves NO relationship edge (ORW-112 / 0129 - a juror has no pathway back to the house)", () => {
+    const sb = jurorGame();
+    const [a] = sb.session.getGameState().juryHouse!.jurors;
+    setBearing(sb, a!.id, { respected: true });
+    hold(sb, a!.id, "jv:t0", "MARK-FOLD something only this juror holds");
+    const edges = () => JSON.stringify(sb.engine.relationships.serialize().edges);
+    const before = edges();
+    expect(before.length).toBeGreaterThan(2); // positive control: there are edges to move
+    const r = sb.session.askJuror(a!.id)!;
+    expect(r.told, "a warm juror always tells, so the telling path really ran").toBe(true);
+    expect(edges()).toBe(before);
+  });
   it("a sour juror stonewalls: nothing is told and the player learns nothing", () => {
     const sb = jurorGame();
     const [a] = sb.session.getGameState().juryHouse!.jurors;
