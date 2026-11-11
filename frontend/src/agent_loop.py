@@ -2213,8 +2213,20 @@ def _strip_pregame_context(messages: List[Dict]) -> int:
                         fn = tc.get("function") if isinstance(tc, dict) else None
                         if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
                             fn["arguments"] = _scrub_producer_fields(fn["arguments"])
-        except Exception:
-            pass
+        except Exception as _scrub_err:
+            # ORW-178: this purge keeps the player's private casting answers out of the premiere context (mandate #2). It used to swallow an error and KEEP the message as it was - i.e. unscrubbed. Fail CLOSED
+            # instead: log it and blank the retained text/arguments (the message keeps its role and tool-call shape, so providers still accept the request).
+            logger.warning("[orwell] casting-context scrub failed on one message (%s); blanking its content to stay closed", _scrub_err)
+            try:
+                if isinstance(m, dict):
+                    if isinstance(m.get("content"), str):
+                        m["content"] = ""
+                    for _tc in (m.get("tool_calls") if isinstance(m.get("tool_calls"), list) else []):
+                        _fn = _tc.get("function") if isinstance(_tc, dict) else None
+                        if isinstance(_fn, dict) and isinstance(_fn.get("arguments"), str):
+                            _fn["arguments"] = "{}"
+            except Exception:  # failsoft-ok: the last-resort blanking itself failed on a malformed entry; the warning above already recorded it and the entry is left as it was
+                pass
         kept.append(m)
     if dropped:
         # Restore a valid conversation shape when the purge removed EVERY user turn (the
