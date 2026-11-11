@@ -674,6 +674,8 @@ export interface LiveSeasonState {
   firstNightPassed?: boolean;
   /** ORW-116 (b): true once a PLAYER conversation has ticked the clock. The night-hold only protects a night the player is actually playing; a headless driver that never talks keeps the pre-hold day-breaks. Serialization-neutral (undefined). */
   clockInteractive?: boolean;
+  /** ORW-258: a PERSON is playing this game (set by their first announced message; persisted). `clockInteractive` is not enough - a staged premiere sets it for headless drivers too - so the event-per-day cadence keys on THIS, keeping calibration sims byte-identical. */
+  playedGame?: boolean;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
@@ -2057,7 +2059,7 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
 /** ORW-116 (b): record that the night in front of the CURRENT beat's day-break has been crossed (by the player's own turn-in). */
 function markNightGateCrossed(s: LiveSeasonState): void {
   switch (s.beat) {
-    case "hoh-competition": if (s.week > 1) s.preHohNightPassed = true; else s.firstNightPassed = true; break;
+    case "hoh-competition": s.firstNightPassed = true; if (s.week > 1) s.preHohNightPassed = true; break; // ORW-258: week 1+ keeps the original firstNightPassed write (headless sims byte-identical); week 2+ also arms its own gate
     case "nominations": s.preNomsNightPassed = true; break;
     case "veto-competition": s.preVetoNightPassed = true; break;
     case "veto-ceremony": s.preVetoCeremonyNightPassed = true; break;
@@ -2070,7 +2072,7 @@ function markNightGateCrossed(s: LiveSeasonState): void {
 export function nightBreakPending(s: LiveSeasonState): boolean {
   if (s.twist?.phase === "running" || s.nightDepth === undefined) return false;
   switch (s.beat) {
-    case "hoh-competition": return s.week === 1 ? !s.firstNightPassed && (s.dayNumber ?? 1) < 2 : s.clockInteractive === true && !s.preHohNightPassed; // ORW-258: only for a game a person is playing (clockInteractive): headless calibration sims keep their cadence // ORW-258: every week's HOH is the day AFTER the eviction
+    case "hoh-competition": return s.week === 1 ? !s.firstNightPassed && (s.dayNumber ?? 1) < 2 : s.playedGame === true && !s.preHohNightPassed; // ORW-258: only for a game a person is playing (clockInteractive): headless calibration sims keep their cadence // ORW-258: every week's HOH is the day AFTER the eviction
     case "nominations": return !s.preNomsNightPassed;
     case "veto-competition": return !s.preVetoNightPassed && !s.vetoField;
     case "veto-ceremony": return !s.preVetoCeremonyNightPassed;
@@ -2204,7 +2206,7 @@ function rollWeek(s: LiveSeasonState): void {
   s.vetoHolder = undefined; s.vetoUsed = false; s.saved = undefined;
   s.replacement = undefined; s.finalNominees = undefined; s.vetoComp = undefined;
   s.preNomsNightPassed = undefined; // #1320: re-arm the night-gate for the new reign (undefined ⇒ serialization-neutral)
-  s.preHohNightPassed = undefined; // ORW-258: the next week's HOH is its own day, after the eviction night
+  if (s.preHohNightPassed !== undefined) s.preHohNightPassed = undefined; // ORW-258: the next week's HOH is its own day, after the eviction night
   // Phase 3a — re-arm the rest of the cadence's day-breaks for the new reign (undefined ⇒ serialization-neutral).
   s.preVetoNightPassed = undefined;
   s.preVetoCeremonyNightPassed = undefined;
@@ -2814,7 +2816,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // exit is just the next beat, and the first night is the player's to spend (below).
       // ORW-116 (a): the first NIGHT is crossed (the player turned in, or the night ran out) before the first HOH: one diegetic day-break to the first morning, the competition set for that afternoon.
       // ORW-258 (Ryne: every event gets its own day): the HOH competition of week 2 onward is the afternoon of the day AFTER the eviction - one diegetic day-break, never the same night.
-      if (ctx.nightGate && s.week > 1 && s.clockInteractive === true && s.nightDepth !== undefined && !s.preHohNightPassed && s.twist?.phase !== "running") {
+      if (ctx.nightGate && s.week > 1 && s.playedGame === true && s.nightDepth !== undefined && !s.preHohNightPassed && s.twist?.phase !== "running") {
         if (ctx.nightHold && nightHeld(s)) return null; // the night is the player's
         s.preHohNightPassed = true;
         crossToNextDay(s);

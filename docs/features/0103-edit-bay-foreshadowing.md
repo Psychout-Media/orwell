@@ -1,5 +1,7 @@
 # 0103 — Edit-bay foreshadowing (the show is telling you something)
 
+> **RETIRED 2026-11-11 (owner ruling, "retire and remove").** This feature is not planned and its unused code and tests are removed (card ORW-267). The text below is history only.
+
 > **Status:** ❄️ **FROZEN** (owner-parked "not planned" 2026-06-27; reaffirmed by the owner 2026-11-03; [`docs/features/README.md`](./README.md) is the authoritative status index). It is **not reopened**. A pure engine core built 2026-07-12 is preserved but unwired (only a test imports it): the pure fit/eligibility/budget/hint core is
 > built & unit-green — `src/engine/foreshadow.ts` (`foreshadowFit`, `rankForeshadowCandidates` dropping
 > `dormant` + no-public-surface + below-floor, `hintBudget` weekly+season caps, the Vault-safe `buildHint`,

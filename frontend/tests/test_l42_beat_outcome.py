@@ -95,11 +95,12 @@ def test_l42_both_render_paths_use_the_outcome():
     assert "orwellBeatOutcome" in chat
     assert "orwellBeatOutcome" in renderer
     # live path: the outcome replaces the generic "done" status when present
-    assert "orwellBeatOutcome(json.tool, json.output)" in chat
-    assert "_outcome || _beatOut || json.tool" in chat
+    # (ORW-264: the outcome-or-beat-or-tool text now lives in the ONE shared orwellBeatNodeView builder)
+    assert "orwellBeatNodeView({ tool: json.tool" in chat
     # reload path: same treatment so a re-opened transcript reads the same
-    assert "orwellBeatOutcome(ev.tool, ev.output)" in renderer
-    assert "_evOutcome || _beat || ev.tool" in renderer
+    assert "orwellBeatNodeView({ tool: ev.tool" in renderer
+    tb = _read("static", "js", "orwellToolBeats.js")
+    assert "orwellBeatOutcome(tool, output)" in tb and "outcome || beat || tool" in tb
 
 
 def test_l42_outcome_is_vault_free_by_construction():
