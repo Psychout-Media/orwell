@@ -870,9 +870,15 @@ from routes.note_routes import setup_note_routes
 mount_optional(app, "notes", setup_note_routes(task_scheduler))
 
 # Email — dropped under the game build (router still built for codex below).
-from routes.email_routes import setup_email_routes
-email_router = setup_email_routes()
-mount_optional(app, "email", email_router)
+# ORW-169 slice 2: the email router module (~0.5 s to import) is only imported when email or codex (which
+# borrows its helpers) is enabled; the game build drops both, so it is neither imported nor built.
+from src.settings import is_feature_enabled as _is_feature_enabled
+if _is_feature_enabled("email") or _is_feature_enabled("codex"):
+    from routes.email_routes import setup_email_routes
+    email_router = setup_email_routes()
+    mount_optional(app, "email", email_router)
+else:
+    email_router = None
 
 # Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
 # api_token scopes (todos:read|write, email:read|draft|send) so external
