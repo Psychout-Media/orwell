@@ -83,3 +83,14 @@ def test_the_same_line_without_the_snapshot_is_still_dropped(monkeypatch):
 def test_the_facts_carry_the_snapshot_names():
     facts = ch._presence_facts(dict(STATE, whereabouts=dict(STATE["whereabouts"], sinceSend={"arrived": ["Bruno Lane"], "departed": ["Cleo Park"]})))
     assert facts["exempt"] == {"Bruno Lane", "Cleo Park"}
+
+
+def test_orw263_a_bracketed_speaker_line_from_an_absent_houseguest_is_dropped(monkeypatch):
+    """ORW-263: the narrator writes speaker lines as `@[Name] — "..."`. The closing bracket sat between the name and the dash, so the wall never read it as staging (live: an unarrived houseguest spoke for 5 premiere messages)."""
+    out = _wall(monkeypatch, 'You settle in.\n\n@[Dana Moss] — "Oh my God, hi!"\n\nAlice Hart nods.\n')
+    assert "Dana Moss" not in out and "Alice Hart nods" in out
+
+
+def test_orw263_a_bracketed_speaker_line_from_someone_in_the_room_is_kept(monkeypatch):
+    out = _wall(monkeypatch, '@[Alice Hart] — "Morning."\n')
+    assert "Alice Hart" in out
