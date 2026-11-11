@@ -904,13 +904,25 @@ mount_optional(app, "companion", setup_companion_routes())
 
 # ========= ROUTES (kept in app.py) =========
 
-def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
-    """Read an HTML file, inject the CSP nonce, and (game build, feature 0032) drop the
-    dropped verticals' <script> tags so their JS is never shipped."""
+# ORW-175: the processed page shell is cached in memory and only the per-request CSP nonce is substituted.
+# The key covers everything the processing reads: the file (path + mtime + size), the build id, and the
+# build/ws-transport flags plus the dropped-script set (which carries the voice flag).
+_HTML_TEMPLATE_CACHE: Dict[tuple, str] = {}
+
+
+def _html_template(file_path: str) -> str:
+    """The page shell with every per-build transform applied and the `{{CSP_NONCE}}` placeholder still in place."""
+    from src.orwell_version import get_build as _fe_build
+    from src.settings import dropped_script_srcs, game_build_enabled, ws_transport_enabled
+    st = os.stat(file_path)
+    key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
+           tuple(dropped_script_srcs()))
+    cached = _HTML_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    _HTML_TEMPLATE_CACHE.clear()  # one live shell per process: a changed file or flag drops the stale entry
     with open(file_path, "r", encoding="utf-8") as f:
         html = f.read()
-    nonce = getattr(request.state, "csp_nonce", "")
-    html = html.replace("{{CSP_NONCE}}", nonce)
     # ORW-203: stamp the shell with the build that served it, so a stale cached shell can
     # detect (vs /api/version's "build") that a deploy happened and self-correct once.
     from src.orwell_version import get_build as _fe_build
@@ -948,7 +960,15 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
         # (ORWELL_GAME_BUILD=0 debugging) the full workspace must come back, so strip the link.
         import re as _re
         html = _re.sub(r'<link[^>]*game-trim\.css[^>]*>\s*(<!--[^>]*-->)?', "", html, count=1)
-    return HTMLResponse(html)
+    _HTML_TEMPLATE_CACHE[key] = html
+    return html
+
+
+def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
+    """Serve an HTML file with the CSP nonce injected and (game build, feature 0032) the dropped
+    verticals' <script> tags removed so their JS is never shipped. Template cached per ORW-175."""
+    nonce = getattr(request.state, "csp_nonce", "")
+    return HTMLResponse(_html_template(file_path).replace("{{CSP_NONCE}}", nonce))
 
 @app.get("/")
 async def serve_index(request: Request):
