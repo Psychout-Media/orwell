@@ -1241,6 +1241,18 @@ async def confront(npc_id: str, fact_id: str, expected_beat_seq: int | None = No
     return await _call("confront", args, user=user)
 
 
+async def call_in_favor(npc_id: str, ask: str | None = None, expected_beat_seq: int | None = None,
+                        user: str | None = None) -> dict:
+    """Feature 0142 — the player CALLS IN a favor a houseguest owes them (they kept a deal). The engine prices
+    whether it is honored and returns the Vault-free `{honored, kind, narratable}`; null (None) when no favor is owed."""
+    args: dict = {"npcId": npc_id}
+    if ask:
+        args["ask"] = ask
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    return await _call("callInFavor", args, user=user)
+
+
 async def accuse_tie(a_id: str, b_id: str, expected_beat_seq: int | None = None,
                      user: str | None = None) -> dict:
     """Feature 0095 — the player accuses two houseguests of a PRE-SHOW tie. The engine checks whether

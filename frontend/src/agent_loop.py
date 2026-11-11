@@ -2213,8 +2213,20 @@ def _strip_pregame_context(messages: List[Dict]) -> int:
                         fn = tc.get("function") if isinstance(tc, dict) else None
                         if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
                             fn["arguments"] = _scrub_producer_fields(fn["arguments"])
-        except Exception:
-            pass
+        except Exception as _scrub_err:
+            # ORW-178: this purge keeps the player's private casting answers out of the premiere context (mandate #2). It used to swallow an error and KEEP the message as it was - i.e. unscrubbed. Fail CLOSED
+            # instead: log it and blank the retained text/arguments (the message keeps its role and tool-call shape, so providers still accept the request).
+            logger.warning("[orwell] casting-context scrub failed on one message (%s); blanking its content to stay closed", _scrub_err)
+            try:
+                if isinstance(m, dict):
+                    if isinstance(m.get("content"), str):
+                        m["content"] = ""
+                    for _tc in (m.get("tool_calls") if isinstance(m.get("tool_calls"), list) else []):
+                        _fn = _tc.get("function") if isinstance(_tc, dict) else None
+                        if isinstance(_fn, dict) and isinstance(_fn.get("arguments"), str):
+                            _fn["arguments"] = "{}"
+            except Exception:  # failsoft-ok: the last-resort blanking itself failed on a malformed entry; the warning above already recorded it and the entry is left as it was
+                pass
         kept.append(m)
     if dropped:
         # Restore a valid conversation shape when the purge removed EVERY user turn (the
@@ -6384,6 +6396,11 @@ def _forget_season_pacing(user) -> None:
         except Exception:
             logger.warning("[orwell] season-pacing reset skipped a %s store for user=%s",
                            type(store).__name__, user, exc_info=True)
+    try:  # ORW-202: the persisted copy follows the in-memory reset, so a restart cannot resurrect last season's state
+        from src import belt_state_persist
+        belt_state_persist.save_now()
+    except Exception:  # failsoft-ok: best-effort; the in-memory stores are already cleared
+        logger.debug("ORW-202: belt-state save after reset failed", exc_info=True)
 
 
 try:  # register at import; fail-soft so a missing engine module never breaks the agent loop
@@ -6791,6 +6808,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     finally:
         if _ptt is not None:
             _ptt.set("")
+        try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
+            from src import belt_state_persist
+            belt_state_persist.save_soon()
+        except Exception as _e:  # failsoft-ok: durability is best-effort and must never fail a turn
+            logger.debug("ORW-202: belt-state save_soon failed: %s", _e)
         _reset_turn_observability_context(_obs_token)
         if _user_token is not None:
             try:
@@ -7228,10 +7250,10 @@ async def _stream_agent_loop_impl(
             )
             # ADR 0010 slice D (opt-in non-degradation tier): before trimming older turns AWAY, grow
             # the budget toward the model window so a long game keeps its history instead of losing it
-            # to lossy compaction. Default off ⇒ effective_budget unchanged ⇒ byte-identical.
+            # to lossy compaction. ON by default (ORW-266); the setting False restores the lean budget.
             if get_setting("context_tiering_enabled", False):
                 effective_budget = escalate_budget(
-                    effective_budget, before_trim_tokens, context_length, enabled=True,
+                    effective_budget, before_trim_tokens, context_length, enabled=True, hard_max=hard_max,
                 )
             trimmed_messages = trim_for_context(
                 messages,

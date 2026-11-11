@@ -149,3 +149,46 @@ describe("ORW-271 - seeded-sim byte-identity", () => {
     expect(run("1")).toBe(run("0"));
   });
 });
+
+describe("ORW-271 - played-game byte-identity and rng neutrality", () => {
+  const strip = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (k, x) => (k === "dayLedger" ? undefined : x)));
+  /** A played game over several nights: messages, turnIns, and beats AFTER each close (so any extra rng draw at the ledger would shift every later roll). */
+  const play = (flag: string) => {
+    process.env.ORWELL_DAY_CONDENSE = flag;
+    const { session } = rig(21, true);
+    const played = (session as unknown as { live: { playedGame?: boolean } }).live.playedGame;
+    for (let night = 0; night < 3; night++) {
+      session.noteMessage({ messageId: `n${night}` });
+      for (let i = 0; i < 2; i++) session.advanceGame();
+      closeNight(session);
+    }
+    for (let i = 0; i < 3; i++) session.advanceGame();
+    return { played, snap: JSON.parse(JSON.stringify(session.snapshot())), ledger: session.dayLedger() };
+  };
+
+  it("with the flag on vs off, every snapshot field except dayLedger (all downstream seeded rolls) is identical in a PLAYED game", () => {
+    const on = play("1");
+    const off = play("0");
+    expect(on.played).toBe(true);
+    expect(on.ledger.length).toBeGreaterThan(0); // the control: the flag really did write entries
+    expect(off.ledger).toEqual([]);
+    expect(strip(on.snap)).toEqual(strip(off.snap));
+  });
+
+  it("the ledger consumes no rng: the next seeded draw after the closes is the same on and off", () => {
+    const next = (flag: string) => {
+      process.env.ORWELL_DAY_CONDENSE = flag;
+      const { session } = rig(22, true);
+      closeNight(session);
+      session.recordDaySummary({ day: 1, text: "A summary." });
+      // the game's per-moment seeded stream (keyed on game seed + state); a ledger that drew from any rng would shift this
+      const rng = (session as unknown as { beatRng(): { next(): number } }).beatRng();
+      return { has: true, v: rng.next(), snap: strip(session.snapshot()) };
+    };
+    const on = next("1");
+    const off = next("0");
+    expect(on.has).toBe(true);
+    expect(on.v).toBe(off.v);
+    expect(on.snap).toEqual(off.snap);
+  });
+});

@@ -232,6 +232,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["aId"])) refuse("aId", "a houseguest id (string)");
       if (!isStr(args["bId"])) refuse("bId", "a houseguest id (string)");
       return;
+    case "callInFavor": // 0142
+      guardSyncFields(false);
+      if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
+      return;
     case "confront": // 0094
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
@@ -594,6 +598,11 @@ export class McpServer {
         // the model only voices the result (landed/missed).
         return this.deps.session.accuseTie(
           args["aId"] as EntityId, args["bId"] as EntityId, args["expectedBeatSeq"] as number | undefined,
+        );
+      case "callInFavor":
+        // 0142 - the engine prices whether the houseguest honors a favor they owe the player.
+        return this.deps.session.callInFavor(
+          args["npcId"] as EntityId, args["ask"] as Parameters<GameSession["callInFavor"]>[1], args["expectedBeatSeq"] as number | undefined,
         );
       case "confront":
         // 0094 — the closed-set confrontation: the engine classifies the cited belief + resolves the

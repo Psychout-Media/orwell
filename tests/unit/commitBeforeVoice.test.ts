@@ -83,3 +83,32 @@ describe("ORW-252: a competition that is not due has not started - its fragment 
     expect(pend).not.toMatch(/has NOT started/);
   });
 });
+
+describe("ORW-281 slice 2: the veto ceremony and the HOH winner are gated on the commit too", () => {
+  const noPlayers = { hoh: null, nominees: [], veto: { holder: null, used: false, players: [] } };
+  it("veto ceremony phase, no decision pending: the ritual is replaced by a has-NOT-happened note (same shape as nominations)", () => {
+    const v = withPhase(base(), "veto-ceremony", { ceremony: { hoh: { id: "npc:1", name: "HOH" }, nominees: [{ id: "npc:2", name: "A" }, { id: "npc:3", name: "B" }], veto: { holder: { id: "npc:4", name: "V" }, used: false, players: [] } } });
+    const p = buildSystemPrompt("veto-ceremony", v);
+    expect(p).not.toContain("PLAY THE SHOW'S OWN VETO-MEETING GRAMMAR");
+    expect(p).toMatch(/veto ceremony has NOT happened/);
+    expect(p).toMatch(/call advanceGame/i);
+  });
+  it("veto ceremony with the holder's own decision pending (a card): the script stays", () => {
+    const v = withPhase(base(), "veto-ceremony", { pending: { kind: "veto-decision", by: { id: "player", name: "P" }, prompt: "x", options: [] } as never });
+    expect(buildSystemPrompt("veto-ceremony", v)).toContain("PLAY THE SHOW'S OWN VETO-MEETING GRAMMAR");
+  });
+  it("the veto-ceremony moment outside the veto-ceremony phase is untouched", () => {
+    const v = withPhase(base(), "eviction", { ceremony: noPlayers });
+    expect(buildSystemPrompt("veto-ceremony", v)).toContain("PLAY THE SHOW'S OWN VETO-MEETING GRAMMAR");
+  });
+  it("HOH competition due but not run (no staged comp, no card): a winner-not-decided note rides with the fragment", () => {
+    const v = withPhase(base(), "hoh-competition", { daySchedule: { next: "hoh-competition", phase: "afternoon", due: true, minutesUntil: 0 } as never });
+    const p = buildSystemPrompt("hoh-competition", v);
+    expect(p).toMatch(/Head of Household winner has NOT been decided/);
+    expect(p).not.toMatch(/has NOT started/);
+  });
+  it("HOH competition mid-run (a staged comp is on the house event): no winner-not-decided note", () => {
+    const v = withPhase(base(), "hoh-competition", { whereabouts: { room: "living-room", present: [], nearby: [], turnsHere: 0, companions: [], tracked: [], houseEvent: { kind: "hoh-competition" } } as never });
+    expect(buildSystemPrompt("hoh-competition", v)).not.toMatch(/winner has NOT been decided/);
+  });
+});
