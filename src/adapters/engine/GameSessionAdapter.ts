@@ -57,7 +57,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -2711,9 +2711,10 @@ export class GameSessionAdapter implements GameSession {
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
   private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
-  /** In-game day of the last `bringUp` per houseguest (the once-per-day rate cap). Process-local: a restart may allow one extra mention, never a second leak. */
-  private bringUpDay = new Map<EntityId, number>();
-  private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8 } as const; // ASSUMED, pending Ryne (design 14.10)
+  /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
+  private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
+  /** floor/bar/chanceScale/top as before (ASSUMED, tunable). `repeatDays`: a memory raised in the last N in-game days is not raised again. `maxPerDay`: the ceiling for the most talkative/aggrieved houseguest. */
+  private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8, repeatDays: 3, maxPerDay: 3 } as const;
   private static readonly MEMORY_ABOUT_YOU: Readonly<Record<MemoryKind, string>> = {
     "deal-broken": "you broke a deal with them", "nominated-by-friend": "you put them on the block while they trusted you",
     "replaced-by-friend": "you named them the replacement while they trusted you", "veto-saved": "you saved them with the veto",
@@ -2721,24 +2722,55 @@ export class GameSessionAdapter implements GameSession {
     "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
     "nominated-by-hoh": "you put them on the block",
     "secret-exposed": "you exposed their secret to the house", "secret-given": "you traded them a secret they wanted",
+    "deal-witnessed": "you made a deal in front of them", "deal-resented": "you made a deal aimed at them or their ally, or behind their back",
   };
-  /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
+  /** ORW-131 - how much this houseguest raises things: their social aptitude and volatility (talkative / reactive types raise more, reserved ones less), 0..1. Reads CHARACTER stats + SOUL volatility only. */
+  private talkativeness(id: EntityId): number {
+    const hg = this.house?.npcs.find((n) => n.id === id);
+    const social = hg?.character.stats.social ?? 0.5;
+    const vol = hg?.soul.volatility ?? 0.3;
+    return Math.max(0, Math.min(1, 0.7 * social + 0.3 * vol));
+  }
+  /**
+   * The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the engine-decided, seeded `bringUp`.
+   * ORW-131: how OFTEN and WHICH memory they raise depends on THEM: personality (talkativeness), the relationship (closeness to the player; a grudge-holder is aggrieved, a friend raises favors),
+   * and how much the memory matters (its decayed weight). A talkative / aggrieved houseguest may raise things more than once a day (up to MEMORY_SPEECH.maxPerDay), a reserved one rarely; the
+   * same memory is not raised again within `repeatDays` (never robotic); and only memories they actually HOLD are ever offered.
+   */
   private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
     const live = this.live;
     const entries = live?.npcMemory?.[id]?.[PLAYER];
     if (!live || !entries || entries.length === 0) return {};
+    const M = GameSessionAdapter.MEMORY_SPEECH;
     const half = NPC_MEMORY.halfLifeWeeks;
     const scored = entries.map((e) => ({ e, w: e.severity * Math.pow(0.5, Math.max(0, live.week - e.week) / half) }))
-      .filter((x) => x.w >= GameSessionAdapter.MEMORY_SPEECH.floor).sort((a, b) => b.w - a.w).slice(0, GameSessionAdapter.MEMORY_SPEECH.top);
+      .filter((x) => x.w >= M.floor).sort((a, b) => b.w - a.w);
     if (scored.length === 0) return {};
     const when = (age: number): string => (age <= 0 ? "this week" : age <= 2 ? "recently" : "a while back");
-    const facts = scored.map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
+    const facts = scored.slice(0, M.top).map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
     const day = live.dayNumber ?? live.week;
+    const st = this.bringUp.get(id);
+    const state = st && st.day === day ? st : { day, used: 0, recent: (st?.recent ?? []).filter((r) => day - r.day < M.repeatDays) };
+    // the memory to raise: the strongest one not raised lately
+    const lead = scored.find((x) => !state.recent.some((r) => r.key === `${x.e.kind}:${x.e.week}`));
     let bring = false;
-    if (scored[0]!.w >= GameSessionAdapter.MEMORY_SPEECH.bar && this.bringUpDay.get(id) !== day) {
-      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bring-up:${id}:${day}`)).next();
-      if (roll < Math.min(1, scored[0]!.w * GameSessionAdapter.MEMORY_SPEECH.chanceScale)) { bring = true; this.bringUpDay.set(id, day); }
+    if (lead) {
+      const talk = this.talkativeness(id);
+      const aggrieved = isGrudgeKind(lead.e.kind);
+      const edge = this.rel.edge(id, PLAYER);
+      const close = Math.max(0, Math.min(1, (edge.trust + edge.affinity) / 2));
+      // daily allowance: reserved => 1, chatty => 2, very chatty => 3; a grievance adds one
+      const allowance = Math.min(M.maxPerDay, 1 + (talk >= 0.4 ? 1 : 0) + (talk >= 0.7 ? 1 : 0) + (aggrieved && lead.w >= 0.5 ? 1 : 0));
+      // the salience bar loosens for a talkative houseguest and tightens for a reserved one
+      const bar = M.bar * (1.3 - 0.6 * talk);
+      if (lead.w >= bar && state.used < allowance) {
+        // chance scales with weight, personality, an aggrieved holder, and (for a favor) closeness
+        const chance = Math.min(1, lead.w * M.chanceScale * (0.6 + 0.8 * talk) * (aggrieved ? 1.3 : 0.8 + 0.4 * close));
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bring-up:${id}:${day}:${state.used}`)).next();
+        if (roll < chance) { bring = true; state.used++; state.recent.push({ key: `${lead.e.kind}:${lead.e.week}`, day }); }
+      }
     }
+    this.bringUp.set(id, state);
     return { rememberedAboutYou: facts, ...(bring ? { bringUp: true as const } : {}) };
   }
   setNpcTellsEnabled(on: boolean): void { this.npcTellsEnabled = on; }
@@ -10705,6 +10737,8 @@ export class GameSessionAdapter implements GameSession {
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
     const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
+    if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
@@ -10718,6 +10752,38 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /**
+   * ORW-85 (Ryne 2026-11-10: what NPCs overhear must have real impact and can change decisions) - an awake witness of a deal made in its presence writes a memory, reading the deal
+   * against its OWN position: (1) the deal is a `target-other` that names the witness, or one of its allies, in its terms: a grudge toward BOTH dealmakers; (2) otherwise, if one of the
+   * dealmakers is the witness's ally and the witness was left out: a small hurt toward that ally; (3) otherwise a recall-only entry toward both. Deterministic, no rng. Needs the memory
+   * layer on and a played game (the caller gates it); `recordMemory` bounds it (per-pair cap). Vault-free: only the public deal terms and the witness's own edges are read.
+   */
+  private rememberDealWitnesses(deal: Deal, witnesses: readonly EntityId[]): void {
+    if (!this.npcMemoryEnabled || !this.live || !this.house) return;
+    const [a, b] = deal.parties;
+    const allyBar = RELATIONSHIP_CONSTANTS.thresholds.ally;
+    const isAlly = (w: EntityId, x: EntityId): boolean => { const e = this.rel.edge(w, x); return (e.trust + e.affinity) / 2 >= allyBar; };
+    const terms = deal.terms.toLowerCase();
+    const named = (id: EntityId): boolean => {
+      const full = this.nameOf(id).toLowerCase();
+      const first = full.split(/\s+/)[0] ?? full;
+      return [full, first].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
+    };
+    for (const w of this.awakeAmong(witnesses.filter((id) => id !== PLAYER && id !== a && id !== b))) {
+      const targetsMe = deal.kind === "target-other" && (named(w) || this.livingIds().some((x) => x !== w && x !== a && x !== b && named(x) && isAlly(w, x)));
+      if (targetsMe) {
+        for (const p of [a, b]) this.remember(w, p, "deal-resented", DEAL_WITNESS.targetedSeverity);
+        continue;
+      }
+      const leftOut = [a, b].filter((p) => isAlly(w, p));
+      if (leftOut.length > 0) {
+        for (const p of leftOut) this.remember(w, p, "deal-resented", DEAL_WITNESS.leftOutSeverity);
+        continue;
+      }
+      for (const p of [a, b]) this.remember(w, p, "deal-witnessed", DEAL_WITNESS.recallSeverity);
+    }
   }
 
   /**

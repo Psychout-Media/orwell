@@ -25360,3 +25360,18 @@ body.theme-frosted #welcome-screen .welcome-tip {
     opacity: 0.5;
   }
 }
+
+/* ORW-155 (perf): each prose bubble is its own backdrop-filter layer, so scroll/paint cost grew with the length of the
+   transcript (a 300-message season ~ 300 blur layers). Only the NEWEST bubbles (the ones on screen while playing) keep the frosted
+   blur; older ones drop the blur and stand on a firmer scrim so contrast holds without it. Purely additive: the pinned bubble
+   rules above are unchanged, the newest 12 per sibling run look exactly as before, and adaptiveGlass.js's per-bubble inline
+   scrim still wins where it sets one. */
+body.theme-frosted .msg-ai:not(:nth-last-child(-n+12)) {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  --ai-scrim-alpha: 0.78;
+}
+body.theme-frosted .msg-user:not(:nth-last-child(-n+12)) {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}

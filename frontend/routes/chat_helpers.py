@@ -3774,6 +3774,53 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
     return None
 
 
+# ORW-78 (A94) - a FALSE PREMISE: the player talks as if someone is nominated ("the nominee...") while the engine has NO nominees, and the narrator softly goes along
+# ("the nominee sits quietly..."). Closed-set only (who is nominated), post-turn, a gentle next-turn re-ground like the roster check - never an edit of creative prose (ADR 0005 #1).
+# Deliberately narrow: only a definite "the nominee(s)" in a sentence with NO hypothetical / future / negation / question cue, in a phase before nominations, with no committed nominee.
+_FALSE_NOMINEE_RE = re.compile(r"\bthe\s+(?:two\s+|both\s+|current\s+)?nominees?\b", re.IGNORECASE)
+_FALSE_NOMINEE_SAFE_CUE_RE = re.compile(
+    r"\b(?:no|not|nobody|none|never|yet|n't|haven't|hasn't|isn't|aren't|won't|if|unless|suppose|imagine|whoever|whichever|hypothetically|will|would|could|might|"
+    r"going\s+to|about\s+to|once|until|before|when|after|soon|tonight|tomorrow|later|upcoming|next|eventually|someday|who|what|which|should|may)\b|\?",
+    re.IGNORECASE,
+)
+_PRE_NOMINATION_PHASES = ("premiere", "setup", "hoh")
+
+
+def _false_nominee_premise_sentences(narration: str) -> list:
+    """Sentences that treat 'the nominee(s)' as existing. Skips ((production asides)), questions, negations, hypotheticals and future/conditional talk."""
+    out = []
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration or "", flags=re.DOTALL)
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        if _FALSE_NOMINEE_RE.search(sentence) and not _FALSE_NOMINEE_SAFE_CUE_RE.search(sentence):
+            out.append(sentence.strip())
+    return out
+
+
+async def record_post_turn_false_premise_check(user, narration: str) -> None:
+    """ORW-78 (A94): before nominations the engine has no nominees, yet the narration spoke of 'the nominee' as a person in play. Stash a gentle next-turn re-ground. Fail-open;
+    never raises, never blocks the finishing turn, never edits this turn's prose."""
+    try:
+        _dkey = _desync_key(user)
+        sig = _LAST_BEAT_SIG.get(_dkey)
+        if not sig or sig.get("noms") or sig.get("nomNames"):
+            return  # nothing baseline, or nominees really exist
+        phase = str(sig.get("phase") or "").lower()
+        if not phase.startswith(_PRE_NOMINATION_PHASES):
+            return
+        hits = _false_nominee_premise_sentences(narration)
+        if not hits:
+            return
+        directive = (
+            "RE-GROUND ON THE BOARD - last turn you spoke of 'the nominee' as if someone were already nominated, but the engine has NO nominees yet: the Head of Household "
+            "has not made nominations. Do not go along with a premise that someone is nominated; if the player assumes it, say plainly (in character or in a (( )) aside) "
+            "that nominations have not happened yet. Never invent a nominee."
+        )
+        _reground_enqueue(_dkey, directive)
+        logger.warning("[orwell] false-premise (nominee with none nominated) detected for user=%s - re-grounding next turn", user)
+    except Exception as e:
+        logger.warning("[orwell] post-turn false-premise check skipped for user=%s: %s", user, e)
+
+
 async def record_post_turn_roster_check(user, narration: str) -> None:
     """NARR-3 (#613) post-turn roster-validation backstop. Stash a gentle next-turn re-ground when the
     narration STAGED a houseguest name that exists in NEITHER the active nor the out-of-house roster —
