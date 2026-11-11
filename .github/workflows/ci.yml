@@ -114,24 +114,27 @@ jobs:
           fi
           echo "Changed files:"; echo "$changed" | sed 's/^/  /'
 
-          # Helper: does any changed file match the given ERE?
-          matches() { echo "$changed" | grep -qE "$1"; }
+          # Helper: does any changed file match the given ERE? Every test here reads a HERE-STRING, never `echo ... | grep -q`: under pipefail,
+          # grep -q exits at the first match, echo dies of SIGPIPE once the list is bigger than a pipe buffer (64 KB, about 1,300 paths), and
+          # the test reads as "no match", so the lane was skipped exactly when every lane must run (tests/unit/ciPathFilter.test.ts).
+          matches() { grep -qE "$1" <<<"$changed"; }
 
           # `ci/` (the scripts this workflow runs, e.g. ci/resolve-base.sh) counts like this workflow file in EVERY filter: a change to them must run
-          # everything (ORW-218 review), never skip every lane.
+          # everything (ORW-218 review), never skip every lane. So do the shared composite actions in `.github/actions/`: they are steps of every job
+          # that uses them (setup-fe-python runs in engine, deploy and FE jobs), so a change to ONLY an action still runs each of those jobs (ORW-229).
           # ENGINE: TS sources, all tests, BDD step code (features/) AND the Gherkin itself — the .feature
           # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
           # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
           # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.config\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/)'
+          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
-          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/)'
+          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
           # change can never move a calibration result, so the heavy lane skips for those. `deploy/orwell-env-defaults.sh` is in the set
           # because it still writes the gameplay flags to a box's .env (an `=0` there overrides the code default), so a change to it re-plays the game.
-          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/)'
+          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # ORW-193 PRECISION (pull requests ONLY; a push to main always uses the broad sets above, so main never loses coverage):
           #   - `heavy`: the heavy sims import only src/ plus their own tests/{uat,property,calibration} files and the tests/support
           #     setup files, so an edit under tests/{unit,integration,architecture,dev} cannot move a calibration result.
@@ -154,7 +157,7 @@ jobs:
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
               heavy)     re="$HEAVY_RE" ;;
             esac
-            if echo "$subject" | grep -qE "$re"; then
+            if grep -qE "$re" <<<"$subject"; then
               echo "${name}=true" >> "$GITHUB_OUTPUT"
               echo "==> ${name}: WILL run"
             else
@@ -189,28 +192,37 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - if: needs.changes.outputs.full == 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - run: npm ci
-      # The BDD gate (test:bdd) includes the 0072/0073 scenarios whose step defs delegate to the
-      # vendored front-end's pytest (the authoritative game-build-wall / gateway assertions, which
-      # import the FE app). Those wrappers shell out to `python3 -m pytest`, so the engine test job
-      # needs the FE deps too — without them the BDD gate fails with "No module named pytest".
-      # Only the BDD gate needs them, so a draft (fast tier, BDD skipped) skips setup-python and the install too (ORW-218).
-      - if: needs.changes.outputs.full == 'true'
-        run: pip install -r frontend/requirements.lock.txt
-      # ORW-39: the unit suite runs in the sharded `test-unit` job below; this job keeps the typecheck, the build and the BDD gate (same checks, no unit tests here).
+      # ORW-39: the unit suite runs in the sharded `test-unit` job below. ORW-229 re-shard: the BDD gate (about 4 of this job's 7 minutes) runs in
+      # its own parallel `bdd` job below, so this job is typecheck + build only (the fast tier a draft runs, ORW-218).
       - run: npm run typecheck
       - run: npm run build
-      # Heavy tier (ORW-218): the BDD gate is skipped for a draft PR; ci-gate fails closed for a draft, so this can never be merged unrun.
-      - if: needs.changes.outputs.full == 'true'
-        run: npm run test:bdd
+
+  # ── BDD gate, its own job (ORW-229 re-shard) ───────────────────────────────────────
+  # `npm run test:bdd` (Cucumber over the implemented .feature files) used to run at the end of `test`, after the typecheck and build, which put
+  # about 7 min on the critical path. It needs neither (tsx runs the TS directly), so it runs in parallel here. The 0072/0073 scenarios
+  # delegate to the vendored front-end's pytest, so this job carries the FE deps. Heavy tier (ORW-218): skipped for a draft, and ci-gate fails
+  # closed for a draft, so it can never be merged unrun.
+  bdd:
+    needs: changes
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
+      - run: npm ci
+      - run: npm run test:bdd
 
   # ── Unit suite, SHARDED (ORW-39) ────────────────────────────────────────────────
-  # `test:unit:fast` (everything but the heavy sims) split four ways with vitest's own --shard; every file still runs exactly once across the legs.
+  # `test:unit:fast` (everything but the heavy sims) split five ways with --shard (balanced by measured duration, vitest.sequencer.ts); every file still runs
+  # exactly once across the legs. ORW-229 re-shard: 5 legs instead of 4 for the 40-slot pool (the balanced 4-leg long pole was 6:29, #2240).
   # The build runs first because some unit tests exercise dist/. `ci-gate` needs this job, so a failed leg fails the gate.
   test-unit:
     needs: changes
@@ -220,7 +232,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -229,15 +241,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - run: npm ci
-      - run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm run build
       # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
-      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/4 --retry=1
+      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/5 --retry=1
 
   # ── Heavy simulation lane (ONE job — consolidated for the single self-hosted runner) ──────────
   #
@@ -324,17 +332,26 @@ jobs:
           pattern: coverage-blob-*
           path: .vitest-reports
           merge-multiple: true
-      - name: all four shard reports must be present
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shard-manifest-*
+          path: .shard-manifests
+          merge-multiple: true
+      - name: all six shard reports must be present
         run: |
           ls -l .vitest-reports
-          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 4
-      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all four shards.
+          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 6
+      # ORW-218: the duration-balanced split must have run every test file exactly once across the six legs (nothing unassigned, nothing twice, set == files on disk minus the heavy exclusions).
+      - name: shard union equals the full test set
+        run: >-
+          node ci/check-shard-union.mjs .shard-manifests --count 6 --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
+      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all six shards.
       - run: >-
           npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --coverage
 
   # ── Coverage gate, SHARDED (ORW-39) ─────────────────────────────────────────────
-  # Four legs each run a disjoint slice of the coverage suite under v8 and upload a blob (vitest.shard.config.ts zeroes the floors for the legs only);
+  # Six legs (ORW-229 re-shard; four until 2026-11-07) each run a disjoint slice of the coverage suite under v8 and upload a blob (vitest.shard.config.ts zeroes the floors for the legs only);
   # the `coverage` job below merges the blobs and enforces the ORIGINAL thresholds once on the merged measurement.
   # ORW-229: one automatic retry per test (`--retry=1`); the blobs keep each test's retry count, so the `coverage` job's summary lists every flake.
   coverage-shard:
@@ -345,7 +362,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -355,15 +372,26 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: >-
+      - name: coverage leg (duration-balanced slice; writes its file manifest for the union check in `coverage`)
+        env:
+          ORWELL_SHARD_MANIFEST_DIR: .shard-manifests
+        run: >-
           npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-          --coverage.reporter=json --shard=${{ matrix.shard }}/4 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
+          --coverage.reporter=json --shard=${{ matrix.shard }}/6 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-blob-${{ matrix.shard }}
           path: .vitest-reports/
           # the folder is hidden (leading dot): upload-artifact@v4 skips hidden files unless told otherwise ("Found 0 artifact(s)")
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      # Kept out of .vitest-reports: `vitest --merge-reports` parses every file in that folder as a blob.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shard-manifest-${{ matrix.shard }}
+          path: .shard-manifests/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
@@ -385,14 +413,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - run: npm ci
       # The end-to-end smoke stage (B71/ops A7) boots the REAL front-end against a
       # token-enforcing engine and drives a full turn — it needs the FE deps.
-      - run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - name: deploy scripts parse
         # Enumerate EVERY tracked deploy shell script recursively (incl. nested dirs like
         # deploy/expose/*.sh) — the old non-recursive `deploy/*.sh` glob silently skipped them (#618).
@@ -429,18 +453,13 @@ jobs:
         with:
           # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - name: py_compile the front-end (incl. extensionless CLI scripts)
         run: |
           python3 -m py_compile $(git ls-files 'frontend/**/*.py')
           for s in $(git ls-files 'frontend/scripts/*' 'frontend/integrations/**'); do
             head -1 "$s" | grep -q python && python3 -m py_compile "$s" || true
           done
-      - name: install front-end deps
-        run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - name: pytest — non-browser suite, parallel (app-admin 0029, game build 0032)
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
@@ -448,7 +467,8 @@ jobs:
           ORWELL_CI_SHARD: ${{ matrix.shard }}/2
         # ORW-229 flaky-test rule (docs/CI.md): one automatic rerun, like the browser lane; a test that passes only on the rerun is listed in the job
         # summary (frontend/tests/_flaky_report.py). Quarantined tests are deselected here and run nightly (frontend/tests/_quarantine.py).
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --reruns 1 -q -rs
+        # --durations=0: every test's time is in the log, so frontend/tests/_ci_refresh_durations.py can refresh the shard table from any green run
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --reruns 1 -q -rs --durations=0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -473,24 +493,22 @@ jobs:
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # ORW-193: three parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
+    # ORW-193: parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
     # shard (fixed ports, one real page at a time) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
+    # ORW-229 re-shard: five legs, files balanced by MEASURED seconds (frontend/tests/_ci_durations.json). Simulated on the 49 browser files:
+    # 3 count-balanced legs were 6.8/3.1/3.4 min of tests (the real 3/3 run: 8.4/4.6/6.0 min jobs); 5 duration-balanced legs are 3.3/2.5/2.5/
+    # 2.5/2.5, and the 3.3 is one file alone (test_a58_golden_render_live_vs_reload, 200 s), so a sixth leg would add a setup and save nothing.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-    name: fe-browser-tests (${{ matrix.shard }}/3)
+        shard: [1, 2, 3, 4, 5]
+    name: fe-browser-tests (${{ matrix.shard }}/5)
     steps:
       - uses: actions/checkout@v4
         with:
           # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: install front-end deps
-        run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - uses: ./.github/actions/setup-playwright
       # The real-stack browser tests (test_m0_3_midgen_join, test_p0h_day1_clock_e2e, test_b13_interrupt_e2e, test_first_message_double_render, test_f3_drop_after_saved_no_recovery, ...) boot the
       # BUILT engine (`dist/main.js`) and skipped with "engine bundle missing" because this job never built it. The A41 skip guard surfaced that 23 browser tests were silently not running.
@@ -505,8 +523,9 @@ jobs:
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
           ORWELL_SKIP_LANE: browser
-          ORWELL_CI_SHARD: ${{ matrix.shard }}/3
-        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=8
+          ORWELL_CI_SHARD: ${{ matrix.shard }}/5
+        # --durations=0 (was 8): every test's time is in the log, so the shard table can be refreshed from any green run (_ci_refresh_durations.py)
+        run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=0
 
   fe-browser:
     needs: changes
@@ -518,17 +537,55 @@ jobs:
         with:
           # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: install front-end deps
-        run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - uses: ./.github/actions/setup-playwright
       - name: boot smoke — real app, game-build gating (feature 0032)
         run: cd frontend && python3 scripts/boot_smoke.py
       - name: browser smoke — keep-set UI loads, no broken modules (feature 0032)
         run: cd frontend && python3 scripts/browser_smoke.py
+
+  # ORW-189-lite: REPORT-ONLY front-end performance job (4x CPU throttle: long tasks while a ~2,000-char reply streams,
+  # idle requests/min, JS+CSS bytes). Prints a table to the job summary and uploads perf-report.json. NOT in `ci-gate`
+  # needs and `continue-on-error`: it never blocks a merge. Gating comes later, in the ratchet.
+  fe-perf-report:
+    needs: changes
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
+      - run: npm ci
+      - run: npm run build
+      - uses: ./.github/actions/setup-playwright
+      - name: perf report (report-only)
+        env:
+          PERF_LABEL: ${{ github.sha }}
+        # Report-only: a bad NUMBER never fails the build, and neither does a dead harness - but a dead harness must be visible.
+        continue-on-error: true
+        run: |
+          # pass 1: glass pinned (the automation default is glass; this is the long-run baseline). pass 2: low-power pinned, short idle window.
+          if ! (cd frontend && PERF_LOW_POWER=0 python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json" \
+                && PERF_LOW_POWER=1 python3 scripts/perf_report.py --idle-seconds 10 --out "$GITHUB_WORKSPACE/perf-report-lowpower.json"); then
+            echo "::warning::perf report did not run (the harness could not boot the stack or crashed); see this step's log"
+            echo "### Front-end performance: perf report did not run" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-report
+          path: |
+            perf-report.json
+            perf-report-lowpower.json
+          if-no-files-found: warn
+          retention-days: 30
 
   fe-responsive:
     needs: changes
@@ -546,12 +603,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: install front-end deps
-        run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - uses: ./.github/actions/setup-playwright
       # ── #651 gap 1: stage a REAL engine so the game surfaces are actually measured ──────────
       # Without ORWELL_MATRIX_ENGINE the gate runs CHROME-ONLY (no game staged), so the game
@@ -608,14 +660,15 @@ jobs:
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20  # one group of gate legs, each with bounded retries (was 40 for all six in one job)
-    # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane). Split into two parallel jobs of three-ish
-    # legs each; the legs are independent (each boots its own engine + FE on its own ports) and every one still runs, with the same retries.
-    #   live = the F5 live parity gate, SSE + WS (about 4.7 min)   rest = tool-turn + HUD parity, SSE + WS each (about 4.2 min)
+    # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane), then in two parallel jobs (live, rest; about
+    # 5 min each). ORW-229 re-shard: four parallel jobs; the legs are independent (each boots its own engine + FE on its own ports) and every one
+    # still runs, with the same retries. Measured leg times: live SSE 174 s, live WS 91 s, the tool-turn pair and the HUD pair about 2 min each.
+    #   live-sse = F5 live parity, SSE/poll    live-ws = F5 live parity, WebSocket    toolturn = tool-turn parity, both    hud = HUD parity, both
     # ORW-229: a gate that passes only on a later attempt is a flake: it is written to the job summary and raised as a warning (docs/CI.md).
     strategy:
       fail-fast: false
       matrix:
-        group: [live, rest]
+        group: [live-sse, live-ws, toolturn, hud]
     name: mirror-parity (${{ matrix.group }})
     steps:
       - uses: actions/checkout@v4
@@ -625,21 +678,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
       - name: build the engine (dist/main.js the gate boots)
         run: |
           npm ci
           npm run build
-      - name: front-end venv (the gate runs frontend/.venv/bin/python)
-        run: |
-          python3 -m venv frontend/.venv
-          frontend/.venv/bin/pip install --upgrade pip
-          frontend/.venv/bin/pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
+      - name: front-end venv (the gate runs frontend/.venv/bin/python; it sees the cached deps above, so nothing is installed twice)
+        run: python3 -m venv --system-site-packages frontend/.venv
       - name: mirror-parity gate — SSE/poll fallback transport (blocking)
-        if: matrix.group == 'live'
+        if: matrix.group == 'live-sse'
         run: |
           set -uo pipefail
           # The blocking F5 gate runs in the SSE/poll FALLBACK transport (MIRROR_WS_TRANSPORT=0 ⇒
@@ -670,7 +717,7 @@ jobs:
       # default-on (settings.py `ws_transport_enabled`); this leg keeps both modes honest (protocol spec §9
       # step 7 — WS default-on only with both legs green).
       - name: mirror-parity gate — WebSocket transport (blocking)
-        if: matrix.group == 'live'
+        if: matrix.group == 'live-ws'
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -692,7 +739,7 @@ jobs:
       # asserts the WS frame-log collapse (one chat subscribe per attached run, no stale run-started
       # edge churn), so a reintroduced replay loop fails loudly here, not in production.
       - name: mirror-toolturn gate — SSE/poll transport (blocking)
-        if: matrix.group == 'rest'
+        if: matrix.group == 'toolturn'
         run: |
           set -uo pipefail
           for attempt in 1 2; do
@@ -708,7 +755,7 @@ jobs:
           echo "::error::mirror-toolturn SSE leg failed all attempts (dup/orphan bubbles across a tool-rich turn under the fallback transport)."
           exit 1
       - name: mirror-toolturn gate — WebSocket transport (blocking)
-        if: matrix.group == 'rest'
+        if: matrix.group == 'toolturn'
         run: |
           set -uo pipefail
           for attempt in 1 2; do
@@ -731,7 +778,7 @@ jobs:
       # 20-30s poll. Key-free, deterministic fake model, same run_mirror_gate.sh driver as the live
       # and toolturn parity gates. See docs/audits/playtest-harness/README.md §10.
       - name: mirror-hud gate — SSE/poll transport (blocking)
-        if: matrix.group == 'rest'
+        if: matrix.group == 'hud'
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -747,7 +794,7 @@ jobs:
           echo "::error::mirror-hud SSE leg failed all attempts (B's HUD did not reconcile off the SSE push within budget)."
           exit 1
       - name: mirror-hud gate — WebSocket transport (blocking)
-        if: matrix.group == 'rest'
+        if: matrix.group == 'hud'
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -787,12 +834,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: install front-end deps
-        run: pip install -r frontend/requirements.lock.txt
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - uses: ./.github/actions/setup-playwright
       # Stage a REAL engine (deterministic Echo narrator, key-free — same as fe-responsive) so the
       # game + endgame surfaces are actually rendered + audited.
@@ -838,6 +880,7 @@ jobs:
     needs:
       - changes
       - test
+      - bdd
       - test-unit
       - coverage-shard
       - coverage
@@ -856,6 +899,7 @@ jobs:
           RESULTS: >-
             changes=${{ needs.changes.result }}
             test=${{ needs.test.result }}
+            bdd=${{ needs.bdd.result }}
             test-unit=${{ needs.test-unit.result }}
             coverage-shard=${{ needs.coverage-shard.result }}
             coverage=${{ needs.coverage.result }}
@@ -881,7 +925,7 @@ jobs:
           applicable() {
             case "$1" in
               changes) echo true ;;
-              test|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;
+              test|bdd|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;
               heavy-sims) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
               fe-unit|fe-browser-tests) echo "$FRONTEND" ;;

@@ -18,8 +18,8 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "test", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
-const HEAVY_TIER = ["coverage-shard", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "test", "bdd", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const HEAVY_TIER = ["bdd", "coverage-shard", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
   const env = {
@@ -70,7 +70,7 @@ describe("ci-gate (two-tier CI)", () => {
 
 describe("ci.yml wiring (two-tier CI)", () => {
   it("every heavy-tier job is gated on the full tier", () => {
-    for (const job of ["heavy-sims", "coverage", "coverage-shard", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["bdd", "heavy-sims", "coverage", "coverage-shard", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m, job).toBeTruthy();
       expect(m![1], job).toContain("needs.changes.outputs.full == 'true'");
@@ -82,11 +82,14 @@ describe("ci.yml wiring (two-tier CI)", () => {
       expect(m![1], job).not.toContain("full");
     }
   });
-  it("the BDD gate and the FE deps it alone needs are full-tier only in the test job", () => {
-    const testJob = yml.slice(yml.indexOf("\n  test:\n"), yml.indexOf("\n  test-unit:\n"));
-    for (const step of ["uses: actions/setup-python@v5", "run: pip install -r frontend/requirements.lock.txt", "run: npm run test:bdd"]) {
-      expect(testJob, step).toMatch(new RegExp(`- if: needs\\.changes\\.outputs\\.full == 'true'\\n\\s+${step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-    }
+  it("the BDD gate runs in its own heavy-tier job; the fast-tier test job is typecheck + build only (ORW-229 re-shard)", () => {
+    const testJob = yml.slice(yml.indexOf("\n  test:\n"), yml.indexOf("\n  bdd:\n"));
+    const bddJob = yml.slice(yml.indexOf("\n  bdd:\n"), yml.indexOf("\n  test-unit:\n"));
+    expect(testJob).toContain("run: npm run typecheck");
+    expect(testJob).toContain("run: npm run build");
+    for (const gone of ["run: npm run test:bdd", "uses: actions/setup-python", "uses: ./.github/actions/setup-fe-python", "run: pip install"]) expect(testJob, gone).not.toContain(gone);
+    expect(bddJob).toContain("run: npm run test:bdd");
+    expect(bddJob).toContain("uses: ./.github/actions/setup-fe-python");
   });
   it("calibration-nightly skips a draft PR unless it carries full-ci, and runs when the draft is marked ready", () => {
     const cal = readFileSync(fileURLToPath(new URL("../../.github/workflows/calibration-nightly.yml", import.meta.url)), "utf8");
