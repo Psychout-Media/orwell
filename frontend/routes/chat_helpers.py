@@ -3341,7 +3341,7 @@ def _stages_in_scene(narration: str, name: str) -> bool:
     if re.search(verb_pat, scanned, re.IGNORECASE):
         return True
     # "Nia: 'I called this.'" / 'Ana "what is this?"' — a quoted line right after the name.
-    quote_pat = rf"\b{n}(?:['’]s)?\b\s*[:—-]?\s*[\"“]"
+    quote_pat = rf"\b{n}(?:['’]s)?\b\]?\s*[:—-]?\s*[\"“]"  # ORW-263: the narrator's speaker line is `@[Name] — "..."` (the closing bracket sat between the name and the dash, so the line was never read as staging)
     return bool(re.search(quote_pat, scanned, re.IGNORECASE))
 
 
