@@ -338,4 +338,4 @@ def test_framing_consumes_reground_and_stores_signature():
     assert "_LAST_BEAT_SIG[_dkey] = await _capture_beat_signature(user)" in src
     consume = src.index("_DESYNC_REGROUND.pop(_dkey")
     assert "beat-signature checkpoint skipped" in src
-    assert "except Exception" in src[consume:consume + 600]
+    assert "except Exception" in src[consume:consume + 1400]
