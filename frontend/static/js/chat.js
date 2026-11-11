@@ -30,6 +30,7 @@ import { isNarrow } from './platform.js';
 // imported binding is read-only; a shared object's fields are not). Behavior-preserving: chat.js
 // still owns all the logic and just references `chatState.X` where it used to reference `X`.
 import { chatState } from './chatState.js';
+import { applyDelta } from './chatStreamMachine.js';
 // #1414 (R3 PR1): the #738 scroll-edge mask + recede-on-scroll banner — the first leaf
 // extraction from this god-object. Behavior-preserving: chat.js still calls
 // _initChatScrollEdges() from init() exactly as before, the logic just lives in its own
@@ -1710,6 +1711,12 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
       // `chat` event frames into THIS already-created holder via the persistent consumer
       // (_onWsChatFrame). We pin the holder + spinner as the render target and skip the
       // fetch. Dormant when the flag is off (byte-identical SSE path preserved).
+      // ORW-44 S2 (Ryne: "drop it" - WebSocket only): the game build has NO SSE send path. Make sure the socket is up first (waits out an in-flight reconnect, forces one upgrade attempt for a
+      // pre-game / per-tab-pending fallback); if it cannot be, the turn is refused below with a clear message instead of silently POSTing /api/chat_stream.
+      const _wsOnlySend = isGameBuild() && !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn());  // the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE path
+      if (_wsOnlySend && streamSessionId && !_wsChatActive()) {
+        try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
+      }
       if (_wsChatActive() && streamSessionId) {
         const _bodyDiv = holder.querySelector('.body');
         let _sc = _bodyDiv && _bodyDiv.querySelector('.stream-content');
@@ -1768,6 +1775,19 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
           try { await softReloadHistory(streamSessionId); } catch (_) {}
           return;
         }
+      }
+
+      if (_wsOnlySend) {
+        // ORW-44 S2: the live connection is down and could not be brought up. Refuse the send cleanly: nothing was sent, so give the text back, drop the optimistic bubble and say why.
+        try { _outboxReleaseInflightSend(_clientMsgId); } catch (_) {}
+        if (clearResponseTimeout) clearResponseTimeout();
+        try { if (spinner) spinner.destroy(); } catch (_) {}
+        if (chatState._streamSessionId === streamSessionId) chatState._streamSessionId = null;
+        try { if (holder) holder.remove(); } catch (_) {}
+        try { if (_userMsgEl) _userMsgEl.remove(); } catch (_) {}
+        try { const msgEl = document.getElementById('message'); if (msgEl) msgEl.value = _finalMsgWithInject; } catch (_) {}
+        try { uiModule.showToast('This network blocks the live connection Orwell needs to play. Your message is back in the box - try again on another network.', 7000); } catch (_) {}
+        return;
       }
 
       const res = await fetch(`${API_BASE}/api/chat_stream`, {
@@ -2272,27 +2292,18 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 if (_threadAbove && _threadAbove.classList.contains('agent-thread') && !_threadAbove.classList.contains('has-bottom')) {
                   _threadAbove.classList.add('has-bottom');
                 }
-                // VLLM reasoning tokens: wrap in <think> tags for the thinking UI.
-                // Stateful open/close (not a whole-message substring check) so each round
-                // of a multi-round agent response gets its own <think>…</think> — otherwise
-                // only round 1 is wrapped and rounds 2+ reasoning leaks into the answer.
-                let _delta = json.delta;
-                // F8: split the RAW delta by channel BEFORE the <think>-wrapping below, so the
-                // reply buffer carries zero reasoning/markup and the accordion buffer carries raw
-                // reasoning. The BODY render reads roundReplyText → reasoning can't leak into it.
-                if (json.thinking) roundReasoningText += json.delta;
-                else               roundReplyText += json.delta;
+                // ORW-59 / R3 step 2: the channel split (F8) and the stateful <think> wrapping are the pure `applyDelta` (chatStreamMachine.js). The BODY render reads roundReplyText →
+                // reasoning can't leak into it; the merged accumulated / roundText stay intact for the other consumers.
+                const _ad = applyDelta({ accumulated, roundText, roundReplyText, roundReasoningText, thinkOpen: _thinkOpen }, json);
+                roundReplyText = _ad.roundReplyText;
+                roundReasoningText = _ad.roundReasoningText;
+                _thinkOpen = _ad.thinkOpen;
                 // CodeRabbit fix: clear the premiere-recovery latch only on a real reply token —
                 // a reasoning-only delta must NOT clear it (see declaration comment above).
-                if (!json.thinking && _orwellPremiereRecoveryArmed) _orwellPremiereRecoveryArmed = false;
-                if (json.thinking) {
-                  if (!_thinkOpen) { _delta = '<think>' + _delta; _thinkOpen = true; }
-                } else if (_thinkOpen) {
-                  _delta = '</think>' + _delta; _thinkOpen = false;
-                }
-                const wasEmpty = !accumulated;
-                accumulated += _delta;
-                roundText += _delta;
+                if (_ad.isReplyToken && _orwellPremiereRecoveryArmed) _orwellPremiereRecoveryArmed = false;
+                const wasEmpty = _ad.wasEmpty;
+                accumulated = _ad.accumulated;
+                roundText = _ad.roundText;
                 currentAccumulated = accumulated; // Update global tracker
                 // First token arrived — switch stop button from processing to streaming
                 if (wasEmpty && submitBtn && !_isBg) {

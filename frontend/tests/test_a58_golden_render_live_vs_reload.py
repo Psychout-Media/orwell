@@ -63,6 +63,10 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         except Exception as e:  # noqa: BLE001
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
+        # ORW-251j: record every WebSocket frame the page receives (type, channel, event type), so a turn that paints its whole reply but never settles can say whether the `done` frame ever arrived.
+        page.add_init_script("""(() => { const W = window.WebSocket; if (!W) return; window.__wsLog = [];
+          window.WebSocket = function (...a) { const ws = new W(...a); ws.addEventListener('message', (e) => { try { const f = JSON.parse(e.data); window.__wsLog.push([f.t, f.ch || '', (f.d && (f.d.type || f.d.done && 'done' || f.d.reason)) || ''].join('/')); if (window.__wsLog.length > 60) window.__wsLog.shift(); } catch (_) {} }); return ws; };
+          window.WebSocket.prototype = W.prototype; ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach((k) => { window.WebSocket[k] = W[k]; }); })();""")
         page.goto(stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
         before = page.evaluate(SNAP)
@@ -122,7 +126,7 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         if gate is not None:
             gate.set()
         assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'. attempts={attempts} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}/{n_script} diag={diag[-6:]}"
-        assert live and live["footer"], f"the live turn never settled (no footer): last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
+        assert live and live["footer"], f"the live turn never settled (no footer): wsLog={page.evaluate('() => (window.__wsLog || []).slice(-14)')} ws={page.evaluate('() => window.OrwellWs ? [window.OrwellWs.mode(), window.OrwellWs.isChatSubscribed()] : null')} active={page.evaluate('() => window.chatModule && window.chatModule.hasActiveStream ? window.chatModule.hasActiveStream() : null')} last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
