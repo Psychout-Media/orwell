@@ -9,9 +9,9 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
 
-export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches";
+export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches" | "final3Eviction" | "secretVetoReplacement";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
@@ -28,6 +28,9 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   juryVote: ["juryMemoryFor"],
   // Who approaches the player (`rankApproaches` in conversation.ts, called by the adapter's `socialInitiatives`): edges + (B7 M1b, ORWELL_APPROACH_MEMORY) one memory/owed bias passed as the `memoryBias` hook,
   // NOT a SeasonCtx provider - held by tests/unit/approachMemory.test.ts instead of the liveSeason scan.
+  // ORW-87: the NPC final HOH's Final-3 eviction (threat + memory) and the secret-veto replacement (nomination score + memory) read the ledger via `endgameMemoryFor` (ORWELL_ENDGAME_MEMORY, played games only).
+  final3Eviction: ["endgameMemoryFor"],
+  secretVetoReplacement: ["endgameMemoryFor"],
   approaches: ["approachMemoryFor", "moodApproachFor"],
 };
 
@@ -40,13 +43,11 @@ export const UNREAD_PROVIDERS_ALLOWED: Readonly<Partial<Record<MemoryProvider, s
  * (`tests/unit/memoryDecisionMatrixAll.test.ts` holds the code to it, both ways). `voteChoice` means "delegates to the eviction vote, so it reads every evictionVote provider".
  * `OTHER_DECISION_GAPS` is the honest list of what each one does NOT yet read, as input to a deliberate wiring decision (never to be wired silently).
  */
-export type OtherDecision = "tieBreak" | "jury" | "final3Eviction" | "secretVetoReplacement" | "dealConsent" | "movement";
+export type OtherDecision = "tieBreak" | "jury" | "dealConsent" | "movement";
 
 export const OTHER_DECISION_READS: Readonly<Record<OtherDecision, readonly string[]>> = {
   tieBreak: ["voteChoice"],
   jury: ["edgeAsJuryRel", "gameRespectTerm", "appealPerf", "jurorProfile"], // A62: the recorded manner (and a juror's possibly mistaken blame) now arrives inside edgeAsJuryRel, no separate mannerFor read
-  final3Eviction: ["byThreat"],
-  secretVetoReplacement: ["nominationScore"],
   dealConsent: ["memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor"],
   movement: ["bondStrength", "applyWantToPulls"],
 };
@@ -54,8 +55,6 @@ export const OTHER_DECISION_READS: Readonly<Record<OtherDecision, readonly strin
 export const OTHER_DECISION_GAPS: Readonly<Record<OtherDecision, string>> = {
   tieBreak: "none - it is the eviction vote, so it inherits every evictionVote provider",
   jury: "reads the edge, the recorded manner (the grudge book), the game-respect resume, the juror profile and the Q&A appeal; not the NPC memory ledger, beliefs, mood or tells (the jury has its own grievance model)",
-  final3Eviction: "threat only (byThreat); no memory, belief, bond, mood or drive - the weakest decision in the table",
-  secretVetoReplacement: "the plain nomination score on edges and mood; no campaign, memory, belief, deal, mood-tilt or drive push (the main nomination read has them all)",
   dealConsent: "edges + grudge/favor + the targets-me belief + (B31) mood; not an NPC's own drive or an open campaign against the proposer",
   movement: "edges (bond/threat) + the want; not memory, belief, mood or the NPC's drive",
 };

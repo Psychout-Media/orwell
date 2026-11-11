@@ -8136,6 +8136,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
+      ...(this.endgameMemoryEnabled ? { endgameMemoryFor: (s: EntityId, d: EntityId) => this.endgameMemoryFor(s, d) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.hcStrategyEnabled && this.live?.playedGame === true ? { hcStrategyFor: (c: EntityId, h: EntityId) => this.hcStrategyFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
@@ -12094,6 +12095,15 @@ export class GameSessionAdapter implements GameSession {
   juryMemoryFor(juror: EntityId, finalist: EntityId): number {
     if (!this.juryMemoryEnabled || juror === PLAYER || !this.npcMemoryEnabled) return 0;
     return Math.max(-JURY_MEMORY.max, Math.min(JURY_MEMORY.max, (0 - this.memoryTiltFor(finalist, juror)) * JURY_MEMORY.scale));
+  }
+
+  /** ORW-87 - the Final-3 eviction and the secret-veto replacement read the NPC's memory ledger too. ON by default; `=0` turns it off. Read only for a played game (`live.playedGame`), so headless calibration sims stay byte-identical. */
+  private endgameMemoryEnabled = flagDefaultOn("ORWELL_ENDGAME_MEMORY");
+  setEndgameMemoryEnabled(on: boolean): void { this.endgameMemoryEnabled = on; }
+  /** ORW-87 - the signed tilt (+ grudge, - favor) of NPC `decider` toward acting against `subject`: the ledger's tilt, bounded [-1, 1]. 0 for the player, off, no ledger, or a game nobody is playing. Deterministic, no rng. */
+  endgameMemoryFor(subject: EntityId, decider: EntityId): number {
+    if (!this.endgameMemoryEnabled || !this.npcMemoryEnabled || decider === PLAYER || this.live?.playedGame !== true) return 0;
+    return Math.max(-1, Math.min(1, this.memoryTiltFor(subject, decider)));
   }
 
   /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */

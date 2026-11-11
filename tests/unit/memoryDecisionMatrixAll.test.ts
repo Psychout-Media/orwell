@@ -20,8 +20,6 @@ function slice(src: string, a: string, b: string): string {
 const SLICES: Record<OtherDecision, () => string> = {
   tieBreak: () => slice(LS, 'if (s.hoh === ctx.player) { s.pending = { kind: "tie-break"', "return commitStagedEviction(s, ctx, evictee, rng);"),
   jury: () => slice(LS, "function precomputeVotes(", "return votes;"),
-  final3Eviction: () => slice(LS, 'return { kind: "final-eviction", evict: byThreat(p.by, p.options) };', "};"),
-  secretVetoReplacement: () => slice(LS, "function playSecretVeto(", "s.finalNominees = [staying, replacement];"),
   dealConsent: () => slice(GA, "private dealConsentRefusal(", "return d.accept"),
   movement: () => slice(GA, "private movementIntentFor(", "return pulls.length ? pulls : null;"),
 };
