@@ -7641,6 +7641,14 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     user is skipped rather than stacked, so the fire-and-forget guard can never pile a backlog
     of O(events) commits onto the engine's per-user queue and stall the next live turn."""
     text = (narration or "").strip()
+    # ORW-26: consume the belt's "nobody present" verdict up front so it can never leak into a later turn.
+    belt_declined = False
+    if session_id is not None:
+        try:
+            from src import fold_ledger as _fl_d
+            belt_declined = _fl_d.consume_belt_declined(user, session_id)
+        except Exception:
+            belt_declined = False
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
     # ORW-185: two turn shapes are NOT an unrecorded social scene, and used to trip this guard (the flat
@@ -7697,7 +7705,8 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         # recordInteraction with the scene-shape `consequence` descriptor. Banked ⇒ done (we do
         # NOT also write a second, flatter digest for the same turn).
         try:
-            if await _e22_rich_extract(user, player_message, text):
+            # ORW-26: the in-loop belt already ran this exact extraction and found every proposed participant off-scene - don't pay (or risk a different roll of) a second identical call; go to the floor digest.
+            if not belt_declined and await _e22_rich_extract(user, player_message, text):
                 return True
         except Exception as e:  # never let the rich path break the floor fallback
             logger.warning("[orwell] E22 rich extraction errored for user=%s: %s", user, e)
