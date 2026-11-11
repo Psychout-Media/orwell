@@ -543,9 +543,85 @@
     return cues[kind] || "I've made my decision — let's see how the house takes it.";
   }
 
+  // ORW-281 4b: a staged-ceremony WATCH step. Not a decision - no options, no Confirm, no stakes skin: the
+  // engine's one Vault-free line and a Continue that moves the ceremony exactly one step (advanceGame via
+  // POST /api/orwell/ceremony-continue). Mounts through the same sheet -> notice -> stream chain as the
+  // decision card so it sits where the player already looks.
+  function renderCeremonyStep(pending) {
+    ensureStyles();
+    const chatBox = document.getElementById("chat-history");
+    const hasKit = !!(window.OrwellNoticeKit && document.querySelector(".chat-input-bar"));
+    if (!chatBox && !hasKit) return;
+    const cer = pending.ceremony || {};
+    const card = document.createElement("div");
+    card.id = CARD_ID;
+    card.classList.add("odec", "odec-watch");
+    card.role = "group";   // ARIA reflection: a watch step is not a form (the decision card keeps role=form)
+    card.setAttribute("aria-label", "Ceremony");
+    card.dataset.binding = "false";
+    card.dataset.ceremony = String(cer.kind || "");
+    card.dataset.step = String(cer.step || "");
+    const head = document.createElement("div");
+    head.className = "odec-head";
+    const stepOf = (cer.step && cer.of) ? " \u00b7 " + cer.step + " of " + cer.of : "";
+    head.innerHTML = `<span class="odec-title">${esc(_ceremonyTitle(cer.kind))}${esc(stepOf)}</span>`;
+    const body = document.createElement("p");
+    body.className = "odec-note";
+    body.textContent = String(pending.text || pending.prompt || "");
+    const btn = document.createElement("button");
+    btn.className = "ow-btn ow-btn-prominent odec-confirm"; btn.type = "button";
+    btn.textContent = "Continue";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/orwell/ceremony-continue", { method: "POST", credentials: "same-origin" });
+        if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
+        const res = await r.json().catch(() => ({}));
+        removeCard();
+        if (window.orwellGameChanged) window.orwellGameChanged("ceremony-step", res && res.beatSeq);
+        // The next step (or the next binding decision) arrives on the same view: mount it now.
+        const nxt = res && res.pending;
+        if (nxt && nxt.kind) window.dispatchEvent(new CustomEvent("orwell:pending", { detail: { pending: nxt } }));
+      } catch (_) {
+        if (window.OrwellReport) window.OrwellReport.fail("decision", "ceremony-continue", _); // G11: fail open, never silent
+        btn.disabled = false;
+        btn.textContent = "Continue (try again)";
+      }
+    });
+    card.appendChild(head); card.appendChild(body); card.appendChild(btn);
+    const hasSheet = !!(window.OrwellSheetKit && window.OrwellSheetKit.create &&
+      (document.querySelector(".chat-input-bar") || document.getElementById("chat-bar") ||
+       (window.OrwellNoticeKit && window.OrwellNoticeKit.ensureZone)));
+    if (hasSheet) {
+      _sheet = window.OrwellSheetKit.create({ id: "orwell-decision-sheet", anchored: true,
+        title: _ceremonyTitle(cer.kind), role: "group", dismissible: false });
+      const host = _sheet.ensure();
+      const sheetHead = _sheet.el && _sheet.el.querySelector(".ow-sheet-head");
+      if (sheetHead) sheetHead.style.display = "none";
+      host.appendChild(card);
+    } else if (hasKit) {
+      _notice = window.OrwellNoticeKit.create({ id: "orwell-decision-notice", kind: "decision",
+        title: _ceremonyTitle(cer.kind), role: "presentation", dismissible: false, persistDismiss: false });
+      const host = _notice.ensure();
+      const kitHead = _notice.el && _notice.el.querySelector(".on-head");
+      if (kitHead) kitHead.style.display = "none";
+      host.appendChild(card);
+    } else {
+      chatBox.appendChild(card);
+    }
+    card.scrollIntoView({ block: "nearest" });
+    card.setAttribute("tabindex", "-1");
+    card.focus();
+  }
+  function _ceremonyTitle(kind) {
+    return ({ "nominations": "Nominations", "veto-draw": "Veto draw", "veto-ceremony": "Veto ceremony",
+              "eviction": "Eviction night" })[kind] || "Ceremony";
+  }
+
   function render(pending) {
     removeCard();
     if (!pending || !pending.kind) return;
+    if (pending.kind === "ceremony-step") { renderCeremonyStep(pending); return; }
     ensureStyles();
     // #642: the card mounts into the OrwellNotice kit's above-composer zone (the kit anchors it
     // above .chat-input-bar). Require the kit + the composer anchor; fall back to the in-stream
