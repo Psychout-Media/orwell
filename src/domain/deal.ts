@@ -15,7 +15,7 @@ import type { EntityId } from "./ids";
  * The first four are DEFENSIVE (negative-obligation) promises — "don't move against me". The last two
  * (0121) are ACTIVE (positive-obligation) promises — "do this FOR me" — where a break is a FAILURE TO ACT.
  */
-export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
+export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third";
 
 /** 0121 — the ACTIVE-obligation kinds: a break is a failure to act (throw the comp / use the veto to save). */
 const POSITIVE_KINDS: ReadonlySet<DealKind> = new Set<DealKind>(["comp-throw", "veto-save"]);
@@ -140,8 +140,10 @@ const ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
  * Build the condition for a freshly-made deal. `safety` / `vote` / `final-two` bind BOTH parties not
  * to move against the other; `target-other` binds only the promisor (`parties[0]`) to spare `parties[1]`.
  */
-export function conditionFor(kind: DealKind, parties: [EntityId, EntityId]): DealCondition {
+export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], third?: EntityId): DealCondition {
   const [a, b] = parties;
+  // 0142 idea 3: `protect-third` - the promisor (`a`) swears not to move against a THIRD houseguest (`third`); `b` is who asked. Same one-way break rule as target-other, protecting `third`.
+  if (kind === "protect-third" && third !== undefined) return { protect: third, promisors: [a] };
   // One-way bindings: `target-other` + the 0121 active kinds bind only the promisor (`a`) toward `b`.
   if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save") return { protect: b, promisors: [a] };
   // safety / vote / final-two are mutual: neither party may move against the other.
