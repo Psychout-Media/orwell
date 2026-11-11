@@ -27,19 +27,6 @@ export interface Competitor {
    * protective, and never a number the player sees — only the worse result.
    */
   restPenalty?: number;
-  /**
-   * Feature 0098 (confidence-calibrated reads) — OPT-IN, DEFAULT `1` (= byte-identical). The player's
-   * hidden CONVICTION (0..1) in the belief this action is grounded in: 1 = acts on what they KNOW
-   * (baseline width), → 0 = near-blind faith (the widest, capped swing). Lower conviction WIDENS this
-   * competitor's seeded temperature span SYMMETRICALLY about its unchanged center — fatter tails BOTH
-   * ways (a bold correct read pays off bigger, blind faith craters harder) — and the same seeded roll
-   * then falls where it falls. It NEVER shifts the mean and NEVER aims the result (anti-sycophancy): the
-   * engine does not read whether the belief is TRUE, only how sure the player is. Never a number the
-   * player OR admin sees — only the bigger swing. Derived engine-side from the belief's own hidden
-   * `confidence` (0002). NO caller passes it today: the live adapter pass-through is deliberately
-   * OWNER-GATED (the 0098 spec's standing-principle caveat), so the calibration spine is byte-identical.
-   */
-  conviction?: number;
 }
 
 /** Local [0,1] clamp (kept module-local so `src/domain` stays I/O- and import-free). */
@@ -116,9 +103,6 @@ export function resolveCompetition(
     if (c.restPenalty !== undefined && !Number.isFinite(c.restPenalty)) {
       throw new Error("resolveCompetition: non-finite restPenalty for a competitor");
     }
-    if (c.conviction !== undefined && !Number.isFinite(c.conviction)) {
-      throw new Error("resolveCompetition: non-finite conviction for a competitor");
-    }
   }
 
   const stat = RELEVANT[type];
@@ -139,17 +123,7 @@ export function resolveCompetition(
         ? c.stats[stat] * (1 - w.mixedSecondaryWeight) + c.stats[secondaryStat] * w.mixedSecondaryWeight
         : c.stats[stat];
     const base = effectiveStat * w.stat;
-    // Feature 0098: widen ONLY this competitor's seeded temperature span SYMMETRICALLY about its
-    // unchanged center (0), by a bounded inverse-conviction factor clamped to the hard ceiling. The RAW
-    // drawn `temperature` map is untouched (the seeded draw is unchanged) — only the SCORE's temperature
-    // contribution widens, so E[temp]=0 keeps the mean unmoved (mean-preserving) while the variance rises.
-    // conviction 1/undefined ⇒ factor 1 ⇒ BYTE-IDENTICAL. The engine never reads whether the belief is
-    // true; it only scales variance by how sure the player is (anti-sycophancy — no thumb on the scale).
-    const convictionFactor = Math.min(
-      1 + w.convictionVarianceGain * (1 - clamp01(c.conviction ?? 1)),
-      w.convictionVarianceCap,
-    );
-    const temp = temperature[c.id]! * w.temperature * convictionFactor;
+    const temp = temperature[c.id]! * w.temperature;
     const emo = ((c.emotionalState ?? 0.5) - 0.5) * 2 * w.emotion;
     const intent = intents.intentOf(c.id);
     const intentAdj =

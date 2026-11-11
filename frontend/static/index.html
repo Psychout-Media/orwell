@@ -350,7 +350,8 @@
     } catch(e){}
   })();
   </script>
-  <script defer src="/static/lib/highlight.min.js"></script>
+  <!-- ORW-160: highlight.js loads on demand (first code block), not at boot -->
+  <script defer src="/static/js/hljsLazy.js"></script>
   <!-- Inter font — self-hosted, no Google dependencies -->
   <style>
     @font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-Regular.woff2') format('woff2'); }
