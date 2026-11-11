@@ -4666,8 +4666,11 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       }
 
       // Refresh session list after a delay (picks up auto-generated names)
+      // ORW-168: only while the session still has a placeholder name (an already-named game session skips the refetch + sidebar re-render)
+      const _renameSid = (sessionModule && sessionModule.getCurrentSessionId) ? sessionModule.getCurrentSessionId() : null;
       setTimeout(() => {
-        if (sessionModule && sessionModule.loadSessions) {
+        if (sessionModule && sessionModule.loadSessions
+            && !(sessionModule.sessionMayNeedRename && _renameSid && !sessionModule.sessionMayNeedRename(_renameSid))) {
           sessionModule.loadSessions();
         }
       }, 3000);
