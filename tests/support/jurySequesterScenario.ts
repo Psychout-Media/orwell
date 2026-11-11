@@ -53,7 +53,8 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
       if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `js${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
       if (adv.finished) break;
       // A refused decision here is a real failure, never an early exit.
-      if (adv.pending && adv.pending.kind !== "ceremony-step") await mcp.callTool("submitDecision", answer(adv.pending)); // ORW-281: a watch step is answered by the next advanceGame
+      // ORW-281: a ceremony-step is a WATCH step (answered by the next advanceGame, never by submitDecision).
+      if (adv.pending && (adv.pending as { kind?: string }).kind !== "ceremony-step") await mcp.callTool("submitDecision", answer(adv.pending));
       const st = (await mcp.callTool("getGameState", {})) as State;
       if (st.player?.status !== "active") break; // the player became a juror/evictee — not this scenario's case
       for (const c of st.house) {
