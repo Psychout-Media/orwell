@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import DurationShardSequencer from "./vitest.sequencer";
 
 /**
  * The heavy, end-to-end SIMULATION files — full live seasons played to completion.
@@ -39,6 +40,8 @@ export const HEAVY_SIM_FILES = [
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    // ORW-218: `--shard=i/n` (CI unit + coverage legs) splits by committed per-file durations instead of equal file counts. Only `shard()` is overridden; see vitest.sequencer.ts.
+    sequence: { sequencer: DurationShardSequencer },
     // A9 flip: pin the premiere-entrances flag per test file (unit lane OFF; property/uat/calibration lanes run the deployed default). See the file.
     // ORW-229 review: tests/support/fastCheckSeed.ts makes each test's fast-check seed a function of the run seed and the test id, so CI's one
     // automatic retry replays the same cases (a real counterexample can never be retried into green).
