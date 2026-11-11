@@ -54,6 +54,7 @@ from routes.chat_helpers import (
 )
 from src.action_intents import classify_tool_intent as _classify_tool_intent
 from src.tool_policy import build_effective_tool_policy
+from src.orwell_show_brief import served_seen as _served_brief_seen
 
 logger = logging.getLogger(__name__)
 
@@ -1693,6 +1694,10 @@ def setup_chat_routes(
                                     # ORW-230: a game turn's think blocks never become the reply
                                     # (the token cap inside a think saves the reasoning as thinking).
                                     game=bool(ctx.framed),
+                                    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ None, the row is unchanged):
+                                    # what the narrator last saw rides on its reply's row, so a restart or another
+                                    # window briefs "changed since your last turn" from here (K6 §5.1).
+                                    brief_seen=(_served_brief_seen(ctx.user) if ctx.game_active else None),
                                 )
                                 if _saved_id:
                                     # ADR 0012 §2.2/§3.3: carry the SERVER-MINTED message timestamp so
@@ -1966,6 +1971,10 @@ def setup_chat_routes(
                                     # ORW-230: a game turn's think blocks never become the reply
                                     # (the token cap inside a think saves the reasoning as thinking).
                                     game=bool(ctx.framed),
+                                    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ None, the row is unchanged):
+                                    # what the narrator last saw rides on its reply's row, so a restart or another
+                                    # window briefs "changed since your last turn" from here (K6 §5.1).
+                                    brief_seen=(_served_brief_seen(ctx.user) if ctx.game_active else None),
                                 )
                                 if _saved_id and ctx.game_active:
                                     # #1728 (B2, PR #1825 fix #2): the SAME row id `dataset.dbId`
