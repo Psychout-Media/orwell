@@ -1303,6 +1303,7 @@ export interface NamedRef {
 export type BeatAnnouncementKind =
   | "hoh-winner"
   | "nominations"
+  | "veto-field"
   | "veto-winner"
   | "veto-decision"
   | "replacement-nominee"

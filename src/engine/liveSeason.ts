@@ -176,20 +176,24 @@ export interface CeremonyProgress {
   steps: string[];
   at: number;
   outcome?: { nominees: [EntityId, EntityId]; target?: EntityId; fromPlayer?: boolean };
+  /** ORW-281 4b: the veto DRAW's outcome, decided once up front (ENGINE-ONLY until the 'field' step publishes it; never projected). `hc` is present when the Houseguest's-Choice chip was drawn (`candidates` = the player's options when the PLAYER holds it; `picked` = the NPC holder's pick or, later, the player's). */
+  draw?: { compId: string; compName: string; field: EntityId[]; hc?: { holder: EntityId; candidates: EntityId[]; picked?: EntityId } };
 }
 /** The Vault-free step handle every ceremony pending / advance result carries (`step` is 1-based). */
 export interface CeremonyRef { kind: CeremonyKind; step: number; of: number | null; stepId: string }
 /** Step lists per kind. */
 export const CEREMONY_STEPS: Record<CeremonyKind, { withChoice: string[]; npc: string[] } | undefined> = {
   nominations: { withChoice: ["hoh-speech", "choose", "named"], npc: ["hoh-speech", "named"] },
-  "veto-draw": undefined, "veto-ceremony": undefined, eviction: undefined, // 4b-4d add their step lists here
+  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": undefined, eviction: undefined, // 4b-4d add their step lists here
 };
 /** Binding steps (answered by `submitDecision` with the kind's existing pending); every other step id is a WATCH step. */
-export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose"]);
+export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice"]);
 /** The Vault-free line a WATCH step shows (public names via `{hoh}` and the step id only - never an outcome ahead of the engine). 4b-4d just add rows. */
 export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "nominations/hoh-speech": "{hoh} is about to name the nominees",
   "nominations/named": "The nominees have been named",
+  "veto-draw/chips": "The chips for the Power of Veto are being drawn",
+  "veto-draw/field": "The Power of Veto players are set: {field}",
 };
 export function ceremonyRef(s: LiveSeasonState): CeremonyRef | null {
   const c = s.ceremony;
@@ -206,10 +210,19 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
   const c = s.ceremony!;
   const id = c.steps[c.at]!;
   if (CEREMONY_BINDING.has(`${c.kind}/${id}`)) {
-    s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
+    if (c.kind === "veto-draw") s.pending = { kind: "houseguests-choice", by: ctx.player, options: [...c.draw!.hc!.candidates] };
+    else s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
     return null;
   }
   let ev: BeatEvent | null = null;
+  if (c.kind === "veto-draw" && id === "field") { // the step that PUBLISHES the draw: commit exactly what the one-beat resolution would have
+    const d = c.draw!;
+    const hc = d.hc;
+    s.vetoComp = d.compId;
+    s.vetoField = [...d.field, ...(hc?.picked !== undefined && !d.field.includes(hc.picked) ? [hc.picked] : [])];
+    const hcNote = hc?.picked !== undefined ? ` — ${hc.holder} draws Houseguest's Choice and picks ${hc.picked}` : "";
+    ev = { beat: "veto-draw", content: `the veto players are drawn for ${d.compName}: ${s.vetoField.join(", ")}${hcNote}`, participants: [...s.vetoField] };
+  }
   if (c.kind === "nominations" && id === "named") {
     const [a, b] = c.outcome!.nominees;
     if (!c.outcome!.fromPlayer) {
@@ -1506,16 +1519,21 @@ function hcBias(mem: SeasonCtx["hcMemoryFor"], strat: SeasonCtx["hcStrategyFor"]
   if (!mem && !strat) return undefined;
   return (c) => (mem ? mem(c, holder) : 0) + (strat ? strat(c, holder) : 0);
 }
-function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
-  // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
-  // including a restart mid-pause (0030) — resolves the SAME drawn competition (0042).
+/** The veto draw's seeded rolls, in their ONE order (comp first, then the chips + any NPC Houseguest's Choice) - shared by the one-beat resolution and the staged ceremony so both consume the same rng identically. */
+function rollVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource) {
   const def = drawFor(s, "veto", rng, ctx);
-  s.vetoComp = def.id;
   const draw = vetoParticipants(weekState(s, ctx), rng, {
     houseguestsChoiceChip: true,
     choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcBias(ctx.hcMemoryFor, ctx.hcStrategyFor, holder)),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
+  return { def, draw };
+}
+function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
+  // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
+  // including a restart mid-pause (0030) — resolves the SAME drawn competition (0042).
+  const { def, draw } = rollVetoDraw(s, ctx, rng);
+  s.vetoComp = def.id;
   s.vetoField = draw.participants;
   const hc = draw.houseguestsChoice;
   if (hc && hc.picked === undefined) {
@@ -3052,7 +3070,20 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       // E35 stage A: the chip draw is a witnessed ceremony of its own — it precedes any winner.
-      if (vetoDrawStage(s)) return resolveVetoDraw(s, ctx, rng);
+      if (vetoDrawStage(s)) {
+        if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["veto-draw"]) { // ORW-281 4b: a played game stages the draw (chips -> [choice] -> field); the outcome is rolled ONCE here, same rolls, same order
+          const { def, draw } = rollVetoDraw(s, ctx, rng);
+          const hc = draw.houseguestsChoice;
+          const playerHolds = !!hc && hc.picked === undefined;
+          s.ceremony = {
+            kind: "veto-draw", hold: "veto-draw", at: 0,
+            steps: [...(playerHolds ? CEREMONY_STEPS["veto-draw"].withChoice : CEREMONY_STEPS["veto-draw"].npc)],
+            draw: { compId: def.id, compName: def.name, field: [...draw.participants], ...(hc ? { hc: { holder: hc.holder, candidates: [...hc.candidates], ...(hc.picked !== undefined ? { picked: hc.picked } : {}) } } : {}) },
+          };
+          return openCeremonyStep(s, ctx);
+        }
+        return resolveVetoDraw(s, ctx, rng);
+      }
       // STAGED (0006 staged-rounds evolution): the veto comp plays out in elimination rounds exactly
       // like the HOH comp — the sub-loop pauses for the player's PER-ROUND approach when they are in
       // the drawn field. The draw (above) always precedes the rounds.
@@ -3427,6 +3458,14 @@ export function applyDecision(
     case "houseguests-choice": {
       // The player drew Houseguest's Choice and picks the sixth veto player (B45/audit B4).
       const options = (s.pending as { options: EntityId[] }).options;
+      if (s.ceremony?.kind === "veto-draw") { // ORW-281 4b: the pick completes the (not yet published) field; the 'field' step publishes it
+        const d = s.ceremony.draw!;
+        if (!options.includes(input.pick) || d.field.includes(input.pick)) throw new Error("the Houseguest's Choice must pick an eligible candidate who is not already drawn");
+        s.pending = undefined;
+        d.hc!.picked = input.pick;
+        s.ceremony.at = s.ceremony.steps.indexOf("field");
+        return openCeremonyStep(s, ctx)!;
+      }
       // C1: legality is RE-DERIVED at resume — the pick must be an offered candidate AND must not
       // already stand in the drawn field (a stale offer can never produce a duplicate competitor).
       if (!options.includes(input.pick) || s.vetoField!.includes(input.pick)) {

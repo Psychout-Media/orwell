@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
-import { CEREMONY_STEP_TEXT, CEREMONY_STEPS, spreadClockHours } from "../../src/engine/liveSeason";
+import { CEREMONY_BINDING, CEREMONY_STEP_TEXT, CEREMONY_STEPS, spreadClockHours } from "../../src/engine/liveSeason";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 
 /**
@@ -155,7 +155,7 @@ describe("the one clock-spread helper", () => {
   it("every step list has a text row for each watch step (4b-4d add rows, not machinery)", () => {
     for (const [kind, lists] of Object.entries(CEREMONY_STEPS)) {
       if (!lists) continue;
-      for (const id of new Set([...lists.withChoice, ...lists.npc])) if (id !== "choose") expect(CEREMONY_STEP_TEXT[`${kind}/${id}`], `${kind}/${id}`).toBeTruthy();
+      for (const id of new Set([...lists.withChoice, ...lists.npc])) if (!CEREMONY_BINDING.has(`${kind}/${id}`)) expect(CEREMONY_STEP_TEXT[`${kind}/${id}`], `${kind}/${id}`).toBeTruthy();
     }
   });
 });

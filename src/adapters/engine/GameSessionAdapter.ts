@@ -12830,7 +12830,7 @@ export class GameSessionAdapter implements GameSession {
     const refs = (ids: EntityId[]): NamedRef[] => ids.map((id) => ({ id, name: this.nameOf(id) }));
     const cer = ceremonyRef(this.live!);
     if (p.kind === "ceremony-step" && cer) { // ORW-281 4a: a WATCH step of a staged ceremony (non-binding; answered by advanceGame)
-      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household");
+      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household").replace("{field}", cer.kind === "veto-draw" && this.live!.vetoField ? this.live!.vetoField.map((id) => this.nameOf(id)).join(", ") : ""); // {field}: named only AFTER the engine committed it (the 'field' step)
       return { kind: "ceremony-step", by, prompt: text, options: [], pick: 0, binding: false, ceremony: cer, text };
     }
     switch (p.kind) {
@@ -12869,7 +12869,7 @@ export class GameSessionAdapter implements GameSession {
         };
       }
       case "houseguests-choice":
-        return { kind: p.kind, by, prompt: "You drew Houseguest's Choice — pick the sixth houseguest to play in the veto competition.", options: refs(p.options), pick: 1 };
+        return { kind: p.kind, by, prompt: "You drew Houseguest's Choice — pick the sixth houseguest to play in the veto competition.", options: refs(p.options), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "replacement":
         return { kind: p.kind, by, prompt: `You used the veto on ${this.nameOf((p as { saved: EntityId }).saved)} — name a replacement nominee.`, options: refs(p.options), pick: 1 };
       case "eviction-vote":
