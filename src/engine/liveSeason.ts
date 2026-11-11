@@ -186,7 +186,7 @@ export interface CeremonyRef { kind: CeremonyKind; step: number; of: number | nu
 /** Step lists per kind. */
 export const CEREMONY_STEPS: Record<CeremonyKind, { withChoice: string[]; npc: string[] } | undefined> = {
   nominations: { withChoice: ["hoh-speech", "choose", "named"], npc: ["hoh-speech", "named"] },
-  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": { withChoice: ["convene", "decide", "result"], npc: ["convene", "result"] }, eviction: undefined, // 4c: a "replacement" step is spliced in before "result" when the PLAYER (HOH) must name it; 4d add their step lists here
+  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": { withChoice: ["convene", "decide", "result"], npc: ["convene", "result"] }, eviction: { withChoice: ["speeches", "votes", "result"], npc: ["speeches", "votes", "result"] }, // 4d: speeches is the one WATCH step; votes/result ride the existing s.eviction stages. 4c: a "replacement" step is spliced in before "result" when the PLAYER (HOH) must name it; 4d add their step lists here
 };
 /** Binding steps (answered by `submitDecision` with the kind's existing pending); every other step id is a WATCH step. */
 export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice", "veto-ceremony/decide", "veto-ceremony/replacement"]);
@@ -196,6 +196,9 @@ export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "nominations/named": "The nominees have been named",
   "veto-draw/chips": "The chips for the Power of Veto are being drawn",
   "veto-draw/field": "The Power of Veto players are set: {field}",
+  "eviction/speeches": "The nominees plead their case and the house gathers for the vote",
+  "eviction/votes": "The votes are read, one ballot at a time", // not a pending (votes ride the s.eviction reveal stage); a row so the step list stays complete
+  "eviction/result": "The vote is decided", // likewise - never names the evictee
   "veto-ceremony/convene": "{hoh} has called the house together for the Veto Ceremony",
   "veto-ceremony/result": "The Veto Ceremony is over - the nominees are: {nominees}",
 };
@@ -2703,10 +2706,24 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
         return null;
       }
       s.eviction = undefined;
+      if (s.ceremony?.kind === "eviction") s.ceremony = undefined; // ORW-281 4d: the ceremony closes with the result, before the week rolls
       rollWeek(s); // the week's ceremony state clears and the house rolls on (or into the finale)
       return { beat: "eviction-result", content: `${evictee} leaves the house`, participants: [evictee] };
     }
   }
+}
+
+/** The vote itself: a player voter pends their ballot; otherwise the NPC votes are decided and the (anonymized) reveal starts. Shared by the one-beat path and the 4d speeches step. */
+function startEvictionVote(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  const fn = s.finalNominees!;
+  const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
+  if (voters.includes(ctx.player)) {
+    s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
+    return null;
+  }
+  // The player is HOH or a nominee: NPC votes are decided; stage the one-at-a-time reveal (0047).
+  beginEviction(s, ctx, rng, undefined);
+  return advanceEviction(s, ctx, rng);
 }
 
 /** Once the evictee is known: record responsible manner, remove them, seed the goodbyes, open that stage. */
@@ -2756,6 +2773,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // message, last, as a real pending decision (never engine-authored, never engine-toned).
   if (s.active.includes(ctx.player)) e.goodbyeFrom.push(ctx.player);
   e.stage = "goodbye";
+  if (s.ceremony?.kind === "eviction") { if (evictee === ctx.player) s.ceremony = undefined; else s.ceremony.at = 2; } // ORW-281 4d: the engine committed the evictee - the 'result' step begins (an evicted player is out of the house, so no hold)
   return { beat: "eviction", content: `${evictee} is evicted`, participants: [evictee] };
 }
 
@@ -2976,6 +2994,10 @@ function advanceFinale(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource
  * blocked on a player decision (`state.pending` is set) or already complete.
  */
 export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  if (s.pending?.kind === "ceremony-step" && s.ceremony?.kind === "eviction") { // ORW-281 4d: the speeches step's Continue opens the vote (the secret-veto check already ran before the speeches)
+    s.pending = undefined; s.ceremony.at = 1;
+    return startEvictionVote(s, ctx, rng);
+  }
   if (s.pending?.kind === "ceremony-step") return stepCeremony(s, ctx); // ORW-281 4a: a watch step is answered by advanceGame
   if (s.pending || s.finished || s.beat === "complete") return null;
 
@@ -3169,15 +3191,12 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // block before the vote (player: their choice; NPC: a rational self-save). One eviction still lands.
       const sp = maybePlaySecretVeto(s, ctx, rng);
       if (sp.handled) return sp.event; // a reveal event (played) OR null with the player's choice pending
-      const fn = s.finalNominees!;
-      const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
-      if (voters.includes(ctx.player)) {
-        s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
+      if (stagesCeremonies(s, ctx) && !s.twist && CEREMONY_STEPS.eviction && !s.ceremony) { // ORW-281 4d: a played, non-twist eviction opens with the speeches (no rng; nothing is named that is not already public)
+        s.ceremony = { kind: "eviction", hold: "eviction", steps: [...CEREMONY_STEPS.eviction.withChoice], at: 0 };
+        s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
         return null;
       }
-      // The player is HOH or a nominee: NPC votes are decided; stage the one-at-a-time reveal (0047).
-      beginEviction(s, ctx, rng, undefined);
-      return advanceEviction(s, ctx, rng);
+      return startEvictionVote(s, ctx, rng);
     }
     case "twist-reveal": {
       // The sealed twist FIRES (0025): a dramatic, witnessed production reveal — only now is it
