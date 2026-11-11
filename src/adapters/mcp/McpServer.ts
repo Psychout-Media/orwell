@@ -6,7 +6,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordRoomCanonReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -353,6 +353,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (!isStr((p as Record<string, unknown>)["houseguestId"])) refuse("profile.houseguestId", "a houseguest id (string)");
       }
       return;
+    case "recordRoomCanon":
+      // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
+      // the length and every content rule, and rejects extra keys.
+      if (!isStr(args["roomId"])) refuse("roomId", "a room id (string)");
+      if (!isStr(args["feature"])) refuse("feature", "a one-line feature (string)");
+      return;
     case "recordWorldSnapshot":
       // 0062: the FE zeitgeist write-back. `slices` is OPTIONAL — refuse only if present and not an
       // object (a string/array where an object is expected is the R6 class that dies deep in the merge);
@@ -486,6 +492,9 @@ export class McpServer {
         // floor / name validators / closed hidden-element kinds / tie-graph sanity / hidden-weight stripping) and
         // fold the committed skeleton onto the pre-warmed cast. Structured Vault-free violations out; pre-game only.
         return this.deps.session.recordCastGenesis(args as unknown as RecordCastGenesisReq);
+      case "recordRoomCanon":
+        // ORW-223: record a narrated room feature as canon (Vault-free; never an event, outcome or secret).
+        return this.deps.session.recordRoomCanon(args as unknown as RecordRoomCanonReq);
       case "recordWorldSnapshot":
         // 0062: freeze the FE-captured move-in zeitgeist (public flavor; never a game input). Idempotent.
         return this.deps.session.recordWorldSnapshot(args as unknown as RecordWorldSnapshotReq);

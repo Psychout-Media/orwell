@@ -13,7 +13,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordRoomCanonReq, RecordRoomCanonResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -218,6 +218,8 @@ import type { CompEffort } from "../../engine/liveSeason";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
+import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
@@ -326,7 +328,7 @@ import { derivedLoyalty } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
-import { emptyCanonLedger, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
+import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, LEGEND, legendFrom } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
@@ -545,6 +547,8 @@ const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
 const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
 const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_STANDALONE");
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
+/** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
+const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1165,6 +1169,7 @@ export class GameSessionAdapter implements GameSession {
    * with holder===subject, dropped). DEFAULT-ON since 2026-11-04 with the standalone read (3-arm PO bands held); `=0` / `ORWELL_FLAGS_OFF=1` opts out. Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
+  private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -8467,6 +8472,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
+  setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -13188,7 +13194,9 @@ export class GameSessionAdapter implements GameSession {
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
-    const showBrief = req.brief !== undefined ? buildShowBrief(view, req.brief) : undefined;
+    const showBrief = req.brief !== undefined
+      ? buildShowBrief(view, req.brief, this.roomCanonEnabled && this.live?.playedGame === true ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined)
+      : undefined;
     return {
       moment,
       systemPrompt: buildSystemPrompt(
@@ -13350,6 +13358,36 @@ export class GameSessionAdapter implements GameSession {
     };
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { accepted: true, source: "web_search" };
+  }
+
+  /**
+   * ORW-223 slice 1 - record a narrated room-texture feature as canon (see the port doc). The engine re-validates
+   * everything: a played game, the flag, a known room, the length, and the canon ledger's own fence (no events,
+   * outcomes, secrets, places, devices, relationships, knowledge or numbers). Append-only; no rng; no Vault handle
+   * (this adapter holds none, so nothing hidden can be read or touched here); durable through the background seam.
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult {
+    if (!this.roomCanonEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.canonAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const p = roomCanonProposal(req);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const out = recordCanon(this.canonLedger, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, sceneKey: String(this.beatSeq),
+      idempotencyKey: `room:${p.room}:${canonHash(p.feature)}`, proposals: [p.proposal],
+    }, {
+      leaksVault: () => false, // the engine-only adapter tier holds no Vault; the lexicon + class fence below is the guard
+      forbiddenTerm: forbiddenFixtureTerm,
+      propCategoriesFor: (scope) => (scope.kind === "room" ? roomMapEntry(scope.room)?.allowedProps ?? [] : []),
+      isHouseguest: (id) => /^npc:\d+$/.test(id),
+    });
+    const r = out.result.results[0]!;
+    if (r.outcome !== "recorded") return { accepted: false, reason: r.reason ?? "rejected" };
+    if (!out.replay) {
+      this.canonLedger = out.ledger;
+      this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    }
+    return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
   }
 
   /**

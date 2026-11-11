@@ -1063,6 +1063,20 @@ export interface BriefSeenState {
 }
 
 /** The Show Brief v1 skeleton: one terminal system message, fixed section order, Vault-free by construction. */
+/** ORW-223: the room-canon write-back request. Exactly these two fields; extra keys are rejected. */
+export interface RecordRoomCanonReq {
+  roomId: string;
+  /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
+  feature: string;
+}
+
+export interface RecordRoomCanonResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+}
+
 export interface ShowBriefView {
   text: string;
   /** Echo this back as `brief.seen` on the next turn. */
@@ -1070,7 +1084,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -2886,6 +2900,17 @@ export interface GameSession {
    * the fallback's value (a partial capture never thins the snapshot — non-degradation).
    */
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
+
+  /**
+   * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that
+   * records a narrated TEXTURE feature of a room as append-only canon, so later turns stay consistent. Accepts
+   * ONLY `{ roomId, feature }` (a known room, a one-line feature of at most `ROOM_CANON_FEATURE_MAX` chars);
+   * anything else is rejected with a code. An invention can never create an event, outcome, secret, new place,
+   * plot device, relationship change, knowledge or number (the canon ledger's own fence rejects those), and this
+   * method touches no hidden state. A played game only; no rng; durable via the background seam (no beatSeq bump).
+   * Not a model lever (FE-driven, like `recordWorldSnapshot`).
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto
