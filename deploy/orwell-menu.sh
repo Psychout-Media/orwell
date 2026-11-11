@@ -101,7 +101,15 @@ run() {
   local title="$1"; shift
   tui_active && { command -v clear >/dev/null 2>&1 && clear || true; }
   ow_section "$title"
-  ow_step "$*"; echo
+  # ORW-241 (audit item 28): never echo a secret. The deploy-token action passes it as GIT_TOKEN=<value> on this command line, so the displayed copy masks any NAME=value argument whose name looks secret.
+  local shown=() a
+  for a in "$@"; do
+    case "$a" in
+      *TOKEN=*|*PASSWORD=*|*SECRET=*|*API_KEY=*|*PAT=*) shown+=("${a%%=*}=***") ;;
+      *) shown+=("$a") ;;
+    esac
+  done
+  ow_step "${shown[*]}"; echo
   "$@"; local rc=$?
   echo
   [[ $rc -eq 0 ]] && ow_ok "${title}: done." || ow_fail "${title}: exited ${rc} (see output above)."

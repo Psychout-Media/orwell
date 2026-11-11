@@ -4411,6 +4411,67 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         return False
 
 
+# ── 0123 / ORW-86 — the in-chat DEAL-OFFER ANSWER under-call belt (the _auto_record_deal sibling) ──
+#
+# A houseguest's standing offer (`openDealOffer`) is open state voiced in chat, never a card. The player answers in
+# chat and the narrator must call `submitDecision({kind:"deal-offer", vote})`. When the model narrates the answer
+# but skips that call, an accepted offer is narrated-but-unrecorded: it silently lapses at week's end and cools the
+# houseguest. So when an offer STANDS after the turn (the engine's own state, read fresh - a model-driven answer
+# has already consumed it, which makes this a no-op) and the player's line reads as an answer, one constrained
+# extraction decides accept | decline | none and the FE submits it. The ENGINE adjudicates; `none` (not an answer /
+# ambiguous) records nothing. Model-driven submitDecision always wins.
+_OFFER_ANSWER_RE = re.compile(
+    r"\b(?:yes|yeah|yep|sure|okay|ok|deal|accept(?:ed)?|agreed?|i'?m in|count me in|you got it|let'?s do it|shake on it|"
+    r"no|nope|nah|decline|pass|no thanks|not interested|i can'?t|i won'?t|sorry)\b", re.I)
+
+
+async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, model, headers) -> bool:
+    """Record the player's in-chat answer to a standing NPC deal offer the model never submitted. True only when the
+    engine APPLIED a submitDecision (success-gated telemetry contract); any hiccup, no standing offer, or an
+    ambiguous answer is a silent no-op."""
+    try:
+        from src.llm_core import llm_call_async
+        from src import orwell_engine as _oe
+        state = await _oe.get_game_state(user=owner)
+        offer = (state or {}).get("openDealOffer") if isinstance(state, dict) else None
+        if not isinstance(offer, dict):
+            return False
+        who = (offer.get("from") or {}).get("name") or "a houseguest"
+        msgs = [
+            {"role": "system", "content":
+                _EXTRACTION_UNTRUSTED_FENCE +
+                "A houseguest has put a deal offer to the player. Decide whether the player's message CLEARLY answers it. "
+                "Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence:\n"
+                '{"answer":"<accept|decline|none>"}\n'
+                "accept = the player agreed to this offer; decline = the player turned it down; none = the message does "
+                "not answer the offer, or it is ambiguous / a counter-proposal / a question."},
+            {"role": "user", "content":
+                f"THE OFFER (from {who}): {str(offer.get('terms') or '')[:300]}\n\n"
+                f"THE PLAYER'S MESSAGE:\n{(last_user or '')[:800]}\n\nJSON:"},
+        ]
+        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                                   temperature=0.1, max_tokens=600, timeout=45,
+                                   call_class="utility-extraction", user=owner) or ""
+        ans = None
+        for cand in reversed(re.findall(r"\{[^{}]*\"answer\"[^{}]*\}", raw, re.DOTALL)):
+            try:
+                ans = (json.loads(cand).get("answer") or "").strip().lower()
+                break
+            except Exception:
+                continue
+        if ans not in ("accept", "decline"):
+            return False
+        res = await _backfill_with_cas(owner, _oe.submit_decision, {"kind": "deal-offer", "vote": ans},
+                                       user=owner, defer_fold=True)
+        if not isinstance(res, dict) or res.get("error") or res.get("refused") is True:
+            return False
+        logger.info(f"[orwell] auto-answered deal offer ({ans}) user={owner}")
+        return True
+    except Exception as _e:
+        logger.warning(f"[orwell] auto-answer deal offer failed: {_e}")
+        return False
+
+
 # ── 0075 — the trust-gated CONFIDE under-call belt (the _auto_record_scene / _auto_record_deal sibling) ──
 #
 # The narration model reliably UNDER-calls `confide`: it voices a houseguest opening up — or the player
@@ -7358,6 +7419,7 @@ async def _stream_agent_loop_impl(
     _progressed = False
     _phase = None
     _turn_deal_nudges = 0  # 0039 deal back-fill: at most one auto-makeDeal per finishing turn
+    _turn_offer_nudges = 0  # 0123 deal-offer answer belt: at most one auto-answer per finishing turn
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
@@ -8636,6 +8698,7 @@ async def _stream_agent_loop_impl(
                 # The constrained extraction (npcId:null when no ally is pressed) AND the engine's motive
                 # gate (`{disclosed:false}` when unearned) are the real gatekeepers, not these gates.
                 _last_user_for_confide = _extract_last_user_message(messages) or ""
+                _want_offer_answer = (_turn_offer_nudges < 1 and bool(_OFFER_ANSWER_RE.search(_last_user_for_confide)))
                 _want_confide = (_turn_confide_nudges < 1
                                  and bool(_CONFIDE_PRESS_RE.search(_last_user_for_confide)))
                 # 0093/0099: the player OUTED or TRADED a secret they already know but the model never
@@ -8896,7 +8959,7 @@ async def _stream_agent_loop_impl(
                         scene record (0055). Called from the finishing block AND — A-10 — just before a
                         belt-forced silent advance ends the turn. Model-driven calls always win via the
                         `_want_*` gates and per-turn caps; telemetry is success-gated."""
-                        nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges
+                        nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
@@ -8913,6 +8976,13 @@ async def _stream_agent_loop_impl(
                                 # gap #3 telemetry — only a genuinely BANKED deal counts (struck=false
                                 # loose talk / a failed extraction is a no-op, not a correction)
                                 _note_belt(owner, "auto-record-deal")
+                        # 0123: a standing houseguest deal offer the player answered in chat but the model never
+                        # submitted - record the answer (the engine adjudicates). Only an APPLIED submit counts.
+                        if _want_offer_answer:
+                            _turn_offer_nudges += 1  # once per turn
+                            if await _auto_answer_deal_offer(_last_user_for_confide, _turn_narration,
+                                                             owner, _belt_endpoint, _belt_model, _belt_headers):
+                                _note_belt(owner, "auto-answer-deal-offer")
                         # 0075: the player pressed an ally to open up but the model never called confide, so
                         # the trust-gated disclosure never fired. Back-fill it — the ENGINE adjudicates
                         # (whether they disclose, how much, truth-vs-lie); an unearned motive returns
@@ -10403,6 +10473,8 @@ async def _stream_agent_loop_impl(
                 _turn_record_nudges = 1  # model recorded organically — don't also auto-record
             if _is_live_game and block.tool_type == "makeDeal":
                 _turn_deal_nudges = 1  # model struck the deal itself — don't also back-fill one
+            if _is_live_game and block.tool_type == "submitDecision":
+                _turn_offer_nudges = 1  # model submitted a decision itself - don't also auto-answer a deal offer (0123)
             if _is_live_game and block.tool_type == "confide":
                 _turn_confide_nudges = 1  # model called confide itself — don't also back-fill one (0075)
             if _is_live_game and block.tool_type == "exposeSecret":

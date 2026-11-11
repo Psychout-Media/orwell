@@ -116,6 +116,14 @@ ORWELL_DEAL_DEPTH (default OFF): gates ALL of the above ⇒ byte-identical when 
 - [x] **[Part 2b] comp-throw live wiring:** the HOH / veto crown emits a `compete` action per competitor,
       judged by OUTCOME (broken iff the promisor WON the comp they swore to throw — no fragile intent
       threading); resolves live end-to-end. *(`dealDepthLive.test.ts` drives a real season.)*
+- **[Ryne ruling 2026-11-11] comp-throw: the RESULT dominates, visible effort counts for a smaller extent.** Ryne (ORW-83): "I think
+      result should have the biggest impact for sure. But I think the others would apply for an extent. Like fighting hard when
+      committing to throwing it would be suspicious." So the rule above stands (win = broken, lose = kept, never reversed by effort), and on
+      top of it a promisor who is SEEN fighting hard after agreeing to throw draws SUSPICION (a smaller trust/reliability hit than a
+      break) even if they lose; the reverse holds for the player (visibly going through the motions of a promised throw reads as
+      honest, a hard fight reads as suspicious). **Not built.** It needs NPC comp effort to exist as an OBSERVABLE engine fact (the
+      natural home is competition slice 3's play-by-play rounds). Constraints: played games only, a dedicated side stream (never the shared
+      rng), tunable magnitude, effort never changes who wins, and no prose-driven judgement. Tracked as a follow-up card under ORW-83.
 - [x] **[Part 2b] Reliable-ally protection (reward 2):** delivered by the EXISTING reliability→nomination
       machinery — a proven-reliable partner outranks others as a nomination target (`relationships.ts`
       `bondStrength`/nom read) — and the streak's reliability build amplifies it. No new code needed.

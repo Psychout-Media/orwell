@@ -194,7 +194,7 @@ export interface DealView {
  */
 export interface DealRefusal {
   refused: true;
-  reason: "distrust" | "threat" | "targeted" | "grudge" | "cost";
+  reason: "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
   narratable: string;
   /** 0142: a lukewarm houseguest (reason `cost`) answers with terms instead of a flat no. Present only when one now stands as the open `openDealOffer` (the player accepts or declines it with submitDecision deal-offer). */
   counteroffer?: { kind: string; terms: string };

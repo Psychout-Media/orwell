@@ -48,7 +48,7 @@ import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/jur
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { PRESENCE, PRIVACY, MOVEMENT_INTENT, CALM_PRESENCE } from "../../engine/presenceConstants";
+import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
@@ -1681,6 +1681,8 @@ export class GameSessionAdapter implements GameSession {
   private tellReactedWeek: Record<string, number> = {};
   /** Reaction counts by kind (observability + tests; monotonic). */
   private tellReactionCounts: Record<string, number> = {};
+  /** ORW-32: "observer|target" -> the last week the observer is still AVOIDING the rattled target (played games only; read by the movement intent). */
+  private tellAvoidUntil: Record<string, number> = {};
   /** Monotonic count of observer-reaction passes: keys the dedicated stream so each pass draws fresh, reproducibly (persisted). */
   private tellReactionTicks = 0;
   tellReactionCountsNow(): Readonly<Record<string, number>> { return { ...this.tellReactionCounts }; }
@@ -1691,7 +1693,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * B29 - one observer-reaction pass, driven by the orchestrator's per-turn off-screen tick. For every houseguest who is VISIBLY rattled (a persisted tell from B28) and shares a room with an awake NPC
    * observer, the observer may react (comfort / exploit / avoid) - chosen by the observer's strategy style, disposition and bond to the target, drawn from a DEDICATED stream, once per pair per week.
-   * Comfort lowers the target's distress a little and builds their trust in the observer; exploit adds a small decaying tilt read by the nomination/vote providers; avoid is recorded (no effect yet).
+   * Comfort lowers the target's distress a little and builds their trust in the observer; exploit adds a small decaying tilt read by the nomination/vote providers; avoid (played games) keeps the observer's movement away from the rattled one for `avoidWeeks` (ORW-32).
    * Observability gate = the existing co-presence (ADR 0019): only the same room. Flag off => returns before anything (zero draws, nothing written).
    */
   tellReactionsTick(): void {
@@ -1728,6 +1730,8 @@ export class GameSessionAdapter implements GameSession {
         } else if (reaction === "exploit") {
           const k = `${observer}|${target}`;
           this.tellExploit[k] = addExploit(this.tellExploit[k] ?? 0);
+        } else if (reaction === "avoid" && this.live?.playedGame === true) {
+          this.tellAvoidUntil[key] = week + TELL_REACTION.avoidWeeks; // ORW-32: the avoid now bends movement (played games only; headless sims keep recording only)
         }
       }
     }
@@ -4069,7 +4073,7 @@ export class GameSessionAdapter implements GameSession {
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
       ...(this.tellOnsetCount > 0 ? { tellOnsetCount: this.tellOnsetCount } : {}),
-      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks } } : {}),
+      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks, ...(Object.keys(this.tellAvoidUntil).length ? { avoidUntil: { ...this.tellAvoidUntil } } : {}) } } : {}),
       // issue #792: the SEATED sub-zones (player-facing view) — persisted tenure-style so drift/cluster
       // history survives a restart (0007, only-forward) and never reseeds from scratch. Absent/empty ⇒
       // omitted (byte-identical to a pre-feature save; the next tick seats fresh). Vault-free position.
@@ -4396,6 +4400,7 @@ export class GameSessionAdapter implements GameSession {
     this.tellOnsetCount = core.tellOnsetCount ?? 0;
     this.tellExploit = { ...(core.tellReactions?.exploit ?? {}) };
     this.tellReactedWeek = { ...(core.tellReactions?.reactedWeek ?? {}) };
+    this.tellAvoidUntil = { ...(core.tellReactions?.avoidUntil ?? {}) };
     this.tellReactionCounts = { ...(core.tellReactions?.counts ?? {}) };
     this.tellReactionTicks = core.tellReactions?.ticks ?? 0;
     // issue #792: restore the SEATED sub-zones (acquired drift/cluster history survives a restart). A
@@ -4782,7 +4787,39 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * ORW-87 - the NPC memory ledger bends who an NPC seeks or avoids: a remembered favor (negative tilt) draws them toward that houseguest (it turns an avoid into a seek: a favor is repaid), a remembered grudge keeps them away (an existing
+   * avoid is sharpened; an existing toward-pull, e.g. a rival to work, is left alone). Played games only (the caller gates; headless sims never reach this, so they stay byte-identical);
+   * no rng; a pure read of `memoryTiltFor`.
+   */
+  private applyMemoryToPulls(id: EntityId, pulls: MovementPull[]): void {
+    for (const other of this.presenceActive()) {
+      if (other === id) continue;
+      const tilt = this.memoryTiltFor(other, id);
+      if (Math.abs(tilt) < MOVEMENT_MEMORY.minTilt) continue;
+      const scale = 1 + MOVEMENT_MEMORY.gain * Math.abs(tilt);
+      const existing = pulls.find((p) => p.target === other);
+      if (tilt < 0) { // favor
+        if (existing) { existing.avoid = false; existing.weight *= scale; } else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false });
+      } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
+      else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
+    }
+  }
+
+  /** ORW-32 - an observer who chose to AVOID a visibly rattled houseguest keeps away from them while the avoid lasts: any pull toward them becomes an avoid. Played games only (caller gates); no rng; engine-only state. */
+  private applyTellAvoidToPulls(id: EntityId, pulls: MovementPull[]): void {
+    const week = this.week;
+    for (const other of this.presenceActive()) {
+      if (other === id || (this.tellAvoidUntil[`${id}|${other}`] ?? -1) < week) continue;
+      const existing = pulls.find((p) => p.target === other);
+      if (existing) { existing.avoid = true; existing.weight = Math.max(existing.weight, MOVEMENT_INTENT.minCharge * TELL_REACTION.avoidWeight); }
+      else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * TELL_REACTION.avoidWeight, avoid: true });
+    }
   }
 
   /** B35 - reads the holder's undelivered high-motive facts (wired by the registry; absent => no seeking). */
@@ -10846,6 +10883,12 @@ export class GameSessionAdapter implements GameSession {
     return { kind: "safety", terms };
   }
 
+  /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
+  private ownPushAgainstPlayer(npcId: EntityId): number {
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
+    return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
+  }
+
   private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
@@ -10864,6 +10907,7 @@ export class GameSessionAdapter implements GameSession {
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
+      ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
