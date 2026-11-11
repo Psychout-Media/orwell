@@ -8451,6 +8451,14 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
     return None
 
 
+async def _resolve_model_id(sess) -> Optional[str]:
+    """ORW-177: the stored-endpoint lookup first, then the live `/models` probe. The probe is a blocking
+    `httpx.get` (up to its timeout), so on a cache miss it runs on a worker thread - it used to freeze the
+    event loop, and every other player, once per chat turn."""
+    return _normalize_model_id_from_cache(sess) or await asyncio.to_thread(
+        normalize_model_id, sess.endpoint_url, sess.model)
+
+
 async def build_chat_context(
     sess,
     request,
@@ -8622,7 +8630,7 @@ async def build_chat_context(
 
     # Normalize model ID. Prefer cached endpoint models so group chat does not
     # re-hit slow local /models endpoints on every participant turn.
-    norm = _normalize_model_id_from_cache(sess) or normalize_model_id(sess.endpoint_url, sess.model)
+    norm = await _resolve_model_id(sess)
     if norm:
         sess.model = norm
 

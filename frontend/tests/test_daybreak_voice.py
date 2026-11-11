@@ -20,3 +20,15 @@ def test_the_premiere_day_break_arms_its_narration_steer_once():
     ch.note_premiere_turn(u, {"phase": "premiere", "daySchedule": {"next": "hoh-competition", "due": False}})
     assert ch._runway_key(u) not in ch._DAY_BREAK_STEER, "armed exactly once"
     ch.clear_social_runway(u)
+
+
+def test_the_day_break_steer_is_premiere_only_and_a_reset_drops_it():
+    """ORW-38 mutation sweep (#2127): a schedule board outside the premiere must not arm the steer, and a reset/end must drop an armed-but-unspoken one."""
+    u = "a13-db-2"
+    ch.clear_social_runway(u)
+    ch.note_premiere_turn(u, {"phase": "hoh-competition", "daySchedule": {"next": "hoh-competition", "due": False}})
+    assert ch._runway_key(u) not in ch._DAY_BREAK_STEER, "not the premiere: no crossing"
+    ch.note_premiere_turn(u, {"phase": "premiere", "daySchedule": {"next": "hoh-competition", "due": False}})
+    assert ch._runway_key(u) in ch._DAY_BREAK_STEER
+    ch.clear_social_runway(u)
+    assert ch._runway_key(u) not in ch._DAY_BREAK_STEER, "a reset drops a pending day-break steer"
