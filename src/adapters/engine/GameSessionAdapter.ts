@@ -1056,7 +1056,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private campaigns: Campaign[] = [];
   /**
-   * 0085 Phase B2 — whether the live campaign layer RUNS. DEFAULT OFF: the calibration/UAT harness
+   * 0085 Phase B2 — whether the live campaign layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness
    * composes its runtime without enabling it, so every seeded gate (juryReach/gradient/UAT) is
    * BYTE-IDENTICAL; the live deploy enables it via `composeRuntime({ campaigns: true })`. When off,
    * no campaign forms/advances and `ctx().campaignTiltFor` is absent ⇒ the seeded vote is unchanged.
@@ -1148,13 +1148,13 @@ export class GameSessionAdapter implements GameSession {
     else this.hangOutSkipStepAt = undefined; // message mode: a hang-out must not leave a stale skip that makes the NEXT note bill 0
   }
   /**
-   * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
+   * 0006b — whether NPCs carry a derived COMPETITION INTENT. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness
    * never enables it, so `ctx().compIntentOf` is absent and every NPC "compete"s ⇒ every seeded gate is
    * BYTE-IDENTICAL; the live deploy enables it via `ORWELL_COMP_INTENT=1` / `setCompIntentEnabled`.
    */
   private compIntentEnabled = COMP_INTENT_ENABLED_DEFAULT;
   /**
-   * 0110 — whether the eviction jury grudge folds on the evictee's DEDUCED belief. DEFAULT OFF: the
+   * 0110 — whether the eviction jury grudge folds on the evictee's DEDUCED belief. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness never enables it, so `ctx().voteDeduction` is false and the true `votesToEvict`
    * is folded ⇒ every seeded gate is BYTE-IDENTICAL; the live deploy enables it via `ORWELL_VOTE_DEDUCTION=1`.
    */
@@ -1426,7 +1426,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private playerCampaignProgressBeat: number | null = null;
   /**
-   * 0100 — whether the JURY-HOUSE grudge layer RUNS. DEFAULT OFF: the calibration/UAT harness leaves it
+   * 0100 — whether the JURY-HOUSE grudge layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness leaves it
    * off, so with it unset NO jury-house stretch runs, NO draw is taken, and NO grudge is applied ⇒ every
    * seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL; the live deploy enables it. A test flips it
    * via `setJuryHouseEnabled`.
@@ -1443,7 +1443,7 @@ export class GameSessionAdapter implements GameSession {
   private socialFatigueEnabled = SOCIAL_FATIGUE_ENABLED_DEFAULT;
   private multiNightFatigueEnabled = MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT;
   /**
-   * Feature #1400 — generative competition design. DEFAULT OFF (its `ORWELL_GEN_COMPETITIONS` env
+   * Feature #1400 — generative competition design. default ON in the shipped game (the calibration/UAT harness turns it off) (its `ORWELL_GEN_COMPETITIONS` env
    * default): when off, `competitionStagingView` returns null and `recordCompetitionFiction` refuses, so
    * NO fiction is ever authored/stored ⇒ the deterministic 0042 library floor stands, byte-identical to
    * the pre-feature model (the `genCompetitionNeutral` proof pins it). Flipped by a test's setter (below).
@@ -1457,7 +1457,7 @@ export class GameSessionAdapter implements GameSession {
    *  known (a fresh game, or a pre-limbo save): derived on the first tick. Persisted as `juryHouseArrivals`. */
   private juryHouseArrivals: number | null = null;
   /**
-   * 0101 — whether NPC MYTH-MAKING runs. DEFAULT OFF: the calibration/UAT harness never enables it, so
+   * 0101 — whether NPC MYTH-MAKING runs. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness never enables it, so
    * with it unset `legendTick` draws nothing and mints no legend ⇒ every seeded gate (juryReach/gradient/
    * UAT) is BYTE-IDENTICAL; the live deploy may enable it. A test flips it via `setMythMakingEnabled`.
    */
@@ -1476,7 +1476,7 @@ export class GameSessionAdapter implements GameSession {
    *  re-selected into a second legend (0101). Monotonic (non-decreasing). */
   private legendLastActTick = 0;
   /**
-   * 0101 (#1401) — the AI SHOWRUNNER. `showrunnerEnabled` gates the whole layer (DEFAULT OFF ⇒
+   * 0101 (#1401) — the AI SHOWRUNNER. `showrunnerEnabled` gates the whole layer (default ON in the shipped game (the calibration/UAT harness turns it off) ⇒
    * calibration byte-identical). `showrunnerNotes` is the Vault-held, APPEND-ONLY production bible (one
    * note per (week, phase) beat — the once-per-beat dedupe mirrors the scheduler's own cadence);
    * `showrunnerNoteCount` is its monotonic per-season count (a `SessionCoreCounts` dimension). Both reset
@@ -1494,7 +1494,7 @@ export class GameSessionAdapter implements GameSession {
    * Stays 0 whenever the reweight sub-flag is off ⇒ byte-shaped like a pre-Phase-2 save. */
   private showrunnerReweightCount = 0;
   /**
-   * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs. DEFAULT OFF: the
+   * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness never enables it, so with it unset `secretBarterTick` returns before drawing
    * anything and no secret changes hands ⇒ every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL;
    * the live deploy may enable it. A test flips it via `setSecretBarterEnabled`.
@@ -1525,7 +1525,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private nemesisTrack: NemesisTrack = NO_NEMESIS;
   /**
-   * 0087 — whether the RELATIONSHIP-TRAJECTORY layer RUNS. DEFAULT OFF (the dedicated `ORWELL_TRAJECTORIES`
+   * 0087 — whether the RELATIONSHIP-TRAJECTORY layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off) (the dedicated `ORWELL_TRAJECTORIES`
    * flag): when off, no momentum is computed, the off-screen tick passes no `trajectoryOf` ⇒ `natureWeights`
    * is the identity, and every seeded gate is BYTE-IDENTICAL (the calibration-neutrality guarantee). Per
    * instance; a test flips it via `setTrajectoriesEnabled`.
@@ -1550,7 +1550,7 @@ export class GameSessionAdapter implements GameSession {
   private compThemesEnabled = COMP_THEMES_ENABLED_DEFAULT;
 
   /**
-   * #1790 — whether the TRAITORS'-FURY juror-bearing word layer RUNS. DEFAULT OFF: the
+   * #1790 — whether the TRAITORS'-FURY juror-bearing word layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness leaves it off, so `bearingWord` returns a constant ("settled")
    * and the seeded jury-read spine is byte-identical. A test flips it via `setTraitorsFuryEnabled`.
    */
@@ -5322,7 +5322,9 @@ export class GameSessionAdapter implements GameSession {
   private gatherForCeremony(force = false): boolean {
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
-    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null;
+    // ORW-281 slice 6 (Ryne 2026-11-11): ceremonies live in the living room, comps all take place in the backyard. Comps move the house for real in a PLAYED game only (headless sims keep no gather).
+    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room"
+      : (kind === "hoh-competition" || kind === "veto-competition") && this.live?.playedGame === true ? "backyard" : null;
     if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
     if (!force && this.ceremonyHeld === kind) return true;
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
@@ -10957,6 +10959,12 @@ export class GameSessionAdapter implements GameSession {
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
+    // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
+    if (req.kind === "protect-third") {
+      const gone = new Set(this.live.evictionOrder);
+      if (!this.dealDepthEnabled || this.live.playedGame !== true || !req.third || req.third === req.with || req.third === PLAYER
+        || gone.has(req.third) || !this.house.npcs.some((n) => n.id === req.third)) return null;
+    }
     const target = req.with;
     const evicted = new Set(this.live.evictionOrder);
     const isActiveOther = target !== PLAYER
@@ -10991,8 +10999,8 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
-    const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" ? [target, PLAYER] : [PLAYER, target];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation

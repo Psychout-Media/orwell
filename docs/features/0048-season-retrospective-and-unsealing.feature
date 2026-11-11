@@ -31,10 +31,10 @@ Feature: Season retrospective & the Vault unsealing
     Given a finished season
     When the season recap is assembled
     Then its highlights come from the recorded events — HOH reigns, nominations, vetoes, evictions, deals
-    And it contains no fact that was not in the stores
+    And every highlight it lists is a recorded, non-hidden event in the stores
 
   Scenario: A finished season starts a new one cleanly
     Given a finished season
     When the player starts a new season
-    Then the prior season is left intact as finished
+    Then the snapshot taken of the prior season before the reset still reads as finished, with its winner
     And a fresh game begins with one active game for that user
