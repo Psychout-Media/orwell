@@ -7623,7 +7623,7 @@ async def _e22_rich_extract(user, player_message, narration) -> bool:
 _NOOP_ABLE_PROGRESSION_TOOLS = frozenset({"advanceGame", "submitDecision"})
 
 
-async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None) -> bool:
+async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None) -> bool:
     """E22 — the server-side guard for the cardinal sin. Prompt wording told the model to
     record scenes; nothing ENFORCED it (the GM asking "Record this interaction?" was the
     symptom). On a completed game turn with non-trivial narration and ZERO engine writes,
@@ -7643,6 +7643,24 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     text = (narration or "").strip()
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
+    # ORW-185: two turn shapes are NOT an unrecorded social scene, and used to trip this guard (the flat
+    # "Scene (auto-recorded)" digest then phantom-folded them): (1) a pure out-of-character aside (the
+    # player's OOC question answered in `(( ))`; the 0055 belt skips these quietly by ORW-207 and its False
+    # return was read here as "extraction declined, write the floor digest"); (2) a turn whose scene the
+    # in-loop 0055 belt already STAGED (#1728 defer-fold-to-settle: staged now, committed next turn, so
+    # beatSeq has not moved and no model tool_start named a write). A second digest would double-fold it.
+    from src.ooc_aside import is_aside_only
+    if is_aside_only(narration) or is_aside_only(player_message):
+        logger.info("[orwell] E22 guard: stood down — OOC aside turn (ORW-185) user=%s", user)
+        return False
+    if session_id is not None:
+        try:
+            from src import fold_ledger as _fl
+            if _fl.has_pending_fold(user, session_id):
+                logger.info("[orwell] E22 guard: stood down — the 0055 belt already staged this turn's scene fold (ORW-185) user=%s", user)
+                return False
+        except Exception:  # fail-open: the guard's floor must still run
+            pass
     writes = [t for t in (tools_called or []) if t in GAME_ENGINE_WRITE_TOOLS]
     if writes:
         # A real write (recordInteraction, makeDeal, …) stands the fallback down by name. But when the
