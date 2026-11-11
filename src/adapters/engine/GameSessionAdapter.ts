@@ -6,7 +6,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
-  DailyRecapView,
+  DailyRecapView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -481,6 +481,9 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  * length. Used by the 0062 zeitgeist write-back (`recordWorldSnapshot`) — the snapshot is non-secret
  * public flavor, but it is still player/FE-sourced text woven into the moment prompt.
  */
+const DAY_LEDGER_MAX_EVENTS = 12;
+const DAY_LEDGER_EVENT_CHARS = 240;
+const DAY_LEDGER_TEXT_CHARS = 900;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -922,6 +925,9 @@ function groupPlayerDossier(
 /** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
 export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
 
+/** ORW-282: how many daily recaps the append-only log keeps (a season is well under this). */
+const DAILY_RECAP_LOG_CAP = 60;
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -1046,7 +1052,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private campaigns: Campaign[] = [];
   /**
-   * 0085 Phase B2 — whether the live campaign layer RUNS. DEFAULT OFF: the calibration/UAT harness
+   * 0085 Phase B2 — whether the live campaign layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness
    * composes its runtime without enabling it, so every seeded gate (juryReach/gradient/UAT) is
    * BYTE-IDENTICAL; the live deploy enables it via `composeRuntime({ campaigns: true })`. When off,
    * no campaign forms/advances and `ctx().campaignTiltFor` is absent ⇒ the seeded vote is unchanged.
@@ -1138,13 +1144,13 @@ export class GameSessionAdapter implements GameSession {
     else this.hangOutSkipStepAt = undefined; // message mode: a hang-out must not leave a stale skip that makes the NEXT note bill 0
   }
   /**
-   * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
+   * 0006b — whether NPCs carry a derived COMPETITION INTENT. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness
    * never enables it, so `ctx().compIntentOf` is absent and every NPC "compete"s ⇒ every seeded gate is
    * BYTE-IDENTICAL; the live deploy enables it via `ORWELL_COMP_INTENT=1` / `setCompIntentEnabled`.
    */
   private compIntentEnabled = COMP_INTENT_ENABLED_DEFAULT;
   /**
-   * 0110 — whether the eviction jury grudge folds on the evictee's DEDUCED belief. DEFAULT OFF: the
+   * 0110 — whether the eviction jury grudge folds on the evictee's DEDUCED belief. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness never enables it, so `ctx().voteDeduction` is false and the true `votesToEvict`
    * is folded ⇒ every seeded gate is BYTE-IDENTICAL; the live deploy enables it via `ORWELL_VOTE_DEDUCTION=1`.
    */
@@ -1415,7 +1421,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private playerCampaignProgressBeat: number | null = null;
   /**
-   * 0100 — whether the JURY-HOUSE grudge layer RUNS. DEFAULT OFF: the calibration/UAT harness leaves it
+   * 0100 — whether the JURY-HOUSE grudge layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness leaves it
    * off, so with it unset NO jury-house stretch runs, NO draw is taken, and NO grudge is applied ⇒ every
    * seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL; the live deploy enables it. A test flips it
    * via `setJuryHouseEnabled`.
@@ -1432,7 +1438,7 @@ export class GameSessionAdapter implements GameSession {
   private socialFatigueEnabled = SOCIAL_FATIGUE_ENABLED_DEFAULT;
   private multiNightFatigueEnabled = MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT;
   /**
-   * Feature #1400 — generative competition design. DEFAULT OFF (its `ORWELL_GEN_COMPETITIONS` env
+   * Feature #1400 — generative competition design. default ON in the shipped game (the calibration/UAT harness turns it off) (its `ORWELL_GEN_COMPETITIONS` env
    * default): when off, `competitionStagingView` returns null and `recordCompetitionFiction` refuses, so
    * NO fiction is ever authored/stored ⇒ the deterministic 0042 library floor stands, byte-identical to
    * the pre-feature model (the `genCompetitionNeutral` proof pins it). Flipped by a test's setter (below).
@@ -1446,7 +1452,7 @@ export class GameSessionAdapter implements GameSession {
    *  known (a fresh game, or a pre-limbo save): derived on the first tick. Persisted as `juryHouseArrivals`. */
   private juryHouseArrivals: number | null = null;
   /**
-   * 0101 — whether NPC MYTH-MAKING runs. DEFAULT OFF: the calibration/UAT harness never enables it, so
+   * 0101 — whether NPC MYTH-MAKING runs. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness never enables it, so
    * with it unset `legendTick` draws nothing and mints no legend ⇒ every seeded gate (juryReach/gradient/
    * UAT) is BYTE-IDENTICAL; the live deploy may enable it. A test flips it via `setMythMakingEnabled`.
    */
@@ -1465,7 +1471,7 @@ export class GameSessionAdapter implements GameSession {
    *  re-selected into a second legend (0101). Monotonic (non-decreasing). */
   private legendLastActTick = 0;
   /**
-   * 0101 (#1401) — the AI SHOWRUNNER. `showrunnerEnabled` gates the whole layer (DEFAULT OFF ⇒
+   * 0101 (#1401) — the AI SHOWRUNNER. `showrunnerEnabled` gates the whole layer (default ON in the shipped game (the calibration/UAT harness turns it off) ⇒
    * calibration byte-identical). `showrunnerNotes` is the Vault-held, APPEND-ONLY production bible (one
    * note per (week, phase) beat — the once-per-beat dedupe mirrors the scheduler's own cadence);
    * `showrunnerNoteCount` is its monotonic per-season count (a `SessionCoreCounts` dimension). Both reset
@@ -1483,7 +1489,7 @@ export class GameSessionAdapter implements GameSession {
    * Stays 0 whenever the reweight sub-flag is off ⇒ byte-shaped like a pre-Phase-2 save. */
   private showrunnerReweightCount = 0;
   /**
-   * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs. DEFAULT OFF: the
+   * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness never enables it, so with it unset `secretBarterTick` returns before drawing
    * anything and no secret changes hands ⇒ every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL;
    * the live deploy may enable it. A test flips it via `setSecretBarterEnabled`.
@@ -1514,7 +1520,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private nemesisTrack: NemesisTrack = NO_NEMESIS;
   /**
-   * 0087 — whether the RELATIONSHIP-TRAJECTORY layer RUNS. DEFAULT OFF (the dedicated `ORWELL_TRAJECTORIES`
+   * 0087 — whether the RELATIONSHIP-TRAJECTORY layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off) (the dedicated `ORWELL_TRAJECTORIES`
    * flag): when off, no momentum is computed, the off-screen tick passes no `trajectoryOf` ⇒ `natureWeights`
    * is the identity, and every seeded gate is BYTE-IDENTICAL (the calibration-neutrality guarantee). Per
    * instance; a test flips it via `setTrajectoriesEnabled`.
@@ -1539,7 +1545,7 @@ export class GameSessionAdapter implements GameSession {
   private compThemesEnabled = COMP_THEMES_ENABLED_DEFAULT;
 
   /**
-   * #1790 — whether the TRAITORS'-FURY juror-bearing word layer RUNS. DEFAULT OFF: the
+   * #1790 — whether the TRAITORS'-FURY juror-bearing word layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness leaves it off, so `bearingWord` returns a constant ("settled")
    * and the seeded jury-read spine is byte-identical. A test flips it via `setTraitorsFuryEnabled`.
    */
@@ -1947,6 +1953,7 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
+    this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
     this.onPersist?.();
   }
 
@@ -5310,7 +5317,9 @@ export class GameSessionAdapter implements GameSession {
   private gatherForCeremony(force = false): boolean {
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
-    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null;
+    // ORW-281 slice 6 (Ryne 2026-11-11): ceremonies live in the living room, comps all take place in the backyard. Comps move the house for real in a PLAYED game only (headless sims keep no gather).
+    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room"
+      : (kind === "hoh-competition" || kind === "veto-competition") && this.live?.playedGame === true ? "backyard" : null;
     if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
     if (!force && this.ceremonyHeld === kind) return true;
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
@@ -10545,6 +10554,15 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s) return undefined;
     const day = s.dayNumber ?? 1;
+    const recap = this.buildRecapForDay(day);
+    s.dayNumber = day + 1;
+    if (this.messageMode) s.dailyRecapDay = day; // ORW-282: this day now has its recap (the crossing catch-up must not make a second one)
+    return recap;
+  }
+
+  /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
+  private buildRecapForDay(day: number): DailyRecapView {
+    const s = this.live!;
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
     const highlights = allEvents.slice(evFrom)
@@ -10558,10 +10576,48 @@ export class GameSessionAdapter implements GameSession {
     const hook = this.buildDailyRecapHook(day, surfaced);
     const recap: DailyRecapView = { day, highlights, surfaced, ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
+    if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
+      // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
+      const kinds = new Set<string>();
+      for (const e of allEvents.slice(evFrom)) {
+        if (e.hidden) continue;
+        if (e.type === "deal") kinds.add("deal");
+        else if (e.type === "betrayal") kinds.add("betrayal");
+        else if (e.id.startsWith("season:")) kinds.add("ceremony");
+      }
+      if (surfaced.length > 0) kinds.add("rumor");
+      if (hook?.thread) kinds.add(`thread-${String(hook.thread).split(":")[0]!.replace(/[^a-z-]/gi, "").slice(0, 24)}`); // the thread KIND only, never its id
+      const ledger = (s.dayLedger ??= []);
+      if (!ledger.some((d) => d.tier === "day" && d.day === day)) {
+        ledger.push({
+          day, tier: "day",
+          events: [...highlights, ...surfaced].slice(0, DAY_LEDGER_MAX_EVENTS).map((t) => t.slice(0, DAY_LEDGER_EVENT_CHARS)),
+          themes: [...kinds].sort(),
+        });
+      }
+    }
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
-    s.dayNumber = day + 1;
+    if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
+    if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
+  }
+
+  /**
+   * ORW-282 (BDD card 29): every game day gets a recap, not only the days the player turns in. A day that rolled by the production schedule (`crossToNextDay`, the HOH-to-nominations night gate), the
+   * all-night wrap or a player who never turned in has `dayNumber` ahead of the last recapped day; catch up one recap per crossed day, oldest first, each from the tail since the previous recap (so no
+   * day is merged and nothing is counted twice). Same Vault-free sources and perspective rule as the bedtime recap (the player's witnessed highlights and the knowledge the player actually holds), no rng
+   * (the hint rides its own per-day stream), and nothing folded. PLAYED games only: a headless sim never runs it, so seeded balance runs and snapshots stay byte-identical. A save from before this field
+   * starts from the day it loads on (no back-fill of days that were already lost).
+   */
+  private catchUpDailyRecaps(): void {
+    const s = this.live;
+    if (!s || !this.messageMode || s.finished || !this.house) return;
+    const cur = s.dayNumber ?? 1;
+    let done = s.dailyRecapDay ?? (cur - 1);
+    if (done + 1 >= cur) { if (s.dailyRecapDay === undefined) s.dailyRecapDay = done; return; }
+    while (done + 1 < cur) { done += 1; this.buildRecapForDay(done); }
+    s.dailyRecapDay = done;
   }
 
   /**
@@ -10571,6 +10627,44 @@ export class GameSessionAdapter implements GameSession {
    */
   dailyRecap(): DailyRecapView | null {
     return this.live?.lastDailyRecap ?? null;
+  }
+
+  /** ORW-271 — the append-only day ledger (deep copy; Vault-free). */
+  dayLedger(): DaySummary[] {
+    return JSON.parse(JSON.stringify(this.live?.dayLedger ?? [])) as DaySummary[];
+  }
+
+  /** ORW-271 — FE-driven write-back of a model-authored day/week summary. Idempotent per (day, tier). */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult {
+    const s = this.live;
+    const ledger = s?.dayLedger;
+    if (!s || !ledger) return { accepted: false, reason: "absent" };
+    const text = String(req.text ?? "")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
+    if (!text) return { accepted: false, reason: "empty" };
+    const day = Math.trunc(req.day);
+    if (req.tier === "week") {
+      const [a, b] = req.coversDays ?? [day, day];
+      const from = Math.trunc(Math.min(a, b)), to = Math.trunc(Math.max(a, b));
+      const covered = ledger.filter((d) => d.tier === "day" && d.day >= from && d.day <= to);
+      if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
+      const existing = ledger.find((d) => d.tier === "week" && d.day === day);
+      if (existing) {
+        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+      } else {
+        ledger.push({
+          day, tier: "week", coversDays: [from, to], text,
+          events: [], themes: [...new Set(covered.flatMap((d) => d.themes))].sort(),
+        });
+      }
+      for (const d of covered) d.merged = true;
+    } else {
+      const entry = ledger.find((d) => d.tier === "day" && d.day === day);
+      if (!entry) return { accepted: false, reason: "unknown-day" };
+      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+    }
+    this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
+    return { accepted: true };
   }
 
   /**
@@ -10813,6 +10907,12 @@ export class GameSessionAdapter implements GameSession {
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
+    // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
+    if (req.kind === "protect-third") {
+      const gone = new Set(this.live.evictionOrder);
+      if (!this.dealDepthEnabled || this.live.playedGame !== true || !req.third || req.third === req.with || req.third === PLAYER
+        || gone.has(req.third) || !this.house.npcs.some((n) => n.id === req.third)) return null;
+    }
     const target = req.with;
     const evicted = new Set(this.live.evictionOrder);
     const isActiveOther = target !== PLAYER
@@ -10847,8 +10947,8 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
-    const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" ? [target, PLAYER] : [PLAYER, target];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation

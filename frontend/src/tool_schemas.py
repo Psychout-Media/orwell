@@ -2016,8 +2016,8 @@ _apply_game_build_schemas()
 # `with_deal_depth_kinds` swaps in the extended enum at SEND time when the flag is on (a deep copy, never
 # mutating the shared base). Off (the default) ⇒ the same list ⇒ byte-identical.
 BASE_DEAL_KINDS = ["safety", "vote", "final-two", "target-other"]
-ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save"]
-_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them"
+ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save", "protect-third"]
+_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them; protect-third = they swear not to move against a named THIRD houseguest (pass `third`)"
 
 
 def current_deal_kinds() -> list:
@@ -2044,6 +2044,7 @@ def with_deal_depth_kinds(schemas: list) -> list:
             if isinstance(kind, dict) and isinstance(kind.get("enum"), list):
                 kind["enum"] = BASE_DEAL_KINDS + ACTIVE_DEAL_KINDS
                 kind["description"] = f"The deal's nature. {_ACTIVE_DEAL_KIND_DESC}."
+            props["third"] = {"type": "string", "description": "protect-third only: the id of the THIRD houseguest the deal partner swears not to nominate, replace or vote out (from the roster)."}
             props["direction"] = {"type": "string", "enum": ["offer", "ask"], "description": "comp-throw / veto-save only: 'offer' (default) = the player promises to do it for them; 'ask' = the player asks THEM to throw / save for the player."}
         out.append(s)
     return out

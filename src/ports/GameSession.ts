@@ -787,8 +787,13 @@ export interface MakeDealReq {
   with: EntityId;
   // 0121 — the two ACTIVE-obligation kinds (comp-throw / veto-save) are accepted only when the deal-depth
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
-  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
+  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third";
   terms: string;
+  /**
+   * 0142 (ORW-88 idea 3) - for `protect-third` only: the THIRD houseguest the NPC swears not to move against (nominate, replace or vote out). The NPC is always the promisor (the player
+   * asked them); a played game with the deal-depth layer on is required. Ignored for every other kind.
+   */
+  third?: EntityId;
   /**
    * B55 - for the ACTIVE kinds only (comp-throw / veto-save): who promises. `offer` (the default - "I'll throw it for you") binds the PLAYER; `ask` ("will you throw it for me?") binds the NPC. Ignored for the defensive kinds.
    */
@@ -2012,6 +2017,33 @@ export interface DailyRecapHook {
  * layer never appears. `hook` is present only when an in-motion, player-perceivable thread is
  * eligible (a quiet day closes with none — never a manufactured cliffhanger).
  */
+export interface DaySummary {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  /** Model-authored summary (FE write-back), capped; absent = floor entry only. */
+  text?: string;
+  /** Week tier: the inclusive day range this entry condenses. */
+  coversDays?: [number, number];
+  /** Day tier: true once a week entry has condensed it (kept in the ledger, never deleted). */
+  merged?: boolean;
+}
+
+/** ORW-271 — FE-driven write-back: the model-authored summary for a closed day (or a week of days). */
+export interface RecordDaySummaryReq {
+  day: number;
+  text: string;
+  tier?: "day" | "week";
+  coversDays?: [number, number];
+}
+
+export interface RecordDaySummaryResult {
+  accepted: boolean;
+  /** Why not accepted (absent when accepted). */
+  reason?: "absent" | "unknown-day" | "empty";
+}
+
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
@@ -2825,6 +2857,18 @@ export interface GameSession {
    * reproducible: re-reading returns the exact same materialized view every time.
    */
   dailyRecap(): DailyRecapView | null;
+
+  /**
+   * ORW-271 — the append-only per-night day ledger (Vault-free; `[]` before any night closed). FE read.
+   */
+  dayLedger(): DaySummary[];
+
+  /**
+   * ORW-271 — FE-driven write-back (like `recordWorldSnapshot`; NOT a model lever): attach the
+   * model-authored summary `text` to a closed day (idempotent per day+tier), or add a week-tier entry
+   * covering `coversDays` and mark those day entries `merged` (kept, never deleted).
+   */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult;
 
   /**
    * The Vault unsealing (0048 §1): the hidden story of THIS user's FINISHED season. Returns `null`
