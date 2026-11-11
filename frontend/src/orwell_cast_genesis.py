@@ -644,8 +644,9 @@ _SYSTEM = (
     '  "demeanor": a short phrase for how they carry themselves (e.g. "warm but guarded").\n'
     '  "background": a short phrase of life context.\n'
     '  "biography": a 2-3 sentence presentable backstory (their life outside the house).\n'
-    '  "appearance": a short concrete phrase describing their look (consistent with their pronouns AND '
-    "with the casting card's look line — the ink budget and any suggested feature are fixed inputs).\n"
+    '  "appearance": a short concrete phrase describing their look, written with NO pronouns and NO gendered words '
+    "(their gender is pinned in a later step, so \"her hazel eyes\" / \"his jaw\" would contradict it; say \"hazel eyes\", \"a square jaw\") and consistent "
+    "with the casting card's look line — the ink budget and any suggested feature are fixed inputs.\n"
     '  "age": an integer age inside the casting card\'s age band.\n'
     '  "stats": { "physical", "mental", "social" } — three numbers, EACH between '
     f"{_STAT_MIN} and {_STAT_MAX}, whose TOTAL lands roughly between {_TOTAL_LO} and {_TOTAL_HI}. "

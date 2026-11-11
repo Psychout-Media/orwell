@@ -534,3 +534,11 @@ def test_prewarm_runs_genesis_before_identity_and_authoring():
         "u-order", engine=_Engine(), authoring=_Authoring(), identity=_Identity(), genesis=_Genesis()))
     assert order.index("genesis") < order.index("identity") < order.index("authoring")
     orwell_prewarm.reset(None)
+
+
+def test_orw145_genesis_appearance_is_authored_pronoun_free():
+    """ORW-145: appearance is authored at genesis BEFORE the identity call pins the gender, so a pronoun in it ("her hazel eyes") contradicts the later pin and the engine's coherence repair has to fix it
+    (4 of 15 houseguests repaired on every start, flagged RED-eligible). The prompt must ask for a pronoun-free, gender-neutral look phrase and must NOT promise the model a pronoun to match."""
+    text = " ".join(m["content"] for m in G.build_genesis_messages(_ROSTER, G.generate_season_brief(108108)))
+    assert "NO pronouns" in text and "pinned in a later step" in text
+    assert "consistent with their pronouns" not in text
