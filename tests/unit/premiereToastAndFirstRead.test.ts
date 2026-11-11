@@ -46,20 +46,25 @@ describe("item 4 - the first read at each arrival", () => {
     expect(moved, "the fold really moved the edges").toBeGreaterThan(10);
   });
   it("small-group chat during the entrances is recorded as a witnessed event", () => {
-    const sb = start(22);
-    // advance until the player has walked in, then chat with someone already inside
-    for (let i = 0; i < 40; i++) {
+    let reached = 0;
+    for (let seed = 22; seed < 60 && reached === 0; seed++) {
+      const sb = start(seed);
+      // advance until the player has walked in, then chat with someone already inside
+      for (let i = 0; i < 40; i++) {
+        const pe = sb.session.snapshot().live!.premiereEntrance!;
+        if (pe.stage !== "entrances" || pe.order.slice(0, pe.arrived).includes(PLAYER)) break;
+        sb.session.advanceGame();
+      }
       const pe = sb.session.snapshot().live!.premiereEntrance!;
-      if (pe.stage !== "entrances" || pe.order.slice(0, pe.arrived).includes(PLAYER)) break;
-      sb.session.advanceGame();
+      const inside = pe.order.slice(0, pe.arrived).filter((x) => x !== PLAYER);
+      if (pe.stage !== "entrances" || inside.length === 0) continue; // the player was last (or first): try the next seed
+      reached++;
+      const before = sb.engine.events.queryAll().length;
+      sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, inside[0]!], content: "a quiet word by the couch", kind: "bonding" });
+      const added = sb.engine.events.queryAll().slice(before);
+      expect(added.some((e) => e.content.includes("a quiet word by the couch") && e.witnessSet.includes(PLAYER) && !e.hidden)).toBe(true);
     }
-    const pe = sb.session.snapshot().live!.premiereEntrance!;
-    const inside = pe.order.slice(0, pe.arrived).filter((x) => x !== PLAYER);
-    if (pe.stage !== "entrances" || inside.length === 0) return; // seed put the player last; the next seed covers it
-    const before = sb.engine.events.queryAll().length;
-    sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, inside[0]!], content: "a quiet word by the couch", kind: "bonding" });
-    const added = sb.engine.events.queryAll().slice(before);
-    expect(added.some((e) => e.content.includes("a quiet word by the couch") && e.witnessSet.includes(PLAYER) && !e.hidden)).toBe(true);
+    expect(reached, "a seed with the player mid-entrances and someone inside was reached").toBe(1);
   });
 });
 
