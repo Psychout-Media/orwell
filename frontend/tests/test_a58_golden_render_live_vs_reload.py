@@ -74,18 +74,29 @@ def _send_and_snapshot(stack, entries, text, hold=False):
             entries[-1]["gate"] = gate
         for en in entries:
             STUB.script.append(en)
-        # ORW-251d: send, then CONFIRM the user bubble landed; on a loaded CI runner the first Enter can be swallowed (onboarding scrim / composer not yet armed) and the turn never starts, which showed up as "the live turn
-        # never settled". Retry the send once if no user bubble appears (the stub script is only consumed by a request that reached it, so a resend is safe).
+        # ORW-251g: a DETERMINISTIC send. "The user bubble landed" is not enough (the optimistic bubble appears even when the request never reaches the server), so the signal is the stub CONSUMING this turn's first
+        # scripted entry. Per attempt: wait for the composer to exist and be enabled, focus it, type, press Enter, then wait up to 12s for the entry to be consumed; if it was not, try again (up to 3). Console
+        # errors and page errors are collected so a turn that still never starts says why.
+        diag = []
+        page.on("console", lambda m: diag.append(f"console.{m.type}: {m.text[:160]}") if m.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: diag.append(f"pageerror: {str(e)[:160]}"))
         _users = "() => document.querySelectorAll('#chat-history .msg.msg-user').length"
         users_before = page.evaluate(_users)
-        for _attempt in (1, 2):
+        n_script = len(STUB.script)
+        attempts = 0
+        for attempts in (1, 2, 3):
+            page.wait_for_function("() => { const m = document.getElementById('message'); return !!m && !m.disabled; }", timeout=15000)
+            page.click("#message")
             page.fill("#message", text)
             page.keyboard.press("Enter")
-            try:
-                page.wait_for_function("(n) => document.querySelectorAll('#chat-history .msg.msg-user').length > n", arg=users_before, timeout=10000)
+            consumed = False
+            for _w in range(80):  # 12s
+                if len(STUB.script) < n_script:
+                    consumed = True
+                    break
+                page.wait_for_timeout(150)
+            if consumed:
                 break
-            except Exception:  # noqa: BLE001 - the send did not register; try once more
-                continue
         live = None
         mid = None
         # ORW-251: sample the first paint IN the page, once per painted frame (rAF), instead of from Python at ~150ms. Under CI load the Python-side evaluate() calls stall past the whole streaming window,
@@ -108,8 +119,8 @@ def _send_and_snapshot(stack, entries, text, hold=False):
                 break
         if gate is not None:
             gate.set()
-        assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'"
-        assert live and live["footer"], f"the live turn never settled (no footer): last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}"
+        assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'. attempts={attempts} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}/{n_script} diag={diag[-6:]}"
+        assert live and live["footer"], f"the live turn never settled (no footer): last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)
