@@ -10811,6 +10811,12 @@ export class GameSessionAdapter implements GameSession {
     return { kind: "safety", terms };
   }
 
+  /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
+  private ownPushAgainstPlayer(npcId: EntityId): number {
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
+    return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
+  }
+
   private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
@@ -10829,6 +10835,7 @@ export class GameSessionAdapter implements GameSession {
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
+      ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
