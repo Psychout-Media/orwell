@@ -14,6 +14,8 @@ import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from ".
 import type { Room, Zone } from "../domain/house";
 import type { HiddenRecord } from "../ports/VaultStore";
 import type { AdvanceView } from "../ports/GameSession";
+import type { PersistedCanon } from "../domain/canon";
+import { canonSupersetProblems, restoreCanon } from "./canonLedger";
 
 /**
  * The current durable-snapshot schema version (B40/audit C4). Bump when the shape changes; a save
@@ -493,6 +495,13 @@ export interface SessionCore {
    */
   textureOverrides?: Record<string, string>;
   /**
+   * Showrunner memory (K4 §2.5) — the canon ledger: the small details the narration established on screen (a
+   * nickname, a habit, a prop), each with where it came from. NEVER thinned: `sessionCoreIsSuperset` refuses a
+   * save that drops an entry or rewrites its words. Absent until the first detail is recorded, so a game with no
+   * canon saves byte-identically (and every pre-ledger save loads as an empty ledger).
+   */
+  canon?: PersistedCanon;
+  /**
    * Issue #1322 (P2) — the approach-rotation anti-recency cooldown: per-NPC remaining STRETCHES (a
    * distinct week:phase) before they are eligible to lead `socialInitiatives`'s top-3 again, so the
    * same seeded-affinity NPC can't monopolize every approach. Persisted so the rotation survives a
@@ -901,6 +910,13 @@ export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSn
   // bible only ever DEEPENS over a season (non-degradation #4).
   const laterNoteSeqs = new Set((later.showrunnerNotes ?? []).map((n) => n.seq));
   for (const n of earlier.showrunnerNotes ?? []) if (!laterNoteSeqs.has(n.seq)) return false;
+
+  // canon (K4 §2.5): the ledger is never thinned. No entry disappears, its words, category, scope and provenance
+  // never change, its status only moves forward out of `active`, its reference counters never go back, and the
+  // id counter never goes back (`canonSupersetProblems`). Both sides are read the way a load reads them.
+  if (earlier.canon !== undefined || later.canon !== undefined) {
+    if (canonSupersetProblems(restoreCanon(earlier.canon).ledger, restoreCanon(later.canon).ledger).length > 0) return false;
+  }
 
   return true;
 }

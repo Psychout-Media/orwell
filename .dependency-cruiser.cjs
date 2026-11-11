@@ -65,6 +65,17 @@ module.exports = {
       to: { path: VAULT },
     },
     {
+      name: "no-vault-in-canon-ledger",
+      severity: "error",
+      comment:
+        "Showrunner memory Part B (K4 §2.8.3) — the canon ledger (src/engine/canonLedger.ts + its types in " +
+        "src/domain/canon.ts) is structurally Vault-free: the Vault sweep is an injected `leaksVault` closure, " +
+        "wired at composition, so the ledger never holds a VaultStore, SoulProvider, VectorIndex or hidden " +
+        "engine module handle (type-only imports included). Recorded canon can never encode a Vault string.",
+      from: { path: "^src/(engine/canonLedger|domain/canon)\\.ts$" },
+      to: { path: VAULT },
+    },
+    {
       name: "no-vault-on-outward",
       severity: "error",
       comment:
