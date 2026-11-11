@@ -930,6 +930,7 @@
     cancelRequest: cancelRequest,
     sendLayout: sendLayout,
     ensure: ensure,
+    flagOn: _flagOn,   // ORW-44 S2: chat.js asks whether the WS transport is switched on (ORWELL_WS_TRANSPORT) before it treats the socket as the only send path
     rebind: rebind,
     isActive: function () { return _mode === "ws" && !!_sock && _sock.readyState === 1; },
     isFallback: function () { return _mode === "fallback"; },

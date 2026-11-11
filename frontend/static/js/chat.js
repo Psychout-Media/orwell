@@ -1712,7 +1712,8 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
       // fetch. Dormant when the flag is off (byte-identical SSE path preserved).
       // ORW-44 S2 (Ryne: "drop it" - WebSocket only): the game build has NO SSE send path. Make sure the socket is up first (waits out an in-flight reconnect, forces one upgrade attempt for a
       // pre-game / per-tab-pending fallback); if it cannot be, the turn is refused below with a clear message instead of silently POSTing /api/chat_stream.
-      if (isGameBuild() && streamSessionId && !_wsChatActive()) {
+      const _wsOnlySend = isGameBuild() && !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn());  // the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE path
+      if (_wsOnlySend && streamSessionId && !_wsChatActive()) {
         try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
       }
       if (_wsChatActive() && streamSessionId) {
@@ -1775,7 +1776,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
         }
       }
 
-      if (isGameBuild()) {
+      if (_wsOnlySend) {
         // ORW-44 S2: the live connection is down and could not be brought up. Refuse the send cleanly: nothing was sent, so give the text back, drop the optimistic bubble and say why.
         try { _outboxReleaseInflightSend(_clientMsgId); } catch (_) {}
         if (clearResponseTimeout) clearResponseTimeout();
