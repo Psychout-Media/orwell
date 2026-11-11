@@ -328,7 +328,7 @@ import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/s
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
 import { emptyCanonLedger, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
-import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, LEGEND, legendFrom } from "../../engine/gossip";
+import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, legendFrom, legendSeedProbability } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
@@ -9412,15 +9412,14 @@ export class GameSessionAdapter implements GameSession {
    * neither `rel` nor `subjects` — so a legend never moves any NPC's read of the player and never folds the
    * player's own edges (mandate #3 / ADR 0003 — the human forms their own read); this also makes the pass
    * calibration-neutral BY CONSTRUCTION even while ON (only the hidden knowledge layer changes, never a
-   * relationship edge). The per-season cap (`LEGEND.maxPerSeason`) and the notable-act watermark
+   * relationship edge). The rising cost per legend (`legendSeedProbability`, ORW-283: no hard cap) and the notable-act watermark
    * (`legendLastActTick`, so a used act is never re-picked) are enforced here.
    */
   legendTick(events: EventStore, knowledge: KnowledgeService): void {
     if (!this.mythMakingEnabled || !this.house) return;
-    if (this.legendCount >= LEGEND.maxPerSeason) return;
     this.legendTickCount += 1;
     const rng = new SeededRandom(hashSeed(`legend:${this.gameSeed ?? ""}:${this.legendTickCount}`));
-    if (rng.next() >= LEGEND.seedProb) return; // rare — most ticks mint nothing
+    if (rng.next() >= legendSeedProbability(this.legendCount)) return; // rare — most ticks mint nothing, and each legend already minted makes the next rarer
     const playerName = this.house.player.name;
     const acts = notablePlayerActs(events.query({ witnessedBy: PLAYER }), playerName, this.legendLastActTick);
     if (acts.length === 0) return;
