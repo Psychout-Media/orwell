@@ -26,23 +26,31 @@ export function chapterOfMessage(msg) {
   return null;
 }
 
-/** { weeks: [asc unique], current, rowWeek: [chapter per row, carry-forward filled] } for a history array. */
+/** True for the numeric, engine-stamped week (authoritative) as opposed to a "Week N" parsed out of game_moment text. */
+function _hasNumericWeek(msg) {
+  const md = msg && msg.metadata;
+  return !!md && Number.isInteger(md.week) && md.week >= 0;
+}
+
+/** { weeks: [asc unique], current, rowWeek: [chapter per row, carry-forward filled] } for a history array.
+ * A numeric `metadata.week` is honoured as stamped, which is how the eviction-night goodnight reply (saved AFTER the new week's chapter row but stamped with the OLD week)
+ * stays at the end of the week it closes. Every other row (parsed from game_moment, or carrying nothing) takes the running maximum, so a stray older text stamp can never
+ * reopen an earlier chapter. */
 export function chapterIndex(history) {
   const rows = Array.isArray(history) ? history : [];
   const raw = rows.map(chapterOfMessage);
-  const first = raw.find((w) => w !== null);
+  const firstIdx = raw.findIndex((w) => w !== null);
   const rowWeek = [];
-  let prev = first === undefined ? null : first;
-  for (const w of raw) {
-    if (w !== null) prev = w;
-    rowWeek.push(prev);
-  }
-  // A transcript's weeks only ever move forward; take the running max so a stray stamp can never reopen an older chapter.
-  let max = null;
-  for (let i = 0; i < rowWeek.length; i++) {
-    if (rowWeek[i] === null) continue;
-    if (max === null || rowWeek[i] > max) max = rowWeek[i];
-    rowWeek[i] = max;
+  let max = firstIdx === -1 ? null : raw[firstIdx];
+  for (let i = 0; i < raw.length; i++) {
+    const w = raw[i];
+    if (w !== null && _hasNumericWeek(rows[i])) {
+      rowWeek.push(w);                       // authoritative stamp: keep it, but never lower the running maximum
+      if (max === null || w > max) max = w;
+    } else {
+      if (w !== null && (max === null || w > max)) max = w;
+      rowWeek.push(max);
+    }
   }
   const weeks = Array.from(new Set(rowWeek.filter((w) => w !== null))).sort((a, b) => a - b);
   return { weeks, current: weeks.length ? weeks[weeks.length - 1] : null, rowWeek };
@@ -165,4 +173,17 @@ export function installLiveGuard(getCurrentSessionId) {
       }
     }
   }).observe(box, { childList: true });
+}
+
+/** The recap card shown for the week-chapter boundary row (metadata {kind:'week-chapter', week, recap:{evicted:string[], hoh:string|null, standing:string}}). Vault-free strings only; `esc` escapes. */
+export function weekChapterCardHtml(md, esc) {
+  const e = typeof esc === 'function' ? esc : (x) => String(x);
+  const r = (md && md.recap) || {};
+  const out = Array.isArray(r.evicted) ? r.evicted.filter((x) => typeof x === 'string' && x) : [];
+  const parts = ['<div class="ow-week-card"><div class="ow-week-card-title">Week ' + e(String(md && md.week)) + '</div>'];
+  if (out.length) parts.push('<div class="ow-week-card-line"><strong>Out:</strong> ' + out.map(e).join(', ') + '</div>');
+  if (typeof r.hoh === 'string' && r.hoh) parts.push('<div class="ow-week-card-line"><strong>Head of Household:</strong> ' + e(r.hoh) + '</div>');
+  if (typeof r.standing === 'string' && r.standing) parts.push('<div class="ow-week-card-line">' + e(r.standing) + '</div>');
+  parts.push('</div>');
+  return parts.join('');
 }
