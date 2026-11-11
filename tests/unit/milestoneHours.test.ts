@@ -16,13 +16,14 @@ import { phaseForHour } from "../../src/engine/timeOfDay";
  */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
 type Row = { next: string; scheduled: string; dueHour: number; dueTod: string; event?: string; afterHour: number };
-function weekOne(): Row[] {
+function weekOne(played = false): Row[] {
   GameSessionAdapter.setTimeOfDayEnabled(true);
   const s = new GameSessionRegistry().sandboxFor(`mh-${Math.random()}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed: 7 });
   s.setPerConversationClockEnabled(true);
   const live = () => s.snapshot().live as unknown as { nightDepth: number; timeOfDay: string; nightDepthUndefined?: boolean };
   for (let i = 0; i < 80 && (s.snapshot().live as { nightDepth?: number }).nightDepth === undefined; i++) s.advanceGame();
+  if (played) s.noteMessage({ messageId: "mh-0" }); // ORW-258: the event-per-day cadence is for a game a PERSON is playing (a headless driver keeps the pre-258 due-ness, byte-identical)
   const rows: Row[] = [];
   for (let step = 0; step < 2500 && !rows.some((r) => r.next === "eviction" && r.event !== "day-break" && !r.event); step++) {
     const d = (s.getGameState() as { daySchedule?: { due: boolean; next: string; phase: string } }).daySchedule;
@@ -68,8 +69,9 @@ describe("milestone hours vs the schedule (week 1, real loop)", () => {
     expect(at("veto-ceremony", "veto-ceremony").dueTod).toBe("evening");
     expect(rows.find((x) => x.next === "eviction" && !x.event)!.dueTod).toBe("evening");
   });
-  it("ORW-258 (replaces the pinned quirk): an event behind its night is NOT due on the previous event's day; its day-break needs no 'due' and the event is due only on its own day", () => {
+  it("ORW-258 (a PLAYED game; replaces the pinned quirk): an event behind its night is NOT due on the previous event's day; its day-break needs no 'due' and the event is due only on its own day", () => {
     // the old quirk (nominations/veto/ceremony reading `due: true` at the tail of the previous event day while the engine still needed a night) is gone: every row where `due` was true advanced the EVENT itself, never a day-break
+    const rows = weekOne(true);
     const dueRows = rows.filter((x) => x.event === "day-break");
     expect(dueRows, "no day-break was ever advanced because the schedule said 'due'").toEqual([]);
     const at = (n: string, e: string) => rows.find((x) => x.next === n && x.event === e)!;
