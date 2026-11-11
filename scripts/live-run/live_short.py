@@ -80,6 +80,14 @@ class Engine:
             self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
         self.call("turnIn"); self.call("noteMessage", {"messageId": f"{tag}-wake"})
 
+    def tick_to_night(self, tag):
+        """Let the evening pass with the engine's own message ticks until the NIGHT period (a player may not go to bed earlier)."""
+        self.jumps += 1
+        for n in range(400):
+            st = self.call("gameStatus") or {}
+            if st.get("timeOfDay") in ("night", "late-night"): return
+            self.call("noteMessage", {"messageId": f"{tag}-t{n}"})
+
     def to_just_before_due(self, tag):
         self.jumps += 1
         n = 0
@@ -159,10 +167,15 @@ def main():
         r = chat.send(text)
         st = eng.call("getGameState")
         def room_of(s_):
-            w = (s_.get("whereabouts") or {}); return sorted({x.get("name") for x in (w.get("present") or []) if isinstance(x, dict)})
+            # who the player can SEE or HEAR: the room itself plus the rooms in their sightline (a voice from the open kitchen is not a phantom), and anyone already through the premiere door
+            w = (s_.get("whereabouts") or {})
+            names_ = {x.get("name") for x in (w.get("present") or []) if isinstance(x, dict)}
+            for r_ in (w.get("nearby") or []):
+                names_ |= {x.get("name") for x in (r_.get("present") or []) if isinstance(x, dict)}
+            return sorted(n for n in names_ if n)
         ent = (eng.call("premiereIntros") or {}).get("entrance") or {} if st.get("phase") == "premiere" else {}
         t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"],
-             "room_start": room_of(st0), "room_end": room_of(st), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
+             "room_start": room_of(st0), "room_end": sorted(set(room_of(st)) | set(ent.get("arrivedNames") or [])), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
              "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
         t["harness_jump"] = eng.jumps; eng.jumps = 0
@@ -253,6 +266,17 @@ def score(turns, checks, check, turn_limit):
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_
+    # K3 (ORW-258, Ryne: the evening ceremony NEEDS to happen in the evening): an event the schedule reports as due must fire within about 2 messages of being due.
+    run_, last_ = 0, None
+    for t in turns:
+        ds_ = t.get("ds") or {}
+        key_ = (ds_.get("next"), t.get("week"), t.get("phase"))
+        if ds_.get("due") and ds_.get("next") in ("nominations", "veto-ceremony", "eviction") and not t.get("pending"):
+            run_ = run_ + 1 if key_ == last_ else 1
+            if run_ == 4: check(f"K3-due-evening-ceremony-unfired[{t['label']}]", False, f"{ds_.get('next')} has been due for {run_} messages without firing (clock {t.get('clock')})")
+            last_ = key_
+        else:
+            run_, last_ = 0, None
     # (a) arrivals keep coming during the real premiere chat: never 6 messages in a row with the same count while more are still to come
     prem = [t for t in turns if t["label"].startswith("premiere-") and t.get("inside") is not None]
     if prem:

@@ -118,22 +118,21 @@ def main():
             if r is not None:
                 n += 1; snap(f"{prefix}-{n}-card", None, r, r.get("label_extra", "")); continue
             ds = st.get("daySchedule") or {}
-            if ds.get("due") is False:
+            # ORW-258 cadence: ONE event per day. If the next event belongs to tomorrow (`todaysEvent` set) the evening passes and the player goes to bed at the NIGHT period; if it is
+            # later today the runner lets the time pass without sleeping; the runner NEVER sleeps through an event day.
+            if ds.get("todaysEvent"):
+                stuck = 0
+                if (clock_hour(st.get("clockLabel")) or 0) < 20.0 and (clock_hour(st.get("clockLabel")) or 0) >= 8.0: eng.tick_to_night(f"{prefix}-{n}")
+            elif ds.get("due") is False:
                 stuck += 1
-                if stuck >= 2:  # waiting on the clock: skip the wait with the engine's own calls (a real player would linger or sleep)
-                    mu = ds.get("minutesUntil") or 0
-                    if mu > 240 or st.get("phase") in ("veto-ceremony", "eviction"):
-                        eng.sleep_through_night(f"{prefix}-n{n}")
+                if stuck >= 2:
                     eng.to_just_before_due(f"{prefix}-{n}"); stuck = 0
             same = (st.get("week"), st.get("phase")) == last_key; last_key = (st.get("week"), st.get("phase"))
-            flat = flat + 1 if (same and ds.get("due")) else 0
-            if flat >= 3:  # due for 6 messages and nothing fired: the engine holds it for the player's night (nominations, veto, ceremony, eviction each need one). Linger the evening, then turn in.
-                facts.setdefault("night_holds", []).append({"phase": st.get("phase"), "week": st.get("week"), "clock": st.get("clockLabel"), "turn": len(turns)})
-                eng.sleep_through_night(f"{prefix}-hold{n}"); flat = 0
             late = clock_hour(st.get("clockLabel")) is not None and clock_hour(st.get("clockLabel")) >= 21
-            if ds.get("due") and late and st.get("phase") in ("nominations", "veto-competition", "veto-ceremony", "eviction"):
+            night_now = (clock_hour(st.get("clockLabel")) or 0) >= 20.0 or (clock_hour(st.get("clockLabel")) or 12) < 8.0
+            if ds.get("todaysEvent") and night_now:
                 text = BED[bed_n % len(BED)]; bed_n += 1  # the night is the player's: a due ceremony waits for them to turn in (ORW-116); a real player goes to bed
-                if bed_n >= 3: eng.sleep_through_night(f"{prefix}-bed{n}"); bed_n = 0  # the model never turned them in after 3 asks: report it and move on
+                if bed_n >= 3: eng.call("turnIn"); eng.jumps += 1; facts.setdefault("bed_not_honoured", []).append({"clock": st.get("clockLabel"), "turn": len(turns)}); bed_n = 0  # the model never turned them in after 3 asks: report it and move on
             else:
                 text = GO[n % len(GO)] if ds.get("due") else SOCIAL[n % len(SOCIAL)]
             t0 = time.time(); before = len(week.page.evaluate(BUB))

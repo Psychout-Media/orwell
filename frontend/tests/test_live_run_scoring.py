@@ -75,3 +75,14 @@ def test_k1_no_skipped_time_unexplained_jump_fails_but_runner_bed_and_wake_do_no
     assert [c for k, c in beat.items() if k.startswith("K1-clock-jump-competition")][0]["severity"] == "note", "a non-competition beat inside one message is a note"
     comp = _score([a, _turn("t2", "x", clock="7:10pm, Day 1", phase="nominations", phase_before="hoh-competition")])
     assert not [c for k, c in comp.items() if k.startswith("K2-competition-in-one-message")][0]["ok"], "Ryne: a competition is never one message"
+
+
+def test_k3_a_due_evening_ceremony_unfired_for_more_than_two_messages_fails():
+    due = {"next": "nominations", "phase": "evening", "due": True, "minutesUntil": 0}
+    stuck = [_turn(f"t{i}", "x", ds=due, phase="nominations", week=1) for i in range(1, 6)]
+    r = _score(stuck)
+    assert [k for k in r if k.startswith("K3-")], "nominations due for 5 messages without firing"
+    fired = [_turn("t1", "x", ds=due, phase="nominations", week=1), _turn("t2", "x", ds=due, phase="nominations", week=1), _turn("t3", "x", ds=None, phase="veto-competition", week=1)]
+    assert not [k for k in _score(fired) if k.startswith("K3-")]
+    not_due = [_turn(f"t{i}", "x", ds={**due, "due": False}, phase="nominations", week=1) for i in range(1, 8)]
+    assert not [k for k in _score(not_due) if k.startswith("K3-")], "waiting for tomorrow is not an unfired due event"
