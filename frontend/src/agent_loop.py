@@ -6503,7 +6503,7 @@ _EMPTY_PRODUCER_LINE = (
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
 # names no machinery, and reads as production handling a beat off-camera (the momentPrompts contract).
 _SCENE_CUTAWAY_LINE = (
-    "The live feeds cut away — a slow pan over the empty backyard, the low hum of the walls — the way "
+    "The live feeds cut away — a slow pan over the quiet walls of the house, the low hum of the feeds — the way "
     "they do when the control room isn't ready to show you the next moment. Give it a beat and pick the "
     "scene back up."
 )

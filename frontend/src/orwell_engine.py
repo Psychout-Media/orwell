@@ -1083,7 +1083,7 @@ async def social_initiatives(user: str | None = None) -> dict:
 async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None = None,
                     traded_secret: dict | None = None, expected_beat_seq: int | None = None,
                     idempotency_key: str | None = None, user: str | None = None,
-                    term: dict | None = None, direction: str | None = None) -> dict:
+                    term: dict | None = None, direction: str | None = None, third: str | None = None) -> dict:
     """Record a player<->NPC deal (0039). The engine tracks and adjudicates it. 0065 Part A — an
     optional `expected_beat_seq` CAS token is threaded in only when provided (absent ⇒ identical to
     today).
@@ -1101,6 +1101,8 @@ async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None =
     args: dict = {"with": with_id, "kind": kind, "terms": terms}
     if direction in ("offer", "ask"):  # B55: who promises, for the active kinds only; absent => the engine defaults to the player's offer
         args["direction"] = direction
+    if third:  # 0142: protect-third only - the third houseguest the partner swears not to move against
+        args["third"] = third
     if leverage is not None:
         args["leverage"] = leverage
     if traded_secret is not None:
