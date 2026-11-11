@@ -1689,6 +1689,21 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "callInFavor",
+            "description": "Feature 0142 — when the player CALLS IN a favor a houseguest owes them (the state's owedFavors lists who: they kept a deal with the player), call callInFavor({npcId, ask}) with ask a deal kind (default vote: 'you owe me a vote'). The ENGINE decides whether they honor it; you never invent the outcome. Returns {honored}. Voice the houseguest honoring it, or brushing it off, accordingly; never state why.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "npcId": {"type": "string", "description": "The houseguest who owes the favor (from owedFavors)."},
+                    "ask": {"type": "string", "enum": ["safety", "vote", "final-two", "target-other", "comp-throw", "veto-save"], "description": "The deal kind being asked for (default vote)."},
+                },
+                "required": ["npcId"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "confront",
             "description": "Feature 0094 — when the player CONFRONTS a houseguest over something they LEARNED (a scheme, a betrayal-in-progress) that involves that houseguest, call confront({npcId, factId}) with the learned fact's id. The ENGINE decides whether the outcome matches the player's belief or diverges from it — you never invent the outcome. On {landed: true} play the confrontation as the player expects; on {landed: false} it misfired — play the confronted houseguest's genuine, hurt/defensive reaction (NEVER say the player's information was wrong or state any reason). No number, no tell either way.",
             "parameters": {
@@ -2074,6 +2089,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "exposeSecret", "tradeSecret",
     # 0094/0095: confront a houseguest over a learned fact / accuse a pre-show tie (engine-decided).
     "confront", "accuseTie",
+    # 0142: call in a favor a houseguest owes the player (engine-decided).
+    "callInFavor",
     # B64/0049: the Vault-free presence read (who's here, who's one room over).
     "whereabouts",
     # L21/L24: the player directs their own movement (the engine never auto-relocates a person).

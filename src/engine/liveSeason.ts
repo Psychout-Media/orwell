@@ -494,6 +494,11 @@ export interface LiveSeasonState {
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number };
   lastDealOfferWeek?: number;
   /**
+   * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
+   * with `callInFavor`. Vault-free (it is the player's own deal history). Banked for played games only; absent otherwise => byte-identical. Persists with the season.
+   */
+  owedFavors?: Array<{ debtor: EntityId; n: number; madeWeek: number }>;
+  /**
    * How each evictee read the manner of their eviction toward each responsible houseguest
    * (0037): mannerByEvictee[evictee][responsible]. Recorded live at each eviction so jury
    * management has genuine effect at the finale. ENGINE-ONLY: never crosses the wall.
@@ -726,6 +731,13 @@ export interface LiveSeasonState {
    */
   chapterWeek?: number;
   chapterEvictCursor?: number;
+  /**
+   * ORW-282 — the highest game day that HAS a recap, and the append-only log of every day's digest (capped). Days that roll by the production schedule, the all-night wrap or a player who never turns in
+   * used to get none (and the next bedtime recap lumped them under one label); a played game now catches up one recap per crossed day (`GameSessionAdapter.catchUpDailyRecaps`). Absent on a save from
+   * before this field, and always absent in a headless sim ⇒ byte-identical there.
+   */
+  dailyRecapDay?: number;
+  dailyRecapLog?: DailyRecapEntry[];
   /**
    * ORW-271 — the append-only per-night DAY LEDGER (never trimmed, never overwritten except a day's own
    * text being filled in once). A floor entry is pushed at each played-game `turnIn`; the FE-driven
