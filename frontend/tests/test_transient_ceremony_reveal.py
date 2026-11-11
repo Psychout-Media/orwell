@@ -47,10 +47,13 @@ def test_chat_js_tags_only_real_outcomes_with_reveal_class():
     # M2-5: the outcome branch may carry companion classes (ow-slate-outcome, the
     # persistent slate-type marker) — the pin holds the GATE (_outcome ? reveal : ''),
     # not the exact class list.
+    # ORW-264: the className is built by the shared orwellToolBeats.js orwellBeatNodeView; chat.js asks for the reveal.
+    tb = (Path(__file__).resolve().parent.parent / "static" / "js" / "orwellToolBeats.js").read_text(encoding="utf-8")
     assert re.search(
-        r"_outcome\s*\?\s*['\"]\s*ow-ceremony-reveal[^'\"]*['\"]\s*:\s*['\"]['\"]",
-        CHAT_JS,
-    ), "currentToolBubble.className must conditionally add ow-ceremony-reveal only when _outcome is truthy"
+        r"outcome\s*\?\s*\(reveal\s*\?\s*['\"]\s*ow-ceremony-reveal['\"]\s*:\s*['\"]['\"]\)",
+        tb,
+    ), "the shared builder must add ow-ceremony-reveal only when an outcome exists"
+    assert "reveal: true" in CHAT_JS
 
 
 def test_chat_js_clears_the_reveal_marker_after_animation():

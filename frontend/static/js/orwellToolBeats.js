@@ -417,3 +417,25 @@ export function orwellRenderCeremonySlate(slate) {
   card.appendChild(body);
   return card;
 }
+
+// ORW-264 (R2, ADR 0015): the ONE pure builder of a FINISHED tool-beat chip node, used by BOTH the live
+// stream (chat.js tool_output) and the reload path (chatRenderer.js) so the two can never drift again
+// (a "stack of identical beat rows" / a check + "done" tail on one path only). Pure: (inputs) -> {className,
+// innerHTML, outcome}. `beat` is the caller's resolved ORWELL_TOOL_BEATS label (null => not a production
+// beat); `expandHtml` is the already-built expandable content (command/output/diff, '' for a beat).
+// Live-only presentation state (`wasOpen`, `reveal` = the transient ceremony-reveal entrance) is an
+// input, never read from the DOM, so reload (false/false) yields the same markup minus transients.
+export function orwellBeatNodeView({ tool, beat, ok, output, expandHtml, esc, wasOpen = false, reveal = false }) {
+  const hasExpand = !!String(expandHtml || '').trim();
+  const outcome = (beat && ok) ? orwellBeatOutcome(tool, output) : null;
+  const toolText = outcome || beat || tool;
+  // game-build slates carry no "done" debug tail; failures stay literal (J1-30)
+  const statusHtml = outcome ? '' : (ok && isGameBuild()) ? ''
+    : `<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span>`;
+  const chevron = hasExpand ? '<span class="agent-thread-chevron">\u25B6</span>' : '';
+  const contentDiv = hasExpand ? `<div class="agent-thread-content">${expandHtml}</div>` : '';
+  const className = 'agent-thread-node' + (ok ? '' : ' error') + (hasExpand ? '' : ' agent-thread-node--flat')
+    + ((wasOpen && hasExpand) ? ' open' : '') + (outcome ? (reveal ? ' ow-ceremony-reveal' : '') + ' ow-slate-outcome' : '');
+  const innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(toolText)}</span>${statusHtml}${chevron}</div>${contentDiv}`;
+  return { className, innerHTML, outcome };
+}
