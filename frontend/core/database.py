@@ -1982,8 +1982,13 @@ def _migrate_chat_messages_fts():
                 DELETE FROM chat_messages_fts WHERE message_id = old.id;
             END;
 
-            CREATE TRIGGER IF NOT EXISTS chat_messages_fts_au
-            AFTER UPDATE ON chat_messages BEGIN
+            -- ORW-174: the delete below scans the whole index (message_id is UNINDEXED), and this trigger used to fire for EVERY update of a message row (mark_message_phase touches one each game turn). It now
+            -- fires only when an indexed value actually changed. Dropped first so an existing database picks up the narrower definition (IF NOT EXISTS would keep the old one).
+            DROP TRIGGER IF EXISTS chat_messages_fts_au;
+            CREATE TRIGGER chat_messages_fts_au
+            AFTER UPDATE OF content, session_id, role ON chat_messages
+            WHEN old.content IS NOT new.content OR old.session_id IS NOT new.session_id OR old.role IS NOT new.role
+            BEGIN
                 DELETE FROM chat_messages_fts WHERE message_id = old.id;
                 INSERT INTO chat_messages_fts(content, message_id, session_id, role)
                 VALUES (COALESCE(new.content, ''), new.id, new.session_id, new.role);

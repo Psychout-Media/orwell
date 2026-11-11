@@ -356,7 +356,8 @@ async def _engine_state(user: Optional[str]) -> dict:
     handshake never crashes on an engine hiccup (it just resolves the pre-game / per-tab branch)."""
     try:
         from src import orwell_engine
-        st = await orwell_engine.get_game_state(user=user)
+        # ORW-166: the polled (<=400 ms, single-flight, mutation-invalidated) read - every bus edge and handshake used to hit the engine afresh just to read beatSeq, and a burst of edges queued behind the narrator's own calls.
+        st = await orwell_engine.get_game_state_polled(user=user)
         return st if isinstance(st, dict) else {}
     except Exception:
         logger.debug("[ws] engine state fetch failed for user=%s", user, exc_info=True)
