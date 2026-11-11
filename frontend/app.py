@@ -1051,6 +1051,14 @@ async def _startup_event():
             logger.info("LLM I/O live ring seeded with %d archived record(s)", _seeded)
     except Exception as _e:
         logger.debug("LLM I/O ring seed skipped: %s", _e)
+    # ORW-202: restore the narrator's pacing / re-ground bookkeeping a restart used to drop (empty stores only; fail-soft).
+    try:
+        from src import belt_state_persist
+        _restored = belt_state_persist.restore()
+        if _restored:
+            logger.info("belt state restored: %d entr(ies)", _restored)
+    except Exception as _e:  # failsoft-ok: a missing/corrupt file must never block startup
+        logger.debug("belt-state restore skipped: %s", _e)
     # PO ruling 2026-11-02: DeepSeek's own API is the new-install default. A keyed, endpoint-less
     # first boot creates the endpoint from DEEPSEEK_API_KEY (no-op otherwise; never touches existing).
     try:
