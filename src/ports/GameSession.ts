@@ -2219,6 +2219,8 @@ export interface HangOutView {
   beats: number;
   /** In-game minutes spent. */
   minutes: number;
+  /** ORW-22: the player-facing line for the stop (public facts only), present for every stop kind. */
+  stopLine?: string;
   /** Vault-free public detail of the stop (names, never ids/numbers). */
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
