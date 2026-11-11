@@ -644,6 +644,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
 }
 
 /**
@@ -926,6 +928,12 @@ export interface ConfrontResult {
   landed: boolean;
 }
 
+/** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
+export interface OwedFavorView { from: NamedRef; n: number }
+
+/** 0142: a called-in favor. The ENGINE priced it; `honored` => an ordinary deal of `kind` now binds the houseguest; otherwise they ignored it (the favor is spent and the player's read of them drops). */
+export interface CallInFavorResult { honored: boolean; kind: string; narratable: string }
+
 /**
  * The result of a `confide` (feature 0075). The engine decided WHETHER the houseguest opened up,
  * WHICH tier (how much), and whether it was a real confidence or a fabricated one (a lie). The
@@ -1203,6 +1211,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
   /**
    * F3: whether the season is OVER (a winner is crowned). Mirrors the same public over-signal as
    * `AdvanceView.finished` / `SeasonRecap.finished` (`this.live.finished`). Surfaced here so a client
@@ -2694,6 +2704,11 @@ export interface GameSession {
    * marker. `null` pre-game / for an unknown or non-active houseguest / an unrecognized `factId`.
    */
   confront(npcId: EntityId, factId: string, expectedBeatSeq?: number): ConfrontResult | null;
+  /**
+   * 0142 (ORW-88 idea 2) - call in a favor a houseguest owes the player (they kept a deal). `ask` is the deal kind requested (default "vote": "you owe me a vote"). Returns null when no favor is
+   * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
+   */
+  callInFavor(npcId: EntityId, ask?: MakeDealReq["kind"], expectedBeatSeq?: number): CallInFavorResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /

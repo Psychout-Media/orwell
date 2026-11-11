@@ -4,7 +4,7 @@ import type {
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
-  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
+  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
@@ -4630,6 +4630,7 @@ export class GameSessionAdapter implements GameSession {
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.owedFavors?.length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
       // /recap — otherwise it hangs on the last ceremony state post-season. Vault-free (public winner).
@@ -7457,6 +7458,49 @@ export class GameSessionAdapter implements GameSession {
    * real betrayal folds (0026 `IMPACT.betrayal`), seeded per (npc, week, phase). Off ⇒ always `landed:
    * true`, no fold. The engine never states why a misfire happened; no confidence/distortion value ever crosses.
    */
+  /** 0142 - a kept deal banks a favor owed to the PLAYER (the honored side) by the houseguest who kept it. Played games only; at most 3 banked per houseguest. */
+  private bankOwedFavor(honorer: EntityId, honored: EntityId): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || honored !== PLAYER || honorer === PLAYER) return;
+    const list = (s.owedFavors ??= []);
+    const row = list.find((f) => f.debtor === honorer);
+    if (row) row.n = Math.min(3, row.n + 1); else list.push({ debtor: honorer, n: 1, madeWeek: s.week });
+  }
+
+  private owedFavorsView(): OwedFavorView[] {
+    return (this.live?.owedFavors ?? []).filter((f) => f.n > 0).map((f) => ({ from: this.named(f.debtor)!, n: f.n }));
+  }
+
+  /**
+   * 0142 (ORW-88 idea 2) - call in a favor. The houseguest's consent read prices the ask like a normal deal plus the called-favor bonus, so a marginal ask can be honored but a
+   * distrusted or feared player is still refused. Honored => an ordinary deal binds (the NPC is the promisor of an active kind); ignored => the favor is spent and the player's own
+   * read of them takes a betrayal-grade drop (hidden, seeded by the shared key, never narrated as a number). No new rng stream: the consent jitter is keyed as for any ask.
+   */
+  callInFavor(npcId: EntityId, ask: MakeDealReq["kind"] = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
+    this.guardBeatSeq(expectedBeatSeq);
+    const s = this.live;
+    if (!s || !this.house || s.playedGame !== true || s.finished) return null;
+    const row = s.owedFavors?.find((f) => f.debtor === npcId && f.n > 0);
+    if (!row || this.dealOfferPartyGone(npcId)) return null;
+    if (isPositiveObligation(ask) && !this.dealDepthEnabled) return null;
+    const direction = isPositiveObligation(ask) ? "ask" : undefined;
+    const refusal = this.dealConsentRefusal(npcId, ask, direction, DEAL_CONSENT.calledFavorBonus);
+    row.n -= 1;
+    if (row.n <= 0) s.owedFavors = s.owedFavors!.filter((f) => f !== row);
+    if (s.owedFavors?.length === 0) delete s.owedFavors;
+    if (!refusal) {
+      const terms = "a favor called in";
+      const evId = this.onPlayerEvent?.(`${this.nameOf(PLAYER)} calls in a favor and ${this.nameOf(npcId)} honors it with a ${ask} deal`, [PLAYER, npcId], "deal");
+      this.deals.make(direction === "ask" ? [npcId, PLAYER] : [PLAYER, npcId], ask, terms, evId, s.week);
+      this.persist();
+      return { honored: true, kind: ask, narratable: "they honor the favor they owed" };
+    }
+    this.onPlayerEvent?.(`${this.nameOf(npcId)} ignores ${this.nameOf(PLAYER)}'s called-in favor`, [PLAYER, npcId], "conversation");
+    this.rel.applyDirected(PLAYER, npcId, "betrayal", new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:favor-ignored:${npcId}:${s.week}`)));
+    this.persist();
+    return { honored: false, kind: ask, narratable: "they brush off the favor they owed" };
+  }
+
   confront(npcId: EntityId, factId: string, expectedBeatSeq?: number): ConfrontResult | null {
     this.guardBeatSeq(expectedBeatSeq);
     if (!this.house || !this.live) return null;
@@ -10760,7 +10804,7 @@ export class GameSessionAdapter implements GameSession {
    * store's `targets-me` claims when its flag is on) and draws ONE value from a dedicated per-moment rng keyed on (game seed, "deal-consent", npc, week, phase) - the same
    * pattern as `secretRng`/`confide`, never the shared season rng. Returns the Vault-free refusal, or `null` when the NPC agrees.
    */
-  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
+  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
@@ -10777,7 +10821,7 @@ export class GameSessionAdapter implements GameSession {
       favor: memoryFavor(entries, live.week, decay, carry),
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
-      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
+      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
@@ -11521,6 +11565,7 @@ export class GameSessionAdapter implements GameSession {
         this.dealReputationSink?.(honorer, other);
         // B2: the partner remembers the deal being KEPT (a favor), written alongside the diffusing reputation (same `dealDepth` gate). `remember` skips the player as holder.
         if (this.npcMemoryWritersEnabled) this.remember(other, honorer, "deal-kept", 0.5);
+        this.bankOwedFavor(honorer, other);
       },
       // 0014: the wronged party will weigh this betrayal against the breaker in their jury lean.
       // #1802: formation-witness deal collateral — when enabled, the formation trust-fold
@@ -13562,6 +13607,7 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       eviction: this.evictionView(),
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.owedFavors?.length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
       // facts gameStatus() exposes), so the narrator voices the REAL HOH/nominees/veto, never invents.
