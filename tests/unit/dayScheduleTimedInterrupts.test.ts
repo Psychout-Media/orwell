@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -20,8 +21,9 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
+// ORW-258: these pure reads are about the HOUR (the night gates are all crossed), so the fixture is a later week with every night passed; the night-pending reads have their own test (eventPerDayCadence).
 const asLive = (beat: string, timeOfDay: string | undefined, nightDepth?: number): LiveSeasonState =>
-  ({ beat, timeOfDay, nightDepth } as unknown as LiveSeasonState);
+  ({ beat, timeOfDay, nightDepth, week: 2, preHohNightPassed: true, preNomsNightPassed: true, preVetoNightPassed: true, preVetoCeremonyNightPassed: true, preEvictionNightPassed: true } as unknown as LiveSeasonState);
 
 describe("0118 — the day schedule (pure, deterministic reads)", () => {
   it("nextMilestone maps each ceremony beat to its scheduled phase + target hour", () => {
@@ -115,9 +117,10 @@ describe("0118 — the telegraphed schedule rides the view + primes the narrator
   it("as the clock reaches the scheduled phase, `due` flips true and the narrator calls the gather", () => {
     const { sb } = harness({ clockOn: true, seed: 13, user: "u-due" });
     toLiveClock(sb);
+    endHeldNightSync(sb.session as never); // ORW-258: after the HOH the nominations belong to the NEXT day: the night passes first
     const target = nextMilestone(sb.session.snapshot().live)!.targetHour;
     // Linger through social play until the in-game clock reaches the scheduled milestone hour.
-    for (let t = 0; t < 60 && (sb.session.inGameHour() ?? 0) < target; t++) socialTurn(sb, `linger ${t}`);
+    for (let t = 0; t < 400 && (sb.session.inGameHour() ?? 0) < target; t++) socialTurn(sb, `linger ${t}`);
     expect(sb.session.inGameHour()!).toBeGreaterThanOrEqual(target);
 
     expect(sb.session.milestoneDue()).toBe(true);

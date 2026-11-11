@@ -26,9 +26,10 @@ function walkWeekOne() {
   const note = () => trace.push({ day: live().dayNumber ?? 1, hour: live().nightDepth!, abs: p.absHour(), label: (s.getGameState() as { clockLabel?: string }).clockLabel });
   note();
   let rolls = 0, last = live().nightDepth!;
-  for (let step = 0; step < 500 && rolls < 3; step++) {
+  for (let step = 0; step < 1500 && rolls < 3; step++) {
     const st = s.getGameState() as { daySchedule?: { due: boolean } };
     if (st.daySchedule?.due) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); }
+    else if ((s.getGameState() as { timeOfDay?: string }).timeOfDay === "night" || (s.getGameState() as { timeOfDay?: string }).timeOfDay === "late-night") s.turnIn({}); // ORW-258: the next event is its own day: the player goes to bed at the night period
     else s.advanceClockPerConversation();
     note();
     const h = live().nightDepth!;

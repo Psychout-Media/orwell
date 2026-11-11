@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../../tests/support/heldNight";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
@@ -61,8 +62,10 @@ When("the narrator context is built during the run-up", function (this: BbWorld)
 
 When("the player lingers until the scheduled ceremony time arrives", function (this: BbWorld) {
   const sb = this.dscSandbox!;
+  // ORW-258 (every event gets its own day): the ceremony after the HOH belongs to the NEXT day, so the night passes first (the player goes to bed at the night period), then they linger to its hour.
+  endHeldNightSync(sb.session as never);
   const target = nextMilestone(sb.session.snapshot().live)!.targetHour;
-  for (let t = 0; t < 60 && (sb.session.inGameHour() ?? 0) < target; t++) socialTurn(sb, `linger ${t}`);
+  for (let t = 0; t < 160 && (sb.session.inGameHour() ?? 0) < target; t++) socialTurn(sb, `linger ${t}`);
   this.dscContext = renderGameContext(sb.session.getGameState());
 });
 
