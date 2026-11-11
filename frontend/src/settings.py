@@ -326,12 +326,12 @@ DEFAULT_SETTINGS = {
     # no fallback, so a large prompt never cold-cache-misses on a fallback; small calls keep
     # fallbacks on for availability. Per-session stickiness (the `user` field) is always on.
     "token_pin_threshold_tokens": 0,
-    # ADR 0010 / feature 0069 slice D — opt-in non-degradation context tiering. False (default) keeps
+    # ADR 0010 / feature 0069 slice D — non-degradation context tiering. ON by default (ORW-266, "built means on"); False keeps
     # the lean budget (auto-derived, capped at agent_input_token_hard_max) => byte-identical. True lets
     # a long game GROW its input budget toward the model window (~0.85x) BEFORE older turns are trimmed
     # away, so history is kept (mandate #4) instead of lost to lossy compaction. Costs more on long
     # games (watch the token-economy meter); only helps on large-context models.
-    "context_tiering_enabled": False,
+    "context_tiering_enabled": True,
     # ADR 0010 / feature 0069 slice C — an OpenRouter `provider` routing object sent on live-game
     # calls (https://openrouter.ai/docs/guides/routing/provider-selection). A free-form dict of the
     # documented fields — e.g. {"sort": "throughput"}, {"order": ["deepinfra/turbo"],
