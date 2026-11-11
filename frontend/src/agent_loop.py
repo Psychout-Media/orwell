@@ -10559,6 +10559,13 @@ async def _stream_agent_loop_impl(
         except Exception as _roster_err:
             logger.warning(f"[orwell] post-turn roster check failed: {_roster_err}")
 
+        # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
+        try:
+            from routes.chat_helpers import record_post_turn_false_premise_check
+            await record_post_turn_false_premise_check(owner, _turn_narration_full)
+        except Exception as _fp_err:
+            logger.warning(f"[orwell] post-turn false-premise check failed: {_fp_err}")
+
         # 0065 Part D — one Vault-free sync-ledger entry per live-game turn (observability). Records
         # the closed-set sync activity of THIS turn: the beatSeq it moved (before→after), the tools
         # it called (NAMES only), how many nudges fired / back-fills the FE made, whether a desync was
