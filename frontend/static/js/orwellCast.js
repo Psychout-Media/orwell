@@ -39,7 +39,10 @@
   let _pollDelay = POLL_MS; // recomputed from the freshest roster counters after every render
   let _imagesAvailable = false;
 
+  // ORW-165: roster/status come from the shared game-state store (one fetch + one snapshot for every panel).
   async function getJSON(url) {
+    const kind = { "/api/orwell/roster": "roster", "/api/orwell/status": "status", "/api/orwell/state": "state" }[url];
+    if (kind) return window.OrwellGame.get(kind);
     const r = await fetch(url, { credentials: "same-origin" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
@@ -81,13 +84,11 @@
     const btn = ensureButton();
     if (!btn) return;
     try {
-      const r = await fetch("/api/orwell/state", { credentials: "same-origin" });
+      const st = await window.OrwellGame.get("state"); // ORW-165: the shared store's snapshot (non-ok rejects => the catch leaves the button as is)
       // L15: a 5xx/non-ok is a TRANSIENT engine hiccup (e.g. the per-user queue is busy
       // committing portraits) — leave the button as it is. Only a definitive, parseable
       // state answers the live/not-live question; an unreadable one never hides the cast or
       // closes an open panel (which is what made generation look like a dropped connection).
-      if (!r.ok) return;
-      const st = await r.json();
       if (!st || typeof st.started !== "boolean") return; // ambiguous → leave as-is
       const live = !!st.started;
       btn.style.display = live ? "" : "none";

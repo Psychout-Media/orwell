@@ -122,6 +122,7 @@ const args = (name: string, seed: number): Record<string, unknown> => {
     // lie) must NEVER carry a planted sealed sentinel; the engine only ever discloses the secret it
     // chose + recorded, blurred/glossed to the tier, and a lie is engine-authored, not a real secret.
     case "confide": return { npcId: npc(1) };
+    case "callInFavor": return { npcId: npc(1) };
     // 0129 slice 3: a juror id (the engine returns null while no jury exists; the per-beat sweep below asks every REAL juror).
     case "askJuror": return { jurorId: npc(1) };
     // 0095: accuse a pair of a prior connection. The sweep plants no seeded tie between npc(1)/npc(2),

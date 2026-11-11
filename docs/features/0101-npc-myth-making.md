@@ -247,8 +247,9 @@ owner deviation needed — recorded here for traceability:
    blindside and a public conflict were left OUT of v1 (no reliable structured signal exists yet to
    attribute an eviction to the player's own campaigning without over-reaching) — a natural v2 extension
    once 0085/0086's campaign/drive layer exposes that attribution directly.
-2. **Seed rate + cap** — `LEGEND.seedProb = 0.35` per eligible off-screen tick, `LEGEND.maxPerSeason = 4`
-   (`src/engine/gossip.ts`).
+2. **Seed rate + rising cost** — `LEGEND.seedProb = 0.35` per eligible off-screen tick, multiplied by `LEGEND.costDecay = 0.6`
+   once per legend already minted (`legendSeedProbability`, `src/engine/gossip.ts`). There is NO hard per-season count (ORW-283,
+   BDD card 29: limits come from consequences, not arbitrary caps); folklore stays scarce because each one makes the next rarer.
 3. **NPC→player fold** — v1 ships with **no fold at all**: `legendTick` passes neither `rel` nor `subjects`
    to `diffuseGossip`, so a legend moves no edge whatsoever (stricter than "no player edges" — no NPC edges
    either), keeping the pass calibration-neutral by construction even while enabled.
