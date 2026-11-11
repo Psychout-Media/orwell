@@ -41,7 +41,12 @@ def test_no_leaked_spinner_interval_and_idle_ticks_stay_under_budget(_stack):  #
         page.evaluate("() => { window.__t.ticks = 0; }")
         page.wait_for_timeout(5000)
         r = page.evaluate("() => ({ ticks: window.__t.ticks, live: Object.values(window.__t.live) })")
+        # behaviour is kept: a tool modal that appears AFTER boot still gets its minimize button (the removed 1 s poll used to do this)
+        page.evaluate("""() => { const m = document.createElement('div'); m.id = 'gallery-modal'; m.innerHTML = '<div class="modal-header"><span>t</span><button class="close-btn">x</button></div>'; document.body.appendChild(m); }""")
+        page.wait_for_function("() => !!document.querySelector('#gallery-modal .modal-minimize-btn')", timeout=5000)
         browser.close()
     leaked = [x for x in r["live"] if "Spinner.start" in x["w"]]
     assert leaked == [], f"a loading spinner interval is still alive while idle: {leaked}"
+    polling = [x for x in r["live"] if "modalManager.js" in x["w"]]
+    assert polling == [], f"modalManager must not poll with an interval (use a MutationObserver): {polling}"
     assert r["ticks"] <= 60, f"idle interval callbacks in 5 s over budget: {r['ticks']} (live intervals: {len(r['live'])})"

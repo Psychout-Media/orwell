@@ -815,7 +815,19 @@ function _scanAndWire() {
     injectMinimizeButton(modal, id);
   }
 }
-const _scanTimer = setInterval(_scanAndWire, 1000);
+// ORW-162: this used to be a 1 s setInterval that woke the page every second forever. The scan only has to run when a modal element is ADDED
+// to the document, so watch child-list changes (rAF-coalesced) instead. Static modals are wired by the initial scan below.
+let _scanQueued = false;
+function _queueScan() {
+  if (_scanQueued) return;
+  _scanQueued = true;
+  (window.requestAnimationFrame || setTimeout)(() => { _scanQueued = false; _scanAndWire(); });
+}
+try {
+  const _scanObserver = new MutationObserver(_queueScan);
+  const _observeBody = () => _scanObserver.observe(document.body, { childList: true, subtree: true });
+  if (document.body) _observeBody(); else document.addEventListener('DOMContentLoaded', _observeBody);
+} catch (_) { setInterval(_scanAndWire, 1000); /* no MutationObserver: keep the old polling */ }
 // First scan after DOM ready
 if (document.readyState !== 'loading') {
   setTimeout(_scanAndWire, 100);
