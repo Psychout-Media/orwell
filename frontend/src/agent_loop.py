@@ -7219,7 +7219,7 @@ async def _stream_agent_loop_impl(
             # to lossy compaction. ON by default (ORW-266); the setting False restores the lean budget.
             if get_setting("context_tiering_enabled", False):
                 effective_budget = escalate_budget(
-                    effective_budget, before_trim_tokens, context_length, enabled=True,
+                    effective_budget, before_trim_tokens, context_length, enabled=True, hard_max=hard_max,
                 )
             trimmed_messages = trim_for_context(
                 messages,
