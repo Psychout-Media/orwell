@@ -805,7 +805,7 @@ def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
     try:
-        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or comp_pause_holds(user)  # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
+        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or event_pause_holds(user)  # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
     except Exception:
         return False
 
@@ -6763,16 +6763,41 @@ _COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition p
 _COMP_PAUSE_EVERY = 1  # ORW-232 slice 3 (Ryne 2026-11-10: "a full play by play"): ONE round per message, each with its share of the competition's hours (the engine spreads them)
 _COMP_PAUSED: dict = {}  # runway key -> the (week:phase) signature of a competition paused mid-run
 _COMP_CONT: dict = {}    # runway key -> True while this pass CONTINUES a paused competition
-_COMP_PAUSE_FRESH: set = set()  # runway keys whose competition paused in THIS turn: the model's own progression tools are held until the player speaks again
+# ORW-281 slice 5 (Ryne: comps and ceremonies are built the same way under the hood): the "fresh pause" hold is ONE EVENT-PAUSE hold that ANY multi-step house event sets (a comp round today; an eviction reveal
+# step or any future staged ceremony the same way), so the FE stall-nudge, the silent-advance belts and the model's advanceGame / submitDecision stand down identically. runway key -> the event kind that paused.
+_EVENT_PAUSE_FRESH: dict = {}
+
+
+def event_pause_begin(user, kind: str = "competition") -> None:
+    """Set the event-pause hold for this player: a multi-step house event stopped mid-run and the next beat is the player's turn to talk. Held until the next framed turn begins."""
+    _EVENT_PAUSE_FRESH[_runway_key(user)] = kind
+
+
+def event_pause_clear(user) -> None:
+    _EVENT_PAUSE_FRESH.pop(_runway_key(user), None)
+
+
+def event_pause_kind(user):
+    """The kind of house event currently paused for this player (None when nothing is)."""
+    try:
+        return _EVENT_PAUSE_FRESH.get(_runway_key(user))
+    except Exception:
+        return None
+
+
+def event_pause_holds(user) -> bool:
+    """ORW-232 slice 2 (live run 2026-11-10): the pause is the player's turn to talk. In the paused turn the narrator itself called submitDecision, which chain-advanced the rest of the competition and the winner
+    straight through the pause. While a pause is fresh, the model's advanceGame / submitDecision are answered with a plain 'paused' note and the engine is not called. ORW-281 slice 5: generalised from the
+    competition-only hold to any multi-step house event (see event_pause_begin)."""
+    try:
+        return _runway_key(user) in _EVENT_PAUSE_FRESH
+    except Exception:
+        return False
 
 
 def comp_pause_holds(user) -> bool:
-    """ORW-232 slice 2 (live run 2026-11-10): the pause is the player's turn to talk. In the paused turn the narrator itself called submitDecision, which chain-advanced the rest of the competition and the winner
-    straight through the pause. While a pause is fresh, the model's advanceGame / submitDecision are answered with a plain 'the competition is paused' note and the engine is not called."""
-    try:
-        return _runway_key(user) in _COMP_PAUSE_FRESH
-    except Exception:
-        return False
+    """Back-compat alias: the competition pause IS an event pause (ORW-281 slice 5)."""
+    return event_pause_holds(user)
 
 
 
@@ -6846,7 +6871,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     for real and, if it landed the player in a NEW spectator beat, arm a fresh runway for it."""
     from src import orwell_engine
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
-        _COMP_PAUSE_FRESH.discard(_runway_key(user))  # a new framed turn: last turn's pause no longer holds the model's tools
+        event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -7104,7 +7129,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if _comp_log and sum(1 for _k, _c in _comp_log if _k == "comp-elimination") >= _COMP_PAUSE_EVERY:
                 # ORW-232 slice 2: the competition is still running (same week:phase) and this pass has voiced its share of rounds - PAUSE here. The rest stays UNRUN in the engine.
                 _COMP_PAUSED[_runway_key(user)] = sig
-                _COMP_PAUSE_FRESH.add(_runway_key(user))
+                event_pause_begin(user, "competition")
                 _prior = _COMP_STEER_BASE.get(_runway_key(user), "")
                 _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False), paused=True)
                 logger.info("[orwell] competition paused after %d round(s) for user=%s - the player can talk inside it", len(_comp_log), user)
