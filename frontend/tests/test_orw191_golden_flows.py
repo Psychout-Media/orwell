@@ -49,18 +49,47 @@ def _open(browser, stack, ctx=None):
     return page
 
 
-def _send(page, text):
-    page.click(COMPOSER)
-    page.fill(COMPOSER, text)
-    page.keyboard.press("Enter")
+def _send(page, text, expect_consumed_from=None):
+    """A deterministic send (the A58/ORW-251g pattern): wait for an enabled composer, type, Enter, and - when the caller says how long the stub script was - confirm the narrator CONSUMED the turn,
+    retrying (up to 3 attempts) if the send never reached the server. 'The bubble appeared' is not proof: the optimistic bubble shows even when the request never leaves the page."""
+    for _attempt in (1, 2, 3):
+        page.wait_for_function(f"() => {{ const m = document.querySelector('{COMPOSER}'); return !!m && !m.disabled; }}", timeout=20000)
+        page.click(COMPOSER)
+        page.fill(COMPOSER, text)
+        page.keyboard.press("Enter")
+        if expect_consumed_from is None or _wait_consumed(expect_consumed_from, timeout_s=12):
+            return
+    raise AssertionError(f"the narrator never consumed the turn after 3 sends: {text!r}")
 
 
 def _wait_settled(page, reply_text):
     """The golden 'settled' signal: the reply text is in an assistant bubble AND its footer actions exist."""
-    page.wait_for_function(
-        """([sel, foot, needle]) => Array.from(document.querySelectorAll(sel)).some(e =>
-            (e.textContent || '').includes(needle) && e.querySelectorAll(foot).length > 0)""",
-        arg=[AI_BUBBLE, FOOTER_ACTION, reply_text], timeout=40000)
+    try:
+        page.wait_for_function(
+            """([sel, foot, needle]) => Array.from(document.querySelectorAll(sel)).some(e =>
+                (e.textContent || '').includes(needle) && e.querySelectorAll(foot).length > 0)""",
+            arg=[AI_BUBBLE, FOOTER_ACTION, reply_text], timeout=40000)
+    except Exception:
+        diag = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).slice(-4).map(e => e.className + ' | footer=' + e.querySelectorAll('.msg-footer button').length + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,90))")
+        raise AssertionError(f"the reply {reply_text!r} never settled: {diag}")
+
+
+def _expect_once(page, pairs, what, timeout_s=20):
+    """Each (selector, needle) shows EXACTLY once, and stays so for a short hold. A transient doubled bubble while a reload/mirror repaints is tolerated; one that does not converge fails."""
+    import time
+    end = time.time() + timeout_s
+    stable_since = None
+    last = None
+    while time.time() < end:
+        last = [_count_containing(page, sel, needle) for sel, needle in pairs]
+        if all(c == 1 for c in last):
+            stable_since = stable_since or time.time()
+            if time.time() - stable_since >= 0.8:
+                return
+        else:
+            stable_since = None
+        page.wait_for_timeout(150)
+    raise AssertionError(f"{what}: counts never converged to exactly once: {last} for {pairs}")
 
 
 def _wait_consumed(n_before, timeout_s=30):
@@ -88,23 +117,20 @@ def test_golden_send_stream_reload_offline_queue_and_mirror(_stack):  # noqa: F8
         # (1) send  +  (2) stream and settle
         STUB.script.append({"deltas": ["The kitchen hums ", "with golden-one."], "delay": 0.2})
         n0 = len(STUB.script)
-        _send(page, say1)
+        _send(page, say1, n0)
         page.wait_for_function(
             "([sel, t]) => Array.from(document.querySelectorAll(sel)).some(e => (e.textContent||'').includes(t))",
             arg=[USER_BUBBLE, say1], timeout=15000)
         assert page.input_value(COMPOSER) == "", "the composer clears once a message is sent"
-        assert _wait_consumed(n0), "the sent message reached the narrator"
         _wait_settled(page, reply1)
-        assert _count_containing(page, USER_BUBBLE, say1) == 1, "the sent message shows exactly once"
-        assert _count_containing(page, AI_BUBBLE, reply1) == 1, "the streamed reply shows exactly once"
+        _expect_once(page, [(USER_BUBBLE, say1), (AI_BUBBLE, reply1)], "after the live turn")
 
         # (3) reload restores the transcript once, user before assistant
         page.reload(wait_until="load")
         page.wait_for_function(
             "([sel, t]) => Array.from(document.querySelectorAll(sel)).some(e => (e.textContent||'').includes(t))",
             arg=[AI_BUBBLE, reply1], timeout=30000)
-        dump = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.className + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,80))")
-        assert _count_containing(page, USER_BUBBLE, say1) == 1 and _count_containing(page, AI_BUBBLE, reply1) == 1, dump
+        _expect_once(page, [(USER_BUBBLE, say1), (AI_BUBBLE, reply1)], "after reload")
         order = page.evaluate(
             """([u, a, tu, ta]) => { const box = document.getElementById('chat-history'); const all = Array.from(box.querySelectorAll('.msg'));
               const iu = all.findIndex(e => e.matches('.msg-user') && e.textContent.includes(tu)); const ia = all.findIndex(e => e.matches('.msg-ai') && e.textContent.includes(ta));
@@ -123,8 +149,7 @@ def test_golden_send_stream_reload_offline_queue_and_mirror(_stack):  # noqa: F8
         ctx_a.set_offline(False)
         page.reload(wait_until="load")
         _wait_settled(page, reply2)
-        assert _count_containing(page, USER_BUBBLE, say2) == 1, "the queued message shows once after reload + reconnect"
-        assert _count_containing(page, AI_BUBBLE, reply2) == 1
+        _expect_once(page, [(USER_BUBBLE, say2), (AI_BUBBLE, reply2)], "queued message after reload + reconnect")
         assert len(STUB.script) == n1 - 1, "the queued message was delivered to the narrator exactly once"
 
         # (5) a second window mirrors the transcript, then a new turn from window A shows up in B live
@@ -134,12 +159,10 @@ def test_golden_send_stream_reload_offline_queue_and_mirror(_stack):  # noqa: F8
             page_b.wait_for_function(
                 "([sel, t]) => Array.from(document.querySelectorAll(sel)).some(e => (e.textContent||'').includes(t))",
                 arg=[sel, needle], timeout=30000)
-        dumpb = page_b.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.className + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,70))")
-        for needle in (say1, say2):
-            assert _count_containing(page_b, USER_BUBBLE, needle) == 1, f"window B mirrors {needle!r} once: {dumpb}"
+        _expect_once(page_b, [(USER_BUBBLE, say1), (USER_BUBBLE, say2), (AI_BUBBLE, reply1), (AI_BUBBLE, reply2)], "window B mirrors the earlier transcript")
         STUB.script.append({"deltas": ["The mirror shows ", "golden-three."], "delay": 0.1})
         n2 = len(STUB.script)
-        _send(page, say3)
+        _send(page, say3, n2)
         try:
             _wait_settled(page, reply3)
         except Exception:
@@ -148,5 +171,5 @@ def test_golden_send_stream_reload_offline_queue_and_mirror(_stack):  # noqa: F8
         page_b.wait_for_function(
             "([sel, t]) => Array.from(document.querySelectorAll(sel)).some(e => (e.textContent||'').includes(t))",
             arg=[AI_BUBBLE, reply3], timeout=40000)
-        assert _count_containing(page_b, USER_BUBBLE, say3) == 1 and _count_containing(page_b, AI_BUBBLE, reply3) == 1
+        _expect_once(page_b, [(USER_BUBBLE, say3), (AI_BUBBLE, reply3)], "window B shows the new turn once")
         browser.close()
