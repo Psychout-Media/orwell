@@ -10,7 +10,7 @@ import uiModule from './ui.js';
 import sessionModule from './sessions.js';
 import chatRenderer from './chatRenderer.js';
 import chatStream from './chatStream.js';
-import { ORWELL_TOOL_BEATS as _orwellToolBeats, orwellBeatOutcome, orwellBeatNodeView, isGameBuild, isSeasonStarted, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, setGameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate, narratorWaitCopy } from './orwellToolBeats.js';
+import { ORWELL_TOOL_BEATS as _orwellToolBeats, orwellBeatOutcome, orwellBeatNodeView, orwellAdvanceView, isGameBuild, isSeasonStarted, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, setGameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate, narratorWaitCopy } from './orwellToolBeats.js';
 import { addAITTSButton } from './tts-ai.js';
 import markdownModule from './markdown.js';
 import { svgifyEmoji } from './markdown.js';
@@ -3229,10 +3229,11 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                   if (_beatOut) { cmd = ''; outHtml = ''; }  // game beats: label + status only, no raw JSON
                   // C20: surface the engine's pending decision (or clear it) to the confirm
                   // guardrail. Vault-free AdvanceView only; fail-open on any parse trouble.
+                  // ORW-264: parsed by the ONE shared orwellAdvanceView (also used by the reload path).
                   if (json.tool === 'advanceGame' || json.tool === 'submitDecision') {
                     try {
-                      const _adv = JSON.parse(json.output || '{}');
-                      window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: _adv && _adv.pending ? _adv.pending : null } }));
+                      const _adv = orwellAdvanceView(json.tool, json.output);
+                      if (_adv) window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: _adv.pending ? _adv.pending : null } }));
                       // T0-3 (issue #1778): the SAME tool result's Vault-free `announcements`
                       // (BeatAnnouncementView[]) — the engine's broadcast chyron(s) for whatever
                       // ceremony fact(s) just committed (including a T0-2 auto-advanced beat chained
