@@ -67,3 +67,7 @@ def test_watch_step_directive_quotes_the_engine_text_line():
 
 def test_veto_field_chyron_has_an_icon_and_a_label():
     assert '"veto-field": "\\u{1F48E}"' in JS and '"veto-field": "Power of Veto"' in JS
+
+
+def test_decision_cards_in_a_ceremony_show_step_x_of_y():
+    assert "_stepSuffix(pending)" in JS and "c.step + \" of \" + c.of" in JS

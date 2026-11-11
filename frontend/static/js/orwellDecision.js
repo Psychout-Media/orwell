@@ -613,6 +613,11 @@
     card.setAttribute("tabindex", "-1");
     card.focus();
   }
+  // ORW-281: a decision card that is one step of a staged ceremony reads "... · 2 of 4" like the watch cards do.
+  function _stepSuffix(pending) {
+    const c = pending && pending.ceremony;
+    return (c && c.step && c.of) ? " \u00b7 " + c.step + " of " + c.of : "";
+  }
   function _ceremonyTitle(kind) {
     return ({ "nominations": "Nominations", "veto-draw": "Veto draw", "veto-ceremony": "Veto ceremony",
               "eviction": "Eviction night" })[kind] || "Ceremony";
@@ -674,7 +679,7 @@
     head.className = "odec-head";
     // J5-20: append the risk badge after the title — "⚠ Irreversible" carries the stakes in
     // text + an icon, so the signal survives without color (the SR companion to the red tint).
-    head.innerHTML = `<span class="odec-title">${esc(titleFor(kind, pending.binding))}</span>`
+    head.innerHTML = `<span class="odec-title">${esc(titleFor(kind, pending.binding))}${esc(_stepSuffix(pending))}</span>`
       + (risk ? `<span class="odec-risk-badge" role="note">⚠ Irreversible — binding</span>` : "");
     // J5-21: the dismiss × is created here (so the keydown/Escape handler can reference it) but is
     // NOT appended to the head — it is appended to the card LAST (after the row) so it falls last in
