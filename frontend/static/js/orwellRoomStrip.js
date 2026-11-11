@@ -50,7 +50,11 @@
     catch (_) { return false; }
   }
 
+  // ORW-165: the shared game-state store serves state/roster/status (one fetch + one snapshot for every panel);
+  // whereabouts is this panel's own read.
   async function getJSON(url) {
+    const kind = { "/api/orwell/state": "state", "/api/orwell/roster": "roster", "/api/orwell/status": "status" }[url];
+    if (kind) return window.OrwellGame.get(kind);
     const r = await fetch(url, { credentials: "same-origin" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
