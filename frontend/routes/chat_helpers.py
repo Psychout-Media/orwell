@@ -3244,6 +3244,11 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
                 "[orwell] beat-signature desync detected for user=%s — re-grounding next turn (class=%s; %s)",
                 user, _guard_class_tag(directive), _guard_snippet(directive),
             )
+        # ORW-79 (A95): a period-of-day LIGHT phrase that disagrees with the engine clock. Post-turn NUDGE only (never wired into the streamed hold/cut paths: atmosphere is open-set prose, ADR 0005 #1).
+        _tod = _time_of_day_words_misstated(narration or "", after)
+        if _tod:
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CLOCK - last turn you set the scene with " + _tod + ". The clock is engine truth: keep the light, the sky and the mood of the scene to the real time of day from now on.")
+            logger.warning("[orwell] time-of-day words drift from the engine clock for user=%s - re-grounding next turn", user)
     except Exception as e:
         logger.warning("[orwell] post-turn desync check skipped for user=%s: %s", user, e)
 
@@ -4889,6 +4894,60 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
             return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
     return None
 
+
+
+# ORW-79 (A95): the exact clock is in the prompt, yet the narrator still sets the scene with "afternoon light" at a morning clock. `_clock_misstated` only checks an explicit "it's H:MM". This is its scene-setting
+# sibling: a present-tense period-of-day LIGHT phrase ("the afternoon sun", "evening light", "morning glow", "dusk light") whose period disagrees with the engine clock. Same style as the rest of the desync
+# family: closed-set (what time of day it is), post-turn, a next-turn re-ground, never an edit of creative prose. Deliberately narrow: only light/sun/glow phrases (not "this morning", which is a time reference
+# a flashback or a plan may use), only present-tense sentences (any past / future / memory / hypothetical cue exempts it), and a phrase within the boundary tolerance of its own period is accepted.
+_TOD_PERIODS = (("morning", 8 * 60, 12 * 60), ("afternoon", 12 * 60, 16 * 60), ("evening", 16 * 60, 20 * 60), ("night", 20 * 60, 24 * 60))
+_TOD_LIGHT_RE = re.compile(
+    r"\b(?:the\s+|that\s+|a\s+|its\s+)?(?:(late|early|mid)[- ])?(morning|afternoon|evening)(?:'s|\u2019s)?\s+(?:light|sun|sunlight|sunshine|glow|haze|rays)\b|"
+    r"\b(?:(dusk|twilight|sunset|sundown)\s+(?:light|glow|sky)|(?:the\s+)?(?:setting|late)\s+sun|(?:the\s+)?(?:rising|morning)\s+sun)\b",
+    re.IGNORECASE,
+)
+_TOD_EXEMPT_RE = re.compile(
+    r"\b(?:was|were|had|used\s+to|remember\w*|recall\w*|yesterday|earlier|last\s+(?:night|week|time)|back\s+then|once|ago|will|would|could|might|going\s+to|about\s+to|tomorrow|tonight|later|someday|if|imagine|suppose|when\s+(?:i|we|you|he|she|they)\s+(?:was|were))\b",
+    re.IGNORECASE,
+)
+_TOD_SUNLIT_WORD_PERIOD = {"dusk": "evening", "twilight": "evening", "sunset": "evening", "sundown": "evening", "setting": "evening", "rising": "morning"}
+
+
+def _tod_period_of(minute_of_day: int) -> str:
+    if minute_of_day < 8 * 60:
+        return "late-night"
+    for name, lo, hi in _TOD_PERIODS:
+        if lo <= minute_of_day < hi:
+            return name
+    return "night"
+
+
+def _time_of_day_words_misstated(text: str, live: dict) -> Optional[str]:
+    """A present-tense period-of-day light phrase that disagrees with the engine clock. None with no clock, an unparseable label, a past/future/hypothetical sentence, or a clock within `_CLOCK_TOLERANCE_MIN` of the named period."""
+    if not isinstance(live, dict) or not text:
+        return None
+    lab = live.get("clockLabel")
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    if not mm:
+        return None
+    eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+    text = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        if not sent.strip() or _TOD_EXEMPT_RE.search(sent):
+            continue
+        for m in _TOD_LIGHT_RE.finditer(sent):
+            named = (m.group(2) or "").lower() or _TOD_SUNLIT_WORD_PERIOD.get((m.group(3) or "").lower()) or ""
+            if not named:
+                tail = m.group(0).lower()
+                named = "evening" if "setting" in tail or "late sun" in tail else "morning"
+            span = {n: (lo, hi) for n, lo, hi in _TOD_PERIODS}.get(named)
+            if not span:
+                continue
+            lo, hi = span
+            if lo - _CLOCK_TOLERANCE_MIN <= eng < hi + _CLOCK_TOLERANCE_MIN:
+                continue
+            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + lab + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
+    return None
 
 
 # ORW-10: the endurance-finish shape the narrator used to replay a competition ("comes down to the last two", "grip fails", "the rig") and the way it named the winner ("It's Tara.", "Tara outlasts them").
