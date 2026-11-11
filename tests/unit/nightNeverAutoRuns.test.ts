@@ -19,6 +19,7 @@ describe("ORW-116 (b) - the night is never auto-run", () => {
     s.advanceGame(); // the toast closes
     for (let i = 0; i < 40; i++) s.noteMessage({ messageId: `m${i}` }); // the player socializes into the evening (a player conversation arms the hold)
     s.advanceGame(); // the premiere exit
+    (s as unknown as GameSessionAdapter).setAdvanceGateEnabled(false); // these pin the NIGHT semantics (a played game asking to advance); the A65 schedule gate has its own test (advanceScheduleGate)
     return s;
   };
 
