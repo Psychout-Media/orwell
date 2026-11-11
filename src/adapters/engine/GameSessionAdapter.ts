@@ -5314,7 +5314,9 @@ export class GameSessionAdapter implements GameSession {
   private gatherForCeremony(force = false): boolean {
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
-    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null;
+    // ORW-281 slice 6 (Ryne 2026-11-11): ceremonies live in the living room, comps all take place in the backyard. Comps move the house for real in a PLAYED game only (headless sims keep no gather).
+    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room"
+      : (kind === "hoh-competition" || kind === "veto-competition") && this.live?.playedGame === true ? "backyard" : null;
     if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
     if (!force && this.ceremonyHeld === kind) return true;
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
