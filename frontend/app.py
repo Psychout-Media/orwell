@@ -1330,7 +1330,10 @@ async def _startup_event():
             except Exception as e:
                 logger.warning(f"Nightly skill audit failed: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
+    # ORW-169: the game build has no skills library, and the nightly audit spends model calls judging skills nobody can use - not started there.
+    from src.settings import game_build_enabled as _gb_enabled
+    if not _gb_enabled():
+        _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
 
     # Cookbook serve lifecycle — kills scheduler-launched serves whose
     # window-end has passed. Paired with the cookbook_serve builtin
@@ -1338,8 +1341,10 @@ async def _startup_event():
     # something with end_after_min set. Removing this line + the
     # cookbook_serve entry in BUILTIN_ACTIONS + src/cookbook_serve_lifecycle.py
     # removes the feature.
-    from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
-    _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
+    # ORW-169: the cookbook (local model serving) is a dropped vertical in the game build - its lifecycle sweeper is not started there.
+    if not _gb_enabled():
+        from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
+        _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
 
     # G20: the portrait reconciler — one background task per process that verifies the
     # active cast's portrait set is complete and retries the gap through the standard
