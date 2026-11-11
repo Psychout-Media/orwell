@@ -62,7 +62,7 @@ import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
-import { confideToDisclosure, dripToDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
+import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -2420,6 +2420,8 @@ export class GameSessionAdapter implements GameSession {
   private beatDisclosures = new Map<EntityId, { epoch: number; event: DisclosureEvent }>();
   /** The disclosure window: bumped on every announced player message and every advance, so an event lives for the player turn / beat it happened in (a commit's beatSeq bump does not end it). */
   private disclosureEpoch = 0;
+  /** B33: the routed confide decision per (npc, week, phase) - memory only. */
+  private confideRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
   private noteDisclosure(npc: EntityId, event: DisclosureEvent): void { this.beatDisclosures.set(npc, { epoch: this.disclosureEpoch, event }); }
   /** What `npc` did about telling the player something THIS beat (confirm / slip / deflect), or undefined when the engine rolled nothing for them. */
   disclosureThisBeat(npc: EntityId): DisclosureEvent | undefined {
@@ -7833,6 +7835,16 @@ export class GameSessionAdapter implements GameSession {
       : force === "gossip"
         ? false
         : rng.next() < THREAD.surfaceToPlayerProb && this.onThreadSurfaceToPlayer !== undefined;
+    // B33 / D1: a forced (0092 drip) delivery to the player in a PLAYED game asks `disclosureDecision`; a `hold` defers the thread (stays unspent for a later tick). Dedicated side stream, played games
+    // only => headless sims byte-identical.
+    if (toPlayer && force === "player" && this.live?.playedGame) {
+      const src = this.house?.npcs.find((n) => n.id === thread.sourceId);
+      if (src && routeDisclosure({
+        signals: this.confidenceSignalsFor(src), style: src.character.strategyStyle, volatility: this.soulObj(src.id)?.volatility,
+        audience: 0, pressure: 0.5, risk: 0.2,
+        roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dripRoute:${thread.id}:${this.week}:${this.phase}`)).next(),
+      }) === "hold") return;
+    }
     if (toPlayer && this.onThreadSurfaceToPlayer) {
       // Rare: a modeled pathway already reaches the player — surface a content-lineage-anchored belief
       // (E9). An unanchored attempt is correctly downgraded to a suspicion by 0002; either way the
@@ -11121,10 +11133,28 @@ export class GameSessionAdapter implements GameSession {
     // Deterministic, seeded per (npc, beat): repeated presses inside one beat reach the same decision;
     // a later press (bond grown, a new week) re-rolls. No raw rng leaks the outcome (anti-sycophancy).
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:confide:${npcId}:${this.week}:${this.phase}`));
-    const decision = this.noHardCapsEnabled
+    const decided = this.noHardCapsEnabled
       ? decideConfidence(signals, rng, { liesRemaining: NO_HARD_CAPS.safetyValve - this.lieCount, lieProbScale: lieProbScale(this.confideLiesBy[npcId] ?? 0) })
       : decideConfidence(signals, rng, { liesRemaining: CONFIDENCE.maxLiesPerSeason - this.lieCount });
-    this.noteDisclosure(npcId, confideToDisclosure(decision)); // B33: the closed-set record of what the engine just rolled (the decision itself is untouched)
+    // B33 / D1: in a PLAYED game the press goes through `disclosureDecision` (share => confirm, slip => confirm recorded as a slip, hold => deflect) on a dedicated SIDE stream, so the shared rng and every
+    // headless sim stay byte-identical; before the first announced message the old decision stands untouched.
+    let decision = decided;
+    let disclosureEvent = confideToDisclosure(decided);
+    if (this.live.playedGame && decided.disclosed) {
+      // Cached per (npc, week, phase): the first press folds a bond bump, which would otherwise shift the odds under the same roll and let a repeat press land in another band (one beat, one decision).
+      const routeKey = `${npcId}:${this.week}:${this.phase}`;
+      let route = this.confideRoutes.get(routeKey);
+      if (route === undefined) {
+        route = routeDisclosure({
+          signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+          pressure: 1, risk: 0.3, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:confideRoute:${routeKey}`)).next(),
+        });
+        this.confideRoutes.set(routeKey, route);
+      }
+      const routed = routeConfide(decided, route);
+      decision = routed.decision; disclosureEvent = routed.event;
+    }
+    this.noteDisclosure(npcId, disclosureEvent); // B33: the closed-set record of what the engine just rolled
     if (!decision.disclosed) return none;
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
@@ -11336,6 +11366,17 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0075 — assemble the Vault-hidden confidence signals from the existing relationship + deal ledger. */
+  /** Awake others sharing the player's room besides `npcId` (B33 audience; 0 when presence is untracked). */
+  private audienceAround(npcId: EntityId): number {
+    if (!this.presence) return 0;
+    const room = this.presence.get(PLAYER);
+    const awake = this.awakeNow();
+    const gone = new Set(this.live?.evictionOrder ?? []);
+    let n = 0;
+    for (const [id, r] of this.presence) if (id !== PLAYER && id !== npcId && r === room && !gone.has(id) && (!awake || awake.has(id))) n++;
+    return n;
+  }
+
   private confidenceSignalsFor(npc: { id: EntityId; character: { archetype: string } }): ConfidenceSignals {
     const npcToPlayer = this.rel.edge(npc.id, PLAYER);
     const playerToNpc = this.rel.edge(PLAYER, npc.id);
