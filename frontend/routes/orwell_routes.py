@@ -498,6 +498,26 @@ def roster_cards(state: dict, user: Optional[str]) -> list:
     return _roster_cards(state, user)
 
 
+def _etag_json_response(request: Request, body):
+    """ORW-166 slice 4 - conditional GET for the HUD poller. The ETag hashes the WHOLE serialized body (not
+    the engine's beatSeq alone), because the house-entry and casting-finalize overlays can change the body
+    without a beat bump. A matching `If-None-Match` answers 304 with no body; otherwise a normal 200 whose
+    JSON bytes are exactly what FastAPI would have sent for the same dict. `no-cache` makes the browser
+    revalidate every poll (the 304 is what saves the payload), never serve a stale state."""
+    import hashlib
+    from fastapi.encoders import jsonable_encoder
+    resp = JSONResponse(content=jsonable_encoder(body))
+    etag = 'W/"' + hashlib.sha1(resp.body).hexdigest() + '"'  # nosec B324 - a cache validator, not a security hash
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    inm = request.headers.get("if-none-match")
+    if inm:
+        wanted = {t.strip() for t in inm.split(",")}
+        if "*" in wanted or etag in wanted or etag[2:] in wanted:
+            return Response(status_code=304, headers=headers)
+    resp.headers.update(headers)
+    return resp
+
+
 def _house_entry_overlay(user: Optional[str], st):
     """#1313 — the house-entry gate's STATUS-READ latch. The engine season is already live the
     instant createCharacter commits, so while the gate is HOLDING (or has refused) house entry, a
@@ -891,8 +911,10 @@ def setup_orwell_routes() -> APIRouter:
             # S2-1: the casting-finalize affordance is composed on the RAW engine truth FIRST (so it
             # reads the real `started`), then the house-entry latch wraps it — the two phases are
             # mutually exclusive, so `enterHouse` never survives into a house-entry hold.
-            return _house_entry_overlay(
-                _current_user(request), _casting_finalize_overlay(st))
+            def _project():
+                return _house_entry_overlay(
+                    _current_user(request), _casting_finalize_overlay(st))
+            return _etag_json_response(request, _project())
         except Exception as e:
             detail = _err_detail(e)
             _warn_throttled("state", f"[orwell] state failed: {detail}")

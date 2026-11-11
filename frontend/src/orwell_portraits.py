@@ -37,6 +37,7 @@ removes it; ``orwell-game-reset.sh`` is taught to clear it too (a new season = a
 
 import asyncio
 import base64
+import copy
 import hashlib
 import json
 import logging
@@ -656,11 +657,32 @@ def _manifest_path(user: Optional[str]) -> Path:
     return user_portrait_dir(user) / "manifest.json"
 
 
+# ORW-166: the roster poll calls portrait_ref once per houseguest, and each call used to open + parse manifest.json (and cast.json) from disk ON THE EVENT LOOP - ~16 file reads per poll.
+# Parsed JSON is cached per path and validated by a stat (inode, mtime_ns, size): _save_manifest / _save_cast_epoch write a temp file and os.replace it, which changes the inode, so a stale
+# read is not possible; a missing file is never cached. Callers get a copy (several mutate the manifest and write it back). Bounded.
+_JSON_CACHE: dict = {}
+_JSON_CACHE_MAX = 256
+
+
+def _read_json_cached(path):
+    """Parsed JSON at `path`; raises FileNotFoundError / JSONDecodeError / OSError exactly like open + json.load. Re-parses only when the file changed."""
+    st = os.stat(path)
+    sig = (st.st_ino, st.st_mtime_ns, st.st_size)
+    hit = _JSON_CACHE.get(str(path))
+    if hit is not None and hit[0] == sig:
+        return copy.deepcopy(hit[1])
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if len(_JSON_CACHE) >= _JSON_CACHE_MAX:
+        _JSON_CACHE.clear()
+    _JSON_CACHE[str(path)] = (sig, data)
+    return copy.deepcopy(data)
+
+
 def load_manifest(user: Optional[str]) -> dict:
     """The houseguestId → {file, name} map for this user (empty when none generated)."""
     try:
-        with open(_manifest_path(user), "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = _read_json_cached(_manifest_path(user))
         return data if isinstance(data, dict) else {}
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
@@ -691,8 +713,7 @@ def _cast_meta_path(user: Optional[str]) -> Path:
 
 def _load_cast_epoch(user: Optional[str]) -> Optional[str]:
     try:
-        with open(_cast_meta_path(user), "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = _read_json_cached(_cast_meta_path(user))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
     ep = data.get("epoch") if isinstance(data, dict) else None

@@ -751,7 +751,7 @@ def setup_chat_routes(
         _verify_session_owner(request, session)
 
         try:
-            sess = session_manager.get_session(session)
+            sess = await asyncio.to_thread(session_manager.get_session, session)  # ORW-171: blocking DB work off the event loop
         except KeyError:
             raise HTTPException(404, f"Session '{session}' not found")
         owner = get_current_user(request)
@@ -996,7 +996,7 @@ def setup_chat_routes(
         # (return / raise) releases via the context manager. Mirrors the engine's per-user enqueue.
         async with session_manager.session_lock(session):
             try:
-                sess = session_manager.get_session(session)
+                sess = await asyncio.to_thread(session_manager.get_session, session)  # ORW-171: blocking DB work off the event loop
             except KeyError:
                 return _sse_error_response(f"Session '{session}' not found", status=404)
             owner = get_current_user(request)
