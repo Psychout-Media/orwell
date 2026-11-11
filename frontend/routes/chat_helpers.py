@@ -3376,6 +3376,16 @@ def _presence_facts(state: dict) -> Optional[dict]:
                     in_view.add(p["name"])
                     adjacent.add(p["name"])
     adjacent -= room_present
+    # ORW-216: name -> the room the engine has them in, for everyone whose room the player's view actually knows (their own room + the adjacent rooms). Anyone further away has no known room.
+    npc_rooms: dict = {}
+    for p in (wa.get("present") or []):
+        if isinstance(p, dict) and p.get("name"):
+            npc_rooms[p["name"]] = str(wa.get("room") or "")
+    for nb in (wa.get("nearby") or []):
+        if isinstance(nb, dict):
+            for p in (nb.get("present") or []):
+                if isinstance(p, dict) and p.get("name") and str(nb.get("room") or "").strip():
+                    npc_rooms[p["name"]] = str(nb.get("room"))
     # ORW-249 part (4): the engine's send-time snapshot (`whereabouts.sinceSend`, #2321) says who walked in or out SINCE the player's last message. The narrator is told to voice it as one short beat, so the
     # guard must read the SAME snapshot: someone who left since the send is legitimately staged in that departure beat even though they are no longer in the room (an arrival is already in `present`).
     exempt: set = set()
@@ -3402,7 +3412,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
-            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt}
+            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms}
 
 
 def _first_name_counts(names) -> dict:
@@ -3819,6 +3829,85 @@ async def record_post_turn_false_premise_check(user, narration: str) -> None:
         logger.warning("[orwell] false-premise (nominee with none nominated) detected for user=%s - re-grounding next turn", user)
     except Exception as e:
         logger.warning("[orwell] post-turn false-premise check skipped for user=%s: %s", user, e)
+
+
+# ORW-216 - a houseguest PLACED IN THE WRONG ROOM. Whereabouts are engine truth (ADR 0009), yet the narrator once had two houseguests "walking the yard" while the engine had them in the kitchen, then broke
+# character to fix it. A same-turn scrub is deliberately NOT used (a legal narrated move is hard-folded into the board, so loose room prose is often fine - see the evicted-in-a-room guard's scope note).
+# Instead, POST-turn and against the board AFTER this turn's folds: a staged houseguest whose room the view knows, in a sentence that names house rooms but NOT their real one, queues a gentle next-turn
+# re-ground (closed-set, ADR 0005 #1: never edits prose) that also tells the model to correct the slip IN CHARACTER.
+_ROOM_CANON = (("kitchen", "kitchen"), ("living", "living"), ("lounge", "living"), ("backyard", "backyard"), ("back yard", "backyard"), ("yard", "backyard"),
+               ("hoh", "hoh"), ("head of household", "hoh"), ("bedroom", "bedroom"), ("bathroom", "bathroom"), ("storage", "storage"))
+
+
+def _room_keys(text: str) -> set:
+    """The canonical house-room keys named in `text` (a room label like 'living-room' or narration like 'the yard')."""
+    low = (text or "").lower().replace("-", " ")
+    return {key for word, key in _ROOM_CANON if re.search(r"\b" + re.escape(word), low)}
+
+
+_MOTION_VERBS = ("walk", "walks", "walking", "walked", "stroll", "strolls", "strolling", "strolled", "wander", "wanders", "wandering", "wandered", "pace", "paces", "pacing", "paced",
+                 "head", "heads", "heading", "headed", "hang", "hangs", "hanging", "lounge", "lounges", "lounging", "lounged", "relax", "relaxes", "relaxing", "chill", "chills", "chilling",
+                 "mill", "mills", "milling", "linger", "lingers", "lingering", "wait", "waits", "waiting", "stay", "stays", "staying")
+_MOTION_ALT = "|".join(_MOTION_VERBS)
+
+
+def _name_moves_or_sits(sentence: str, full_name: str, first_counts: dict) -> bool:
+    """`full_name` (or a roster-unique first name) followed within two words by a walking/hanging-out verb - the 'walking the yard' phrasing the scene-verb list does not carry."""
+    names = [full_name]
+    parts = full_name.split()
+    if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1:
+        names.append(parts[0])
+    for n in names:
+        if re.search(rf"\b{re.escape(n)}(?:['\u2019]s)?\b(?:\s+\w+){{0,2}}\s+(?:{_MOTION_ALT})\b", sentence, re.IGNORECASE):
+            return True
+    return False
+
+
+def _wrong_room_claims(narration: str, npc_rooms: dict) -> list:
+    """[(name, real_room_label)] for houseguests staged in a sentence that names house rooms but not their real one. Skips ((asides)). Conservative: needs the staging match AND >=1 named room AND the real room absent."""
+    if not narration or not npc_rooms:
+        return []
+    roster = set(npc_rooms)
+    first_counts = _first_name_counts(roster)
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration, flags=re.DOTALL)
+    out: list = []
+    seen: set = set()
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        named = _room_keys(sentence)
+        if not named:
+            continue
+        for name, room in npc_rooms.items():
+            real = _room_keys(room)
+            if not real or name in seen or (named & real):
+                continue
+            if _name_staged_unique(sentence, name, first_counts) or _name_moves_or_sits(sentence, name, first_counts):
+                seen.add(name)
+                out.append((name, room))
+    return out
+
+
+async def record_post_turn_wrong_room_check(user, narration: str) -> None:
+    """ORW-216: queue a next-turn re-ground when the narration staged a houseguest in a room the engine does not have them in. Fail-open; never raises, never edits this turn's prose."""
+    try:
+        if not narration:
+            return
+        from src import orwell_engine
+        state = await orwell_engine.get_game_state(user=user)
+        facts = _presence_facts(state if isinstance(state, dict) else {})
+        if not facts or not facts.get("npc_rooms"):
+            return
+        hits = _wrong_room_claims(narration, {n: r for n, r in facts["npc_rooms"].items() if n not in (facts.get("exempt") or ())})
+        if not hits:
+            return
+        shown = hits[:_PRESENCE_MOVE_MAX_NAMES]
+        listing = "; ".join(f"{n} is in the {str(r).replace('-', ' ')}" for n, r in shown)
+        _reground_enqueue(_desync_key(user), (
+            "RE-GROUND ON THE MAP - last turn you placed a houseguest in a room the engine does not have them in (" + listing + "). Whereabouts are engine truth: read them (whereabouts) before "
+            "placing anyone. If a houseguest's line or the narration got it wrong, correct it IN CHARACTER (a houseguest says they misspoke or misread), never with an out-of-character apology."
+        ))
+        logger.warning("[orwell] wrong-room placement detected for user=%s (%s) - re-grounding next turn", user, ", ".join(n for n, _ in shown))
+    except Exception as e:
+        logger.warning("[orwell] post-turn wrong-room check skipped for user=%s: %s", user, _exc_detail(e))
 
 
 async def record_post_turn_roster_check(user, narration: str) -> None:
