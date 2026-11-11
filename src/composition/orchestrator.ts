@@ -87,6 +87,8 @@ export interface HealthRecord {
    * neither advances nor resets the corruption streak.
    */
   circuitOpen: boolean;
+  /** ORW-277: present only after the Show Brief failed to build in a played game; codes and a count, never content. */
+  briefAlarm?: { failures: number; first: "threw" | "empty" };
 }
 
 export interface AdvanceResult {
@@ -699,9 +701,15 @@ export class Orchestrator {
   /** Vault-free health metadata for God Mode (0016). Per-user, or all sandboxes. */
   sandboxHealth(user?: string): HealthRecord | HealthRecord[] {
     if (user !== undefined) {
-      return this.health.get(user) ?? this.freshHealth(user);
+      return this.withBriefAlarm(user, this.health.get(user) ?? this.freshHealth(user));
     }
-    return this.registry.usernames().map((u) => this.health.get(u) ?? this.freshHealth(u));
+    return this.registry.usernames().map((u) => this.withBriefAlarm(u, this.health.get(u) ?? this.freshHealth(u)));
+  }
+
+  /** ORW-277: overlay the session's Show Brief alarm at read time (absent until a failure, so the record is otherwise unchanged). */
+  private withBriefAlarm(user: string, rec: HealthRecord): HealthRecord {
+    const a = this.registry.sandboxFor(user).session.briefAlarmStatus();
+    return a ? { ...rec, briefAlarm: a } : rec;
   }
 
   private freshHealth(user: string): HealthRecord {

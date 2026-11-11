@@ -21,6 +21,7 @@ import type {
   BeatAnnouncementView,
   NotorietyLegendView,
 } from "../../ports/GameSession";
+import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
 import { humanizeIds, humanizeForRetrospective } from "./humanize";
@@ -10503,6 +10504,20 @@ export class GameSessionAdapter implements GameSession {
     return rng.pick(candidates);
   }
 
+  /** ORW-277 - the in-memory Show Brief alarm (never persisted, never in the snapshot): a counter and the first failure's code. */
+  private briefAlarm: { failures: number; first: "threw" | "empty" } | undefined;
+  private noteBriefFailure(code: "threw" | "empty"): void {
+    if (!this.briefAlarm) {
+      this.briefAlarm = { failures: 0, first: code };
+      console.error(`[orwell] ALERT show-brief build ${code} in a played game (once per session; the turn continues without a brief)`);
+    }
+    this.briefAlarm.failures++;
+  }
+  /** Vault-free admin read: undefined until a failure has happened. Codes and a count only. */
+  briefAlarmStatus(): { failures: number; first: "threw" | "empty" } | undefined {
+    return this.briefAlarm ? { ...this.briefAlarm } : undefined;
+  }
+
   /**
    * ORW-223 slice 2 - the Show Brief's OPEN THREADS lines: in-motion threads the player already knows, by KIND and
    * STATUS only (never an id, a number, a term, or any NPC motive). Sources are the player's own deals (the public
@@ -13301,9 +13316,20 @@ export class GameSessionAdapter implements GameSession {
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
-    const showBrief = req.brief !== undefined
-      ? buildShowBrief(view, req.brief, this.roomCanonEnabled && this.live?.playedGame === true ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, this.live?.playedGame === true ? this.openThreadLines() : undefined)
-      : undefined;
+    let showBrief: ShowBriefView | undefined;
+    if (req.brief !== undefined) {
+      // ORW-277: fail-soft. A build that throws, or builds nothing for a started player with whereabouts in a played game,
+      // raises ONE admin-visible alarm per session (a counter always) and the turn goes on without a brief. Nothing here
+      // reads or prints game content; the output is otherwise byte-identical.
+      const played = this.live?.playedGame === true;
+      try {
+        showBrief = buildShowBrief(view, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
+      } catch {
+        showBrief = undefined;
+        if (played) this.noteBriefFailure("threw");
+      }
+    }
     return {
       moment,
       systemPrompt: buildSystemPrompt(
