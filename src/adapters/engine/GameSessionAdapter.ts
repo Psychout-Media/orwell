@@ -5,7 +5,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
-  DailyRecapView,
+  DailyRecapView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -478,6 +478,9 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  * length. Used by the 0062 zeitgeist write-back (`recordWorldSnapshot`) — the snapshot is non-secret
  * public flavor, but it is still player/FE-sourced text woven into the moment prompt.
  */
+const DAY_LEDGER_MAX_EVENTS = 12;
+const DAY_LEDGER_EVENT_CHARS = 240;
+const DAY_LEDGER_TEXT_CHARS = 900;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -10522,6 +10525,26 @@ export class GameSessionAdapter implements GameSession {
     const hook = this.buildDailyRecapHook(day, surfaced);
     const recap: DailyRecapView = { day, highlights, surfaced, ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
+    if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
+      // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
+      const kinds = new Set<string>();
+      for (const e of allEvents.slice(evFrom)) {
+        if (e.hidden) continue;
+        if (e.type === "deal") kinds.add("deal");
+        else if (e.type === "betrayal") kinds.add("betrayal");
+        else if (e.id.startsWith("season:")) kinds.add("ceremony");
+      }
+      if (surfaced.length > 0) kinds.add("rumor");
+      if (hook?.thread) kinds.add(`thread-${String(hook.thread).split(":")[0]!.replace(/[^a-z-]/gi, "").slice(0, 24)}`); // the thread KIND only, never its id
+      const ledger = (s.dayLedger ??= []);
+      if (!ledger.some((d) => d.tier === "day" && d.day === day)) {
+        ledger.push({
+          day, tier: "day",
+          events: [...highlights, ...surfaced].slice(0, DAY_LEDGER_MAX_EVENTS).map((t) => t.slice(0, DAY_LEDGER_EVENT_CHARS)),
+          themes: [...kinds].sort(),
+        });
+      }
+    }
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
     s.dayNumber = day + 1;
@@ -10535,6 +10558,44 @@ export class GameSessionAdapter implements GameSession {
    */
   dailyRecap(): DailyRecapView | null {
     return this.live?.lastDailyRecap ?? null;
+  }
+
+  /** ORW-271 — the append-only day ledger (deep copy; Vault-free). */
+  dayLedger(): DaySummary[] {
+    return JSON.parse(JSON.stringify(this.live?.dayLedger ?? [])) as DaySummary[];
+  }
+
+  /** ORW-271 — FE-driven write-back of a model-authored day/week summary. Idempotent per (day, tier). */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult {
+    const s = this.live;
+    const ledger = s?.dayLedger;
+    if (!s || !ledger) return { accepted: false, reason: "absent" };
+    const text = String(req.text ?? "")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
+    if (!text) return { accepted: false, reason: "empty" };
+    const day = Math.trunc(req.day);
+    if (req.tier === "week") {
+      const [a, b] = req.coversDays ?? [day, day];
+      const from = Math.trunc(Math.min(a, b)), to = Math.trunc(Math.max(a, b));
+      const covered = ledger.filter((d) => d.tier === "day" && d.day >= from && d.day <= to);
+      if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
+      const existing = ledger.find((d) => d.tier === "week" && d.day === day);
+      if (existing) {
+        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+      } else {
+        ledger.push({
+          day, tier: "week", coversDays: [from, to], text,
+          events: [], themes: [...new Set(covered.flatMap((d) => d.themes))].sort(),
+        });
+      }
+      for (const d of covered) d.merged = true;
+    } else {
+      const entry = ledger.find((d) => d.tier === "day" && d.day === day);
+      if (!entry) return { accepted: false, reason: "unknown-day" };
+      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+    }
+    this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
+    return { accepted: true };
   }
 
   /**
