@@ -32,11 +32,14 @@ export const DEAL_CONSENT = {
     "vote": -0.09,
     "target-other": -0.09,
     "final-two": -0.07,
+    "protect-third": -0.09, // 0142: swearing to spare a third houseguest costs like a defensive promise
     "comp-throw": 0.08,
     "veto-save": 0.15,
   } as Record<DealKind, number>,
   /** B55: what an OFFER by the player costs the NPC (the player is the promisor, so the cost is the player's; to the NPC it is a favor, priced like a defensive promise). Used for the active kinds only. */
   offerCost: -0.09,
+  /** 0142: willingness added when the ask is a CALLED-IN favor (the NPC owes the player one for a deal it kept). Tips a marginal ask, never buys an ask the NPC distrusts or fears. */
+  calledFavorBonus: 0.1,
   /** Half-width of the seeded per-decision jitter: a marginal NPC can wobble, a clear one never flips. */
   jitter: 0.03,
   /** A single drag at/above this is "material" enough to be named as THE reason even when the ask was dear anyway. */
