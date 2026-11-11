@@ -830,6 +830,8 @@ export interface SeasonCtx {
   moodVetoFor?: (nominee: EntityId, holder: EntityId) => number;
   /** B7 M4b (ORWELL_HC_MEMORY, approved tie-in #6): how much more (+) or less (-) an NPC Houseguest's-Choice holder wants `candidate` as the sixth veto player, from what they remember / believe / owe. Absent => +0, byte-identical. */
   hcMemoryFor?: (candidate: EntityId, holder: EntityId) => number;
+  /** ORW-101 (ORWELL_HC_STRATEGY): how much more (+) or less (-) the NPC Houseguest's-Choice holder's GAME this week wants `candidate` as the sixth veto player (role-aware: a nominee wants a strong player who would save them, the HOH wants one who won't rescue a nominee...), from the hidden relationship layer + competition stats. Deterministic, no rng. Absent => +0, byte-identical. */
+  hcStrategyFor?: (candidate: EntityId, holder: EntityId) => number;
   /** B7 M3 (ORWELL_DEAL_NOMS): the nomination-score push from the HOH's open protective deals with `target` (<= 0). Absent => byte-identical. */
   dealNomPushFor?: (target: EntityId, holder: EntityId) => number;
   /** ORW-37 half 2 (B41, ORWELL_TIE_BEHAVIOR): the HOH's nomination-score push from a pre-show tie they themselves hold with `target` (family shield, rival push). Absent => 0 => byte-identical. */
@@ -1393,6 +1395,11 @@ function crownCompetition(s: LiveSeasonState): BeatEvent {
  * after any player intent declaration. Pauses (pending set, event still returned) when the
  * PLAYER drew the Houseguest's Choice chip (B45).
  */
+/** The NPC Houseguest's-Choice holder's additive pick bias: memory (B7 M4b) + game strategy (ORW-101). Both absent => undefined => byte-identical, and neither draws rng. */
+function hcBias(mem: SeasonCtx["hcMemoryFor"], strat: SeasonCtx["hcStrategyFor"], holder: EntityId): ((c: EntityId) => number) | undefined {
+  if (!mem && !strat) return undefined;
+  return (c) => (mem ? mem(c, holder) : 0) + (strat ? strat(c, holder) : 0);
+}
 function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
   // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
   // including a restart mid-pause (0030) — resolves the SAME drawn competition (0042).
@@ -1400,7 +1407,7 @@ function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
   s.vetoComp = def.id;
   const draw = vetoParticipants(weekState(s, ctx), rng, {
     houseguestsChoiceChip: true,
-    choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, ctx.hcMemoryFor ? (c) => ctx.hcMemoryFor!(c, holder) : undefined),
+    choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcBias(ctx.hcMemoryFor, ctx.hcStrategyFor, holder)),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
   s.vetoField = draw.participants;
