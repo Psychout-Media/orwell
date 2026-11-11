@@ -613,6 +613,10 @@ app.include_router(setup_session_routes(session_manager, session_config, webhook
 from routes.admin_wipe_routes import setup_admin_wipe_routes
 app.include_router(setup_admin_wipe_routes(session_manager))
 
+# Admin provider switch (ORW-199) — re-point running game sessions at another endpoint/model
+from routes.admin_provider_routes import setup_admin_provider_routes
+app.include_router(setup_admin_provider_routes(session_manager))
+
 # Admin transcript retrieval (Feature 0053, ruling #14) — quiet, read-only debug
 # access to any user's chat transcripts. Behind require_admin; no game-chrome surface.
 from routes.admin_transcript_routes import setup_admin_transcript_routes

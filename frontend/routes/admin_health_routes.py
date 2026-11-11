@@ -224,6 +224,12 @@ def _store_stats() -> dict:
         try:
             stats["sessions"] = db.query(DbSession).count()
             stats["messages"] = db.query(DbChatMessage).count()
+            # ORW-199: which provider each live session uses (host only + model; no key/path).
+            from routes.admin_provider_routes import provider_host
+            stats["sessionProviders"] = [
+                {"id": r.id, "provider": provider_host(r.endpoint_url), "model": r.model}
+                for r in db.query(DbSession).filter(DbSession.archived == False)  # noqa: E712
+                .order_by(DbSession.last_accessed.desc()).limit(50).all()]
         finally:
             db.close()
     except Exception as e:
