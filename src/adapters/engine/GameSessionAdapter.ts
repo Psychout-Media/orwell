@@ -1677,6 +1677,8 @@ export class GameSessionAdapter implements GameSession {
   }
   /** "holder|subject" -> the holder's decaying exploit tilt toward the visibly rattled subject. */
   private tellExploit: Record<string, number> = {};
+  /** ORW-32: "observer|target" -> the observer's decaying wish to keep away from a visibly rattled target (played games only; read by `applyTellAvoidToPulls`). */
+  private tellAvoid: Record<string, number> = {};
   /** "observer|target" -> the week the observer last reacted to that target (the per-pair cooldown). */
   private tellReactedWeek: Record<string, number> = {};
   /** Reaction counts by kind (observability + tests; monotonic). */
@@ -1697,6 +1699,7 @@ export class GameSessionAdapter implements GameSession {
   tellReactionsTick(): void {
     if (!this.tellReactionsEnabled || !this.npcTellsEnabled || !this.house || !this.presence) return;
     for (const k of Object.keys(this.tellExploit)) { const v = decayExploit(this.tellExploit[k]!); if (v > 0) this.tellExploit[k] = v; else delete this.tellExploit[k]; }
+    for (const k of Object.keys(this.tellAvoid)) { const v = decayExploit(this.tellAvoid[k]!); if (v > 0) this.tellAvoid[k] = v; else delete this.tellAvoid[k]; }
     const awake = this.awakeNow();
     const week = this.week;
     this.tellReactionTicks += 1;
@@ -1728,6 +1731,8 @@ export class GameSessionAdapter implements GameSession {
         } else if (reaction === "exploit") {
           const k = `${observer}|${target}`;
           this.tellExploit[k] = addExploit(this.tellExploit[k] ?? 0);
+        } else if (reaction === "avoid" && this.live?.playedGame === true) { // ORW-32: recorded only in a played game, so headless state/snapshots stay byte-identical
+          this.tellAvoid[key] = Math.min(TELL_REACTION.exploitCap, (this.tellAvoid[key] ?? 0) + TELL_REACTION.avoidTilt);
         }
       }
     }
@@ -4069,7 +4074,7 @@ export class GameSessionAdapter implements GameSession {
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
       ...(this.tellOnsetCount > 0 ? { tellOnsetCount: this.tellOnsetCount } : {}),
-      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks } } : {}),
+      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks, ...(Object.keys(this.tellAvoid).length ? { avoid: { ...this.tellAvoid } } : {}) } } : {}),
       // issue #792: the SEATED sub-zones (player-facing view) — persisted tenure-style so drift/cluster
       // history survives a restart (0007, only-forward) and never reseeds from scratch. Absent/empty ⇒
       // omitted (byte-identical to a pre-feature save; the next tick seats fresh). Vault-free position.
@@ -4398,6 +4403,7 @@ export class GameSessionAdapter implements GameSession {
     this.tellReactedWeek = { ...(core.tellReactions?.reactedWeek ?? {}) };
     this.tellReactionCounts = { ...(core.tellReactions?.counts ?? {}) };
     this.tellReactionTicks = core.tellReactions?.ticks ?? 0;
+    this.tellAvoid = { ...(core.tellReactions?.avoid ?? {}) };
     // issue #792: restore the SEATED sub-zones (acquired drift/cluster history survives a restart). A
     // pre-feature save carries none ⇒ null ⇒ the next tick seats everyone fresh from `zoneFor`, NO error.
     this.presenceZone = core.presenceZone ? new Map(Object.entries(core.presenceZone) as [EntityId, Zone][]) : null;
@@ -4783,6 +4789,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.tellReactionsEnabled && this.npcTellsEnabled) this.applyTellAvoidToPulls(id, pulls);
     return pulls.length ? pulls : null;
   }
 
@@ -4802,6 +4809,21 @@ export class GameSessionAdapter implements GameSession {
         if (existing) { existing.avoid = false; existing.weight *= scale; } else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false });
       } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
       else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
+    }
+  }
+
+  /**
+   * ORW-32 - an observer who reacted `avoid` to a visibly rattled houseguest keeps away from them: the pull toward that target is flipped to an avoid and sharpened (a missing pull is added as an avoid).
+   * Played games only (the caller gates; headless sims never reach this and `tellAvoid` stays empty); no rng; a pure read of the decaying `tellAvoid` ledger.
+   */
+  private applyTellAvoidToPulls(id: EntityId, pulls: MovementPull[]): void {
+    for (const other of this.presenceActive()) {
+      if (other === id) continue;
+      const t = this.tellAvoid[`${id}|${other}`] ?? 0;
+      if (t < TELL_REACTION.avoidMin) continue;
+      const scale = 1 + TELL_REACTION.avoidGain * t;
+      const existing = pulls.find((p) => p.target === other);
+      if (existing) { existing.avoid = true; existing.weight *= scale; } else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
     }
   }
 

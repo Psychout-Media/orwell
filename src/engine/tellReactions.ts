@@ -22,6 +22,8 @@ export const TELL_REACTION = {
   tender: ["social", "emotional", "loyal"] as readonly string[],
   /** Effect sizes (bounded, tiny). */
   comfortDistress: 0.04, comfortTrust: 0.02, exploitTilt: 0.05, exploitCap: 0.12, exploitDecay: 0.6,
+  /** ORW-32: the avoid tilt an `avoid` reaction records (decays like exploit; scales the movement avoid pull). */
+  avoidTilt: 0.1, avoidGain: 6, avoidMin: 0.02,
   /** An observer reacts to the same target at most once per this many weeks. */
   cooldownWeeks: 1,
 } as const;
