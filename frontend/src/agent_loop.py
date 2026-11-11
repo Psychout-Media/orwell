@@ -2975,7 +2975,55 @@ def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers
     return fallback_url, fallback_model, fallback_headers
 
 
-async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner) -> bool:
+async def _move_player_extract(narration, last_user, endpoint_url, model, headers, owner) -> str:
+    """ORW-173: the player-move EXTRACTION call alone (no engine write), so it can run concurrently with the NPC-move extraction."""
+    from src.llm_core import llm_call_async
+    rooms = ", ".join(_HOUSE_ROOMS)
+    msgs = [
+        {"role": "system", "content":
+            _EXTRACTION_UNTRUSTED_FENCE +
+            "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
+            "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
+            "prose, no code fence:\n"
+            '{"room":"<one of the room ids below, or null>"}\n'
+            f"Room ids: {rooms}.\n"
+            "Pick the room the player ENDED UP IN if they clearly moved there themselves "
+            "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
+            'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
+            '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
+            "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."},
+        {"role": "user", "content":
+            f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
+            f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
+    ]
+    # Room for a reasoning model to think THEN emit the tiny room JSON (see _auto_record_scene).
+    raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                               temperature=0.1, max_tokens=1200, timeout=45,
+                               call_class="utility-extraction", user=owner)
+    return raw or ""
+
+
+async def _gather_move_extractions(narration, last_user, house, endpoint_url, model, headers, owner):
+    """ORW-173: run the player-move and NPC-move EXTRACTION calls concurrently (they only read the narration; ~1 s each, previously
+    back to back). Returns (player_raw, npc_raw). The engine WRITES stay sequential and in the original order at the call site, so
+    the beatSeq compare-and-swap never sees two writes at once. One extraction failing yields "" for it (that belt then no-ops
+    exactly as a failed call did before) and never cancels the other."""
+    res = await asyncio.gather(
+        _move_player_extract(narration, last_user, endpoint_url, model, headers, owner),
+        _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner),
+        return_exceptions=True)
+    out = []
+    for name, r in zip(("auto-move", "auto-move-npc"), res):
+        if isinstance(r, BaseException):
+            if isinstance(r, asyncio.CancelledError):
+                raise r
+            logger.warning(f"[orwell] {name} failed: {r}")
+            r = ""
+        out.append(r or "")
+    return out[0], out[1]
+
+
+async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
     move_to ourselves — so the engine persists the player's new room and next turn's whereabouts
@@ -2986,28 +3034,8 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
-        rooms = ", ".join(_HOUSE_ROOMS)
-        msgs = [
-            {"role": "system", "content":
-                _EXTRACTION_UNTRUSTED_FENCE +
-                "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
-                "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
-                "prose, no code fence:\n"
-                '{"room":"<one of the room ids below, or null>"}\n'
-                f"Room ids: {rooms}.\n"
-                "Pick the room the player ENDED UP IN if they clearly moved there themselves "
-                "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
-                'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
-                '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
-                "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."},
-            {"role": "user", "content":
-                f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
-                f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
-        ]
-        # Room for a reasoning model to think THEN emit the tiny room JSON (see _auto_record_scene).
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
-                                   temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner)
+        if raw is None:
+            raw = await _move_player_extract(narration, last_user, endpoint_url, model, headers, owner)
         raw = raw or ""
         # The JSON may sit after a reasoning block — scan the WHOLE response, take the LAST object
         # carrying a "room" key (reasoning models emit the answer last).
@@ -3082,7 +3110,39 @@ def _player_summoned(last_user, name) -> bool:
     return bool(_SUMMON_RE.search(text))
 
 
-async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner) -> int:
+async def _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner) -> str:
+    """ORW-173: the NPC-move EXTRACTION call alone (no engine write), so it can run concurrently with the player-move extraction."""
+    from src.llm_core import llm_call_async
+    roster = "\n".join(f'{h.get("id")} = {h.get("name")}'
+                       for h in house if h.get("id") and h.get("name"))
+    if not roster:
+        return ""
+    rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
+    msgs = [
+        {"role": "system", "content":
+            _EXTRACTION_UNTRUSTED_FENCE +
+            "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
+            "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
+            "— no analysis, no thinking, no prose, no code fence:\n"
+            '{"moves":[{"id":"<houseguest id from the roster>","room":"<one of the room ids>"}]}\n'
+            f"Room ids: {rooms}.\n"
+            "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
+            "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
+            "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
+            "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
+            'If no houseguest clearly moved, reply {"moves":[]}.'},
+        {"role": "user", "content":
+            f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
+            f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
+    ]
+    # Room for a reasoning model to think THEN emit the moves JSON (see _auto_record_scene).
+    raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                               temperature=0.1, max_tokens=1500, timeout=45,
+                               call_class="utility-extraction", user=owner)
+    return raw or ""
+
+
+async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner, raw=None) -> int:
     """GUARANTEE whereabouts cohesion for the HOUSEGUESTS (ADR 0009), mirroring _auto_move_player for
     the player. When the turn's narration walked one or more houseguests to new rooms but the model
     never called moveHouseguest, a constrained extraction proposes the {id, room} moves and we record
@@ -3102,28 +3162,8 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             return 0
         _roster_names = {h.get("id"): h.get("name")
                          for h in house if h.get("id") and h.get("name")}
-        rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
-        msgs = [
-            {"role": "system", "content":
-                _EXTRACTION_UNTRUSTED_FENCE +
-                "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
-                "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
-                "— no analysis, no thinking, no prose, no code fence:\n"
-                '{"moves":[{"id":"<houseguest id from the roster>","room":"<one of the room ids>"}]}\n'
-                f"Room ids: {rooms}.\n"
-                "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
-                "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
-                "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
-                "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
-                'If no houseguest clearly moved, reply {"moves":[]}.'},
-            {"role": "user", "content":
-                f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
-                f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
-        ]
-        # Room for a reasoning model to think THEN emit the moves JSON (see _auto_record_scene).
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
-                                   temperature=0.1, max_tokens=1500, timeout=45,
-                                   call_class="utility-extraction", user=owner)
+        if raw is None:
+            raw = await _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner)
         obj = _last_json_object_with_key(raw or "", "moves")
         if obj is None:
             logger.info(f"[orwell] auto-move-npc: no parseable JSON (len={len(raw or '')})")
@@ -8773,10 +8813,17 @@ async def _stream_agent_loop_impl(
                     # ceremony. It never re-prompts the model or ends the turn; the narration the player
                     # already saw stands and we just make the engine agree with it. Model-driven moveTo
                     # always wins (`_moved` short-circuits `_want_move`). Vault-free (whereabouts).
+                    _pm_raw = _nm_raw = None
+                    if _want_move and _want_npc_move:
+                        # ORW-173: both belts will extract this turn - run the two LLM calls concurrently, apply the writes in order below.
+                        _pm_raw, _nm_raw = await _gather_move_extractions(
+                            _turn_narration_visible, _last_user_for_move, _house,
+                            _belt_endpoint, _belt_model, _belt_headers, owner)
                     if _want_move:
                         _turn_move_nudges += 1  # once per turn
                         if await _auto_move_player(_turn_narration_visible, _last_user_for_move,
-                                                   _belt_endpoint, _belt_model, _belt_headers, owner):
+                                                   _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                   raw=_pm_raw):
                             # gap #3 telemetry — count only a REAL applied move (a room:null
                             # extraction / failed call is a no-op, not a correction)
                             _note_belt(owner, "auto-move-player")
@@ -8791,7 +8838,7 @@ async def _stream_agent_loop_impl(
                         _turn_npc_move_nudges += 1  # once per turn
                         _npc_moves_applied = int(await _auto_move_npc(_turn_narration_visible, _last_user_for_move,
                                                                       _house, _belt_endpoint, _belt_model,
-                                                                      _belt_headers, owner) or 0)
+                                                                      _belt_headers, owner, raw=_nm_raw) or 0)
                         if _npc_moves_applied:
                             # gap #3 telemetry — count only ENGINE-APPLIED moves (the helper
                             # returns the applied count; a moves:[] extraction is a no-op)

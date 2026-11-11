@@ -241,6 +241,12 @@ def _reset_cast_authoring_ledger() -> None:
     if ep is not None:
         with contextlib.suppress(AttributeError):
             ep._FAILURES.clear()
+    # ORW-251b: the 0065 prewarm gate (`_STATE`, keyed by owner) is process-global too. A test that warms owner "bob" left authorStarted=True, so a later test_orwell_portraits case took the PREWARMED branch
+    # (authoring before portraits: "assert 1 < 0") - an order-dependent red under xdist. Reset it per test when loaded.
+    pw = sys.modules.get("src.orwell_prewarm")
+    if pw is not None:
+        with contextlib.suppress(Exception):
+            pw.reset(None)
 
 
 @pytest.fixture(autouse=True)

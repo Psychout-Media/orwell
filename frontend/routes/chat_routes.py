@@ -1945,6 +1945,7 @@ def setup_chat_routes(
                                 _rec_task = asyncio.create_task(ensure_turn_recorded(
                                     ctx.user, message, full_response, _agent_tools_called,
                                     beat_seq_before=_beat_seq_before,
+                                    session_id=session,
                                 ))
                                 # Retain a strong ref until the task finishes (weak-ref GC guard).
                                 _BG_TASKS.add(_rec_task)
