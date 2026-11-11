@@ -50,7 +50,7 @@ def setup_admin_provider_routes(session_manager=None) -> APIRouter:
         require_admin(request)
         try:
             body = await request.json()
-        except Exception:
+        except Exception:  # failsoft-ok: an unparseable body is the caller's error; it is answered with a 400 just below, not swallowed
             body = None
         if not isinstance(body, dict):
             raise HTTPException(400, "JSON object body required")
