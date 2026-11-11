@@ -41,7 +41,8 @@ def test_every_relay_reads_the_single_source():
     assert "_DECISION_KINDS = orwell_engine.DECISION_KINDS" in rest
     assert "from src.orwell_engine import DECISION_KINDS as _DECISION_KINDS" in ws
     assert "_DECISION_KINDS = orwell_engine.DECISION_KINDS" in impl
-    assert '"enum": sorted(_DECISION_KINDS)' in schema
+    # ORW-281 4a (Coordinator ruling): the model's enum is the single source MINUS the watch step "ceremony-step", which is answered by advanceGame and always refused by submitDecision.
+    assert '"enum": sorted(_DECISION_KINDS - {"ceremony-step"})' in schema
     # No hand-copied kind set may creep back in alongside the shared one.
     for name, src in (("orwell_routes", rest), ("ws_routes", ws), ("tool_implementations", impl)):
         assert not re.search(r"_DECISION_KINDS = \{", src), f"{name} re-grew a hand-copied kind set"
@@ -52,7 +53,8 @@ def test_the_model_tool_enum_offers_every_engine_kind():
     import src.agent_tools  # noqa: F401
     from src.tool_schemas import FUNCTION_TOOL_SCHEMAS
     schema = next(t for t in FUNCTION_TOOL_SCHEMAS if t["function"]["name"] == "submitDecision")
-    assert set(schema["function"]["parameters"]["properties"]["kind"]["enum"]) == _engine_kinds()
+    # ORW-281 4a: every engine kind except the non-submittable watch step "ceremony-step" (answered by advanceGame; offering it would only waste tool rounds).
+    assert set(schema["function"]["parameters"]["properties"]["kind"]["enum"]) == _engine_kinds() - {"ceremony-step"}
 
 
 def test_a_deal_offer_is_never_a_pending_card():
