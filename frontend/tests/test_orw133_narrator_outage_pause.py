@@ -147,3 +147,13 @@ def test_paused_lines_are_dropped_from_the_models_next_context():
 def test_chat_js_handles_the_typed_outage_events():
     src = open(os.path.join(FRONTEND, "static", "js", "chat.js"), encoding="utf-8").read()
     assert "json.type === 'narrator_away'" in src and "narrator_paused" in src
+
+
+def test_a_new_season_clears_the_outage_alert_latch_for_that_owner_only():
+    """ORW-133: _OUTAGE_ALERTED holds (owner, kind) records; a season reset must drop that owner's records (so a new season can alert again) and nobody else's."""
+    from src import agent_loop
+    agent_loop._OUTAGE_ALERTED.clear()
+    agent_loop._OUTAGE_ALERTED.update({("alice", "account"), ("alice", "transient"), ("bob", "account")})
+    agent_loop._forget_season_pacing("alice")
+    assert agent_loop._OUTAGE_ALERTED == {("bob", "account")}
+    agent_loop._OUTAGE_ALERTED.clear()

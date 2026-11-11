@@ -6268,7 +6268,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
 )
 
 
@@ -6292,6 +6292,8 @@ def _forget_owner_entries(store, keys) -> None:
     elif isinstance(store, collections.abc.MutableSet):
         for key in keys:
             store.discard(key)
+        for item in [i for i in store if isinstance(i, tuple) and _is_owner_item(i, keys)]:  # (owner, kind) records (e.g. the outage alert latch)
+            store.discard(item)
     elif isinstance(store, collections.deque):
         kept = [item for item in store if not _is_owner_item(item, keys)]
         if len(kept) != len(store):
