@@ -99,7 +99,7 @@ createCharacter
   distinguishing marks, age-look, style) — the **single source of truth shared by the image generator
   AND the text narration**, so words and picture never drift (the L29 hook; the L23 "stop re-describing
   bodies" cue reads the same facet).
-- **Offline/test path:** the deterministic seeded floor stands in when no authoring LLM is available, so
+- **Offline/test path (amended 2026-11-11, ORW-260):** under the default strict enrichment policy a failed or impossible authoring run is a LOUD failure that refuses the game start (no fallback cast; Ryne, BDD card 30). Only keyless CI / `ORWELL_ALLOW_FLOOR_START=1` / the `soft` policy keep the old behaviour: the deterministic seeded floor stands in when no authoring LLM is available, so
   the engine and its tests never depend on a live model.
 
 ## 5. The story-thread model (this is the "play out")

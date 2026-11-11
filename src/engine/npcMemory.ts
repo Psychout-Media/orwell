@@ -26,7 +26,9 @@ export type MemoryKind =
   | "scene-kindness"      // P4g: the PLAYER was kind / bonded with the holder in a recorded scene (favor, weaker than a grudge)
   | "secret-exposed"     // A24 / AMEND 3a #8: the PLAYER publicly exposed the holder's secret (a landed expose; written only under ORWELL_NPC_MEMORY_WRITERS) - a deep grudge
   | "secret-given"       // A24 / AMEND 3a #8: the PLAYER traded the holder a secret they wanted (an accepted trade; same flag) - a favor
-  | "nominated-by-hoh";   // B2: the subject (the HOH) put the holder on the block — whatever their prior trust (written only under ORWELL_NPC_MEMORY_WRITERS)
+  | "nominated-by-hoh"
+  | "deal-witnessed"    // ORW-85: the holder SAW a deal made in its presence that did not touch it (recall only: no grudge, no favor)
+  | "deal-resented";    // ORW-85: the holder saw a deal made that was aimed at it / its ally, or its own ally made one behind its back (a small grudge toward the dealmaker)   // B2: the subject (the HOH) put the holder on the block — whatever their prior trust (written only under ORWELL_NPC_MEMORY_WRITERS)
 
 export interface MemoryEntry { kind: MemoryKind; week: number; /** 0..1 — how much it mattered. */ severity: number }
 
@@ -57,7 +59,19 @@ export const NPC_MEMORY: NpcMemoryConstants = {
   trustedAbove: 0.4,
 };
 
-const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict", "secret-exposed"]);
+/** ORW-85 (Ryne 2026-11-10: what NPCs overhear has real impact): how a witness reads a deal made in front of it. Modest, tunable; played games only (the writer is gated by the caller). */
+export const DEAL_WITNESS = {
+  /** the deal names the witness, or an ally of the witness, as its target: a grudge toward each dealmaker */
+  targetedSeverity: 0.3,
+  /** the witness's own ally struck a deal without it: a small hurt toward that ally */
+  leftOutSeverity: 0.12,
+  /** otherwise: remembered, no sign */
+  recallSeverity: 0.05,
+} as const;
+
+const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict", "secret-exposed", "deal-resented"]);
+/** ORW-131: does this memory kind weigh as a grievance (vs a favor / neutral)? */
+export const isGrudgeKind = (k: MemoryKind): boolean => GRUDGE_KINDS.has(k);
 const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness", "secret-given"]);
 
 const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);

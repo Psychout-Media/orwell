@@ -1730,6 +1730,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         try:
             from src import enrichment_policy
             if enrichment_policy.is_strict():
+                mark_strict_failed(user)  # ORW-260: the backstories are required - latch the loud pre-finalize gate
                 enrichment_policy.record_failure(
                     user, "cast-authoring",
                     f"{floor}/{total} houseguest(s) fell back to the deterministic floor after retries",
@@ -2145,6 +2146,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
     narration-model-first at the runtime `cast_authoring_temperature`, explicit utility fallback.
     Under the STRICT enrichment policy a missing model is LOUD (an ERROR + a failure-ledger entry,
     never a silent floor); under `soft` the legacy silent no-op stands byte-identical."""
+    clear_strict_failed(owner)  # ORW-260: a fresh run re-evaluates from clean
     llm_fn = await resolve_authoring_llm_fn(owner)
     if llm_fn is None:
         try:
@@ -2153,6 +2155,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
         except Exception:
             strict = False
         if strict:
+            mark_strict_failed(owner)  # ORW-260: no model => no backstories => the game must not start on the floor
             enrichment_policy.record_failure(
                 owner, "cast-authoring",
                 "no model resolved for the cast-authoring call class — authoring cannot run",
@@ -2475,6 +2478,38 @@ def house_ready_inline_budget() -> float:
     the full readiness window so a mis-tuned env value can never make the inline wait LONGER than the
     old inline-everything behavior."""
     return min(_HOUSE_READY_INLINE_S, _HOUSE_READY_TIMEOUT_S)
+
+
+# ── ORW-260 (Ryne, BDD card 30, option B): the deeper backstories (0058) are REQUIRED, like the cast skeleton ──────────
+# "I think if it fails, it fails. I don't want a fallback." Under the DEFAULT strict policy a cast-authoring run that leaves ANY houseguest on the
+# deterministic floor (or cannot run at all: no model) latches this, exactly like the genesis strict-failed latch, and the loud pre-finalize gate in
+# `do_create_character` refuses to start the game on it. The world snapshot / off-screen detail stay fail-soft (admin alert only). Cleared on a new season
+# and at the start of every authoring run.
+_STRICT_FAILED: set = set()
+
+
+def _skey(user: Optional[str]) -> str:
+    return str(user) if user else "default"
+
+
+def mark_strict_failed(user: Optional[str]) -> None:
+    _STRICT_FAILED.add(_skey(user))
+
+
+def clear_strict_failed(user: Optional[str]) -> None:
+    _STRICT_FAILED.discard(_skey(user))
+
+
+def strict_failed(user: Optional[str]) -> bool:
+    """True iff the last cast-authoring run for this user FAILED under the strict policy (a houseguest ended on the floor, or authoring could not run)."""
+    return _skey(user) in _STRICT_FAILED
+
+
+def refusal_message() -> str:
+    """The clear, player-visible casting-finalize refusal (strict policy, the deeper backstories failed)."""
+    return (
+        "Casting can't finalize yet: the houseguests' deeper backstories could not be written, and this game does not start on a generic fallback. "
+        "Check the chat model endpoint (Settings → Models) and try again.")
 
 
 def floor_start_allowed() -> bool:
