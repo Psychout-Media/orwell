@@ -637,6 +637,9 @@
     if (_mode === "fallback") return;
     _mode = "fallback";
     _fallbackReason = reason || _fallbackReason || "handshake";
+    // ORW-44 S1 (measure before deciding whether SSE can ever go): every permanent WS -> SSE downgrade is reported, once per page load (the guard above), with its reason. NOT red: falling back is the
+    // designed behaviour today; the count per session is what the transport decision needs.
+    try { if (window.OrwellReport) window.OrwellReport.fail('ws:fallback', String(_fallbackReason), 'this page load continues on the SSE transport', { corrected: 'SSE transport' }); } catch (_) {}
     _chatSubscribed = false;
     _chatTailActive = false;
     _edgesSubscribed = false;
