@@ -1097,6 +1097,7 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    this.ceremonyBeat = null; // ORW-247b: the player spoke - the ceremony scene is over, the house disperses on the calm tick
     // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
     // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
     const nowOcc = this.witnessOccupancy();
@@ -5224,6 +5225,7 @@ export class GameSessionAdapter implements GameSession {
    * are untouched, only the player-facing map is overwritten) and ends with it; afterwards the ordinary calm tick (capped movers per tick) disperses them on their own timing. The calibration base map
    * is never touched. Idempotent per ceremony kind; `force` re-pins after a tick. Returns true while a ceremony holds the house.
    */
+  private ceremonyBeat: "nominations" | "veto-ceremony" | "eviction" | null = null; // memory-only
   private ceremonyHeld: string | null = null;
   private ceremonyBasePlayerRoom: Room | null = null;
   private gatherForCeremony(force = false): boolean {
@@ -5263,7 +5265,7 @@ export class GameSessionAdapter implements GameSession {
       return { kind: s.competition.comp, field: [...s.competition.field] };
     }
     const p = s.pending;
-    if (!p) return null;
+    if (!p) return this.ceremonyBeat && !s.finished ? { kind: this.ceremonyBeat } : null; // ORW-247b: a resolved ceremony beat stays the live scene until the player speaks
     if (p.kind === "comp-intent" || p.kind === "comp-round") { // a comp surfaced but not yet staged
       if (p.comp === "veto-competition") return { kind: "veto-competition", field: s.vetoField ? [...s.vetoField] : [] };
       const finalThree = s.active.length === 3; // Final 3 lifts the outgoing-HOH restriction
@@ -12592,6 +12594,8 @@ export class GameSessionAdapter implements GameSession {
 
   private advanceView(ev: BeatEvent | null): AdvanceView {
     const s = this.live;
+    // ORW-247b: a ceremony beat that RESOLVED this advance (an NPC HOH's nominations, a veto ceremony, an eviction) has no player pending, but its scene is still the narrated moment: keep the house gathered for it until the player next speaks. Only for a game a person is PLAYING (`messageMode`); a headless calibration/UAT/BDD sim never gathers, so its seeded outcomes stay byte-identical.
+    if (ev && this.messageMode) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
     // T0-3 — drain whatever `commit()` buffered for THIS transaction (one or two commits, per the
     // T0-2 auto-advance chain — see `submitDecision`) into the returned view, then clear the buffer so
     // it never bleeds into a LATER, unrelated `advanceView()` call. Each entry's `beatSeq` is still
