@@ -254,7 +254,7 @@ jobs:
   # heavy files in ONE vitest process. Vitest fans them out across the runner's cores internally.
   #
   # Topology (ORW-193): a MATRIX of four legs, each running its group of `npm run test:heavy:<script>` scripts back to back
-  # (UAT 12-seed in three shards + 5-seed + decisions + reweight; jury + jury-reweight; gradient + gradient-reweight). juryReach and calibrationGradient run
+  # (UAT 12-seed in three shards + 5-seed + decisions; the difficulty-balance band sims were taken out of CI on 2026-11-11, see the matrix comment). juryReach and calibrationGradient run
   # UNSHARDED inside their own leg and assert the full band inline (see each file's header). The code defaults are the
   # deployed profile, so this lane replaces the old flags-off `heavy-sims` AND the retired advisory `heavy-sims-deployed`.
   #
@@ -278,12 +278,11 @@ jobs:
         include:
           - leg: uat-12seed
             scripts: "uat-12seed-a uat-12seed-b uat-12seed-c"
+          # Ryne (2026-11-11): the difficulty-balance BAND checks are not run on every PR (they waste time and block merges); they get run by
+          # hand / in batches later. Not in CI: jury-reach, calibration-gradient and the showrunner-reweight bands. Still runnable anywhere via
+          # `npm run test:heavy:jury`, `:gradient`, `:jury-reweight`, `:gradient-reweight`, `:uat-reweight` (and `npm run test:heavy`).
           - leg: uat-rest
-            scripts: "uat-5seed uat-decisions uat-reweight"
-          - leg: jury
-            scripts: "jury jury-reweight"
-          - leg: gradient
-            scripts: "gradient gradient-reweight"
+            scripts: "uat-5seed uat-decisions"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4

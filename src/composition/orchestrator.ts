@@ -41,6 +41,22 @@ export function competitionSuppressesPrivateScenes(clockLive: boolean, messageMo
   return clockLive && messageMode && (baselineInCompetition || candidateInCompetition);
 }
 
+/**
+ * ORW-256 (Ryne 2026-11-10): the background world runs in proportion to ELAPSED game time, but only the kind of life the hours allow. Pure.
+ *  - sleep (`slept`: the commit rolled the day over): nobody schemes (no scenes, deals, alliances, gossip) - only INNER processing, one mood-settling step per SOCIETY_TICK_HOURS slept (cap SETTLE_CAP).
+ *  - waking beat: the base tick already stands for the first SOCIETY_TICK_HOURS; each further whole SOCIETY_TICK_HOURS earns one more tick (cap EXTRA_TICK_CAP), as chat already does.
+ *  - competition hours never reach here (the commit is suppressed above: everything in a comp is public, its effects ride the crown's own fold).
+ *  - `playing` false (a headless calibration/UAT driver: clock off or no announced messages) => nothing, so the seeded per-user rng stream is byte-identical.
+ */
+export const EXTRA_TICK_CAP = 3;
+export const SETTLE_CAP = 4;
+export function elapsedWorldPlan(playing: boolean, slept: boolean, elapsedHours: number): { extraTicks: number; settleSteps: number } {
+  if (!playing || !(elapsedHours > 0)) return { extraTicks: 0, settleSteps: 0 };
+  const units = Math.floor(elapsedHours / SOCIETY_TICK_HOURS);
+  if (slept) return { extraTicks: 0, settleSteps: Math.min(SETTLE_CAP, units) };
+  return { extraTicks: Math.min(EXTRA_TICK_CAP, Math.max(0, units - 1)), settleSteps: 0 };
+}
+
 export type Trigger = "player-turn" | "offscreen-tick" | "audit";
 
 export interface Fault {
@@ -149,6 +165,8 @@ export class Orchestrator {
    *  tick is debounced on ELAPSED in-game hours (SOCIETY_TICK_HOURS) so the house schemes "with the
    *  clock", not once per tool call. Set on every fired tick (beat and social alike); cleared on reset. */
   private readonly lastSocietyTickHour = new Map<string, number>();
+  /** ORW-256 - the ABSOLUTE in-game hour (day*24 + clock hour; never wraps at midnight) of the user's last society tick, so a beat/sleep commit knows how much game time it covered. */
+  private readonly lastSocietyTickAbs = new Map<string, number>();
   /** R3 — commits since this user's last FULL (untrusted-prefix) non-degradation verification. */
   private readonly commitsSinceFullCheck = new Map<string, number>();
   private seq = 0;
@@ -279,7 +297,7 @@ export class Orchestrator {
    *  nothing to add is a clean no-op, not a `no-daily-event` fault (the daily-event invariant is
    *  the live loop's own beats, not this supplementary tick). Non-degradation and the Vault Wall are
    *  still enforced. A direct off-screen tick (no flag) keeps the daily-event check. */
-  advance(user: string, trigger: Trigger, opts: { baseline?: SessionSnapshot; supplementary?: boolean } = {}): AdvanceResult {
+  advance(user: string, trigger: Trigger, opts: { baseline?: SessionSnapshot; supplementary?: boolean; rng?: SeededRandom } = {}): AdvanceResult {
     // The circuit breaker (B58/E6): after repeated identical faults, off-screen ticks SKIP this
     // sandbox instead of blindly retrying — the flag shows in health; a good player turn resets it.
     if (trigger === "offscreen-tick" && this.circuitOpen(user)) {
@@ -302,7 +320,7 @@ export class Orchestrator {
 
     let produced = 0;
     if (trigger !== "audit") {
-      produced = this.applyFn(sandbox, trigger, this.rngFor(user), this.clock.now(), this.offscreenInteractions);
+      produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
       // R3 — `applyFn` mutated the sandbox OUTSIDE the `commit` seam (it never fires `onPersist`), so the
       // registry's snapshot cache must be invalidated before we read the candidate, or it would hand back
       // the pre-tick capture. (An `audit` produces nothing, so its candidate IS the current cache.)
@@ -495,6 +513,7 @@ export class Orchestrator {
         const lastHour = this.lastSocietyTickHour.get(user);
         if (hour !== undefined && lastHour !== undefined && hour - lastHour < SOCIETY_TICK_HOURS) return; // not enough time yet
         if (hour !== undefined) this.lastSocietyTickHour.set(user, hour);
+        this.noteTickAbs(user, session);
         this.lastTurnTickAt.set(user, this.clock.now());
         this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
         return;
@@ -519,14 +538,32 @@ export class Orchestrator {
     session.billClockForCommit();
     const beatHour = session.inGameHour();
     if (beatHour !== undefined) this.lastSocietyTickHour.set(user, beatHour);
+    // ORW-256: how much game time did this beat cover, and was it a night? (read BEFORE re-anchoring.) Only a game a person is PLAYING gets it.
+    const absNow = session.inGameAbsHour();
+    const lastAbs = this.lastSocietyTickAbs.get(user);
+    const slept = ((candidate.live as { dayNumber?: number } | undefined)?.dayNumber ?? 1) > ((baseline?.live as { dayNumber?: number } | undefined)?.dayNumber ?? 1);
+    const plan = elapsedWorldPlan(session.perConversationClockLive() && session.messageModeNow(), slept,
+      absNow !== undefined && lastAbs !== undefined ? absNow - lastAbs : 0);
+    this.noteTickAbs(user, session);
+    if (plan.settleSteps > 0) session.settleOvernight(plan.settleSteps); // inner processing while the house sleeps: deterministic, draws no rng
     // R3: the commit just exported this. A9: a supplementary tick — an empty society this tick is
     // a clean no-op, not a daily-event fault (the live loop owns that invariant via its beats).
     this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
+    // ORW-256: the waking hours this beat covered beyond the first tick. Each extra tick draws from its OWN seeded side stream (user, absolute hour, index) - never the shared per-user stream the
+    // competition/vote spine reads - so the seeded season is untouched and a retried commit rolls the same dice.
+    for (let i = 0; i < plan.extraTicks; i++) {
+      this.advance(user, "offscreen-tick", { supplementary: true, rng: new SeededRandom(hashSeed(`${this.seed}:${user}:elapsed-tick:${absNow ?? 0}:${i}`)) });
+    }
     // "Hang out until X": the house lived through those hours too - one extra society tick per SOCIETY_TICK_HOURS spent (cap 3), consumed once.
     const hungHours = session.consumeHangOutHours();
     for (let i = 0, n = Math.min(3, Math.floor(hungHours / SOCIETY_TICK_HOURS)); i < n; i++) {
       this.advance(user, "offscreen-tick", { supplementary: true });
     }
+  }
+
+  private noteTickAbs(user: string, session: { inGameAbsHour(): number | undefined }): void {
+    const a = session.inGameAbsHour();
+    if (a !== undefined) this.lastSocietyTickAbs.set(user, a);
   }
 
   /**

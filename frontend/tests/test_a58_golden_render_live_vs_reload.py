@@ -26,7 +26,9 @@ SNAP = """() => { const box = document.getElementById('chat-history'); const ai 
     bodyBlocks: body ? Array.from(body.querySelectorAll('p,li,strong,em,ul,ol,pre,code,blockquote')).map(n => n.tagName.toLowerCase()) : [],
     footer: Array.from(e.querySelectorAll('.msg-footer button')).map(b => b.dataset.action || b.title),
     thinking: !!think, thinkingText: think ? think.textContent.replace(/\\s+/g,' ').trim() : '',
-    chips: Array.from(e.querySelectorAll('[class*=tool-beat],[class*=toolbeat],[class*=beat-chip]')).map(n => n.className.split(/\\s+/).sort().join(' ')) }; }"""
+    chips: Array.from(e.querySelectorAll('[class*=tool-beat],[class*=toolbeat],[class*=beat-chip]')).map(n => n.className.split(/\\s+/).sort().join(' ')),
+    // ORW-264: the thread chips (agent-thread-node) - class (minus live-only transients) + label text; shared builder orwellBeatNodeView
+    threadNodes: Array.from(box.querySelectorAll('.agent-thread-node')).map(n => n.className.split(/\\s+/).filter(c => !/^(running|open|ow-ceremony-reveal)$/.test(c)).sort().join(' ') + ' | ' + n.querySelector('.agent-thread-header').textContent.replace(/\\s+/g,' ').trim()) }; }"""
 
 # (id, stub entries, text that MUST be in the bubble on both paths - proves the scripted turn reached the page, not a guard/scene-cut replacement)
 CASES = [

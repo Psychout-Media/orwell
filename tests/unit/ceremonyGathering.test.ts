@@ -74,3 +74,39 @@ describe("ceremony gathering (ORW-247)", () => {
     for (const id of npcs) expect(s.presence.get(id)).toBe("living-room");
   });
 });
+
+describe("a ceremony an NPC runs (no player pending) still gathers the house (ORW-247b)", () => {
+  type Adv = { advanceView(ev: { beat: string; content: string; participants: string[] } | null): unknown };
+  const resolved = (sb: { session: unknown }, beat: string) => (sb.session as unknown as Adv).advanceView({ beat, content: "x", participants: [] });
+  it("gathers in the living room while the resolved nominations beat is the live scene, then lets go once the player speaks", () => {
+    const { sb, s, npcs } = setup();
+    s.live.pending = null;
+    sb.session.noteMessage({ messageId: "player-is-here" }); // a person is playing
+    resolved(sb, "nominations");
+    const w = sb.session.whereabouts()!;
+    expect(w.houseEvent?.kind).toBe("nominations");
+    expect(w.room).toBe("living-room");
+    for (const id of npcs) expect(s.presence.get(id)).toBe("living-room");
+    sb.session.noteMessage({ messageId: "after-noms" });
+    expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();
+    for (let i = 0; i < 40; i++) sb.session.presenceTick();
+    expect(npcs.filter((id) => s.presence.get(id) === "living-room").length).toBeLessThan(npcs.length);
+  });
+  it("covers the veto ceremony and an eviction too, and a non-ceremony beat clears it", () => {
+    const { sb, s } = setup();
+    s.live.pending = null;
+    sb.session.noteMessage({ messageId: "player-is-here-2" });
+    resolved(sb, "veto-ceremony");
+    expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("veto-ceremony");
+    resolved(sb, "eviction");
+    expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("eviction");
+    resolved(sb, "hoh-competition");
+    expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();
+  });
+  it("a headless sim (no player message ever announced) never gathers for a resolved beat", () => {
+    const { sb, s } = setup();
+    s.live.pending = null;
+    resolved(sb, "nominations");
+    expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();
+  });
+});

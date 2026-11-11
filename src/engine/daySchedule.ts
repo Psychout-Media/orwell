@@ -105,7 +105,7 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
   const hour = live.nightDepth ?? WAKE_HOUR;
   // ORW-116 (a): the first HOH is the afternoon of the NEXT day after the premiere evening and the social night - never that same night (the clock reads past the afternoon hour at night).
   // ORW-258 (Ryne: every event gets its own day): while the NIGHT between this event and the previous one has not passed, the event is NOT due - it belongs to the next day, whatever the hour reads tonight. Unless the night has run out: then the advance IS the day-break.
-  if (nightBreakPending(live) && hour < DAY_END_HOUR - 0.01) return false;
+  if (nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01) return false;
   // Float-safe: the clock accrues in 0.2h steps (0.2 * 20 = 3.999999999999986...), so a scene that reaches EXACTLY the scheduled hour (the 8am wake + a 4h scene
   // cap = the 12:00 afternoon start) landed at 11.999999999999986 and was never "due" - a stall once the front-end stopped firing events ahead of the schedule.
   return hour + 1e-6 >= m.targetHour;
@@ -151,10 +151,19 @@ export function minutesUntilDue(live: LiveSeasonState | null | undefined): numbe
   if (!m || live?.timeOfDay === undefined) return null;
   const hour = live.nightDepth ?? WAKE_HOUR;
   // ORW-258: behind a pending night gate the event is due the next day at its hour: the rest of tonight plus the morning-to-hour span.
-  if (nightBreakPending(live) && hour < DAY_END_HOUR - 0.01) return Math.max(0, Math.ceil(((DAY_END_HOUR - hour) + (m.targetHour - WAKE_HOUR)) * 60 - 1e-6));
+  if (nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01) return Math.max(0, Math.ceil(((DAY_END_HOUR - hour) + (m.targetHour - WAKE_HOUR)) * 60 - 1e-6));
   return Math.max(0, Math.ceil((m.targetHour - hour) * 60 - 1e-6));
 }
 
+
+/**
+ * ORW-258: a pending night gate defers an event's due-ness ONLY for a game a person is playing (`playedGame`) - plus the premiere's own week-1 HOH rule, which predates it. A headless driver (calibration sims,
+ * UAT) never announces a message, so for it "due" stays exactly what it was: the seeded season is byte-identical.
+ */
+function nightGatePendingForDue(live: LiveSeasonState): boolean {
+  if (!nightBreakPending(live)) return false;
+  return live.playedGame === true || (live.beat === "hoh-competition" && live.week === 1);
+}
 
 /**
  * ORW-258 (Ryne, 2026-11-11: "every event gets its own day"): the event that belongs to TODAY while the next one waits behind its night. The header must name it (the HOH day reads
