@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 
 import pytest
 
@@ -51,7 +52,7 @@ CASES = [
 _WAIT_LABEL = re.compile(r"^(Responding|The (house is in motion|producers are)|The feeds are rolling|Cameras are still rolling)")
 
 
-def _send_and_snapshot(stack, entries, text):
+def _send_and_snapshot(stack, entries, text, hold=False):
     from playwright.sync_api import sync_playwright
     sid = _session(stack, "a58-" + text[:6])
     with sync_playwright() as pw:
@@ -64,6 +65,11 @@ def _send_and_snapshot(stack, entries, text):
         page.wait_for_timeout(2500)
         before = page.evaluate(SNAP)
         base_n = before["n"] if before else 0
+        # ORW-251b: `hold` makes the first-paint check DETERMINISTIC. The stub holds the final entry's stream open (before finish) on a gate until the test has observed the streaming paint, so a slow CI
+        # runner can no longer let the whole turn settle before the sampler sees an unsettled bubble. The gate is released as soon as `mid` is captured (or after ~20s, so a real failure fails the assertion, not the stub).
+        gate = threading.Event() if hold else None
+        if gate is not None and entries:
+            entries[-1]["gate"] = gate
         for en in entries:
             STUB.script.append(en)
         page.fill("#message", text)
@@ -74,17 +80,22 @@ def _send_and_snapshot(stack, entries, text):
         # the poll never sees an unsettled bubble, and `mid` stays None (the flake). The in-page loop sees every painted frame, so it cannot miss a stream that lasts more than a frame.
         page.evaluate("""([snap, base, waitSrc]) => { window.__mid = null; const fn = eval(snap); const wait = new RegExp(waitSrc);
           const tick = () => { if (window.__mid) return; let s = null; try { s = fn(); } catch (e) {}
-            if (s && s.n > base && !s.footer && s.body && !wait.test(s.body)) { window.__mid = s; return; } requestAnimationFrame(tick); };
+            if (s && s.n > base && s.body && !wait.test(s.body)) { window.__mid = s; return; } requestAnimationFrame(tick); };
           requestAnimationFrame(tick); }""", [SNAP, base_n, _WAIT_LABEL.pattern])
         for _ in range(160):
             page.wait_for_timeout(150)
+            if gate is not None and not gate.is_set():
+                if mid is not None or page.evaluate("window.__mid") or _ >= 130:
+                    gate.set()
             live = page.evaluate(SNAP)
             if live and live["n"] <= base_n:
                 continue  # the previous turn's bubble is still the last one - wait for THIS turn's
-            if live and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
-                mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
+            if live and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
+                mid = live  # first paint of the reply (body has text). ORW-251c: NOT gated on "no footer" - a producer aside paints whole and the footer lands in the same step (measured: footer present while the stream is still held)
             if live and live["footer"]:
                 break
+        if gate is not None:
+            gate.set()
         assert live and live["footer"], "the live turn never settled (no footer)"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
@@ -125,7 +136,7 @@ STREAMING_CASES = [
 
 @pytest.mark.parametrize("case_id,entries,expect", STREAMING_CASES)
 def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id, entries, expect):  # noqa: F811
-    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}")
+    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}", hold=True)
     assert mid is not None, "the streaming bubble never painted before settle (the stub should be slow enough)"
     # A88 (from the CI MutationObserver trace): the live bubble is created with a TRANSIENT `streaming` class (spinner/skeleton) that the reload never has - by design, normalised here.
     _norm = lambda c: " ".join(x for x in c.split() if x != "streaming")  # noqa: E731

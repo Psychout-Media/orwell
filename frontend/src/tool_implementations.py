@@ -4809,6 +4809,14 @@ async def do_create_character(
                 owner, "cast-genesis",
                 "casting finalize refused — the cast skeleton could not be model-authored (genesis failed)")
             return {"error": _genesis_gate.refusal_message(), "exit_code": 1}
+        # ORW-260 (Ryne, card 30 option B): the deeper backstories are required too - a failed authoring run (already finished, e.g. the interview-time pre-warm) refuses the start.
+        from src import orwell_cast_authoring as _authoring_latch
+        if _enrichment_g.is_strict() and _authoring_latch.strict_failed(owner) and not _authoring_latch.floor_start_allowed():
+            _enrichment_g.record_failure(
+                owner, "cast-authoring",
+                "casting finalize refused — the deeper backstories could not be written (authoring failed)")
+            _authoring_latch.clear_strict_failed(owner)  # refuse ONCE, loudly; the retry re-runs authoring (the house-entry gate then holds until it lands) rather than deadlocking on a stale latch
+            return {"error": _authoring_latch.refusal_message(), "exit_code": 1}
     except Exception as e:
         logger.warning("[enrichment] strict genesis pre-finalize gate failed open for %s: %s", owner, e)
     try:

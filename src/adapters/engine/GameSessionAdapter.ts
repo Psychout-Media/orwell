@@ -57,12 +57,12 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, DEAL_WITNESS, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
-import { confideToDisclosure, dripToDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
+import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
 import { isPositiveObligation } from "../../domain/deal";
@@ -2420,6 +2420,8 @@ export class GameSessionAdapter implements GameSession {
   private beatDisclosures = new Map<EntityId, { epoch: number; event: DisclosureEvent }>();
   /** The disclosure window: bumped on every announced player message and every advance, so an event lives for the player turn / beat it happened in (a commit's beatSeq bump does not end it). */
   private disclosureEpoch = 0;
+  /** B33: the routed confide decision per (npc, week, phase) - memory only. */
+  private confideRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
   private noteDisclosure(npc: EntityId, event: DisclosureEvent): void { this.beatDisclosures.set(npc, { epoch: this.disclosureEpoch, event }); }
   /** What `npc` did about telling the player something THIS beat (confirm / slip / deflect), or undefined when the engine rolled nothing for them. */
   disclosureThisBeat(npc: EntityId): DisclosureEvent | undefined {
@@ -2719,6 +2721,7 @@ export class GameSessionAdapter implements GameSession {
     "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
     "nominated-by-hoh": "you put them on the block",
     "secret-exposed": "you exposed their secret to the house", "secret-given": "you traded them a secret they wanted",
+    "deal-witnessed": "you made a deal in front of them", "deal-resented": "you made a deal aimed at them or their ally, or behind their back",
   };
   /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
   private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
@@ -7833,6 +7836,16 @@ export class GameSessionAdapter implements GameSession {
       : force === "gossip"
         ? false
         : rng.next() < THREAD.surfaceToPlayerProb && this.onThreadSurfaceToPlayer !== undefined;
+    // B33 / D1: a forced (0092 drip) delivery to the player in a PLAYED game asks `disclosureDecision`; a `hold` defers the thread (stays unspent for a later tick). Dedicated side stream, played games
+    // only => headless sims byte-identical.
+    if (toPlayer && force === "player" && this.live?.playedGame) {
+      const src = this.house?.npcs.find((n) => n.id === thread.sourceId);
+      if (src && routeDisclosure({
+        signals: this.confidenceSignalsFor(src), style: src.character.strategyStyle, volatility: this.soulObj(src.id)?.volatility,
+        audience: 0, pressure: 0.5, risk: 0.2,
+        roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dripRoute:${thread.id}:${this.week}:${this.phase}`)).next(),
+      }) === "hold") return;
+    }
     if (toPlayer && this.onThreadSurfaceToPlayer) {
       // Rare: a modeled pathway already reaches the player — surface a content-lineage-anchored belief
       // (E9). An unanchored attempt is correctly downgraded to a suspicion by 0002; either way the
@@ -8124,6 +8137,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
+      ...(this.hcStrategyEnabled && this.live?.playedGame === true ? { hcStrategyFor: (c: EntityId, h: EntityId) => this.hcStrategyFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.driveDecisionsEnabled && this.campaignsEnabled ? { drivePushFor: (t: EntityId, d: EntityId) => this.drivePushForDecider(t, d) } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
@@ -10692,6 +10706,8 @@ export class GameSessionAdapter implements GameSession {
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
     const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
+    if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
@@ -10705,6 +10721,38 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /**
+   * ORW-85 (Ryne 2026-11-10: what NPCs overhear must have real impact and can change decisions) - an awake witness of a deal made in its presence writes a memory, reading the deal
+   * against its OWN position: (1) the deal is a `target-other` that names the witness, or one of its allies, in its terms: a grudge toward BOTH dealmakers; (2) otherwise, if one of the
+   * dealmakers is the witness's ally and the witness was left out: a small hurt toward that ally; (3) otherwise a recall-only entry toward both. Deterministic, no rng. Needs the memory
+   * layer on and a played game (the caller gates it); `recordMemory` bounds it (per-pair cap). Vault-free: only the public deal terms and the witness's own edges are read.
+   */
+  private rememberDealWitnesses(deal: Deal, witnesses: readonly EntityId[]): void {
+    if (!this.npcMemoryEnabled || !this.live || !this.house) return;
+    const [a, b] = deal.parties;
+    const allyBar = RELATIONSHIP_CONSTANTS.thresholds.ally;
+    const isAlly = (w: EntityId, x: EntityId): boolean => { const e = this.rel.edge(w, x); return (e.trust + e.affinity) / 2 >= allyBar; };
+    const terms = deal.terms.toLowerCase();
+    const named = (id: EntityId): boolean => {
+      const full = this.nameOf(id).toLowerCase();
+      const first = full.split(/\s+/)[0] ?? full;
+      return [full, first].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
+    };
+    for (const w of this.awakeAmong(witnesses.filter((id) => id !== PLAYER && id !== a && id !== b))) {
+      const targetsMe = deal.kind === "target-other" && (named(w) || this.livingIds().some((x) => x !== w && x !== a && x !== b && named(x) && isAlly(w, x)));
+      if (targetsMe) {
+        for (const p of [a, b]) this.remember(w, p, "deal-resented", DEAL_WITNESS.targetedSeverity);
+        continue;
+      }
+      const leftOut = [a, b].filter((p) => isAlly(w, p));
+      if (leftOut.length > 0) {
+        for (const p of leftOut) this.remember(w, p, "deal-resented", DEAL_WITNESS.leftOutSeverity);
+        continue;
+      }
+      for (const p of [a, b]) this.remember(w, p, "deal-witnessed", DEAL_WITNESS.recallSeverity);
+    }
   }
 
   /**
@@ -11120,10 +11168,28 @@ export class GameSessionAdapter implements GameSession {
     // Deterministic, seeded per (npc, beat): repeated presses inside one beat reach the same decision;
     // a later press (bond grown, a new week) re-rolls. No raw rng leaks the outcome (anti-sycophancy).
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:confide:${npcId}:${this.week}:${this.phase}`));
-    const decision = this.noHardCapsEnabled
+    const decided = this.noHardCapsEnabled
       ? decideConfidence(signals, rng, { liesRemaining: NO_HARD_CAPS.safetyValve - this.lieCount, lieProbScale: lieProbScale(this.confideLiesBy[npcId] ?? 0) })
       : decideConfidence(signals, rng, { liesRemaining: CONFIDENCE.maxLiesPerSeason - this.lieCount });
-    this.noteDisclosure(npcId, confideToDisclosure(decision)); // B33: the closed-set record of what the engine just rolled (the decision itself is untouched)
+    // B33 / D1: in a PLAYED game the press goes through `disclosureDecision` (share => confirm, slip => confirm recorded as a slip, hold => deflect) on a dedicated SIDE stream, so the shared rng and every
+    // headless sim stay byte-identical; before the first announced message the old decision stands untouched.
+    let decision = decided;
+    let disclosureEvent = confideToDisclosure(decided);
+    if (this.live.playedGame && decided.disclosed) {
+      // Cached per (npc, week, phase): the first press folds a bond bump, which would otherwise shift the odds under the same roll and let a repeat press land in another band (one beat, one decision).
+      const routeKey = `${npcId}:${this.week}:${this.phase}`;
+      let route = this.confideRoutes.get(routeKey);
+      if (route === undefined) {
+        route = routeDisclosure({
+          signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+          pressure: 1, risk: 0.3, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:confideRoute:${routeKey}`)).next(),
+        });
+        this.confideRoutes.set(routeKey, route);
+      }
+      const routed = routeConfide(decided, route);
+      decision = routed.decision; disclosureEvent = routed.event;
+    }
+    this.noteDisclosure(npcId, disclosureEvent); // B33: the closed-set record of what the engine just rolled
     if (!decision.disclosed) return none;
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
@@ -11335,6 +11401,17 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0075 — assemble the Vault-hidden confidence signals from the existing relationship + deal ledger. */
+  /** Awake others sharing the player's room besides `npcId` (B33 audience; 0 when presence is untracked). */
+  private audienceAround(npcId: EntityId): number {
+    if (!this.presence) return 0;
+    const room = this.presence.get(PLAYER);
+    const awake = this.awakeNow();
+    const gone = new Set(this.live?.evictionOrder ?? []);
+    let n = 0;
+    for (const [id, r] of this.presence) if (id !== PLAYER && id !== npcId && r === room && !gone.has(id) && (!awake || awake.has(id))) n++;
+    return n;
+  }
+
   private confidenceSignalsFor(npc: { id: EntityId; character: { archetype: string } }): ConfidenceSignals {
     const npcToPlayer = this.rel.edge(npc.id, PLAYER);
     const playerToNpc = this.rel.edge(PLAYER, npc.id);
@@ -12029,6 +12106,35 @@ export class GameSessionAdapter implements GameSession {
     const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(candidate, holder) : 0;
     const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(candidate) && candidate !== holder) ? 0.1 : 0;
     return Math.max(-1, Math.min(1, -(mem + bel) + owed));
+  }
+
+  /** ORW-101 - the strategic Houseguest's Choice (spec 0005 PO expansion). ON by default; `=0` turns it off. Adapter-provided ctx hook only (the headless calibration harness has no adapter => byte-identical); draws no rng. */
+  private hcStrategyEnabled = flagDefaultOn("ORWELL_HC_STRATEGY");
+  setHcStrategyEnabled(on: boolean): void { this.hcStrategyEnabled = on; }
+  /**
+   * ORW-101 - how much the NPC `holder`'s GAME this week wants `candidate` as the sixth veto player, beside the bond (which `chooseStrongestBond` already scores) and memory. Reads the hidden
+   * edges + competition stats; role-aware: a nominee wants a strong player who would actually save them (the candidate's own trust in the holder); the HOH wants a player who would NOT rescue a
+   * nominee; a bystander protecting a nominated ally wants a strong player that nominee trusts, else keeps rivals (strong or threatening) out. Deterministic, no rng, bounded to [-1, 1].
+   */
+  hcStrategyFor(candidate: EntityId, holder: EntityId): number {
+    if (!this.hcStrategyEnabled || holder === PLAYER || candidate === holder) return 0;
+    const noms = this.live?.nominees;
+    if (!noms) return 0;
+    const st = this.statsOf(candidate);
+    const strength = (st.physical + st.mental) / 2 - 0.5;
+    const rel = this.rel;
+    let s: number;
+    if (noms.includes(holder)) {
+      s = 0.8 * (rel.edge(candidate, holder).trust - 0.5) + 0.6 * strength;
+    } else if (this.live?.hoh === holder) {
+      const rescue = Math.max(...noms.map((n) => rel.bondStrength(candidate, n)));
+      s = -0.8 * (rescue - 0.5) - 0.2 * strength;
+    } else {
+      const ally = noms.filter((n) => n !== candidate).sort((a, b) => rel.bondStrength(holder, b) - rel.bondStrength(holder, a))[0];
+      if (ally !== undefined && rel.vetoSaveScore(holder, ally) > 0.5) s = 0.6 * strength + 0.5 * (rel.bondStrength(candidate, ally) - 0.5);
+      else s = -0.6 * strength - 0.5 * rel.edge(holder, candidate).threat;
+    }
+    return Math.max(-1, Math.min(1, s));
   }
 
   /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
