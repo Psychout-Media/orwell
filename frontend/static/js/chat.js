@@ -2681,6 +2681,13 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                   _sourcesData = json.data; _sourcesType = 'web';
                   _sourcesHtml = _buildSourcesBox(json.data, 'web');
                 }
+              } else if (json.type === 'narrator_away' || json.type === 'narrator_paused') {
+                // ORW-133: the narrator is away. The server holds the show and retries; say so plainly (a
+                // transient notice, never body text). The final "paused" line arrives as the reply itself.
+                if (!_isBg && json.type === 'narrator_away') {
+                  uiModule.showToast(json.message || 'The narrator is away — the show is paused. Retrying shortly.', 4000);
+                }
+                continue;
               } else if (json.type === 'model_fallback') {
                 // Model went offline — switched to fallback
                 var _fbData = json.data || {};

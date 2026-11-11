@@ -2975,7 +2975,55 @@ def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers
     return fallback_url, fallback_model, fallback_headers
 
 
-async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner) -> bool:
+async def _move_player_extract(narration, last_user, endpoint_url, model, headers, owner) -> str:
+    """ORW-173: the player-move EXTRACTION call alone (no engine write), so it can run concurrently with the NPC-move extraction."""
+    from src.llm_core import llm_call_async
+    rooms = ", ".join(_HOUSE_ROOMS)
+    msgs = [
+        {"role": "system", "content":
+            _EXTRACTION_UNTRUSTED_FENCE +
+            "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
+            "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
+            "prose, no code fence:\n"
+            '{"room":"<one of the room ids below, or null>"}\n'
+            f"Room ids: {rooms}.\n"
+            "Pick the room the player ENDED UP IN if they clearly moved there themselves "
+            "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
+            'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
+            '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
+            "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."},
+        {"role": "user", "content":
+            f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
+            f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
+    ]
+    # Room for a reasoning model to think THEN emit the tiny room JSON (see _auto_record_scene).
+    raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                               temperature=0.1, max_tokens=1200, timeout=45,
+                               call_class="utility-extraction", user=owner)
+    return raw or ""
+
+
+async def _gather_move_extractions(narration, last_user, house, endpoint_url, model, headers, owner):
+    """ORW-173: run the player-move and NPC-move EXTRACTION calls concurrently (they only read the narration; ~1 s each, previously
+    back to back). Returns (player_raw, npc_raw). The engine WRITES stay sequential and in the original order at the call site, so
+    the beatSeq compare-and-swap never sees two writes at once. One extraction failing yields "" for it (that belt then no-ops
+    exactly as a failed call did before) and never cancels the other."""
+    res = await asyncio.gather(
+        _move_player_extract(narration, last_user, endpoint_url, model, headers, owner),
+        _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner),
+        return_exceptions=True)
+    out = []
+    for name, r in zip(("auto-move", "auto-move-npc"), res):
+        if isinstance(r, BaseException):
+            if isinstance(r, asyncio.CancelledError):
+                raise r
+            logger.warning(f"[orwell] {name} failed: {r}")
+            r = ""
+        out.append(r or "")
+    return out[0], out[1]
+
+
+async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
     move_to ourselves — so the engine persists the player's new room and next turn's whereabouts
@@ -2986,28 +3034,8 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
-        rooms = ", ".join(_HOUSE_ROOMS)
-        msgs = [
-            {"role": "system", "content":
-                _EXTRACTION_UNTRUSTED_FENCE +
-                "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
-                "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
-                "prose, no code fence:\n"
-                '{"room":"<one of the room ids below, or null>"}\n'
-                f"Room ids: {rooms}.\n"
-                "Pick the room the player ENDED UP IN if they clearly moved there themselves "
-                "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
-                'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
-                '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
-                "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."},
-            {"role": "user", "content":
-                f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
-                f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
-        ]
-        # Room for a reasoning model to think THEN emit the tiny room JSON (see _auto_record_scene).
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
-                                   temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner)
+        if raw is None:
+            raw = await _move_player_extract(narration, last_user, endpoint_url, model, headers, owner)
         raw = raw or ""
         # The JSON may sit after a reasoning block — scan the WHOLE response, take the LAST object
         # carrying a "room" key (reasoning models emit the answer last).
@@ -3082,7 +3110,39 @@ def _player_summoned(last_user, name) -> bool:
     return bool(_SUMMON_RE.search(text))
 
 
-async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner) -> int:
+async def _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner) -> str:
+    """ORW-173: the NPC-move EXTRACTION call alone (no engine write), so it can run concurrently with the player-move extraction."""
+    from src.llm_core import llm_call_async
+    roster = "\n".join(f'{h.get("id")} = {h.get("name")}'
+                       for h in house if h.get("id") and h.get("name"))
+    if not roster:
+        return ""
+    rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
+    msgs = [
+        {"role": "system", "content":
+            _EXTRACTION_UNTRUSTED_FENCE +
+            "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
+            "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
+            "— no analysis, no thinking, no prose, no code fence:\n"
+            '{"moves":[{"id":"<houseguest id from the roster>","room":"<one of the room ids>"}]}\n'
+            f"Room ids: {rooms}.\n"
+            "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
+            "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
+            "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
+            "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
+            'If no houseguest clearly moved, reply {"moves":[]}.'},
+        {"role": "user", "content":
+            f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
+            f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
+    ]
+    # Room for a reasoning model to think THEN emit the moves JSON (see _auto_record_scene).
+    raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                               temperature=0.1, max_tokens=1500, timeout=45,
+                               call_class="utility-extraction", user=owner)
+    return raw or ""
+
+
+async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner, raw=None) -> int:
     """GUARANTEE whereabouts cohesion for the HOUSEGUESTS (ADR 0009), mirroring _auto_move_player for
     the player. When the turn's narration walked one or more houseguests to new rooms but the model
     never called moveHouseguest, a constrained extraction proposes the {id, room} moves and we record
@@ -3102,28 +3162,8 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             return 0
         _roster_names = {h.get("id"): h.get("name")
                          for h in house if h.get("id") and h.get("name")}
-        rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
-        msgs = [
-            {"role": "system", "content":
-                _EXTRACTION_UNTRUSTED_FENCE +
-                "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
-                "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
-                "— no analysis, no thinking, no prose, no code fence:\n"
-                '{"moves":[{"id":"<houseguest id from the roster>","room":"<one of the room ids>"}]}\n'
-                f"Room ids: {rooms}.\n"
-                "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
-                "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
-                "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
-                "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
-                'If no houseguest clearly moved, reply {"moves":[]}.'},
-            {"role": "user", "content":
-                f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
-                f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
-        ]
-        # Room for a reasoning model to think THEN emit the moves JSON (see _auto_record_scene).
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
-                                   temperature=0.1, max_tokens=1500, timeout=45,
-                                   call_class="utility-extraction", user=owner)
+        if raw is None:
+            raw = await _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner)
         obj = _last_json_object_with_key(raw or "", "moves")
         if obj is None:
             logger.info(f"[orwell] auto-move-npc: no parseable JSON (len={len(raw or '')})")
@@ -5267,6 +5307,118 @@ def _blank_turn_fallback_for_board(live, *, upstream_failed: bool) -> str:
     return _blank_turn_fallback_line(upstream_failed=upstream_failed)
 
 
+
+# ── ORW-133 — narrator outage: pause, tell the player, retry, resume with nothing lost ──────────────────
+# Ryne's ruling (2026-11-06): when the narrator provider is down mid-game the game HOLDS, says plainly the narrator
+# is away, retries with bounded backoff, and resumes where it left off. No switch to another model. Built on the
+# EXISTING stream chokepoint: a PRE-CONTENT upstream failure (nothing of this round reached the player, so a retry
+# can never duplicate prose) is retried here; the turn's engine writes happen only AFTER a round returns, so a
+# failed round has written nothing and the closed-set sync (beatSeq) is untouched. If the outage outlasts the
+# bounded retries, the turn ends on ONE honest "paused" line and every consequence belt (auto-record, stall nudge,
+# forced advance) is skipped, so no clock advances and no fake scene is folded; the player's unanswered message
+# stays in the history and is simply answered by the next turn. An ACCOUNT fault (401/402/403) cannot be fixed by
+# retrying: no retry loop, one operator alert, and a distinct message.
+_OUTAGE_BACKOFF_S: "tuple[float, ...]" = (2.0, 5.0, 12.0)
+_ACCOUNT_STATUSES = frozenset({401, 402, 403})
+_OUTAGE_ALERTED: "set[tuple]" = set()   # (owner, kind) already alerted this outage; cleared on a clean stream
+_OUTAGE_TRANSIENT_STATUSES = frozenset({408, 425, 429})
+
+_NARRATOR_AWAY_LINE = (
+    "The feed has gone dark — the narrator is away. The show is on pause: nothing has happened and nothing "
+    "is lost. Your last message is kept; say it again when the feed returns and the scene picks up from here.")
+_NARRATOR_ACCOUNT_LINE = (
+    "The feed is off the air and will stay off until the host sorts out the broadcast account. The show is on "
+    "pause: nothing has happened and nothing is lost. Your last message is kept, and play resumes from here "
+    "once the host has fixed it.")
+
+
+def _as_status(v):
+    try:
+        n = int(v)
+        return n if 100 <= n < 600 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_stream_error_chunk(chunk: str):
+    """Return (status|None, text, data) for an upstream error chunk, or None if `chunk` is not an error."""
+    try:
+        if chunk.startswith("event: error"):
+            for line in chunk.split("\n"):
+                if line.startswith("data: "):
+                    d = json.loads(line[6:])
+                    return (_as_status(d.get("status")), str(d.get("text") or d.get("error") or ""), d)
+            return (None, "", {})
+        if chunk.startswith("data: ") and '"error"' in chunk:
+            d = json.loads(chunk[6:])
+            if isinstance(d, dict) and d.get("error"):
+                return (_as_status(d.get("status")), str(d.get("error")), d)
+    except Exception:
+        return None
+    return None
+
+
+def _outage_kind(status, text, data) -> "str | None":
+    """'account' (never retry), 'transient' (retry with backoff) or None (not an outage: pass through)."""
+    if status in _ACCOUNT_STATUSES:
+        return "account"
+    if status is not None:
+        return "transient" if (status >= 500 or status in _OUTAGE_TRANSIENT_STATUSES) else None
+    return "transient" if _classify_narrator_stream_error(text, data) == "narrator-timeout" else None
+
+
+def _alert_outage_once(owner, kind, call_class, reason):
+    if (owner, kind) in _OUTAGE_ALERTED:
+        return
+    _OUTAGE_ALERTED.add((owner, kind))
+    try:
+        from src import enrichment_policy as _ep
+        _ep.record_runtime_failure(owner, call_class, reason)
+    except Exception:  # pragma: no cover - telemetry never breaks a turn
+        pass
+
+
+async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, **kwargs):
+    """Wrap `stream_llm_with_fallback` with the ORW-133 pause/retry/resume. Pre-content failures only."""
+    attempt = 0
+    while True:
+        saw_output = False
+        failure = None
+        async for chunk in stream_llm_with_fallback(candidates, messages, **kwargs):
+            parsed = _parse_stream_error_chunk(chunk)
+            if parsed is not None and not saw_output:
+                kind = _outage_kind(*parsed)
+                if kind is not None:
+                    failure = (kind, parsed, chunk)
+                    break
+            if '"delta"' in chunk or "tool_call" in chunk:
+                saw_output = True
+            yield chunk
+        if failure is None:
+            _OUTAGE_ALERTED.discard((owner, "account"))
+            _OUTAGE_ALERTED.discard((owner, "transient"))
+            return
+        kind, (status, _text, _d), raw = failure
+        logger.warning(f"[orwell] ORW-133 narrator {kind} failure status={status} attempt={attempt} user={owner!r}")
+        if kind == "account":
+            _alert_outage_once(
+                owner, kind, "narrator-http",
+                "narrator provider: " + ("insufficient balance (402)" if status == 402 else f"account fault ({status})")
+                + " - the show is paused until the host fixes the account")
+            yield f'data: {json.dumps({"type": "narrator_paused", "reason": "account", "message": _NARRATOR_ACCOUNT_LINE})}\n\n'
+            return
+        if attempt >= len(_OUTAGE_BACKOFF_S):
+            _alert_outage_once(
+                owner, kind, "narrator-http" if status else "narrator-timeout",
+                f"narrator provider unreachable after {attempt} retries (HTTP {status}); the show is paused")
+            yield f'data: {json.dumps({"type": "narrator_paused", "reason": "outage", "message": _NARRATOR_AWAY_LINE})}\n\n'
+            return
+        delay = _OUTAGE_BACKOFF_S[attempt]
+        attempt += 1
+        yield (f'data: {json.dumps({"type": "narrator_away", "attempt": attempt, "of": len(_OUTAGE_BACKOFF_S), "retryInSeconds": delay, "message": "The narrator is away — the show is paused. Retrying shortly; nothing is lost."})}\n\n')
+        await asyncio.sleep(delay)
+
+
 _BLANK_FALLBACK_MODEL = (
     "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
 _BLANK_FALLBACK_UPSTREAM = (
@@ -5287,6 +5439,8 @@ def _fallback_markers() -> "tuple[str, ...]":
         _SCENE_CUTAWAY_LINE[:70],
         _BLANK_FALLBACK_MODEL[:40],
         _BLANK_FALLBACK_UPSTREAM[:40],
+        _NARRATOR_AWAY_LINE[:40],
+        _NARRATOR_ACCOUNT_LINE[:40],
         "The live feeds settle back over the house. Right now the game sits",
         "A voice from production runs through the board",
     )
@@ -6114,7 +6268,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
 )
 
 
@@ -6138,6 +6292,8 @@ def _forget_owner_entries(store, keys) -> None:
     elif isinstance(store, collections.abc.MutableSet):
         for key in keys:
             store.discard(key)
+        for item in [i for i in store if isinstance(i, tuple) and _is_owner_item(i, keys)]:  # (owner, kind) records (e.g. the outage alert latch)
+            store.discard(item)
     elif isinstance(store, collections.deque):
         kept = [item for item in store if not _is_owner_item(item, keys)]
         if len(kept) != len(store):
@@ -7217,6 +7373,7 @@ async def _stream_agent_loop_impl(
     # When this is set the casting block treats the turn as a STALL (run the FE-driven finalize), not a
     # cancellation. Reset implicitly per turn (this is a fresh local each stream_agent_loop call).
     _turn_had_error = False
+    _narrator_paused = False   # ORW-133: outage outlasted the retries (or an account fault): hold the show
     _turn_reapproach_nudges = 0  # 0057: post-season re-approach, at most one per finishing turn
     _turn_premiere_marks = 0  # #380 premiere markHouseguestMet auto-belt: intros the FE marked this turn
     # Casting-mode corrector counters (for the verbose overseer-debug telemetry). Set when the FE
@@ -7616,9 +7773,10 @@ async def _stream_agent_loop_impl(
         # complementary cap for the rare stream that trickles bytes forever and
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
-        async for chunk in stream_llm_with_fallback(
+        async for chunk in _narrator_stream_with_outage_pause(
             _candidates,
             messages,
+            owner=_force_owner,
             temperature=temperature,
             max_tokens=_effective_max_tokens,  # ADR 0010 #1: admin-editable per-class output cap
             prompt_type=prompt_type if round_num == 1 else None,
@@ -7633,6 +7791,12 @@ async def _stream_agent_loop_impl(
             if time.time() > _round_deadline:
                 logger.warning(f"[agent] round {round_num} stream exceeded wall-clock deadline; cutting off")
                 break
+            if chunk.startswith('data: {"type": "narrator_'):   # ORW-133 typed outage notices
+                if '"narrator_paused"' in chunk:
+                    _narrator_paused = "account" if '"account"' in chunk else True
+                    _turn_had_error = True
+                yield chunk
+                continue
             # Forward error events from stream_llm to the frontend
             if chunk.startswith("event: error"):
                 try:
@@ -8242,7 +8406,15 @@ async def _stream_agent_loop_impl(
             #   • LULL + an advance-phase + no progression tool → seize the moment, advanceGame.
             #   • ENGAGEMENT + a houseguest scene + no recording tool → bank the consequence
             #     (recordInteraction/makeDeal) so the social play moves the hidden weights (0055).
-            if _is_live_game:
+            if _is_live_game and _narrator_paused:
+                # ORW-133: the show is on pause. Say so ONCE (persisted as the turn's text) and run NO belt:
+                # no auto-record, no stall nudge, no forced advance - nothing advances, no fake scene folds.
+                if not _emitted_visible:
+                    _pl = _NARRATOR_ACCOUNT_LINE if _narrator_paused == "account" else _NARRATOR_AWAY_LINE
+                    full_response += _pl
+                    _emitted_visible = True
+                    yield f'data: {json.dumps({"delta": _pl})}\n\n'
+            elif _is_live_game:
                 _tool_names = {(ev.get("tool") if isinstance(ev, dict) else None)
                                for ev in _landed_tool_events(tool_events)}
                 _progressed = bool(_tool_names & _PROGRESSION_TOOLS)
@@ -8643,10 +8815,17 @@ async def _stream_agent_loop_impl(
                     # ceremony. It never re-prompts the model or ends the turn; the narration the player
                     # already saw stands and we just make the engine agree with it. Model-driven moveTo
                     # always wins (`_moved` short-circuits `_want_move`). Vault-free (whereabouts).
+                    _pm_raw = _nm_raw = None
+                    if _want_move and _want_npc_move:
+                        # ORW-173: both belts will extract this turn - run the two LLM calls concurrently, apply the writes in order below.
+                        _pm_raw, _nm_raw = await _gather_move_extractions(
+                            _turn_narration_visible, _last_user_for_move, _house,
+                            _belt_endpoint, _belt_model, _belt_headers, owner)
                     if _want_move:
                         _turn_move_nudges += 1  # once per turn
                         if await _auto_move_player(_turn_narration_visible, _last_user_for_move,
-                                                   _belt_endpoint, _belt_model, _belt_headers, owner):
+                                                   _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                   raw=_pm_raw):
                             # gap #3 telemetry — count only a REAL applied move (a room:null
                             # extraction / failed call is a no-op, not a correction)
                             _note_belt(owner, "auto-move-player")
@@ -8661,7 +8840,7 @@ async def _stream_agent_loop_impl(
                         _turn_npc_move_nudges += 1  # once per turn
                         _npc_moves_applied = int(await _auto_move_npc(_turn_narration_visible, _last_user_for_move,
                                                                       _house, _belt_endpoint, _belt_model,
-                                                                      _belt_headers, owner) or 0)
+                                                                      _belt_headers, owner, raw=_nm_raw) or 0)
                         if _npc_moves_applied:
                             # gap #3 telemetry — count only ENGINE-APPLIED moves (the helper
                             # returns the applied count; a moves:[] extraction is a no-op)
@@ -10511,6 +10690,13 @@ async def _stream_agent_loop_impl(
             await record_post_turn_roster_check(owner, _turn_narration_full)
         except Exception as _roster_err:
             logger.warning(f"[orwell] post-turn roster check failed: {_roster_err}")
+
+        # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
+        try:
+            from routes.chat_helpers import record_post_turn_false_premise_check
+            await record_post_turn_false_premise_check(owner, _turn_narration_full)
+        except Exception as _fp_err:
+            logger.warning(f"[orwell] post-turn false-premise check failed: {_fp_err}")
 
         # 0065 Part D — one Vault-free sync-ledger entry per live-game turn (observability). Records
         # the closed-set sync activity of THIS turn: the beatSeq it moved (before→after), the tools
