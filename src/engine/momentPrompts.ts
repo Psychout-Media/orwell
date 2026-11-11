@@ -498,6 +498,10 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    { landed: false } it misfired — play the confronted houseguest's genuine, hurt or defensive",
   "    reaction, and NEVER say the player's information was wrong or state any reason why. A belief the",
   "    player heard third-hand and distorted can genuinely misfire; one they witnessed themselves will not.",
+  "  • callInFavor — when the player CALLS IN a favor a houseguest owes them (the state's owedFavors lists",
+  "    who: they kept a deal with the player), call callInFavor({ npcId, ask }) with ask a deal kind (default",
+  "    vote — 'you owe me a vote'). The GAME decides whether they honor it; on { honored: true } a real deal",
+  "    now binds them, on { honored: false } voice them brushing it off — NEVER state why.",
   "  • accuseTie — when the player presses a suspicion that two houseguests knew each other BEFORE the",
   "    show ('you two knew each other before this, didn't you?'), call accuseTie({ aId, bId }). The GAME",
   "    checks whether a real pre-show connection exists — you never invent or confirm one yourself. On",
@@ -1915,7 +1919,15 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
       if (view.daySchedule && view.daySchedule.next === "hoh-competition" && !view.daySchedule.due) {
         return { replace: true, note: "MOMENT NOTE - the Head of Household competition has NOT started: it is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: everyone talks, schemes and kills time; the competition begins only when the game runs it." };
       }
+      // ORW-281: due (or unscheduled) but the game has not run it - no staged comp is on the house event - so no winner exists yet. Keeps the fragment (the comp is ordinary play once called).
+      if (view.whereabouts?.houseEvent?.kind !== "hoh-competition") {
+        return { replace: false, note: "MOMENT NOTE - the Head of Household winner has NOT been decided: the game has not run the competition. Never name a winner, a result or a drop until advanceGame returns it." };
+      }
       return null;
+    case "veto-ceremony":
+      // ORW-281: same shape as nominations. In the veto-ceremony phase with no decision card for the player, the game has not run the ceremony: no use/save/replacement exists to voice.
+      if (view.phase !== "veto-ceremony") return null;
+      return { replace: true, note: "MOMENT NOTE - the veto ceremony has NOT happened yet: the game has not run it, so no decision to use or not use the veto exists. Do not narrate the meeting, the decision or any replacement. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
     case "eviction":
       if (view.eviction) return null;
       return { replace: true, note: "MOMENT NOTE - the eviction has NOT happened yet: the game has not run the vote, so there is no tally and no evictee. Do not narrate the vote, the reveal or the result. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };

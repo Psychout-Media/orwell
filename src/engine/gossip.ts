@@ -128,9 +128,16 @@ export const LEGEND = {
   /** Chance per off-screen tick — once at least one unclaimed notable act exists — that the house mints
    *  a legend about the player. Kept low: folklore is rare and earned, not constant chatter. */
   seedProb: 0.35,
-  /** Per-season legend cap (sibling of `THREAD.maxSurfacedPerSeason`) — folklore stays scarce and legible. */
-  maxPerSeason: 4,
+  /** ORW-283 (BDD card 29: no arbitrary hard caps): replaces the old per-season count. Each legend ALREADY minted makes the next one
+   *  rarer (the seed chance is multiplied by this once per legend), so folklore stays scarce and legible because it gets costlier,
+   *  never because a counter says stop. */
+  costDecay: 0.6,
 } as const;
+
+/** The chance a tick mints a legend, given how many the house has already minted: `seedProb * costDecay^count` (a rising cost, not a cap). */
+export function legendSeedProbability(alreadyMinted: number): number {
+  return LEGEND.seedProb * Math.pow(LEGEND.costDecay, Math.max(0, Math.trunc(alreadyMinted)));
+}
 
 /** The vague, PUBLIC-facing gloss a notable player act becomes as a legend — never the verbatim act,
  *  never a hidden cause (the sibling of `RUMOR_GLOSS`, keyed by `NotableActClass` instead of scene type). */
