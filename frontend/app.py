@@ -503,8 +503,8 @@ async def serve_generated_image(filename: str, request: Request):
     )
 
 # ========= YOUTUBE INIT =========
-from services.youtube import init_youtube
-init_youtube()
+# ORW-170: the transcript library is imported on the first transcript fetch (init_youtube runs lazily), not at boot.
+import services.youtube  # noqa: F401  (the cheap handler module only)
 
 # ========= RAG (vector document RAG) =========
 # VectorRAG (ChromaDB-backed personal-document semantic search). Initialized
