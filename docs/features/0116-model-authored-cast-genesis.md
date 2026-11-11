@@ -153,10 +153,13 @@ enters the house):
   refusal naming the last violation set (the `[house-entry-gate]` HOLD surface). The game does
   **not** start on the deterministic floor, and the failure is never discovered only *after* the
   player commits their character. Never a silent floor.
-- **Floor-permitted lanes (no model wired / keyless CI / `ORWELL_ALLOW_FLOOR_START=1`):** the
-  deterministic factory **simply stands** — the same fail-soft contract as every FE-driven write-back
-  ("no model/provider ⇒ the engine's deterministic floor simply stands"), which is what keeps the
-  test floor byte-neutral (§7).
+- **Floor-permitted lanes (keyless CI / `ORWELL_ALLOW_FLOOR_START=1` / the `soft` policy only):** the
+  deterministic factory **simply stands** — the same fail-soft contract as every FE-driven write-back,
+  which is what keeps the test floor byte-neutral (§7). *(Amended 2026-11-11, ORW-260, Ryne BDD card 30
+  option B: under the default `strict` policy the cast skeleton AND the deeper backstories (0058, cast
+  authoring) are REQUIRED — "I don't want a fallback". A failed authoring run latches
+  `orwell_cast_authoring.strict_failed`, and the pre-finalize gate in `do_create_character` refuses the start once,
+  loudly, with a ledger entry. The world snapshot and the off-screen detail stay fail-soft.)*
 
 ## 5. RULING #1 AMENDMENT (owner sign-off required)
 
