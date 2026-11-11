@@ -1713,7 +1713,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
       // fetch. Dormant when the flag is off (byte-identical SSE path preserved).
       // ORW-44 S2 (Ryne: "drop it" - WebSocket only): the game build has NO SSE send path. Make sure the socket is up first (waits out an in-flight reconnect, forces one upgrade attempt for a
       // pre-game / per-tab-pending fallback); if it cannot be, the turn is refused below with a clear message instead of silently POSTing /api/chat_stream.
-      const _wsOnlySend = isGameBuild() && !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn());  // the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE path
+      const _wsOnlySend = _wsOnlyTransport();  // the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE path
       if (_wsOnlySend && streamSessionId && !_wsChatActive()) {
         try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
       }
@@ -4723,6 +4723,11 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
     }
   }
 
+  // ORW-44: the game build with the WebSocket transport on is WebSocket-ONLY; the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE paths.
+  function _wsOnlyTransport() {
+    return isGameBuild() && !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn());
+  }
+
   /**
    * D2 — self-resume: reattach to the SAME server-buffered run after a mid-stream SSE drop,
    * painting continued tokens into the EXISTING holder (from_seq = _sseEventCount) so
@@ -4731,6 +4736,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
    */
   async function _trySelfResume(holder, accumulated, sessionId) {
     if (!sessionId || !holder || !accumulated) return false;
+    if (_wsOnlyTransport()) return false;  // ORW-44 S4a: WebSocket only - the chat channel replays; the SSE resume route is not used
     const _runId = chatState._ownRunIds[sessionId];
     if (!_runId) return false;  // no known run for this session — can't self-resume
 
@@ -5218,6 +5224,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
    */
   export async function resumeStream(sessionId) {
     if (!sessionId) return false;
+    if (_wsOnlyTransport()) return false;  // ORW-44 S4a: WebSocket only - the socket's replay-then-tail re-attaches a running reply
     if (hasActiveStream(sessionId)) return false;
 
     let res;

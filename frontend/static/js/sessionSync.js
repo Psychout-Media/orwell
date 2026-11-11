@@ -42,6 +42,11 @@
     catch (_) { return false; }
   }
 
+  function wsFlagOn() {
+    try { return !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn()); }
+    catch (_) { return false; }
+  }
+
   // #985 (P2-C): are we in the reduced game build? The cross-device peer-resume fix is scoped to
   // the game build only — a non-game chat keeps byte-identical per-tab behavior.
   function gameBuildOn() {
@@ -375,6 +380,9 @@
     // WS live ⇒ the socket carries chat/state/hud/layout AND resolves the canonical id itself.
     // Tear the SSE stream down and no-op the poll; both resume on ws-inactive (the fallback).
     if (wsActive()) { disconnect(); return; }
+    // ORW-44 S4a (Ryne: WebSocket only): in the game build with the transport on, the SSE mirror is never opened - not even in the gap
+    // before the socket is live. The socket replays then tails the chat channel on (re)subscribe, so nothing is missed.
+    if (gameBuildOn() && wsFlagOn()) { disconnect(); return; }
     refreshCanonical();
     var id = desiredSession();
     if (id !== boundSession) {
