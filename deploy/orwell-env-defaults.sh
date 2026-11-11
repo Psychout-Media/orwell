@@ -62,6 +62,7 @@
 #   ORWELL_NPC_DEAL_OFFERS      NPC-initiated deal offers (0123) — a motivated NPC floats a deal at a lull.
 #   ORWELL_SOUL_DEPTH           Deeper character evolution (0124) — hidden layer; CHARACTER byte-stable.
 #   ORWELL_BEDTIME_GATE         A turn-in in the morning/afternoon is refused (typed held); a narrator bedtime no longer loses a day.
+#   ORWELL_WEEK_CHAPTERS        Week chapters (ORW-275) - the bed on eviction night closes the week with a recap.
 #   ORWELL_COMP_MECHANICS_PLUS  Expanded competition mechanics (0126) — 12 => 30 no-repeat pool.
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
@@ -132,6 +133,7 @@ ORWELL_NPC_BELIEF_NOMS=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_BEDTIME_GATE=1
+ORWELL_WEEK_CHAPTERS=1
 ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_INTENT=1

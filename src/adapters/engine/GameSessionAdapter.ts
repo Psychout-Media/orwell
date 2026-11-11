@@ -5,7 +5,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
-  DailyRecapView,
+  DailyRecapView, WeekChapterView,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -10555,6 +10555,27 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
   setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }
+  private weekChaptersEnabled = flagDefaultOn("ORWELL_WEEK_CHAPTERS");
+  setWeekChaptersEnabled(on: boolean): void { this.weekChaptersEnabled = on; }
+
+  /**
+   * ORW-275 - the week-boundary detector, run inside the `turnIn` commit. A played game whose `week` has passed `chapterWeek`
+   * (an eviction completed since the last chapter) gets ONE Vault-free recap and the cursors advance. No rng, no event, no fold.
+   */
+  private materializeWeekChapter(): WeekChapterView | undefined {
+    const s = this.live;
+    if (!s || !this.weekChaptersEnabled || s.playedGame !== true) return undefined;
+    const seen = s.chapterWeek ?? 1;
+    if (s.week <= seen) return undefined;
+    const from = Math.min(s.chapterEvictCursor ?? 0, s.evictionOrder.length);
+    const evicted = s.evictionOrder.slice(from).map((id) => this.nameOf(id));
+    const hoh = s.hoh ? this.nameOf(s.hoh) : null;
+    const remain = `${s.active.length} houseguests remain.`;
+    const standing = s.hoh === PLAYER ? `You are the Head of Household. ${remain}` : `You are still in the game. ${remain}`;
+    s.chapterWeek = s.week;
+    s.chapterEvictCursor = s.evictionOrder.length;
+    return { week: s.week, recap: { evicted, hoh, standing } };
+  }
   turnIn(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
     // 0065 Part B — replay an already-ended night verbatim (wins even if beatSeq has since moved), so a
     // retried/duplicate turnIn is REPLAYED, not re-executed: `playerTurnIn` never re-stamps `lastSleepDepth`
@@ -10583,6 +10604,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       const recap = this.materializeDailyRecap();
+      const weekChapter = this.materializeWeekChapter();
       // 0122 — most living NPCs privately confess the day that just closed (deeper than 0040, bare games
       // skipped). No-op unless the flag + in-game clock are live ⇒ byte-identical off. Records Vault-only.
       this.sweepDailyConfessionals(closingDay);
@@ -10591,7 +10613,7 @@ export class GameSessionAdapter implements GameSession {
       this.rollNightConflicts();
       this.persist();
       const view = this.advanceView(null);
-      return recap ? { ...view, dailyRecap: recap } : view;
+      return { ...view, ...(recap ? { dailyRecap: recap } : {}), ...(weekChapter ? { weekChapter } : {}) };
     }));
   }
 

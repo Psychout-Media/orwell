@@ -1516,6 +1516,12 @@ export interface EvictionView {
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */
+/** ORW-275 - the week-chapter recap (public ceremony facts only). */
+export interface WeekChapterView {
+  week: number;
+  recap: { evicted: string[]; hoh: string | null; standing: string };
+}
+
 export interface AdvanceView {
   started: boolean;
   /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
@@ -1545,6 +1551,11 @@ export interface AdvanceView {
    * or nothing closed (a quiet/no-op turn-in) — the narrator voices it only when present, never invents one.
    */
   dailyRecap?: DailyRecapView;
+  /**
+   * ORW-275 - present ONLY on the played-game `turnIn` that crosses a week boundary (the bed on eviction night): the Vault-free
+   * "new chapter" recap. `week` is the NEW week. No numbers except the houseguest count in `standing`.
+   */
+  weekChapter?: WeekChapterView;
   /**
    * T0-3 — the Vault-free broadcast chyron(s) for every committed ceremony fact THIS advance/decision
    * just produced, in commit order (a T0-2 auto-advanced beat chained onto a resolved pending can

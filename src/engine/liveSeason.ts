@@ -720,6 +720,13 @@ export interface LiveSeasonState {
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
   /**
+   * ORW-275 (week chapters) - the last week a chapter boundary was surfaced for (default 1), and how many of `evictionOrder`
+   * that chapter's recap already covered. Both advance only at the played-game `turnIn` that detects `week > chapterWeek`.
+   * Persisted with the live state; absent on an older save or an unplayed sim => byte-identical.
+   */
+  chapterWeek?: number;
+  chapterEvictCursor?: number;
+  /**
    * C1 (#1788) — the season-spanning, MONOTONIC Wipeout Reel history per houseguest (mandate #4:
    * appended only, never trimmed or overwritten). Fed by each REVEALED staged-comp drop's failure-style
    * fact so the SAME houseguest's later wipeouts can call back to earlier ones ("the third time this
