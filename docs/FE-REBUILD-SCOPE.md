@@ -19,7 +19,7 @@ The player-facing tier (`frontend/`, today FastAPI + vanilla JS) is rebuilt as R
 
 ## The rule on FE-only flags
 
-#1934 said "FE-only flags are out of scope (FE rebuild)". That conflicts with the owner's rule that a feature counts as built only when it is ON by default. Decision recorded here for the owner to confirm: FE-only flags follow the same rule as engine flags. A default-ON flip of an FE flag is a normal FE change made now, not held for the rebuild; only flags whose feature is being replaced by the rebuild are retired with it. (If the owner rules otherwise, change this paragraph and edit #1934 line 19.)
+#1934 said "FE-only flags are out of scope (FE rebuild)". That conflicts with the owner's rule that a feature counts as built only when it is ON by default. Decision CONFIRMED by the owner (relayed via the Coordinator, 2026-11-11: "built means on" covers every new feature, FE or engine): FE-only flags follow the same rule as engine flags. A default-ON flip of an FE flag is a normal FE change made now, not held for the rebuild; only flags whose feature is being replaced by the rebuild are retired with it. (Edit #1934 line 19 to match.)
 
 ## The rebuild's real backlog
 
