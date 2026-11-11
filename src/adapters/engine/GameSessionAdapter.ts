@@ -8236,6 +8236,21 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
   }
+  /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
+  inGameAbsHour(): number | undefined { return this.inGameHour() === undefined ? undefined : this.absHour(); }
+  /**
+   * ORW-256 - inner processing while the house sleeps (Ryne 2026-11-10: a sleeper cannot scheme): each living houseguest's mood settles toward their own baseline, `steps` times. Deterministic (no rng),
+   * touches only the Soul (CHARACTER byte-stable), creates no scenes/deals/gossip. Callers gate it to a game a person is playing; returns the steps applied.
+   */
+  settleOvernight(steps: number): number {
+    if (!this.house || !this.live || steps <= 0) return 0;
+    const living = new Set(this.livingIds());
+    for (const hg of this.house.npcs) {
+      if (!living.has(hg.id)) continue;
+      for (let i = 0; i < steps; i++) evolveEmotion(hg.soul, "calm", undefined, undefined, { soulDepth: this.soulDepthEnabled });
+    }
+    return steps;
+  }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
   consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
