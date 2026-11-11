@@ -81,6 +81,7 @@ describe("a ceremony an NPC runs (no player pending) still gathers the house (OR
   it("gathers in the living room while the resolved nominations beat is the live scene, then lets go once the player speaks", () => {
     const { sb, s, npcs } = setup();
     s.live.pending = null;
+    sb.session.noteMessage({ messageId: "player-is-here" }); // a person is playing
     resolved(sb, "nominations");
     const w = sb.session.whereabouts()!;
     expect(w.houseEvent?.kind).toBe("nominations");
@@ -94,11 +95,18 @@ describe("a ceremony an NPC runs (no player pending) still gathers the house (OR
   it("covers the veto ceremony and an eviction too, and a non-ceremony beat clears it", () => {
     const { sb, s } = setup();
     s.live.pending = null;
+    sb.session.noteMessage({ messageId: "player-is-here-2" });
     resolved(sb, "veto-ceremony");
     expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("veto-ceremony");
     resolved(sb, "eviction");
     expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("eviction");
     resolved(sb, "hoh-competition");
+    expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();
+  });
+  it("a headless sim (no player message ever announced) never gathers for a resolved beat", () => {
+    const { sb, s } = setup();
+    s.live.pending = null;
+    resolved(sb, "nominations");
     expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();
   });
 });
