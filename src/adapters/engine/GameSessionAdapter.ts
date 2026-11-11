@@ -57,7 +57,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, DEAL_WITNESS, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -254,7 +254,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, conversationHours, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -2711,9 +2711,10 @@ export class GameSessionAdapter implements GameSession {
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
   private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
-  /** In-game day of the last `bringUp` per houseguest (the once-per-day rate cap). Process-local: a restart may allow one extra mention, never a second leak. */
-  private bringUpDay = new Map<EntityId, number>();
-  private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8 } as const; // ASSUMED, pending Ryne (design 14.10)
+  /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
+  private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
+  /** floor/bar/chanceScale/top as before (ASSUMED, tunable). `repeatDays`: a memory raised in the last N in-game days is not raised again. `maxPerDay`: the ceiling for the most talkative/aggrieved houseguest. */
+  private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8, repeatDays: 3, maxPerDay: 3 } as const;
   private static readonly MEMORY_ABOUT_YOU: Readonly<Record<MemoryKind, string>> = {
     "deal-broken": "you broke a deal with them", "nominated-by-friend": "you put them on the block while they trusted you",
     "replaced-by-friend": "you named them the replacement while they trusted you", "veto-saved": "you saved them with the veto",
@@ -2723,23 +2724,53 @@ export class GameSessionAdapter implements GameSession {
     "secret-exposed": "you exposed their secret to the house", "secret-given": "you traded them a secret they wanted",
     "deal-witnessed": "you made a deal in front of them", "deal-resented": "you made a deal aimed at them or their ally, or behind their back",
   };
-  /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
+  /** ORW-131 - how much this houseguest raises things: their social aptitude and volatility (talkative / reactive types raise more, reserved ones less), 0..1. Reads CHARACTER stats + SOUL volatility only. */
+  private talkativeness(id: EntityId): number {
+    const hg = this.house?.npcs.find((n) => n.id === id);
+    const social = hg?.character.stats.social ?? 0.5;
+    const vol = hg?.soul.volatility ?? 0.3;
+    return Math.max(0, Math.min(1, 0.7 * social + 0.3 * vol));
+  }
+  /**
+   * The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the engine-decided, seeded `bringUp`.
+   * ORW-131: how OFTEN and WHICH memory they raise depends on THEM: personality (talkativeness), the relationship (closeness to the player; a grudge-holder is aggrieved, a friend raises favors),
+   * and how much the memory matters (its decayed weight). A talkative / aggrieved houseguest may raise things more than once a day (up to MEMORY_SPEECH.maxPerDay), a reserved one rarely; the
+   * same memory is not raised again within `repeatDays` (never robotic); and only memories they actually HOLD are ever offered.
+   */
   private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
     const live = this.live;
     const entries = live?.npcMemory?.[id]?.[PLAYER];
     if (!live || !entries || entries.length === 0) return {};
+    const M = GameSessionAdapter.MEMORY_SPEECH;
     const half = NPC_MEMORY.halfLifeWeeks;
     const scored = entries.map((e) => ({ e, w: e.severity * Math.pow(0.5, Math.max(0, live.week - e.week) / half) }))
-      .filter((x) => x.w >= GameSessionAdapter.MEMORY_SPEECH.floor).sort((a, b) => b.w - a.w).slice(0, GameSessionAdapter.MEMORY_SPEECH.top);
+      .filter((x) => x.w >= M.floor).sort((a, b) => b.w - a.w);
     if (scored.length === 0) return {};
     const when = (age: number): string => (age <= 0 ? "this week" : age <= 2 ? "recently" : "a while back");
-    const facts = scored.map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
+    const facts = scored.slice(0, M.top).map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
     const day = live.dayNumber ?? live.week;
+    const st = this.bringUp.get(id);
+    const state = st && st.day === day ? st : { day, used: 0, recent: (st?.recent ?? []).filter((r) => day - r.day < M.repeatDays) };
+    // the memory to raise: the strongest one not raised lately
+    const lead = scored.find((x) => !state.recent.some((r) => r.key === `${x.e.kind}:${x.e.week}`));
     let bring = false;
-    if (scored[0]!.w >= GameSessionAdapter.MEMORY_SPEECH.bar && this.bringUpDay.get(id) !== day) {
-      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bring-up:${id}:${day}`)).next();
-      if (roll < Math.min(1, scored[0]!.w * GameSessionAdapter.MEMORY_SPEECH.chanceScale)) { bring = true; this.bringUpDay.set(id, day); }
+    if (lead) {
+      const talk = this.talkativeness(id);
+      const aggrieved = isGrudgeKind(lead.e.kind);
+      const edge = this.rel.edge(id, PLAYER);
+      const close = Math.max(0, Math.min(1, (edge.trust + edge.affinity) / 2));
+      // daily allowance: reserved => 1, chatty => 2, very chatty => 3; a grievance adds one
+      const allowance = Math.min(M.maxPerDay, 1 + (talk >= 0.4 ? 1 : 0) + (talk >= 0.7 ? 1 : 0) + (aggrieved && lead.w >= 0.5 ? 1 : 0));
+      // the salience bar loosens for a talkative houseguest and tightens for a reserved one
+      const bar = M.bar * (1.3 - 0.6 * talk);
+      if (lead.w >= bar && state.used < allowance) {
+        // chance scales with weight, personality, an aggrieved holder, and (for a favor) closeness
+        const chance = Math.min(1, lead.w * M.chanceScale * (0.6 + 0.8 * talk) * (aggrieved ? 1.3 : 0.8 + 0.4 * close));
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bring-up:${id}:${day}:${state.used}`)).next();
+        if (roll < chance) { bring = true; state.used++; state.recent.push({ key: `${lead.e.kind}:${lead.e.week}`, day }); }
+      }
     }
+    this.bringUp.set(id, state);
     return { rememberedAboutYou: facts, ...(bring ? { bringUp: true as const } : {}) };
   }
   setNpcTellsEnabled(on: boolean): void { this.npcTellsEnabled = on; }
@@ -10682,6 +10713,8 @@ export class GameSessionAdapter implements GameSession {
     if (this.npcDealConsentEnabled) {
       const refusal = this.dealConsentRefusal(target, req.kind, isPositiveObligation(req.kind) ? (req.direction ?? "offer") : undefined);
       if (refusal) {
+        const counter = this.maybeCounterOffer(target, req.kind, refusal);
+        if (counter) refusal.counteroffer = counter;
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
@@ -10760,6 +10793,24 @@ export class GameSessionAdapter implements GameSession {
    * store's `targets-me` claims when its flag is on) and draws ONE value from a dedicated per-moment rng keyed on (game seed, "deal-consent", npc, week, phase) - the same
    * pattern as `secretRng`/`confide`, never the shared season rng. Returns the Vault-free refusal, or `null` when the NPC agrees.
    */
+  /**
+   * 0142 (ORW-88 idea 1) - a houseguest who refuses ONLY because the ask is too dear (reason `cost`) answers with the cheaper term they WOULD take: a mutual safety pact, kept only if
+   * the engine's own consent read says they accept it. It becomes the standing open `dealOffer` (the 0123 pattern: voiced in chat, no pop-up, lapses at week's end; accept goes through
+   * the ordinary `deals.make` spine). Played games only, one standing offer at a time, no rng draw (the consent read keys its own jitter). Returns the Vault-free terms, or undefined.
+   */
+  private maybeCounterOffer(npcId: EntityId, askedKind: MakeDealReq["kind"], refusal: DealRefusal): { kind: string; terms: string } | undefined {
+    const s = this.live;
+    if (!s || refusal.reason !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
+    if (s.dealOffer || s.finished || s.beat === "finale" || s.beat === "complete" || askedKind === "safety") return undefined;
+    if (this.dealOfferPartyGone(npcId) || this.memoryBlocksPlayerDeal(npcId)) return undefined;
+    if (this.dealConsentRefusal(npcId, "safety") !== null) return undefined;
+    const terms = "that is too much to promise, but I will keep you safe if you keep me safe";
+    s.dealOffer = { id: `offer:${npcId}:${s.week}`, from: npcId, kind: "safety", terms, madeWeek: s.week };
+    this.onPlayerEvent?.(`${this.nameOf(npcId)} turns down a ${askedKind} deal and counters with a safety pact`, [PLAYER, npcId], "conversation");
+    this.persist();
+    return { kind: "safety", terms };
+  }
+
   private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
