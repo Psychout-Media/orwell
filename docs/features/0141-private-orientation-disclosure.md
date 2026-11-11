@@ -1,6 +1,6 @@
 # 0141 — A private orientation can reach you, by the houseguest's own choice
 
-> **Status:** 📝 **SPEC DRAFT — awaiting Ryne's approval (new feature)**, 2026-11-11 (ORW-261, BDD card 31). Spec-only: no engine code, and the `.feature` is **not** wired into `cucumber.cjs` yet.
+> **Status:** ✅ **BUILT (confide path), 2026-11-11** — Ryne ruled "Their own choice" (ORW-261, BDD card 31). Engine: `maybeShareOrientation` in `GameSessionAdapter.confide` (played games only, side stream `orientation-disclosure`, trust bar + `routeDisclosure`, told once per houseguest, `live.orientationTold`). Proven by `tests/unit/orientationDisclosure.test.ts` (the `.feature` stays spec-only, no step definitions). **Not built:** the unprompted NPC-initiated variant and an ask path that is not the confide press.
 > **Depends on:** 0063 (the diversity layer that seals `privateOrientations` in the Vault), 0075 (trust-gated confidences — the same engine-decided disclosure pattern), 0002 (pathway propagation / `surfaceInformationTo`),
 > the disclosure decision (`disclosureDecision`, #2135, routed for confide in #2366), 0001 (Vault Wall). **Lines up with:** ORW-253 (NPC agency design) — this is one disclosure *choice* an NPC makes; it must be specced once, there.
 

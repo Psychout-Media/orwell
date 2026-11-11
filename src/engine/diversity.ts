@@ -468,6 +468,14 @@ export function privateOrientationVaultId(sourceId: EntityId): string {
   return `private-orientation:${sourceId}`;
 }
 
+/** ORW-261 / spec 0141: placeholder tuning for a houseguest choosing to tell the player a private orientation. Trust bar guards it; risk = their own stakes; pressure sits below a straight confidence press. */
+export const ORIENTATION_DISCLOSURE = { trustBar: 0.5, risk: 0.55, pressure: 0.6 } as const;
+
+/** ORW-261: the houseguest's own words when they choose to tell. Roles only; no label shown on any panel - the narrator voices it as speech. */
+export function orientationDisclosureText(orientation: Orientation): string {
+  return `They tell you, in confidence and in their own words, that they are ${orientation}.`;
+}
+
 /** Serialize a private orientation to ONE engine-only Vault record content string (never projected). */
 export function privateOrientationToVaultContent(sourceId: EntityId, orientation: Orientation): string {
   return `private-orientation ${sourceId}: ${orientation} (hidden — surfaces only via a 0002 pathway, never forced)`;

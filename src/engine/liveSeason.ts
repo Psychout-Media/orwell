@@ -676,6 +676,8 @@ export interface LiveSeasonState {
   clockInteractive?: boolean;
   /** ORW-258: a PERSON is playing this game (set by their first announced message; persisted). `clockInteractive` is not enough - a staged premiere sets it for headless drivers too - so the event-per-day cadence keys on THIS, keeping calibration sims byte-identical. */
   playedGame?: boolean;
+  /** ORW-261 (spec 0141): houseguests who have already told the player their private orientation by their own choice (once each; persisted so a reload never re-tells). Played games only; absent => byte-identical. */
+  orientationTold?: Record<string, true>;
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
