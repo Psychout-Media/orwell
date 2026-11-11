@@ -65,6 +65,8 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         page.wait_for_timeout(2500)
         before = page.evaluate(SNAP)
         base_n = before["n"] if before else 0
+        # ORW-251f: only the plain-reply case holds - it paints text DURING the stream. A producer aside is held behind the spinner until the stream FINISHES and paints whole then, so holding it just burned ~20s of the loop (and
+        # left too little time to settle on a loaded runner); `mid` for those is the first frame with reply text, with or without the footer.
         # ORW-251b: `hold` makes the first-paint check DETERMINISTIC. The stub holds the final entry's stream open (before finish) on a gate until the test has observed the streaming paint, so a slow CI
         # runner can no longer let the whole turn settle before the sampler sees an unsettled bubble. The gate is released as soon as `mid` is captured (or after ~20s, so a real failure fails the assertion, not the stub).
         gate = threading.Event() if hold else None
@@ -106,6 +108,7 @@ def _send_and_snapshot(stack, entries, text, hold=False):
                 break
         if gate is not None:
             gate.set()
+        assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'"
         assert live and live["footer"], f"the live turn never settled (no footer): last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
@@ -146,7 +149,7 @@ STREAMING_CASES = [
 
 @pytest.mark.parametrize("case_id,entries,expect", STREAMING_CASES)
 def test_first_paint_of_the_streaming_bubble_matches_the_reload(_stack, case_id, entries, expect):  # noqa: F811
-    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}", hold=True)
+    live, reloaded, mid = _send_and_snapshot(_stack, [dict(e) for e in entries], f"First paint {case_id}", hold=(case_id == "plain-reply"))
     assert mid is not None, "the streaming bubble never painted before settle (the stub should be slow enough)"
     # A88 (from the CI MutationObserver trace): the live bubble is created with a TRANSIENT `streaming` class (spinner/skeleton) that the reload never has - by design, normalised here.
     _norm = lambda c: " ".join(x for x in c.split() if x != "streaming")  # noqa: E731
