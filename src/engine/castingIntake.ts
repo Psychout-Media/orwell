@@ -349,23 +349,51 @@ const TENS_WORDS: Readonly<Record<string, number>> = {
   ten: 10, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
 };
 
-/** Extract every year-span count a biography states ("spent thirty years", "3 years", "a decade"). */
+/**
+ * ORW-145 — a sentence whose SUBJECT is a relative ("His parents spent thirty years building a company", "Her
+ * family has lived on the same street for decades") states the relative's span, not the houseguest's.
+ */
+const RELATIVE_SUBJECT_RE =
+  /^\W*(?:(?:and|but|so|then)\s+)?(?:her|his|their|my|our)\s+(?:[a-z'-]+\s+){0,2}?(?:parents|family|mother|father|mom|mum|dad|grandparents|grandmother|grandfather|grandma|grandpa|uncles?|aunts?|brothers?|sisters?|siblings|husband|wife|partner|cousins?|relatives)\b/i;
+
+/**
+ * Extract every year-span count a biography states about the HOUSEGUEST ("spent thirty years", "3 years", "a
+ * decade"). ORW-145: an attributive age ("a 40-year-old diner", "decades-old") describes a thing, and a sentence
+ * whose subject is a relative states the relative's span, so neither counts. A predicative "40 years old" still
+ * counts (it is usually the houseguest's own age).
+ */
 function statedYearSpans(text: string): number[] {
   const spans: number[] = [];
-  const lower = text.toLowerCase();
-  const digitRe = /(\d{1,3})[\s-]+years?\b/g;
-  for (let m = digitRe.exec(lower); m; m = digitRe.exec(lower)) spans.push(parseInt(m[1]!, 10));
-  const wordRe = /\b(ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]+years?\b/g;
-  for (let m = wordRe.exec(lower); m; m = wordRe.exec(lower)) spans.push(TENS_WORDS[m[1]!]!);
-  const decadeRe = /\b(a|one)\s+decade\b/g;
-  for (let m = decadeRe.exec(lower); m; m = decadeRe.exec(lower)) spans.push(10);
-  const decadesRe = /\bdecades\b/g;
-  if (decadesRe.test(lower)) spans.push(20);
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    if (RELATIVE_SUBJECT_RE.test(sentence)) continue;
+    const lower = sentence.toLowerCase();
+    const digitRe = /(\d{1,3})[\s-]+years?\b(?!-old)/g;
+    for (let m = digitRe.exec(lower); m; m = digitRe.exec(lower)) spans.push(parseInt(m[1]!, 10));
+    const wordRe = /\b(ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]+years?\b(?!-old)/g;
+    for (let m = wordRe.exec(lower); m; m = wordRe.exec(lower)) spans.push(TENS_WORDS[m[1]!]!);
+    const decadeRe = /\b(a|one)\s+decade\b(?!-old)/g;
+    for (let m = decadeRe.exec(lower); m; m = decadeRe.exec(lower)) spans.push(10);
+    const decadesRe = /\bdecades\b(?!-old)/g;
+    if (decadesRe.test(lower)) spans.push(20);
+  }
   return spans;
 }
 
-/** A grandparent self-reference implausible for a young houseguest. */
-const GRANDPARENT_RE = /\bgrand(mother|father|ma|pa|parent|kids?|children)\b/i;
+/**
+ * A grandparent SELF-reference implausible for a young houseguest. ORW-145: a grandparent word after a possessive
+ * ("her grandmother", "his grandfather's farm", "her great-grandmother") names a RELATIVE, so it is not one;
+ * "grandkids" / "grandchildren" always make the houseguest the grandparent.
+ */
+const GRANDPARENT_WORD_RE =
+  /\b((?:her|his|their|my|our|your)\s+(?:(?:late|beloved|own|dear)\s+|great-)*)?grand(mother|father|ma|pa|parent|kids?|children)\b/gi;
+function grandparentSelfReference(text: string): boolean {
+  for (const m of text.matchAll(GRANDPARENT_WORD_RE)) {
+    const kind = m[2]!.toLowerCase();
+    if (kind.startsWith("kid") || kind === "children") return true;
+    if (!m[1]) return true;
+  }
+  return false;
+}
 /** Below this age a grandparent self-reference is treated as a hard contradiction. */
 const GRANDPARENT_MIN_AGE = 34;
 
@@ -463,7 +491,7 @@ export function validateDossierCoherence(d: DossierForCoherence): DossierCoheren
         break;
       }
     }
-    if (d.age < GRANDPARENT_MIN_AGE && GRANDPARENT_RE.test(bioText)) {
+    if (d.age < GRANDPARENT_MIN_AGE && grandparentSelfReference(bioText)) {
       contradictions.push({ field: "biography", rule: `grandparent self-reference at age ${d.age}`, severity: "hard" });
     }
   }
