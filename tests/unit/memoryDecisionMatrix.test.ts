@@ -15,7 +15,7 @@ const ctxBody = (): string => {
   return SRC.slice(a, b);
 };
 const interfaceMembers = (): Set<string> => new Set([...ctxBody().matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]!));
-const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor|juryMemoryFor)$/;
+const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor|hcStrategyFor|juryMemoryFor)$/;
 const SCANNED = (Object.keys(DECISION_SOURCES) as StrategicDecision[]).filter((d): d is Exclude<StrategicDecision, "approaches"> => d !== "approaches");
 
 function fnBody(startMarker: string, endMarker: string): string {
