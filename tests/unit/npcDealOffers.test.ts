@@ -157,6 +157,26 @@ describe("0123 (PO ruling 2026-11-01) — a floated offer never blocks the week,
     expect(moved, "advanceGame still moves the game with an unanswered offer standing").toBe(true);
   });
 
+  it("one offer at a time (ORW-86): while an offer stands in its week, no second offer replaces or joins it", () => {
+    for (const seed of [7, 8, 9]) {
+      const sb = newGame(`offer-single-${seed}`, seed, true);
+      const offer = driveToOffer(sb);
+      if (!offer) continue;
+      const week = sb.session.getGameState().week;
+      const floats = () => sb.engine.events.queryAll().filter((e) => e.content.includes("float") && e.content.includes("deal")).length;
+      const before = floats();
+      for (let i = 0; i < 10; i++) {
+        const v = sb.session.advanceGame();
+        if (v.pending) resolveLegally(sb.session, v.pending);
+        const cur = sb.session.getGameState();
+        if (cur.week !== week || !cur.openDealOffer) break;
+        expect(cur.openDealOffer.from.id, "the standing offer is never replaced by another").toBe(offer.from.id);
+        expect(cur.openDealOffer.terms).toBe(offer.terms);
+        expect(floats(), "no second approach was recorded while one stands").toBe(before);
+      }
+    }
+  });
+
   it("an unanswered offer lapses when the week rolls — no deal, recorded as player-witnessed", () => {
     const sb = newGame("offer-lapse", 7, true);
     const offer = driveToOffer(sb);

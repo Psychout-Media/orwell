@@ -1,9 +1,12 @@
 """History routes — session history, truncation, fork, conversation topics."""
 
+import asyncio
 import json
 import uuid
 import logging
 from typing import Dict, Any
+
+from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException
 
@@ -27,6 +30,38 @@ def _without_admin_engine_results(entries):
             e = {**e, "metadata": public_metadata(md)}
         out.append(e)
     return out
+
+
+def page_history(entries, after_seq=None, before_seq=None, limit=None):
+    """ORW-172 - optional paging over the history rows `/api/history` serves (ADR 0008 `seq`).
+
+    ALL params absent => `(entries, None)`: the unpaged response, byte-identical to before. Otherwise:
+      * `after_seq=N`  - only rows with seq > N (a delta since the last row the client holds);
+      * `before_seq=N` - only rows with seq < N (an older page);
+      * `limit=L`      - at most L rows: the OLDEST L of an `after_seq` window (so a delta pages forward with no gap),
+                         else the NEWEST L (the tail window / the page just before `before_seq`).
+    Rows carry their `seq` unchanged and stay in the original order. A row with no `seq` can't be placed against a cursor, so a
+    cursor query leaves it out; a bare `limit` slices by position and keeps it. The meta says whether more rows exist on the
+    far side (`hasMore`), the window's first/last seq, and the unpaged `total`.
+    """
+    if after_seq is None and before_seq is None and limit is None:
+        return entries, None
+    total = len(entries)
+    rows = list(entries)
+    if after_seq is not None:
+        rows = [e for e in rows if isinstance(e.get("seq"), int) and e["seq"] > after_seq]
+    if before_seq is not None:
+        rows = [e for e in rows if isinstance(e.get("seq"), int) and e["seq"] < before_seq]
+    has_more = False
+    if limit is not None:
+        if limit < 0:
+            limit = 0
+        if len(rows) > limit:
+            has_more = True
+            rows = rows[:limit] if after_seq is not None and before_seq is None else rows[len(rows) - limit:]
+    seqs = [e["seq"] for e in rows if isinstance(e.get("seq"), int)]
+    return rows, {"total": total, "hasMore": has_more,
+                  "firstSeq": seqs[0] if seqs else None, "lastSeq": seqs[-1] if seqs else None}
 
 
 logger = logging.getLogger(__name__)
@@ -56,10 +91,12 @@ def setup_history_routes(session_manager) -> APIRouter:
     router = APIRouter(tags=["history"])
 
     @router.get("/api/history/{session_id}")
-    async def get_session_history(request: Request, session_id: str) -> Dict[str, Any]:
+    async def get_session_history(request: Request, session_id: str, after_seq: Optional[int] = None,
+                                  before_seq: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
         _verify_session_owner(request, session_id)
         try:
-            session = session_manager.get_session(session_id)
+            # ORW-171: get_session is blocking SQLAlchemy work (load + metadata sync); on the event loop it stalls every other request - the streaming chat included - for its duration.
+            session = await asyncio.to_thread(session_manager.get_session, session_id)
         except KeyError:
             raise HTTPException(404, f"Session '{session_id}' not found")
 
@@ -143,12 +180,18 @@ def setup_history_routes(session_manager) -> APIRouter:
 
         # R-VLT-2 (ORW-230): a game or casting session's reload never carries the narrator's reasoning.
         from routes.chat_helpers import player_visible_history
-        return {
-            "history": _without_admin_engine_results(player_visible_history(session, history_dict)),
+        rows = _without_admin_engine_results(player_visible_history(session, history_dict))
+        # ORW-172: optional paging (no params => exactly the unpaged response, no extra key).
+        rows, page = page_history(rows, after_seq, before_seq, limit)
+        out = {
+            "history": rows,
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "name": session.name,
         }
+        if page is not None:
+            out["page"] = page
+        return out
 
     @router.post("/api/session/{session_id}/truncate")
     async def truncate_session(request: Request, session_id: str):

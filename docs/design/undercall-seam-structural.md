@@ -230,6 +230,7 @@ Stable belt names (the registry — keep these tokens stable across refactors):
 `advance-stall-nudge`, `forced-advance:<why>` (the L39b/silent-commit family, `<why>` =
 `preview-commit` / `decision-deliver` / `eviction-drain` / `stall-force` / …),
 `forced-tool-choice:<tool>` (#1154 + the casting force), `auto-record-scene`, `auto-record-deal`,
+`auto-answer-deal-offer` (ORW-86: a standing 0123 offer the player answered in chat but the model never submitted),
 `auto-confide`, `auto-expose-secret`, `auto-trade-secret`, `auto-move-player`, `auto-move-npc`,
 `premiere-meet-belt`, `casting-record-belt`, `casting-nudge`, `casting-finalize-force`,
 `eviction-reveal-steer`, `ceremony-narration-steer`, `pre-resolve-npc-ceremony`,

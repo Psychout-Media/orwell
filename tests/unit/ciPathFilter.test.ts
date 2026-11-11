@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,10 +41,19 @@ function run(script: string, env: Record<string, string>): Record<string, string
   const dir = mkdtempSync(join(tmpdir(), "ci-filter-"));
   try {
     const out = join(dir, "out");
-    const r = spawnSync("bash", ["-c", `set -euo pipefail\n${script}`], {
+    // The change list goes in a FILE, not an env var: a single env string is capped at 128 KiB (MAX_ARG_STRLEN) and `git ls-files` is now bigger than
+    // that, which made spawnSync fail with E2BIG and read as "AssertionError: undefined" (red on every PR once the repo grew past it).
+    const { changed, ...rest } = env;
+    let pre = "";
+    if (changed !== undefined) {
+      const f = join(dir, "changed");
+      writeFileSync(f, changed);
+      pre = `changed="$(cat "${f}")"\n`;
+    }
+    const r = spawnSync("bash", ["-c", `set -euo pipefail\n${pre}${script}`], {
       cwd: ROOT,
       encoding: "utf8",
-      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", GITHUB_OUTPUT: out, ...env },
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", GITHUB_OUTPUT: out, ...rest },
       maxBuffer: 64 * 1024 * 1024,
     });
     expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);

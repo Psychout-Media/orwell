@@ -459,16 +459,23 @@ Then("neither sees a jury-house scene, a grudge adjustment, or a juror's lean", 
   );
 });
 
+// ORW-27 (A91): the key names a per-voter attribution could travel under, matched as JSON KEYS (`"name":`), case-insensitive. The old check looked for two names only (`voteOf`, `"voteRecord"`).
+const VOTER_ATTRIBUTION_KEY = /voteOf|"(?:voters?|voterId|votedBy|castBy|ballots?ByVoter|voteRecord|unsealed\w*)"\s*:/i;
+
 Then("the per-voter ballot stays sealed until the post-season retrospective", function (this: BbWorld) {
   // This feature changes the lean INPUT, never the reveal timing/anonymity — the voteRecord is engine-only
   // (E12). No player/admin surface attributes a vote to a voter mid-season.
-  assert.ok(!/voteOf|"voteRecord"/i.test(this.lastOutput), "no per-voter ballot attribution crosses the wall");
+  assert.ok(!VOTER_ATTRIBUTION_KEY.test(this.lastOutput), "no per-voter ballot attribution crosses the wall");
 });
 
 Then("the staged vote reveal is anonymized", function () {
   // Unchanged from 0037/E12 — the staged reveal reads anonymized ballots. This feature touches only the
   // lean input, never the reveal. (The 0037 finale Vault-free scenario already gates the reveal shape.)
-  assert.ok(true);
+  // ORW-27 (A91): was `assert.ok(true)`. Every revealed-ballot entry on any surface carries the nominee only, never a voter.
+  for (const m of this.lastOutput.matchAll(/"votesRevealed"\s*:\s*(\[[^\]]*\])/g)) {
+    for (const entry of JSON.parse(m[1]!) as Record<string, unknown>[]) assert.deepEqual(Object.keys(entry), ["votedFor"], "a revealed ballot names the nominee only");
+  }
+  assert.ok(!VOTER_ATTRIBUTION_KEY.test(this.lastOutput), "no per-voter attribution key on any surface");
 });
 
 // --- Rule: deterministic and calibration-neutral --------------------------------

@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clampGuarded } from "../domain/num";
 
 /**
  * B4 / #2017 slice 1 (design S2) - CASUAL ASSURANCES ("you're safe with me", "I've got your vote", "I'm with you"). A cheap, separate ledger from the formal DealLedger: no
@@ -45,7 +46,7 @@ export const ASSURANCE = {
   liarSincerity: 0.1,
 } as const;
 
-const clamp = (x: number, lo: number, hi: number): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
+const clamp = clampGuarded;
 
 export class AssuranceLedger {
   private items: Assurance[] = [];
