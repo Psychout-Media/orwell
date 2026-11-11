@@ -105,7 +105,7 @@ export function cleanLastShown(raw: unknown): string | undefined {
  * Build the brief for this turn, or `undefined` when there is nothing to brief (pre-game, the player out of the
  * house, no whereabouts). `req` carries only the FE's optional echoes; the facts come from `view`.
  */
-export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}): ShowBriefView | undefined {
+export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, canonSection?: (room: Room) => string | undefined): ShowBriefView | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts;
   if (!wa || !isRoom(wa.room)) return undefined;
@@ -220,12 +220,15 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}): Sho
     "SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.",
     "If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.",
   ].join("\n");
-  const sections = [
+  const sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon"; text: string }> = [
     { id: "header" as const, text: header },
     { id: "now" as const, text: now.join("\n") },
     { id: "changed" as const, text: changed.join("\n") },
     { id: "established" as const, text: established.join("\n") },
   ];
+  // 4. CANON (ORW-223): what the narration already established about THIS room, only when something is recorded.
+  const canon = canonSection?.(wa.room);
+  if (canon) sections.push({ id: "canon" as const, text: canon });
   const text = sections.map((s) => s.text).join("\n\n");
   const nextSeen: BriefSeenState = {
     v: 1,

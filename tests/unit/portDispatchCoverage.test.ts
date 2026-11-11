@@ -28,7 +28,7 @@ import { INFRA_TOOL_NAMES } from "../../src/adapters/mcp/McpServer";
 const GAME_SESSION_METHODS: Record<keyof GameSession, true> = {
   accuseTie: true, advanceGame: true, cancelSelfEviction: true, raiseSpectatorChoice: true, competitionStagingView: true,
   askJuror: true, confide: true, confront: true,
-  createCharacter: true, dailyRecap: true,
+  createCharacter: true, dailyRecap: true, dayLedger: true, recordDaySummary: true,
   exposeSecret: true, finaleView: true, formAlliance: true, gameStatus: true, getGameState: true,
   getMomentPrompt: true, recallSceneMemories: true, getOffscreenSceneSkeletons: true, getPortraitPrompt: true, joinAlliance: true,
   makeDeal: true, markHouseguestMet: true, movePlayer: true, npcVoice: true, playerTagline: true,
@@ -37,7 +37,7 @@ const GAME_SESSION_METHODS: Record<keyof GameSession, true> = {
   notorietySummary: true, noteMessage: true,
   playerDossier: true,
   playerReceipts: true,
-  recordOffscreenSceneTexture: true, recordWorldSnapshot: true, recordProducerProfile: true, requestSelfEviction: true,
+  recordOffscreenSceneTexture: true, recordWorldSnapshot: true, recordRoomCanon: true, recordProducerProfile: true, requestSelfEviction: true,
   runCompetition: true, sealedFromHouse: true, knowledgeScopeManifest: true, seasonRecap: true, seasonRetrospective: true,
   socialInitiatives: true, stateDelta: true, submitDecision: true, tradeSecret: true, turnIn: true, hangOut: true,
   updateCasting: true, whereabouts: true, worldSnapshotView: true,

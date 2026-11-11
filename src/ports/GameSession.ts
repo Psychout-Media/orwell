@@ -1063,6 +1063,20 @@ export interface BriefSeenState {
 }
 
 /** The Show Brief v1 skeleton: one terminal system message, fixed section order, Vault-free by construction. */
+/** ORW-223: the room-canon write-back request. Exactly these two fields; extra keys are rejected. */
+export interface RecordRoomCanonReq {
+  roomId: string;
+  /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
+  feature: string;
+}
+
+export interface RecordRoomCanonResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+}
+
 export interface ShowBriefView {
   text: string;
   /** Echo this back as `brief.seen` on the next turn. */
@@ -1070,7 +1084,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -2013,6 +2027,33 @@ export interface DailyRecapHook {
  * layer never appears. `hook` is present only when an in-motion, player-perceivable thread is
  * eligible (a quiet day closes with none — never a manufactured cliffhanger).
  */
+export interface DaySummary {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  /** Model-authored summary (FE write-back), capped; absent = floor entry only. */
+  text?: string;
+  /** Week tier: the inclusive day range this entry condenses. */
+  coversDays?: [number, number];
+  /** Day tier: true once a week entry has condensed it (kept in the ledger, never deleted). */
+  merged?: boolean;
+}
+
+/** ORW-271 — FE-driven write-back: the model-authored summary for a closed day (or a week of days). */
+export interface RecordDaySummaryReq {
+  day: number;
+  text: string;
+  tier?: "day" | "week";
+  coversDays?: [number, number];
+}
+
+export interface RecordDaySummaryResult {
+  accepted: boolean;
+  /** Why not accepted (absent when accepted). */
+  reason?: "absent" | "unknown-day" | "empty";
+}
+
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
@@ -2823,6 +2864,18 @@ export interface GameSession {
   dailyRecap(): DailyRecapView | null;
 
   /**
+   * ORW-271 — the append-only per-night day ledger (Vault-free; `[]` before any night closed). FE read.
+   */
+  dayLedger(): DaySummary[];
+
+  /**
+   * ORW-271 — FE-driven write-back (like `recordWorldSnapshot`; NOT a model lever): attach the
+   * model-authored summary `text` to a closed day (idempotent per day+tier), or add a week-tier entry
+   * covering `coversDays` and mark those day entries `merged` (kept, never deleted).
+   */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult;
+
+  /**
    * The Vault unsealing (0048 §1): the hidden story of THIS user's FINISHED season. Returns `null`
    * for a live (or not-started) season — the gate is the terminal state, enforced in code, never
    * by prompt. The one sanctioned Vault-reading seam, post-season only, player-triggered.
@@ -2897,6 +2950,17 @@ export interface GameSession {
    * the fallback's value (a partial capture never thins the snapshot — non-degradation).
    */
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
+
+  /**
+   * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that
+   * records a narrated TEXTURE feature of a room as append-only canon, so later turns stay consistent. Accepts
+   * ONLY `{ roomId, feature }` (a known room, a one-line feature of at most `ROOM_CANON_FEATURE_MAX` chars);
+   * anything else is rejected with a code. An invention can never create an event, outcome, secret, new place,
+   * plot device, relationship change, knowledge or number (the canon ledger's own fence rejects those), and this
+   * method touches no hidden state. A played game only; no rng; durable via the background seam (no beatSeq bump).
+   * Not a model lever (FE-driven, like `recordWorldSnapshot`).
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto

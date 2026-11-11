@@ -5,7 +5,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
-  DailyRecapView, WeekChapterView,
+  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -13,7 +13,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordRoomCanonReq, RecordRoomCanonResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -218,6 +218,8 @@ import type { CompEffort } from "../../engine/liveSeason";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
+import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
@@ -326,7 +328,7 @@ import { derivedLoyalty } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
-import { emptyCanonLedger, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
+import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, LEGEND, legendFrom } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
@@ -480,6 +482,9 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  * length. Used by the 0062 zeitgeist write-back (`recordWorldSnapshot`) — the snapshot is non-secret
  * public flavor, but it is still player/FE-sourced text woven into the moment prompt.
  */
+const DAY_LEDGER_MAX_EVENTS = 12;
+const DAY_LEDGER_EVENT_CHARS = 240;
+const DAY_LEDGER_TEXT_CHARS = 900;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -545,6 +550,8 @@ const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
 const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
 const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_STANDALONE");
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
+/** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
+const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1165,6 +1172,7 @@ export class GameSessionAdapter implements GameSession {
    * with holder===subject, dropped). DEFAULT-ON since 2026-11-04 with the standalone read (3-arm PO bands held); `=0` / `ORWELL_FLAGS_OFF=1` opts out. Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
+  private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -8467,6 +8475,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
+  setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -10526,6 +10535,26 @@ export class GameSessionAdapter implements GameSession {
     const hook = this.buildDailyRecapHook(day, surfaced);
     const recap: DailyRecapView = { day, highlights, surfaced, ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
+    if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
+      // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
+      const kinds = new Set<string>();
+      for (const e of allEvents.slice(evFrom)) {
+        if (e.hidden) continue;
+        if (e.type === "deal") kinds.add("deal");
+        else if (e.type === "betrayal") kinds.add("betrayal");
+        else if (e.id.startsWith("season:")) kinds.add("ceremony");
+      }
+      if (surfaced.length > 0) kinds.add("rumor");
+      if (hook?.thread) kinds.add(`thread-${String(hook.thread).split(":")[0]!.replace(/[^a-z-]/gi, "").slice(0, 24)}`); // the thread KIND only, never its id
+      const ledger = (s.dayLedger ??= []);
+      if (!ledger.some((d) => d.tier === "day" && d.day === day)) {
+        ledger.push({
+          day, tier: "day",
+          events: [...highlights, ...surfaced].slice(0, DAY_LEDGER_MAX_EVENTS).map((t) => t.slice(0, DAY_LEDGER_EVENT_CHARS)),
+          themes: [...kinds].sort(),
+        });
+      }
+    }
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
     s.dayNumber = day + 1;
@@ -10539,6 +10568,44 @@ export class GameSessionAdapter implements GameSession {
    */
   dailyRecap(): DailyRecapView | null {
     return this.live?.lastDailyRecap ?? null;
+  }
+
+  /** ORW-271 — the append-only day ledger (deep copy; Vault-free). */
+  dayLedger(): DaySummary[] {
+    return JSON.parse(JSON.stringify(this.live?.dayLedger ?? [])) as DaySummary[];
+  }
+
+  /** ORW-271 — FE-driven write-back of a model-authored day/week summary. Idempotent per (day, tier). */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult {
+    const s = this.live;
+    const ledger = s?.dayLedger;
+    if (!s || !ledger) return { accepted: false, reason: "absent" };
+    const text = String(req.text ?? "")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
+    if (!text) return { accepted: false, reason: "empty" };
+    const day = Math.trunc(req.day);
+    if (req.tier === "week") {
+      const [a, b] = req.coversDays ?? [day, day];
+      const from = Math.trunc(Math.min(a, b)), to = Math.trunc(Math.max(a, b));
+      const covered = ledger.filter((d) => d.tier === "day" && d.day >= from && d.day <= to);
+      if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
+      const existing = ledger.find((d) => d.tier === "week" && d.day === day);
+      if (existing) {
+        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+      } else {
+        ledger.push({
+          day, tier: "week", coversDays: [from, to], text,
+          events: [], themes: [...new Set(covered.flatMap((d) => d.themes))].sort(),
+        });
+      }
+      for (const d of covered) d.merged = true;
+    } else {
+      const entry = ledger.find((d) => d.tier === "day" && d.day === day);
+      if (!entry) return { accepted: false, reason: "unknown-day" };
+      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+    }
+    this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
+    return { accepted: true };
   }
 
   /**
@@ -13210,7 +13277,9 @@ export class GameSessionAdapter implements GameSession {
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
-    const showBrief = req.brief !== undefined ? buildShowBrief(view, req.brief) : undefined;
+    const showBrief = req.brief !== undefined
+      ? buildShowBrief(view, req.brief, this.roomCanonEnabled && this.live?.playedGame === true ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined)
+      : undefined;
     return {
       moment,
       systemPrompt: buildSystemPrompt(
@@ -13372,6 +13441,36 @@ export class GameSessionAdapter implements GameSession {
     };
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { accepted: true, source: "web_search" };
+  }
+
+  /**
+   * ORW-223 slice 1 - record a narrated room-texture feature as canon (see the port doc). The engine re-validates
+   * everything: a played game, the flag, a known room, the length, and the canon ledger's own fence (no events,
+   * outcomes, secrets, places, devices, relationships, knowledge or numbers). Append-only; no rng; no Vault handle
+   * (this adapter holds none, so nothing hidden can be read or touched here); durable through the background seam.
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult {
+    if (!this.roomCanonEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.canonAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const p = roomCanonProposal(req);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const out = recordCanon(this.canonLedger, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, sceneKey: String(this.beatSeq),
+      idempotencyKey: `room:${p.room}:${canonHash(p.feature)}`, proposals: [p.proposal],
+    }, {
+      leaksVault: () => false, // the engine-only adapter tier holds no Vault; the lexicon + class fence below is the guard
+      forbiddenTerm: forbiddenFixtureTerm,
+      propCategoriesFor: (scope) => (scope.kind === "room" ? roomMapEntry(scope.room)?.allowedProps ?? [] : []),
+      isHouseguest: (id) => /^npc:\d+$/.test(id),
+    });
+    const r = out.result.results[0]!;
+    if (r.outcome !== "recorded") return { accepted: false, reason: r.reason ?? "rejected" };
+    if (!out.replay) {
+      this.canonLedger = out.ledger;
+      this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    }
+    return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
   }
 
   /**

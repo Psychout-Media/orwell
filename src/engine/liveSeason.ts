@@ -727,6 +727,13 @@ export interface LiveSeasonState {
   chapterWeek?: number;
   chapterEvictCursor?: number;
   /**
+   * ORW-271 — the append-only per-night DAY LEDGER (never trimmed, never overwritten except a day's own
+   * text being filled in once). A floor entry is pushed at each played-game `turnIn`; the FE-driven
+   * `recordDaySummary` write-back adds model-authored `text` and week-tier merges. Vault-free by
+   * construction (built only from the already-player-visible recap). Absent until the first turnIn.
+   */
+  dayLedger?: DaySummaryEntry[];
+  /**
    * C1 (#1788) — the season-spanning, MONOTONIC Wipeout Reel history per houseguest (mandate #4:
    * appended only, never trimmed or overwritten). Fed by each REVEALED staged-comp drop's failure-style
    * fact so the SAME houseguest's later wipeouts can call back to earlier ones ("the third time this
@@ -734,6 +741,17 @@ export interface LiveSeasonState {
    * (0030), plain JSON (ids + strings only) so save/restore round-trips losslessly.
    */
   wipeoutHistory?: Record<EntityId, WipeoutHistoryEntry[]>;
+}
+
+/** ORW-271 — one ledger entry (mirrors the port's `DaySummary`). */
+export interface DaySummaryEntry {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  text?: string;
+  coversDays?: [number, number];
+  merged?: boolean;
 }
 
 /** 0102 — the non-committal cliffhanger a `DailyRecapEntry` may carry (see `DailyRecapHook` in the port). */
