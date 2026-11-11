@@ -111,8 +111,8 @@ app.add_middleware(
         "Content-Type",
         "X-API-Key",
         "X-Auth-Token",
-        "X-Orwell-Internal-Token",
-        "X-Orwell-Owner",
+        # ORW-179 / SEC-18: the loopback credential headers (X-Orwell-Internal-Token, X-Orwell-Owner) are NEVER advertised to a cross-origin page. The in-process agent tools send them server-side, and the
+        # browser FE is same-origin and never sends either.
         "X-Requested-With",
         "X-TZ-Offset",
     ],
@@ -503,8 +503,8 @@ async def serve_generated_image(filename: str, request: Request):
     )
 
 # ========= YOUTUBE INIT =========
-from services.youtube import init_youtube
-init_youtube()
+# ORW-170: the transcript library is imported on the first transcript fetch (init_youtube runs lazily), not at boot.
+import services.youtube  # noqa: F401  (the cheap handler module only)
 
 # ========= RAG (vector document RAG) =========
 # VectorRAG (ChromaDB-backed personal-document semantic search). Initialized
@@ -870,9 +870,15 @@ from routes.note_routes import setup_note_routes
 mount_optional(app, "notes", setup_note_routes(task_scheduler))
 
 # Email — dropped under the game build (router still built for codex below).
-from routes.email_routes import setup_email_routes
-email_router = setup_email_routes()
-mount_optional(app, "email", email_router)
+# ORW-169 slice 2: the email router module (~0.5 s to import) is only imported when email or codex (which
+# borrows its helpers) is enabled; the game build drops both, so it is neither imported nor built.
+from src.settings import is_feature_enabled as _is_feature_enabled
+if _is_feature_enabled("email") or _is_feature_enabled("codex"):
+    from routes.email_routes import setup_email_routes
+    email_router = setup_email_routes()
+    mount_optional(app, "email", email_router)
+else:
+    email_router = None
 
 # Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
 # api_token scopes (todos:read|write, email:read|draft|send) so external
@@ -904,13 +910,25 @@ mount_optional(app, "companion", setup_companion_routes())
 
 # ========= ROUTES (kept in app.py) =========
 
-def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
-    """Read an HTML file, inject the CSP nonce, and (game build, feature 0032) drop the
-    dropped verticals' <script> tags so their JS is never shipped."""
+# ORW-175: the processed page shell is cached in memory and only the per-request CSP nonce is substituted.
+# The key covers everything the processing reads: the file (path + mtime + size), the build id, and the
+# build/ws-transport flags plus the dropped-script set (which carries the voice flag).
+_HTML_TEMPLATE_CACHE: Dict[tuple, str] = {}
+
+
+def _html_template(file_path: str) -> str:
+    """The page shell with every per-build transform applied and the `{{CSP_NONCE}}` placeholder still in place."""
+    from src.orwell_version import get_build as _fe_build
+    from src.settings import dropped_script_srcs, game_build_enabled, ws_transport_enabled
+    st = os.stat(file_path)
+    key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
+           tuple(dropped_script_srcs()))
+    cached = _HTML_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    _HTML_TEMPLATE_CACHE.clear()  # one live shell per process: a changed file or flag drops the stale entry
     with open(file_path, "r", encoding="utf-8") as f:
         html = f.read()
-    nonce = getattr(request.state, "csp_nonce", "")
-    html = html.replace("{{CSP_NONCE}}", nonce)
     # ORW-203: stamp the shell with the build that served it, so a stale cached shell can
     # detect (vs /api/version's "build") that a deploy happened and self-correct once.
     from src.orwell_version import get_build as _fe_build
@@ -948,7 +966,15 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
         # (ORWELL_GAME_BUILD=0 debugging) the full workspace must come back, so strip the link.
         import re as _re
         html = _re.sub(r'<link[^>]*game-trim\.css[^>]*>\s*(<!--[^>]*-->)?', "", html, count=1)
-    return HTMLResponse(html)
+    _HTML_TEMPLATE_CACHE[key] = html
+    return html
+
+
+def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
+    """Serve an HTML file with the CSP nonce injected and (game build, feature 0032) the dropped
+    verticals' <script> tags removed so their JS is never shipped. Template cached per ORW-175."""
+    nonce = getattr(request.state, "csp_nonce", "")
+    return HTMLResponse(_html_template(file_path).replace("{{CSP_NONCE}}", nonce))
 
 @app.get("/")
 async def serve_index(request: Request):
@@ -1051,6 +1077,14 @@ async def _startup_event():
             logger.info("LLM I/O live ring seeded with %d archived record(s)", _seeded)
     except Exception as _e:
         logger.debug("LLM I/O ring seed skipped: %s", _e)
+    # ORW-202: restore the narrator's pacing / re-ground bookkeeping a restart used to drop (empty stores only; fail-soft).
+    try:
+        from src import belt_state_persist
+        _restored = belt_state_persist.restore()
+        if _restored:
+            logger.info("belt state restored: %d entr(ies)", _restored)
+    except Exception as _e:  # failsoft-ok: a missing/corrupt file must never block startup
+        logger.debug("belt-state restore skipped: %s", _e)
     # PO ruling 2026-11-02: DeepSeek's own API is the new-install default. A keyed, endpoint-less
     # first boot creates the endpoint from DEEPSEEK_API_KEY (no-op otherwise; never touches existing).
     try:
@@ -1330,7 +1364,10 @@ async def _startup_event():
             except Exception as e:
                 logger.warning(f"Nightly skill audit failed: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
+    # ORW-169: the game build has no skills library, and the nightly audit spends model calls judging skills nobody can use - not started there.
+    from src.settings import game_build_enabled as _gb_enabled
+    if not _gb_enabled():
+        _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
 
     # Cookbook serve lifecycle — kills scheduler-launched serves whose
     # window-end has passed. Paired with the cookbook_serve builtin
@@ -1338,8 +1375,10 @@ async def _startup_event():
     # something with end_after_min set. Removing this line + the
     # cookbook_serve entry in BUILTIN_ACTIONS + src/cookbook_serve_lifecycle.py
     # removes the feature.
-    from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
-    _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
+    # ORW-169: the cookbook (local model serving) is a dropped vertical in the game build - its lifecycle sweeper is not started there.
+    if not _gb_enabled():
+        from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
+        _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
 
     # G20: the portrait reconciler — one background task per process that verifies the
     # active cast's portrait set is complete and retries the gap through the standard

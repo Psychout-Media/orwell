@@ -11,6 +11,8 @@ import math
 
 import pytest
 
+NO_CAP = 10**9  # lifts the cost cap so ceiling tests isolate the ceiling
+
 from src.context_budget import (
     DEFAULT_HARD_MAX,
     DEFAULT_TIER_CEILING,
@@ -43,7 +45,7 @@ def test_disabled_is_exact_no_op(lean, needed, window):
 def test_enabled_escalates_toward_large_window():
     lean, needed, window, ceiling = 48000, 120000, 1_000_000, 0.85
     cap = int(window * ceiling)  # 850000
-    out = escalate_budget(lean, needed, window, enabled=True, ceiling=ceiling)
+    out = escalate_budget(lean, needed, window, enabled=True, ceiling=ceiling, hard_max=NO_CAP)
     assert out > lean                       # grew past the lean floor
     assert out <= cap                       # never past the ceiling
     assert out == min(needed, cap)          # exactly the grown-but-needed amount
@@ -54,14 +56,14 @@ def test_enabled_clamps_to_ceiling_when_needed_exceeds_window():
     # Need more than even 0.85x of the window -> held at the ceiling, never above.
     lean, needed, window, ceiling = 48000, 5_000_000, 1_000_000, 0.85
     cap = int(window * ceiling)  # 850000
-    out = escalate_budget(lean, needed, window, enabled=True, ceiling=ceiling)
+    out = escalate_budget(lean, needed, window, enabled=True, ceiling=ceiling, hard_max=NO_CAP)
     assert out == cap
     assert out <= cap
 
 
 def test_default_ceiling_is_used_when_unspecified():
     lean, needed, window = 48000, 5_000_000, 1_000_000
-    out = escalate_budget(lean, needed, window, enabled=True)
+    out = escalate_budget(lean, needed, window, enabled=True, hard_max=NO_CAP)
     assert out == int(window * DEFAULT_TIER_CEILING)
 
 
@@ -86,7 +88,7 @@ def test_enabled_does_not_grow_when_not_needed(needed):
     ],
 )
 def test_never_below_lean_and_never_above_ceiling(lean, needed, window, enabled, ceiling):
-    out = escalate_budget(lean, needed, window, enabled=enabled, ceiling=ceiling)
+    out = escalate_budget(lean, needed, window, enabled=enabled, ceiling=ceiling, hard_max=NO_CAP)
     assert out >= lean                                  # never degrade below lean
     if enabled and window > 0:
         cap = int(window * _clamp_ceiling(ceiling))
@@ -111,13 +113,13 @@ def test_unknown_or_zero_window_is_no_op():
 )
 def test_garbage_ceiling_is_clamped_without_raising(bad_ceiling):
     # Falls back to DEFAULT_TIER_CEILING for non-finite/<=0/garbage; never raises.
-    out = escalate_budget(48000, 5_000_000, 1_000_000, enabled=True, ceiling=bad_ceiling)
+    out = escalate_budget(48000, 5_000_000, 1_000_000, enabled=True, ceiling=bad_ceiling, hard_max=NO_CAP)
     assert out == int(1_000_000 * DEFAULT_TIER_CEILING)
 
 
 def test_ceiling_above_one_is_capped_at_one():
     # ceiling > 1 -> 1.0 (never request more than the whole window).
-    out = escalate_budget(48000, 5_000_000, 1_000_000, enabled=True, ceiling=2.0)
+    out = escalate_budget(48000, 5_000_000, 1_000_000, enabled=True, ceiling=2.0, hard_max=NO_CAP)
     assert out == 1_000_000
 
 
@@ -158,3 +160,13 @@ def _clamp_ceiling(c):
     if not math.isfinite(c) or c <= 0:
         return DEFAULT_TIER_CEILING
     return min(c, 1.0)
+
+
+def test_escalation_honours_the_hard_max_cost_cap():
+    # Ryne (#2425): tiering is on, with the cost cap. An explicit hard max bounds the escalation; AUTO uses DEFAULT_HARD_MAX.
+    from src.context_budget import DEFAULT_HARD_MAX
+    assert escalate_budget(6000, 90000, 200000, enabled=True, hard_max=20000) == 20000
+    assert escalate_budget(6000, 90000, 1_000_000, enabled=True) == DEFAULT_HARD_MAX
+    assert escalate_budget(6000, 15000, 200000, enabled=True, hard_max=20000) == 15000
+    # a lean budget already above the cap is never lowered
+    assert escalate_budget(60000, 90000, 1_000_000, enabled=True, hard_max=20000) == 60000

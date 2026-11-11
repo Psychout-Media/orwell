@@ -38,7 +38,9 @@ CASES = [
     ("markdown", [{"deltas": ["**Bright idea.** ", "They say:\n\n- apples\n- pears\n\n", "*Quietly.*"], "delay": 0}], "Bright idea."),
     ("paragraphs", [{"deltas": ["First paragraph.\n\n", "Second paragraph.\n\n", "Third."], "delay": 0}], "Second paragraph."),
     ("ooc-producer-aside", [{"deltas": ["((Production: ", "the house ", "is settling ", "in.))"], "delay": 0.4}], "settling in"),
-    ("ooc-complete-first-delta", [{"deltas": ["((Production: the house is settling in.)) "], "delay": 1.5}], "settling in"),
+    # ORW-251h: this text must DIFFER from ooc-producer-aside's. Both cases share one chat session, and the CI failure (n == base_n although the stub consumed the turn) fits the live bubble
+    # being collapsed into the previous, identical OOC reply; distinct text per case removes that coupling.
+    ("ooc-complete-first-delta", [{"deltas": ["((Production: the whole house is settling in for the night.)) "], "delay": 1.5}], "settling in"),
     # A72 - the clock's three narrated surfaces: a production cut-in mid-reply, a hang-out stop line (the model calls hangOut, then voices where it stopped), the premiere champagne toast.
     ("clock-production-cutin", [{"deltas": ["You trade a few words by the sink. ", "((Production: it is noon - the Head of Household competition is about to begin.)) ", "Everyone drifts toward the backyard."], "delay": 0.2}], "about to begin"),
     ("clock-hangout-stop", [{"tool_calls": [{"name": "hangOut", "args": {}}]}, {"deltas": ["You lose track of the hours on the couch, until a houseguest sits down beside you and says they need a word."], "delay": 0}], "need a word"),
@@ -61,6 +63,10 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         except Exception as e:  # noqa: BLE001
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
+        # ORW-251j: record every WebSocket frame the page receives (type, channel, event type), so a turn that paints its whole reply but never settles can say whether the `done` frame ever arrived.
+        page.add_init_script("""(() => { const W = window.WebSocket; if (!W) return; window.__wsLog = [];
+          window.WebSocket = function (...a) { const ws = new W(...a); ws.addEventListener('message', (e) => { try { const f = JSON.parse(e.data); window.__wsLog.push([f.t, f.ch || '', (f.d && (f.d.type || f.d.done && 'done' || f.d.reason)) || ''].join('/')); if (window.__wsLog.length > 60) window.__wsLog.shift(); } catch (_) {} }); return ws; };
+          window.WebSocket.prototype = W.prototype; ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach((k) => { window.WebSocket[k] = W[k]; }); })();""")
         page.goto(stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
         before = page.evaluate(SNAP)
@@ -120,7 +126,7 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         if gate is not None:
             gate.set()
         assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'. attempts={attempts} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}/{n_script} diag={diag[-6:]}"
-        assert live and live["footer"], f"the live turn never settled (no footer): last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
+        assert live and live["footer"], f"the live turn never settled (no footer): wsLog={page.evaluate('() => (window.__wsLog || []).slice(-14)')} ws={page.evaluate('() => window.OrwellWs ? [window.OrwellWs.mode(), window.OrwellWs.isChatSubscribed()] : null')} active={page.evaluate('() => window.chatModule && window.chatModule.hasActiveStream ? window.chatModule.hasActiveStream() : null')} last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)

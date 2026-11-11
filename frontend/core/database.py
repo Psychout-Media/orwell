@@ -51,6 +51,17 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, sqlite3.Connection):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # ORW-174: busy_timeout first (a locked write waits instead of failing at once). WAL + synchronous=NORMAL for FILE databases only: readers stop blocking the writer and each commit stops paying a
+        # full fsync - the per-message persist and the HUD's session reads share this file. An in-memory database cannot be WAL (and a failed switch must never stop a connection from opening).
+        cursor.execute("PRAGMA busy_timeout=5000")
+        try:
+            cursor.execute("PRAGMA database_list")
+            main_file = next((row[2] for row in cursor.fetchall() if row[1] == "main"), "")
+            if main_file:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.Error as e:  # failsoft-ok: WAL is a speed-up; a filesystem that refuses it (some network mounts) keeps the default journal and the app runs unchanged
+            logger.warning("[db] could not enable WAL (%s); keeping the default journal mode", e)
         cursor.close()
 
 
@@ -1971,25 +1982,35 @@ def _migrate_chat_messages_fts():
                 DELETE FROM chat_messages_fts WHERE message_id = old.id;
             END;
 
-            CREATE TRIGGER IF NOT EXISTS chat_messages_fts_au
-            AFTER UPDATE ON chat_messages BEGIN
+            -- ORW-174: the delete below scans the whole index (message_id is UNINDEXED), and this trigger used to fire for EVERY update of a message row (mark_message_phase touches one each game turn). It now
+            -- fires only when an indexed value actually changed. Dropped first so an existing database picks up the narrower definition (IF NOT EXISTS would keep the old one).
+            DROP TRIGGER IF EXISTS chat_messages_fts_au;
+            CREATE TRIGGER chat_messages_fts_au
+            AFTER UPDATE OF content, session_id, role ON chat_messages
+            WHEN old.content IS NOT new.content OR old.session_id IS NOT new.session_id OR old.role IS NOT new.role
+            BEGIN
                 DELETE FROM chat_messages_fts WHERE message_id = old.id;
                 INSERT INTO chat_messages_fts(content, message_id, session_id, role)
                 VALUES (COALESCE(new.content, ''), new.id, new.session_id, new.role);
             END;
             """
         )
-        conn.execute(
-            """
-            INSERT INTO chat_messages_fts(content, message_id, session_id, role)
-            SELECT COALESCE(cm.content, ''), cm.id, cm.session_id, cm.role
-            FROM chat_messages cm
-            WHERE NOT EXISTS (
-                SELECT 1 FROM chat_messages_fts fts
-                WHERE fts.message_id = cm.id
+        # ORW-170: the backfill below probes the FTS table once PER MESSAGE with message_id UNINDEXED (a full index scan each), i.e. O(messages x index rows) on EVERY boot. The triggers keep the two in
+        # step, so in the normal case the row counts already match and there is nothing to backfill: compare the counts (one scan each) and only run the backfill when the index is short.
+        n_msgs = conn.execute("SELECT count(*) FROM chat_messages").fetchone()[0]
+        n_fts = conn.execute("SELECT count(*) FROM chat_messages_fts").fetchone()[0]
+        if n_fts < n_msgs:
+            conn.execute(
+                """
+                INSERT INTO chat_messages_fts(content, message_id, session_id, role)
+                SELECT COALESCE(cm.content, ''), cm.id, cm.session_id, cm.role
+                FROM chat_messages cm
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM chat_messages_fts fts
+                    WHERE fts.message_id = cm.id
+                )
+                """
             )
-            """
-        )
         conn.commit()
     except Exception as e:
         logging.getLogger(__name__).warning(f"chat_messages FTS migration failed: {e}")

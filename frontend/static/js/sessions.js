@@ -1963,6 +1963,19 @@ export function getCurrentSessionId() {
   return currentSessionId;
 }
 
+// ORW-168: does `id`'s session still carry a placeholder name the server will replace (auto-name after the first turn, or the
+// "Casting interview" -> "Season N" rename at game start)? Mirrors routes/chat_helpers.py needs_auto_name(). The post-turn
+// session-list refetch only matters then; an already-named session needs no `GET /api/sessions` + sidebar re-render after every turn.
+// An id the list does not know yet answers true (refetch, the safe side).
+export function sessionMayNeedRename(id) {
+  const s = sessions.find((x) => x.id === id);
+  if (!s) return true;
+  const n = (s.name || '').trim();
+  if (!n || n === 'Chat' || n.startsWith('Chat:')) return true;
+  if (n.toLowerCase() === 'casting interview') return true;
+  return /^.+ \d{1,2}:\d{2}:\d{2}(\s*(AM|PM))?$/i.test(n);
+}
+
 export function getSessions() {
   return sessions;
 }
@@ -3156,6 +3169,7 @@ const sessionModule = {
   getPendingChat,
   getCurrentSessionId,
   getSessions,
+  sessionMayNeedRename,
   getCurrentModel,
   getCurrentEndpointUrl,
   setCurrentSessionId,

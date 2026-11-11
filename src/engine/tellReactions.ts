@@ -24,6 +24,8 @@ export const TELL_REACTION = {
   comfortDistress: 0.04, comfortTrust: 0.02, exploitTilt: 0.05, exploitCap: 0.12, exploitDecay: 0.6,
   /** An observer reacts to the same target at most once per this many weeks. */
   cooldownWeeks: 1,
+  /** ASSUMED (pending Ryne, ORW-32): an AVOID reaction keeps the observer away from the rattled one for this many weeks (played games only), at `avoidWeight` x the minimum movement charge (a firm lean away, above any ordinary charge; seeded drift still moves them). */
+  avoidWeeks: 1, avoidWeight: 8,
 } as const;
 
 export interface ReactionInput {

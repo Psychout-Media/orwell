@@ -41,18 +41,22 @@ function pythonEnv(testModule: string): string | null {
   const venvPython = path.join(FRONTEND_DIR, ".venv", "bin", "python3");
   const python = fs.existsSync(venvPython) ? venvPython : "python3";
 
-  // The AUTHORITATIVE 0072 gate is the frontend CI job: it runs these gateway tests directly under
-  // pytest with the full FE deps they import. These BDD steps DELEGATE to that same pytest — so where
-  // pytest is NOT installed (the Node-only engine `test` job, which carries no FE env by design) they
-  // no-op with a notice instead of failing. The gate is still enforced by the frontend job.
+  // ORW-265: these steps DELEGATE to the frontend pytest, so a missing pytest must FAIL LOUDLY, never
+  // pass as a silent no-op (a green Then that asserted nothing). The CI `bdd` job installs the FE env
+  // (setup-fe-python), so it runs them for real. A lane that genuinely has no FE env may opt out
+  // explicitly with ORWELL_BDD_PY_OPTIONAL=1 (the frontend CI job still gates the same modules).
   try {
     execSync(`${python} -m pytest --version`, { cwd: FRONTEND_DIR, stdio: "ignore" });
   } catch {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[0072] pytest unavailable in this lane — "${testModule}" is gated by the frontend CI job; no-op here.`
+    if (process.env.ORWELL_BDD_PY_OPTIONAL === "1") {
+      // eslint-disable-next-line no-console
+      console.warn(`[0072] pytest unavailable — "${testModule}" skipped by explicit ORWELL_BDD_PY_OPTIONAL=1.`);
+      return null;
+    }
+    throw new Error(
+      `[0072] pytest is not available, so "${testModule}" cannot be verified. Install the frontend ` +
+        `environment (frontend/requirements.lock.txt) or set ORWELL_BDD_PY_OPTIONAL=1 to opt out explicitly.`
     );
-    return null;
   }
   return python;
 }

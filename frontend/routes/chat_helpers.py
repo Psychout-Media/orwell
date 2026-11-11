@@ -629,6 +629,9 @@ def _hang_out_steer(res: dict) -> str:
     obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
+    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
+    if shown:
+        line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
     return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. "
             "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % (mins, line))
 
@@ -4044,6 +4047,11 @@ def _forget_season_pacing(user) -> None:
         _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
     except Exception:
         logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
+    try:  # ORW-202: the persisted copy follows the reset (a restart must not resurrect last season's queued re-ground)
+        from src import belt_state_persist
+        belt_state_persist.save_now()
+    except Exception:  # failsoft-ok: best-effort; the in-memory stores are already cleared
+        logger.debug("[orwell] belt-state save after reset skipped for user=%s", user)
 
 
 try:  # register at import; fail-soft so a missing engine module never breaks chat_helpers
@@ -8446,6 +8454,14 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
     return None
 
 
+async def _resolve_model_id(sess) -> Optional[str]:
+    """ORW-177: the stored-endpoint lookup first, then the live `/models` probe. The probe is a blocking
+    `httpx.get` (up to its timeout), so on a cache miss it runs on a worker thread - it used to freeze the
+    event loop, and every other player, once per chat turn."""
+    return _normalize_model_id_from_cache(sess) or await asyncio.to_thread(
+        normalize_model_id, sess.endpoint_url, sess.model)
+
+
 async def build_chat_context(
     sess,
     request,
@@ -8617,7 +8633,7 @@ async def build_chat_context(
 
     # Normalize model ID. Prefer cached endpoint models so group chat does not
     # re-hit slow local /models endpoints on every participant turn.
-    norm = _normalize_model_id_from_cache(sess) or normalize_model_id(sess.endpoint_url, sess.model)
+    norm = await _resolve_model_id(sess)
     if norm:
         sess.model = norm
 

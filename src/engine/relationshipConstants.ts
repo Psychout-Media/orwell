@@ -355,6 +355,24 @@ export const DEAL_IMPACTS = {
 } as const;
 
 /**
+ * ORW-269 (Ryne 2026-11-11) - visible comp EFFORT. The result still dominates a comp-throw deal (win = broken, lose = kept); on top, a promisor who was SEEN fighting hard on most rounds they were in draws
+ * a SUSPICION fold even though they lost - deliberately a fraction of `BETRAYAL_SHOCK`. Effort is a presentation-side observable (what a witness could see per round), drawn on its OWN seeded side stream,
+ * played games only; it never changes who wins. All magnitudes here (the B59 grep gate).
+ */
+export const COMP_EFFORT = {
+  /** Share of a competitor's rounds seen at all-out effort at/above which they "visibly fought hard". */
+  hardShare: 0.5,
+  /** Base chance an NPC is seen all-out in a round; steady/light split the rest. */
+  baseHardChance: 0.35,
+  steadyChance: 0.4,
+  /** A promisor who swore to throw fights hard more readily the weaker their bond to the promisee (chance = floor + span * (1 - bond)). */
+  promisorHardFloor: 0.2,
+  promisorHardSpan: 0.6,
+  /** The suspicion fold on promisee->promisor: a small fraction of BETRAYAL_SHOCK (trust -0.32, reliability -0.3). */
+  suspicion: { trust: -0.06, reliability: -0.05 } as Partial<EdgeSignals>,
+} as const;
+
+/**
  * 0121 — the LOYALTY-STREAK reward (deal-depth layer, `ORWELL_DEAL_DEPTH`). Consecutive kept deals with the
  * SAME partner compound the honored fold: a "we've never broken faith" bond builds faster the longer you
  * both hold the line. The multiplier is BOUNDED (never a runaway) and the WHOLE reward is off unless the

@@ -128,8 +128,21 @@ def test_portraits_start_immediately_not_chained_behind_authoring(tmp_portraits,
     assert res["exit_code"] == 0
     # Portraits kicked off, and BEFORE authoring is even scheduled — never chained behind it.
     assert ("portraits", ("player", "npc:1", "npc:2")) in order
+    # ORW-251i: when this red recurs on a CI worker, say WHY (the order flipped to authoring-first on gw1 of fe-unit 2/2 even with the gate pinned off): the prewarm gate, the env hatch, the gate result and the live
+    # background threads/tasks are all captured in the failure message.
+    import os
+    import threading
+    _prewarm = importlib.import_module("src.orwell_prewarm")
+    _diag = {
+        "order": order,
+        "env_floor_start": os.environ.get("ORWELL_ALLOW_FLOOR_START"),
+        "gate_now": _run(cast_authoring.house_entry_gate_active("bob")),
+        "warm_state_bob": _prewarm.warm_state("bob"),
+        "prewarm_keys": sorted(getattr(_prewarm, "_STATE", {}).keys()),
+        "threads": sorted(t.name for t in threading.enumerate())[:12],
+    }
     assert order.index(("portraits", ("player", "npc:1", "npc:2"))) < \
-        next(i for i, c in enumerate(order) if c[0] == "authoring")
+        next(i for i, c in enumerate(order) if c[0] == "authoring"), _diag
     # Authoring still runs, with a top-up callback to fill any not-yet-landed face from the
     # authored facet (idempotent). It is keyed by the OWNER, never the player's identity.
     assert ("authoring", "bob") in order
