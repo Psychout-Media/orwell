@@ -6578,6 +6578,10 @@ def _interruption_steer(game_state) -> str:
     if not isinstance(i, dict) or not i.get("npc"):
         return ""
     why = _DESIRE_LINES.get(str(i.get("desire") or ""), _DESIRE_LINES["check-in"])
+    tells = str(i.get("tells") or "").strip()
+    if tells:  # ORW-261: the houseguest chose, unprompted, to tell the player something private; the engine authored and recorded the sentence - the narrator only voices it
+        return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}, and in the moment they choose to confide something of their own. "
+                f"Voice the entrance and let them say it in their own words, gently and in character: {tells} Add no outcome, vote or other secret beyond that.")
     return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}. Voice the entrance in a line or two and let them speak first; "
             "invent no outcome, vote or secret beyond that.")
 

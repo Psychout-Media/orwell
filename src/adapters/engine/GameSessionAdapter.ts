@@ -288,7 +288,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
-  generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, showmancePlausible,
+  generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
@@ -2422,6 +2422,8 @@ export class GameSessionAdapter implements GameSession {
   private disclosureEpoch = 0;
   /** B33: the routed confide decision per (npc, week, phase) - memory only. */
   private confideRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
+  /** ORW-261: one orientation-disclosure decision per (npc, week, phase), like `confideRoutes`. */
+  private orientationRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
   private noteDisclosure(npc: EntityId, event: DisclosureEvent): void { this.beatDisclosures.set(npc, { epoch: this.disclosureEpoch, event }); }
   /** What `npc` did about telling the player something THIS beat (confirm / slip / deflect), or undefined when the engine rolled nothing for them. */
   disclosureThisBeat(npc: EntityId): DisclosureEvent | undefined {
@@ -8278,6 +8280,37 @@ export class GameSessionAdapter implements GameSession {
     return best ? { npc: best.npc, desire: best.desire } : null;
   }
 
+  /**
+   * ORW-261 / spec 0141 - the UNPROMPTED variant ("their own choice"): an NPC who steps into the player's conversation by the desire clock (A8) may, in the same moment, volunteer a private orientation.
+   * Far rarer than the pressed path: a higher trust bar, no press, a further rarity draw, and a thin audience (the approacher is by definition now with the player). Same `routeDisclosure` authority on the dedicated `orientation-disclosure` side
+   * stream (cached per npc/week/phase: one decision per beat); only `share` tells; once per houseguest; played games only (headless never reaches it). Records the told-by fact and returns the sentence.
+   */
+  private volunteerOrientation(npcId: EntityId): string | undefined {
+    const live = this.live;
+    const orientation = this.privateOrientations[npcId];
+    if (!live || live.playedGame !== true || !orientation || live.orientationTold?.[npcId]) return undefined;
+    const npc = this.house?.npcs.find((n) => n.id === npcId);
+    if (!npc) return undefined;
+    const signals = this.confidenceSignalsFor(npc);
+    if (signals.npcTrust < ORIENTATION_DISCLOSURE.unpromptedTrustBar) return undefined;
+    const key = `volunteer:${npcId}:${live.week}:${this.phase}`;
+    let route = this.orientationRoutes.get(key);
+    if (route === undefined) {
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`));
+      route = routeDisclosure({
+        signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+        pressure: ORIENTATION_DISCLOSURE.unpromptedPressure, risk: ORIENTATION_DISCLOSURE.risk, roll: rng.next(),
+      });
+      if (route === "share" && rng.next() >= ORIENTATION_DISCLOSURE.unpromptedRarity) route = "hold";
+      this.orientationRoutes.set(key, route);
+    }
+    if (route !== "share") return undefined;
+    const said = orientationDisclosureText(orientation);
+    this.onConfide?.(npcId, said, 0.9);
+    live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
+    return said;
+  }
+
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
   private noteApproach(npc: EntityId): void {
     const live = this.live!;
@@ -8552,7 +8585,8 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR }; }
+      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
     }
   }
 
@@ -11188,6 +11222,33 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-261 / spec 0141 - a houseguest with a PRIVATE orientation may, on a pressed confide the engine already let through (trusted, in the room, truthful), choose to tell the player. Never forced:
+   * the same `routeDisclosure` authority decides (risk = the houseguest's own stakes, pressure below a straight confidence) from a dedicated per-(npc, week, phase) side stream, a trust bar guards it, and only
+   * `share` tells (a `slip` or `hold` tells nothing, and a hold is indistinguishable from "nothing to tell"). Told once per houseguest. Played games only (headless sims never reach it). Returns the
+   * sentence to voice (the caller records it: the normal path inside the confidence's own told-by fact, the repeat path as its own); the orientation reaches the player by no other route.
+   */
+  private maybeShareOrientation(npcId: EntityId, signals: ConfidenceSignals, npc: { character: { strategyStyle?: StrategyStyle } }): string | undefined {
+    const live = this.live;
+    const orientation = this.privateOrientations[npcId];
+    if (!live || live.playedGame !== true || !orientation || live.orientationTold?.[npcId]) return undefined;
+    if (signals.npcTrust < ORIENTATION_DISCLOSURE.trustBar) return undefined;
+    const key = `${npcId}:${live.week}:${this.phase}`;
+    let route = this.orientationRoutes.get(key);
+    if (route === undefined) {
+      route = routeDisclosure({
+        signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+        pressure: ORIENTATION_DISCLOSURE.pressure, risk: ORIENTATION_DISCLOSURE.risk,
+        roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`)).next(),
+      });
+      this.orientationRoutes.set(key, route);
+    }
+    if (route !== "share") return undefined;
+    const said = orientationDisclosureText(orientation);
+    live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
+    return said;
+  }
+
+  /**
    * 0075 — the trust-gated confidence (the single authority). The model presses the ally and calls this;
    * the ENGINE decides everything (whether they open up, how much, true or a lie) and RECORDS the
    * disclosure as the player's knowledge. Vault-safe by construction: an undisclosed secret is never
@@ -11248,7 +11309,9 @@ export class GameSessionAdapter implements GameSession {
     const prior = this.confideState[npcId];
     if (decision.truthful && prior?.truthful
       && this.tierRank(decision.tier) <= this.tierRank(prior.tier)) {
-      return { disclosed: true, tier: prior.tier, truthful: true, content: discloseTrue(secret, prior.tier) };
+      const orientationSaid = this.maybeShareOrientation(npcId, signals, npc);
+      if (orientationSaid) { this.onConfide?.(npcId, orientationSaid, 0.9); this.persist(); }
+      return { disclosed: true, tier: prior.tier, truthful: true, content: [discloseTrue(secret, prior.tier), orientationSaid].filter(Boolean).join(" ") };
     }
 
     // 0075 — the PASSIVE LIE-CATCH (spec open-Q #4). A genuine, truthful disclosure from a houseguest who
@@ -11259,7 +11322,8 @@ export class GameSessionAdapter implements GameSession {
     // beat you catch them out). The player lever only ⇒ never on the seeded sim path ⇒ byte-identical.
     const catchingLie = decision.truthful && prior?.truthful === false;
 
-    const content = decision.truthful ? discloseTrue(secret, decision.tier) : fabricate(rng, secret.kind);
+    const orientationSaid = decision.truthful ? this.maybeShareOrientation(npcId, signals, npc) : undefined;
+    const content = [decision.truthful ? discloseTrue(secret, decision.tier) : fabricate(rng, secret.kind), orientationSaid].filter(Boolean).join(" ");
     // Record it as the player's knowledge through the in-game `told-by` pathway (0002, E9) — so it is
     // correctly Journal-visible knowledge, never Vault content. A lie is recorded the same way (the
     // player believes it); the engine knows it is false (`confideState.truthful`).
@@ -13745,7 +13809,7 @@ export class GameSessionAdapter implements GameSession {
       ...(playerDossier !== undefined ? { playerDossier } : {}),
       // 0118: the telegraphed day schedule (present only when the per-conversation clock is live).
       ...(daySchedule ? { daySchedule } : {}),
-      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire } } : {}), // A8: an NPC is cutting into the conversation (names only)
+      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire, ...(this.live.interruption.tells ? { tells: this.live.interruption.tells } : {}) } } : {}), // A8: an NPC is cutting into the conversation (names only)
     };
   }
 
