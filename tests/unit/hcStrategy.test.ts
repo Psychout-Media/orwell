@@ -61,3 +61,15 @@ describe("hcStrategyFor", () => {
     expect(pick((c) => (c === "useful" ? 0.4 : -0.2))).toBe("useful");
   });
 });
+
+describe("hcStrategyFor wiring", () => {
+  it("is offered to the season ONLY for a game a person is playing (headless sims stay byte-identical)", () => {
+    const sb = new GameSessionRegistry().sandboxFor(`hcs-w-${Math.random()}`);
+    sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
+    sb.session.advanceGame();
+    const ctxOf = () => (sb.session as unknown as { ctx(): { hcStrategyFor?: unknown } }).ctx();
+    expect(ctxOf().hcStrategyFor).toBeUndefined();
+    sb.session.noteMessage({ messageId: "m-0" });
+    expect(typeof ctxOf().hcStrategyFor).toBe("function");
+  });
+});
