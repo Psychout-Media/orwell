@@ -262,7 +262,8 @@ def score(turns, checks, check, turn_limit):
             elif t.get("phase_before") in ("hoh-competition", "veto-competition") and t.get("phase") != t.get("phase_before"):
                 # Ryne 2026-11-10: "Comps should take several hours. They should never be one message and should always be a full play by play." A competition that is crowned in a message
                 # which also moves the clock by hours spent its hours inside ONE reply.
-                check(f"K2-competition-in-one-message[{t['label']}]", False, f"{t.get('phase_before')} was crowned in a single message and the clock jumped +{gap:.1f}h ({t.get('msg')!r})")
+                if gap <= 1.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: the crown's share on top of the spread rounds (a competition that spans several messages)", "note")
+                else: check(f"K2-competition-in-one-message[{t['label']}]", False, f"{t.get('phase_before')} was crowned in a single message and the clock jumped +{gap:.1f}h ({t.get('msg')!r})")
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_
@@ -273,7 +274,8 @@ def score(turns, checks, check, turn_limit):
         key_ = (ds_.get("next"), t.get("week"), t.get("phase"))
         if ds_.get("due") and ds_.get("next") in ("nominations", "veto-ceremony", "eviction") and not t.get("pending"):
             run_ = run_ + 1 if key_ == last_ else 1
-            if run_ == 4: check(f"K3-due-evening-ceremony-unfired[{t['label']}]", False, f"{ds_.get('next')} has been due for {run_} messages without firing (clock {t.get('clock')})")
+            # eviction night is a staged event (vote, reveal, result, goodbyes): its `due` stays true through those steps, so it gets a longer allowance than the single-beat ceremonies
+            if run_ == (9 if ds_.get("next") == "eviction" else 4): check(f"K3-due-evening-ceremony-unfired[{t['label']}]", False, f"{ds_.get('next')} has been due for {run_} messages without firing (clock {t.get('clock')})")
             last_ = key_
         else:
             run_, last_ = 0, None
