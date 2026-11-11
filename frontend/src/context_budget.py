@@ -130,6 +130,7 @@ def escalate_budget(
     *,
     enabled: bool = False,
     ceiling: float = DEFAULT_TIER_CEILING,
+    hard_max: Optional[int] = None,
 ) -> int:
     """Slice D: the non-degradation backup. Default (``enabled=False``) -> returns
     ``lean_budget`` UNCHANGED (byte-identical to today). When enabled AND the needed
@@ -141,6 +142,10 @@ def escalate_budget(
     Never returns less than ``lean_budget``; never exceeds ``int(context_length*ceiling)``;
     clamps a bad ceiling into (0, 1]; unknown/zero ``context_length`` -> ``lean_budget``
     unchanged. Pure and side-effect-free.
+
+    Cost cap (Ryne, #2425): escalation never exceeds ``hard_max`` (the ``agent_input_token_hard_max``
+    setting); on AUTO (``hard_max`` None/0) the cap is ``DEFAULT_HARD_MAX``. A lean budget already above
+    the cap (a 1M window on AUTO) is left as is, never lowered.
     """
     lean = _coerce_int(lean_budget)
     needed = _coerce_int(needed_tokens)
@@ -157,6 +162,8 @@ def escalate_budget(
         return lean
 
     cap = int(window * c)
+    cost_cap = _coerce_int(hard_max)
+    cap = min(cap, cost_cap if cost_cap > 0 else DEFAULT_HARD_MAX)
     # Grow toward the window, but only as far as actually needed, and never below
     # the lean floor (cap could be < lean on a tiny window).
     return max(lean, min(needed, cap))
