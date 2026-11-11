@@ -213,6 +213,15 @@ export function _onWsResync(ev) {
 // filter (sessionSync.js), which is why the SSE leg never had this divergence.
 export function _onWsRunBoundary() {
   try { if (chatState._streamSessionId) return; } catch (_) { /* observer path only */ }
+  // ORW-259 (doubled header): the `_streamSessionId` guard above can be CLEARED while this window is
+  // still the sender - the PRIOR run's late `done` releases it AFTER the new turn pinned its holder
+  // (back-to-back turns). Falling through would reset the pin and mount a SECOND holder via
+  // `_wsEnsureRound`, leaving the sender's pinned holder as an empty header-only bubble beside the one
+  // that receives the content ("PRProduction hh:mm PRProduction hh:mm"). A pinned sender round (it
+  // carries its `clientMsgId`) that is still connected and has received no content yet IS the render
+  // target for the run now starting: keep it.
+  if (_wsRound && _wsRound.clientMsgId && _wsRound.holder && _wsRound.holder.isConnected &&
+      !_wsRound.reply && !_wsRound.reasoning) return;
   const prior = _wsRound;
   const priorRich = _wsRichRun;   // capture BEFORE _wsResetRound() clears it
   if (prior && prior.holder) {

@@ -10,7 +10,7 @@ import uiModule from './ui.js';
 import sessionModule from './sessions.js';
 import chatRenderer from './chatRenderer.js';
 import chatStream from './chatStream.js';
-import { ORWELL_TOOL_BEATS as _orwellToolBeats, orwellBeatOutcome, isGameBuild, isSeasonStarted, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, setGameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate, narratorWaitCopy } from './orwellToolBeats.js';
+import { ORWELL_TOOL_BEATS as _orwellToolBeats, orwellBeatOutcome, orwellBeatNodeView, isGameBuild, isSeasonStarted, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, setGameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate, narratorWaitCopy } from './orwellToolBeats.js';
 import { addAITTSButton } from './tts-ai.js';
 import markdownModule from './markdown.js';
 import { svgifyEmoji } from './markdown.js';
@@ -3286,30 +3286,13 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                   // otherwise mark the node --flat (a plain label, no expander).
                   const _expandHtml = `${cmdHtml2}${outHtml}${diffHtml}`;
                   const _hasExpand = !!_expandHtml.trim();
-                  const _chevron2 = _hasExpand ? '<span class="agent-thread-chevron">\u25B6</span>' : '';
-                  const _contentDiv2 = _hasExpand ? `<div class="agent-thread-content">${_expandHtml}</div>` : '';
-                  // Preserve the user's .open choice across the innerHTML
-                  // rewrite \u2014 otherwise expanding a running tool collapses
-                  // it as soon as the result lands, forcing the user to
-                  // click again. Click handling is delegated (see init at
-                  // bottom of file) so no per-node listener needed.
                   const _wasOpen = _hasExpand && currentToolBubble.classList.contains('open');
-                  // L42: in the game build, show the beat's PUBLIC OUTCOME (Vault-free, from the tool
-                  // result) instead of a generic "done" \u2014 "\ud83d\uddf3\ufe0f Troy is evicted (7-1)", "\ud83c\udfc6 Maya wins HOH".
-                  const _outcome = (_beatOut && ok) ? orwellBeatOutcome(json.tool, json.output) : null;
-                  const _toolText = _outcome || _beatOut || json.tool;
-                  // M2-5 (audit B7): game-build slates carry NO lowercase "done" debug tail —
-                  // the ✓ + styled label IS the resolved state. Failures stay literal (operator
-                  // truth, the J1-30 rule); the workspace build keeps its done/failed status.
-                  const _statusHtml = _outcome ? '' : (ok && isGameBuild()) ? ''
-                    : `<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span>`;
-                  // TRANS-12/VM-5 (2026-07 pre-ship audit): a ceremony beat's outcome (HOH crown,
-                  // nomination reveal, veto result, eviction vote reveal) used to swap in via this
-                  // innerHTML replace with zero motion \u2014 the show's biggest beats landed as a
-                  // silent state flip. `ow-ceremony-reveal` (style.css) gives the header a brief
-                  // staged entrance; reduced-motion strips it to the same instant swap as before.
-                  currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_hasExpand ? '' : ' agent-thread-node--flat') + (_wasOpen ? ' open' : '') + (_outcome ? ' ow-ceremony-reveal ow-slate-outcome' : '');
-                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(_toolText)}</span>${_statusHtml}${_chevron2}</div>${_contentDiv2}`;
+                  // L42 / M2-5 / TRANS-12: the finished chip (public outcome, no "done" tail, staged
+                  // ceremony reveal) is built by the ONE shared pure builder both render paths use (ORW-264).
+                  const _nv = orwellBeatNodeView({ tool: json.tool, beat: _beatOut, ok, output: json.output, expandHtml: _expandHtml, esc, wasOpen: _wasOpen, reveal: true });
+                  const _outcome = _nv.outcome;
+                  currentToolBubble.className = _nv.className;
+                  currentToolBubble.innerHTML = _nv.innerHTML;
                   if (_outcome) {
                     const _revealHeader = currentToolBubble.querySelector('.agent-thread-header');
                     const _clearReveal = () => currentToolBubble.classList.remove('ow-ceremony-reveal');
