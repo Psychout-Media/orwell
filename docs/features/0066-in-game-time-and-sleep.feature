@@ -98,14 +98,11 @@ Feature: In-game time of day and the nightly sleep economy
     And a long beat may spill into the next period
     And competitions vary in length by type
 
-  # --- Conversation durations (LOOSE — ADR 0005 for time) -----------------------------------------
+  # --- An engaged scene is never cut by the clock (the kind-billed conversation-duration helpers were deleted, ORW-68; the clock bills per message) ---
 
-  Scenario: A conversation's felt duration is loose but bounded, and never cut while engaged
+  Scenario: An engaged conversation is never cut short by the clock
     Given the per-conversation clock advance is enabled
-    Then a scene with no proposed duration takes its type baseline
-    And a proposed duration within the type range is honored exactly
-    And an absurd proposal is bounded to the type range, never zero and never a day-skip
-    And an engaged scene is never cut short by the clock
+    Then an engaged scene is never cut short by the clock
 
   # --- Phase-2 extensions — each behind its OWN opt-in flag, byte-identical when off ---------------
 
