@@ -1,5 +1,6 @@
 import type { Soul } from "./characterFactory";
 import { composedEmotion } from "./emotionalArc";
+import { clamp01 } from "../domain/num";
 
 /**
  * B12 / B8 slice 1 (design `npc-strategy-design.md` 15.2, E0) - OBSERVABLE TELLS. A pure, deterministic read of a houseguest's soul into a small CLOSED set of tells that the room can see:
@@ -28,7 +29,6 @@ const CHANNEL: Readonly<Record<TellKind, TellChannel>> = {
   giddy: "behaviour", "warm-open": "body", guarded: "behaviour", restless: "body",
 };
 
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : Math.max(0, Math.min(1, x)));
 
 function bandOf(intensity: number, prev: TellBand | undefined): TellBand | undefined {
   const h = TELLS.hysteresis;

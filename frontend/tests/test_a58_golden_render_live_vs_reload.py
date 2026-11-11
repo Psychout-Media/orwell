@@ -38,7 +38,9 @@ CASES = [
     ("markdown", [{"deltas": ["**Bright idea.** ", "They say:\n\n- apples\n- pears\n\n", "*Quietly.*"], "delay": 0}], "Bright idea."),
     ("paragraphs", [{"deltas": ["First paragraph.\n\n", "Second paragraph.\n\n", "Third."], "delay": 0}], "Second paragraph."),
     ("ooc-producer-aside", [{"deltas": ["((Production: ", "the house ", "is settling ", "in.))"], "delay": 0.4}], "settling in"),
-    ("ooc-complete-first-delta", [{"deltas": ["((Production: the house is settling in.)) "], "delay": 1.5}], "settling in"),
+    # ORW-251h: this text must DIFFER from ooc-producer-aside's. Both cases share one chat session, and the CI failure (n == base_n although the stub consumed the turn) fits the live bubble
+    # being collapsed into the previous, identical OOC reply; distinct text per case removes that coupling.
+    ("ooc-complete-first-delta", [{"deltas": ["((Production: the whole house is settling in for the night.)) "], "delay": 1.5}], "settling in"),
     # A72 - the clock's three narrated surfaces: a production cut-in mid-reply, a hang-out stop line (the model calls hangOut, then voices where it stopped), the premiere champagne toast.
     ("clock-production-cutin", [{"deltas": ["You trade a few words by the sink. ", "((Production: it is noon - the Head of Household competition is about to begin.)) ", "Everyone drifts toward the backyard."], "delay": 0.2}], "about to begin"),
     ("clock-hangout-stop", [{"tool_calls": [{"name": "hangOut", "args": {}}]}, {"deltas": ["You lose track of the hours on the couch, until a houseguest sits down beside you and says they need a word."], "delay": 0}], "need a word"),
