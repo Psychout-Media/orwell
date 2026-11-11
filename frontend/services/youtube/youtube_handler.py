@@ -95,6 +95,8 @@ async def extract_transcript_async(
     Returns:
         Dict with success/error/transcript keys
     """
+    if YouTubeTranscriptApi is None:
+        init_youtube()  # ORW-170: imported on first use, not at boot (the import costs ~0.3 s of every startup)
     if not YOUTUBE_AVAILABLE or YouTubeTranscriptApi is None:
         return {"success": False, "error": "YouTube transcript API not available", "transcript": None}
 
