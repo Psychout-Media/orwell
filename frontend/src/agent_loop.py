@@ -6785,6 +6785,12 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _ptt.set(_extract_last_user_message(_msgs or []) or "")
     except Exception:
         _ptt = None
+    _mut0 = None
+    try:
+        from src import orwell_engine as _oe_mut
+        _mut0 = _oe_mut.mutation_count(kwargs.get("owner"))
+    except Exception as _e:  # failsoft-ok: the push below is an optimisation; without a baseline the turn simply sends none
+        logger.debug("167: mutation baseline failed: %s", _e)
     try:
         async for _evt in _stream_agent_loop_impl(*args, **kwargs):
             yield _evt
@@ -6792,6 +6798,16 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         if _ptt is not None:
             _ptt.set("")
         _reset_turn_observability_context(_obs_token)
+        # ORW-167: ONE "game-updated" ping per game turn that changed the game through a narrator tool, so the user's OTHER open windows re-read their panels instead of waiting for a poll.
+        # A ping carries no content (same helper the enrichment write-backs use); a read-only turn sends none.
+        try:
+            if _mut0 is not None and kwargs.get("game_mode"):
+                from src import orwell_engine as _oe_mut2
+                if _oe_mut2.mutation_count(kwargs.get("owner")) > _mut0:
+                    from src import orwell_game_session as _ogs
+                    _ogs.publish_game_updated(kwargs.get("owner"))
+        except Exception as _e:  # failsoft-ok: a failed push must never affect the turn that already finished; polling still catches up
+            logger.debug("167: turn-end game-updated push failed: %s", _e)
         if _user_token is not None:
             try:
                 from src import llm_trace as _lt
