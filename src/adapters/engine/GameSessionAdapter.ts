@@ -10703,6 +10703,12 @@ export class GameSessionAdapter implements GameSession {
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
+    // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
+    if (req.kind === "protect-third") {
+      const gone = new Set(this.live.evictionOrder);
+      if (!this.dealDepthEnabled || this.live.playedGame !== true || !req.third || req.third === req.with || req.third === PLAYER
+        || gone.has(req.third) || !this.house.npcs.some((n) => n.id === req.third)) return null;
+    }
     const target = req.with;
     const evicted = new Set(this.live.evictionOrder);
     const isActiveOther = target !== PLAYER
@@ -10737,8 +10743,8 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
-    const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" ? [target, PLAYER] : [PLAYER, target];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation

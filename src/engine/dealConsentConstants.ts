@@ -31,6 +31,7 @@ export const DEAL_CONSENT = {
     "vote": -0.09,
     "target-other": -0.09,
     "final-two": -0.07,
+    "protect-third": -0.09, // 0142: swearing to spare a third houseguest costs like a defensive promise
     "comp-throw": 0.08,
     "veto-save": 0.15,
   } as Record<DealKind, number>,

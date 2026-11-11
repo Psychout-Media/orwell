@@ -5927,6 +5927,11 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         _dir = (args.get("direction") or "").strip().lower()
         if _dir in ("offer", "ask") and kind in ("comp-throw", "veto-save"):  # B55: only meaningful for the active kinds
             _extra["direction"] = _dir
+        _third = (args.get("third") or "").strip()
+        if kind == "protect-third":  # 0142: the engine refuses a protect-third without a valid third houseguest
+            if not _third:
+                return {"error": "third (the houseguest to be protected) is required for a protect-third deal", "exit_code": 1}
+            _extra["third"] = _third
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal

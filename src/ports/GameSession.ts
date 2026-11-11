@@ -785,8 +785,13 @@ export interface MakeDealReq {
   with: EntityId;
   // 0121 — the two ACTIVE-obligation kinds (comp-throw / veto-save) are accepted only when the deal-depth
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
-  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
+  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third";
   terms: string;
+  /**
+   * 0142 (ORW-88 idea 3) - for `protect-third` only: the THIRD houseguest the NPC swears not to move against (nominate, replace or vote out). The NPC is always the promisor (the player
+   * asked them); a played game with the deal-depth layer on is required. Ignored for every other kind.
+   */
+  third?: EntityId;
   /**
    * B55 - for the ACTIVE kinds only (comp-throw / veto-save): who promises. `offer` (the default - "I'll throw it for you") binds the PLAYER; `ask` ("will you throw it for me?") binds the NPC. Ignored for the defensive kinds.
    */
