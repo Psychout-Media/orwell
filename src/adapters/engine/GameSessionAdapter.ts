@@ -57,7 +57,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, DEAL_WITNESS, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -2721,6 +2721,7 @@ export class GameSessionAdapter implements GameSession {
     "scene-betrayal": "you betrayed them", "scene-conflict": "you clashed with them", "scene-kindness": "you were kind to them",
     "nominated-by-hoh": "you put them on the block",
     "secret-exposed": "you exposed their secret to the house", "secret-given": "you traded them a secret they wanted",
+    "deal-witnessed": "you made a deal in front of them", "deal-resented": "you made a deal aimed at them or their ally, or behind their back",
   };
   /** The houseguest's top live memories OF THE PLAYER as plain recency-worded facts (no kind slug, severity or number), plus the seeded, once-per-day, salience-barred `bringUp`. */
   private memorySpeechFor(id: EntityId): { rememberedAboutYou?: string[]; bringUp?: true } {
@@ -10705,6 +10706,8 @@ export class GameSessionAdapter implements GameSession {
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
     const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
+    if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
@@ -10718,6 +10721,38 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /**
+   * ORW-85 (Ryne 2026-11-10: what NPCs overhear must have real impact and can change decisions) - an awake witness of a deal made in its presence writes a memory, reading the deal
+   * against its OWN position: (1) the deal is a `target-other` that names the witness, or one of its allies, in its terms: a grudge toward BOTH dealmakers; (2) otherwise, if one of the
+   * dealmakers is the witness's ally and the witness was left out: a small hurt toward that ally; (3) otherwise a recall-only entry toward both. Deterministic, no rng. Needs the memory
+   * layer on and a played game (the caller gates it); `recordMemory` bounds it (per-pair cap). Vault-free: only the public deal terms and the witness's own edges are read.
+   */
+  private rememberDealWitnesses(deal: Deal, witnesses: readonly EntityId[]): void {
+    if (!this.npcMemoryEnabled || !this.live || !this.house) return;
+    const [a, b] = deal.parties;
+    const allyBar = RELATIONSHIP_CONSTANTS.thresholds.ally;
+    const isAlly = (w: EntityId, x: EntityId): boolean => { const e = this.rel.edge(w, x); return (e.trust + e.affinity) / 2 >= allyBar; };
+    const terms = deal.terms.toLowerCase();
+    const named = (id: EntityId): boolean => {
+      const full = this.nameOf(id).toLowerCase();
+      const first = full.split(/\s+/)[0] ?? full;
+      return [full, first].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
+    };
+    for (const w of this.awakeAmong(witnesses.filter((id) => id !== PLAYER && id !== a && id !== b))) {
+      const targetsMe = deal.kind === "target-other" && (named(w) || this.livingIds().some((x) => x !== w && x !== a && x !== b && named(x) && isAlly(w, x)));
+      if (targetsMe) {
+        for (const p of [a, b]) this.remember(w, p, "deal-resented", DEAL_WITNESS.targetedSeverity);
+        continue;
+      }
+      const leftOut = [a, b].filter((p) => isAlly(w, p));
+      if (leftOut.length > 0) {
+        for (const p of leftOut) this.remember(w, p, "deal-resented", DEAL_WITNESS.leftOutSeverity);
+        continue;
+      }
+      for (const p of [a, b]) this.remember(w, p, "deal-witnessed", DEAL_WITNESS.recallSeverity);
+    }
   }
 
   /**
