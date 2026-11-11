@@ -6099,6 +6099,28 @@ async def do_confront(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+async def do_call_in_favor(content: str, owner: Optional[str] = None) -> Dict:
+    """Feature 0142 — the player CALLS IN a favor a houseguest owes them. The ENGINE prices and resolves it
+    (null when none is owed or no game is being played); we only forward {npcId, ask} and return its Vault-free result."""
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    npc_id = (args.get("npcId") or args.get("npc_id") or "").strip()
+    ask = (args.get("ask") or "").strip() or None
+    if not npc_id:
+        return {"error": "npcId (the houseguest who owes the favor) is required", "exit_code": 1}
+    try:
+        res = await orwell_engine.call_in_favor(npc_id, ask, user=owner)
+        if res is None:
+            return {"output": json.dumps({"honored": None, "note": "no favor is owed by that houseguest"}), "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
 async def do_accuse_tie(content: str, owner: Optional[str] = None) -> Dict:
     """Feature 0095 — the player accuses two houseguests of a PRE-SHOW tie. The ENGINE checks whether
     a real connection exists — never invented or confirmed here — and a miss must stay
