@@ -33,3 +33,34 @@ def test_a_network_that_blocks_websockets_cannot_send_and_is_told_why(_stack):  
         assert page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg-user')).every(e => !e.textContent.includes('hello from a blocked network'))")
         STUB.script.clear()
         browser.close()
+
+
+def test_the_blocked_network_banner_appears_without_sending_anything(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    _session(_stack, "ws44b")
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.add_init_script(BLOCK_WS)
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.wait_for_selector("#orwell-ws-blocked", timeout=20000)
+        assert "blocks the live connection" in page.inner_text("#orwell-ws-blocked")
+        browser.close()
+
+
+def test_a_working_socket_shows_no_banner(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    _session(_stack, "ws44c")
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.wait_for_function("() => window.OrwellWs && window.OrwellWs.mode() === 'ws'", timeout=20000)
+        assert page.query_selector("#orwell-ws-blocked") is None
+        browser.close()
