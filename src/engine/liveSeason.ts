@@ -494,6 +494,11 @@ export interface LiveSeasonState {
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number };
   lastDealOfferWeek?: number;
   /**
+   * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
+   * with `callInFavor`. Vault-free (it is the player's own deal history). Banked for played games only; absent otherwise => byte-identical. Persists with the season.
+   */
+  owedFavors?: Array<{ debtor: EntityId; n: number; madeWeek: number }>;
+  /**
    * How each evictee read the manner of their eviction toward each responsible houseguest
    * (0037): mannerByEvictee[evictee][responsible]. Recorded live at each eviction so jury
    * management has genuine effect at the finale. ENGINE-ONLY: never crosses the wall.
