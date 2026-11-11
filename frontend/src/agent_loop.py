@@ -5307,6 +5307,118 @@ def _blank_turn_fallback_for_board(live, *, upstream_failed: bool) -> str:
     return _blank_turn_fallback_line(upstream_failed=upstream_failed)
 
 
+
+# ── ORW-133 — narrator outage: pause, tell the player, retry, resume with nothing lost ──────────────────
+# Ryne's ruling (2026-11-06): when the narrator provider is down mid-game the game HOLDS, says plainly the narrator
+# is away, retries with bounded backoff, and resumes where it left off. No switch to another model. Built on the
+# EXISTING stream chokepoint: a PRE-CONTENT upstream failure (nothing of this round reached the player, so a retry
+# can never duplicate prose) is retried here; the turn's engine writes happen only AFTER a round returns, so a
+# failed round has written nothing and the closed-set sync (beatSeq) is untouched. If the outage outlasts the
+# bounded retries, the turn ends on ONE honest "paused" line and every consequence belt (auto-record, stall nudge,
+# forced advance) is skipped, so no clock advances and no fake scene is folded; the player's unanswered message
+# stays in the history and is simply answered by the next turn. An ACCOUNT fault (401/402/403) cannot be fixed by
+# retrying: no retry loop, one operator alert, and a distinct message.
+_OUTAGE_BACKOFF_S: "tuple[float, ...]" = (2.0, 5.0, 12.0)
+_ACCOUNT_STATUSES = frozenset({401, 402, 403})
+_OUTAGE_ALERTED: "set[tuple]" = set()   # (owner, kind) already alerted this outage; cleared on a clean stream
+_OUTAGE_TRANSIENT_STATUSES = frozenset({408, 425, 429})
+
+_NARRATOR_AWAY_LINE = (
+    "The feed has gone dark — the narrator is away. The show is on pause: nothing has happened and nothing "
+    "is lost. Your last message is kept; say it again when the feed returns and the scene picks up from here.")
+_NARRATOR_ACCOUNT_LINE = (
+    "The feed is off the air and will stay off until the host sorts out the broadcast account. The show is on "
+    "pause: nothing has happened and nothing is lost. Your last message is kept, and play resumes from here "
+    "once the host has fixed it.")
+
+
+def _as_status(v):
+    try:
+        n = int(v)
+        return n if 100 <= n < 600 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_stream_error_chunk(chunk: str):
+    """Return (status|None, text, data) for an upstream error chunk, or None if `chunk` is not an error."""
+    try:
+        if chunk.startswith("event: error"):
+            for line in chunk.split("\n"):
+                if line.startswith("data: "):
+                    d = json.loads(line[6:])
+                    return (_as_status(d.get("status")), str(d.get("text") or d.get("error") or ""), d)
+            return (None, "", {})
+        if chunk.startswith("data: ") and '"error"' in chunk:
+            d = json.loads(chunk[6:])
+            if isinstance(d, dict) and d.get("error"):
+                return (_as_status(d.get("status")), str(d.get("error")), d)
+    except Exception:
+        return None
+    return None
+
+
+def _outage_kind(status, text, data) -> "str | None":
+    """'account' (never retry), 'transient' (retry with backoff) or None (not an outage: pass through)."""
+    if status in _ACCOUNT_STATUSES:
+        return "account"
+    if status is not None:
+        return "transient" if (status >= 500 or status in _OUTAGE_TRANSIENT_STATUSES) else None
+    return "transient" if _classify_narrator_stream_error(text, data) == "narrator-timeout" else None
+
+
+def _alert_outage_once(owner, kind, call_class, reason):
+    if (owner, kind) in _OUTAGE_ALERTED:
+        return
+    _OUTAGE_ALERTED.add((owner, kind))
+    try:
+        from src import enrichment_policy as _ep
+        _ep.record_runtime_failure(owner, call_class, reason)
+    except Exception:  # pragma: no cover - telemetry never breaks a turn
+        pass
+
+
+async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, **kwargs):
+    """Wrap `stream_llm_with_fallback` with the ORW-133 pause/retry/resume. Pre-content failures only."""
+    attempt = 0
+    while True:
+        saw_output = False
+        failure = None
+        async for chunk in stream_llm_with_fallback(candidates, messages, **kwargs):
+            parsed = _parse_stream_error_chunk(chunk)
+            if parsed is not None and not saw_output:
+                kind = _outage_kind(*parsed)
+                if kind is not None:
+                    failure = (kind, parsed, chunk)
+                    break
+            if '"delta"' in chunk or "tool_call" in chunk:
+                saw_output = True
+            yield chunk
+        if failure is None:
+            _OUTAGE_ALERTED.discard((owner, "account"))
+            _OUTAGE_ALERTED.discard((owner, "transient"))
+            return
+        kind, (status, _text, _d), raw = failure
+        logger.warning(f"[orwell] ORW-133 narrator {kind} failure status={status} attempt={attempt} user={owner!r}")
+        if kind == "account":
+            _alert_outage_once(
+                owner, kind, "narrator-http",
+                "narrator provider: " + ("insufficient balance (402)" if status == 402 else f"account fault ({status})")
+                + " - the show is paused until the host fixes the account")
+            yield f'data: {json.dumps({"type": "narrator_paused", "reason": "account", "message": _NARRATOR_ACCOUNT_LINE})}\n\n'
+            return
+        if attempt >= len(_OUTAGE_BACKOFF_S):
+            _alert_outage_once(
+                owner, kind, "narrator-http" if status else "narrator-timeout",
+                f"narrator provider unreachable after {attempt} retries (HTTP {status}); the show is paused")
+            yield f'data: {json.dumps({"type": "narrator_paused", "reason": "outage", "message": _NARRATOR_AWAY_LINE})}\n\n'
+            return
+        delay = _OUTAGE_BACKOFF_S[attempt]
+        attempt += 1
+        yield (f'data: {json.dumps({"type": "narrator_away", "attempt": attempt, "of": len(_OUTAGE_BACKOFF_S), "retryInSeconds": delay, "message": "The narrator is away — the show is paused. Retrying shortly; nothing is lost."})}\n\n')
+        await asyncio.sleep(delay)
+
+
 _BLANK_FALLBACK_MODEL = (
     "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
 _BLANK_FALLBACK_UPSTREAM = (
@@ -5327,6 +5439,8 @@ def _fallback_markers() -> "tuple[str, ...]":
         _SCENE_CUTAWAY_LINE[:70],
         _BLANK_FALLBACK_MODEL[:40],
         _BLANK_FALLBACK_UPSTREAM[:40],
+        _NARRATOR_AWAY_LINE[:40],
+        _NARRATOR_ACCOUNT_LINE[:40],
         "The live feeds settle back over the house. Right now the game sits",
         "A voice from production runs through the board",
     )
@@ -6154,7 +6268,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
 )
 
 
@@ -6178,6 +6292,8 @@ def _forget_owner_entries(store, keys) -> None:
     elif isinstance(store, collections.abc.MutableSet):
         for key in keys:
             store.discard(key)
+        for item in [i for i in store if isinstance(i, tuple) and _is_owner_item(i, keys)]:  # (owner, kind) records (e.g. the outage alert latch)
+            store.discard(item)
     elif isinstance(store, collections.deque):
         kept = [item for item in store if not _is_owner_item(item, keys)]
         if len(kept) != len(store):
@@ -7257,6 +7373,7 @@ async def _stream_agent_loop_impl(
     # When this is set the casting block treats the turn as a STALL (run the FE-driven finalize), not a
     # cancellation. Reset implicitly per turn (this is a fresh local each stream_agent_loop call).
     _turn_had_error = False
+    _narrator_paused = False   # ORW-133: outage outlasted the retries (or an account fault): hold the show
     _turn_reapproach_nudges = 0  # 0057: post-season re-approach, at most one per finishing turn
     _turn_premiere_marks = 0  # #380 premiere markHouseguestMet auto-belt: intros the FE marked this turn
     # Casting-mode corrector counters (for the verbose overseer-debug telemetry). Set when the FE
@@ -7656,9 +7773,10 @@ async def _stream_agent_loop_impl(
         # complementary cap for the rare stream that trickles bytes forever and
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
-        async for chunk in stream_llm_with_fallback(
+        async for chunk in _narrator_stream_with_outage_pause(
             _candidates,
             messages,
+            owner=_force_owner,
             temperature=temperature,
             max_tokens=_effective_max_tokens,  # ADR 0010 #1: admin-editable per-class output cap
             prompt_type=prompt_type if round_num == 1 else None,
@@ -7673,6 +7791,12 @@ async def _stream_agent_loop_impl(
             if time.time() > _round_deadline:
                 logger.warning(f"[agent] round {round_num} stream exceeded wall-clock deadline; cutting off")
                 break
+            if chunk.startswith('data: {"type": "narrator_'):   # ORW-133 typed outage notices
+                if '"narrator_paused"' in chunk:
+                    _narrator_paused = "account" if '"account"' in chunk else True
+                    _turn_had_error = True
+                yield chunk
+                continue
             # Forward error events from stream_llm to the frontend
             if chunk.startswith("event: error"):
                 try:
@@ -8282,7 +8406,15 @@ async def _stream_agent_loop_impl(
             #   • LULL + an advance-phase + no progression tool → seize the moment, advanceGame.
             #   • ENGAGEMENT + a houseguest scene + no recording tool → bank the consequence
             #     (recordInteraction/makeDeal) so the social play moves the hidden weights (0055).
-            if _is_live_game:
+            if _is_live_game and _narrator_paused:
+                # ORW-133: the show is on pause. Say so ONCE (persisted as the turn's text) and run NO belt:
+                # no auto-record, no stall nudge, no forced advance - nothing advances, no fake scene folds.
+                if not _emitted_visible:
+                    _pl = _NARRATOR_ACCOUNT_LINE if _narrator_paused == "account" else _NARRATOR_AWAY_LINE
+                    full_response += _pl
+                    _emitted_visible = True
+                    yield f'data: {json.dumps({"delta": _pl})}\n\n'
+            elif _is_live_game:
                 _tool_names = {(ev.get("tool") if isinstance(ev, dict) else None)
                                for ev in _landed_tool_events(tool_events)}
                 _progressed = bool(_tool_names & _PROGRESSION_TOOLS)
