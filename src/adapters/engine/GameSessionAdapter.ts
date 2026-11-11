@@ -48,7 +48,7 @@ import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/jur
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { PRESENCE, PRIVACY, MOVEMENT_INTENT, CALM_PRESENCE } from "../../engine/presenceConstants";
+import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
@@ -288,7 +288,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
-  generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, showmancePlausible,
+  generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
@@ -1681,6 +1681,8 @@ export class GameSessionAdapter implements GameSession {
   private tellReactedWeek: Record<string, number> = {};
   /** Reaction counts by kind (observability + tests; monotonic). */
   private tellReactionCounts: Record<string, number> = {};
+  /** ORW-32: "observer|target" -> the last week the observer is still AVOIDING the rattled target (played games only; read by the movement intent). */
+  private tellAvoidUntil: Record<string, number> = {};
   /** Monotonic count of observer-reaction passes: keys the dedicated stream so each pass draws fresh, reproducibly (persisted). */
   private tellReactionTicks = 0;
   tellReactionCountsNow(): Readonly<Record<string, number>> { return { ...this.tellReactionCounts }; }
@@ -1691,7 +1693,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * B29 - one observer-reaction pass, driven by the orchestrator's per-turn off-screen tick. For every houseguest who is VISIBLY rattled (a persisted tell from B28) and shares a room with an awake NPC
    * observer, the observer may react (comfort / exploit / avoid) - chosen by the observer's strategy style, disposition and bond to the target, drawn from a DEDICATED stream, once per pair per week.
-   * Comfort lowers the target's distress a little and builds their trust in the observer; exploit adds a small decaying tilt read by the nomination/vote providers; avoid is recorded (no effect yet).
+   * Comfort lowers the target's distress a little and builds their trust in the observer; exploit adds a small decaying tilt read by the nomination/vote providers; avoid (played games) keeps the observer's movement away from the rattled one for `avoidWeeks` (ORW-32).
    * Observability gate = the existing co-presence (ADR 0019): only the same room. Flag off => returns before anything (zero draws, nothing written).
    */
   tellReactionsTick(): void {
@@ -1728,6 +1730,8 @@ export class GameSessionAdapter implements GameSession {
         } else if (reaction === "exploit") {
           const k = `${observer}|${target}`;
           this.tellExploit[k] = addExploit(this.tellExploit[k] ?? 0);
+        } else if (reaction === "avoid" && this.live?.playedGame === true) {
+          this.tellAvoidUntil[key] = week + TELL_REACTION.avoidWeeks; // ORW-32: the avoid now bends movement (played games only; headless sims keep recording only)
         }
       }
     }
@@ -2422,6 +2426,8 @@ export class GameSessionAdapter implements GameSession {
   private disclosureEpoch = 0;
   /** B33: the routed confide decision per (npc, week, phase) - memory only. */
   private confideRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
+  /** ORW-261: one orientation-disclosure decision per (npc, week, phase), like `confideRoutes`. */
+  private orientationRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
   private noteDisclosure(npc: EntityId, event: DisclosureEvent): void { this.beatDisclosures.set(npc, { epoch: this.disclosureEpoch, event }); }
   /** What `npc` did about telling the player something THIS beat (confirm / slip / deflect), or undefined when the engine rolled nothing for them. */
   disclosureThisBeat(npc: EntityId): DisclosureEvent | undefined {
@@ -4067,7 +4073,7 @@ export class GameSessionAdapter implements GameSession {
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
       ...(this.tellOnsetCount > 0 ? { tellOnsetCount: this.tellOnsetCount } : {}),
-      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks } } : {}),
+      ...(this.tellReactionTicks > 0 ? { tellReactions: { exploit: { ...this.tellExploit }, reactedWeek: { ...this.tellReactedWeek }, counts: { ...this.tellReactionCounts }, ticks: this.tellReactionTicks, ...(Object.keys(this.tellAvoidUntil).length ? { avoidUntil: { ...this.tellAvoidUntil } } : {}) } } : {}),
       // issue #792: the SEATED sub-zones (player-facing view) — persisted tenure-style so drift/cluster
       // history survives a restart (0007, only-forward) and never reseeds from scratch. Absent/empty ⇒
       // omitted (byte-identical to a pre-feature save; the next tick seats fresh). Vault-free position.
@@ -4394,6 +4400,7 @@ export class GameSessionAdapter implements GameSession {
     this.tellOnsetCount = core.tellOnsetCount ?? 0;
     this.tellExploit = { ...(core.tellReactions?.exploit ?? {}) };
     this.tellReactedWeek = { ...(core.tellReactions?.reactedWeek ?? {}) };
+    this.tellAvoidUntil = { ...(core.tellReactions?.avoidUntil ?? {}) };
     this.tellReactionCounts = { ...(core.tellReactions?.counts ?? {}) };
     this.tellReactionTicks = core.tellReactions?.ticks ?? 0;
     // issue #792: restore the SEATED sub-zones (acquired drift/cluster history survives a restart). A
@@ -4780,7 +4787,39 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * ORW-87 - the NPC memory ledger bends who an NPC seeks or avoids: a remembered favor (negative tilt) draws them toward that houseguest (it turns an avoid into a seek: a favor is repaid), a remembered grudge keeps them away (an existing
+   * avoid is sharpened; an existing toward-pull, e.g. a rival to work, is left alone). Played games only (the caller gates; headless sims never reach this, so they stay byte-identical);
+   * no rng; a pure read of `memoryTiltFor`.
+   */
+  private applyMemoryToPulls(id: EntityId, pulls: MovementPull[]): void {
+    for (const other of this.presenceActive()) {
+      if (other === id) continue;
+      const tilt = this.memoryTiltFor(other, id);
+      if (Math.abs(tilt) < MOVEMENT_MEMORY.minTilt) continue;
+      const scale = 1 + MOVEMENT_MEMORY.gain * Math.abs(tilt);
+      const existing = pulls.find((p) => p.target === other);
+      if (tilt < 0) { // favor
+        if (existing) { existing.avoid = false; existing.weight *= scale; } else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false });
+      } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
+      else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
+    }
+  }
+
+  /** ORW-32 - an observer who chose to AVOID a visibly rattled houseguest keeps away from them while the avoid lasts: any pull toward them becomes an avoid. Played games only (caller gates); no rng; engine-only state. */
+  private applyTellAvoidToPulls(id: EntityId, pulls: MovementPull[]): void {
+    const week = this.week;
+    for (const other of this.presenceActive()) {
+      if (other === id || (this.tellAvoidUntil[`${id}|${other}`] ?? -1) < week) continue;
+      const existing = pulls.find((p) => p.target === other);
+      if (existing) { existing.avoid = true; existing.weight = Math.max(existing.weight, MOVEMENT_INTENT.minCharge * TELL_REACTION.avoidWeight); }
+      else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * TELL_REACTION.avoidWeight, avoid: true });
+    }
   }
 
   /** B35 - reads the holder's undelivered high-motive facts (wired by the registry; absent => no seeking). */
@@ -8278,6 +8317,37 @@ export class GameSessionAdapter implements GameSession {
     return best ? { npc: best.npc, desire: best.desire } : null;
   }
 
+  /**
+   * ORW-261 / spec 0141 - the UNPROMPTED variant ("their own choice"): an NPC who steps into the player's conversation by the desire clock (A8) may, in the same moment, volunteer a private orientation.
+   * Far rarer than the pressed path: a higher trust bar, no press, a further rarity draw, and a thin audience (the approacher is by definition now with the player). Same `routeDisclosure` authority on the dedicated `orientation-disclosure` side
+   * stream (cached per npc/week/phase: one decision per beat); only `share` tells; once per houseguest; played games only (headless never reaches it). Records the told-by fact and returns the sentence.
+   */
+  private volunteerOrientation(npcId: EntityId): string | undefined {
+    const live = this.live;
+    const orientation = this.privateOrientations[npcId];
+    if (!live || live.playedGame !== true || !orientation || live.orientationTold?.[npcId]) return undefined;
+    const npc = this.house?.npcs.find((n) => n.id === npcId);
+    if (!npc) return undefined;
+    const signals = this.confidenceSignalsFor(npc);
+    if (signals.npcTrust < ORIENTATION_DISCLOSURE.unpromptedTrustBar) return undefined;
+    const key = `volunteer:${npcId}:${live.week}:${this.phase}`;
+    let route = this.orientationRoutes.get(key);
+    if (route === undefined) {
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`));
+      route = routeDisclosure({
+        signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+        pressure: ORIENTATION_DISCLOSURE.unpromptedPressure, risk: ORIENTATION_DISCLOSURE.risk, roll: rng.next(),
+      });
+      if (route === "share" && rng.next() >= ORIENTATION_DISCLOSURE.unpromptedRarity) route = "hold";
+      this.orientationRoutes.set(key, route);
+    }
+    if (route !== "share") return undefined;
+    const said = orientationDisclosureText(orientation);
+    this.onConfide?.(npcId, said, 0.9);
+    live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
+    return said;
+  }
+
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
   private noteApproach(npc: EntityId): void {
     const live = this.live!;
@@ -8552,7 +8622,8 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR }; }
+      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
     }
   }
 
@@ -10817,6 +10888,12 @@ export class GameSessionAdapter implements GameSession {
     return { kind: "safety", terms };
   }
 
+  /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
+  private ownPushAgainstPlayer(npcId: EntityId): number {
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
+    return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
+  }
+
   private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
@@ -10835,6 +10912,7 @@ export class GameSessionAdapter implements GameSession {
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
+      ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
@@ -11194,6 +11272,33 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-261 / spec 0141 - a houseguest with a PRIVATE orientation may, on a pressed confide the engine already let through (trusted, in the room, truthful), choose to tell the player. Never forced:
+   * the same `routeDisclosure` authority decides (risk = the houseguest's own stakes, pressure below a straight confidence) from a dedicated per-(npc, week, phase) side stream, a trust bar guards it, and only
+   * `share` tells (a `slip` or `hold` tells nothing, and a hold is indistinguishable from "nothing to tell"). Told once per houseguest. Played games only (headless sims never reach it). Returns the
+   * sentence to voice (the caller records it: the normal path inside the confidence's own told-by fact, the repeat path as its own); the orientation reaches the player by no other route.
+   */
+  private maybeShareOrientation(npcId: EntityId, signals: ConfidenceSignals, npc: { character: { strategyStyle?: StrategyStyle } }): string | undefined {
+    const live = this.live;
+    const orientation = this.privateOrientations[npcId];
+    if (!live || live.playedGame !== true || !orientation || live.orientationTold?.[npcId]) return undefined;
+    if (signals.npcTrust < ORIENTATION_DISCLOSURE.trustBar) return undefined;
+    const key = `${npcId}:${live.week}:${this.phase}`;
+    let route = this.orientationRoutes.get(key);
+    if (route === undefined) {
+      route = routeDisclosure({
+        signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+        pressure: ORIENTATION_DISCLOSURE.pressure, risk: ORIENTATION_DISCLOSURE.risk,
+        roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`)).next(),
+      });
+      this.orientationRoutes.set(key, route);
+    }
+    if (route !== "share") return undefined;
+    const said = orientationDisclosureText(orientation);
+    live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
+    return said;
+  }
+
+  /**
    * 0075 — the trust-gated confidence (the single authority). The model presses the ally and calls this;
    * the ENGINE decides everything (whether they open up, how much, true or a lie) and RECORDS the
    * disclosure as the player's knowledge. Vault-safe by construction: an undisclosed secret is never
@@ -11254,7 +11359,9 @@ export class GameSessionAdapter implements GameSession {
     const prior = this.confideState[npcId];
     if (decision.truthful && prior?.truthful
       && this.tierRank(decision.tier) <= this.tierRank(prior.tier)) {
-      return { disclosed: true, tier: prior.tier, truthful: true, content: discloseTrue(secret, prior.tier) };
+      const orientationSaid = this.maybeShareOrientation(npcId, signals, npc);
+      if (orientationSaid) { this.onConfide?.(npcId, orientationSaid, 0.9); this.persist(); }
+      return { disclosed: true, tier: prior.tier, truthful: true, content: [discloseTrue(secret, prior.tier), orientationSaid].filter(Boolean).join(" ") };
     }
 
     // 0075 — the PASSIVE LIE-CATCH (spec open-Q #4). A genuine, truthful disclosure from a houseguest who
@@ -11265,7 +11372,8 @@ export class GameSessionAdapter implements GameSession {
     // beat you catch them out). The player lever only ⇒ never on the seeded sim path ⇒ byte-identical.
     const catchingLie = decision.truthful && prior?.truthful === false;
 
-    const content = decision.truthful ? discloseTrue(secret, decision.tier) : fabricate(rng, secret.kind);
+    const orientationSaid = decision.truthful ? this.maybeShareOrientation(npcId, signals, npc) : undefined;
+    const content = [decision.truthful ? discloseTrue(secret, decision.tier) : fabricate(rng, secret.kind), orientationSaid].filter(Boolean).join(" ");
     // Record it as the player's knowledge through the in-game `told-by` pathway (0002, E9) — so it is
     // correctly Journal-visible knowledge, never Vault content. A lie is recorded the same way (the
     // player believes it); the engine knows it is false (`confideState.truthful`).
@@ -13751,7 +13859,7 @@ export class GameSessionAdapter implements GameSession {
       ...(playerDossier !== undefined ? { playerDossier } : {}),
       // 0118: the telegraphed day schedule (present only when the per-conversation clock is live).
       ...(daySchedule ? { daySchedule } : {}),
-      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire } } : {}), // A8: an NPC is cutting into the conversation (names only)
+      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire, ...(this.live.interruption.tells ? { tells: this.live.interruption.tells } : {}) } } : {}), // A8: an NPC is cutting into the conversation (names only)
     };
   }
 

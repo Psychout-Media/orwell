@@ -141,6 +141,12 @@
         font-size: .65rem; line-height: 1.15; text-align: center; max-width: 52px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .82;
       }
+      /* ORW-246c: the empty-room chip owns an OPAQUE dark pill + light ink. The ambient notice card is glass, so inherited ink composited over whatever wallpaper sits behind it (dark ink on teal measured 3.63:1
+         in the a11y matrix; even black cannot clear 4.5 on that teal, only light ink can). A solid pill makes the contrast independent of theme and wallpaper (~15:1). */
+      #orwell-room-strip .ors-alone {
+        display: inline-block; font-size: .85rem; padding: .15rem .65rem; border-radius: 999px;
+        background: #14181f; color: #f2f5f8; opacity: 1;
+      }
       @media (max-width: 480px) {
         #orwell-room-strip .ors-row { gap: 6px; }
         #orwell-room-strip .ors-chip { width: 42px; }
@@ -262,7 +268,6 @@
           alone = document.createElement("div");
           alone.className = "ors-alone";
           alone.textContent = "Just you here";
-          alone.style.cssText = "font-size:.85rem;opacity:.75;padding:.15rem 0;";
           aloneBody.appendChild(alone);
         }
       }

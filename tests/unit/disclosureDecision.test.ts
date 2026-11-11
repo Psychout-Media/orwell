@@ -16,6 +16,17 @@ describe("B10 S1 - disclosureDecision", () => {
     expect(odds({ motive: 0.9 }).share).toBeGreaterThan(odds({ motive: 0.3 }).share);
     expect(odds({ holderTrustsListener: 0.9 }).share).toBeGreaterThan(odds({ holderTrustsListener: 0.4 }).share);
   });
+  // ORW-38 mutation sweep (#2135): each term below was droppable with the suite staying green.
+  it("share odds rise with the listener's trust in the holder and with a recorded press", () => {
+    expect(odds({ listenerTrustsHolder: 0.9 }).share).toBeGreaterThan(odds({ listenerTrustsHolder: 0.1 }).share);
+    expect(odds({ pressure: 0.9 }).share).toBeGreaterThan(odds({ pressure: 0 }).share);
+  });
+  it("a riskier (ungated) fact is shared less", () => {
+    expect(odds({ risk: 0.5 }).share).toBeLessThan(odds({ risk: 0.1 }).share);
+  });
+  it("a recorded press raises slip", () => {
+    expect(odds({ pressure: 1 }).slip).toBeGreaterThan(odds({ pressure: 0 }).slip);
+  });
   it("a crowd lowers deliberate sharing, bounded by the floor", () => {
     expect(odds({ audience: 3 }).share).toBeLessThan(odds({ audience: 0 }).share);
     expect(odds({ audience: 50, motive: 1, risk: 0 }).share).toBeGreaterThan(0);

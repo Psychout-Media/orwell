@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clampGuarded } from "../domain/num";
 
 /**
  * B10 / B11 slice 1 (design `info-copresence-design.md` S1) - the HOLDER'S CHOICE. When a holder and a listener share a room and the holder owns a fact the listener lacks, the engine draws ONE
@@ -46,7 +47,7 @@ export const DISCLOSURE = {
   lieAt: 0.8,
 } as const;
 
-const clamp = (x: number, lo = 0, hi = 1): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
+const clamp = (x: number, lo = 0, hi = 1): number => clampGuarded(x, lo, hi);
 
 /** The two bounded probabilities the roll is compared against - exposed so a test can prove monotonicity without sampling. */
 export function disclosureOdds(i: Omit<DisclosureInput, "roll">): { share: number; slip: number } {

@@ -45,9 +45,8 @@ def test_keyboard_tab_stops_in_the_composer_and_sidebar_show_a_visible_ring(_sta
     keyboard_reached = [s for s in visible if s["focusVisible"]]
     assert len(keyboard_reached) == len(visible), "every Tab stop must match :focus-visible (keyboard-modality focus)"
     bare = sorted({f"{s['tag']}#{s['id']}" for s in keyboard_reached if not s["ring"]})
-    # FINDING (ORW-27 / A87): the composer textarea shows NO outline, shadow or border change when reached by keyboard (the caret is its only indicator; WCAG 2.4.7 wants a visible ring).
-    # Recorded as the one known exception so this pass is green for everything else; when the composer gets a ring this assertion fails and the exception must be deleted.
-    assert bare == ["textarea#message"], f"keyboard focus stops with NO visible ring (expected only the known composer exception): {bare}"
+    # ORW-268: the composer used to be the one named exception (its CSS said `outline: none`); it now has a keyboard ring, so EVERY keyboard Tab stop must show one.
+    assert bare == [], f"keyboard focus stops with NO visible ring: {bare}"
     ids = {x["id"] for x in visible}
     assert "message" in ids, "the pass must reach the composer"
     assert any(i.startswith("sidebar-") for i in ids), f"the pass must reach the sidebar controls: {sorted(ids)}"

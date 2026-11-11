@@ -694,9 +694,10 @@ const CASTING_INTERVIEW_PROMPT = [
   `  strategy styles: ${ALL_STRATEGY_STYLES.join(", ")}`,
   "",
   "THE REVEAL — createCharacter returns the player's CASTING CARD: their character type, strategy",
-  "style, and the producer's read of their strengths as words. Read it back cleanly in your own",
-  "producer voice — confirm who they're cast as, then move straight into the premiere.",
-  "NEVER state or invent any numeric stat or rating, for them or anyone; the game holds the numbers",
+  "style, and the producer's read of their strengths as words. Read it back in your own",
+  "producer voice — confirm who they're cast as, then STOP: the game stages the premiere. Narrate no house",
+  "entry or houseguests inside.",
+  "NEVER state or invent any numeric stat or rating, for anyone; the game holds the numbers",
   "and never shows them.",
 ].join("\n");
 
@@ -1836,7 +1837,12 @@ function premiereEntrancesFragment(): string {
     "comes up, INVITE them with a plain \"your turn\" as a chat turn: never force it, never speak for them, " +
     "and move on if they let it pass. Call advanceGame to bring the next batch of speakers, and when the " +
     "game reports the toast done the circle is closed. ";
-  return base.slice(0, a) + replacement + base.slice(b);
+  // ORW-148: in the entrances flow the player is arrival N of 16 and is NOT inside until the game shows their own entrance.
+  const out = base.slice(0, a) + replacement + base.slice(b);
+  return out.replace(
+    "the player has just walked through the front door into the house for the very first time,",
+    "the player is arriving at the house for the very first time (the game stages their entrance in the arrival order: until the game shows the player's OWN entrance they are NOT inside \u2014 never narrate them walking in, standing in the room or being greeted before then),",
+  );
 }
 
 function premiereEntranceLines(

@@ -439,3 +439,17 @@ export function orwellBeatNodeView({ tool, beat, ok, output, expandHtml, esc, wa
   const innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(toolText)}</span>${statusHtml}${chevron}</div>${contentDiv}`;
   return { className, innerHTML, outcome };
 }
+
+// ORW-264 (R2, ADR 0015): the ONE pure parse of an advanceGame/submitDecision tool result into its Vault-free
+// AdvanceView, shared by the LIVE stream (chat.js tool_output: arms the decision card via `orwell:pending`
+// + the chyron via `orwell:announcements`) and the RELOAD path (chatRenderer.js storedAnnouncements: repaints the
+// chyron cards; the decision card itself re-arms from gameStatus.pending, never from a stored result).
+// Returns the parsed object ({pending?, announcements?, ...}; a non-object parse is normalized to {}), or null
+// when `tool` is not one of the two or the output is not JSON (fail-open: the caller does nothing).
+export function orwellAdvanceView(tool, output) {
+  if (tool !== 'advanceGame' && tool !== 'submitDecision') return null;
+  try {
+    const v = JSON.parse(output || '{}');
+    return (v && typeof v === 'object') ? v : {};
+  } catch (_) { return null; }
+}
