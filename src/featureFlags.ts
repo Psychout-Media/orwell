@@ -134,6 +134,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'defaultOn' },
   // ORW-101 / spec 0005 PO expansion: the NPC Houseguest's-Choice holder picks the strongest STRATEGIC sixth veto player for their game this week (role-aware, from hidden edges + comp stats), not merely their strongest bond. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_HC_STRATEGY', key: 'hcStrategy', parser: 'defaultOn' },
+  // ORW-271 slice 1: the append-only per-night day ledger (a floor entry at each turnIn + the FE-driven recordDaySummary write-back) for a played game. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_DAY_CONDENSE', key: 'dayCondense', parser: 'defaultOn' },
   // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'defaultOn' },
   // B7 / #2017 M3: open protective deals also feed the HOH's nominations. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
