@@ -8248,6 +8248,37 @@ export class GameSessionAdapter implements GameSession {
     return best ? { npc: best.npc, desire: best.desire } : null;
   }
 
+  /**
+   * ORW-261 / spec 0141 - the UNPROMPTED variant ("their own choice"): an NPC who steps into the player's conversation by the desire clock (A8) may, in the same moment, volunteer a private orientation.
+   * Far rarer than the pressed path: a higher trust bar, no press, a further rarity draw, and a thin audience (the approacher is by definition now with the player). Same `routeDisclosure` authority on the dedicated `orientation-disclosure` side
+   * stream (cached per npc/week/phase: one decision per beat); only `share` tells; once per houseguest; played games only (headless never reaches it). Records the told-by fact and returns the sentence.
+   */
+  private volunteerOrientation(npcId: EntityId): string | undefined {
+    const live = this.live;
+    const orientation = this.privateOrientations[npcId];
+    if (!live || live.playedGame !== true || !orientation || live.orientationTold?.[npcId]) return undefined;
+    const npc = this.house?.npcs.find((n) => n.id === npcId);
+    if (!npc) return undefined;
+    const signals = this.confidenceSignalsFor(npc);
+    if (signals.npcTrust < ORIENTATION_DISCLOSURE.unpromptedTrustBar) return undefined;
+    const key = `volunteer:${npcId}:${live.week}:${this.phase}`;
+    let route = this.orientationRoutes.get(key);
+    if (route === undefined) {
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`));
+      route = routeDisclosure({
+        signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
+        pressure: ORIENTATION_DISCLOSURE.unpromptedPressure, risk: ORIENTATION_DISCLOSURE.risk, roll: rng.next(),
+      });
+      if (route === "share" && rng.next() >= ORIENTATION_DISCLOSURE.unpromptedRarity) route = "hold";
+      this.orientationRoutes.set(key, route);
+    }
+    if (route !== "share") return undefined;
+    const said = orientationDisclosureText(orientation);
+    this.onConfide?.(npcId, said, 0.9);
+    live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
+    return said;
+  }
+
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
   private noteApproach(npc: EntityId): void {
     const live = this.live!;
@@ -8522,7 +8553,8 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR }; }
+      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
     }
   }
 
@@ -13691,7 +13723,7 @@ export class GameSessionAdapter implements GameSession {
       ...(playerDossier !== undefined ? { playerDossier } : {}),
       // 0118: the telegraphed day schedule (present only when the per-conversation clock is live).
       ...(daySchedule ? { daySchedule } : {}),
-      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire } } : {}), // A8: an NPC is cutting into the conversation (names only)
+      ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire, ...(this.live.interruption.tells ? { tells: this.live.interruption.tells } : {}) } } : {}), // A8: an NPC is cutting into the conversation (names only)
     };
   }
 

@@ -654,7 +654,7 @@ export interface LiveSeasonState {
    * when off => byte-identical. Persisted with the season.
    */
   desireApproachedAt?: Record<string, number>;
-  interruption?: { npc: string; desire: string; atHour: number };
+  interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: an UNPROMPTED private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   hangOutCount?: number;
   hangOutPulledDay?: number;
   hangOutLog?: Array<{ n: number; day: number; hour: number; beats: number; minutes: number; stopReason: string; detail?: Record<string, unknown> }>;

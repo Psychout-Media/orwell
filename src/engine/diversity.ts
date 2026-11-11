@@ -469,7 +469,11 @@ export function privateOrientationVaultId(sourceId: EntityId): string {
 }
 
 /** ORW-261 / spec 0141: placeholder tuning for a houseguest choosing to tell the player a private orientation. Trust bar guards it; risk = their own stakes; pressure sits below a straight confidence press. */
-export const ORIENTATION_DISCLOSURE = { trustBar: 0.5, risk: 0.55, pressure: 0.6 } as const;
+export const ORIENTATION_DISCLOSURE = {
+  trustBar: 0.5, risk: 0.55, pressure: 0.6,
+  /** the UNPROMPTED variant (nobody pressed): a higher trust bar, no press, and a further rarity draw - far rarer than the pressed path (spec 0141). */
+  unpromptedTrustBar: 0.75, unpromptedPressure: 0, unpromptedRarity: 0.35,
+} as const;
 
 /** ORW-261: the houseguest's own words when they choose to tell. Roles only; no label shown on any panel - the narrator voices it as speech. */
 export function orientationDisclosureText(orientation: Orientation): string {
