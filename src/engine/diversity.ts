@@ -472,7 +472,7 @@ export function privateOrientationVaultId(sourceId: EntityId): string {
 export const ORIENTATION_DISCLOSURE = {
   trustBar: 0.5, risk: 0.55, pressure: 0.6,
   /** the UNPROMPTED variant (nobody pressed): a higher trust bar, no press, and a further rarity draw - far rarer than the pressed path (spec 0141). */
-  unpromptedTrustBar: 0.75, unpromptedPressure: 0, unpromptedRarity: 0.35,
+  unpromptedTrustBar: 0.75, unpromptedPressure: 0, unpromptedRarity: 0.12,
 } as const;
 
 /** ORW-261: the houseguest's own words when they choose to tell. Roles only; no label shown on any panel - the narrator voices it as speech. */
