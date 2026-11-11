@@ -2116,4 +2116,34 @@ def setup_orwell_routes() -> APIRouter:
                    fields["surface"], fields["errorClass"], fields["detail"])
         return Response(status_code=204)
 
+    # ORW-270: the player sees the "technical interlude" line on a stream error; this beacon makes the
+    # CLIENT side of that attributable in journalctl. Same posture as /fe-report (player-context JS,
+    # not admin-gated, always 204, shape-validated, rate-limited per process), but logs at WARNING.
+    _client_error_limiter = RateLimiter(max_requests=30, window_seconds=60)
+
+    @router.post("/client-error")
+    async def orwell_client_error(request: Request):
+        try:
+            data = json.loads((await request.body()).decode("utf-8", "replace") or "{}")
+        except Exception:
+            return Response(status_code=204)
+        if not isinstance(data, dict):
+            return Response(status_code=204)
+        if not _client_error_limiter.check("client-error:process"):
+            return Response(status_code=204)
+        try:
+            from src.llm_core import _redact_for_log
+
+            def _clean(v, cap):
+                v = "" if v is None else str(v)
+                v = "".join(ch if (ch.isprintable() or ch == " ") else " " for ch in v)
+                return _redact_for_log(v, cap)
+            logger.warning(
+                "[orwell] client stream error: kind=%s status=%s session=%s message=%r",
+                _clean(data.get("kind"), 40), _clean(data.get("status"), 20),
+                _clean(data.get("sessionId"), 64), _clean(data.get("message"), 200))
+        except Exception:
+            pass
+        return Response(status_code=204)
+
     return router
