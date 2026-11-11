@@ -156,7 +156,7 @@ export function leaksBeatSeq(headline: string, beatSeq: number): boolean {
 
 /**
  * The Vault Wall announcement property, parameterised by run count. ORW-218: this property is ~8 s per run (a full season each) and used to be ONE 100-run test in ONE file,
- * 807 s on one worker (the whole long pole of the sharded unit and coverage legs). It now runs as five 20-run files (the *.property.test.ts siblings), 100 runs in total, so the
+ * 807 s on one worker (the whole long pole of the sharded unit and coverage legs). ORW-245: the old drive stalled right after the premiere (a held night), so a 'run' cost ~0.02 s and 100 runs checked almost nothing; a REAL season is ~10 s, so the budget is now 1 run per file (5 full seasons in total, ~1 min of CI time) - raise a file's count only with the CI budget in mind. It previously ran as five 20-run files (the *.property.test.ts siblings), 100 runs in total, so the
  * duration-balanced shard split can spread them. Seeds are random per run (fast-check), as before.
  */
 export function assertVaultWallAnnouncements(numRuns: number): void {
