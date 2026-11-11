@@ -601,3 +601,34 @@ def test_chat_events_verifies_session_ownership():
     end = CHAT_ROUTES_SRC.index("session_events.subscribe(session_id)", start)
     handler = CHAT_ROUTES_SRC[start:end]
     assert "_verify_session_owner(request, session_id)" in handler
+
+
+# ── ORW-185: the E22 guard must not phantom-fold OOC asides or double-fold a staged scene ──
+
+
+def test_orw185_ooc_aside_turn_is_not_force_recorded(monkeypatch):
+    calls = _capture_record(monkeypatch)
+    narration = "((" + "Three houseguests are still on the block this week. " * 3 + "))"
+    assert _run(chat_helpers.ensure_turn_recorded("u", "ooc: who is left?", narration, [])) is False
+    assert _run(chat_helpers.ensure_turn_recorded("u", "((who is left?))", "x" * 200, [])) is False
+    assert calls == []
+
+
+def test_orw185_scene_already_staged_by_the_belt_is_not_double_folded(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    calls = _capture_record(monkeypatch)
+    fold_ledger.stage_pending_fold("u", "sess", content="c", with_ids=["npc:1"], kind="bonding",
+                                   consequence=None, felt_minutes=30, idempotency_key="k")
+    narration = "The kitchen goes quiet as the player walks in. " * 5
+    assert _run(chat_helpers.ensure_turn_recorded("u", "hi", narration, [], session_id="sess")) is False
+    assert calls == []
+    # a session with nothing staged still gets the fallback (guard not weakened)
+    assert _run(chat_helpers.ensure_turn_recorded("u", "hi", narration, [], session_id="other")) is True
+    assert len(calls) == 1
+    fold_ledger.clear_all()
+
+
+def test_orw185_call_site_passes_the_session_id():
+    i = CHAT_ROUTES_SRC.index("ensure_turn_recorded(\n")
+    assert "session_id=session" in CHAT_ROUTES_SRC[i:i + 400]
