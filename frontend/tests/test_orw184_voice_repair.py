@@ -11,7 +11,7 @@ Root cause, from replaying the 2026-11-06 authoring replies through `voice_confl
   catchphrases as a bonus (a bad one is omitted, never a whole-voice failure), but the FE check dropped
   the whole voice for it.
 
-The fix (behind `ORWELL_VOICE_REPAIR`, default off; flag off is byte-identical to the legacy check):
+The fix (behind `ORWELL_VOICE_REPAIR`, default ON since ORW-242; =0 is byte-identical to the legacy check):
 reason codes per field, the engine's own dial values are never "degenerate", a bad optional/list entry is
 removed alone, and any other bad dial is replaced by the SEEDED dial from the card clause, so the rest of
 the authored voice survives. Only an unrepairable voice (a bad signature, or no seeded dial to repair
@@ -76,7 +76,7 @@ def repair_on(monkeypatch):
 
 @pytest.fixture
 def repair_off(monkeypatch):
-    monkeypatch.delenv(FLAG, raising=False)
+    monkeypatch.setenv(FLAG, "0")  # default is ON since ORW-242; the legacy whole-voice drop is the explicit opt-out
 
 
 def _voice(**overrides):
@@ -322,11 +322,14 @@ def test_flag_parsing(monkeypatch):
     for on in ("1", "true", "yes", "on", "TRUE"):
         monkeypatch.setenv(FLAG, on)
         assert ca.voice_repair_enabled() is True
-    for off in ("", "0", "false", "no", "off"):
+    for off in ("0", "false", "no", "off", "OFF"):
         monkeypatch.setenv(FLAG, off)
         assert ca.voice_repair_enabled() is False
+    # default ON (ORW-242): unset or empty keeps the authored voice and repairs only the failing dial
     monkeypatch.delenv(FLAG, raising=False)
-    assert ca.voice_repair_enabled() is False
+    assert ca.voice_repair_enabled() is True
+    monkeypatch.setenv(FLAG, "")
+    assert ca.voice_repair_enabled() is True
 
 
 # ═════════════════════ the shared vocabulary fixture (FE half of the drift gate) ═════════════════════
