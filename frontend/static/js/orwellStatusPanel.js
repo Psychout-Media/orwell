@@ -26,18 +26,15 @@ import { onNarrowChange } from './platform.js';
   let timer = null;
 
   async function fetchStatus() {
-    const r = await fetch("/api/orwell/status", { credentials: "same-origin" });
-    if (!r.ok) throw new Error("status " + r.status);
-    return r.json();
+    // ORW-165: the shared game-state store (one fetch + one snapshot for every panel); a catch-up refetch forces.
+    return window.OrwellGame.get("status", { force: _catchupTries > 0 });
   }
 
   // The roster (C21): names + status only — Vault-free, exactly what a houseguest sees on
   // the memory wall. Best-effort: if /state fails the panel still shows the ceremony rows.
   async function fetchState() {
     try {
-      const r = await fetch("/api/orwell/state", { credentials: "same-origin" });
-      if (!r.ok) return null;
-      return await r.json();
+      return await window.OrwellGame.get("state", { force: _catchupTries > 0 });
     } catch (_) { return null; }
   }
 
