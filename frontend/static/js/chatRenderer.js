@@ -10,7 +10,7 @@ import spinnerModule from './spinner.js';
 import { bindMenuDismiss } from './escMenuStack.js';
 import { matchModelKey } from './model/matchKey.js';
 import { isNarrow } from './platform.js';
-import { ORWELL_TOOL_BEATS, orwellBeatOutcome, orwellBeatNodeView, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
+import { ORWELL_TOOL_BEATS, orwellBeatOutcome, orwellBeatNodeView, orwellAdvanceView, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
 import { detectOocAside } from './orwellOocAside.js';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
@@ -2197,8 +2197,9 @@ function storedAnnouncements(metadata) {
   take(metadata.announcements);
   const evs = Array.isArray(metadata.tool_events) ? metadata.tool_events : [];
   for (const ev of evs) {
-    if (!ev || (ev.tool !== 'advanceGame' && ev.tool !== 'submitDecision') || typeof ev.output !== 'string') continue;
-    try { take((JSON.parse(ev.output) || {}).announcements); } catch (_) { /* a truncated/non-JSON output carries none */ }
+    if (!ev || typeof ev.output !== 'string') continue;
+    const adv = orwellAdvanceView(ev.tool, ev.output);  // ORW-264: the SAME parse as the live seam; null = not an advance tool / non-JSON
+    if (adv) take(adv.announcements);
   }
   return out;
 }
