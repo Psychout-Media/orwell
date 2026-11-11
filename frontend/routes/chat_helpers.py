@@ -3151,7 +3151,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     _n15 = None if desync else _uncommitted_player_choice(text, after)
     # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
     _n16 = None if desync else (_comp_started_before_due(text, after) or _comp_replayed_when_none_running(text, after))
-    _clk = None if desync else _clock_misstated(text, after)
+    _clk = None if desync else (_clock_misstated(text, after) or _time_of_day_words_misstated(text, after))
     if _a9 or _f3 or _n1 or _n3 or _n15 or _n16 or _clk:
         desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16, _clk) if x)
 
@@ -4802,6 +4802,60 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
 
 
 
+# ORW-79 (A95): the exact clock is in the prompt, yet the narrator still sets the scene with "afternoon light" at a morning clock. `_clock_misstated` only checks an explicit "it's H:MM". This is its scene-setting
+# sibling: a present-tense period-of-day LIGHT phrase ("the afternoon sun", "evening light", "morning glow", "dusk light") whose period disagrees with the engine clock. Same style as the rest of the desync
+# family: closed-set (what time of day it is), post-turn, a next-turn re-ground, never an edit of creative prose. Deliberately narrow: only light/sun/glow phrases (not "this morning", which is a time reference
+# a flashback or a plan may use), only present-tense sentences (any past / future / memory / hypothetical cue exempts it), and a phrase within the boundary tolerance of its own period is accepted.
+_TOD_PERIODS = (("morning", 8 * 60, 12 * 60), ("afternoon", 12 * 60, 16 * 60), ("evening", 16 * 60, 20 * 60), ("night", 20 * 60, 24 * 60))
+_TOD_LIGHT_RE = re.compile(
+    r"\b(?:the\s+|that\s+|a\s+|its\s+)?(?:(late|early|mid)[- ])?(morning|afternoon|evening)(?:'s|\u2019s)?\s+(?:light|sun|sunlight|sunshine|glow|haze|rays)\b|"
+    r"\b(?:(dusk|twilight|sunset|sundown)\s+(?:light|glow|sky)|(?:the\s+)?(?:setting|late)\s+sun|(?:the\s+)?(?:rising|morning)\s+sun)\b",
+    re.IGNORECASE,
+)
+_TOD_EXEMPT_RE = re.compile(
+    r"\b(?:was|were|had|used\s+to|remember\w*|recall\w*|yesterday|earlier|last\s+(?:night|week|time)|back\s+then|once|ago|will|would|could|might|going\s+to|about\s+to|tomorrow|tonight|later|someday|if|imagine|suppose|when\s+(?:i|we|you|he|she|they)\s+(?:was|were))\b",
+    re.IGNORECASE,
+)
+_TOD_SUNLIT_WORD_PERIOD = {"dusk": "evening", "twilight": "evening", "sunset": "evening", "sundown": "evening", "setting": "evening", "rising": "morning"}
+
+
+def _tod_period_of(minute_of_day: int) -> str:
+    if minute_of_day < 8 * 60:
+        return "late-night"
+    for name, lo, hi in _TOD_PERIODS:
+        if lo <= minute_of_day < hi:
+            return name
+    return "night"
+
+
+def _time_of_day_words_misstated(text: str, live: dict) -> Optional[str]:
+    """A present-tense period-of-day light phrase that disagrees with the engine clock. None with no clock, an unparseable label, a past/future/hypothetical sentence, or a clock within `_CLOCK_TOLERANCE_MIN` of the named period."""
+    if not isinstance(live, dict) or not text:
+        return None
+    lab = live.get("clockLabel")
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    if not mm:
+        return None
+    eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+    text = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        if not sent.strip() or _TOD_EXEMPT_RE.search(sent):
+            continue
+        for m in _TOD_LIGHT_RE.finditer(sent):
+            named = (m.group(2) or "").lower() or _TOD_SUNLIT_WORD_PERIOD.get((m.group(3) or "").lower()) or ""
+            if not named:
+                tail = m.group(0).lower()
+                named = "evening" if "setting" in tail or "late sun" in tail else "morning"
+            span = {n: (lo, hi) for n, lo, hi in _TOD_PERIODS}.get(named)
+            if not span:
+                continue
+            lo, hi = span
+            if lo - _CLOCK_TOLERANCE_MIN <= eng < hi + _CLOCK_TOLERANCE_MIN:
+                continue
+            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + lab + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
+    return None
+
+
 # ORW-10: the endurance-finish shape the narrator used to replay a competition ("comes down to the last two", "grip fails", "the rig") and the way it named the winner ("It's Tara.", "Tara outlasts them").
 _COMP_FINISH_CTX_RE = re.compile(r"\b(?:last two|down to one|comes down to|the rig|grip (?:finally )?fails|outlast\w*|lets? go)\b", re.IGNORECASE)
 _COMP_FINISH_WINNER_RE = re.compile(
@@ -5155,7 +5209,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         _roll_cut_streak(_desync_key(user), _LAST_BEAT_SIG.get(_desync_key(user)))  # ORW-10: a new turn with no cut resets the streak (runs ahead of the cheap gate so prose-only turns count)
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
-        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or '')) or bool(_TOD_LIGHT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)
