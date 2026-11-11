@@ -10694,6 +10694,13 @@ async def _stream_agent_loop_impl(
         except Exception as _roster_err:
             logger.warning(f"[orwell] post-turn roster check failed: {_roster_err}")
 
+        # ORW-216 - a houseguest staged in a room the engine does not have them in: next-turn re-ground, corrected in character. Closed-set, post-turn, never edits prose.
+        try:
+            from routes.chat_helpers import record_post_turn_wrong_room_check
+            await record_post_turn_wrong_room_check(owner, _turn_narration_full)
+        except Exception as _wr_err:
+            logger.warning(f"[orwell] post-turn wrong-room check failed: {_wr_err}")
+
         # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
         try:
             from routes.chat_helpers import record_post_turn_false_premise_check
