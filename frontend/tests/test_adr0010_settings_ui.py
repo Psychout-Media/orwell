@@ -74,7 +74,7 @@ def test_keys_present_in_default_settings():
     assert DEFAULT_SETTINGS["openrouter_provider"] == {"only": ["novita"], "allow_fallbacks": False}
     assert DEFAULT_SETTINGS["token_spend_alert_usd"] == 0.0
     assert DEFAULT_SETTINGS["token_pin_threshold_tokens"] == 0
-    assert DEFAULT_SETTINGS["context_tiering_enabled"] is False
+    assert DEFAULT_SETTINGS["context_tiering_enabled"] is True
 
 
 def test_narrator_reasoning_control_surfaced_in_default_chat_model_card():

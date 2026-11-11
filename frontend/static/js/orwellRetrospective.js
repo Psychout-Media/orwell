@@ -259,6 +259,8 @@
       // the panel never rendered - each evictee's exit interview (0130), the weekly Diary-Room pull-quote reel
       // (#1396) and the player's OWN confessionals (0115). Render-only, textContent, NAMES only (the engine
       // pairs id+name / speaker display names; a raw id is never shown). Each section is skipped when empty.
+      // ORW-285 (#2412 note): a model-authored quote or message can carry a raw `npc:<id>`; never show it (names only).
+      const clean = (t) => String(t).replace(/npc:\d+/g, "someone");
       const section = (title, items) => {
         const hd = el("h3", "display:block;margin:12px 0 4px;font-size:inherit", title);
         vaultWrap.appendChild(hd);
@@ -269,22 +271,22 @@
       const exits = (unsealed.exitInterviews || []).filter((x) => x && x.evictee && x.evictee.name);
       if (exits.length) {
         section("The exit interviews", exits.map((x) =>
-          `Week ${x.week}: ${x.evictee.name} left ${x.stance || "quietly"}` + (x.message ? ` — “${x.message}”` : "") + "."));
+          `Week ${x.week}: ${x.evictee.name} left ${x.stance || "quietly"}` + (x.message ? ` — “${clean(x.message)}”` : "") + "."));
       }
       if (unsealed.finaleInterview && unsealed.finaleInterview.stance) {
         section("Your finale-night interview", [`You were ${unsealed.finaleInterview.stance}` +
-          (unsealed.finaleInterview.message ? ` — “${unsealed.finaleInterview.message}”` : "") + "."]);
+          (unsealed.finaleInterview.message ? ` — “${clean(unsealed.finaleInterview.message)}”` : "") + "."]);
       }
       const reel = [];
       for (const wk of (unsealed.pullQuoteReel || [])) {
         for (const q of (wk.quotes || [])) {
           if (q && q.quote && q.speaker) {
-            reel.push(`Week ${wk.week} — ${q.source === "player-diary" ? "your Diary Room" : q.speaker + " (confessional)"}: “${q.quote}”`);
+            reel.push(`Week ${wk.week} — ${q.source === "player-diary" ? "your Diary Room" : q.speaker + " (confessional)"}: “${clean(q.quote)}”`);
           }
         }
       }
       if (reel.length) section("The Diary Room reel", reel);
-      const mine = (unsealed.playerConfessionals || []).filter((c) => typeof c === "string" && c.trim());
+      const mine = (unsealed.playerConfessionals || []).filter((c) => typeof c === "string" && c.trim()).map(clean);
       if (mine.length) section("Your own confessionals", mine);
       // ENDGAME-1: the full hidden story, not just the latest 40 — a completed season with off-screen
       // sim, gossip diffusion, confessionals, threads, and seeded ties easily runs to hundreds of rows,
