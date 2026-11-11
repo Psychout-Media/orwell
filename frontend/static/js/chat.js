@@ -195,6 +195,28 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
   // scattered new string per call site.
   const _ENGINE_INTERRUPT_LINE =
     "Big Brother cuts to a brief technical interlude… hang tight, we'll be right back.";
+  // ORW-270: fire-and-forget beacon so a player-visible "technical interlude" is attributable in the
+  // server log. Never throws, never blocks, and dispatches nothing (no gamechanged event).
+  function _beaconStreamError(status, message, sessionId) {
+    try {
+      const body = JSON.stringify({
+        kind: 'stream-error',
+        status: status == null ? '' : String(status).slice(0, 20),
+        message: String(message == null ? '' : message).slice(0, 200),
+        sessionId: sessionId == null ? '' : String(sessionId).slice(0, 64),
+      });
+      let sent = false;
+      try {
+        if (navigator.sendBeacon) sent = navigator.sendBeacon('/api/orwell/client-error', new Blob([body], { type: 'application/json' }));
+      } catch (_) { sent = false; }
+      if (!sent) {
+        fetch('/api/orwell/client-error', {
+          method: 'POST', credentials: 'same-origin', keepalive: true,
+          headers: { 'Content-Type': 'application/json' }, body,
+        }).catch(() => {});
+      }
+    } catch (_) { /* a beacon is an addition, never new behavior */ }
+  }
 
   let API_BASE = '';
   // #1414 (R3 PR3): feed the extracted chatAttachments.js chat.js's live API_BASE. A closure over
@@ -2198,6 +2220,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                 const errMsg = isGameBuild()
                   ? _ENGINE_INTERRUPT_LINE
                   : rawErrMsg;
+                _beaconStreamError(json.status, rawErrMsg, sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId());
                 typewriterInto(roundHolder.querySelector('.body'), errMsg);
                 // ADR 0012 (GAP 2): keep the immediate live feedback, but mark the turn so the finally
                 // FORCE-reconciles this bubble to the persisted fallback — the agent loop saves a
@@ -3750,6 +3773,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                 // (`.body`, not a separate note) as the sibling branch above. Outside the game build
                 // (the general assistant) keep the raw, informative text for debuggability.
                 const errText = isGameBuild() ? _ENGINE_INTERRUPT_LINE : `[Error: ${json.error}]`;
+                _beaconStreamError(json.status, typeof json.error === 'string' ? json.error : (json.error && json.error.message), sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId());
                 const errDiv = document.createElement('div');
                 errDiv.style.cssText = 'color: var(--color-error); font-style: italic; padding: 4px 0;';
                 errDiv.textContent = errText;

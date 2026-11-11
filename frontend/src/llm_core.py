@@ -277,6 +277,38 @@ def _host_key(url: str) -> str:
     s = urlsplit(url)
     return f"{s.scheme}://{s.netloc}" if s.scheme and s.netloc else url
 
+_LOG_REDACT_RES = (
+    re.compile(r"(?i)authorization\s*[:=]\s*(?:bearer\s+)?[^\s,;\"']+"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{6,}"),
+    re.compile(r"(?i)(api[_-]?key|x-api-key)(\"?\s*[:=]\s*\"?)[^\s,;\"']+"),
+)
+
+
+def _redact_for_log(text, limit: int = 300) -> str:
+    """Whitespace-collapse, strip keys/Authorization text, cap length (log-safe)."""
+    t = " ".join(str(text or "").split())
+    t = _LOG_REDACT_RES[0].sub("Authorization: [redacted]", t)
+    t = _LOG_REDACT_RES[1].sub("Bearer [redacted]", t)
+    t = _LOG_REDACT_RES[2].sub("sk-[redacted]", t)
+    t = _LOG_REDACT_RES[3].sub(lambda m: m.group(1) + m.group(2) + "[redacted]", t)
+    return t[:limit]
+
+
+def _log_stream_failure(what, target_url, model, started, body=None) -> None:
+    """One WARNING per provider-stream failure so a player-visible interlude is attributable.
+    Host only (never the URL/query), never headers/payload/keys."""
+    try:
+        elapsed = time.monotonic() - started
+        msg = (f"[orwell] provider stream failed: {what} host={_host_key(target_url)} "
+               f"model={model} elapsed={elapsed:.1f}s")
+        if body is not None:
+            msg += f" body={_redact_for_log(body)!r}"
+        logger.warning(msg)
+    except Exception:
+        pass
+
+
 def _is_host_dead(url: str) -> bool:
     key = _host_key(url)
     with _host_health_lock:
@@ -2129,6 +2161,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         yield f'event: error\ndata: {json.dumps({"error": f"Upstream {_host_key(target_url)} unreachable (cooldown active)", "status": 503})}\n\n'
         return
     note_model_activity(target_url, model)
+    _stream_t0 = time.monotonic()
 
     # ── Native Ollama streaming ──
     if provider == "ollama":
@@ -2140,6 +2173,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 _clear_host_dead(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
+                    _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
                     friendly = _format_upstream_error(r.status_code, raw, target_url)
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                     return
@@ -2184,8 +2218,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             logger.warning(f"Ollama stream connect to {target_url} failed: {e}{_tail}")
             yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503, "error_type": "connect"})}\n\n'
         except httpx.ReadTimeout:
+            _log_stream_failure("read-timeout", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
         except httpx.NetworkError:
+            _log_stream_failure("network-error", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Network error", "status": 502})}\n\n'
         except Exception as e:
             logger.error(f"Ollama stream error: {e}")
@@ -2206,6 +2242,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 _clear_host_dead(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
+                    _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
                     friendly = _format_upstream_error(r.status_code, raw, target_url)
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                     return
@@ -2291,8 +2328,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             logger.warning(f"Anthropic stream connect to {target_url} failed: {e}{_tail}")
             yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503, "error_type": "connect"})}\n\n'
         except httpx.ReadTimeout:
+            _log_stream_failure("read-timeout", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
         except httpx.NetworkError:
+            _log_stream_failure("network-error", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Network error", "status": 502})}\n\n'
         except Exception as e:
             logger.error(f"Anthropic stream error: {e}")
@@ -2384,6 +2423,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             _diag["status"] = r.status_code
             if r.status_code != 200:
                 raw = (await r.aread()).decode(errors="replace")
+                _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
                 friendly = _format_upstream_error(r.status_code, raw, target_url)
                 yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                 return
@@ -2687,8 +2727,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         logger.warning(f"Stream connect to {target_url} failed: {e}{_tail}")
         yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503, "error_type": "connect"})}\n\n'
     except httpx.ReadTimeout:
+        _log_stream_failure("read-timeout", target_url, model, _stream_t0)
         yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
     except httpx.NetworkError:
+        _log_stream_failure("network-error", target_url, model, _stream_t0)
         yield f'event: error\ndata: {json.dumps({"error": "Network error", "status": 502})}\n\n'
     except Exception as e:
         logger.error(f"Stream error: {e}")

@@ -7585,6 +7585,13 @@ async def _stream_agent_loop_impl(
                 break
             # Forward error events from stream_llm to the frontend
             if chunk.startswith("event: error"):
+                try:
+                    from src.llm_core import _summarize_stream_error, _redact_for_log
+                    logger.warning(
+                        f"[orwell] agent stream error: round={round_num} user={_force_owner!r} "
+                        f"reason={_redact_for_log(_summarize_stream_error(chunk), 200)!r}")
+                except Exception:
+                    pass
                 _turn_had_error = True  # #872: mark the turn so the casting safety-net treats it as a stall
                 yield chunk
                 continue
