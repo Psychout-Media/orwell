@@ -184,8 +184,8 @@ is a **boundary test that dispatches the tool through `McpServer.callTool`** for
 The FE driver is a best-effort, **idempotent, fail-soft background task** in `frontend/src/`
 (`orwell_cast_authoring.py`, `orwell_prewarm.py`, `orwell_zeitgeist.py` — each: resolve a utility LLM
 via `_resolve_llm_fn`, optionally `web_search`, synthesize JSON, write back; **no model/provider ⇒ the
-engine's deterministic floor simply stands**). Kicked from `do_create_character`
-(`tool_implementations.py`); never blocks game start.
+engine's deterministic floor stands ONLY for the lanes that are not required**: the cast skeleton (genesis) and the deeper backstories (cast authoring) are REQUIRED under the default `strict` enrichment policy — Ryne, BDD card 30, 2026-11-11: "if it fails, it fails. I don't want a fallback" — so a failure latches the loud pre-finalize gate in `do_create_character` and the game does not start on a fallback cast; the world snapshot and the off-screen scene detail stay fail-soft, admin alert only). Kicked from `do_create_character`
+(`tool_implementations.py`); the required lanes can refuse game start, the rest never block it.
 
 ### The mirror gotcha: a prompt-advertised MODEL lever needs FE tool-wiring too (the lever-drift trap)
 

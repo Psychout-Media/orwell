@@ -72,17 +72,27 @@ def _send_and_snapshot(stack, entries, text, hold=False):
             entries[-1]["gate"] = gate
         for en in entries:
             STUB.script.append(en)
-        page.fill("#message", text)
-        page.keyboard.press("Enter")
+        # ORW-251d: send, then CONFIRM the user bubble landed; on a loaded CI runner the first Enter can be swallowed (onboarding scrim / composer not yet armed) and the turn never starts, which showed up as "the live turn
+        # never settled". Retry the send once if no user bubble appears (the stub script is only consumed by a request that reached it, so a resend is safe).
+        _users = "() => document.querySelectorAll('#chat-history .msg.msg-user').length"
+        users_before = page.evaluate(_users)
+        for _attempt in (1, 2):
+            page.fill("#message", text)
+            page.keyboard.press("Enter")
+            try:
+                page.wait_for_function("(n) => document.querySelectorAll('#chat-history .msg.msg-user').length > n", arg=users_before, timeout=10000)
+                break
+            except Exception:  # noqa: BLE001 - the send did not register; try once more
+                continue
         live = None
         mid = None
         # ORW-251: sample the first paint IN the page, once per painted frame (rAF), instead of from Python at ~150ms. Under CI load the Python-side evaluate() calls stall past the whole streaming window,
         # the poll never sees an unsettled bubble, and `mid` stays None (the flake). The in-page loop sees every painted frame, so it cannot miss a stream that lasts more than a frame.
         page.evaluate("""([snap, base, waitSrc]) => { window.__mid = null; const fn = eval(snap); const wait = new RegExp(waitSrc);
           const tick = () => { if (window.__mid) return; let s = null; try { s = fn(); } catch (e) {}
-            if (s && s.n > base && !s.footer && s.body && !wait.test(s.body)) { window.__mid = s; return; } requestAnimationFrame(tick); };
+            if (s && s.n > base && s.body && !wait.test(s.body)) { window.__mid = s; return; } requestAnimationFrame(tick); };
           requestAnimationFrame(tick); }""", [SNAP, base_n, _WAIT_LABEL.pattern])
-        for _ in range(160):
+        for _ in range(240):
             page.wait_for_timeout(150)
             if gate is not None and not gate.is_set():
                 if mid is not None or page.evaluate("window.__mid") or _ >= 130:
@@ -90,13 +100,13 @@ def _send_and_snapshot(stack, entries, text, hold=False):
             live = page.evaluate(SNAP)
             if live and live["n"] <= base_n:
                 continue  # the previous turn's bubble is still the last one - wait for THIS turn's
-            if live and not live["footer"] and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
-                mid = live  # first paint of the STREAMING bubble (body has text, not settled yet)
+            if live and live["body"] and not _WAIT_LABEL.match(live["body"]) and mid is None:
+                mid = live  # first paint of the reply (body has text). ORW-251c: NOT gated on "no footer" - a producer aside paints whole and the footer lands in the same step (measured: footer present while the stream is still held)
             if live and live["footer"]:
                 break
         if gate is not None:
             gate.set()
-        assert live and live["footer"], "the live turn never settled (no footer)"
+        assert live and live["footer"], f"the live turn never settled (no footer): last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
         page.wait_for_timeout(3500)

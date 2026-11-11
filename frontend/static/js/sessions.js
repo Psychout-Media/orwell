@@ -1431,6 +1431,33 @@ export async function loadSessions() {
   }
 }
 
+// ORW-197: narrator-bubble parity between the history rows and what painted. Pure + exported for tests.
+// Expected = assistant rows with visible text; rendered = fromHistory .msg-ai bubbles in the container.
+export function historyRenderParity(rows, container) {
+  let expected = 0;
+  for (const m of (rows || [])) {
+    if (!m || m.role !== 'assistant') continue;
+    const c = m.content;
+    const txt = typeof c === 'string' ? c
+      : (Array.isArray(c) ? c.filter(p => p && p.type === 'text').map(p => p.text).join('\n') : '');
+    if (txt && txt.trim()) expected++;
+  }
+  const rendered = container
+    ? container.querySelectorAll('.msg-ai[data-from-history="1"]').length : 0;
+  return { ok: rendered >= expected, expected, rendered };
+}
+
+function _beaconHistoryParity(sessionId, parity, note) {
+  const msg = 'narrator bubbles ' + parity.rendered + '/' + parity.expected + (note ? ' ' + note : '');
+  console.warn('[orwell] history render parity mismatch:', msg);
+  try {
+    const body = JSON.stringify({ kind: 'history-parity', status: '', message: msg, sessionId: String(sessionId || '').slice(0, 64) });
+    let sent = false;
+    try { if (navigator.sendBeacon) sent = navigator.sendBeacon('/api/orwell/client-error', new Blob([body], { type: 'application/json' })); } catch (_) { sent = false; }
+    if (!sent) fetch('/api/orwell/client-error', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
+  } catch (_) { /* a beacon is an addition, never new behavior */ }
+}
+
 export async function selectSession(id, { keepSidebar = false } = {}) {
   // Exit compare mode cleanly if active
   if (window.compareModule && window.compareModule.isActive()) {
@@ -1622,6 +1649,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     // Suppress per-message entrance animations during bulk history render
     if (chatHistory) chatHistory.classList.add('no-animate');
 
+    let _paintRows = null; // ORW-197: the history paint, kept callable for the one bounded parity repaint
     // Populate new content while invisible
     if (isOC) {
       if (window.chatModule && window.chatModule.showWelcomeScreen) window.chatModule.showWelcomeScreen();
@@ -1630,6 +1658,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
          <p>Messages will be routed through your OpenClaw agent. The agent has access to tools, memory, and skills configured in your OpenClaw workspace.</p>`,
         'OpenClaw');
     } else if (msgHistory.length) {
+      _paintRows = () => {
       for (const msg of msgHistory) {
         // F5: ALWAYS tag a history render, even when the persisted row has no metadata — else an
         // untagged static bubble makes a late observer's resumeStream dup-check treat it as an
@@ -1661,6 +1690,8 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
         }
         window.chatModule.addMessage(msg.role, markdownModule.renderContent(displayContent), modelName, meta);
       }
+      };
+      _paintRows();
     } else {
       if (window.chatModule && window.chatModule.showWelcomeScreen) window.chatModule.showWelcomeScreen();
       // Don't highlight empty sessions — feels like nothing is selected
@@ -1674,6 +1705,23 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     }
     if (_liveHoldersToKeep.length && chatHistory) {
       for (const el of _liveHoldersToKeep) { el.dataset.keptLive = '1'; chatHistory.appendChild(el); } // chatReconcile rebuilds a kept live holder at settle (it is never finalized in place)
+    }
+    // ORW-197: render-parity self-heal. If fewer narrator bubbles painted than the history has narrator
+    // rows, report it and repaint ONCE from the rows already fetched (no refetch, no loop). Pending
+    // optimistic sends and live holders are never fromHistory bubbles, so they are kept untouched.
+    if (_paintRows && chatHistory) {
+      try {
+        const _parity = historyRenderParity(msgHistory, chatHistory);
+        if (!_parity.ok) {
+          _beaconHistoryParity(id, _parity);
+          const _keep = Array.from(chatHistory.children).filter(el => !(el.dataset && el.dataset.fromHistory === '1'));
+          chatHistory.innerHTML = '';
+          _paintRows();
+          for (const el of _keep) chatHistory.appendChild(el);
+          const _after = historyRenderParity(msgHistory, chatHistory);
+          if (!_after.ok) _beaconHistoryParity(id, _after, 'after-retry');
+        }
+      } catch (e) { console.warn('history parity check error:', e); }
     }
     uiModule.scrollHistoryInstant();
 

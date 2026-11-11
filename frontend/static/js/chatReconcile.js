@@ -350,6 +350,7 @@ export function _setReconcileDeps(deps) {
    * (no dbId). Mirrors the sessions.js `wouldWipe` guard — such a bubble must SURVIVE any reconcile so
    * "what I typed goes in the bubble, verbatim, every time" can never be violated by the rebuild. */
   export function _isPendingOptimisticBubble(el) {
+    if (el && el.dataset && !el.dataset.dbId && el.classList && (el.classList.contains('msg-ai') || el.classList.contains('msg-system')) && el.querySelector('.stream-drop-retry')) return true;  // ORW-96: a no-[DONE] drop's Retry holder has no server row either - the rebuild must not erase the player's only recourse
     return !!(el && el.dataset && el.dataset.clientMsgId && !el.dataset.dbId);
   }
 
