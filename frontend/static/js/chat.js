@@ -114,6 +114,10 @@ import {
 import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner } from './chatStreamLoop.js';
 import { frameBatched, liveAddedElements } from './frameBatch.js';
 
+// ORW-183: the stream event types that make a run "rich" (tools, sources, research). A mirrored / reattached run that sees one of these is rebuilt from the DB at the end instead of being finalized in place.
+// The two background-stream readers each carried their own copy of this list (one as a regex, one as an || chain); this is the single definition both use.
+const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progress', 'agent_step', 'web_sources', 'rag_sources', 'research_progress', 'research_sources', 'research_findings', 'research_done']);
+
   // #1399: chat.js must be evaluated EXACTLY ONCE per page. It was previously loaded by two
   // different urls at once — app.js's bare `import './js/chat.js'` AND index.html's versioned
   // `<script src="chat.js?v=…">` — and two urls are two module records, so every module-level
@@ -4799,7 +4803,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                 _refreshLiveByline(holder);
               }
             }
-          } else if (/^(tool_start|tool_output|tool_progress|agent_step|web_sources|rag_sources|research_progress|research_sources|research_findings|research_done)$/.test(json.type)) {
+          } else if (_RICH_RUN_EVENT_TYPES.has(json.type)) {
             rich = true;
           }
         }
@@ -5420,11 +5424,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
             // F5 (dedup hardening): also capture the DB id so the finalize-in-place below stamps
             // data-db-id onto the canonical bubble (zero-churn adopt on a later reload, no duplicate).
             if (json.id) { savedDbId = json.id; holder.dataset.dbId = json.id; }
-          } else if (json.type === 'tool_start' || json.type === 'tool_output' ||
-                     json.type === 'tool_progress' || json.type === 'agent_step' ||
-                     json.type === 'web_sources' || json.type === 'rag_sources' ||
-                     json.type === 'research_progress' || json.type === 'research_sources' ||
-                     json.type === 'research_findings' || json.type === 'research_done') {
+          } else if (_RICH_RUN_EVENT_TYPES.has(json.type)) {
             rich = true;
           }
         }
