@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { DealLedger, type ReconcileSink } from "../../src/engine/deals";
+import { RelationshipModel } from "../../src/engine/relationships";
+import { SeededRandom } from "../../src/adapters/random/SeededRandom";
+import { npc } from "../../src/domain/ids";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import { conditionFor, actionBreaks, actionHonors, horizonOf, type Deal } from "../../src/domain/deal";
@@ -28,6 +32,46 @@ describe("the pure rule", () => {
     expect(actionHonors(d, { actor: "npc:a", kind: "vote-evict", targets: ["npc:c"], alternatives: ["npc:b", "npc:c"] })).toBe(true);
     expect(actionHonors(d, { actor: "npc:a", kind: "nominate", targets: ["npc:c"], alternatives: ["npc:b", "npc:c"] })).toBe(false);
     expect(actionHonors(d, { actor: "npc:a", kind: "vote-evict", targets: ["npc:c"], alternatives: ["npc:c", "npc:d"] })).toBe(false); // the partner was never on the block
+  });
+});
+
+describe("expiry is neutral when the promise was never tested (coordinator ruling on #2405)", () => {
+  const A = npc(1), B = npc(2), C = npc(3);
+  const snap = (rel: RelationshipModel) => JSON.stringify([rel.edge(A, B), rel.edge(B, A)]);
+  const sinkFor = (rel: RelationshipModel): ReconcileSink => ({ rel, rng: new SeededRandom(7), dealDepth: true, reputation: () => { reps.n++; } });
+  const reps = { n: 0 };
+
+  it("an untested conditional expires: not kept, no reliability / reputation change for either party, no longer binding", () => {
+    const rel = new RelationshipModel(0.5), ledger = new DealLedger();
+    reps.n = 0;
+    const d = ledger.make([A, B], "conditional", "keep each other if on the block", undefined, 1);
+    const before = snap(rel);
+    expect(ledger.expireWeekScoped(2)).toEqual([]); // nothing resolved "kept"
+    expect(d.status).not.toBe("kept");
+    expect(ledger.forParty(A)).toHaveLength(0);
+    expect(ledger.open()).toHaveLength(0);
+    expect(snap(rel)).toBe(before);
+    expect(reps.n).toBe(0);
+    // a later vote against the former partner is no betrayal: the pact is gone
+    ledger.reconcile({ actor: A, kind: "vote-evict", targets: [B] }, sinkFor(rel));
+    expect(snap(rel)).toBe(before);
+  });
+  it("a tested one still credits: the vote that spares the partner resolves it kept and builds reliability", () => {
+    const rel = new RelationshipModel(0.5), ledger = new DealLedger();
+    reps.n = 0;
+    const d = ledger.make([A, B], "conditional", "keep each other if on the block", undefined, 1);
+    const before = snap(rel);
+    const out = ledger.reconcile({ actor: A, kind: "vote-evict", targets: [C], alternatives: [B, C] }, sinkFor(rel));
+    expect(out.kept).toContain(d);
+    expect(d.status).toBe("kept");
+    expect(snap(rel)).not.toBe(before);
+    expect(reps.n).toBeGreaterThan(0);
+  });
+  it("other week-scoped kinds still resolve kept on expiry (unchanged)", () => {
+    const ledger = new DealLedger();
+    const v = ledger.make([A, B], "vote", "a vote", undefined, 1);
+    expect(ledger.expireWeekScoped(2)).toEqual([v]);
+    expect(v.status).toBe("kept");
   });
 });
 

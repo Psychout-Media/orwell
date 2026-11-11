@@ -248,6 +248,7 @@ export class DealLedger {
    */
   expireWeekScoped(currentWeek: number): Deal[] {
     const resolved: Deal[] = [];
+    const untested: Deal[] = [];
     for (const deal of this.deals) {
       if (deal.status !== "open") continue;
       // 0109 / #1993: an explicit negotiated term OVERRIDES the kind-implied horizon (a `safety` deal promised
@@ -256,10 +257,14 @@ export class DealLedger {
         && horizonOf(deal.kind) === "week" && deal.madeWeek !== undefined && deal.madeWeek < currentWeek;
       const negotiatedTermPassed = deal.expiresWeek !== undefined && currentWeek > deal.expiresWeek;
       if (kindHorizonPassed || negotiatedTermPassed) {
+        // 0142 (coordinator ruling on #2405): a `conditional` pact still OPEN when its term ends was never TESTED (a tested one resolves at the vote: kept if honored, broken if not), so nobody kept
+        // anything. It is NOT marked `kept` (that status earns goodwill / "keeps their word" reads) and folds nothing either way: it is dropped from the live ledger (the formation event stays in the record).
+        if (deal.kind === "conditional") { untested.push(deal); continue; }
         deal.status = "kept";
         resolved.push(deal);
       }
     }
+    if (untested.length > 0) this.deals = this.deals.filter((d) => !untested.includes(d));
     return resolved;
   }
 
