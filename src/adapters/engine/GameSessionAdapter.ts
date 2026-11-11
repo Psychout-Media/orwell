@@ -8124,6 +8124,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
+      ...(this.hcStrategyEnabled && this.live?.playedGame === true ? { hcStrategyFor: (c: EntityId, h: EntityId) => this.hcStrategyFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.driveDecisionsEnabled && this.campaignsEnabled ? { drivePushFor: (t: EntityId, d: EntityId) => this.drivePushForDecider(t, d) } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
@@ -12029,6 +12030,35 @@ export class GameSessionAdapter implements GameSession {
     const bel = this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? this.beliefNomTiltFor(candidate, holder) : 0;
     const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(candidate) && candidate !== holder) ? 0.1 : 0;
     return Math.max(-1, Math.min(1, -(mem + bel) + owed));
+  }
+
+  /** ORW-101 - the strategic Houseguest's Choice (spec 0005 PO expansion). ON by default; `=0` turns it off. Adapter-provided ctx hook only (the headless calibration harness has no adapter => byte-identical); draws no rng. */
+  private hcStrategyEnabled = flagDefaultOn("ORWELL_HC_STRATEGY");
+  setHcStrategyEnabled(on: boolean): void { this.hcStrategyEnabled = on; }
+  /**
+   * ORW-101 - how much the NPC `holder`'s GAME this week wants `candidate` as the sixth veto player, beside the bond (which `chooseStrongestBond` already scores) and memory. Reads the hidden
+   * edges + competition stats; role-aware: a nominee wants a strong player who would actually save them (the candidate's own trust in the holder); the HOH wants a player who would NOT rescue a
+   * nominee; a bystander protecting a nominated ally wants a strong player that nominee trusts, else keeps rivals (strong or threatening) out. Deterministic, no rng, bounded to [-1, 1].
+   */
+  hcStrategyFor(candidate: EntityId, holder: EntityId): number {
+    if (!this.hcStrategyEnabled || holder === PLAYER || candidate === holder) return 0;
+    const noms = this.live?.nominees;
+    if (!noms) return 0;
+    const st = this.statsOf(candidate);
+    const strength = (st.physical + st.mental) / 2 - 0.5;
+    const rel = this.rel;
+    let s: number;
+    if (noms.includes(holder)) {
+      s = 0.8 * (rel.edge(candidate, holder).trust - 0.5) + 0.6 * strength;
+    } else if (this.live?.hoh === holder) {
+      const rescue = Math.max(...noms.map((n) => rel.bondStrength(candidate, n)));
+      s = -0.8 * (rescue - 0.5) - 0.2 * strength;
+    } else {
+      const ally = noms.filter((n) => n !== candidate).sort((a, b) => rel.bondStrength(holder, b) - rel.bondStrength(holder, a))[0];
+      if (ally !== undefined && rel.vetoSaveScore(holder, ally) > 0.5) s = 0.6 * strength + 0.5 * (rel.bondStrength(candidate, ally) - 0.5);
+      else s = -0.6 * strength - 0.5 * rel.edge(holder, candidate).threat;
+    }
+    return Math.max(-1, Math.min(1, s));
   }
 
   /** B7 M1b - who approaches the player reads memory too (approved tie-in #2). OFF unless exactly `ORWELL_APPROACH_MEMORY=1`; never-flipped. OFF => no bias passed => byte-identical. */
