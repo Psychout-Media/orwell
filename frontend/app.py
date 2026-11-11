@@ -433,7 +433,16 @@ class _RevalidatingStatic(StaticFiles):
         return resp
 
 
-app.mount("/static", _RevalidatingStatic(directory="static"), name="static")
+# ORW-164 S1: gzip ONLY the static mount (text assets >= 1000 B when the client sends Accept-Encoding:
+# gzip). NEVER whole-app: GZipMiddleware would buffer the SSE chat stream / WS mirror. The wrapper sits
+# outside _RevalidatingStatic, so Cache-Control: no-cache, ETag and 304 pass through untouched.
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+
+app.mount(
+    "/static",
+    GZipMiddleware(_RevalidatingStatic(directory="static"), minimum_size=1000),
+    name="static",
+)
 
 # ========= GENERATED IMAGES =========
 @app.get("/api/generated-image/{filename}")
