@@ -175,6 +175,12 @@ describe("#1106/E7 — a supplementary-tick save failure is CONTAINED (the commi
     // live loop moves), which is exactly the commit whose supplementary tick we want to sabotage.
     let view = sb.session.advanceGame();
     for (let i = 0; i < 10 && !view.pending; i++) view = sb.session.advanceGame();
+    // ORW-232 slice 3: a commit inside a running competition earns no off-screen tick (everyone is out in it), so the commit whose tick we sabotage must be a NON-competition decision:
+    // play the competition's approach and rounds through, then take the first ceremony decision.
+    for (let i = 0; i < 40 && (!view.pending || view.pending.kind === "comp-round" || view.pending.kind === "comp-intent"); i++) {
+      if (view.pending) sb.session.submitDecision({ kind: view.pending.kind, intent: "compete" } as never);
+      view = sb.session.advanceGame();
+    }
     expect(view.pending).toBeTruthy();
     const pending = view.pending!;
     // #1380: the discriminator between "the player turn STOOD and only the tick rolled back" and

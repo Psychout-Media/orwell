@@ -6197,7 +6197,7 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
 _COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition pass began, per user
 # ORW-232 slice 2 (Ryne: "B - talk inside it"): a competition is voiced in SEGMENTS. After every _COMP_PAUSE_EVERY rounds the pass STOPS (the engine has not run the rest), the narrator ends the reply on a moment the
 # player can answer in character, and the player's next message - whatever it says - continues the competition. What they say changes nothing about the result (the engine decided it).
-_COMP_PAUSE_EVERY = 2
+_COMP_PAUSE_EVERY = 1  # ORW-232 slice 3 (Ryne 2026-11-10: "a full play by play"): ONE round per message, each with its share of the competition's hours (the engine spreads them)
 _COMP_PAUSED: dict = {}  # runway key -> the (week:phase) signature of a competition paused mid-run
 _COMP_CONT: dict = {}    # runway key -> True while this pass CONTINUES a paused competition
 _COMP_PAUSE_FRESH: set = set()  # runway keys whose competition paused in THIS turn: the model's own progression tools are held until the player speaks again

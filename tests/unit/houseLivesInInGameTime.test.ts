@@ -159,3 +159,32 @@ describe("0117 — the pacing reads are Vault-free", () => {
     expect(JSON.stringify(sb.session.perConversationClockLive())).not.toContain(SENT);
   });
 });
+
+describe("ORW-232 slice 3 / ORW-256 — nobody schemes in private while a competition is running (Ryne 2026-11-10)", () => {
+  it("a staged competition's rounds, chat and crown earn no private off-screen scenes; the same house schemes right after", () => {
+    const { sb } = harness({ clockOn: true, seed: 7, user: "u-comp" });
+    toLiveHouse(sb);
+    let ran = 0, sawCompetition = false;
+    const during: string[] = [];
+    for (let i = 0; i < 400 && ran < 3; i++) {
+      const live = sb.session.snapshot().live as { competition?: unknown; phase?: string } | undefined;
+      const before = new Set(offscreenScenes(sb));
+      const inComp = !!live?.competition;
+      const a = sb.session.advanceGame();
+      if (a.pending) resolveLegally(sb.session, a.pending);
+      const after = sb.session.snapshot().live as { competition?: unknown } | undefined;
+      if (inComp && after?.competition) { // every ROUND commit (a commit that starts and ends inside the running competition). The staging commit before it and the crown after it are not rounds; the crown's own safety-ask lobbying is a consequence of the win, not private society
+        sawCompetition = true;
+        during.push(...offscreenScenes(sb).filter((id) => !before.has(id)));
+      }
+      if (inComp && !after?.competition) ran++; // the crown landed: one full competition seen
+      if (a.finished) break;
+    }
+    expect(sawCompetition, "the run reached a staged competition").toBe(true);
+    expect(during, "no private scenes while the competition ran").toEqual([]);
+    // control: outside a competition the house still schemes between turns
+    const before = new Set(offscreenScenes(sb));
+    for (let t = 0; t < 12; t++) socialTurn(sb, `linger ${t}`);
+    expect(offscreenScenes(sb).filter((id) => !before.has(id)).length).toBeGreaterThan(0);
+  });
+});

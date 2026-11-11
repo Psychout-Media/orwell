@@ -59,9 +59,13 @@ describe("milestone hours vs the schedule (week 1, real loop)", () => {
     const draw = at("veto-competition", "veto-draw");
     expect(draw.dueTod, "the veto player draw is a MORNING event").toBe("morning");
     expect(draw.dueHour).toBeCloseTo(8, 1);
+    // ORW-232 slice 3: the competition's hours are spread over its rounds, so the competition BEGINS (its first round) at the scheduled hour and the crown lands later.
+    const first = rows.find((x) => x.next === "veto-competition" && x.event === "comp-elimination")!;
+    expect(first.dueTod, "the veto competition itself is the afternoon").toBe("afternoon");
+    expect(first.dueHour!, "the first logged round is at most one round's share past the start").toBeGreaterThanOrEqual(12);
+    expect(first.dueHour!).toBeLessThan(13);
     const comp = at("veto-competition", "veto-competition");
-    expect(comp.dueTod, "the veto competition itself is the afternoon").toBe("afternoon");
-    expect(comp.dueHour).toBeCloseTo(12, 1);
+    expect(comp.dueHour, "the crown comes after the rounds, never at the start").toBeGreaterThan(first.dueHour! + 1);
     expect(at("nominations", "nominations").dueTod).toBe("evening");
     expect(at("veto-ceremony", "veto-ceremony").dueTod).toBe("evening");
     expect(rows.find((x) => x.next === "eviction" && !x.event)!.dueTod).toBe("evening");

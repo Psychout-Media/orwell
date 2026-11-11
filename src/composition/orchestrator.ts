@@ -443,6 +443,11 @@ export class Orchestrator {
     // one that closes the toast) earns NO off-screen tick. Flag off => the live state has no `premiereEntrance` => this never fires (byte-identical).
     const peStage = (x: SessionSnapshot | undefined): string | undefined => (x?.live as { premiereEntrance?: { stage?: string } } | undefined)?.premiereEntrance?.stage;
     if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
+    // ORW-232 slice 3 / ORW-256 (Ryne 2026-11-10: "If everyone is outside in a comp, everything that happens is very public ... houseguests can't leave and make alliances or something like that"):
+    // while a staged competition is running everyone is out in it, so a commit inside it (a round, a chat message, the crown) earns NO private off-screen scenes. Public reactions ride the
+    // crown's own fold. Only a live-clock game has a competition "running" in game time; the seeded calibration spine (clock off) never reaches this, so it is byte-identical.
+    const compRunning = (x: SessionSnapshot | undefined): boolean => !!(x?.live as { competition?: unknown } | undefined)?.competition;
+    if (this.registry.sandboxFor(user).session.perConversationClockLive() && (compRunning(candidate) || compRunning(baseline))) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;

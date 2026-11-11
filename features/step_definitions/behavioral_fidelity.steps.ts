@@ -78,7 +78,7 @@ const hiddenScenes = (w: BbWorld) => w.liveFidelity!.events.filter((e) => e.hidd
 // --- Background ---------------------------------------------------------------
 
 Given("an active game simulated over many in-game days with a fixed seed", function (this: BbWorld) {
-  playLive(this, 4); // #2005: seed 4 FAILED the no-dumping cap before the per-stretch reveal cap (kept as the regression pin); an alliance forms AND fractures
+  playLive(this, 5); // ORW-232 slice 3 (Ryne 2026-11-10: no private scenes while a competition runs) re-pinned seed 4 -> 5: seed 4's stretch no longer forms an alliance once the competitions' rounds earn no off-screen scenes (seeds 5,6,7,9,10,12 pass). The #2005 no-dumping-cap regression pin was seed 4.
 });
 
 When("the simulated stretch completes", function (this: BbWorld) {
