@@ -922,6 +922,9 @@ function groupPlayerDossier(
 /** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
 export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
 
+/** ORW-282: how many daily recaps the append-only log keeps (a season is well under this). */
+const DAILY_RECAP_LOG_CAP = 60;
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -1947,6 +1950,7 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
+    this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
     this.onPersist?.();
   }
 
@@ -10545,6 +10549,15 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s) return undefined;
     const day = s.dayNumber ?? 1;
+    const recap = this.buildRecapForDay(day);
+    s.dayNumber = day + 1;
+    if (this.messageMode) s.dailyRecapDay = day; // ORW-282: this day now has its recap (the crossing catch-up must not make a second one)
+    return recap;
+  }
+
+  /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
+  private buildRecapForDay(day: number): DailyRecapView {
+    const s = this.live!;
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
     const highlights = allEvents.slice(evFrom)
@@ -10560,8 +10573,26 @@ export class GameSessionAdapter implements GameSession {
     s.lastDailyRecap = recap;
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
-    s.dayNumber = day + 1;
+    if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
+    if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
+  }
+
+  /**
+   * ORW-282 (BDD card 29): every game day gets a recap, not only the days the player turns in. A day that rolled by the production schedule (`crossToNextDay`, the HOH-to-nominations night gate), the
+   * all-night wrap or a player who never turned in has `dayNumber` ahead of the last recapped day; catch up one recap per crossed day, oldest first, each from the tail since the previous recap (so no
+   * day is merged and nothing is counted twice). Same Vault-free sources and perspective rule as the bedtime recap (the player's witnessed highlights and the knowledge the player actually holds), no rng
+   * (the hint rides its own per-day stream), and nothing folded. PLAYED games only: a headless sim never runs it, so seeded balance runs and snapshots stay byte-identical. A save from before this field
+   * starts from the day it loads on (no back-fill of days that were already lost).
+   */
+  private catchUpDailyRecaps(): void {
+    const s = this.live;
+    if (!s || !this.messageMode || s.finished || !this.house) return;
+    const cur = s.dayNumber ?? 1;
+    let done = s.dailyRecapDay ?? (cur - 1);
+    if (done + 1 >= cur) { if (s.dailyRecapDay === undefined) s.dailyRecapDay = done; return; }
+    while (done + 1 < cur) { done += 1; this.buildRecapForDay(done); }
+    s.dailyRecapDay = done;
   }
 
   /**

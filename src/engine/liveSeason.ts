@@ -725,6 +725,13 @@ export interface LiveSeasonState {
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
   /**
+   * ORW-282 — the highest game day that HAS a recap, and the append-only log of every day's digest (capped). Days that roll by the production schedule, the all-night wrap or a player who never turns in
+   * used to get none (and the next bedtime recap lumped them under one label); a played game now catches up one recap per crossed day (`GameSessionAdapter.catchUpDailyRecaps`). Absent on a save from
+   * before this field, and always absent in a headless sim ⇒ byte-identical there.
+   */
+  dailyRecapDay?: number;
+  dailyRecapLog?: DailyRecapEntry[];
+  /**
    * C1 (#1788) — the season-spanning, MONOTONIC Wipeout Reel history per houseguest (mandate #4:
    * appended only, never trimmed or overwritten). Fed by each REVEALED staged-comp drop's failure-style
    * fact so the SAME houseguest's later wipeouts can call back to earlier ones ("the third time this
