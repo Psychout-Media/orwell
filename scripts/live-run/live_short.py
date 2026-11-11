@@ -51,6 +51,8 @@ SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again
 # competition play that must not be narrated before the engine has run the competition
 COMP_PLAY_RE = re.compile(r"\b(plank|apparatus|steel rails|platforms?|rounds? (?:one|two|three|1|2|3)|is out of the (?:competition|comp)|wins the (?:Power of Veto|veto|HOH|Head of Household)|crawl(?:s|ing) (?:along|across))\b", re.I)
 
+# ORW-259: the app marks a running turn `data-mode="streaming"` (chatSubmitButton.js); "stop"/"cancel" never exist.
+BUSY_JS = "!!document.querySelector('.send-btn[data-mode=\"streaming\"]')"
 BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el => { const c = el.cloneNode(true);
   c.querySelectorAll('.thinking-content,.thinking,[class*=thinking],.msg-footer').forEach(n=>n.remove());
   return {txt:(c.innerText||'').trim(), done:!!el.querySelector('.msg-footer')}; })"""
@@ -136,7 +138,7 @@ class Chat:
         while time.time() - t0 < limit:
             self.page.wait_for_timeout(2000)
             bs = self.page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
-            busy = self.page.evaluate("!!document.querySelector('.send-btn[data-mode=\"stop\"], .send-btn[data-mode=\"cancel\"]')")
+            busy = self.page.evaluate(BUSY_JS)
             stable = stable + 1 if (sig == prev and not busy) else 0
             prev = sig
             if stable >= 3: break
