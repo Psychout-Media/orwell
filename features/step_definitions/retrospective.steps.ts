@@ -151,7 +151,7 @@ Then("its highlights come from the recorded events — HOH reigns, nominations, 
   assert.equal(recap.evicted.length, 14, "the full eviction order");
 });
 
-Then("it contains no fact that was not in the stores", function (this: BbWorld) {
+Then("every highlight it lists is a recorded, non-hidden event in the stores", function (this: BbWorld) {
   const recorded = new Set(this.rtSandbox!.engine.events.queryAll().filter((e) => !e.hidden).map((e) => e.content));
   for (const h of this.rtRecap!.highlights) assert.ok(recorded.has(h), `not in the record: ${h}`);
 });
@@ -165,7 +165,7 @@ When("the player starts a new season", function (this: BbWorld) {
   this.rtSandbox = fresh;
 });
 
-Then("the prior season is left intact as finished", function (this: BbWorld) {
+Then("the snapshot taken of the prior season before the reset still reads as finished, with its winner", function (this: BbWorld) {
   assert.equal(this.rtArchive!.live?.finished, true, "the archived season stays finished");
   assert.ok(this.rtArchive!.live?.winner, "its winner stands");
 });

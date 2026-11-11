@@ -100,6 +100,8 @@ export interface ReconcileSink {
    * ⇒ the plain `DEAL_IMPACTS.honored` and no reputation ⇒ byte-identical.
    */
   dealDepth?: boolean;
+  /** ORW-269 - a kept comp-throw whose promisor was seen fighting hard: the (small) suspicion fold, on the caller's own side stream. */
+  suspicion?: (promisor: EntityId, promisee: EntityId, deal: Deal) => void;
   /** 0121 — seed a hidden "keeps their word" reputation for the honorer (diffuses via gossip). */
   reputation?: (honorer: EntityId, other: EntityId, deal: Deal) => void;
   /**
@@ -156,13 +158,14 @@ export class DealLedger {
     madeWeek?: number,
     duration?: { expiresWeek?: number; vague?: boolean },
     witnesses?: EntityId[],
+    third?: EntityId,
   ): Deal {
     const deal: Deal = {
       id: `deal:${++this.seq}`,
       parties,
       kind,
       terms,
-      condition: conditionFor(kind, parties),
+      condition: conditionFor(kind, parties, third),
       status: "open",
       ...(madeEventId ? { madeEventId } : {}),
       ...(madeWeek !== undefined ? { madeWeek } : {}),
@@ -219,6 +222,10 @@ export class DealLedger {
         if (wronged) this.applyBreak(deal, wronged, action.actor, action.kind, sink);
       } else if (actionHonors(deal, action)) {
         this.applyHonor(deal, action.actor, sink);
+        if (deal.kind === "comp-throw" && action.kind === "compete" && action.effortHard === true) {
+          const promisee = deal.parties.find((x) => x !== action.actor);
+          if (promisee) sink.suspicion?.(action.actor, promisee, deal);
+        }
         // The horizon (E43): a safety/vote promise runs through ITS week's eviction; the vote is
         // the endpoint where it resolves kept. Season-scoped kinds stay open (and stay binding).
         // 0121: an ACTIVE-obligation deal (comp-throw / veto-save) resolves the MOMENT the promised

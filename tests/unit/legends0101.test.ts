@@ -2,7 +2,7 @@ import { flagDefaultOn } from "../../src/domain/flagDefaults";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { notablePlayerActs } from "../../src/engine/legends";
-import { LEGEND, legendFrom } from "../../src/engine/gossip";
+import { LEGEND, GOSSIP, legendFrom, legendSeedProbability } from "../../src/engine/gossip";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { GameEvent } from "../../src/domain/event";
@@ -152,9 +152,48 @@ describe("0101 — when enabled, a notable act eventually mints a spreading lege
     const sb = gameWithNotableAct("myth-cap", 23);
     sb.session.setMythMakingEnabled(true);
     for (let i = 0; i < 400; i++) sb.session.legendTick(sb.engine.events, sb.engine.knowledge);
-    // Only ONE notable act ever existed on the ledger — the cap can be reached at most once from it.
+    // Only ONE notable act ever existed on the ledger, so at most one legend can come from it.
     expect(sb.session.snapshot().legendCount ?? 0).toBeLessThanOrEqual(1);
-    expect(sb.session.snapshot().legendCount ?? 0).toBeLessThanOrEqual(LEGEND.maxPerSeason);
+  });
+
+  it("ORW-283: there is no hard per-season count - each legend minted only makes the next one costlier", () => {
+    expect((LEGEND as Record<string, unknown>)["maxPerSeason"], "the per-season cap is gone").toBeUndefined();
+    expect(legendSeedProbability(0)).toBe(LEGEND.seedProb);
+    let prev = legendSeedProbability(0);
+    for (let n = 1; n <= 40; n++) {
+      const p = legendSeedProbability(n);
+      expect(p, `cost rises with every legend (n=${n})`).toBeLessThan(prev);
+      expect(p, "never a hard zero").toBeGreaterThan(0);
+      prev = p;
+    }
+    // a house that already minted far more than the old cap of 4 can still mint (the tick no longer returns early)
+    const sb = gameWithNotableAct("myth-no-cap", 27);
+    sb.session.setMythMakingEnabled(true);
+    (sb.session as unknown as { legendCount: number }).legendCount = 9;
+    for (let i = 0; i < 4000; i++) sb.session.legendTick(sb.engine.events, sb.engine.knowledge);
+    expect(sb.session.snapshot().legendCount ?? 0, "the tenth legend can still be minted").toBeGreaterThan(9);
+  });
+
+  it("ORW-283: the tick's OWN diffusion lands in the player's knowledge as a belief with a source and confidence, and the narrator is handed it", () => {
+    // A legend is ONE diffusion per mint and reaches the player only rarely (0101: "rarely, as a belief"), so search seeds for a real reach.
+    let found: { heard: { content?: string; pathway: string; confidence?: number }; prompt: string } | undefined;
+    for (let seed = 1; seed <= 80 && !found; seed++) {
+      const sb = gameWithNotableAct(`myth-reach-${seed}`, seed);
+      sb.session.setMythMakingEnabled(true);
+      // a warm house, so the gossip graph has edges through the player (a legend only travels along affinity edges)
+      const everyone: EntityId[] = [PLAYER, ...NPC_IDS];
+      for (const a of everyone) for (const b of everyone) {
+        if (a !== b) sb.engine.relationships.edge(a, b).affinity = Math.min(1, GOSSIP.affinityEdge + 0.4);
+      }
+      for (let i = 0; i < 300; i++) sb.session.legendTick(sb.engine.events, sb.engine.knowledge);
+      const heard = sb.engine.knowledge.knownTo(PLAYER).find((f) => /running this house|won that veto|not afraid|not as harmless|whole game/.test(f.content ?? ""));
+      if (heard) found = { heard, prompt: String((sb.session.getMomentPrompt({ moment: "social" }) as { systemPrompt?: string }).systemPrompt ?? "") };
+    }
+    expect(found, "within 80 seeds the engine's own diffusion carries a legend to the player (no hand-built last hop)").toBeDefined();
+    expect(found!.heard.pathway, "with a real in-game pathway (a source), never a bare fact").toMatch(/^told-by:|^overheard/);
+    expect(typeof found!.heard.confidence === "number" && found!.heard.confidence! < 1, "held as a belief with confidence below certainty").toBe(true);
+    // the narrator's hands: the moment prompt carries what the player has heard, so the model can voice "people are saying ..."
+    expect(found!.prompt, "the surfaced legend text is in the prompt the narrator receives").toContain(found!.heard.content!.replace(/\s*\(.*$/, "").slice(0, 20));
   });
 
   it("mints no legend before any notable act exists", () => {
