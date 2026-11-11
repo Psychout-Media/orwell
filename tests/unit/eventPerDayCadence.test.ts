@@ -10,8 +10,9 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
  */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
-function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
+function resolveLegally(s: Pick<GameSession, "submitDecision" | "advanceGame">, p: NonNullable<AdvanceView["pending"]>): AdvanceView | void {
+  if (p.kind === "ceremony-step") return (s as unknown as GameSession).advanceGame(); // ORW-281 4a: a staged ceremony watch step is answered by Continue (advanceGame), never a decision
+  else if (p.kind === "nominations") return s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
   else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
   else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
   else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
@@ -32,7 +33,12 @@ function playWeeks(seed: number, weeks: number): Array<{ beat: string; day: numb
   for (let i = 0; i < 8000; i++) {
     const st = s.getGameState();
     if ((st.week ?? 1) > weeks) break;
-    if (st.pending) { resolveLegally(s, st.pending); continue; }
+    if (st.pending) {
+      const r = resolveLegally(s, st.pending); // ORW-281 4a: a staged ceremony publishes its beat on a step's result (the 'named' step), not on the first advance
+      const rb = r?.event?.beat;
+      if (rb === "nominations") rows.push({ beat: rb, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
+      continue;
+    }
     const ds = st.daySchedule;
     if (st.phase === "premiere" || (ds && ds.due)) {
       const a = s.advanceGame();
@@ -43,7 +49,10 @@ function playWeeks(seed: number, weeks: number): Array<{ beat: string; day: numb
       }
       const b = a.event?.beat;
       if (b && ["hoh-competition", "nominations", "veto-draw", "veto-competition", "veto-ceremony", "eviction"].includes(b)) rows.push({ beat: b, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
-      if (a.pending) resolveLegally(s, a.pending);
+      if (a.pending) {
+        const r = resolveLegally(s, a.pending);
+        if (r?.event?.beat === "nominations") rows.push({ beat: "nominations", day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
+      }
       if (a.finished) break;
     } else {
       s.noteMessage({ messageId: `m${n++}` });

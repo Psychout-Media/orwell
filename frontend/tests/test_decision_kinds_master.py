@@ -67,7 +67,7 @@ def test_a_deal_offer_is_never_a_pending_card():
 def test_every_card_kind_has_a_card_renderer():
     js = (FE / "static" / "js" / "orwellDecision.js").read_text(encoding="utf-8")
     titles = js[js.index("function titleFor("):js.index("function confirmLabelFor(")]
-    card_kinds = _engine_kinds() - {"deal-offer"}  # PO ruling 2026-11-01: a deal offer is never a card
+    card_kinds = _engine_kinds() - {"deal-offer", "ceremony-step"}  # PO ruling 2026-11-01: a deal offer is never a card; ORW-281 4a: a ceremony-step is a non-binding WATCH step (colour + Continue, rendered by the ceremony card, not a decision card)
     missing = sorted(k for k in card_kinds if f'"{k}"' not in titles)
     assert not missing, f"decision kinds with no card title/renderer (would show a blank card): {missing}"
 

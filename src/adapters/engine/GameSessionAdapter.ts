@@ -247,7 +247,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
+  advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
   nightBreakPending, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -3918,7 +3918,7 @@ export class GameSessionAdapter implements GameSession {
     this.scheduleGateBypass = true; // A65: the engine's own fast-forward is not a player ask - the schedule gate must not stall it
     try {
     for (let i = 0; i < MAX_ITERS && !this.live.finished; i++) {
-      if (this.live.pending) {
+      if (this.live.pending && this.live.pending.kind !== "ceremony-step") { // ORW-281 4a: a ceremony watch step falls through to advanceGame (its Continue)
         // Auto-resolve the player's pending with the loop's own legal NPC policy (no second rulebook,
         // B55/D12). `submitDecision` runs the SAME commit path a live decision does (folds + persist).
         const input = autoDecision(this.live, this.ctx(), this.beatRng());
@@ -5347,6 +5347,7 @@ export class GameSessionAdapter implements GameSession {
     if (s.competition) { // a staged comp is running ⇒ its real field is authoritative
       return { kind: s.competition.comp, field: [...s.competition.field] };
     }
+    if (s.ceremony) return { kind: s.ceremony.hold }; // ORW-281 4a: the staged ceremony holds the house event for its WHOLE length (the gathering never dissolves between steps)
     const p = s.pending;
     if (!p) return this.ceremonyBeat && !s.finished ? { kind: this.ceremonyBeat } : null; // ORW-247b: a resolved ceremony beat stays the live scene until the player speaks
     if (p.kind === "comp-intent" || p.kind === "comp-round") { // a comp surfaced but not yet staged
@@ -10312,9 +10313,12 @@ export class GameSessionAdapter implements GameSession {
     this.maybeOfferPlayerDeal();
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
     // open state the narrator voices in-scene; the player answers in chat, or it lapses at week's end.
-    if (!this.live!.pending && !this.live!.finished) {
+    if ((!this.live!.pending || this.live!.pending.kind === "ceremony-step") && !this.live!.finished) {
       const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
+      const cerBefore = ceremonyRef(this.live!); // ORW-281 4a: the open ceremony step (if any) BEFORE this advance
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
+      const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
+      if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
       // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
       // toward late-night and wrapping to a new morning (banking a late night the player never ended).
@@ -10337,7 +10341,7 @@ export class GameSessionAdapter implements GameSession {
       const compRoundHours = this.timeOfDayEnabled && this.messageMode && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
         ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
         : null;
-      if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)) || (compRoundHours !== null && compRoundHours > 0))) {
+      if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat) && ceremonyHours === null) || (compRoundHours !== null && compRoundHours > 0) || (ceremonyHours !== null && ceremonyHours > 0))) {
         const wasRetired = this.live!.playerRetired ?? false;
         const depthBefore = this.live!.nightDepth;
         // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
@@ -10346,6 +10350,7 @@ export class GameSessionAdapter implements GameSession {
         // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
         let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
+        if (ceremonyHours !== null) feltHours = ceremonyHours; // ORW-281 4a: a staged ceremony's hours are SPREAD over its steps (one helper, like a comp's rounds)
         if (ev?.beat === "veto-draw" && !this.messageMode) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
         if (feltHours !== null && this.messageMode && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
@@ -10372,6 +10377,21 @@ export class GameSessionAdapter implements GameSession {
       return ev;
     }
     return null;
+  }
+
+  /** ORW-281 4a: the open staged-ceremony step echoed on the NEXT advance view when the ceremony just closed (memory-only; never persisted). */
+  private ceremonyEcho: ReturnType<typeof ceremonyRef> = null;
+
+  /**
+   * ORW-281 4a - the in-game hours a staged-ceremony step charges: the event's felt hours SPREAD over its steps via the one `spreadClockHours` helper (the closing step
+   * settles the remainder). Only for a game a person is PLAYING (`messageMode`) on the live per-conversation clock; headless drivers return null (unchanged). Clock path only.
+   */
+  private ceremonyClockHours(before: ReturnType<typeof ceremonyRef>, now: ReturnType<typeof ceremonyRef>): number | null {
+    const ref = now ?? before;
+    const live = this.live;
+    if (!ref || !live || !this.timeOfDayEnabled || !this.messageMode || !this.perConversationClockLive() || live.timeOfDay === undefined || live.playerRetired) return null;
+    const felt = beatFeltHours(ref.kind as never) ?? 0;
+    return spreadClockHours(live, "event", `ceremony:w${live.week}:${ref.kind}`, felt, ref.of ?? 0, now === null);
   }
 
   submitDecision(req: SubmitDecisionReq): AdvanceView {
@@ -10427,6 +10447,7 @@ export class GameSessionAdapter implements GameSession {
     // to malformed calls — the boundary must never throw an unhandled error). `comp-intent` and
     // `comp-round` are interchangeable aliases for the staged per-round approach (0006 staged-rounds).
     const compApproach = (k: string): boolean => k === "comp-intent" || k === "comp-round";
+    if ((req.kind as string) === "ceremony-step") throw new EngineRefusal("a ceremony step is a watch step - answer it with advanceGame, not submitDecision");
     const pendingKind = this.live.pending?.kind;
     const kindMatches = !!pendingKind && (pendingKind === req.kind || (compApproach(pendingKind) && compApproach(req.kind)));
     if (!kindMatches) return remember(this.advanceView(null));
@@ -10434,7 +10455,12 @@ export class GameSessionAdapter implements GameSession {
     // EVERY voter — player and NPC alike — so the ledger now sees all binding votes in one place.
     return remember(this.inOneCommit(() => {
       // The beat-deterministic rng lets the Houseguest's-Choice resume run the veto comp reproducibly (B45).
+      const cerBefore = ceremonyRef(this.live!);
       const ev = applyDecision(this.live!, this.toDecisionInput(req), this.ctx(), this.beatRng());
+      if (cerBefore) { // ORW-281 4a: the binding choice is a ceremony step - it charges its share of the clock
+        const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
+        if (h !== null && h > 0) advanceClock(this.live!, h);
+      }
       this.commit(ev);
       // T0-2 ("beats terminate themselves") — for the CLOSED-SET ceremony/comp pending kinds
       // (`AUTO_ADVANCE_PENDING_KINDS`, documented above), the resolution's own commit IS the exit: the
@@ -10459,7 +10485,7 @@ export class GameSessionAdapter implements GameSession {
       // this chained call honors the SAME gate a separate `advanceGame` call would: if a deal is due at
       // the post-resolution lull, it sets `live.dealOffer` and the beat does NOT advance here either —
       // byte-identical to the un-chained two-call path, never bypassed by going straight to a beat draw.
-      if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!)) this.advanceOneBeat();
+      if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") this.advanceOneBeat(); // ORW-281 4a: a ceremony watch step waits for the player's own Continue
       return this.advanceView(ev);
     }));
   }
@@ -12772,6 +12798,7 @@ export class GameSessionAdapter implements GameSession {
       }
       case "self-evict": // 0061: intercepted in `submitDecision` BEFORE this map — never reached here.
         return { kind: "self-evict", confirmed: req.confirmed === true };
+      case "ceremony-step": throw new EngineRefusal("a ceremony step is a watch step - answer it with advanceGame, not submitDecision");
       case "secret-veto": // 0025: the player plays (true) or holds (false) their one-time safety.
         return { kind: "secret-veto", use: req.use === true };
       case "deal-offer": // 0123: intercepted in `submitDecision` BEFORE this map (its own path) — never here.
@@ -12801,9 +12828,14 @@ export class GameSessionAdapter implements GameSession {
     if (!p) return null;
     const by = this.named(p.by)!;
     const refs = (ids: EntityId[]): NamedRef[] => ids.map((id) => ({ id, name: this.nameOf(id) }));
+    const cer = ceremonyRef(this.live!);
+    if (p.kind === "ceremony-step" && cer) { // ORW-281 4a: a WATCH step of a staged ceremony (non-binding; answered by advanceGame)
+      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household");
+      return { kind: "ceremony-step", by, prompt: text, options: [], pick: 0, binding: false, ceremony: cer, text };
+    }
     switch (p.kind) {
       case "nominations":
-        return { kind: p.kind, by, prompt: "You are Head of Household — name two houseguests for eviction.", options: refs(p.options), pick: 2 };
+        return { kind: p.kind, by, prompt: "You are Head of Household — name two houseguests for eviction.", options: refs(p.options), pick: 2, ...(cer ? { ceremony: cer } : {}) };
       case "veto-decision":
         // The 0034 legal-options contract (E36): the options ARE the legally saveable nominees.
         // At Final 4 no replacement exists, so the set is EMPTY and the prompt says why — the
@@ -12907,6 +12939,7 @@ export class GameSessionAdapter implements GameSession {
         // `selfEvictPending`, surfaced above), so this branch is unreachable — handled for
         // type-exhaustiveness only.
         return { kind: p.kind, by, prompt: "Confirm to self-evict, or cancel to stay.", options: [], pick: 0 };
+      case "ceremony-step": return null; // handled above (a ceremony-step with no open ceremony is a stale pending - nothing to project)
       // --- secret veto (0025 reactive redesign): the reveal + the player's choice, all at once ---
       case "secret-veto":
         return {
@@ -12928,8 +12961,11 @@ export class GameSessionAdapter implements GameSession {
     // references, so the correction is visible through this returned array too).
     const announcements = this.pendingAnnouncements.length ? [...this.pendingAnnouncements] : undefined;
     this.pendingAnnouncements = [];
+    const ceremony = (s ? ceremonyRef(s) : null) ?? this.ceremonyEcho; // ORW-281 4a: the step this result opened, or the one a closing Continue just closed
+    this.ceremonyEcho = null;
     return {
       started: this.house !== null,
+      ...(ceremony ? { ceremony } : {}),
       beatSeq: this.beatSeq, // 0065 Part A — the counter AFTER this advance/decision committed
       // EVT-1 (#569): project the beat's PUBLIC participants (id + name only) alongside the prose, so
       // ceremony result identities are structured, not prose-only. Vault-free — `participants` carries

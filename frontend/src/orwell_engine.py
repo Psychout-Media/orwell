@@ -589,6 +589,9 @@ DECISION_KINDS: frozenset = frozenset({
     "secret-veto",
     # 0123 — the player's in-chat answer to a houseguest's deal offer (vote: accept | decline).
     "deal-offer",
+    # ORW-281 4a — a WATCH step of a staged ceremony. NOT a decision: it is answered by advanceGame (Continue); the engine REFUSES submitDecision for it
+    # (typed). It lives in the union only because the engine's pending-kind union carries it; card-only, never model-submittable.
+    "ceremony-step",
 })
 
 # PO RULING 2026-11-03 (Ryne): big irreversible choices must be confirmed on the decision CARD — prose never

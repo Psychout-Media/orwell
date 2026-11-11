@@ -327,7 +327,8 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
         if (adv.pending) {
           swept.add("submitDecision");
           const p = adv.pending;
-          if (p.kind === "nominations") await player.callTool("submitDecision", { kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
+          if (p.kind === "ceremony-step") { /* ORW-281 4a: a watch step - the next advanceGame is its Continue */ }
+          else if (p.kind === "nominations") await player.callTool("submitDecision", { kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
           else if (p.kind === "veto-decision") await player.callTool("submitDecision", { kind: "veto-decision", use: false });
           else if (p.kind === "replacement") await player.callTool("submitDecision", { kind: "replacement", replacement: p.options[0]!.id });
           else if (p.kind === "finale-statement") await player.callTool("submitDecision", { kind: "finale-statement", statement: "I earned this." });
@@ -508,7 +509,7 @@ describe("A3 - the sentinel canary bites the spectator / week-digest path (0133)
       for (let i = 0; i < 8000; i++) {
         const adv = (await player.callTool("advanceGame", {})) as AdvanceView;
         if (adv.pending?.kind === "spectator-choice") { card = adv.pending; break; }
-        if (adv.pending) await player.callTool("submitDecision", answerPending(adv.pending) as unknown as Record<string, unknown>);
+        if (adv.pending && adv.pending.kind !== "ceremony-step") await player.callTool("submitDecision", answerPending(adv.pending) as unknown as Record<string, unknown>);
         if (adv.finished) break;
       }
       if (!card) continue;
@@ -529,7 +530,7 @@ describe("A3 - the sentinel canary bites the spectator / week-digest path (0133)
         leaks("gameStatus", await player.callTool("gameStatus", {}));
         leaks("getMomentPrompt", await player.callTool("getMomentPrompt", { moment: "social" }));
         if (adv.pending?.kind === "finale-interview") { interviewSeen = true; leaks("the finale-interview card", adv.pending); }
-        if (adv.pending) await player.callTool("submitDecision", answerPending(adv.pending) as unknown as Record<string, unknown>);
+        if (adv.pending && adv.pending.kind !== "ceremony-step") await player.callTool("submitDecision", answerPending(adv.pending) as unknown as Record<string, unknown>);
         finished = adv.finished;
       }
       expect(finished, `seed ${seed}: the season finished in watch mode`).toBe(true);

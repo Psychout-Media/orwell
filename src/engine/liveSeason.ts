@@ -161,9 +161,83 @@ export function isInertBeat(beat: Beat): boolean {
   return INERT_BEATS.has(beat);
 }
 
+/**
+ * ORW-281 slice 4a - the GENERIC staged ceremony (Ryne 2026-11-11: every ceremony is play by play like a comp, each decision its own step and its own message).
+ * Modelled on how comps stage: the OUTCOME is decided ONCE up front (same seeded draws, same order as the one-beat resolution), then PLAYED OUT as steps that are
+ * presentation-only (no rng, no fold of their own). `steps` is the ordered step-id list for the kind (`CEREMONY_STEPS`); `at` is the open step (0-based); exactly one
+ * step is open at a time, surfaced as `s.pending` (a binding step is the kind's existing pending; a watch step is the `ceremony-step` pending). `hold` is the kind for the
+ * WHOLE ceremony so the house event stays in session between steps. 4b-4d plug in by adding a row to `CEREMONY_STEPS` / `CEREMONY_STEP_TEXT`, not new machinery.
+ * `outcome` is ENGINE-ONLY until the step that publishes it (it is never projected).
+ */
+export type CeremonyKind = "nominations" | "veto-draw" | "veto-ceremony" | "eviction";
+export interface CeremonyProgress {
+  kind: CeremonyKind;
+  hold: CeremonyKind;
+  steps: string[];
+  at: number;
+  outcome?: { nominees: [EntityId, EntityId]; target?: EntityId; fromPlayer?: boolean };
+}
+/** The Vault-free step handle every ceremony pending / advance result carries (`step` is 1-based). */
+export interface CeremonyRef { kind: CeremonyKind; step: number; of: number | null; stepId: string }
+/** Step lists per kind. */
+export const CEREMONY_STEPS: Record<CeremonyKind, { withChoice: string[]; npc: string[] } | undefined> = {
+  nominations: { withChoice: ["hoh-speech", "choose", "named"], npc: ["hoh-speech", "named"] },
+  "veto-draw": undefined, "veto-ceremony": undefined, eviction: undefined, // 4b-4d add their step lists here
+};
+/** Binding steps (answered by `submitDecision` with the kind's existing pending); every other step id is a WATCH step. */
+export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose"]);
+/** The Vault-free line a WATCH step shows (public names via `{hoh}` and the step id only - never an outcome ahead of the engine). 4b-4d just add rows. */
+export const CEREMONY_STEP_TEXT: Record<string, string> = {
+  "nominations/hoh-speech": "{hoh} is about to name the nominees",
+  "nominations/named": "The nominees have been named",
+};
+export function ceremonyRef(s: LiveSeasonState): CeremonyRef | null {
+  const c = s.ceremony;
+  return c ? { kind: c.kind, step: c.at + 1, of: c.steps.length, stepId: c.steps[c.at]! } : null;
+}
+
+/** Ceremonies stage play by play ONLY for a game a person is PLAYING and who is still in the house (a spectator's fast-forward and every headless sim keep the one-beat resolution). */
+function stagesCeremonies(s: LiveSeasonState, ctx: SeasonCtx): boolean {
+  return s.playedGame === true && !s.spectator && s.active.includes(ctx.player);
+}
+
+/** Open the ceremony's current step as `s.pending`; the step that PUBLISHES the outcome (`named`) applies it and returns the beat. */
+function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null {
+  const c = s.ceremony!;
+  const id = c.steps[c.at]!;
+  if (CEREMONY_BINDING.has(`${c.kind}/${id}`)) {
+    s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
+    return null;
+  }
+  let ev: BeatEvent | null = null;
+  if (c.kind === "nominations" && id === "named") {
+    const [a, b] = c.outcome!.nominees;
+    if (!c.outcome!.fromPlayer) {
+      if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n);
+      ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
+    }
+    s.nominationTarget = c.outcome!.target;
+    s.nominees = [a, b]; s.beat = "veto-competition";
+    ev = { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
+  }
+  s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
+  return ev;
+}
+/** One Continue on a watch step: close the ceremony after its last step, else open the next. No rng. */
+function stepCeremony(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null {
+  const c = s.ceremony;
+  s.pending = undefined;
+  if (!c) return null;
+  c.at += 1;
+  if (c.at >= c.steps.length) { s.ceremony = undefined; return null; }
+  return openCeremonyStep(s, ctx);
+}
+
 /** A player decision the live loop is blocked on until `applyDecision` resolves it. */
 export type PendingDecision =
   | { kind: "nominations"; by: EntityId; options: EntityId[]; pick: 2 }
+  // ORW-281 slice 4a: a NON-BINDING watch step of a staged ceremony (answered by `advanceGame`, never `submitDecision`). Played games only.
+  | { kind: "ceremony-step"; by: EntityId; binding: false }
   | { kind: "veto-decision"; by: EntityId; nominees: [EntityId, EntityId]; saveable: EntityId[] }
   // --- competition intent (B46/audit B5): the player declares compete/throw/play-safe before a comp ---
   | { kind: "comp-intent"; by: EntityId; comp: "hoh-competition" | "veto-competition" }
@@ -579,6 +653,8 @@ export interface LiveSeasonState {
    * on the time-of-day path (calibration never touches it). Absent ⇒ no event charged yet.
    */
   eventClock?: { key: string; spent: number };
+  /** ORW-281 slice 4a: the STAGED-CEREMONY sub-state (played games only; absent on every headless sim and every older save). See `CeremonyProgress`. */
+  ceremony?: CeremonyProgress;
   /** ORW-232 slice 3: the hours a staged competition has already charged (its own slot, so it never collides with the eviction/finale `eventClock` budget). */
   compClock?: { key: string; spent: number };
   /** ORW-269: the finished comp's visible-effort tally, kept for the crown's deal adjudication (played games only; absent in headless sims). */
@@ -2026,16 +2102,25 @@ export function eventBeatHours(s: LiveSeasonState, beat: Beat, weekBefore: numbe
     : FINALE_EVENT_BEATS.has(beat) ? "finale"
     : null;
   if (key === null) return null;
-  const spent = s.eventClock?.key === key ? s.eventClock.spent : 0;
-  const remaining = Math.max(0, budgetHours - spent);
   // ORW-262 — for a game a person is playing (`spreadSteps` given) the budget is SPREAD over the event's
   // steps (like a staged competition's rounds) so each message moves the clock a believable slice, and the
   // closing step settles whatever is left. Omitted ⇒ the original front-loaded charge (headless sims stay byte-identical).
   const closing = beat === "eviction-result" || beat === "final-eviction" || beat === "finale-result";
-  const hours = spreadSteps !== undefined && spreadSteps > 0 && !closing
-    ? Math.min(remaining, budgetHours / spreadSteps)
-    : remaining;
-  s.eventClock = { key, spent: spent + hours };
+  return spreadClockHours(s, "event", key, budgetHours, spreadSteps !== undefined && spreadSteps > 0 ? spreadSteps : 0, closing);
+}
+
+/**
+ * ORW-281 slice 4a - the ONE clock-spread helper (replaces the old compClock / eventClock copies). An event's whole `budget` hours are SPREAD over `steps` presentation
+ * steps (each non-closing step charges budget/steps, the closing step settles whatever is left; `steps <= 0` front-loads everything on the first call). Tracked per `key` in
+ * its slot (`comp` = `s.compClock`, `event` = `s.eventClock`) so it survives a save/restart mid-event. Clock path only: no rng, no fold.
+ */
+export function spreadClockHours(s: LiveSeasonState, slot: "comp" | "event", key: string, budget: number, steps: number, closing: boolean): number {
+  const cur = slot === "comp" ? s.compClock : s.eventClock;
+  const spent = cur?.key === key ? cur.spent : 0;
+  const remaining = Math.max(0, budget - spent);
+  const hours = steps > 0 && !closing ? Math.min(remaining, budget / steps) : remaining;
+  const next = { key, spent: spent + hours };
+  if (slot === "comp") s.compClock = next; else s.eventClock = next;
   return hours;
 }
 
@@ -2050,19 +2135,13 @@ export function competitionRoundHours(s: LiveSeasonState, beat: Beat, feltHours:
   if (!c || feltHours <= 0) return null;
   const rounds = Math.max(2, Math.ceil((c.field.length - 1) / stagedBatchSize(c.field.length)));
   const key = `comp:w${s.week}:${beat}`;
-  const spent = s.compClock?.key === key ? s.compClock.spent : 0;
-  const hours = Math.min(feltHours / rounds, Math.max(0, feltHours - spent));
-  s.compClock = { key, spent: spent + hours };
-  return hours;
+  return spreadClockHours(s, "comp", key, feltHours, rounds, false);
 }
 
 /** The crown's share: whatever the rounds left of the competition's felt hours (all of it when no round was charged). */
 export function competitionCrownHours(s: LiveSeasonState, beat: Beat, feltHours: number): number {
   const key = `comp:w${s.week}:${beat}`;
-  const spent = s.compClock?.key === key ? s.compClock.spent : 0;
-  const hours = Math.max(0, feltHours - spent);
-  s.compClock = { key, spent: spent + hours };
-  return hours;
+  return spreadClockHours(s, "comp", key, feltHours, 0, true);
 }
 
 /**
@@ -2855,6 +2934,7 @@ function advanceFinale(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource
  * blocked on a player decision (`state.pending` is set) or already complete.
  */
 export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  if (s.pending?.kind === "ceremony-step") return stepCeremony(s, ctx); // ORW-281 4a: a watch step is answered by advanceGame
   if (s.pending || s.finished || s.beat === "complete") return null;
 
   switch (s.beat) {
@@ -2922,6 +3002,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       if (s.hoh === ctx.player) {
+        if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.nominations) { // ORW-281 4a: a played game stages the ceremony (speech -> choose -> named)
+          s.ceremony = { kind: "nominations", hold: "nominations", steps: [...CEREMONY_STEPS.nominations.withChoice], at: 0 };
+          return openCeremonyStep(s, ctx);
+        }
         s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
         return null;
       }
@@ -2943,6 +3027,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;
+      if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.nominations) { // ORW-281 4a: outcome decided ONCE here (same read, no rng); played out as speech -> named
+        s.ceremony = { kind: "nominations", hold: "nominations", steps: [...CEREMONY_STEPS.nominations.npc], at: 0, outcome: { nominees: [nominees[0], nominees[1]], target: plan.target } };
+        return openCeremonyStep(s, ctx);
+      }
       if (ctx.assuranceNominated) for (const n of nominees) ctx.assuranceNominated(s.hoh!, n);
       ctx.assuranceKeptAtNominations?.(s.hoh!, nominees); // B4 slice 8: whoever the HOH had assured and did NOT nominate was spared => kept
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
@@ -3263,6 +3351,8 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       // confirmation never rides `s.pending` (it lives on `selfEvictPending`), so the auto-driver
       // (calibration / admin fast-forward) is never asked to resolve one. Refuse defensively.
       throw new Error("self-eviction is a deliberate player choice — never auto-resolved");
+    case "ceremony-step":
+      throw new Error("a ceremony watch step is answered by advanceGame, never auto-decided");
     case "secret-veto":
       // 0025: a rational underdog on the block plays their one-time safety to save themselves.
       return { kind: "secret-veto", use: true };
@@ -3289,6 +3379,12 @@ export function applyDecision(
       const [a, b] = input.choice;
       if (a === b) throw new Error("cannot nominate the same houseguest twice");
       if (!legal.has(a) || !legal.has(b)) throw new Error("illegal nominee");
+      if (s.ceremony?.kind === "nominations") { // ORW-281 4a: the choice is the outcome; the 'named' step publishes it
+        s.pending = undefined;
+        s.ceremony.outcome = { nominees: [a, b], fromPlayer: true };
+        s.ceremony.at = s.ceremony.steps.indexOf("named");
+        return openCeremonyStep(s, ctx)!;
+      }
       s.nominees = [a, b]; s.nominationTarget = undefined; s.pending = undefined; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
     }

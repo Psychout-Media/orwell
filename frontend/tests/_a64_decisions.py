@@ -2,7 +2,7 @@
 Mirrors `features/support/answerPending.ts`. Kept free of heavy imports so a plain (non-browser) test can check it covers the engine's whole kind list. Roles only."""
 
 # Kinds that are INTENTIONALLY never auto-answered by a shared driver (the engine surfaces a floated deal through chat; self-evict is the OOC walk-out confirmation).
-NEVER_AUTO_ANSWERED = frozenset({"deal-offer", "self-evict"})
+NEVER_AUTO_ANSWERED = frozenset({"deal-offer", "self-evict", "ceremony-step"})  # ceremony-step (ORW-281 4a): a watch step, answered by advanceGame, never a decision
 
 
 def _first(p):
