@@ -7216,7 +7216,7 @@ async def _stream_agent_loop_impl(
             )
             # ADR 0010 slice D (opt-in non-degradation tier): before trimming older turns AWAY, grow
             # the budget toward the model window so a long game keeps its history instead of losing it
-            # to lossy compaction. Default off ⇒ effective_budget unchanged ⇒ byte-identical.
+            # to lossy compaction. ON by default (ORW-266); the setting False restores the lean budget.
             if get_setting("context_tiering_enabled", False):
                 effective_budget = escalate_budget(
                     effective_budget, before_trim_tokens, context_length, enabled=True,
