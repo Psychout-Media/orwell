@@ -10,7 +10,7 @@ import spinnerModule from './spinner.js';
 import { bindMenuDismiss } from './escMenuStack.js';
 import { matchModelKey } from './model/matchKey.js';
 import { isNarrow } from './platform.js';
-import { ORWELL_TOOL_BEATS, orwellBeatOutcome, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
+import { ORWELL_TOOL_BEATS, orwellBeatOutcome, orwellBeatNodeView, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
 import { detectOocAside } from './orwellOocAside.js';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
@@ -2388,22 +2388,11 @@ export function addMessage(role, content, modelName, metadata) {
             // A production beat / empty tool result is a flat label, not an
             // expand/collapse affordance with nothing behind it.
             const _evExpandHtml = `${evCmdHtml}${outHtml}${evDiffHtml}`;
-            const _evHasExpand = !!_evExpandHtml.trim();
-            node.className = 'agent-thread-node' + (ok ? '' : ' error') + (_evHasExpand ? '' : ' agent-thread-node--flat');
-            // (className extended below once the outcome is known — reload mirrors the live path.)
-            const _evChevron = _evHasExpand ? '<span class="agent-thread-chevron">\u25B6</span>' : '';
-            const _evContentDiv = _evHasExpand ? `<div class="agent-thread-content">${_evExpandHtml}</div>` : '';
-            // L42: render the PUBLIC outcome (Vault-free, from the persisted tool result) on reload too,
-            // so the re-opened transcript reads as what happened, not a stack of identical beat rows.
-            const _evOutcome = (_beat && ok) ? orwellBeatOutcome(ev.tool, ev.output) : null;
-            const _evToolText = _evOutcome || _beat || ev.tool;
-            // M2-5 (PR #1235 review): mirror the LIVE path — game-build success slates carry
-            // no "done" debug tail on reload either (failures stay literal), and an outcome
-            // slate keeps its persistent richer-type marker. Live/reload parity is the F5 rule.
-            const _evStatusHtml = _evOutcome ? '' : (ok && isGameBuild()) ? ''
-              : `<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span>`;
-            if (_evOutcome) node.className += ' ow-slate-outcome';
-            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(_evToolText)}</span>${_evStatusHtml}${_evChevron}</div>${_evContentDiv}`;
+            // ORW-264: the finished chip is built by the ONE shared pure builder the live path uses
+            // (orwellBeatNodeView) - outcome line, no "done" tail in the game build, flat/expand shape.
+            const _nv = orwellBeatNodeView({ tool: ev.tool, beat: _beat, ok, output: ev.output, expandHtml: _evExpandHtml, esc });
+            node.className = _nv.className;
+            node.innerHTML = _nv.innerHTML;
             // Click handling is delegated globally \u2014 see chat.js init.
             threadWrap.appendChild(node);
             // M4-6: the SAME pure descriptor + shared DOM builder the live path uses (chat.js) \u2014
