@@ -3076,12 +3076,12 @@ body.bg-pattern-perlin-flow {
     /* ORW-268 (WCAG 2.4.7, found by ORW-27's keyboard pass): the composer's own `outline: none` hid ALL keyboard focus. A subtle glass-style ring, keyboard-only
        (:focus-visible), drawn as an OUTLINE so it never shifts layout (offset clear of the text). Light on dark themes; the frosted override below is dark ink on light glass. */
     .chat-input-bar textarea#message:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--fg) 45%, transparent);
+      outline: 2px solid color-mix(in srgb, var(--fg) 72%, transparent);
       outline-offset: 6px;
       border-radius: 4px;
     }
     body.theme-frosted .chat-input-bar textarea#message:focus-visible {
-      outline-color: rgba(22, 25, 31, 0.55);
+      outline-color: rgba(22, 25, 31, 0.68);
     }
     @media (forced-colors: active) {
       .chat-input-bar textarea#message:focus-visible { outline: 2px solid Highlight; }
