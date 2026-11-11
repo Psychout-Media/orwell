@@ -70,6 +70,8 @@ export const DEAL_WITNESS = {
 } as const;
 
 const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict", "secret-exposed", "deal-resented"]);
+/** ORW-131: does this memory kind weigh as a grievance (vs a favor / neutral)? */
+export const isGrudgeKind = (k: MemoryKind): boolean => GRUDGE_KINDS.has(k);
 const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness", "secret-given"]);
 
 const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
