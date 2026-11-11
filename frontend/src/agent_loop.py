@@ -7187,6 +7187,18 @@ async def _stream_agent_loop_impl(
     # history they teach it to emit them again (replay 7: the narrator copied the cutaway sentence for ~30 turns). Keep them out of what the narrator sees; the player's transcript is untouched.
     messages = _drop_fallback_turns(messages)
 
+    # ORW-271: closed in-game days are sent as ONE "[Story so far]" system message built from the engine's day ledger (the
+    # stored chat rows are never touched; only what is SENT changes). Read once per turn, here, not per round. Fail-soft.
+    if game_mode in (True, "game"):
+        try:
+            from src import orwell_day_condense, orwell_engine as _oe_dc
+            if orwell_day_condense.enabled():
+                _ledger_dc = await _oe_dc.day_ledger(user=owner)
+                if _ledger_dc:
+                    messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
+        except Exception as _e_dc:
+            logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
+
     _t3 = time.time()
     try:
         from src.context_compactor import trim_for_context
