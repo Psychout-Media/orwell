@@ -37,7 +37,7 @@ def _pre_game(monkeypatch):
     async def fake_state(user=None):
         return {"started": False, "moment": "character-creation"}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **_kw):
         return {"systemPrompt": "CASTING-INTERVIEW-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
@@ -57,7 +57,7 @@ def test_pre_game_falls_back_to_the_static_steer_when_the_moment_fetch_fails(mon
     _pre_game(monkeypatch)
     monkeypatch.delenv("ORWELL_GAME_BUILD", raising=False)
 
-    async def broken_mp(moment=None, user=None):
+    async def broken_mp(moment=None, user=None, **_kw):
         raise RuntimeError("hiccup")
 
     monkeypatch.setattr(orwell_engine, "get_moment_prompt", broken_mp)
@@ -86,7 +86,7 @@ def test_started_game_framing_is_unchanged(monkeypatch):
     async def fake_state(user=None):
         return {"started": True, "moment": "social"}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **_kw):
         return {"systemPrompt": "GM-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)

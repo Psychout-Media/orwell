@@ -39,10 +39,15 @@ describe("the bedtime gate", () => {
     expect(v.held).toBeUndefined();
     expect(live().dayNumber ?? 1).toBeGreaterThan(day0);
   });
-  it("from the evening on the player can still turn in (their bedtime, ADR 0006)", () => {
+  it("ORW-258 (Ryne 2026-11-11): the evening is not bedtime either - the evening ceremonies happen then; from the NIGHT period on the player owns their bedtime (ADR 0006)", () => {
     const { s, live } = game(true);
-    for (let i = 0; i < 400 && !["evening", "night", "late-night"].includes(live().timeOfDay ?? ""); i++) s.advanceClockPerConversation();
-    expect(["evening", "night", "late-night"]).toContain(live().timeOfDay);
+    for (let i = 0; i < 400 && live().timeOfDay !== "evening"; i++) s.advanceClockPerConversation();
+    expect(live().timeOfDay).toBe("evening");
+    (s as unknown as { noteMessage(r: { messageId: string }): unknown }).noteMessage({ messageId: "p1" }); // a person is playing: the front end announces their messages
+    const evening = s.turnIn({});
+    expect(evening.held, "no bed in the evening").toEqual({ next: "bedtime", minutesUntil: expect.any(Number) });
+    for (let i = 0; i < 400 && !["night", "late-night"].includes(live().timeOfDay ?? ""); i++) s.advanceClockPerConversation();
+    expect(["night", "late-night"]).toContain(live().timeOfDay);
     const day0 = live().dayNumber ?? 1;
     const v = s.turnIn({});
     expect(v.held).toBeUndefined();

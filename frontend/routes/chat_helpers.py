@@ -3341,7 +3341,7 @@ def _stages_in_scene(narration: str, name: str) -> bool:
     if re.search(verb_pat, scanned, re.IGNORECASE):
         return True
     # "Nia: 'I called this.'" / 'Ana "what is this?"' — a quoted line right after the name.
-    quote_pat = rf"\b{n}(?:['’]s)?\b\s*[:—-]?\s*[\"“]"
+    quote_pat = rf"\b{n}(?:['’]s)?\b\]?\s*[:—-]?\s*[\"“]"  # ORW-263: the narrator's speaker line is `@[Name] — "..."` (the closing bracket sat between the name and the dash, so the line was never read as staging)
     return bool(re.search(quote_pat, scanned, re.IGNORECASE))
 
 
@@ -6455,6 +6455,10 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     if isinstance(week, int) and not isinstance(week, bool) and week > 0:
         parts.append(f"Week {week}")
     phase = (game_state.get("phase") or "").strip()
+    # ORW-258 (Ryne: every event gets its own day): while the next event waits behind its night, the header names the event that belongs to TODAY (the HOH day reads HOH, not Nominations).
+    _ds = game_state.get("daySchedule")
+    if isinstance(_ds, dict) and isinstance(_ds.get("todaysEvent"), str) and _ds.get("todaysEvent"):
+        phase = _ds["todaysEvent"]
     if phase:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()

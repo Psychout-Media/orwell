@@ -3,6 +3,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { resolvePending } from "../../features/support/answerPending";
 import { DAY_SCHEDULE } from "../../src/engine/daySchedule";
+import { phaseForHour } from "../../src/engine/timeOfDay";
 
 /**
  * Milestone hours, pinned through the real loop (week 1, clock on, per-conversation clock). Found while chasing the ledger note "the veto ceremony is due at 'evening' but is scheduled for the afternoon":
@@ -23,14 +24,15 @@ function weekOne(): Row[] {
   const live = () => s.snapshot().live as unknown as { nightDepth: number; timeOfDay: string; nightDepthUndefined?: boolean };
   for (let i = 0; i < 80 && (s.snapshot().live as { nightDepth?: number }).nightDepth === undefined; i++) s.advanceGame();
   const rows: Row[] = [];
-  for (let step = 0; step < 700 && !rows.some((r) => r.next === "eviction" && r.event !== "day-break" && !r.event); step++) {
+  for (let step = 0; step < 2500 && !rows.some((r) => r.next === "eviction" && r.event !== "day-break" && !r.event); step++) {
     const d = (s.getGameState() as { daySchedule?: { due: boolean; next: string; phase: string } }).daySchedule;
     if (d?.due) {
       const before = { h: live().nightDepth, tod: live().timeOfDay };
       const v = s.advanceGame();
       if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
-      rows.push({ next: d.next, scheduled: d.phase, dueHour: before.h, dueTod: before.tod, event: v.event?.beat ?? undefined, afterHour: live().nightDepth });
-    } else s.advanceClockPerConversation();
+      rows.push({ next: d.next, scheduled: d.phase, dueHour: before.h, dueTod: phaseForHour(before.h + 1e-6) /* the clock accrues in 5-minute float steps (15.999999999 reads 'due'): label the phase by the hour with the same tolerance milestoneDue uses */, event: v.event?.beat ?? undefined, afterHour: live().nightDepth });
+    } else if (live().timeOfDay === "night" || live().timeOfDay === "late-night") { s.turnIn({}); } // ORW-258: the player goes to bed at the NIGHT period (no earlier), and the next event is its own day
+    else s.advanceClockPerConversation();
   }
   return rows;
 }
@@ -66,11 +68,12 @@ describe("milestone hours vs the schedule (week 1, real loop)", () => {
     expect(at("veto-ceremony", "veto-ceremony").dueTod).toBe("evening");
     expect(rows.find((x) => x.next === "eviction" && !x.event)!.dueTod).toBe("evening");
   });
-  it("PINNED QUIRK (still true, now only about the night): `due` reads true at the tail of the previous event day and the next advance is a day-break that crosses the night; the event then lands in its slot the next day", () => {
-    const tail = (beat: string) => rows.find((x) => x.next === beat && x.event === "day-break");
-    expect(tail("nominations")!.afterHour, "the night is crossed to 8am; nominations land that evening").toBeCloseTo(8, 1);
-    expect(tail("veto-competition")!.dueHour, "after the nominations ceremony (evening) the veto draw already reads due").toBeCloseTo(17, 1);
-    expect(tail("veto-competition")!.afterHour).toBeCloseTo(8, 1);
-    expect(tail("veto-ceremony")!.afterHour).toBeCloseTo(8, 1);
+  it("ORW-258 (replaces the pinned quirk): an event behind its night is NOT due on the previous event's day; its day-break needs no 'due' and the event is due only on its own day", () => {
+    // the old quirk (nominations/veto/ceremony reading `due: true` at the tail of the previous event day while the engine still needed a night) is gone: every row where `due` was true advanced the EVENT itself, never a day-break
+    const dueRows = rows.filter((x) => x.event === "day-break");
+    expect(dueRows, "no day-break was ever advanced because the schedule said 'due'").toEqual([]);
+    const at = (n: string, e: string) => rows.find((x) => x.next === n && x.event === e)!;
+    expect(at("nominations", "nominations").dueTod, "nominations fire on their own day, in the evening").toBe("evening");
+    expect(at("veto-ceremony", "veto-ceremony").dueTod).toBe("evening");
   });
 });

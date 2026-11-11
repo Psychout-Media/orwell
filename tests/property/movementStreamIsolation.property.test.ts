@@ -121,7 +121,7 @@ async function seasonBeatLog(seed: number): Promise<string[]> {
   let finished = false;
   for (let i = 0; i < 5_000 && !finished; i++) {
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult;
-    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `mv${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `mv${seed}`, () => sandbox.session.advanceClockPerConversation()); // in-process clock steps (no noteMessage): this is a headless driver, not a person playing, so the played-game event cadence (ORW-258) stays out of the isolation claim // ORW-116: a held night is the player's: time passes, then they turn in
     finished = adv.finished;
     note(adv.event);
     if (adv.pending) {

@@ -1,4 +1,5 @@
 import type { Beat, LiveSeasonState } from "./liveSeason";
+import { nightBreakPending } from "./liveSeason";
 import type { TimeOfDay } from "./timeOfDay";
 import { WAKE_HOUR, eventSpanHours, DAY_END_HOUR } from "./timeOfDay";
 import { CLOCK } from "./sleepConstants";
@@ -103,7 +104,8 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
   if (!m || live?.timeOfDay === undefined) return false;
   const hour = live.nightDepth ?? WAKE_HOUR;
   // ORW-116 (a): the first HOH is the afternoon of the NEXT day after the premiere evening and the social night - never that same night (the clock reads past the afternoon hour at night).
-  if (live.beat === "hoh-competition" && live.week === 1 && !live.firstNightPassed && (live.dayNumber ?? 1) < 2 && hour < DAY_END_HOUR - 0.01) return false; // ...unless the night has run out: then the advance IS the day-break to the first morning (no stall on a player who never turns in)
+  // ORW-258 (Ryne: every event gets its own day): while the NIGHT between this event and the previous one has not passed, the event is NOT due - it belongs to the next day, whatever the hour reads tonight. Unless the night has run out: then the advance IS the day-break.
+  if (nightBreakPending(live) && hour < DAY_END_HOUR - 0.01) return false;
   // Float-safe: the clock accrues in 0.2h steps (0.2 * 20 = 3.999999999999986...), so a scene that reaches EXACTLY the scheduled hour (the 8am wake + a 4h scene
   // cap = the 12:00 afternoon start) landed at 11.999999999999986 and was never "due" - a stall once the front-end stopped firing events ahead of the schedule.
   return hour + 1e-6 >= m.targetHour;
@@ -148,5 +150,28 @@ export function minutesUntilDue(live: LiveSeasonState | null | undefined): numbe
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return null;
   const hour = live.nightDepth ?? WAKE_HOUR;
+  // ORW-258: behind a pending night gate the event is due the next day at its hour: the rest of tonight plus the morning-to-hour span.
+  if (nightBreakPending(live) && hour < DAY_END_HOUR - 0.01) return Math.max(0, Math.ceil(((DAY_END_HOUR - hour) + (m.targetHour - WAKE_HOUR)) * 60 - 1e-6));
   return Math.max(0, Math.ceil((m.targetHour - hour) * 60 - 1e-6));
+}
+
+
+/**
+ * ORW-258 (Ryne, 2026-11-11: "every event gets its own day"): the event that belongs to TODAY while the next one waits behind its night. The header must name it (the HOH day reads
+ * HOH, not Nominations). `null` when the next milestone is itself today's event (its night has passed). A fixed map of the weekly order; pure, no rng.
+ */
+const EVENT_BEFORE: Partial<Record<StructuralMilestone, StructuralMilestone>> = {
+  nominations: "hoh-competition",
+  "veto-competition": "nominations",
+  "veto-ceremony": "veto-competition",
+  eviction: "veto-ceremony",
+  "hoh-competition": "eviction",
+};
+export function todaysEvent(live: LiveSeasonState | null | undefined): StructuralMilestone | null {
+  const m = nextMilestone(live);
+  if (!m || live?.timeOfDay === undefined || !nightBreakPending(live!)) return null;
+  const hour = live!.nightDepth ?? WAKE_HOUR;
+  if (hour >= DAY_END_HOUR - 0.01) return null;
+  if (m.beat === "hoh-competition" && live!.week === 1) return null; // the premiere evening: no event of its own
+  return EVENT_BEFORE[m.beat] ?? null;
 }

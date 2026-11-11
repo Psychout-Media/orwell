@@ -51,10 +51,15 @@ def test_flag_parsing(monkeypatch):
     for on in ("1", "true", "yes", "on", "ON"):
         monkeypatch.setenv(FLAG, on)
         assert sb.show_brief_enabled() is True
-    for off in ("", "0", "false", "off"):
+    for off in ("0", "false", "no", "off", "OFF"):
         monkeypatch.setenv(FLAG, off)
         assert sb.show_brief_enabled() is False
+    # ships ON (Ryne): unset or empty means ON; the diagnostic profile turns every flag off
     monkeypatch.delenv(FLAG, raising=False)
+    assert sb.show_brief_enabled() is True
+    monkeypatch.setenv(FLAG, "")
+    assert sb.show_brief_enabled() is True
+    monkeypatch.setenv("ORWELL_FLAGS_OFF", "1")
     assert sb.show_brief_enabled() is False
 
 
@@ -138,7 +143,7 @@ def _patch_engine(monkeypatch, calls, served=None):
 
 
 def test_flag_off_calls_the_moment_prompt_exactly_as_before_and_stashes_nothing(monkeypatch):
-    monkeypatch.delenv(FLAG, raising=False)
+    monkeypatch.setenv(FLAG, "0")
     calls = []
     _patch_engine(monkeypatch, calls)
     preface = []

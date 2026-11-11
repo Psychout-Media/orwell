@@ -103,7 +103,7 @@ describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE 
   it("nominations: the veto field is already drawn immediately after submitDecision — no follow-up advanceGame needed", () => {
     // Seed 81005 (re-selected 2026-11-03: #1965 made the replaced fold trust-gated, then the default flip moved the clock ON; was 81003): the player reaches HOH within the drive.
     clockOff();
-    const { session } = startedGame(81005);
+    const { session } = startedGame(81007); // re-selected 2026-11-11 (ORW-247: ceremonies gather the house, which moves the seeded trajectory; was 81005)
     const pending = driveToPendingKind(session, "nominations");
 
     // Before the fix, resolving `nominations` left the loop sitting at "veto-competition, nothing
@@ -277,7 +277,7 @@ describe("T0-2 — a failed persist rolls back BOTH the pending's resolution and
     const store = new FlakyStore();
     const runtime = composeRuntime({ saveStore: store, clock: new FakeClock() });
     const user = "t0-2-fault";
-    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81005 }); // re-selected 2026-11-03, default flip (was 81003)
+    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81007 }); // re-selected 2026-11-11, ORW-247 ceremony gathering (was 81005)
 
     const pending = driveToPendingKind(runtime.registry.sandboxFor(user).session, "nominations");
     expect(runtime.registry.sandboxFor(user).session.gameStatus().veto.players.length).toBe(0);

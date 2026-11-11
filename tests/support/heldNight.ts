@@ -18,8 +18,8 @@ export async function endHeldNight(
     const st = (await call("gameStatus", {})) as { timeOfDay?: string } | null;
     const tod = st?.timeOfDay;
     if (tod === "evening" || tod === "night" || tod === "late-night") {
-      await call("turnIn", {});
-      return;
+      const r = (await call("turnIn", {})) as { held?: unknown } | null;
+      if (!r?.held) return; // ORW-258: a person playing may not go to bed before the night period (the gate answers `held`): keep letting time pass
     }
     if (tick) tick(); else await call("noteMessage", { messageId: `${tag}-${i}-${Math.random().toString(36).slice(2)}` });
   }
@@ -37,7 +37,10 @@ export function endHeldNightSync(s: {
   if (opts.direct) { s.setBedtimeGateEnabled?.(false); s.turnIn(); return; }
   for (let i = 0; i < 800; i++) {
     const tod = s.gameStatus().timeOfDay;
-    if (tod === "evening" || tod === "night" || tod === "late-night") break;
+    if (tod === "evening" || tod === "night" || tod === "late-night") {
+      const r = s.turnIn() as { held?: unknown } | undefined;
+      if (!r?.held) return; // ORW-258: a person playing may not go to bed before the night period (the gate answers `held`): keep letting time pass
+    }
     s.advanceClockPerConversation();
   }
   s.turnIn();
