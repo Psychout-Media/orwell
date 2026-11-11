@@ -3151,7 +3151,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     _n15 = None if desync else _uncommitted_player_choice(text, after)
     # (13) N-16 (A9 live rerun): the competition narrated as STARTED (take your spots / the yard climbs the wall) while the engine says it is NOT due and nothing is pending.
     _n16 = None if desync else (_comp_started_before_due(text, after) or _comp_replayed_when_none_running(text, after))
-    _clk = None if desync else (_clock_misstated(text, after) or _time_of_day_words_misstated(text, after))
+    _clk = None if desync else _clock_misstated(text, after)
     if _a9 or _f3 or _n1 or _n3 or _n15 or _n16 or _clk:
         desync = "; and ".join(x for x in (_f3, _a9, _n1, _n3, _n15, _n16, _clk) if x)
 
@@ -3244,6 +3244,11 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
                 "[orwell] beat-signature desync detected for user=%s — re-grounding next turn (class=%s; %s)",
                 user, _guard_class_tag(directive), _guard_snippet(directive),
             )
+        # ORW-79 (A95): a period-of-day LIGHT phrase that disagrees with the engine clock. Post-turn NUDGE only (never wired into the streamed hold/cut paths: atmosphere is open-set prose, ADR 0005 #1).
+        _tod = _time_of_day_words_misstated(narration or "", after)
+        if _tod:
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CLOCK - last turn you set the scene with " + _tod + ". The clock is engine truth: keep the light, the sky and the mood of the scene to the real time of day from now on.")
+            logger.warning("[orwell] time-of-day words drift from the engine clock for user=%s - re-grounding next turn", user)
     except Exception as e:
         logger.warning("[orwell] post-turn desync check skipped for user=%s: %s", user, e)
 
@@ -5209,7 +5214,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         _roll_cut_streak(_desync_key(user), _LAST_BEAT_SIG.get(_desync_key(user)))  # ORW-10: a new turn with no cut resets the streak (runs ahead of the cheap gate so prose-only turns count)
         # Cheap synchronous gate — no closed-set OUTCOME claim ⇒ never read the board, never cut prose.
         # A74: N-16 "the competition has started" prose carries no outcome claim, so it also passes when >= 2 distinct start-cue families match (the live read then decides; one cue never does).
-        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or '')) or bool(_TOD_LIGHT_RE.search(text or ''))):
+        if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
         before = _LAST_BEAT_SIG.get(_dkey)

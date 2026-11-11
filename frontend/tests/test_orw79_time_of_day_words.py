@@ -51,18 +51,40 @@ def test_no_clock_or_an_unparseable_label_stands_down():
     assert ch._time_of_day_words_misstated("", live("9:05am, Day 3")) is None
 
 
-def test_the_streamed_path_cuts_a_wrong_time_of_day_phrase_and_names_the_real_clock(monkeypatch):
+def _post_turn(monkeypatch, narration, label, key):
+    import asyncio
+    sig = {"week": 1, "phase": "hoh-competition", "evicted": 0, "finished": False, "clockLabel": label}
+
+    async def fake_capture(user):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", fake_capture)
+    ch._LAST_BEAT_SIG[ch._desync_key(key)] = dict(sig)
+    ch._DESYNC_REGROUND.pop(ch._desync_key(key), None)
+    asyncio.get_event_loop().run_until_complete(ch.record_post_turn_desync_check(key, narration))
+    return ch._DESYNC_REGROUND.get(ch._desync_key(key))
+
+
+def test_the_post_turn_check_queues_a_clock_reground_naming_the_real_clock(monkeypatch):
+    got = _post_turn(monkeypatch, "Afternoon light slants across the kitchen island as Alice pours coffee.", "9:05am, Day 3", "u79a")
+    assert got and "RE-GROUND ON THE CLOCK" in got and "9:05am, Day 3" in got
+    assert _post_turn(monkeypatch, "Morning light slants across the kitchen island.", "9:05am, Day 3", "u79b") is None
+
+
+def test_it_is_a_post_turn_nudge_only_never_a_streamed_cut():
     from test_n16_decisive_cues import _sig, _board, _run, _USER
-    sig = _sig(phase="veto-competition", not_due=True)
-    sig["clockLabel"] = "9:05am, Day 3"
-    ch._LAST_BEAT_SIG[_USER] = dict(sig)
-    _board(monkeypatch, sig)
-    d = _run(ch.screen_streamed_scene_break(_USER, "Afternoon light slants across the kitchen island as Alice pours coffee."))
-    assert d is not None and "9:05am, Day 3" in d, d
-    assert _run(ch.screen_streamed_scene_break(_USER, "Morning light slants across the kitchen island as Alice pours coffee.")) is None
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        sig = _sig(phase="veto-competition", not_due=True)
+        sig["clockLabel"] = "9:05am, Day 3"
+        ch._LAST_BEAT_SIG[_USER] = dict(sig)
+        _board(mp, sig)
+        assert _run(ch.screen_streamed_scene_break(_USER, "Afternoon light slants across the kitchen island as Alice pours coffee.")) is None
+        assert ch._narration_claims_outcome("Afternoon light slants across the kitchen island.", sig, sig) is None
+    finally:
+        mp.undo()
 
 
-def test_it_is_part_of_the_desync_detector_that_feeds_the_reground():
+def test_the_post_turn_desync_check_calls_it():
     import inspect
-    src = inspect.getsource(ch)
-    assert "_clock_misstated(text, after) or _time_of_day_words_misstated(text, after)" in src
+    assert "_time_of_day_words_misstated(narration or \"\", after)" in inspect.getsource(ch.record_post_turn_desync_check)
