@@ -1397,12 +1397,14 @@
     "veto-decision": "\u{1F48E}", "replacement-nominee": "\u{1F528}", "secret-veto": "\u{1F575}",
     "eviction-ballot": "\u{1F5F3}️", "eviction-result": "\u{1F5F3}️", "comp-round-result": "\u{1F3C1}", "final-hoh-part": "\u{1F3C6}",
     "correction": "\u{1F4FC}",  // #1785 AC3: diegetic control-room correction card
+    "veto-field": "\u{1F48E}",  // ORW-281 4b: the veto field is set (the six who play)
   };
   const _CHYRON_KICKER = {
     "hoh-winner": "Head of Household", nominations: "Nominations", "veto-winner": "Power of Veto",
     "veto-decision": "Veto Ceremony", "replacement-nominee": "Replacement Nominee", "secret-veto": "Secret Veto",
     "eviction-ballot": "Live Vote", "eviction-result": "Eviction", "comp-round-result": "Competition", "final-hoh-part": "Final HOH",
     "correction": "Control Room",  // #1785 AC3: diegetic control-room correction card
+    "veto-field": "Power of Veto",  // ORW-281 4b
   };
   // F4: dedup by announcement id — a chyron renders exactly once per session. Backed ALSO by a DOM
   // check (`data-chyron-id`) so a transcript replay on reload — which re-delivers the SAME historical

@@ -57,3 +57,13 @@ def test_card_renders_text_and_a_continue_that_posts_the_route():
     assert 'btn.textContent = "Continue"' in JS
     # a watch card is not a decision: no stakes skin, never binding
     assert 'card.dataset.binding = "false"' in JS
+
+
+def test_watch_step_directive_quotes_the_engine_text_line():
+    d = chat_helpers._pending_barrier_directive(
+        {"kind": "ceremony-step", "text": "The chips come out of the bag.", "ceremony": {"kind": "veto-draw", "step": 1, "of": 3, "stepId": "chips"}})
+    assert "The chips come out of the bag." in d
+
+
+def test_veto_field_chyron_has_an_icon_and_a_label():
+    assert '"veto-field": "\\u{1F48E}"' in JS and '"veto-field": "Power of Veto"' in JS
