@@ -1664,6 +1664,13 @@ async def execute_tool_block(
     elif tool == "turnIn":
         desc = "turnIn"
         result = await do_turn_in(content, owner=owner)
+        # ORW-275: a turnIn that crossed a week boundary carries `weekChapter` - save the chapter row (idempotent per week, fail-soft).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_week_chapter
+                orwell_week_chapter.save_week_chapter(owner, result)
+            except Exception:
+                pass
     elif tool.startswith("mcp__"):
         # MCP tool dispatch
         mcp = get_mcp_manager()

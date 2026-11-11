@@ -1517,6 +1517,8 @@ _LAST_FRAMED_BEAT_KEY: dict = {}
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent (pre-game / casting) ⇒ a neutral wall-clock
 # stamp (prior behavior). Vault-free by construction (closed-set public status only).
 _LAST_FRAMED_GAME_MOMENT: dict = {}
+# ORW-275: the engine's game WEEK stashed next to the moment (same keying), persisted as numeric metadata['week'] on every saved game row.
+_LAST_FRAMED_GAME_WEEK: dict = {}
 
 # #1626 increment 2 — the Vault-free PRODUCER (production-voice) name from the moment prompt, captured
 # from the SAME framing read that fetches the GM prompt (increment 1 exposed `MomentPromptView.
@@ -6674,6 +6676,11 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     return " · ".join(parts) if parts else None
 
 
+def current_game_week(user) -> Optional[int]:
+    """ORW-275: the engine's game week (int) stashed by `apply_game_framing` this turn (None pre-game / casting)."""
+    return _LAST_FRAMED_GAME_WEEK.get(user or "default")
+
+
 def current_game_moment(user) -> Optional[str]:
     """M2-6 — the IN-WORLD moment string stashed for `user` by `apply_game_framing` this turn (the beat
     the model was framed on). The persist site stamps it onto the assistant beat's transcript timestamp;
@@ -7342,6 +7349,12 @@ async def apply_game_framing(
         # beat's transcript timestamp so the fiction isn't dated by the wall clock. Keyed the SAME
         # "default"-fallback way as the beat key below. Vault-free (closed-set public status only).
         _LAST_FRAMED_GAME_MOMENT[user or "default"] = _format_game_moment(game_state)
+        # ORW-275: the game WEEK (same framing state, zero extra read). Pre-game / casting ⇒ none (rows stay unstamped).
+        _gw = game_state.get("week") if isinstance(game_state, dict) and game_state.get("started") else None
+        if isinstance(_gw, int) and not isinstance(_gw, bool) and _gw > 0:
+            _LAST_FRAMED_GAME_WEEK[user or "default"] = _gw
+        else:
+            _LAST_FRAMED_GAME_WEEK.pop(user or "default", None)
         # ADR 0011: stash the FRAMING beat key (the beat the model is grounded on THIS turn) so the
         # agent loop can distinguish a concurrent PEER's advance from the model under-calling — the
         # two-tab "20-step loop" fix. Engine's raw fields (NOT the RE_ENTRY display moment). Zero extra
@@ -9137,7 +9150,7 @@ def clean_thinking_for_save(
 
 
 def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
-                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None, game_week: Optional[int] = None,
                          announcements: Optional[list] = None, incognito: bool = False):
     """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
     the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
@@ -9151,6 +9164,8 @@ def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dic
     content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game, cut_off=True)
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275
     if announcements:
         md["announcements"] = announcements
     if game and not (content or "").strip() and not md.get("thinking") and not md.get("announcements"):
@@ -9182,6 +9197,7 @@ def save_assistant_response(
     game_moment: str = None,
     game: bool = False,
     brief_seen: dict = None,
+    game_week: int = None,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
 
@@ -9201,6 +9217,8 @@ def save_assistant_response(
         md["phase"] = phase
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275: numeric game week next to game_moment
     # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF; the caller passes None when off): what the narrator last saw,
     # kept on the row so a restart or another window picks the Show Brief's "changed since" up from here (K6 §5.1).
     if isinstance(brief_seen, dict):
