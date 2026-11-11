@@ -798,11 +798,65 @@ def scheduled_event_is_held(user) -> bool:
         return False
 
 
+# ORW-97: the ENGINE's own A65 schedule hold (advanceGame -> typed `held`, reason "schedule"). A held advance is NEVER progress; while it stands the stall-nudge / forced-advance belts
+# must not escalate (they would spin on a refusal). Cleared by any real advance; a wall-clock TTL is only a safety net (the clock moves on the player's turns, not on time).
+_ENGINE_HELD: dict = {}
+_ENGINE_HELD_TTL_S = 600.0
+
+
+def engine_held_is_schedule(res) -> bool:
+    """True when an advanceGame response is the engine's A65 schedule hold (typed `held` with reason "schedule", nothing committed)."""
+    h = res.get("held") if isinstance(res, dict) else None
+    return isinstance(h, dict) and h.get("reason") == "schedule" and not res.get("event")
+
+
+def engine_held_note(held) -> str:
+    """A Vault-free in-fiction sentence from the held payload (next event + minutesUntil) for the narrator."""
+    h = held if isinstance(held, dict) else {}
+    nxt = str(h.get("next") or "next scheduled event").replace("-", " ")
+    try:
+        mins = int(h.get("minutesUntil"))
+    except (TypeError, ValueError):
+        mins = None
+    when = "later today" if mins is None or mins <= 0 else (f"in about {mins} minutes" if mins < 90 else f"in about {round(mins / 60)} hours")
+    return (f"Production hasn't called the house in yet: the {nxt} is not due until {when}, so nothing advanced. Stay in the scene, keep the houseguests talking, "
+            "do NOT narrate it starting, and do not call advanceGame again until the production calls the house in.")
+
+
+def note_engine_held(user, held) -> None:
+    try:
+        import time as _t
+        _ENGINE_HELD[_runway_key(user)] = (_t.monotonic(), held)
+    except Exception:
+        pass
+
+
+def clear_engine_held(user) -> None:
+    try:
+        _ENGINE_HELD.pop(_runway_key(user), None)
+    except Exception:
+        pass
+
+
+def engine_is_holding(user) -> bool:
+    try:
+        import time as _t
+        e = _ENGINE_HELD.get(_runway_key(user))
+        if not e:
+            return False
+        if _t.monotonic() - e[0] > _ENGINE_HELD_TTL_S:
+            _ENGINE_HELD.pop(_runway_key(user), None)
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
     try:
-        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or comp_pause_holds(user)  # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
+        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or comp_pause_holds(user) or engine_is_holding(user)  # ORW-97: the engine's own schedule hold; # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
     except Exception:
         return False
 
@@ -6800,8 +6854,11 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             # ORW-116 (b) / ORW-236, Ryne: the night is never auto-run. The engine HELD the day-break (nothing committed): the pre-resolve did NOT walk a beat, so do not mark one,
             # and keep framing the turn against the board as it is - the evening/night stays social until the player turns in or the house wakes at 8am.
             logger.info("[orwell] pre-resolve held for user=%s: the night is the player's (%s)", user, adv.get("held"))
+            if engine_held_is_schedule(adv):  # ORW-97: not progress; the stall belts must not escalate against the engine's refusal
+                note_engine_held(user, adv.get("held"))
             return game_state
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
+        clear_engine_held(user)  # ORW-97: a real beat walked
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
         stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says
         # comp-intent (player in the field — engine pauses, never auto-decides), or resolve an NPC beat.

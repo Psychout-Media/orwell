@@ -5324,9 +5324,20 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                 return {"output": json.dumps(_cur, indent=2), "exit_code": 0}
             # else: the retry LANDED — fall through to the shared post-advance handling below.
         if isinstance(res, dict) and res.get("held") and not res.get("event"):
+            from routes import chat_helpers as _ch_held
+            if _ch_held.engine_held_is_schedule(res):
+                # ORW-97 (A65): the ENGINE refused - the schedule says the event is not due. Nothing committed: NOT progress (no refresh, no pending cache); tell the narrator why, from the
+                # Vault-free held payload, and mark the hold so the stall belts do not escalate against it.
+                _ch_held.note_engine_held(owner, res.get("held"))
+                return {"output": json.dumps({"held": True, "note": _ch_held.engine_held_note(res.get("held"))}), "exit_code": 0}
             # ORW-116 (b), Ryne: the engine will not roll the NIGHT on its own. Nothing committed; tell the narrator in plain words instead of leaving a bare typed `held`.
             return {"output": json.dumps({"held": True, "note": "The night is the player's. The house is still up and nothing advances overnight: stay in the scene, keep the evening and night social, and let the player turn in (or the house wake at 8am) before the next day begins. Do not narrate a new day or any ceremony."}),
                     "exit_code": 0}
+        try:
+            from routes import chat_helpers as _ch_clr
+            _ch_clr.clear_engine_held(owner)  # ORW-97: a real advance landed
+        except Exception:
+            pass
         await _refresh_after_model_progression(owner, res)  # CON-3
         try:
             from routes import chat_helpers as _ch_mark

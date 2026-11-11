@@ -17,6 +17,7 @@ describe("P4b / ORW-116 - the first HOH waits for Day 2 (no phase advance moves 
     s.setPerConversationClockEnabled(clock);
     s.advanceGame(); // the champagne-circle close
     if (clock) for (let i = 0; i < 80; i++) s.noteMessage({ messageId: `m${i}` }); // the player socializes through the evening into the night (starts + arms the clock)
+    (s as unknown as GameSessionAdapter).setAdvanceGateEnabled(false); // these pin the NIGHT semantics (a played game asking to advance); the A65 schedule gate has its own test (advanceScheduleGate)
     return s;
   };
 
