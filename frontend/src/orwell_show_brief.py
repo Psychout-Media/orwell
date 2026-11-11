@@ -1,4 +1,4 @@
-"""Showrunner memory — the Show Brief v1 skeleton, front-end half (flag ``ORWELL_SHOW_BRIEF``, default OFF).
+"""Showrunner memory — the Show Brief v1 skeleton, front-end half (flag ``ORWELL_SHOW_BRIEF``, default ON).
 
 The ENGINE builds the brief (``src/engine/showBrief.ts``) from its own Vault-free projections; this module only:
   • decides whether to ask for it (the flag);
@@ -45,8 +45,10 @@ def _owner(user) -> str:
 
 
 def show_brief_enabled() -> bool:
-    """``ORWELL_SHOW_BRIEF=1|true|yes|on`` asks the engine for the Show Brief each live turn. Default off."""
-    return str(os.environ.get(_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
+    """The Show Brief rides each live turn. ON by default (Ryne: new features ship ON); ``ORWELL_SHOW_BRIEF=0|false|no|off`` turns it off, as does the diagnostic ``ORWELL_FLAGS_OFF=1`` profile."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get(_FLAG, "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def last_scene_tail(history: Any) -> Optional[str]:

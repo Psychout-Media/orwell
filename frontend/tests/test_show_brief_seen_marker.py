@@ -87,7 +87,7 @@ def test_results_without_whereabouts_or_malformed_ones_change_nothing(flag_on):
 
 
 def test_flag_off_the_marker_never_moves(monkeypatch):
-    monkeypatch.delenv(FLAG, raising=False)
+    monkeypatch.setenv(FLAG, "0")
     sb.note_tool_result("owner-1", WA_KITCHEN)
     assert sb._SEEN == {}
     assert sb.served_seen("owner-1") is None
@@ -268,7 +268,7 @@ def test_adoption_ignores_rows_without_a_usable_marker(flag_on):
 
 
 def test_flag_off_nothing_is_adopted(monkeypatch):
-    monkeypatch.delenv(FLAG, raising=False)
+    monkeypatch.setenv(FLAG, "0")
     sb.adopt_history_seen("owner-1", [_Msg("assistant", "x", {"briefSeen": SERVED})])
     assert sb._SEEN == {}
 

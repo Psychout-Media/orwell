@@ -234,7 +234,7 @@ def test_game_turn_prepends_moment_prompt(monkeypatch):
     async def fake_state(user=None):
         return {"started": True, "moment": "social"}
 
-    async def fake_mp(moment=None, user=None):
+    async def fake_mp(moment=None, user=None, **kw):  # the Show Brief (ships ON) adds a `brief` kwarg
         return {"systemPrompt": "GM-PROMPT"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
@@ -343,6 +343,7 @@ def test_game_build_retries_state_once_so_a_brief_engine_blip_recovers(monkeypat
     # A momentary engine restart between turns should recover to a normal in-character turn under
     # the game build (one short retry), not surface a feeds-down message.
     monkeypatch.delenv("ORWELL_GAME_BUILD", raising=False)
+    monkeypatch.setenv("ORWELL_SHOW_BRIEF", "0")  # this test is about the retry; the Show Brief (ships ON) changes the stubbed moment-prompt layout it asserts on
     monkeypatch.setattr(chat_helpers.asyncio, "sleep", _async_noop)
     chat_helpers._GAME_WAS_ACTIVE.clear()
     calls = {"n": 0}
