@@ -7,7 +7,7 @@ import { resolveCompetition, CompetitionIntents, type Competitor } from "../../s
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import {
   socialSwayScale, accrueFatigue, sleepDebtHours, sleepDeficitForBedHour, restStatusFor,
-  isAwakeAtHour, conversationHours, CONVERSATION_DURATION,
+  isAwakeAtHour,
   eventSpanHours, eventStartHour, eventSpillsPeriod, WAKE_HOUR, DAY_END_HOUR, PERIOD_HOURS,
 } from "../../src/engine/timeOfDay";
 import { CLOCK, WEEKLY_CADENCE } from "../../src/engine/sleepConstants";
@@ -364,23 +364,6 @@ Then("competitions vary in length by type", function () {
 });
 
 // --- Conversation durations (LOOSE) ---------------------------------------------------------------
-
-Then("a scene with no proposed duration takes its type baseline", function () {
-  for (const kind of ["passing", "casual", "game", "summit"] as const) {
-    assert.equal(conversationHours(kind), CONVERSATION_DURATION.baselineHours[kind]);
-  }
-});
-
-Then("a proposed duration within the type range is honored exactly", function () {
-  const mid = (CONVERSATION_DURATION.minHours.game + CONVERSATION_DURATION.maxHours.game) / 2;
-  assert.equal(conversationHours("game", mid), mid);
-});
-
-Then("an absurd proposal is bounded to the type range, never zero and never a day-skip", function () {
-  assert.equal(conversationHours("summit", 999), CONVERSATION_DURATION.maxHours.summit); // capped, not a day-skip
-  assert.equal(conversationHours("summit", 0), CONVERSATION_DURATION.baselineHours.summit); // never zero
-  assert.equal(conversationHours("passing", 0.001), CONVERSATION_DURATION.minHours.passing); // floored
-});
 
 Then("an engaged scene is never cut short by the clock", function () {
   // The per-conversation advance only ADVANCES time AFTER a scene; it never ends one. The clock clamps at

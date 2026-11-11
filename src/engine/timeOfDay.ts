@@ -312,12 +312,11 @@ export function eventSpillsPeriod(startHour: number, spanHours: number): boolean
 // --- Phase-2 extension math (re-exported from the single tunable home) ----------------------------
 //
 // `socialSwayScale` (Extension 2) dampens a tired houseguest's fold EFFECTIVENESS; `accrueFatigue`/
-// `combinedRestDeficit` (Extension 3) compound consecutive late nights; `conversationHours` (Extension 5)
-// commits the LOOSE, type-bounded felt duration. All pure — no rng — and gated OFF (scale 1 / meter 0 /
+// `combinedRestDeficit` (Extension 3) compound consecutive late nights; (Extension 5's kind-billed durations were deleted, ORW-68). All pure — no rng — and gated OFF (scale 1 / meter 0 /
 // baseline floor) by their dedicated flags ⇒ byte-identical when off.
 export {
-  socialSwayScale, soreSwayScale, accrueFatigue, combinedRestDeficit, conversationHours,
-  SOCIAL_FATIGUE, FATIGUE, CONVERSATION_DURATION,
+  socialSwayScale, soreSwayScale, accrueFatigue, combinedRestDeficit,
+  SOCIAL_FATIGUE, FATIGUE,
   type ConversationKind,
 } from "./sleepConstants";
 // `CLOCK` + `EVENT_DURATION` are also used in this module's bodies (imported above) — re-export the local bindings.
