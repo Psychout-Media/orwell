@@ -8,6 +8,7 @@ These are agent tools — the LLM writes fenced code blocks and they execute
 through the standard agent_tools.py pipeline.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -1697,7 +1698,7 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
     if not model_spec:
         for candidate in IMAGE_AUTODETECT_CANDIDATES:
             try:
-                _resolve_model(candidate, owner=owner)
+                await asyncio.to_thread(_resolve_model, candidate, owner=owner)  # ORW-177: blocking /models probe, off the event loop
                 model_spec = candidate
                 break
             except ValueError:
@@ -1739,7 +1740,7 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
 
     # Resolve the model to find the right endpoint
     try:
-        url, model_id, headers = _resolve_model(model_spec, owner=owner)
+        url, model_id, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)  # ORW-177: off the event loop
     except ValueError:
         return {"error": f"No endpoint found with image model '{model_spec}'. "
                 "Configure an OpenAI-compatible endpoint with image generation support."}
@@ -1836,7 +1837,7 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
             elif img.get("url"):
                 # Download external URL and save locally (DALL-E returns temp URLs)
                 try:
-                    dl_resp = httpx.get(img["url"], timeout=60)
+                    dl_resp = await asyncio.to_thread(httpx.get, img["url"], timeout=60)  # ORW-177: off the event loop
                     if dl_resp.status_code == 200:
                         img_dir = Path("data/generated_images")
                         img_dir.mkdir(parents=True, exist_ok=True)

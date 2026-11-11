@@ -1,5 +1,6 @@
 import type { DealKind } from "../domain/deal";
 import { DEAL_CONSENT, type DealRefusalReason } from "./dealConsentConstants";
+import { clamp01Raw } from "../domain/num";
 
 /**
  * NPC deal CONSENT (anti-sycophancy; the engine decides outcomes, the narrator only voices them). Before a player-proposed deal is recorded the NPC decides, from
@@ -35,7 +36,7 @@ export interface DealConsentInputs {
 export interface DealConsentDecision { accept: boolean; reason?: DealRefusalReason }
 
 const num = (x: number): number => (Number.isFinite(x) ? x : 0);
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, num(x)));
+const clamp01 = (x: number): number => clamp01Raw(num(x));
 
 /** The bounded drags (>= 0) each negative signal puts on the NPC's willingness, measured from the neutral baseline. */
 function drags(i: DealConsentInputs): Record<"distrust" | "threat" | "targeted" | "grudge" | "opposed", number> {
