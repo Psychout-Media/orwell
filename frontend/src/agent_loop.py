@@ -10647,6 +10647,12 @@ async def _stream_agent_loop_impl(
     # (the player's own answers + readiness). Premiere + preview are live-game and already covered
     # above (the in-game projection carries the roster + the pending decision). Live-only + fail-soft.
     if game_mode == "casting" and owner:
+        # ORW-186: casting turns are never ledgered - park this turn's belt/forced-choice counts so the first GAME turn's row does not inherit them.
+        try:
+            from src import orwell_sync_ledger as _led_cast
+            _led_cast.park_pending_unledgered_turn(owner)
+        except Exception:
+            pass
         try:
             _cast_narr = "\n".join(t for t in round_texts if t)
             _cast_proj = await _faith_build_casting_projection(owner)
