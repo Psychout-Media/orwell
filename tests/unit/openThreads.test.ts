@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { buildSandbox } from "../support/sandbox";
+import { PLAYER as PLAYER_ID } from "../../src/domain/ids";
 import { BRIEF_THREADS_MAX, openThreadsSection } from "../../src/engine/showBrief";
 
 /**
@@ -78,4 +80,28 @@ describe("the brief's OPEN THREADS section", () => {
     expect(sec.split("\n").filter((l) => l.startsWith("- ")).length).toBeLessThanOrEqual(BRIEF_THREADS_MAX);
   });
 });
-void PLAYER;
+
+describe("the Vault Wall (hidden-state sentinels)", () => {
+  it("hidden event, hidden element, Vault confessional and Diary Room entry never reach the brief or the section", () => {
+    const sb = buildSandbox(41);
+    const g = new GameSessionAdapter();
+    g.setPlayerKnowledgeReader(() => sb.engine.knowledge.knownTo(PLAYER_ID).map((f) => ({ id: f.id, content: f.content, subject: f.subject, factId: f.factId, pathway: f.pathway })));
+    g.setRecordProviders({ events: () => sb.engine.events.queryAll(), hidden: () => sb.engine.vault.readHidden() });
+    g.createCharacter({ playerName: "The Player", seed: 41 });
+    g.noteMessage({ messageId: "m-41-1" });
+    const npcs = (g as unknown as Priv).livingIds().filter((id) => id !== PLAYER_ID);
+    const [a, b] = npcs;
+    const EV = "SENTINEL-OT-HIDDEN-EVENT-1", EL = "SENTINEL-OT-HIDDEN-ELEMENT-2", CF = "SENTINEL-OT-CONFESSIONAL-3", DR = "SENTINEL-OT-DIARY-4";
+    sb.engine.events.record({ id: "ot:hid", ts: 9001, type: "scheme", initiator: a!, witnessSet: [a!, b!], hidden: true, content: EV });
+    sb.engine.vault.writeHidden({ id: "ot-el", kind: "hidden-attribute", content: EL });
+    sb.engine.vault.writeHidden({ id: "ot-cf", kind: "confessional", content: CF });
+    sb.engine.events.record({ id: "ot:cf", ts: 9002, type: "confessional", initiator: a!, witnessSet: [a!], hidden: true, content: CF });
+    sb.engine.knowledge.recordDiaryRoom(DR);
+    (g as unknown as Priv).deals.make([PLAYER_ID, a!], "safety", "terms", undefined, 1);
+    const b1 = g.getMomentPrompt({ brief: {} }).showBrief!;
+    expect(b1.text).toContain("5. OPEN THREADS");
+    expect(b1.text).toContain("a deal with");
+    expect(b1.text).not.toContain("a rumor that reached you"); // the Diary Room is not a pathway
+    for (const x of [EV, EL, CF, DR]) expect(JSON.stringify(b1)).not.toContain(x);
+  });
+});
