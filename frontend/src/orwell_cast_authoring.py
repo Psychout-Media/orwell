@@ -538,7 +538,7 @@ def _gendered_descriptor_flip(text: str, pin: str) -> bool:
     return False
 
 
-# ── ORW-184: reason codes + per-dial repair (behind ORWELL_VOICE_REPAIR, default OFF) ─────────────────
+# ── ORW-184: reason codes + per-dial repair (behind ORWELL_VOICE_REPAIR, default ON since ORW-242) ─────────────────
 #
 # On 2026-11-06 the check below dropped three authored voices WHOLE. Two were the model echoing the
 # engine's OWN seeded humor dial: `humor: "none"` is a real value of the engine's controlled vocabulary
@@ -563,8 +563,9 @@ _ENGINE_DIAL_VALUES_NOT_DEGENERATE = {"humor": frozenset({"none"})}
 
 
 def voice_repair_enabled() -> bool:
-    """ORW-184 flag: `ORWELL_VOICE_REPAIR=1|true|yes|on` turns on reason codes + per-dial repair."""
-    return str(os.environ.get(_VOICE_REPAIR_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
+    """ORW-184 flag, default ON (Ryne's ruling on ORW-242, "fix one detail": repair only the failing dial and keep the authored voice).
+    `ORWELL_VOICE_REPAIR=0|false|no|off` turns it off (the legacy whole-voice drop); unset or anything else is on."""
+    return str(os.environ.get(_VOICE_REPAIR_FLAG, "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _is_engine_dial_value(key: str, value: str) -> bool:
@@ -1531,7 +1532,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # is simply not adopted).
             def _lint_identity(p: dict) -> bool:
                 nonlocal voice_repaired, coherence_stripped, identity_pinned, secret_pinned
-                # ORW-184 (ORWELL_VOICE_REPAIR, default off ⇒ this block is skipped and everything below is
+                # ORW-184 (ORWELL_VOICE_REPAIR, default ON; =0 ⇒ this block is skipped and everything below is
                 # byte-identical): mend the authored voice PER FIELD before the lint, so one bad dial or one bad
                 # optional entry no longer costs the whole voice. A mended voice is still a recorded fault
                 # (#1599: a correction is not a cloak), as auto-corrected. An unmendable one falls through to the
