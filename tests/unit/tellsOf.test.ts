@@ -51,9 +51,27 @@ describe("B8 E0 - tellsOf", () => {
       if (!kinds(tellsOf(s)).includes("withdrawn")) probe = d; else break;
     }
     expect(probe).toBeDefined();
-    const justUnder = soul({ distress: probe! + 0.005, confidence: 0.1 });
+    const justUnder = soul({ distress: probe!, confidence: 0.1 });
+    expect(kinds(tellsOf(justUnder))).not.toContain("withdrawn");
     const shown = tellsOf(soul({ distress: 0.95, confidence: 0.1 }));
     expect(kinds(tellsOf(justUnder, shown))).toContain("withdrawn");
+  });
+  // ORW-38 mutation sweep (#2138): each term below was droppable with the suite staying green.
+  it("a clash drift damps tearful (it yields to guarded); no drift does not", () => {
+    expect(kinds(tellsOf(soul({ distress: 0.95, confidence: 0.1, temperamentDrift: 0.3 })))).not.toContain("tearful");
+    expect(kinds(tellsOf(soul({ distress: 0.95, confidence: 0.1, temperamentDrift: 0 })))).toContain("tearful");
+  });
+  it("volatility damps brittle-calm: a steady houseguest is brittle-calm, a volatile one is not", () => {
+    expect(kinds(tellsOf(soul({ distress: 0.9, confidence: 0.9, volatility: 0 })))).toContain("brittle-calm");
+    expect(kinds(tellsOf(soul({ distress: 0.9, confidence: 0.9, volatility: 0.9 })))).not.toContain("brittle-calm");
+  });
+  it("a bond drift turns warm-open ahead of giddy; with no bond giddy leads", () => {
+    expect(kinds(tellsOf(soul({ distress: 0.05, confidence: 0.95, temperamentDrift: 0 })))[0]).toBe("giddy");
+    expect(kinds(tellsOf(soul({ distress: 0.05, confidence: 0.95, temperamentDrift: -0.6 })))[0]).toBe("warm-open");
+  });
+  it("guarded is stronger when the composed mood is low than at a calm mood", () => {
+    const calmGuarded = tellsOf(soul({ temperamentDrift: 0.4 })).find((t) => t.kind === "guarded");
+    expect(calmGuarded?.band).toBe("faint");
   });
   it("absent axes fall back to the single emotionalState scalar", () => {
     const s: Soul = { emotionalBaseline: 0.5, volatility: 0.3, emotionalState: 0.05, emotionalHistory: [], memory: [] };
