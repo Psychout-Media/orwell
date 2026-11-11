@@ -48,7 +48,7 @@ import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/jur
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { PRESENCE, PRIVACY, MOVEMENT_INTENT, CALM_PRESENCE } from "../../engine/presenceConstants";
+import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
@@ -4780,7 +4780,27 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.wantMovementEnabled) this.applyWantToPulls(id, pulls);
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * ORW-87 - the NPC memory ledger bends who an NPC seeks or avoids: a remembered favor (negative tilt) draws them toward that houseguest (it turns an avoid into a seek: a favor is repaid), a remembered grudge keeps them away (an existing
+   * avoid is sharpened; an existing toward-pull, e.g. a rival to work, is left alone). Played games only (the caller gates; headless sims never reach this, so they stay byte-identical);
+   * no rng; a pure read of `memoryTiltFor`.
+   */
+  private applyMemoryToPulls(id: EntityId, pulls: MovementPull[]): void {
+    for (const other of this.presenceActive()) {
+      if (other === id) continue;
+      const tilt = this.memoryTiltFor(other, id);
+      if (Math.abs(tilt) < MOVEMENT_MEMORY.minTilt) continue;
+      const scale = 1 + MOVEMENT_MEMORY.gain * Math.abs(tilt);
+      const existing = pulls.find((p) => p.target === other);
+      if (tilt < 0) { // favor
+        if (existing) { existing.avoid = false; existing.weight *= scale; } else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: false });
+      } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
+      else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
+    }
   }
 
   /** B35 - reads the holder's undelivered high-motive facts (wired by the registry; absent => no seeking). */
