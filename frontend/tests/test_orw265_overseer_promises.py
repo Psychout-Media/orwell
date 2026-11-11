@@ -131,6 +131,15 @@ def test_refused_commit_is_one_attempt_not_applied_and_save_untouched():
         assert (engine.state, engine.persisted) == (before_state, before_persisted)
 
 
+def test_a_declined_commit_is_not_retried():
+    """The engine answering 'no' without raising (a falsy result) is also final: one attempt."""
+    for lever in [l for l in LEVERS if l != "hold"]:
+        calls = []
+        out = dispatch_lever(Verdict("action", "probe", "probe", lever),
+                             {lever: lambda: calls.append(lever) and False})
+        assert out["applied"] is False and calls == [lever], lever
+
+
 def test_refused_commit_on_a_symptom_turn_never_escalates_into_another_lever():
     engine = _ScriptedEngine(5)
     engine.refuse = True
