@@ -7010,6 +7010,12 @@ async def note_player_message(client_msg_id, user) -> None:
         _r = res if isinstance(res, dict) else {}
         logger.info("noteMessage id=%s accepted=%s beatSeq=%s", _mid, _r.get("accepted"), _r.get("beatSeq"))  # ids only, no content
         _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+        if _r.get("accepted"):  # ORW-150: an accepted noteMessage bumped beatSeq OUTSIDE any ledgered turn - tell the ledger so the gap check does not read it as a dropped fold
+            try:
+                from src import orwell_sync_ledger as _led_nm
+                _led_nm.note_fe_write(user)
+            except Exception:
+                pass
     except Exception:
         logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
 
@@ -7638,6 +7644,12 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         _res = await _backfill_with_cas(
             user, orwell_engine.record_interaction, digest,
             user=user, defer_fold=True, idempotency_key=_mint_idempotency_key())
+        if _res is not None:  # ORW-150: the E22 fallback fold committed (beatSeq +1) outside the ledgered turn window
+            try:
+                from src import orwell_sync_ledger as _led_e22
+                _led_e22.note_fe_write(user)
+            except Exception:
+                pass
         return _res is not None
     except Exception as e:
         logger.warning("[orwell] E22 fallback recordInteraction failed for user=%s: %s", user, e)
@@ -8322,7 +8334,10 @@ async def build_chat_context(
     # strategy/OOC reads and cannot leak them to the houseguests. The player still SEES the
     # interview in scrollback — one continuous conversation. (The assistant reply is stamped at
     # save time in save_assistant_response.)
-    if not game_active and getattr(sess, "history", None):
+    # ORW-224b: only when the turn is actually FRAMED as casting (the game build with the engine up, or feeds-down),
+    # the same condition the assistant-reply stamp uses (`ctx.framed and not ctx.game_active`). In the workspace
+    # build (ORWELL_GAME_BUILD=0) there is no casting interview, so no stamp, and compaction stays available there.
+    if not game_active and framed and getattr(sess, "history", None):
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":
             mark_message_phase(_last, "casting")
