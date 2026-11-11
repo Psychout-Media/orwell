@@ -42,6 +42,21 @@ describe("banking", () => {
   });
 });
 
+describe("end to end: a deal played to KEPT banks the favor", () => {
+  type Dealer = Internals & { deals: { make(parties: [string, string], kind: string, terms: string, ev: string | undefined, week: number): { status: string } }; reconcileDeals(a: unknown): void };
+  it("an NPC who throws the comp they promised the player owes the player a favor (played game); not in a game nobody plays", () => {
+    for (const played of [true, false]) {
+      const { g, npc } = game(played);
+      const d = g as unknown as Dealer;
+      const deal = d.deals.make([npc, PLAYER], "comp-throw", "throw it", undefined, 1);
+      d.reconcileDeals({ actor: npc, kind: "compete", targets: [], outcome: "threw" });
+      expect(deal.status).toBe("kept");
+      if (played) expect(d.live.owedFavors?.[0]).toMatchObject({ debtor: npc, n: 1 });
+      else expect(d.live.owedFavors).toBeUndefined();
+    }
+  });
+});
+
 describe("calling a favor in", () => {
   it("null when nothing is owed, or nobody is playing", () => {
     const a = game();
