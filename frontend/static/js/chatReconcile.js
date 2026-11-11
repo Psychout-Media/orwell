@@ -495,7 +495,10 @@ export function _setReconcileDeps(deps) {
     // S17: a live holder that selectSession KEPT across a history repaint (marked `data-kept-live`) is id-converged once adopted by dbId but was never FINALIZED (no footer, live-path header), so a
     // window that joined a run mid-generation settled on a different transcript than a fresh window. Such a bubble is not converged: rebuild it from the authoritative log. Only marked
     // bubbles count, so every other adopted bubble keeps the zero-churn contract (#873 / #985).
-    const liveUnfinalized = Array.from(box.querySelectorAll('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder]')).some((el) =>
+    // ORW-274: the SENDER's own WS holder is `msg msg-ai streaming` (no live-holder mark) and is adopted by {id, seq} at `message_saved`; the WS `done` settle then reconciles with every
+    // lock released. If that adopt makes the id order "converged" the holder was never finalized: it stayed `streaming` with no footer for good (1 in ~25 golden-flow runs). A `.streaming`
+    // bubble at a point where NO stream owns the session (the hasActiveStream defer below covers a genuinely live one) is an unfinalized shell: rebuild it from the log.
+    const liveUnfinalized = Array.from(box.querySelectorAll('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder], .msg.msg-ai.streaming')).some((el) =>
       !(el.style && el.style.display === 'none') && !el.querySelector('.msg-footer'));
     const converged = orphanFree && !liveUnfinalized &&
       renderedIds.length === serverIds.length &&
