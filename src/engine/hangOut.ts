@@ -79,3 +79,24 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
 export function hangOutBedtime(hour: number, awakeNpcs: number, nightStartHour = 20, midnightHour = 24): boolean {
   return hour >= midnightHour || (hour >= nightStartHour && awakeNpcs <= 1);
 }
+
+/**
+ * ORW-22 - the PLAYER-FACING line for a hang-out stop (public facts only: names and the stop kind, never a hidden state). Every stop kind the engine produces has one, so the stop is
+ * visible on screen whether or not the narrator voices it. Pure.
+ */
+export function hangOutStopLine(r: Pick<HangOutResult, "stopReason" | "detail">): string {
+  const d = r.detail ?? {};
+  switch (r.stopReason) {
+    case "event-due": return "Production is calling everyone: the scheduled event is on now.";
+    case "pulled": return d.by === "diary-room" ? "You are called to the Diary Room." : "Production pulls you aside.";
+    case "npc-approach": return `${d.npc ?? "A housemate"} comes over to talk to you.`;
+    case "observed": {
+      const who = d.who ?? [];
+      return d.kind === "overheard-whisper" ? `${who.join(" and ")} are whispering together out of earshot.`
+        : d.kind === "argument" ? `${who.join(" and ")} are in a tense exchange.`
+        : `${who[0] ?? "Someone"} is crossing the house.`;
+    }
+    case "bedtime": return "It is getting late; the house is winding down.";
+    default: return "A stretch of time passes with nothing demanding you.";
+  }
+}

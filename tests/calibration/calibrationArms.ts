@@ -5,6 +5,7 @@
  * uses. No behavior change. Roles only — no houseguest names; reads only Vault-free public projections.
  */
 import { PLAYER } from "../../src/domain/ids";
+import { endHeldNight } from "../support/heldNight";
 
 // ---- Vault-free view shapes (only the public fields the instrument reads) ----
 interface NamedRef { id: string; name: string }
@@ -317,6 +318,7 @@ export async function playSeason(
   seed: number,
   arm: Arm,
 ): Promise<SeasonMetrics> {
+  process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: as the sibling sims (juryReachShared), the sim player turns in directly when a night is held (the bedtime gate is a narrator-facing guard; the night HOLD stays on)
   const mcp = resolver("player", `instrument-${arm}-${seed}`);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
 
@@ -378,6 +380,7 @@ export async function playSeason(
       }
     }
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult;
+    if ((adv as { held?: unknown }).held) { await endHeldNight((n, a) => mcp.callTool(n, a), `po${arm}${seed}`, undefined, { direct: true }); continue; } // ORW-116: a held night is the player's - time passes, then they turn in (the sibling harnesses do the same; without it every season stalls at the premiere)
     finished = adv.finished;
     winner = adv.winner ?? winner;
     countWin(adv.event);
