@@ -4044,6 +4044,11 @@ def _forget_season_pacing(user) -> None:
         _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
     except Exception:
         logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
+    try:  # ORW-202: the persisted copy follows the reset (a restart must not resurrect last season's queued re-ground)
+        from src import belt_state_persist
+        belt_state_persist.save_now()
+    except Exception:  # failsoft-ok: best-effort; the in-memory stores are already cleared
+        logger.debug("[orwell] belt-state save after reset skipped for user=%s", user)
 
 
 try:  # register at import; fail-soft so a missing engine module never breaks chat_helpers

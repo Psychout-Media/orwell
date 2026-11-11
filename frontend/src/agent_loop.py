@@ -6396,6 +6396,11 @@ def _forget_season_pacing(user) -> None:
         except Exception:
             logger.warning("[orwell] season-pacing reset skipped a %s store for user=%s",
                            type(store).__name__, user, exc_info=True)
+    try:  # ORW-202: the persisted copy follows the in-memory reset, so a restart cannot resurrect last season's state
+        from src import belt_state_persist
+        belt_state_persist.save_now()
+    except Exception:  # failsoft-ok: best-effort; the in-memory stores are already cleared
+        logger.debug("ORW-202: belt-state save after reset failed", exc_info=True)
 
 
 try:  # register at import; fail-soft so a missing engine module never breaks the agent loop
@@ -6803,6 +6808,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     finally:
         if _ptt is not None:
             _ptt.set("")
+        try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
+            from src import belt_state_persist
+            belt_state_persist.save_soon()
+        except Exception as _e:  # failsoft-ok: durability is best-effort and must never fail a turn
+            logger.debug("ORW-202: belt-state save_soon failed: %s", _e)
         _reset_turn_observability_context(_obs_token)
         if _user_token is not None:
             try:
