@@ -23148,5 +23148,5 @@ body.theme-frosted .msg-user:not(:nth-last-child(-n+12)) {
 /* ORW-44 S3: persistent notice when the network cannot carry the live (WebSocket) connection. */
 .ow-ws-blocked {
   padding: .5rem .75rem; margin: 0 0 .25rem 0; font-size: .9rem; line-height: 1.35;
-  background: #2b1d00; color: #ffe6a8; border-bottom: 1px solid #a67c00;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg)); color: var(--fg); border-bottom: 1px solid var(--accent);
 }
