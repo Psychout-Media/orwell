@@ -3,6 +3,8 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator, elapsedWorldPlan, EXTRA_TICK_CAP, SETTLE_CAP } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
+import { SeededRandom } from "../../src/adapters/random/SeededRandom";
+import { hashSeed } from "../../src/engine/characterFactory";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 
@@ -81,5 +83,23 @@ describe("ORW-256 - wiring", () => {
     const side = adv.mock.calls.filter((c) => c[2]?.rng !== undefined);
     // A person's played days: every extra tick (if any beat covered >= 3 waking hours) rides a side stream and is an off-screen tick; sleeps never produce one (asserted above).
     for (const c of side) expect(c[1]).toBe("offscreen-tick");
+  });
+});
+
+describe("ORW-256 slice 2 - an extra waking-hour tick runs the WHOLE world, on its own stream", () => {
+  it("one side-stream tick moves the house, advances campaigns and records scenes; the shared per-user stream is not drawn from", () => {
+    const { sb, orch } = harness(7, "w-slice2", true);
+    const s = sb.session as unknown as { presenceTick: (r: unknown) => void; campaignTick: () => void };
+    const presence = vi.spyOn(s, "presenceTick");
+    const campaigns = vi.spyOn(s, "campaignTick");
+    const eventsBefore = sb.engine.events.count();
+    const shared = vi.spyOn(orch as unknown as { rngFor: (u: string) => unknown }, "rngFor");
+    const side = new SeededRandom(hashSeed("slice2-side"));
+    orch.advance("w-slice2", "offscreen-tick", { supplementary: true, rng: side });
+    expect(presence).toHaveBeenCalledTimes(1);   // movement
+    expect(campaigns).toHaveBeenCalledTimes(1);  // campaign progress (its own dedicated stream inside)
+    expect(sb.engine.events.count()).toBeGreaterThan(eventsBefore); // scenes (the gossip source) were recorded
+    expect(presence.mock.calls[0]![0]).toBe(side); // the tick's draws came from the side stream
+    expect(shared).not.toHaveBeenCalled();         // never the shared per-user stream
   });
 });
