@@ -3298,6 +3298,11 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
                 "[orwell] beat-signature desync detected for user=%s — re-grounding next turn (class=%s; %s)",
                 user, _guard_class_tag(directive), _guard_snippet(directive),
             )
+        # ORW-79 (A95): a period-of-day LIGHT phrase that disagrees with the engine clock. Post-turn NUDGE only (never wired into the streamed hold/cut paths: atmosphere is open-set prose, ADR 0005 #1).
+        _tod = _time_of_day_words_misstated(narration or "", after)
+        if _tod:
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CLOCK - last turn you set the scene with " + _tod + ". The clock is engine truth: keep the light, the sky and the mood of the scene to the real time of day from now on.")
+            logger.warning("[orwell] time-of-day words drift from the engine clock for user=%s - re-grounding next turn", user)
     except Exception as e:
         logger.warning("[orwell] post-turn desync check skipped for user=%s: %s", user, e)
 
@@ -3430,6 +3435,16 @@ def _presence_facts(state: dict) -> Optional[dict]:
                     in_view.add(p["name"])
                     adjacent.add(p["name"])
     adjacent -= room_present
+    # ORW-216: name -> the room the engine has them in, for everyone whose room the player's view actually knows (their own room + the adjacent rooms). Anyone further away has no known room.
+    npc_rooms: dict = {}
+    for p in (wa.get("present") or []):
+        if isinstance(p, dict) and p.get("name"):
+            npc_rooms[p["name"]] = str(wa.get("room") or "")
+    for nb in (wa.get("nearby") or []):
+        if isinstance(nb, dict):
+            for p in (nb.get("present") or []):
+                if isinstance(p, dict) and p.get("name") and str(nb.get("room") or "").strip():
+                    npc_rooms[p["name"]] = str(nb.get("room"))
     # ORW-249 part (4): the engine's send-time snapshot (`whereabouts.sinceSend`, #2321) says who walked in or out SINCE the player's last message. The narrator is told to voice it as one short beat, so the
     # guard must read the SAME snapshot: someone who left since the send is legitimately staged in that departure beat even though they are no longer in the room (an arrival is already in `present`).
     exempt: set = set()
@@ -3456,7 +3471,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
-            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt}
+            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms}
 
 
 def _first_name_counts(names) -> dict:
@@ -3873,6 +3888,85 @@ async def record_post_turn_false_premise_check(user, narration: str) -> None:
         logger.warning("[orwell] false-premise (nominee with none nominated) detected for user=%s - re-grounding next turn", user)
     except Exception as e:
         logger.warning("[orwell] post-turn false-premise check skipped for user=%s: %s", user, e)
+
+
+# ORW-216 - a houseguest PLACED IN THE WRONG ROOM. Whereabouts are engine truth (ADR 0009), yet the narrator once had two houseguests "walking the yard" while the engine had them in the kitchen, then broke
+# character to fix it. A same-turn scrub is deliberately NOT used (a legal narrated move is hard-folded into the board, so loose room prose is often fine - see the evicted-in-a-room guard's scope note).
+# Instead, POST-turn and against the board AFTER this turn's folds: a staged houseguest whose room the view knows, in a sentence that names house rooms but NOT their real one, queues a gentle next-turn
+# re-ground (closed-set, ADR 0005 #1: never edits prose) that also tells the model to correct the slip IN CHARACTER.
+_ROOM_CANON = (("kitchen", "kitchen"), ("living", "living"), ("lounge", "living"), ("backyard", "backyard"), ("back yard", "backyard"), ("yard", "backyard"),
+               ("hoh", "hoh"), ("head of household", "hoh"), ("bedroom", "bedroom"), ("bathroom", "bathroom"), ("storage", "storage"))
+
+
+def _room_keys(text: str) -> set:
+    """The canonical house-room keys named in `text` (a room label like 'living-room' or narration like 'the yard')."""
+    low = (text or "").lower().replace("-", " ")
+    return {key for word, key in _ROOM_CANON if re.search(r"\b" + re.escape(word), low)}
+
+
+_MOTION_VERBS = ("walk", "walks", "walking", "walked", "stroll", "strolls", "strolling", "strolled", "wander", "wanders", "wandering", "wandered", "pace", "paces", "pacing", "paced",
+                 "head", "heads", "heading", "headed", "hang", "hangs", "hanging", "lounge", "lounges", "lounging", "lounged", "relax", "relaxes", "relaxing", "chill", "chills", "chilling",
+                 "mill", "mills", "milling", "linger", "lingers", "lingering", "wait", "waits", "waiting", "stay", "stays", "staying")
+_MOTION_ALT = "|".join(_MOTION_VERBS)
+
+
+def _name_moves_or_sits(sentence: str, full_name: str, first_counts: dict) -> bool:
+    """`full_name` (or a roster-unique first name) followed within two words by a walking/hanging-out verb - the 'walking the yard' phrasing the scene-verb list does not carry."""
+    names = [full_name]
+    parts = full_name.split()
+    if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1:
+        names.append(parts[0])
+    for n in names:
+        if re.search(rf"\b{re.escape(n)}(?:['\u2019]s)?\b(?:\s+\w+){{0,2}}\s+(?:{_MOTION_ALT})\b", sentence, re.IGNORECASE):
+            return True
+    return False
+
+
+def _wrong_room_claims(narration: str, npc_rooms: dict) -> list:
+    """[(name, real_room_label)] for houseguests staged in a sentence that names house rooms but not their real one. Skips ((asides)). Conservative: needs the staging match AND >=1 named room AND the real room absent."""
+    if not narration or not npc_rooms:
+        return []
+    roster = set(npc_rooms)
+    first_counts = _first_name_counts(roster)
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration, flags=re.DOTALL)
+    out: list = []
+    seen: set = set()
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        named = _room_keys(sentence)
+        if not named:
+            continue
+        for name, room in npc_rooms.items():
+            real = _room_keys(room)
+            if not real or name in seen or (named & real):
+                continue
+            if _name_staged_unique(sentence, name, first_counts) or _name_moves_or_sits(sentence, name, first_counts):
+                seen.add(name)
+                out.append((name, room))
+    return out
+
+
+async def record_post_turn_wrong_room_check(user, narration: str) -> None:
+    """ORW-216: queue a next-turn re-ground when the narration staged a houseguest in a room the engine does not have them in. Fail-open; never raises, never edits this turn's prose."""
+    try:
+        if not narration:
+            return
+        from src import orwell_engine
+        state = await orwell_engine.get_game_state(user=user)
+        facts = _presence_facts(state if isinstance(state, dict) else {})
+        if not facts or not facts.get("npc_rooms"):
+            return
+        hits = _wrong_room_claims(narration, {n: r for n, r in facts["npc_rooms"].items() if n not in (facts.get("exempt") or ())})
+        if not hits:
+            return
+        shown = hits[:_PRESENCE_MOVE_MAX_NAMES]
+        listing = "; ".join(f"{n} is in the {str(r).replace('-', ' ')}" for n, r in shown)
+        _reground_enqueue(_desync_key(user), (
+            "RE-GROUND ON THE MAP - last turn you placed a houseguest in a room the engine does not have them in (" + listing + "). Whereabouts are engine truth: read them (whereabouts) before "
+            "placing anyone. If a houseguest's line or the narration got it wrong, correct it IN CHARACTER (a houseguest says they misspoke or misread), never with an out-of-character apology."
+        ))
+        logger.warning("[orwell] wrong-room placement detected for user=%s (%s) - re-grounding next turn", user, ", ".join(n for n, _ in shown))
+    except Exception as e:
+        logger.warning("[orwell] post-turn wrong-room check skipped for user=%s: %s", user, _exc_detail(e))
 
 
 async def record_post_turn_roster_check(user, narration: str) -> None:
@@ -4854,6 +4948,60 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
             return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
     return None
 
+
+
+# ORW-79 (A95): the exact clock is in the prompt, yet the narrator still sets the scene with "afternoon light" at a morning clock. `_clock_misstated` only checks an explicit "it's H:MM". This is its scene-setting
+# sibling: a present-tense period-of-day LIGHT phrase ("the afternoon sun", "evening light", "morning glow", "dusk light") whose period disagrees with the engine clock. Same style as the rest of the desync
+# family: closed-set (what time of day it is), post-turn, a next-turn re-ground, never an edit of creative prose. Deliberately narrow: only light/sun/glow phrases (not "this morning", which is a time reference
+# a flashback or a plan may use), only present-tense sentences (any past / future / memory / hypothetical cue exempts it), and a phrase within the boundary tolerance of its own period is accepted.
+_TOD_PERIODS = (("morning", 8 * 60, 12 * 60), ("afternoon", 12 * 60, 16 * 60), ("evening", 16 * 60, 20 * 60), ("night", 20 * 60, 24 * 60))
+_TOD_LIGHT_RE = re.compile(
+    r"\b(?:the\s+|that\s+|a\s+|its\s+)?(?:(late|early|mid)[- ])?(morning|afternoon|evening)(?:'s|\u2019s)?\s+(?:light|sun|sunlight|sunshine|glow|haze|rays)\b|"
+    r"\b(?:(dusk|twilight|sunset|sundown)\s+(?:light|glow|sky)|(?:the\s+)?(?:setting|late)\s+sun|(?:the\s+)?(?:rising|morning)\s+sun)\b",
+    re.IGNORECASE,
+)
+_TOD_EXEMPT_RE = re.compile(
+    r"\b(?:was|were|had|used\s+to|remember\w*|recall\w*|yesterday|earlier|last\s+(?:night|week|time)|back\s+then|once|ago|will|would|could|might|going\s+to|about\s+to|tomorrow|tonight|later|someday|if|imagine|suppose|when\s+(?:i|we|you|he|she|they)\s+(?:was|were))\b",
+    re.IGNORECASE,
+)
+_TOD_SUNLIT_WORD_PERIOD = {"dusk": "evening", "twilight": "evening", "sunset": "evening", "sundown": "evening", "setting": "evening", "rising": "morning"}
+
+
+def _tod_period_of(minute_of_day: int) -> str:
+    if minute_of_day < 8 * 60:
+        return "late-night"
+    for name, lo, hi in _TOD_PERIODS:
+        if lo <= minute_of_day < hi:
+            return name
+    return "night"
+
+
+def _time_of_day_words_misstated(text: str, live: dict) -> Optional[str]:
+    """A present-tense period-of-day light phrase that disagrees with the engine clock. None with no clock, an unparseable label, a past/future/hypothetical sentence, or a clock within `_CLOCK_TOLERANCE_MIN` of the named period."""
+    if not isinstance(live, dict) or not text:
+        return None
+    lab = live.get("clockLabel")
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    if not mm:
+        return None
+    eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+    text = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        if not sent.strip() or _TOD_EXEMPT_RE.search(sent):
+            continue
+        for m in _TOD_LIGHT_RE.finditer(sent):
+            named = (m.group(2) or "").lower() or _TOD_SUNLIT_WORD_PERIOD.get((m.group(3) or "").lower()) or ""
+            if not named:
+                tail = m.group(0).lower()
+                named = "evening" if "setting" in tail or "late sun" in tail else "morning"
+            span = {n: (lo, hi) for n, lo, hi in _TOD_PERIODS}.get(named)
+            if not span:
+                continue
+            lo, hi = span
+            if lo - _CLOCK_TOLERANCE_MIN <= eng < hi + _CLOCK_TOLERANCE_MIN:
+                continue
+            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + lab + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
+    return None
 
 
 # ORW-10: the endurance-finish shape the narrator used to replay a competition ("comes down to the last two", "grip fails", "the rig") and the way it named the winner ("It's Tara.", "Tara outlasts them").
@@ -6484,6 +6632,10 @@ def _interruption_steer(game_state) -> str:
     if not isinstance(i, dict) or not i.get("npc"):
         return ""
     why = _DESIRE_LINES.get(str(i.get("desire") or ""), _DESIRE_LINES["check-in"])
+    tells = str(i.get("tells") or "").strip()
+    if tells:  # ORW-261: the houseguest chose, unprompted, to tell the player something private; the engine authored and recorded the sentence - the narrator only voices it
+        return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}, and in the moment they choose to confide something of their own. "
+                f"Voice the entrance and let them say it in their own words, gently and in character: {tells} Add no outcome, vote or other secret beyond that.")
     return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}. Voice the entrance in a line or two and let them speak first; "
             "invent no outcome, vote or secret beyond that.")
 
@@ -7698,6 +7850,14 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     user is skipped rather than stacked, so the fire-and-forget guard can never pile a backlog
     of O(events) commits onto the engine's per-user queue and stall the next live turn."""
     text = (narration or "").strip()
+    # ORW-26: consume the belt's "nobody present" verdict up front so it can never leak into a later turn.
+    belt_declined = False
+    if session_id is not None:
+        try:
+            from src import fold_ledger as _fl_d
+            belt_declined = _fl_d.consume_belt_declined(user, session_id)
+        except Exception:
+            belt_declined = False
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
     # ORW-185: two turn shapes are NOT an unrecorded social scene, and used to trip this guard (the flat
@@ -7754,7 +7914,8 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         # recordInteraction with the scene-shape `consequence` descriptor. Banked ⇒ done (we do
         # NOT also write a second, flatter digest for the same turn).
         try:
-            if await _e22_rich_extract(user, player_message, text):
+            # ORW-26: the in-loop belt already ran this exact extraction and found every proposed participant off-scene - don't pay (or risk a different roll of) a second identical call; go to the floor digest.
+            if not belt_declined and await _e22_rich_extract(user, player_message, text):
                 return True
         except Exception as e:  # never let the rich path break the floor fallback
             logger.warning("[orwell] E22 rich extraction errored for user=%s: %s", user, e)

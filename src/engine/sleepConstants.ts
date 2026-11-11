@@ -240,53 +240,10 @@ export const AFTER_HOURS: AfterHoursConstants = { companyFull: 3 };
 
 // --- Extension 5: conversation durations (LOOSE — ADR 0005 for time) ------------------------------
 //
-// A scene's FELT duration is open-set: the LLM proposes how long it took; the engine COMMITS it BOUNDED
-// to the scene type's range (never 0, never a day-skip). Absent a proposal ⇒ the type BASELINE, so the
-// clock advance is byte-identical to "no proposal" (the expressiveNonCollapse-for-time floor). An engaged
-// scene is NEVER cut by the clock — the duration only ADVANCES time after the scene; it never ends one.
+// (The kind-billed duration helpers were deleted - ORW-68: the clock bills per message/beat, never per scene kind. Only the `ConversationKind` label survives.)
 
 export type ConversationKind = "passing" | "casual" | "game" | "summit";
 
-export interface ConversationDurationConstants {
-  /** Per scene-kind: the baseline felt hours (the floor when no duration is proposed) + the bound. */
-  baselineHours: Record<ConversationKind, number>;
-  minHours: Record<ConversationKind, number>;
-  maxHours: Record<ConversationKind, number>;
-}
-
-export const CONVERSATION_DURATION: ConversationDurationConstants = {
-  // passing word ~0.5h · casual chat ~1h · a game conversation ~1.5h · a long summit ~2h.
-  baselineHours: { passing: 0.5, casual: 1, game: 1.5, summit: 2 },
-  minHours: { passing: 0.25, casual: 0.5, game: 0.75, summit: 1 },
-  maxHours: { passing: 1, casual: 2, game: 3, summit: 4 },
-};
-
-/**
- * Commit a conversation's felt duration in HOURS, BOUNDED to the kind's range (ADR 0005 for time): the LLM
- * proposes the open-set felt time; the engine keeps the bounded interpretation. No proposal (`undefined`)
- * ⇒ the kind BASELINE — byte-identical to the pre-feature floor. A non-finite/≤0 proposal ⇒ the baseline
- * too (never 0, never a day-skip). Pure; no rng.
- */
-export function conversationHours(kind: ConversationKind, proposedHours?: number): number {
-  const baseline = CONVERSATION_DURATION.baselineHours[kind];
-  if (proposedHours === undefined || !Number.isFinite(proposedHours) || proposedHours <= 0) return baseline;
-  return clamp(proposedHours, CONVERSATION_DURATION.minHours[kind], CONVERSATION_DURATION.maxHours[kind]);
-}
-
-/**
- * Phase 2 (duration-based clock) — the LLM's per-scene felt-time proposal, in MINUTES, bounded to a sane
- * envelope in HOURS. The narrator sizes each social scene ("a quick word ~15–30 min, a long strategy
- * summit ~2–3 h") and the engine keeps the bounded value (ADR 0005 for time): the clamp stops the model
- * moving the clock absurdly (anti-abuse) and keeps the day realistic — a scene is at least a short beat
- * and at most a long summit, mirroring the CONVERSATION_DURATION envelope (passing.min … summit.max). A
- * non-finite / ≤0 proposal ⇒ the small per-conversation floor (byte-identical to "no proposal").
- */
-export const SCENE_FELT_MINUTES = { min: 15, max: 240 };
-
-export function feltHoursFromMinutes(minutes: number | undefined): number {
-  if (minutes === undefined || !Number.isFinite(minutes) || minutes <= 0) return CLOCK.perConversationHours;
-  return clamp(minutes, SCENE_FELT_MINUTES.min, SCENE_FELT_MINUTES.max) / 60;
-}
 
 // --- Event durations + seeded start-within-period (deterministic, no shared-stream rng) -----------
 //

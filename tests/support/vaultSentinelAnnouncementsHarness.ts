@@ -25,20 +25,36 @@ function resolveLegally(s: GameSessionAdapter, p: PendingDecisionView): AdvanceV
   return s.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
 }
 
-/** Drive a full season (advanceGame-only path), collecting every announcement ever returned. */
-function driveWholeSeason(s: GameSessionAdapter, maxIterations = 3000): { calls: AdvanceView[]; all: BeatAnnouncementView[] } {
+/**
+ * Drive a full season (advanceGame-only path), collecting every announcement ever returned AND, at several points, the delta catch-up path read from a RECENT beat. ORW-245: the delta ring only
+ * keeps the last DELTA_WINDOW (64) beat checkpoints, so a `stateDelta(0)` after the season is a full refresh with no announcements (a vacuous Vault check). Here the token is `beatSeq - DELTA_LAG` taken
+ * from the live drive, inside the window, so the delta path really returns announcements. A season that does not FINISH within the iteration budget throws (a stuck season must not skip the late game silently).
+ */
+const DELTA_LAG = 3;
+function driveWholeSeason(s: GameSessionAdapter, maxIterations = 3000): { calls: AdvanceView[]; all: BeatAnnouncementView[]; deltas: { announcements: BeatAnnouncementView[]; fullRefresh: boolean }[] } {
   const calls: AdvanceView[] = [];
   const all: BeatAnnouncementView[] = [];
+  const deltas: { announcements: BeatAnnouncementView[]; fullRefresh: boolean }[] = [];
+  const seqs: number[] = [];
+  const note = (v: AdvanceView): void => {
+    calls.push(v);
+    if (v.announcements) all.push(...v.announcements);
+    seqs.push(v.beatSeq);
+    if (seqs.length > DELTA_LAG && seqs.length % 4 === 0) {
+      const d = s.stateDelta(seqs[seqs.length - 1 - DELTA_LAG]!);
+      deltas.push({ announcements: d.announcements ?? [], fullRefresh: d.fullRefresh });
+    }
+  };
   let view: AdvanceView = s.advanceGame();
-  calls.push(view);
-  if (view.announcements) all.push(...view.announcements);
+  note(view);
   for (let i = 0; i < maxIterations && !view.finished; i++) {
     if (view.pending) view = resolveLegally(s, view.pending);
+    else if ((view as { held?: unknown }).held) { s.setBedtimeGateEnabled(false); view = s.turnIn(); } // ORW-245: the night is held until the player turns in (the deployed route); the old drive stalled here and silently skipped the whole season after the premiere
     else view = s.advanceGame();
-    calls.push(view);
-    if (view.announcements) all.push(...view.announcements);
+    note(view);
   }
-  return { calls, all };
+  if (!view.finished) throw new Error(`the season did not finish within ${maxIterations} iterations (stuck at beatSeq ${view.beatSeq}, pending=${view.pending ? view.pending.kind : "none"}, beat=${view.event?.beat ?? "none"}); the late-game announcements were never checked`);
+  return { calls, all, deltas };
 }
 
 interface VaultDatum {
@@ -55,7 +71,7 @@ interface AnnouncementSandbox {
 
 function buildAnnouncementSandbox(seed: number): AnnouncementSandbox {
   const runtime = composeRuntime({ clock: new FakeClock() });
-  const user = `vsa-${seed}-${Math.random().toString(36).slice(2)}`;
+  const user = `vsa-${seed}`; // ORW-245: a fresh runtime per run, and the engine derives season randomness from the user id - so the seed alone must reproduce a counterexample
   const sandbox = runtime.registry.sandboxFor(user);
 
   // --- Vault sentinel seeding (exact pattern from sandbox.ts) ---
@@ -140,14 +156,14 @@ export function leaksBeatSeq(headline: string, beatSeq: number): boolean {
 
 /**
  * The Vault Wall announcement property, parameterised by run count. ORW-218: this property is ~8 s per run (a full season each) and used to be ONE 100-run test in ONE file,
- * 807 s on one worker (the whole long pole of the sharded unit and coverage legs). It now runs as five 20-run files (the *.property.test.ts siblings), 100 runs in total, so the
+ * 807 s on one worker (the whole long pole of the sharded unit and coverage legs). ORW-245: the old drive stalled right after the premiere (a held night), so a 'run' cost ~0.02 s and 100 runs checked almost nothing; a REAL season is ~10 s, so the budget is now 1 run per file (5 full seasons in total, ~1 min of CI time) - raise a file's count only with the CI budget in mind. It previously ran as five 20-run files (the *.property.test.ts siblings), 100 runs in total, so the
  * duration-balanced shard split can spread them. Seeds are random per run (fast-check), as before.
  */
 export function assertVaultWallAnnouncements(numRuns: number): void {
   fc.assert(
     fc.property(fc.integer({ min: 1, max: 100_000 }), (seed) => {
       const { session, sentinels, hiddenContents } = buildAnnouncementSandbox(seed);
-      const { all } = driveWholeSeason(session);
+      const { all, deltas } = driveWholeSeason(session);
 
       // Serialize every announcement's every field into one searchable blob
       const announcementBlob = all.map((a) => {
@@ -156,9 +172,12 @@ export function assertVaultWallAnnouncements(numRuns: number): void {
         return `${a.id}|${a.kind}|${a.week}|${a.beatSeq}|${a.headline}|${subjectsBlob}|${detailBlob}`;
       }).join("\n---\n");
 
-      // Also collect from the delta catch-up path
-      const delta = session.stateDelta(0);
-      const deltaBlob = (delta.announcements ?? []).map((a) => {
+      // The delta catch-up path, read from recent beats during the drive (see driveWholeSeason).
+      expect(deltas.length, "the drive must have sampled the delta path").toBeGreaterThan(0);
+      expect(deltas.every((d) => !d.fullRefresh), "a recent token is inside the delta window - a full refresh would make this check vacuous").toBe(true);
+      const deltaAnnouncements = deltas.flatMap((d) => d.announcements);
+      expect(deltaAnnouncements.length, "the delta path must actually return announcements (an empty list proves nothing)").toBeGreaterThan(0);
+      const deltaBlob = deltaAnnouncements.map((a) => {
         const subjectsBlob = (a.subjects ?? []).map((n) => `${n.id}|${n.name}`).join("|");
         const detailBlob = a.detail ? JSON.stringify(a.detail) : "";
         return `${a.id}|${a.kind}|${a.week}|${a.beatSeq}|${a.headline}|${subjectsBlob}|${detailBlob}`;

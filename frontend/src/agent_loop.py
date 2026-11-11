@@ -3580,6 +3580,9 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 logger.info(f"[orwell] auto-record: dropped off-scene withIds {_off_scene} "
                            f"(#1730 — not in engine whereabouts) user={owner}")
             if not ids:
+                if session_id is not None:  # ORW-26: tell the E22 guard this turn's extraction already found nobody present (no second identical LLM call)
+                    from src import fold_ledger as _fl_decl
+                    _fl_decl.note_belt_declined(owner, session_id)
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
@@ -10699,6 +10702,13 @@ async def _stream_agent_loop_impl(
             await record_post_turn_roster_check(owner, _turn_narration_full)
         except Exception as _roster_err:
             logger.warning(f"[orwell] post-turn roster check failed: {_roster_err}")
+
+        # ORW-216 - a houseguest staged in a room the engine does not have them in: next-turn re-ground, corrected in character. Closed-set, post-turn, never edits prose.
+        try:
+            from routes.chat_helpers import record_post_turn_wrong_room_check
+            await record_post_turn_wrong_room_check(owner, _turn_narration_full)
+        except Exception as _wr_err:
+            logger.warning(f"[orwell] post-turn wrong-room check failed: {_wr_err}")
 
         # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
         try:

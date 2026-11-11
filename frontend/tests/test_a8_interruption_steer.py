@@ -20,3 +20,9 @@ def test_absent_or_malformed_interruption_is_silent():
 
 def test_unknown_desire_falls_back_to_check_in():
     assert "word with the player" in ch._interruption_steer({"interruption": {"npc": "X", "desire": "???"}})
+
+
+def test_orw261_a_chosen_tell_is_voiced_not_invented():
+    s = ch._interruption_steer({"interruption": {"npc": "the Role", "desire": "check-in", "tells": "They tell you, in confidence and in their own words, that they are X."}})
+    assert "choose to confide" in s and "that they are X." in s and "Add no outcome" in s
+    assert "choose to confide" not in ch._interruption_steer({"interruption": {"npc": "the Role", "desire": "check-in"}})

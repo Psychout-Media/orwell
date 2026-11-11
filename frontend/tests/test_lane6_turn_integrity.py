@@ -632,3 +632,62 @@ def test_orw185_scene_already_staged_by_the_belt_is_not_double_folded(monkeypatc
 def test_orw185_call_site_passes_the_session_id():
     i = CHAT_ROUTES_SRC.index("ensure_turn_recorded(\n")
     assert "session_id=session" in CHAT_ROUTES_SRC[i:i + 400]
+
+
+# ── ORW-26: when the in-loop belt already found nobody present, the E22 guard must not run the same extraction again ──
+
+
+def _count_rich(monkeypatch, result=False):
+    n = {"rich": 0}
+
+    async def fake_rich(user, player_message, narration):
+        n["rich"] += 1
+        return result
+
+    monkeypatch.setattr(chat_helpers, "_e22_rich_extract", fake_rich)
+    return n
+
+
+_ORW26_NARRATION = "The kitchen goes quiet as the player walks in. " * 5
+
+
+def test_orw26_belt_declined_skips_the_second_extraction_but_keeps_the_floor_digest(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    calls = _capture_record(monkeypatch)
+    n = _count_rich(monkeypatch)
+    fold_ledger.note_belt_declined("u", "sess")
+    assert _run(chat_helpers.ensure_turn_recorded("u", "hi", _ORW26_NARRATION, [], session_id="sess")) is True
+    assert n["rich"] == 0, "the identical extraction must not run twice"
+    assert len(calls) == 1 and "Scene (auto-recorded)" in calls[0]["content"], "the floor digest still stands"
+    fold_ledger.clear_all()
+
+
+def test_orw26_without_a_belt_decline_the_rich_extraction_still_runs(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    _capture_record(monkeypatch)
+    n = _count_rich(monkeypatch)
+    _run(chat_helpers.ensure_turn_recorded("u", "hi", _ORW26_NARRATION, [], session_id="sess"))
+    assert n["rich"] == 1
+    fold_ledger.clear_all()
+
+
+def test_orw26_the_decline_is_consumed_once_and_never_leaks_into_the_next_turn(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    _capture_record(monkeypatch)
+    n = _count_rich(monkeypatch)
+    fold_ledger.note_belt_declined("u", "sess")
+    _run(chat_helpers.ensure_turn_recorded("u", "hi", "short", [], session_id="sess"))  # a trivial turn returns early but still consumes it
+    _run(chat_helpers.ensure_turn_recorded("u", "hi", _ORW26_NARRATION, [], session_id="sess"))
+    assert n["rich"] == 1, "the next turn's extraction is not suppressed by a stale verdict"
+    fold_ledger.clear_all()
+
+
+def test_orw26_the_belt_notes_a_decline_when_every_proposed_id_is_off_scene():
+    import os
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_loop.py"), encoding="utf-8").read()
+    i = src.index("dropped off-scene withIds")
+    seg = src[i:i + 900]
+    assert "if not ids:" in seg and "note_belt_declined(owner, session_id)" in seg

@@ -81,7 +81,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["content"])) refuse("content", "a non-empty string");
       if (args["kind"] !== undefined && typeof args["kind"] !== "string") refuse("kind", "a string when present");
       if (args["toward"] !== undefined && !isEntityIdArray(args["toward"])) refuse("toward", "an array of houseguest ids ('player' or 'npc:<n>') when present");
-      // Phase 2 — the LLM's per-scene felt duration in minutes; the engine clamps it (feltHoursFromMinutes).
+      // Phase 2 — the LLM's per-scene felt duration in minutes; the engine clamps it.
       if (args["feltMinutes"] !== undefined && typeof args["feltMinutes"] !== "number") refuse("feltMinutes", "a number of minutes when present");
       if (args["assurance"] !== undefined) {
         const a = args["assurance"];

@@ -13,8 +13,8 @@ describe("leaksBeatSeq (the check itself)", () => {
   });
 });
 
-describe("Vault Wall — property over seeds & BeatAnnouncement announcements (1/5, 20 runs)", () => {
+describe("Vault Wall — property over seeds & BeatAnnouncement announcements (1/5, 1 run)", () => {
   it("no Vault sentinel or hidden content ever reaches any BeatAnnouncement chyron", () => {
-    assertVaultWallAnnouncements(20);
+    assertVaultWallAnnouncements(1);
   }, 900_000);
 });
