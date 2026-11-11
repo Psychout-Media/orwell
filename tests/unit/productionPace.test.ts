@@ -8,7 +8,8 @@ import { milestoneDue, nextMilestone } from "../../src/engine/daySchedule";
  * P2b/P4c (Ryne 2026-11-04) - PRODUCTION OWNS THE SCHEDULE: the clock, not the player's message count or readiness, brings a scheduled event in. Every ordinary message ticks
  * exactly MINUTES_PER_MESSAGE (5 min) so the clock always reaches the event's hour on its own; the default pace is ~48 messages per 4h morning, from ONE tunable constant. Roles only.
  */
-const morningOf = (beat: string): LiveSeasonState => ({ nightDepth: WAKE_HOUR, timeOfDay: "morning", beat } as unknown as LiveSeasonState);
+// ORW-258: a pure read of the HOUR, so the night before the event has passed (week 2, flags crossed)
+const morningOf = (beat: string): LiveSeasonState => ({ nightDepth: WAKE_HOUR, timeOfDay: "morning", beat, week: 2, preHohNightPassed: true, preNomsNightPassed: true, preVetoNightPassed: true, preVetoCeremonyNightPassed: true, preEvictionNightPassed: true } as unknown as LiveSeasonState);
 const tick = (s: LiveSeasonState): void => advanceClockPerMessage(s, MINUTES_PER_MESSAGE / 60);
 
 describe("the default pace: 48 ordinary messages per morning (5 in-game minutes each, one tunable constant)", () => {
