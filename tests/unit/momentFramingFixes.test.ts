@@ -58,15 +58,15 @@ describe("F3 (#1016) — archetype demoted to a fenced private cue, observable f
 });
 
 describe("F13 (#1018) — the veto fragment instructs voicing the chip draw / Houseguest's Choice", () => {
-  it("the veto-competition moment voices the chip draw as its own ritual beat", () => {
-    const frag = MOMENT_PROMPTS["veto-competition"]!;
+  it("the veto-draw moment voices the chip draw as its own ritual beat (ORW-281 slice 1 moved it here from veto-competition)", () => {
+    const frag = MOMENT_PROMPTS["veto-draw"]!;
     expect(frag).toMatch(/CHIP DRAW AS ITS OWN RITUAL BEAT/i);
     // it must instruct reading each draw out loud, not skipping to the seated six
     expect(frag.toLowerCase()).toContain("do not skip straight to the seated six");
   });
 
   it("the fragment calls out the Houseguest's Choice special draw + who was picked", () => {
-    const frag = MOMENT_PROMPTS["veto-competition"]!;
+    const frag = MOMENT_PROMPTS["veto-draw"]!;
     expect(frag).toContain("Houseguest's Choice");
     expect(frag.toLowerCase()).toContain("who they picked");
     // ground the pick in the engine's recorded player, never a substitute
