@@ -1,3 +1,4 @@
+import { liveHouseEvent } from "../../engine/houseEvent";
 import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
@@ -5336,21 +5337,9 @@ export class GameSessionAdapter implements GameSession {
     // convened in the living room. This is a whole-house event exactly like a comp/ceremony (no field
     // split — nobody competes, the house simply toasts), so the pin (movePlayer no-op) + gathered
     // whereabouts come for free. Released to `"done"` on the model's first advanceGame (see advanceGame).
-    if (s.premiereEntrance?.stage === "entrances") return { kind: "premiere-entrances" }; // A9
-    if (s.champagneCircle === "gathered") return { kind: "champagne-circle" };
-    if (s.competition) { // a staged comp is running ⇒ its real field is authoritative
-      return { kind: s.competition.comp, field: [...s.competition.field] };
-    }
-    const p = s.pending;
-    if (!p) return this.ceremonyBeat && !s.finished ? { kind: this.ceremonyBeat } : null; // ORW-247b: a resolved ceremony beat stays the live scene until the player speaks
-    if (p.kind === "comp-intent" || p.kind === "comp-round") { // a comp surfaced but not yet staged
-      if (p.comp === "veto-competition") return { kind: "veto-competition", field: s.vetoField ? [...s.vetoField] : [] };
-      const finalThree = s.active.length === 3; // Final 3 lifts the outgoing-HOH restriction
-      return { kind: "hoh-competition", field: s.active.filter((id) => finalThree || id !== s.outgoingHoh) };
-    }
-    if (p.kind === "nominations") return { kind: "nominations" };
-    if (p.kind === "veto-decision" || p.kind === "replacement" || p.kind === "houseguests-choice") return { kind: "veto-ceremony" };
-    if (p.kind === "eviction-vote" || p.kind === "tie-break" || p.kind === "final-eviction") return { kind: "eviction" };
+    const ev = liveHouseEvent(s); // ORW-281 slice 3: the ONE derivation (src/engine/houseEvent.ts), shared with the orchestrator's private-scene suppression
+    if (ev) return ev;
+    if (!s.pending && this.ceremonyBeat && !s.finished) return { kind: this.ceremonyBeat }; // ORW-247b: a resolved ceremony beat stays the live scene until the player speaks
     return null;
   }
 
