@@ -2,7 +2,6 @@ import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { buildSandbox } from "../support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
-import { NO_NPC_PATHWAY } from "../../src/engine/diaryRoom";
 import type { DailyRecapView } from "../../src/ports/GameSession";
 
 /**
@@ -46,7 +45,7 @@ function plantAndClose(seed: number, opts: { strainedDeal?: boolean; surfaced?: 
   sb.engine.vault.writeHidden({ id: "h-secret", kind: "hidden-attribute", content: SECRET });
   sb.engine.events.record({ id: "hid:1", ts: 9001, type: "scheme", initiator: teller!, witnessSet: [teller!, nominee!], hidden: true, content: HIDDEN_EVENT });
   sb.engine.knowledge.seedBelief(teller!, { content: RUMOR, factId: "gossip:rumor" }, "witnessed"); // diffusing in the hidden layer, never surfaced to the player
-  sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: DIARY }, NO_NPC_PATHWAY); // the player's own OOC Diary Room
+  sb.engine.knowledge.recordDiaryRoom(DIARY); // the player's own OOC Diary Room (no in-game pathway to anyone)
   if (opts.surfaced) {
     sb.engine.knowledge.seedBelief(teller!, { content: opts.surfaced, factId: `gossip:${opts.surfaced}` }, "witnessed");
     sb.engine.knowledge.surfaceInformationTo(PLAYER, { content: opts.surfaced }, `told-by:${teller}`);
