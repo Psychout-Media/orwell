@@ -196,6 +196,8 @@ export interface DealRefusal {
   refused: true;
   reason: "distrust" | "threat" | "targeted" | "grudge" | "cost";
   narratable: string;
+  /** 0142: a lukewarm houseguest (reason `cost`) answers with terms instead of a flat no. Present only when one now stands as the open `openDealOffer` (the player accepts or declines it with submitDecision deal-offer). */
+  counteroffer?: { kind: string; terms: string };
 }
 
 /** A portrait prompt for one houseguest (0051) — returned at season start for the FE to call the image API. */
