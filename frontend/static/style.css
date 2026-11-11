@@ -327,6 +327,7 @@ html {
 }
 
 /* Utility */
+.red-text { color: var(--red); }
 
 /* ── Density Overrides ── */
 
@@ -3224,7 +3225,10 @@ body.bg-pattern-perlin-flow {
       #doc-indicator-btn,
       #doc-indicator-btn.visible { display: none !important; }
     }
-    
+    .doc-indicator-active {
+      color: var(--accent, var(--accent-primary, var(--red))) !important;
+      opacity: 1 !important;
+    }
     #doc-indicator-btn.active {
       color: var(--accent, var(--accent-primary, var(--red))) !important;
       opacity: 1 !important;
@@ -3644,8 +3648,14 @@ body.bg-pattern-perlin-flow {
       padding: 14px 8px;
       text-align: center;
     }
-    
-    
+    .model-picker-list .mp-empty-hint .mp-empty-title {
+      font-size: 1.05em;
+      color: color-mix(in srgb, var(--fg) 70%, transparent);
+    }
+    .model-picker-list .mp-empty-hint .mp-empty-sub {
+      font-size: 0.92em;
+      opacity: 0.7;
+    }
     /* Provider group headers */
     .model-picker-list .mp-provider-header {
       display: flex;
@@ -4494,7 +4504,10 @@ body.bg-pattern-perlin-flow {
     
     
     
-    
+    .toast.exiting {
+      opacity: 0;
+      transform: translateX(-120%);
+    }
     .toast.error {
       border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
       border-left-color: var(--color-error);
@@ -4511,7 +4524,7 @@ body.bg-pattern-perlin-flow {
       transform: translateX(-120%);
     }
     body:has(.notes-pane.modal-right-docked) .toast.show { transform: translateX(0); }
-    
+    body:has(.notes-pane.modal-right-docked) .toast.exiting { transform: translateX(120%); }
     @media (max-width: 768px) {
       .toast {
         top: 12px;
@@ -6299,15 +6312,32 @@ body.bg-pattern-perlin-flow {
     
     
     
+    .recording-content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: white;
+    }
     
     
     
     
     
+    #stop-recording {
+      background: var(--color-recording);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
     
-    
-    
-    
+    #stop-recording:hover {
+      background: var(--color-recording-hover);
+    }
     
     /* Error state for recording */
     
@@ -6318,7 +6348,16 @@ body.bg-pattern-perlin-flow {
       margin-top: 4px;
     }
     
-    
+    @media (max-width: 768px) {
+      
+      
+      
+      
+      #stop-recording {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+    }
 /* SYNTAX HIGHLIGHTING — uses theme vars from style.css, no hardcoded overrides */
 .hljs { color: var(--hl-fg, #9cdef2); background: none !important; }
 pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
@@ -7105,6 +7144,9 @@ pre, code, .hljs {
 
 /* WebKit (Chrome, Edge, Safari) */
 /* Utility class for red text */
+.red-text {
+  color: var(--red);
+}
 
 /* Internal chat links (search results, session references) */
 a.chat-link {
@@ -7647,6 +7689,13 @@ button.hamburger {
 .thumb-collapsed-x:hover { opacity: 1; }
 
 /* Recording indicator */
+
+.recording-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: white;
+}
 
 .stop-recording-btn {
   background: var(--color-recording);
@@ -8814,6 +8863,25 @@ details a:hover {
   font-size: 11px;
   color: var(--color-muted);
   margin: 0 0 8px;
+}
+
+.prompt-template-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.prompt-template-card:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.prompt-template-card.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .preset-slider-row {
@@ -9994,6 +10062,14 @@ textarea.memory-add-input {
    italic so it reads as a placeholder, and non-interactive so clicking it
    can't hit the tab handlers (it has no data-doc-id). */
 
+@keyframes doc-stream-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}@keyframes doc-update-flash {
+  0%   { box-shadow: inset 0 0 0 2px var(--accent); }
+  100% { box-shadow: inset 0 0 0 2px transparent; }
+}
+
 /* In the doc footer the type picker sits next to the accent Copy/Export split —
    match its 28px height and 6px radius so the right-hand controls line up. */
 
@@ -10309,8 +10385,14 @@ textarea.memory-add-input {
 .import-prompt-banner button:hover {
   border-color: var(--fg);
 }
-
-/* Inline diff markers — injected into the code highlight element */
+.import-prompt-dismiss {
+  border: none !important;
+  background: none !important;
+  opacity: 0.5;
+  font-size: 16px !important;
+  padding: 0 4px !important;
+}
+.import-prompt-dismiss:hover { opacity: 1; background: none !important; }/* Inline diff markers — injected into the code highlight element */
 .sugg-inline-del {
   background: color-mix(in srgb, var(--red) 20%, transparent);
   color: color-mix(in srgb, var(--red) 70%, var(--fg));
@@ -10338,6 +10420,9 @@ textarea.memory-add-input {
    Disable its pointer events so clicks reach the buttons in the layer below. */
 .doc-editor-wrap.diff-mode .doc-editor-textarea {
   pointer-events: none;
+}.doc-suggestion-accept {
+  background: var(--accent, var(--red));
+  color: var(--on-accent, #fff);
 }
 /* Mobile: suggestion card overlays top of editor (no room on side) */
 
@@ -10362,6 +10447,10 @@ textarea.memory-add-input {
 }.doc-diff-overlay.visible { opacity: 1; }
 .doc-diff-overlay.fading { opacity: 0; transition: opacity 0.4s ease; }.diff-stat-del { color: var(--warn); }
 .diff-stat-add { color: var(--green); }
+
+.doc-version-panel.hidden {
+  display: none;
+}
 
 /* Mobile: doc editor takes over full screen as toggle */
 @media (max-width: 768px) {
@@ -12570,7 +12659,15 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
    support :has() (e.g. older Firefox mobile, where the expand stuck at
    ~50%). Hide everything but the list so the grid fills the card; the
    absolutely-positioned expanded card (mobile) then fills the grid. */
-
+.admin-card.skills-has-expanded > *:not(#skills-list) {
+  display: none !important;
+}
+.admin-card.skills-has-expanded > #skills-list.doclib-grid {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
 /* Expand animation — a clean opacity fade. The mobile card snaps to a
    full-screen overlay (position:absolute), so any translate/scale on it
    reads as a jarring "explosion"; a pure fade just appears smoothly. (No
@@ -12717,6 +12814,12 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
 
 /* Archive column layout */
 
+.archive-col-time {
+  width: 55px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
 .archive-menu-btn {
   background: transparent;
   border: none;
@@ -12752,7 +12855,18 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
    here makes the panel bounded and scrollable as designed. Scoped to
    the editor view (matched via the container's inline `display:flex`)
    so the Photos/Albums views keep sizing to their content. */
-@keyframes gallery-skeleton-shimmer {
+.gallery-card-play {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}@keyframes gallery-skeleton-shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
@@ -12847,7 +12961,9 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
    box-shadow (not outline) because outline-offset:-4px inside an
    overflow:hidden rounded card renders sharp-cornered on Firefox.
    box-shadow inset always respects the card's border-radius. */
-/* Match the library Select toggle's red tint (.memory-toolbar-btn.active).
+.gallery-card:has(.gallery-select-dot.selected) {
+  box-shadow: inset 0 0 0 7px var(--red);
+}/* Match the library Select toggle's red tint (.memory-toolbar-btn.active).
    Bumped contrast so the toggled state actually reads on mobile — the prior
    15% red on transparent was nearly invisible against the page background. */
 .gallery-select-btn.active {
@@ -12856,7 +12972,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   border-color: var(--red);
   font-weight: 600;
   opacity: 1;
-}
+}.gallery-bulk-delete:hover { background: var(--red); color: var(--on-accent, #fff); }
 
 @media (max-width: 768px) {  .gallery-tab { flex-shrink: 0; }}
 
@@ -13021,6 +13137,11 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
 }
 .serve-select-cb.selected { background: var(--red); }
 .serve-select-cb:hover { background: color-mix(in srgb, var(--red) 50%, transparent); }
+#hwfit-cache-select.active {
+  background: var(--red);
+  color: var(--on-accent, #fff);
+  border-color: var(--red);
+}
 
 @keyframes cookbook-task-flash-anim {
   0%   { box-shadow: 0 0 0 2px var(--accent, var(--red)); }
@@ -13039,6 +13160,11 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   font-weight: 600;
 }
 /* Probe annotation states (set by "Free?" button) */
+.cookbook-gpu-btn.gpu-free {
+  opacity: 1;
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
 
 .cookbook-saved-save {
   padding: 0 10px;
@@ -13069,6 +13195,12 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
+}.hwfit-serve-launch {
+  background: var(--accent-primary, var(--red));
+  color: var(--on-accent, #fff);
+  border: 1px solid var(--accent-primary, var(--red));
+  border-radius: 4px;
+  font-weight: 700;
 }.cookbook-task:hover .cookbook-task-menu-btn { opacity: 0.6; }@media (max-width: 768px) {
   .cookbook-task .cookbook-task-menu-btn {
     opacity: 0.72;
@@ -13350,6 +13482,10 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   display: flex;
   align-items: center;
   margin-top: -4px;
+}.hwfit-panel-hf-link:hover {
+  color: var(--on-accent, #fff);
+  background: var(--red);
+  border-color: var(--red);
 }.cookbook-srv-status.testing {
   background: var(--color-warning, #f0ad4e);
   animation: cookbook-srv-pulse 0.9s ease-in-out infinite;
@@ -13400,7 +13536,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   border-color: var(--accent, var(--red));
 }.hwfit-hw-manual-btn {
   min-width: 42px;
-}.hwfit-list {
+}.hwfit-manual-panel.hidden { display: none; }.hwfit-list {
   max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
 }
 .hwfit-loading {
@@ -14154,7 +14290,26 @@ a.chat-link[href^="#research-"] {
      pytest ratchet caps inline style= attributes there. ── */
 .settings-row--end { justify-content: flex-end; }
 .settings-row--between { justify-content: space-between; }
-
+.settings-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.settings-section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.settings-section-title {
+  /* settings-group eyebrow — caption PRESET (#709), uppercased + tracked. */
+  font-size: var(--ow-fs-caption);
+  font-weight: var(--ow-fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+  margin: 0 0 var(--space-2);
+}
+.settings-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-3) 0;
+}
 .settings-hint {
   font-size: var(--fs-xs);
   opacity: 0.6;
@@ -14534,6 +14689,17 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
   60%  { transform: scale(1.25); opacity: 1; }
   100% { opacity: 1; }
 }
+.research-synapse .rs-pulse {
+  fill: var(--accent, var(--red));
+  opacity: 0;
+  animation: rs-pulse 2.6s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes rs-pulse {
+  0%   { transform: scale(1); opacity: 0.65; }
+  100% { transform: scale(5); opacity: 0; }
+}
 
 /* ── Raw findings items (inside sources-style box) ── */
 .finding-item {
@@ -14666,7 +14832,29 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
 }
 /* Hide the close × entirely on the Edit tab when there's no edit open. */
 
-/* Editor layout */
+.gallery-editor-draft-card.selected {
+  outline: 2px solid var(--accent, var(--red));
+  outline-offset: -2px;
+}
+.gallery-editor-draft-card.select-mode { cursor: pointer; }.gallery-editor-draft-delete {
+  position: absolute;
+  top: -2px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}/* Editor layout */
 .gallery-editor {
   display: flex;
   flex-direction: column;
@@ -14689,6 +14877,12 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
 .ge-diffusion-status.offline:hover {
   opacity: 1;
   background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}.ge-topbar-mask-color.cp-swatch-input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 50%;
+  padding: 0;
 }.gallery-editor-container {
   flex: 1;
   min-height: 0;
@@ -14713,12 +14907,31 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
   border-radius: 6px;
   z-index: 0;
   pointer-events: none;
-}
-
+}.ge-tool-btn.is-ai:hover .ge-tool-ai { opacity: 0.95; }
+.ge-tool-btn.is-ai.active .ge-tool-ai { opacity: 1; }
 /* Per-tool clear-selection badge — shows a tiny X in the top-right of
    the Lasso / Wand button when each holds a selection. Click clears
    the selection without switching tools (handler stops propagation). */
-
+.ge-tool-clear {
+  position: absolute !important;
+  top: 3px;
+  right: 3px;
+  width: 14px;
+  height: 14px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--on-accent, #fff);
+  background: var(--red);
+  cursor: pointer;
+  opacity: 0.95;
+  z-index: 2;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--red) 70%, transparent),
+              0 1px 4px color-mix(in srgb, var(--red) 50%, transparent);
+  transition: opacity 0.12s, transform 0.12s, box-shadow 0.12s;
+  left: auto !important;
+}
 /* Mobile-only: shift the head content UP to match the rest of the
    editor's mobile popup styling. */
 .ge-transform-aspect-btn.active {
@@ -14759,7 +14972,11 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
 
 /* Flash highlight when an anchor-link ([Name](#task-/#skill-/#research-))
    opens a panel and focuses a specific item. */
-/* Mobile-only: oversize the foot Cancel/Apply buttons to match the
+@keyframes anchor-item-flash {
+  0%   { background: color-mix(in srgb, var(--accent, var(--red)) 28%, transparent); }
+  60%  { background: color-mix(in srgb, var(--accent, var(--red)) 18%, transparent); }
+  100% { background: transparent; }
+}/* Mobile-only: oversize the foot Cancel/Apply buttons to match the
    Transform popup. Desktop keeps the original ge-btn-sm sizing. */
 /* Mobile-only: fixed-size sliders + taller rows so the thumb growing
    on active doesn't push the row height around. */
@@ -14813,6 +15030,12 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
 /* Disabled dropdown items (e.g. Fill when there's no selection) read
    as muted + non-interactive. */
 
+.ge-btn-primary {
+  background: var(--red);
+  color: var(--on-accent, #fff);
+  border-color: var(--red);
+  font-weight: 600;
+}
 /* Nudge whirlpool spinners 1px down so they sit on the text baseline
    when placed inside action buttons (Generate, Harmonize, etc). */
 .ge-btn .ai-spinner-whirlpool,
@@ -14825,7 +15048,28 @@ button .spinner-whirlpool {
 /* Floating value bubble that pops above the slider thumb while
    dragging. Solves the "I can't see the number" problem when the
    slider's opaque plate covers the row's right-edge value chip. */
-/* Merge / flatten buttons sit content-sized so the cluster reads as a
+.ge-slider-bubble {
+  /* Fixed positioning so the bubble escapes any overflow:hidden/auto
+     on the slider's ancestor chain (the layers list clips, and used
+     to swallow the bubble entirely). JS sets viewport-relative
+     left/top; the translate centers and lifts the bubble above the
+     slider thumb. */
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 10000;
+  padding: 5px 10px;
+  background: var(--red);
+  color: var(--on-accent, #fff);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border-radius: 6px;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--red) 40%, transparent);
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s;
+}/* Merge / flatten buttons sit content-sized so the cluster reads as a
    centered group of three, not three stretched bars across the panel. */
 /* Row-hover tint removed — kept the layer row's background stable so
    it doesn't shift visually as the user reaches for the opacity slider. */
@@ -14920,10 +15164,14 @@ button .spinner-whirlpool {
 }/* Responsive: stack on narrow screens */
 @media (max-width: 768px) {  /* Universal thumb-grow on active for every slider on mobile. */
   
-    
+    .ge-right-panel.expanded {
+    transform: translateY(0);
+  }
   /* Minimized: panel slides almost fully off-screen — only a thin
      handle strip remains visible so the user can swipe back up. */
-    /* In peek state, the layers list takes the full panel height (~70vh)
+  .ge-right-panel.minimized {
+    transform: translateY(calc(100% - 24px));
+  }  /* In peek state, the layers list takes the full panel height (~70vh)
      and never overflows so its own scrollbar doesn't activate. Constrain
      the list to the visible peek area so it scrolls properly when there
      are more layers than the peek can show. */
@@ -15191,6 +15439,10 @@ button .spinner-whirlpool {
 .email-quote-fold.last-fold {
   border-radius: 0 0 8px 8px;
   overflow: hidden;
+}.schedule-send-confirm {
+  background: var(--accent-primary, var(--red)) !important;
+  color: var(--on-accent, #fff) !important;
+  border-color: var(--accent-primary, var(--red)) !important;
 }
 /* Prefer local/system emoji fonts; avoid remote font providers. */
 .doc-editor-textarea, .doc-editor-highlight, #doc-editor-code,
@@ -15674,6 +15926,8 @@ body.notes-drag-mode .note-card-pin svg {
 @media (prefers-reduced-motion: reduce) {
   .notes-pane,
   .notes-pane.notes-pane-leaving { animation: none; }
+}.notes-pane-archive .notes-pane-body {
+  background: color-mix(in srgb, #b48a4a 4%, var(--bg));
 }
 /* Smooth the archive↔active swap so the colour tint eases in/out instead
    of snapping. Covers the pane, its header, and its body. */
@@ -15682,7 +15936,31 @@ body.notes-drag-mode .note-card-pin svg {
 .notes-pane .notes-pane-body {
   transition: background 0.28s ease, border-color 0.28s ease;
 }
-.notes-pane-title {
+.notes-pane-archive .notes-pane-title::after {
+  content: 'Archive';
+  margin-left: 8px;
+  padding: 2px 8px 2px 22px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  /* #1638: ONE accent source for the whole badge. The label, fill, border and the data-URI SVG
+     icon stroke all use the muted archive gold #b48a4a. --color-warning (#f0ad4e) is a brighter,
+     more-orange amber that would visibly shift the gold badge (and can't reach the data-URI stroke
+     anyway), so the label rejoins #b48a4a rather than splitting the badge across two accents. */
+  color: #b48a4a;
+  background-color: color-mix(in srgb, #b48a4a 18%, transparent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b48a4a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='3' width='20' height='5' rx='1'/%3E%3Cpath d='M4 8v11a2 2 0 002 2h12a2 2 0 002-2V8'/%3E%3Cpath d='M10 12h4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 6px center;
+  background-size: 11px 11px;
+  border: 1px solid color-mix(in srgb, #b48a4a 45%, transparent);
+  border-radius: 10px;
+  vertical-align: middle;
+}.notes-pane-archive .note-card {
+  background: color-mix(in srgb, #b48a4a 8%, var(--panel));
+  border-color: color-mix(in srgb, #b48a4a 25%, var(--border));
+}.notes-pane-title {
   /* Match the other tool headers (.modal-header h4). */
   font-family: var(--ow-ui-font);
   font-size: 1rem;
@@ -15863,7 +16141,7 @@ body.notes-drag-mode .note-card-pin svg {
 }
 /* Mobile: thumb-sized Note/Todo toggle. The 22px desktop pill is too
    small to hit reliably on a phone. */
-
+.notes-skeleton-card.short { height: 46px; }
 /* Reminder bell button */
 /* Mobile-only: bell icon in the note editor is accent-coloured so it pops as
    the primary "set a reminder" affordance. The Archive button is hidden — the
@@ -16127,7 +16405,7 @@ body.notes-drag-mode .note-card-pin svg {
    done, instead of snapping it in full-width on the same frame. */
 @keyframes cl-strike {
   to { background-size: 100% 1px; }
-}
+}.cal-quickadd-hint .qa-hint-accent { color: var(--accent, var(--red)); }
 /* ↵ enter glyph in the hint — makes it obvious the field submits on Enter. */
 button.cal-add-btn { background:var(--accent); color:var(--on-accent, #fff); border:none; border-radius:50%; width:24px; height:24px; line-height:22px; font-size:18px; cursor:pointer; flex-shrink:0; padding:0; box-sizing:border-box; font-family:inherit; vertical-align:middle; text-align:center; }
 /* Mobile: bump the +New pill and the +/- zoom buttons up to a tap-friendly
@@ -16222,7 +16500,7 @@ button.cal-add-btn { background:var(--accent); color:var(--on-accent, #fff); bor
     height: 28px;
     margin-top: 0;
     margin-bottom: 0;
-  }}
+  }}.cal-year-day:hover { background:var(--accent, var(--red)); color:var(--on-accent, #fff); opacity:1; transform:scale(1.15); font-weight:700; z-index:2; position:relative; }
 /* ── Personal Assistant ── */
 
 .assistant-settings-form { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 2px; }
@@ -17274,12 +17552,37 @@ body.theme-frosted .modal {
   gap: 8px;
   padding: 10px 18px;
   border-top: 1px solid var(--border);
+}.hwfit-sched-day-chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-
+.hwfit-sched-day-chip:hover { border-color: var(--accent, var(--red)); }
+.hwfit-sched-err {
+  font-size: 12px;
+  color: var(--red, #ff6b6b);
+  display: none;
+}
 /* F-CONTRAST-2 (HIG Color / WCAG 1.4.1): red hue is NOT the only error channel — a
    leading warning glyph carries the meaning for color-blind users and on low-contrast
    glass. Text-presentation variation selector (FE0E) renders it as a mono glyph, not a
    colored emoji. */
+.hwfit-sched-err::before {
+  content: "\26A0\FE0E";
+  margin-right: 4px;
+}
+.hwfit-sched-err.is-visible { display: block; }
+@media (max-width: 768px) {  .hwfit-sched-day-chip { width: 36px; height: 36px; font-size: 11px; }
+}
 
 /* Brief outline flash on a note card when it's the target of a
    #note-<id> link click from chat — same pattern as the cookbook
@@ -17298,7 +17601,7 @@ body.theme-frosted .modal {
    functional state. */
 @media (prefers-reduced-motion: reduce) {
   .note-card-flash { animation: none; }
-  
+  .hwfit-sched-day-chip { transition: none; }
 }
 /* F-MOTION-1 (HIG Motion — "replace or remove animations app-wide" / WCAG 2.3.3): the DURABLE
    net. The two rules above are per-surface opt-ins, exactly the fragile pattern the audit flags —

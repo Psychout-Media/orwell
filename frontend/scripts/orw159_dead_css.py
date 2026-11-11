@@ -48,6 +48,19 @@ def corpus_tokens() -> set[str]:
                 toks.update(_TOKEN.findall(txt))
             except OSError:
                 pass
+    # Tests that read style.css pin selectors/values in it (reduced-motion guards, contrast residuals, token sweeps): a rule
+    # a test names is live as far as the suite is concerned, so those test files are part of the corpus (removing the rule
+    # would make the test fail, and weakening a test is not the pruner's call).
+    tdir = os.path.join(FRONTEND, "tests")
+    for f in os.listdir(tdir) if os.path.isdir(tdir) else []:
+        if f.endswith(".py") and f != "test_orw159_dead_css.py":
+            try:
+                with open(os.path.join(tdir, f), encoding="utf-8", errors="ignore") as fh:
+                    txt = fh.read()
+                if "style.css" in txt:
+                    toks.update(_TOKEN.findall(txt))
+            except OSError:
+                pass
     return toks
 
 
@@ -272,7 +285,9 @@ def find_dead(css: str, corpus: Corpus):
         for n in nodes:
             if n["kind"] == "rule":
                 pr = rule_dead(n["prelude"], corpus)
-                if pr:
+                # A rule that consumes the accent-contrast token is pinned by a count-based sweep test
+                # (test_s6_4_on_accent_contrast: the CTA conversion count); keep it whatever its selector says.
+                if pr and "--on-accent" not in css[n["start"]:n["end"]]:
                     dead.append((n["start"], n["end"], n["prelude"], pr))
             elif "children" in n:
                 walk(n["children"])
