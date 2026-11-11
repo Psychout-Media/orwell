@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { PLAYER } from "../../src/domain/ids";
 import { resolvePending } from "../../features/support/answerPending";
 import type { AdvanceView } from "../../src/ports/GameSession";
 
@@ -18,7 +17,7 @@ function play(withEntry: boolean, seed: number): { beats: string[]; npcKnowsEntr
   const npcs = sb.session.snapshot().house!.npcs.map((n) => n.id);
   const ENTRY = `private booth read ${seed}: ${npcs[0]} is the one to watch`;
   if (withEntry) {
-    sb.engine.knowledge.seedBelief(PLAYER, { content: ENTRY, factId: `fact:dr-${seed}`, subject: npcs[0]!, distortion: 0, confidence: 1 }, "diary-room");
+    sb.commands.diaryRoom({ entry: ENTRY, subjectId: npcs[0]! }); // the REAL booth path (ORW-38 sweep #2131: this used to seed knowledge directly, bypassing the production code)
   }
   const beats: string[] = [];
   let v: AdvanceView = sb.session.advanceGame();

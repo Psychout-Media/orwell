@@ -228,7 +228,7 @@ export interface SessionCore {
   /** B28: the monotonic count of tell ONSETS (a new tell kind beginning on any houseguest) - persists even after a tell fades, so the checkpoint can prove the tells layer never loses history. */
   tellOnsetCount?: number;
   /** B29 (ORWELL_TELL_REACTIONS): the observer-reaction state - decaying exploit tilts, the per-pair last-reacted week, monotonic counts by kind. Absent when nothing has reacted (byte-identical). */
-  tellReactions?: { exploit: Record<string, number>; reactedWeek: Record<string, number>; counts: Record<string, number>; ticks: number };
+  tellReactions?: { exploit: Record<string, number>; reactedWeek: Record<string, number>; counts: Record<string, number>; ticks: number; avoidUntil?: Record<string, number> };
   /**
    * SEATED sub-zones (issue #792 — the PO ruling: sub-zones SEATED into `assignRooms`, not computed
    * on-read). Each houseguest in a zoned big room (backyard/lounge) holds a per-id sub-zone (the

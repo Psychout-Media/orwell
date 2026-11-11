@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp01 } from "../domain/num";
 
 /**
  * Feature 0024 — NPC MEMORY ACTS (PO ruling 2026-11-03: betrayals, favors and broken promises change how an NPC
@@ -74,7 +75,6 @@ const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated
 export const isGrudgeKind = (k: MemoryKind): boolean => GRUDGE_KINDS.has(k);
 const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness", "secret-given"]);
 
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
  * Record one memory (mutates `ledger`). Over the cap, the entry with the lowest DECAYED weight at the new entry's week

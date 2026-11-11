@@ -5,6 +5,7 @@
  * supplies the seeded per-voter noise draws in [-1, 1] (a DEDICATED sub-rng, never the shared stream). The estimate is the estimator's private belief and is never projected.
  * Wiring into the campaign layer is slice 2, flag-off.
  */
+import { clamp01 } from "../domain/num";
 export const VOTE_ESTIMATE = {
   /** Max error (probability points) at overconfidence 0; scaled by (1 - overconfidence). */
   errMax: 0.25,
@@ -16,7 +17,6 @@ export const VOTE_ESTIMATE = {
   doubtPerVoter: 0.15,
 } as const;
 
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : Math.max(0, Math.min(1, x)));
 
 /** The estimator's perceived P(this voter votes to evict the target), given the truth `p`, its overconfidence, and a seeded noise draw in [-1, 1]. */
 export function perceivedSupport(p: number, overconfidence: number, noise: number): number {
