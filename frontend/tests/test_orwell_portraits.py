@@ -165,6 +165,14 @@ def _gate_off(monkeypatch):
     monkeypatch.setattr(ca, "house_entry_gate_active", _off)
 
 
+@pytest.fixture(autouse=True)
+def _pin_house_entry_gate_off(monkeypatch):
+    """ORW-251e: every createCharacter test in this file pins the house-entry gate OFF. They used to rely on "no utility model resolves in the test env", which another test's saved model settings
+    can falsify on the same xdist worker: the gate then goes ON, the immediate seeded-facet kick is skipped, authoring runs first and the portraits land after it ("assert 1 < 0", fe-unit 2/2). The
+    gate-ON contract is pinned in test_adr0013_photo_requires_authoring.py, which patches the gate itself."""
+    _gate_off(monkeypatch)
+
+
 def test_prewarmed_branch_falls_through_to_kickoff_when_warm_declines(tmp_portraits, monkeypatch):
     """#976 — prewarmed, but the gated portrait warm declines/no-ops (portraitsStarted stays false):
     with the house-entry gate OFF, createCharacter must STILL kick `kickoff_generation` immediately,

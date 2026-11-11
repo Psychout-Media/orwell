@@ -385,6 +385,29 @@ def pending_fold_count(owner: Optional[str], session_id: Optional[str]) -> int:
     return len(_PENDING.get(_key(owner, session_id), ()))
 
 
+# ORW-26: the turn's scene belt (`_auto_record_scene`) concluded there is NO recordable scene among the houseguests actually present (every
+# proposed participant was off-scene per the engine's whereabouts). The E22 fallback must not run the SAME extraction a second time (run 0348:
+# 14 turns paid two identical utility calls that dropped the same ids twice). One flag per (owner, session), set by the belt, consumed (popped)
+# once by the next E22 guard pass, so it can never leak into a later turn.
+_BELT_DECLINED: set = set()
+
+
+def note_belt_declined(owner: Optional[str], session_id: Optional[str]) -> None:
+    _BELT_DECLINED.add(_key(owner, session_id))
+
+
+def clear_belt_declined(owner: Optional[str], session_id: Optional[str]) -> None:
+    _BELT_DECLINED.discard(_key(owner, session_id))
+
+
+def consume_belt_declined(owner: Optional[str], session_id: Optional[str]) -> bool:
+    k = _key(owner, session_id)
+    hit = k in _BELT_DECLINED
+    _BELT_DECLINED.discard(k)
+    return hit
+
+
 def clear_all() -> None:
     """Test-only reset."""
     _PENDING.clear()
+    _BELT_DECLINED.clear()

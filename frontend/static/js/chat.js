@@ -1124,6 +1124,9 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
 
     // Declare accumulated outside try block so it's accessible in catch
     let accumulated = '';
+    // ORW-96: the completion latches live OUTSIDE the try so the catch's `_serverConfirmedDone` can read them (declared inside, the catch threw a ReferenceError and a no-[DONE] drop rendered nothing).
+    let _streamSawDone = false;
+    let _sawMessageSaved = false;
     // D2: per-stream SSE event counter — incremented for each processed data: line so the
     // self-resume knows how many events were already consumed and can resume from_seq there.
     let _sseEventCount = 0;
@@ -2058,13 +2061,11 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       };
 
       let _nextIsError = false;
-      let _streamSawDone = false;
       // BUG 2 (#985 P2-B): did the server persist ANY message this turn? A clean empty turn (the final
       // round made a tool call but emitted no narration; the server's `if full_response:` save is
       // skipped) emits NO `message_saved`. Combined with `accumulated === ''`, that is the
       // "backend produced no turn" terminal state — distinct from a thrown network drop. We render the
       // user-controlled Retry for it instead of silently hiding the empty bubble.
-      let _sawMessageSaved = false;
       // BUG 2 — did the turn produce a VISIBLE artifact OTHER than narration text/a save? An in-character
       // image, an ask_user prompt, a budget notice, a surfaced error etc. all leave `accumulated === ''`
       // yet are a real, completed turn — NOT the empty-turn-with-no-recourse case. Set true on those so
@@ -4417,7 +4418,10 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
           if (!_requeuedOffline && !_serverConfirmedDone &&
               !(_isRecoverableStreamErr(err) && _tryAutoRecover(holder, accumulated, streamSessionId))) {
             const errorHolder = document.querySelector('.msg-ai:last-of-type .body');
-            if (errorHolder) {
+            if (_isRecoverableStreamErr(err) && holder && holder.isConnected) {
+              // ORW-96: auto-recover declined (nudge cap spent) on a connection-class drop - an honest, user-controlled Retry, not a raw `Error:` typed into the narrator's bubble (which the settle reconcile then erased, leaving nothing).
+              _renderStreamDropRetry(holder, streamSessionId, { label: 'The connection dropped before the reply finished.' });
+            } else if (errorHolder) {
               let errMsg = `Error: ${err.message}`;
               // Add hint for tool-call errors
               if (err.message && (err.message.includes('tool') || err.message.includes('auto'))) {
@@ -4881,6 +4885,14 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
   // no narration + no save) — passing `opts.label` swaps the message; the Retry mechanism is identical.
   function _renderStreamDropRetry(holder, sessionId, opts) {
     opts = opts || {};
+    // ORW-96 (F-S4-C parity): a drop that produced no reply is a SYSTEM notice, NOT the GM's voice - reclassify the empty narrator holder to `.msg-system` and drop its GM `.role`/avatar (same as the HTTP-error path).
+    try {
+      const _b = holder && holder.querySelector && holder.querySelector('.body');
+      if (holder && holder.classList && holder.classList.contains('msg-ai') && !(holder.dataset && holder.dataset.dbId) && _b && !(_b.textContent || '').trim()) {
+        holder.className = 'msg msg-system';
+        holder.innerHTML = '<div class="body"></div>';
+      }
+    } catch (_) {}
     const target = holder && (holder.querySelector('.body') || holder);
     if (!target || target.querySelector('.stream-drop-retry')) return;
     // BUG 2: the empty-turn holder was hidden by the finalize ("no visible text" branch) — make it
