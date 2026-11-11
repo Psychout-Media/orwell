@@ -10504,6 +10504,30 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-223 slice 2 - the Show Brief's OPEN THREADS lines: in-motion threads the player already knows, by KIND and
+   * STATUS only (never an id, a number, a term, or any NPC motive). Sources are the player's own deals (the public
+   * ledger view) and what reached the player's knowledge since the last day close (the daily-recap source). No rng.
+   */
+  private openThreadLines(): string[] {
+    if (!this.house || !this.live) return [];
+    const week = this.live.week;
+    const lines: string[] = [];
+    for (const d of this.deals.forParty(PLAYER)) {
+      if (d.status !== "open") continue;
+      const other = d.parties.find((p) => p !== PLAYER);
+      if (!other) continue;
+      const who = this.nameOf(other);
+      const owed = isPositiveObligation(d.kind) && d.condition.promisors.includes(PLAYER);
+      const running = d.vague === true || (d.expiresWeek !== undefined && d.expiresWeek - week <= 1);
+      lines.push(owed ? `a promise you owe ${who}: still open` : `a deal with ${who}: ${running ? "running out" : "still standing"}`);
+    }
+    const known = this.playerKnowledgeReader?.() ?? [];
+    const from = Math.min(this.live.dailyRecapKnowledgeCursor ?? 0, known.length);
+    if (known.slice(from).some((f) => f.pathway !== NO_NPC_PATHWAY)) lines.push("a rumor that reached you: unconfirmed");
+    return lines;
+  }
+
+  /**
    * 0102 (PO review 2026-06-27 redesign, #884) — materialize the "day in review" digest for the day
    * that just closed, called from `turnIn` BEFORE the clock rolls to the next morning (the player's
    * own bedtime lever, ADR 0006 — never a free-floating scheduler). Stitched from exactly the two
@@ -13278,7 +13302,7 @@ export class GameSessionAdapter implements GameSession {
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
     const showBrief = req.brief !== undefined
-      ? buildShowBrief(view, req.brief, this.roomCanonEnabled && this.live?.playedGame === true ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined)
+      ? buildShowBrief(view, req.brief, this.roomCanonEnabled && this.live?.playedGame === true ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, this.live?.playedGame === true ? this.openThreadLines() : undefined)
       : undefined;
     return {
       moment,

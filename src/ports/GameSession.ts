@@ -1084,7 +1084,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
 }
 
 export interface MomentPromptView {
