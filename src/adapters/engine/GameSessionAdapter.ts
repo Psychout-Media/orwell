@@ -10682,6 +10682,8 @@ export class GameSessionAdapter implements GameSession {
     if (this.npcDealConsentEnabled) {
       const refusal = this.dealConsentRefusal(target, req.kind, isPositiveObligation(req.kind) ? (req.direction ?? "offer") : undefined);
       if (refusal) {
+        const counter = this.maybeCounterOffer(target, req.kind, refusal);
+        if (counter) refusal.counteroffer = counter;
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
@@ -10760,6 +10762,24 @@ export class GameSessionAdapter implements GameSession {
    * store's `targets-me` claims when its flag is on) and draws ONE value from a dedicated per-moment rng keyed on (game seed, "deal-consent", npc, week, phase) - the same
    * pattern as `secretRng`/`confide`, never the shared season rng. Returns the Vault-free refusal, or `null` when the NPC agrees.
    */
+  /**
+   * 0142 (ORW-88 idea 1) - a houseguest who refuses ONLY because the ask is too dear (reason `cost`) answers with the cheaper term they WOULD take: a mutual safety pact, kept only if
+   * the engine's own consent read says they accept it. It becomes the standing open `dealOffer` (the 0123 pattern: voiced in chat, no pop-up, lapses at week's end; accept goes through
+   * the ordinary `deals.make` spine). Played games only, one standing offer at a time, no rng draw (the consent read keys its own jitter). Returns the Vault-free terms, or undefined.
+   */
+  private maybeCounterOffer(npcId: EntityId, askedKind: MakeDealReq["kind"], refusal: DealRefusal): { kind: string; terms: string } | undefined {
+    const s = this.live;
+    if (!s || refusal.reason !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
+    if (s.dealOffer || s.finished || s.beat === "finale" || s.beat === "complete" || askedKind === "safety") return undefined;
+    if (this.dealOfferPartyGone(npcId) || this.memoryBlocksPlayerDeal(npcId)) return undefined;
+    if (this.dealConsentRefusal(npcId, "safety") !== null) return undefined;
+    const terms = "that is too much to promise, but I will keep you safe if you keep me safe";
+    s.dealOffer = { id: `offer:${npcId}:${s.week}`, from: npcId, kind: "safety", terms, madeWeek: s.week };
+    this.onPlayerEvent?.(`${this.nameOf(npcId)} turns down a ${askedKind} deal and counters with a safety pact`, [PLAYER, npcId], "conversation");
+    this.persist();
+    return { kind: "safety", terms };
+  }
+
   private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
     const live = this.live;
     if (!live) return null;

@@ -1,4 +1,4 @@
-# spec-only: SPEC FIRST (ORW-88, 2026-11-11) - not built, not wired into cucumber.cjs. Feature 0141 - Deal depth II. Roles only.
+# spec-only: SPEC FIRST (ORW-88, 2026-11-11) - not built, not wired into cucumber.cjs. Feature 0142 - Deal depth II. Roles only.
 
 Feature: Deal depth II - counteroffers, owed favors, new deal kinds, weighing a break
 

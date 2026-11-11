@@ -84,8 +84,8 @@ The **[index](#index)** below is the single source of truth for per-feature stat
 | 0137 | [The Producer Read](./0137-the-producer-read.md) | unit | ✅ **Built (spec written retrospectively 2026-11-03)** · issue #1792, PR #1905 · flag `ORWELL_PRODUCER_READ` · see the design note for what shipped and known gaps. |
 | 0138 | [The Player Dossier](./0138-the-player-dossier.md) | unit | ✅ **Built (spec written retrospectively 2026-11-03)** · issue #1793, PR #1901 · flag `ORWELL_PLAYER_DOSSIER` · see the design note for what shipped and known gaps. |
 | 0139 | [The Booth Has Receipts](./0139-the-booth-has-receipts.md) | unit | ✅ **Built (spec written retrospectively 2026-11-03)** · issue #1800, PR #1907 (fixed by #1914) · flag `ORWELL_BOOTH_RECEIPTS` · see the design note for what shipped and known gaps. |
-| 0141 | [Deal depth II: counteroffers, owed favors, new kinds, weighing a break](./0141-deal-depth-ii.md) | spec | 📝 **Spec only (ORW-88, 2026-11-11)** · approved by Ryne 2026-11-06 (all four ideas); build order and gating in the design note. Not wired into cucumber.cjs. |
 | 0140 | [Publicity-Priced Promises](./0140-publicity-priced-promises.md) | unit | ✅ **Built (spec written retrospectively 2026-11-03)** · issue #1802, PR #1906 · flag `ORWELL_DEAL_WITNESSES` · see the design note for what shipped and known gaps. |
+| 0142 | [Deal depth II: counteroffers, owed favors, new kinds, weighing a break](./0142-deal-depth-ii.md) | spec | 📝 **Spec only (ORW-88, 2026-11-11)** · approved by Ryne 2026-11-06 (all four ideas); build order and gating in the design note. Not wired into cucumber.cjs. |
 | 0001 | [Vault Wall isolation](./0001-vault-wall-isolation.md) | BDD | ✅ Built |
 | 0002 | [Event visibility & propagation](./0002-event-visibility-and-propagation.md) | BDD | ✅ Built |
 | 0003 | [Behavioral fidelity](./0003-behavioral-fidelity.md) | BDD | ✅ Built |

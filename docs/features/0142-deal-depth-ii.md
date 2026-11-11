@@ -1,7 +1,7 @@
-# 0141 - Deal depth II: counteroffers, owed favors, new deal kinds, weighing a break
+# 0142 - Deal depth II: counteroffers, owed favors, new deal kinds, weighing a break
 
-> **Status:** SPEC ONLY (ORW-88, 2026-11-11). Approved by Ryne 2026-11-06, all four ideas; build in the order below, after the playtest. Ships ON when built, but see section 5 for the gating rule that keeps seeded sims byte-identical.
-> **Executable spec:** [`0141-deal-depth-ii.feature`](./0141-deal-depth-ii.feature)
+> **Status:** SPEC; section 1 (counteroffers) BUILT 2026-11-11 (`maybeCounterOffer` in the adapter, `tests/unit/dealCounteroffer.test.ts`; reuses the 0123 `dealOffer` and its existing flags, no new flag); sections 2-4 not built. Approved by Ryne 2026-11-06, all four ideas; build in the order below, after the playtest. Ships ON when built, but see section 5 for the gating rule that keeps seeded sims byte-identical.
+> **Executable spec:** [`0142-deal-depth-ii.feature`](./0142-deal-depth-ii.feature)
 > **Builds on:** 0039 (deals), 0109 (duration), 0121 (active kinds + reliability), 0123 (NPC-initiated offers, the open-state pattern), B48 (credibility memory). **Not part of this:** ORW-84 (deals feed nominations), ORW-85 (witnesses remember a deal), ORW-82 (consent tests).
 
 The rules of deals are solid; the play is thin. Everything here is decided by the engine; the narrator only voices. No hard caps; Vault-free.
