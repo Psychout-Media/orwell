@@ -1,5 +1,6 @@
 """History routes — session history, truncation, fork, conversation topics."""
 
+import asyncio
 import json
 import uuid
 import logging
@@ -94,7 +95,8 @@ def setup_history_routes(session_manager) -> APIRouter:
                                   before_seq: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
         _verify_session_owner(request, session_id)
         try:
-            session = session_manager.get_session(session_id)
+            # ORW-171: get_session is blocking SQLAlchemy work (load + metadata sync); on the event loop it stalls every other request - the streaming chat included - for its duration.
+            session = await asyncio.to_thread(session_manager.get_session, session_id)
         except KeyError:
             raise HTTPException(404, f"Session '{session_id}' not found")
 
