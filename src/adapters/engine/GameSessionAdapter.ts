@@ -4854,6 +4854,8 @@ export class GameSessionAdapter implements GameSession {
     // weighted (only NPCs are); they move only by their own `movePlayer`. So both passes pin the player at
     // the SAME real room; only NPC positions differ between the calibration-neutral base and the weighted view.
     const playerRoom = prev?.get(me) ?? null;
+    // ORW-247: a ceremony seats the PLAYER in the ceremony room on the player-facing map only; the calibration base keeps the room the player really held before it (its seeded society must not feel the gathering).
+    const basePlayerRoom = this.ceremonyHeld && this.ceremonyBasePlayerRoom ? this.ceremonyBasePlayerRoom : playerRoom;
     // The base evolves from its OWN history (so it is INVARIANT to the personality constants — the society's
     // occupancy, and thus the seeded competition/vote outcomes, are byte-identical whether weighting is on
     // or off). Pre-L21/L24 saves have no separate base — seed it from the only positions we have.
@@ -4878,7 +4880,8 @@ export class GameSessionAdapter implements GameSession {
       }
       // L21/L24: the PLAYER is a person — the engine NEVER auto-relocates them. Pin them (in BOTH views) at
       // their real room; the engine drives only the NPCs around the held player.
-      const pinned = playerRoom ? new Map<EntityId, Room>([[me, playerRoom]]) : null;
+      const pinRoom = weighted ? playerRoom : basePlayerRoom;
+      const pinned = pinRoom ? new Map<EntityId, Room>([[me, pinRoom]]) : null;
       return assignRooms(this.presenceActive().filter((id) => id !== me), previous, this.presenceDeps(stream, weighted, sceneRoom, zonesOut, prevZones), pinned);
     };
 
@@ -4891,7 +4894,7 @@ export class GameSessionAdapter implements GameSession {
     // force the base to agree with the weighted player room so a player overhear of an off-screen scene
     // reads the player's REAL room, and the two views never disagree about where the player is.
     const realPlayerRoom = next.get(me);
-    if (realPlayerRoom) nextBase.set(me, realPlayerRoom);
+    if (realPlayerRoom) nextBase.set(me, this.ceremonyHeld && basePlayerRoom ? basePlayerRoom : realPlayerRoom);
 
     // L21/L24: room tenure (player-facing) — a houseguest who held their room this tick keeps
     // accumulating; a mover resets to 0. Grounds scene continuity in `whereabouts`.
@@ -4907,6 +4910,7 @@ export class GameSessionAdapter implements GameSession {
     this.presenceBase = nextBase;
     this.presenceTenure = tenure;
     this.presenceZone = nextZone;
+    this.gatherForCeremony(true); // ORW-247: the tick ran on its own streams (calibration untouched); a live ceremony keeps the house in its room
     // 0077: the player TRACKS any houseguest they watched head into a closed room this tick — their
     // origin was in the player's eyeshot. Pure read-side (no rng), so the calibration spine is untouched.
     const meRoom = next.get(me);
@@ -5016,6 +5020,7 @@ export class GameSessionAdapter implements GameSession {
     // A11 (finding from #2088): while a WHOLE-HOUSE premiere event is on (the gathered champagne circle / toast, or the staged entrances) `whereabouts()` shows everyone convened in the
     // player's room, but this base map still held the underlying wander positions - so a chat during the toast hit the phantom-witness check ("not in the room") and folded nothing. The
     // witness grounding must read the SAME overlay the player sees. Only the two premiere events; every other path (and flag-off) returns the base map untouched.
+    this.gatherForCeremony();
     const base = this.presence;
     const live = this.live;
     if (!base || !live || !this.house) return base;
@@ -5213,6 +5218,31 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-247 - a ceremony moves the house FOR REAL. While a nomination / veto-ceremony / eviction beat is live the engine presence (the weighted, player-facing map) seats every active houseguest and the
+   * player in the ceremony room, so the widget, the narrator's whereabouts and the witness roster all read the same place. It holds for the ceremony (the tick re-pins after it runs: the seeded streams
+   * are untouched, only the player-facing map is overwritten) and ends with it; afterwards the ordinary calm tick (capped movers per tick) disperses them on their own timing. The calibration base map
+   * is never touched. Idempotent per ceremony kind; `force` re-pins after a tick. Returns true while a ceremony holds the house.
+   */
+  private ceremonyHeld: string | null = null;
+  private ceremonyBasePlayerRoom: Room | null = null;
+  private gatherForCeremony(force = false): boolean {
+    const ev = this.houseEventInSession();
+    const kind = ev?.kind;
+    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null;
+    if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
+    if (!force && this.ceremonyHeld === kind) return true;
+    if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
+    this.ceremonyHeld = kind!;
+    const away = this.notYetArrived();
+    const ids = [...this.presenceActive(), this.house.player.id];
+    for (const id of ids) {
+      if (away?.has(id)) continue;
+      if (this.presence.get(id) !== room) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
+    }
+    return true;
+  }
+
+  /**
    * 0106 — is a whole-house EVENT the LIVE, unresolved beat (an EXCLUSIVE set-piece: a competition, or a
    * nomination / veto / eviction ceremony)? True while the event's player decision is pending (or a comp
    * is staging). For a COMPETITION it also returns the eligible competitor FIELD (the outgoing HOH sits
@@ -5246,6 +5276,7 @@ export class GameSessionAdapter implements GameSession {
 
   whereabouts(): WhereaboutsView | null {
     if (!this.house || !this.presence) return null;
+    this.gatherForCeremony();
     const me = this.house.player.id;
     const room = this.presence.get(me);
     if (!room) return null; // the player is nowhere (out of the house)

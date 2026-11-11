@@ -137,7 +137,8 @@ describe("0122 — with the depth layer OFF, turnIn runs NO sweep", () => {
     // confessional at the big time-jump (0117/0040) — that is NOT the sweep. The sweep would confess a
     // MAJORITY of the house; the flag-off path must stay far below that. (The seeded calibration spine's
     // byte-identity is proven separately by the juryReach gate, which runs with the clock + flag off.)
-    const off = harness({ depthOn: false, seed: 7, user: "sweep-off" });
+    // seed re-selected 2026-11-11 (ORW-247 ceremony gathering moved the seeded trajectory; was 7)
+    const off = harness({ depthOn: false, seed: 8, user: "sweep-off" });
     developHouse(off.sb);
     const livingNpcs = off.sb.session.livingIds().filter((id) => id !== PLAYER).length;
     const beforeOff = confessionals(off.sb).length;
@@ -145,7 +146,7 @@ describe("0122 — with the depth layer OFF, turnIn runs NO sweep", () => {
     const offDelta = confessionals(off.sb).length - beforeOff;
 
     // Same seed/drive WITH the flag on ⇒ a majority sweep. The contrast proves the sweep is gated.
-    const on = harness({ depthOn: true, seed: 7, user: "sweep-off" });
+    const on = harness({ depthOn: true, seed: 8, user: "sweep-off" });
     developHouse(on.sb);
     const beforeOn = confessionals(on.sb).length;
     on.sb.session.turnIn();
