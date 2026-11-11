@@ -623,6 +623,28 @@
     return _request("decision", "chat", d, "decision");
   }
   // layout is fire-and-forget per-device LWW (§5) — no cid/ack.
+  // ORW-44 S2: the game build has no SSE send path any more, so a turn first makes sure the socket is up. ensure() resolves true when the socket is live (waiting out a reconnect that is already in flight, and
+  // forcing ONE immediate upgrade attempt for the two RECOVERABLE fallback causes: the canonical id was not live yet, or the per-tab id had not resolved), and false when it cannot be: a permanent
+  // fallback cause (proxy / handshake / exhausted retries = a network that blocks WebSockets) or the deadline. Never throws.
+  function ensure(timeoutMs) {
+    return new Promise(function (resolve) {
+      var deadline = _now() + (timeoutMs > 0 ? timeoutMs : 8000);
+      var kicked = false;
+      (function check() {
+        if (_mode === "ws" && _sock && _sock.readyState === 1) return resolve(true);
+        if (_mode === "fallback") {
+          var recoverable = _fallbackReason === "pregame-not-live" || _fallbackReason === "pertab-pending";
+          if (!recoverable || kicked) return resolve(false);   // permanent cause, or our one upgrade attempt already fell back again
+          kicked = true;
+          _lastUpgradeAttempt = 0; _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS;
+          _maybeUpgradeFromFallback();
+        }
+        if (_now() >= deadline) return resolve(false);
+        setTimeout(check, 150);
+      })();
+    });
+  }
+
   function sendLayout(d) { return _send({ t: "layout", ch: "layout", d: d || {} }); }
 
   // ── negotiation + lifecycle (§6) ────────────────────────────────────────
@@ -910,6 +932,8 @@
     sendDecision: sendDecision,
     cancelRequest: cancelRequest,
     sendLayout: sendLayout,
+    ensure: ensure,
+    flagOn: _flagOn,   // ORW-44 S2: chat.js asks whether the WS transport is switched on (ORWELL_WS_TRANSPORT) before it treats the socket as the only send path
     rebind: rebind,
     isActive: function () { return _mode === "ws" && !!_sock && _sock.readyState === 1; },
     isFallback: function () { return _mode === "fallback"; },

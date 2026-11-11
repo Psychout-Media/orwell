@@ -2,6 +2,7 @@ import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
+import { liveHouseEvent, isCompOrCeremonyKind } from "../../src/engine/houseEvent";
 import { Orchestrator, competitionSuppressesPrivateScenes } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
@@ -186,5 +187,26 @@ describe("ORW-232 slice 3 / ORW-256 — nobody schemes in private while a compet
       if (a.finished) break;
     }
     expect(during, "scenes still happen inside a competition for a headless driver").toBeGreaterThan(0);
+  });
+});
+
+describe("ORW-281 slice 3 — the private-scene suppression keys on ANY house event in session, from one derivation", () => {
+  const base = { active: ["a", "b", "c", "d"], outgoingHoh: "a" };
+  const k = (live: object, o?: { includeDraw?: boolean }) => liveHouseEvent({ ...base, ...live } as never, o)?.kind;
+  it("comps, nominations, the veto ceremony and eviction count; idle and the premiere toast do not", () => {
+    expect(k({ competition: { comp: "hoh-competition", field: ["b"] } })).toBe("hoh-competition");
+    expect(k({ pending: { kind: "nominations" } })).toBe("nominations");
+    expect(k({ pending: { kind: "veto-decision" } })).toBe("veto-ceremony");
+    expect(k({ pending: { kind: "replacement" } })).toBe("veto-ceremony");
+    expect(k({ pending: { kind: "eviction-vote" } })).toBe("eviction");
+    expect(k({ pending: { kind: "comp-intent", comp: "veto-competition" } })).toBe("veto-competition");
+    expect(k({})).toBeUndefined();
+    expect(isCompOrCeremonyKind(k({ champagneCircle: "gathered" }))).toBe(false);
+    expect(isCompOrCeremonyKind(k({ pending: { kind: "nominations" } }))).toBe(true);
+  });
+  it("the veto draw (veto-competition beat, no vetoField) counts only when asked, and not once the field is drawn without a pending", () => {
+    expect(k({ beat: "veto-competition" })).toBeUndefined();
+    expect(k({ beat: "veto-competition" }, { includeDraw: true })).toBe("veto-draw"); // ORW-281 slice 1: the draw reports as its own ceremony kind
+    expect(k({ beat: "veto-competition", vetoField: ["a"] }, { includeDraw: true })).toBeUndefined();
   });
 });
