@@ -570,6 +570,8 @@ export interface LiveSeasonState {
    * on the time-of-day path (calibration never touches it). Absent ⇒ no event charged yet.
    */
   eventClock?: { key: string; spent: number };
+  /** ORW-232 slice 3: the hours a staged competition has already charged (its own slot, so it never collides with the eviction/finale `eventClock` budget). */
+  compClock?: { key: string; spent: number };
   /**
    * The SEALED reserve twists (0025/B53): what may fire and at which week. ENGINE-ONLY Vault
    * content carried in the loop state so it persists with the season (0030) — no projection
@@ -1988,6 +1990,32 @@ export function eventBeatHours(s: LiveSeasonState, beat: Beat, weekBefore: numbe
   const spent = s.eventClock?.key === key ? s.eventClock.spent : 0;
   const hours = Math.max(0, budgetHours - spent);
   s.eventClock = { key, spent: spent + hours };
+  return hours;
+}
+
+/**
+ * ORW-232 slice 3 (Ryne 2026-11-10: "Comps should take several hours. They should never be one message and should always be a full play by play"): a staged competition's
+ * hours are SPREAD over its rounds instead of landing as one jump at the crown. A non-final round charges its share (the comp's felt hours / its expected rounds); the crown
+ * charges only what is left, so the whole competition still costs `feltHours` in total (a save with no rounds charged still pays all of it at the crown, as before). Tracked
+ * on `s.compClock` (key `comp:w<week>:<beat>`), its own slot beside the eviction budget. Clock path only: no rng, no fold; the outcome and the drop order are untouched.
+ */
+export function competitionRoundHours(s: LiveSeasonState, beat: Beat, feltHours: number): number | null {
+  const c = s.competition;
+  if (!c || feltHours <= 0) return null;
+  const rounds = Math.max(2, Math.ceil((c.field.length - 1) / stagedBatchSize(c.field.length)));
+  const key = `comp:w${s.week}:${beat}`;
+  const spent = s.compClock?.key === key ? s.compClock.spent : 0;
+  const hours = Math.min(feltHours / rounds, Math.max(0, feltHours - spent));
+  s.compClock = { key, spent: spent + hours };
+  return hours;
+}
+
+/** The crown's share: whatever the rounds left of the competition's felt hours (all of it when no round was charged). */
+export function competitionCrownHours(s: LiveSeasonState, beat: Beat, feltHours: number): number {
+  const key = `comp:w${s.week}:${beat}`;
+  const spent = s.compClock?.key === key ? s.compClock.spent : 0;
+  const hours = Math.max(0, feltHours - spent);
+  s.compClock = { key, spent: spent + hours };
   return hours;
 }
 

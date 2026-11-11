@@ -242,7 +242,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
+  advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
   nightBreakPending, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -10125,7 +10125,11 @@ export class GameSessionAdapter implements GameSession {
       // it never over-advances on inert staged-comp beats either. On the bare init advance `advanceClock`
       // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
       // deficit is 0 (no night ran) and the conflict tally is still empty.
-      if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)))) {
+      // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
+      const compRoundHours = this.timeOfDayEnabled && this.messageMode && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+        ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
+        : null;
+      if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)) || (compRoundHours !== null && compRoundHours > 0))) {
         const wasRetired = this.live!.playerRetired ?? false;
         const depthBefore = this.live!.nightDepth;
         // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
@@ -10133,7 +10137,8 @@ export class GameSessionAdapter implements GameSession {
         // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
         // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
-        const feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
+        let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
+        if (feltHours !== null && this.messageMode && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
         // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
         // so one eviction night ran most of a day and the finale ran for days).
@@ -10142,7 +10147,8 @@ export class GameSessionAdapter implements GameSession {
         const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
           ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"))
           : null;
-        if (eventHours !== null) advanceClock(this.live!, eventHours);
+        if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
+        else if (eventHours !== null) advanceClock(this.live!, eventHours);
         else if (feltHours !== null) advanceClock(this.live!, feltHours);
         else advanceClock(this.live!);
         // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning

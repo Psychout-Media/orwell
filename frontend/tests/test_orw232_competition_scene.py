@@ -64,6 +64,10 @@ def _segment_rig(monkeypatch, user):
     monkeypatch.setattr(orwell_engine, "game_status", fake_status)
     monkeypatch.setattr(orwell_engine, "advance_game", fake_advance)
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    async def fake_staging(*a, **k):  # the background competition-fiction author reads the staging view; never let it reach a real engine client (it records into the process-wide last_engine_error, which test_orwell_engine_client asserts on)
+        return None
+
+    monkeypatch.setattr(orwell_engine, "competition_staging_view", fake_staging)
 
     def run(msg):
         _run(ch._pre_resolve_npc_ceremony(user, dict(base), retry=False, player_msg=msg))
@@ -71,36 +75,48 @@ def _segment_rig(monkeypatch, user):
     return run, seq
 
 
-def test_the_competition_pauses_after_two_rounds_and_the_rest_stays_unrun(monkeypatch):
+def test_the_competition_pauses_after_every_round_and_the_rest_stays_unrun(monkeypatch):
+    # ORW-232 slice 3 (Ryne 2026-11-10: "never one message, always a full play by play"): ONE round per message (was two in slice 2). Re-pinned deliberately.
     run, seq = _segment_rig(monkeypatch, "u232s")
     steer = run("run it, who won?")
-    assert "1. Houseguest R1" in steer and "2. Houseguest R2" in steer
-    assert "Houseguest R3" not in steer, "the third round has not been run"
+    assert "1. Houseguest R1" in steer
+    assert "Houseguest R2" not in steer, "the second round has not been run"
     assert "WINNER" not in steer, "no winner is handed over mid-competition"
     assert "PAUSE" in steer and "ENDS here" in steer and "changes nothing about the result" in steer
-    assert len(seq) == 4, "only two rounds were walked in the engine; the rest is unrun (rounds are never released all at once)"
+    assert len(seq) == 5, "only ONE round was walked in the engine; the rest is unrun (rounds are never released together)"
     assert ch._COMP_PAUSED.get(ch._runway_key("u232s")), "the pause is remembered"
 
 
-def test_any_next_message_continues_the_competition_and_it_pauses_again(monkeypatch):
+def test_any_next_message_continues_the_competition_one_round_at_a_time(monkeypatch):
     run, seq = _segment_rig(monkeypatch, "u232t")
     run("run it")
     steer = run("Hey, I'm rooting for you two!")  # NOT a readiness phrase: any message continues a paused competition
     assert "THE COMPETITION CONTINUES" in steer and "answering what they said" in steer
-    assert "1. Houseguest R3" in steer and "2. Houseguest R4" in steer and "R5" not in steer
+    assert "1. Houseguest R2" in steer and "R1" not in steer and "R3" not in steer
     assert "PAUSE" in steer and "WINNER" not in steer
-    assert len(seq) == 2
+    assert len(seq) == 4
 
 
-def test_the_last_segment_voices_the_last_round_the_winner_and_the_walk_back(monkeypatch):
+def test_the_crown_comes_in_its_own_message_with_the_winner_and_the_walk_back(monkeypatch):
     run, seq = _segment_rig(monkeypatch, "u232u")
-    run("run it")
-    run("go team")
-    steer = run("wow")
-    assert "THE COMPETITION CONTINUES" in steer and "1. Houseguest R5" in steer
+    for msg in ("run it", "go team", "wow", "keep going", "last one?"):
+        steer = run(msg)
+        assert "WINNER" not in steer, "no message before the crown hands over the winner"
+    assert len(seq) == 1, "five rounds, five messages; only the crown is left"
+    steer = run("and?")
+    assert "THE COMPETITION CONTINUES" in steer
     assert "WINNER: Houseguest Six wins Head of Household" in steer, "the winner is ALWAYS handed over at the end"
     assert "PAUSE" not in steer and "walk back inside" in steer
     assert not seq and not ch._COMP_PAUSED.get(ch._runway_key("u232u")), "the competition is finished: no stale pause"
+
+
+def test_a_competition_never_resolves_in_one_message(monkeypatch):
+    """Ryne 2026-11-10: even 'run it' / 'let's go' / a readiness phrase walks ONE round, never the whole competition."""
+    for i, msg in enumerate(("run it", "let's go", "I'm ready, start the competition now", "who won?")):
+        run, seq = _segment_rig(monkeypatch, f"u232one{i}")
+        run(msg)
+        assert len(seq) >= 5, f"{msg!r} resolved more than one round"
+        assert not any(k == "hoh-competition" for k, _c in FIVE[:1])
 
 
 # ── the per-round box is compacted (real JS executed in Node, like test_l42) ───────────────────
@@ -164,7 +180,7 @@ def test_the_hold_lifts_when_the_next_framed_turn_begins(monkeypatch):
     run("run it")
     assert ch.comp_pause_holds("u232w")
     run("okay go on")  # the next player message: a fresh pass starts, last turn's hold is gone (and this pass pauses again, setting its own)
-    assert len(seq) == 2
+    assert len(seq) == 4
 
 
 def test_a_fresh_pause_also_stops_the_stall_nudge(monkeypatch):
@@ -174,8 +190,8 @@ def test_a_fresh_pause_also_stops_the_stall_nudge(monkeypatch):
     assert not ch.production_is_holding("u232x")
     run("run it")
     assert ch.production_is_holding("u232x"), "the nudges must treat a fresh pause as a hold"
-    run("go on")  # the next framed turn clears the old pause and, pausing again, sets a new one; after the crown nothing holds
-    run("and on")
+    for msg in ("go on", "and on", "more", "still", "and the winner?"):  # each framed turn clears the old pause and, pausing again, sets a new one; five rounds, then the crown: after it nothing holds
+        run(msg)
     assert not ch.production_is_holding("u232x"), "the competition finished: no stale hold"
 
 

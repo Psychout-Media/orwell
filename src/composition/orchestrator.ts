@@ -32,6 +32,15 @@ import { TurnRefusedError, PersistFailureError } from "../domain/errors";
  * drop persisted detail or leak hidden state is refused, the prior save is left intact,
  * and a fault is recorded — never a degraded/leaky commit (mandate #4).
  */
+/**
+ * ORW-232 slice 3 / ORW-256 (Ryne 2026-11-10): while a staged competition is running everyone is out in it, so a commit inside it earns no private off-screen scenes. Applies only to a game a
+ * person is PLAYING on the live clock (`messageMode`): a headless calibration / UAT driver never announces messages and keeps its long-standing tick cadence byte-for-byte (suppressing ticks
+ * would shift the shared per-user rng stream and re-roll whole seeded seasons - measured: it moved the jury-reach reweight band's seed 10). Pure.
+ */
+export function competitionSuppressesPrivateScenes(clockLive: boolean, messageMode: boolean, baselineInCompetition: boolean, candidateInCompetition: boolean): boolean {
+  return clockLive && messageMode && (baselineInCompetition || candidateInCompetition);
+}
+
 export type Trigger = "player-turn" | "offscreen-tick" | "audit";
 
 export interface Fault {
@@ -443,6 +452,14 @@ export class Orchestrator {
     // one that closes the toast) earns NO off-screen tick. Flag off => the live state has no `premiereEntrance` => this never fires (byte-identical).
     const peStage = (x: SessionSnapshot | undefined): string | undefined => (x?.live as { premiereEntrance?: { stage?: string } } | undefined)?.premiereEntrance?.stage;
     if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
+    // ORW-232 slice 3 / ORW-256 (Ryne 2026-11-10: "If everyone is outside in a comp, everything that happens is very public ... houseguests can't leave and make alliances or something like that"):
+    // while a staged competition is running everyone is out in it, so a commit inside it (a round, a chat message, the crown) earns NO private off-screen scenes. Public reactions ride the
+    // crown's own fold. Only a live-clock game has a competition "running" in game time; the seeded calibration spine (clock off) never reaches this, so it is byte-identical.
+    const compRunning = (x: SessionSnapshot | undefined): boolean => !!(x?.live as { competition?: unknown } | undefined)?.competition;
+    // Only for a game a person is PLAYING: `messageModeNow()` is true once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
+    // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
+    const sess = this.registry.sandboxFor(user).session;
+    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), sess.messageModeNow(), compRunning(baseline), compRunning(candidate))) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;
