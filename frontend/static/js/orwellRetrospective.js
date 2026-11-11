@@ -255,6 +255,37 @@
         }
         vaultWrap.appendChild(juryList);
       }
+      // ORW-98 (#1934): three things the engine already supplies at this one sanctioned unseal (0048) that
+      // the panel never rendered - each evictee's exit interview (0130), the weekly Diary-Room pull-quote reel
+      // (#1396) and the player's OWN confessionals (0115). Render-only, textContent, NAMES only (the engine
+      // pairs id+name / speaker display names; a raw id is never shown). Each section is skipped when empty.
+      const section = (title, items) => {
+        const hd = el("h3", "display:block;margin:12px 0 4px;font-size:inherit", title);
+        vaultWrap.appendChild(hd);
+        const ul = el("ul", "margin:6px 0;padding-left:18px;opacity:0.85;font-size:12.5px");
+        for (const t of items) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      };
+      const exits = (unsealed.exitInterviews || []).filter((x) => x && x.evictee && x.evictee.name);
+      if (exits.length) {
+        section("The exit interviews", exits.map((x) =>
+          `Week ${x.week}: ${x.evictee.name} left ${x.stance || "quietly"}` + (x.message ? ` — “${x.message}”` : "") + "."));
+      }
+      if (unsealed.finaleInterview && unsealed.finaleInterview.stance) {
+        section("Your finale-night interview", [`You were ${unsealed.finaleInterview.stance}` +
+          (unsealed.finaleInterview.message ? ` — “${unsealed.finaleInterview.message}”` : "") + "."]);
+      }
+      const reel = [];
+      for (const wk of (unsealed.pullQuoteReel || [])) {
+        for (const q of (wk.quotes || [])) {
+          if (q && q.quote && q.speaker) {
+            reel.push(`Week ${wk.week} — ${q.source === "player-diary" ? "your Diary Room" : q.speaker + " (confessional)"}: “${q.quote}”`);
+          }
+        }
+      }
+      if (reel.length) section("The Diary Room reel", reel);
+      const mine = (unsealed.playerConfessionals || []).filter((c) => typeof c === "string" && c.trim());
+      if (mine.length) section("Your own confessionals", mine);
       // ENDGAME-1: the full hidden story, not just the latest 40 — a completed season with off-screen
       // sim, gossip diffusion, confessionals, threads, and seeded ties easily runs to hundreds of rows,
       // and dropping the early/mid season silently guts the "you were blindsided, and it was real all
