@@ -3,6 +3,7 @@ import { voteChoice, type SeasonCtx } from "../../src/engine/liveSeason";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
+import { DECISION } from "../../src/engine/decisionConstants";
 
 /**
  * B4 slice 4 - a KEPT casual "vote" / "safe" assurance a voter made to a nominee lowers the odds they vote that nominee out; voting the assured out BREAKS it (resolved once, a smaller grudge than a
@@ -37,6 +38,19 @@ describe("adapter (ORWELL_ASSURANCES)", () => {
     const { sb, voter, nominee } = started(); const g = sb.session as unknown as G;
     expect(g.assuranceVoteFor(nominee, voter)).toBe(0);
     g.recordAssurance({ from: voter, to: nominee, kind: "vote", sincerity: 0, source: "npc" });
+    expect(g.assuranceVoteFor(nominee, voter)).toBe(0);
+  });
+  // ORW-38 mutation sweep (#2133): the shield's size and its 'safe' kind were unpinned.
+  it("a sincere 'vote' or 'safe' assurance shields by exactly half a deal's honor weight", () => {
+    for (const kind of ["vote", "safe"] as const) {
+      const { sb, voter, nominee } = started(); const g = sb.session as unknown as G;
+      g.recordAssurance({ from: voter, to: nominee, kind, sincerity: 1, source: "player" }); // 'player' keeps the recorded sincerity (an 'npc' one is the engine's roll)
+      expect(g.assuranceVoteFor(nominee, voter), kind).toBeCloseTo(0.5 * DECISION.vote.dealHonorWeight, 9);
+    }
+  });
+  it("a 'loyal' assurance does not shield an eviction vote", () => {
+    const { sb, voter, nominee } = started(); const g = sb.session as unknown as G;
+    g.recordAssurance({ from: voter, to: nominee, kind: "loyal", sincerity: 1, source: "player" });
     expect(g.assuranceVoteFor(nominee, voter)).toBe(0);
   });
   it("is deterministic and bounded", () => {
