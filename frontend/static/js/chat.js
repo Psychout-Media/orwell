@@ -114,6 +114,10 @@ import {
 import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner } from './chatStreamLoop.js';
 import { frameBatched, liveAddedElements } from './frameBatch.js';
 
+// ORW-183: the stream event types that make a run "rich" (tools, sources, research). A mirrored / reattached run that sees one of these is rebuilt from the DB at the end instead of being finalized in place.
+// The two background-stream readers each carried their own copy of this list (one as a regex, one as an || chain); this is the single definition both use.
+const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progress', 'agent_step', 'web_sources', 'rag_sources', 'research_progress', 'research_sources', 'research_findings', 'research_done']);
+
   // #1399: chat.js must be evaluated EXACTLY ONCE per page. It was previously loaded by two
   // different urls at once — app.js's bare `import './js/chat.js'` AND index.html's versioned
   // `<script src="chat.js?v=…">` — and two urls are two module records, so every module-level
@@ -482,6 +486,19 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       chatState._ownRunIds[sessionId] = runId;
     }
     return chatState._ownRunIds[sessionId] === runId;
+  }
+
+  /** ORW-259: the role-timestamp span a streaming holder is CREATED with. In a game the stamp is the in-world moment (M2-6), so seed it with the
+   * most recent in-world moment already on screen instead of the wall clock; a reply that never settles (interrupted, stopped, dropped) then
+   * keeps an in-world stamp, not "11:06 PM". message_saved still overwrites it with the exact moment. No game bubble yet (casting, chat mode)
+   * => the neutral wall-clock span, exactly as before. */
+  function _stampSpanHtml(wallClock) {
+    try {
+      var moments = document.querySelectorAll('#chat-history .role-timestamp-moment');
+      var last = moments.length ? (moments[moments.length - 1].textContent || '').trim() : '';
+      if (last) return '<span class="role-timestamp role-timestamp-moment" data-wall-clock="' + uiModule.esc(wallClock) + '">' + uiModule.esc(last) + '</span>';
+    } catch (_) {}
+    return '<span class="role-timestamp">' + wallClock + '</span>';
   }
 
   /** ADR 0012 §2.2: stamp a live bubble's role-timestamp from the SERVER-minted ISO time (carried on
@@ -1560,7 +1577,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       var _charNameInit = presetsModule.getCharacterName ? presetsModule.getCharacterName() : '';
       if (_charNameInit) roleLabel = _charNameInit;
       const roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      holder.innerHTML = `<div class="role">${uiModule.esc(roleLabel)} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
+      holder.innerHTML = `<div class="role">${uiModule.esc(roleLabel)} ${_stampSpanHtml(roleTs)}</div><div class="body"></div>`;
       holder._requestedModel = modelName;
       holder._actualModel = modelName;
       // #1626 increment 2: seed the explicit character label at creation (the SAME source model_info
@@ -4653,8 +4670,11 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       }
 
       // Refresh session list after a delay (picks up auto-generated names)
+      // ORW-168: only while the session still has a placeholder name (an already-named game session skips the refetch + sidebar re-render)
+      const _renameSid = (sessionModule && sessionModule.getCurrentSessionId) ? sessionModule.getCurrentSessionId() : null;
       setTimeout(() => {
-        if (sessionModule && sessionModule.loadSessions) {
+        if (sessionModule && sessionModule.loadSessions
+            && !(sessionModule.sessionMayNeedRename && _renameSid && !sessionModule.sessionMayNeedRename(_renameSid))) {
           sessionModule.loadSessions();
         }
       }, 3000);
@@ -4783,7 +4803,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
                 _refreshLiveByline(holder);
               }
             }
-          } else if (/^(tool_start|tool_output|tool_progress|agent_step|web_sources|rag_sources|research_progress|research_sources|research_findings|research_done)$/.test(json.type)) {
+          } else if (_RICH_RUN_EVENT_TYPES.has(json.type)) {
             rich = true;
           }
         }
@@ -5218,7 +5238,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
     // history reload — not its own `new Date()` at attach time.
     const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
-      ' <span class="role-timestamp">' + roleTs + '</span></div>' +
+      ' ' + _stampSpanHtml(roleTs) + '</div>' +
       '<div class="body"><div class="stream-content"></div></div>';
     _applyModelColor(holder.querySelector('.role'), meta && meta.model);
     holder._requestedModel = meta && meta.model;
@@ -5404,11 +5424,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
             // F5 (dedup hardening): also capture the DB id so the finalize-in-place below stamps
             // data-db-id onto the canonical bubble (zero-churn adopt on a later reload, no duplicate).
             if (json.id) { savedDbId = json.id; holder.dataset.dbId = json.id; }
-          } else if (json.type === 'tool_start' || json.type === 'tool_output' ||
-                     json.type === 'tool_progress' || json.type === 'agent_step' ||
-                     json.type === 'web_sources' || json.type === 'rag_sources' ||
-                     json.type === 'research_progress' || json.type === 'research_sources' ||
-                     json.type === 'research_findings' || json.type === 'research_done') {
+          } else if (_RICH_RUN_EVENT_TYPES.has(json.type)) {
             rich = true;
           }
         }
@@ -5512,7 +5528,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       var meta = sessionModule.getSessions().find(function(s) { return s.id === sessionId; });
       var roleLabel = _senderLabel(_shortModel(meta && meta.model));
       var roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) + ' <span class="role-timestamp">' + roleTs + '</span></div><div class="body"></div>';
+      holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) + ' ' + _stampSpanHtml(roleTs) + '</div><div class="body"></div>';
       _applyModelColor(holder.querySelector('.role'), meta && meta.model);
 
       var bodyDiv = holder.querySelector('.body');
@@ -5900,7 +5916,7 @@ import { frameBatched, liveAddedElements } from './frameBatch.js';
       const roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
       const agentMeta = sessionModule.getSessions().find(s => s.id === sessionModule.getCurrentSessionId());
       const agentModelLabel = _senderLabel(_shortModel(agentMeta?.model));
-      holder.innerHTML = `<div class="role">${uiModule.esc(agentModelLabel)} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
+      holder.innerHTML = `<div class="role">${uiModule.esc(agentModelLabel)} ${_stampSpanHtml(roleTs)}</div><div class="body"></div>`;
       _applyModelColor(holder.querySelector('.role'), agentMeta?.model);
       box.appendChild(holder);
 
