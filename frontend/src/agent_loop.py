@@ -8,6 +8,7 @@ The LLM decides when to use tools by writing fenced code blocks.
 
 import asyncio
 import collections
+import collections.abc
 import json
 import os
 import re
@@ -6101,19 +6102,52 @@ _SEASON_PACING_STORES = (
 )
 
 
+def _is_owner_item(item, keys) -> bool:
+    """A deque item belongs to an owner when it IS one of the owner's keys or is an (owner, ...) record."""
+    head = item[0] if isinstance(item, tuple) and item else item
+    try:
+        return head in keys
+    except TypeError:  # an unhashable item is never an owner key
+        return False
+
+
+def _forget_owner_entries(store, keys) -> None:
+    """Remove one owner's entries from a per-owner store, each kind its own way (review of #2287): a mapping
+    (dict, defaultdict, OrderedDict) pops the keys, a set discards them, and a deque drops the items that are a
+    key or an (owner, ...) record, keeping its maxlen. Any other kind raises, so it cannot be skipped silently
+    (a test pins that every listed store is one of these kinds)."""
+    if isinstance(store, collections.abc.MutableMapping):
+        for key in keys:
+            store.pop(key, None)
+    elif isinstance(store, collections.abc.MutableSet):
+        for key in keys:
+            store.discard(key)
+    elif isinstance(store, collections.deque):
+        kept = [item for item in store if not _is_owner_item(item, keys)]
+        if len(kept) != len(store):
+            store.clear()
+            store.extend(kept)
+    else:
+        raise TypeError(f"no season reset for a {type(store).__name__} store")
+
+
 def _forget_season_pacing(user) -> None:
     """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
     stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
     and the faith queue's canonical-session key), so every variant is cleared; another owner's state is
-    never touched. Registered on `orwell_engine.on_season_reset`; never raises."""
+    never touched. Registered on `orwell_engine.on_season_reset`; never raises: a store that fails is logged
+    and the rest are still cleared."""
     keys = {user, user or "", _belt_key(user)}
     try:
         keys.add(_faith_key(user))
     except Exception:
         pass
     for store in _SEASON_PACING_STORES:
-        for key in keys:
-            store.pop(key, None)
+        try:
+            _forget_owner_entries(store, keys)
+        except Exception:
+            logger.warning("[orwell] season-pacing reset skipped a %s store for user=%s",
+                           type(store).__name__, user, exc_info=True)
 
 
 try:  # register at import; fail-soft so a missing engine module never breaks the agent loop
