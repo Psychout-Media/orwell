@@ -126,6 +126,14 @@ export function _wsEnsureRound() {
   if (_wsRound && _wsRound.holder && _wsRound.holder.isConnected) return _wsRound;
   const box = document.getElementById('chat-history');
   if (!box) return null;
+  // ORW-21 (mid-gen join, two live holders): a late joiner can be attached by BOTH the SSE `resumeStream` (selectSession ->
+  // _checkServerStream) and this WS replay. The SSE reader already owns the session's live render (it holds `_resumingStreams`
+  // and its own `data-live-holder` bubble), so mounting a second live holder here paints the same run twice and the settled
+  // reconcile then sees two bubbles for one message. Yield to the SSE reader: no round of ours is live, so the lock is not ours.
+  try {
+    const _sid = sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId();
+    if (_sid && chatState._resumingStreams.has(_sid) && !_wsRound) return null;
+  } catch (_) { /* Set may be absent in a bare test import */ }
   const holder = document.createElement('div');
   holder.className = 'msg msg-ai';
   holder.dataset.liveHolder = '1'; // S17: an observer's streamed holder is never finalized in place - chatReconcile rebuilds it from history at settle
@@ -344,7 +352,9 @@ export function _onWsChatFrame(frame) {
     _wsResetRound();
     // #1570 — release the OBSERVER live-render lock (added in _wsEnsureRound) so the settle reconcile
     // below can actually rebuild. Harmless no-op for the SENDER (it never took the resuming lock).
-    if (sid) { try { chatState._resumingStreams.delete(sid); } catch (_) {} }
+    // ORW-21: only release the lock if THIS splice took it (a round existed). With no round the lock is the SSE resumeStream's,
+    // and dropping it would let the settle reconcile rebuild under a reader that is still painting (-> a second, finalized bubble).
+    if (sid && round) { try { chatState._resumingStreams.delete(sid); } catch (_) {} }
     if (sid && chatState._streamSessionId === sid) chatState._streamSessionId = null; // release the active-stream lock
     if (sid) { try { _softReloadHistory(sid); } catch (_) {} }
     return;
