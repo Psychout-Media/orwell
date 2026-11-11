@@ -322,6 +322,8 @@ import { derivedLoyalty } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
+import { emptyCanonLedger, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
+import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, LEGEND, legendFrom } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
 
@@ -1785,6 +1787,18 @@ export class GameSessionAdapter implements GameSession {
    * Persisted (serialized to/from `SessionCore.textureOverrides`). Absent on pre-0070 saves.
    */
   private textureOverrides: Map<string, string> = new Map();
+  /**
+   * Showrunner memory (K4 §2.5) — the canon ledger (the pure `src/engine/canonLedger.ts`): details the narration
+   * established on screen, each with its provenance. Persisted in `SessionCore.canon`; empty, and absent from the
+   * save, until a detail is recorded (the front-end write-back lands separately).
+   */
+  private canonLedger: CanonLedger = emptyCanonLedger();
+  /**
+   * A loaded `canon` that failed the shape check: kept byte-for-byte and saved back exactly as loaded, so a save
+   * never silently thins the ledger (mandate #4). Its readable entries are live in `canonLedger`. While this is
+   * set, nothing may write canon (the write-back must refuse), so the stored copy stays the complete one.
+   */
+  private canonAsLoaded: PersistedCanon | undefined;
   /**
    * 0070 — the event ids of the off-screen scenes recorded in the most recent tick, in order.
    * Used by `getOffscreenSceneSkeletons` to return a Vault-free summary. TRANSIENT (not persisted —
@@ -4152,6 +4166,12 @@ export class GameSessionAdapter implements GameSession {
       // byte-identical (0030). Absent when no texture has been written back (pre-0070 saves).
       ...(this.textureOverrides.size > 0
         ? { textureOverrides: Object.fromEntries(this.textureOverrides) } : {}),
+      // Showrunner memory (K4 §2.5) — the canon ledger. Absent while nothing is recorded (byte-identical saves); a
+      // ledger that could not be fully read on load is saved back exactly as it was loaded (never thinned).
+      ...(this.canonAsLoaded !== undefined
+        ? { canon: cloneSession(this.canonAsLoaded) }
+        : this.canonLedger.entries.length > 0 || this.canonLedger.recent.length > 0
+          ? { canon: serializeCanon(this.canonLedger) } : {}),
     };
   }
 
@@ -4513,6 +4533,15 @@ export class GameSessionAdapter implements GameSession {
     // 0070 — restore the prose texture layer (persisted so voiced scenes survive a restart byte-identical).
     // Absent on pre-0070 saves ⇒ empty (the deterministic template content simply stands, no regression).
     this.textureOverrides = core.textureOverrides ? new Map(Object.entries(core.textureOverrides)) : new Map();
+    // Showrunner memory (K4 §2.5) — restore the canon ledger (absent on a pre-ledger save ⇒ empty). A ledger that
+    // fails the shape check keeps its readable entries live and is saved back exactly as loaded, and the problems
+    // are reported (codes and ids only, never a recorded word).
+    const canon = restoreCanon(core.canon);
+    this.canonLedger = canon.ledger;
+    this.canonAsLoaded = canon.problems.length > 0 ? cloneSession(core.canon as PersistedCanon) : undefined;
+    if (canon.problems.length > 0) {
+      console.warn(`[orwell] canon ledger loaded with ${canon.problems.length} problem(s), kept exactly as saved: ${canon.problems.slice(0, 5).join("; ")}`);
+    }
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];
