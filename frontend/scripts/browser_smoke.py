@@ -825,6 +825,9 @@ def main() -> int:
                   f"the chat-hint system ships with no active tips ({hint_state})")
 
             # C31/S5: the System Danger Zone only offers wipes for data the game build has.
+            # ORW-161: the Settings DOM is lazy-mounted (an inert <template> stamped on first open), so open Settings the way a player does before looking inside it.
+            page.evaluate("() => { const g = document.getElementById('user-bar-settings'); if (g) g.click(); }")
+            page.wait_for_selector('button[data-wipe-kind="chats"]', state="attached", timeout=10000)
             wipes = page.evaluate("""() => {
               const vis = (k) => {
                 const b = document.querySelector(`button[data-wipe-kind="${k}"]`);
