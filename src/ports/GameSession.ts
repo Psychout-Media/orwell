@@ -1768,6 +1768,7 @@ export interface WhereaboutsView {
       | "hoh-competition"
       | "veto-competition"
       | "nominations"
+      | "veto-draw" // ORW-281: the veto player draw (a mini ceremony; also the Houseguest Choice card)
       | "veto-ceremony"
       | "eviction"
       // FEATURE 0111 — the premiere's GATHERED champagne circle. The whole house is convened in the

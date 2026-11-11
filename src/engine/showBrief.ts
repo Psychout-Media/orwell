@@ -35,6 +35,7 @@ export function estimateBriefTokens(text: string): number {
 
 const EVENT_LABEL: Readonly<Record<string, string>> = {
   "hoh-competition": "the HOH competition",
+  "veto-draw": "the veto player draw",
   "veto-competition": "the veto competition",
   "nominations": "the nomination ceremony",
   "veto-ceremony": "the veto ceremony",

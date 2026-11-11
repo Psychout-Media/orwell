@@ -248,7 +248,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours,
-  nightBreakPending, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  nightBreakPending, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -5302,13 +5302,19 @@ export class GameSessionAdapter implements GameSession {
    * are untouched, only the player-facing map is overwritten) and ends with it; afterwards the ordinary calm tick (capped movers per tick) disperses them on their own timing. The calibration base map
    * is never touched. Idempotent per ceremony kind; `force` re-pins after a tick. Returns true while a ceremony holds the house.
    */
-  private ceremonyBeat: "nominations" | "veto-ceremony" | "eviction" | null = null; // memory-only
+  private ceremonyBeat: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | null = null; // memory-only
   private ceremonyHeld: string | null = null;
+  /** ORW-281: the narrator is on the veto DRAW (its own moment) from the schedule's draw stage until the player speaks after the draw was voiced; the competition's moment takes over afterwards. */
+  private vetoDrawMoment(): boolean {
+    const s = this.live;
+    if (!s || s.beat !== "veto-competition") return false;
+    return vetoDrawStage(s) || this.ceremonyBeat === "veto-draw" || s.pending?.kind === "houseguests-choice";
+  }
   private ceremonyBasePlayerRoom: Room | null = null;
   private gatherForCeremony(force = false): boolean {
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
-    const room: Room | null = kind === "nominations" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null;
+    const room: Room | null = kind === "nominations" || kind === "veto-draw" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null; // ORW-281: the veto draw is a mini ceremony: the house gathers for it
     if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
     if (!force && this.ceremonyHeld === kind) return true;
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
@@ -5349,7 +5355,8 @@ export class GameSessionAdapter implements GameSession {
       return { kind: "hoh-competition", field: s.active.filter((id) => finalThree || id !== s.outgoingHoh) };
     }
     if (p.kind === "nominations") return { kind: "nominations" };
-    if (p.kind === "veto-decision" || p.kind === "replacement" || p.kind === "houseguests-choice") return { kind: "veto-ceremony" };
+    if (p.kind === "houseguests-choice") return { kind: "veto-draw" }; // ORW-281: the Houseguest Choice card is the DRAW (it said veto-ceremony)
+    if (p.kind === "veto-decision" || p.kind === "replacement") return { kind: "veto-ceremony" };
     if (p.kind === "eviction-vote" || p.kind === "tie-break" || p.kind === "final-eviction") return { kind: "eviction" };
     return null;
   }
@@ -10339,6 +10346,7 @@ export class GameSessionAdapter implements GameSession {
         // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
         let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
+        if (ev?.beat === "veto-draw" && !this.messageMode) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
         if (feltHours !== null && this.messageMode && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
         // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
@@ -12912,7 +12920,7 @@ export class GameSessionAdapter implements GameSession {
   private advanceView(ev: BeatEvent | null): AdvanceView {
     const s = this.live;
     // ORW-247b: a ceremony beat that RESOLVED this advance (an NPC HOH's nominations, a veto ceremony, an eviction) has no player pending, but its scene is still the narrated moment: keep the house gathered for it until the player next speaks. Only for a game a person is PLAYING (`messageMode`); a headless calibration/UAT/BDD sim never gathers, so its seeded outcomes stay byte-identical.
-    if (ev && this.messageMode) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
+    if (ev && this.messageMode) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-draw" ? "veto-draw" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
     // T0-3 — drain whatever `commit()` buffered for THIS transaction (one or two commits, per the
     // T0-2 auto-advance chain — see `submitDecision`) into the returned view, then clear the buffer so
     // it never bleeds into a LATER, unrelated `advanceView()` call. Each entry's `beatSeq` is still
@@ -13714,7 +13722,7 @@ export class GameSessionAdapter implements GameSession {
       ? "self-evicted"
       : this.live?.finished
       ? "post-season"
-      : status === "evicted" ? "evicted" : status === "jury" ? "jury" : momentForPhase(this.phase);
+      : status === "evicted" ? "evicted" : status === "jury" ? "jury" : this.vetoDrawMoment() ? "veto-draw" : momentForPhase(this.phase);
     // 0013 §5 (PS-4/PG-14 fix): the producer's Diary-Room invitation — wires the previously-uncalled
     // `producerPrompt` into the live view every turn already reads. `undefined` at every routine beat
     // (no field ⇒ the FE sees nothing, byte-identical to before this fix); present only at the

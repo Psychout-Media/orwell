@@ -2110,13 +2110,18 @@ function markNightGateCrossed(s: LiveSeasonState): void {
   }
 }
 
+/** ORW-281: is the live loop at the veto DRAW (stage A of the `veto-competition` beat, before the six exist)? The ONE definition of "draw stage" - the schedule, the night gate and the advance all read it. */
+export function vetoDrawStage(s: Pick<LiveSeasonState, "beat" | "vetoField">): boolean {
+  return s.beat === "veto-competition" && !s.vetoField;
+}
+
 /** ORW-116 (b): would the NEXT ordinary advance be a night-gate day-break (the beat that rolls the night)? Pure read of the same one-shot flags `advance` tests. */
 export function nightBreakPending(s: LiveSeasonState): boolean {
   if (s.twist?.phase === "running" || s.nightDepth === undefined) return false;
   switch (s.beat) {
     case "hoh-competition": return s.week === 1 ? !s.firstNightPassed && (s.dayNumber ?? 1) < 2 : s.playedGame === true && !s.preHohNightPassed; // ORW-258: only for a game a person is playing (clockInteractive): headless calibration sims keep their cadence // ORW-258: every week's HOH is the day AFTER the eviction
     case "nominations": return !s.preNomsNightPassed;
-    case "veto-competition": return !s.preVetoNightPassed && !s.vetoField;
+    case "veto-competition": return !s.preVetoNightPassed && vetoDrawStage(s); // ORW-281: the night before the DRAW (the competition shares the draw day)
     case "veto-ceremony": return !s.preVetoCeremonyNightPassed;
     case "eviction": return !s.preEvictionNightPassed && !s.eviction;
     default: return false;
@@ -2948,7 +2953,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // Phase 3a NIGHT-GATE: the veto comp is its own day (Day 3, after nominations on Day 2). The first
       // advance into it crosses the night as a one-shot diegetic day-break, before the chip draw. GATED on
       // the clock ⇒ a clock-off calibration game skips it ⇒ byte-identical.
-      if (ctx.nightGate && !s.preVetoNightPassed && !s.vetoField && s.twist?.phase !== "running") {
+      if (ctx.nightGate && !s.preVetoNightPassed && vetoDrawStage(s) && s.twist?.phase !== "running") {
         if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preVetoNightPassed = true;
         crossToNextDay(s);
@@ -2959,7 +2964,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       // E35 stage A: the chip draw is a witnessed ceremony of its own — it precedes any winner.
-      if (!s.vetoField) return resolveVetoDraw(s, ctx, rng);
+      if (vetoDrawStage(s)) return resolveVetoDraw(s, ctx, rng);
       // STAGED (0006 staged-rounds evolution): the veto comp plays out in elimination rounds exactly
       // like the HOH comp — the sub-loop pauses for the player's PER-ROUND approach when they are in
       // the drawn field. The draw (above) always precedes the rounds.
