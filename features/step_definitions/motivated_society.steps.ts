@@ -329,7 +329,6 @@ Given("the night has thinned the awake set", function (this: BbWorld) {
     const npcs = sandbox.session.livingIds().filter((id) => id !== PLAYER);
     const awake = sandbox.session.awakeAmong(npcs);
     if (awake.length >= npcs.length) continue; // need ≥1 turned in for the bound to bite
-    if ((sandbox.session.snapshot().live as { competition?: unknown } | undefined)?.competition) continue; // ORW-232 slice 3: a running competition earns no off-screen tick, so presence is not re-seated mid-comp; read the night outside one
     this.ms = { reg, user, orch, sandbox, awake, asleep: npcs.filter((id) => !awake.includes(id)) };
     return;
   }

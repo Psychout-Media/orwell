@@ -49,6 +49,10 @@ def _rig(monkeypatch, user, beats):
     monkeypatch.setattr(orwell_engine, "game_status", fake_status)
     monkeypatch.setattr(orwell_engine, "advance_game", fake_advance)
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    async def fake_staging(*a, **k):  # the background competition-fiction author reads the staging view; never let it reach a real engine client (it records into the process-wide last_engine_error, which test_orwell_engine_client asserts on)
+        return None
+
+    monkeypatch.setattr(orwell_engine, "competition_staging_view", fake_staging)
     return seq, base
 
 

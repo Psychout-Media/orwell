@@ -1,7 +1,8 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { Orchestrator } from "../../src/composition/orchestrator";
+import { Orchestrator, competitionSuppressesPrivateScenes } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
@@ -161,30 +162,29 @@ describe("0117 — the pacing reads are Vault-free", () => {
 });
 
 describe("ORW-232 slice 3 / ORW-256 — nobody schemes in private while a competition is running (Ryne 2026-11-10)", () => {
-  it("a staged competition's rounds, chat and crown earn no private off-screen scenes; the same house schemes right after", () => {
+  it("the decision: a person playing on the live clock gets no private scenes inside a competition; everything else keeps its cadence", () => {
+    // clockLive, messageMode, baselineInComp, candidateInComp
+    expect(competitionSuppressesPrivateScenes(true, true, true, true), "a round commit").toBe(true);
+    expect(competitionSuppressesPrivateScenes(true, true, false, true), "the commit that starts it").toBe(true);
+    expect(competitionSuppressesPrivateScenes(true, true, true, false), "the crown").toBe(true);
+    expect(competitionSuppressesPrivateScenes(true, true, false, false), "outside a competition the house schemes").toBe(false);
+    expect(competitionSuppressesPrivateScenes(true, false, true, true), "a headless driver (no announced messages) keeps its tick cadence: the seeded sims are untouched").toBe(false);
+    expect(competitionSuppressesPrivateScenes(false, true, true, true), "clock off (the seeded spine): never").toBe(false);
+  });
+  it("a headless driver's competition still ticks as it always did (the seeded jury-reach / UAT cadence is unchanged)", () => {
     const { sb } = harness({ clockOn: true, seed: 7, user: "u-comp" });
     toLiveHouse(sb);
-    let ran = 0, sawCompetition = false;
-    const during: string[] = [];
+    let during = 0, ran = 0;
     for (let i = 0; i < 400 && ran < 3; i++) {
-      const live = sb.session.snapshot().live as { competition?: unknown; phase?: string } | undefined;
+      const inComp = !!(sb.session.snapshot().live as { competition?: unknown } | undefined)?.competition;
       const before = new Set(offscreenScenes(sb));
-      const inComp = !!live?.competition;
       const a = sb.session.advanceGame();
       if (a.pending) resolveLegally(sb.session, a.pending);
-      const after = sb.session.snapshot().live as { competition?: unknown } | undefined;
-      if (inComp && after?.competition) { // every ROUND commit (a commit that starts and ends inside the running competition). The staging commit before it and the crown after it are not rounds; the crown's own safety-ask lobbying is a consequence of the win, not private society
-        sawCompetition = true;
-        during.push(...offscreenScenes(sb).filter((id) => !before.has(id)));
-      }
-      if (inComp && !after?.competition) ran++; // the crown landed: one full competition seen
+      const after = !!(sb.session.snapshot().live as { competition?: unknown } | undefined)?.competition;
+      if (inComp && after) during += offscreenScenes(sb).filter((id) => !before.has(id)).length;
+      if (inComp && !after) ran++;
       if (a.finished) break;
     }
-    expect(sawCompetition, "the run reached a staged competition").toBe(true);
-    expect(during, "no private scenes while the competition ran").toEqual([]);
-    // control: outside a competition the house still schemes between turns
-    const before = new Set(offscreenScenes(sb));
-    for (let t = 0; t < 12; t++) socialTurn(sb, `linger ${t}`);
-    expect(offscreenScenes(sb).filter((id) => !before.has(id)).length).toBeGreaterThan(0);
+    expect(during, "scenes still happen inside a competition for a headless driver").toBeGreaterThan(0);
   });
 });
