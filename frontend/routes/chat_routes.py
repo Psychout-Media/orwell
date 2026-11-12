@@ -52,6 +52,7 @@ from routes.chat_helpers import (
     _last_message_ts,
     current_game_moment,
     current_game_week,
+    current_game_day,
 )
 from src.action_intents import classify_tool_intent as _classify_tool_intent
 from src.tool_policy import build_effective_tool_policy
@@ -1693,6 +1694,7 @@ def setup_chat_routes(
                                     phase=("casting" if (ctx.framed and not ctx.game_active) else None),
                                     game_moment=_game_moment,
                                     game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                                    game_day=(current_game_day(ctx.user) if ctx.game_active else None),
                                     # ORW-230: a game turn's think blocks never become the reply
                                     # (the token cap inside a think saves the reasoning as thinking).
                                     game=bool(ctx.framed),
@@ -1745,6 +1747,7 @@ def setup_chat_routes(
                             game=bool(ctx.framed),
                             game_moment=_stopped_moment,
                             game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                            game_day=(current_game_day(ctx.user) if ctx.game_active else None),
                             incognito=incognito,
                         )
                     raise
@@ -1973,6 +1976,7 @@ def setup_chat_routes(
                                     phase=("casting" if (ctx.framed and not ctx.game_active) else None),
                                     game_moment=_game_moment,
                                     game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                                    game_day=(current_game_day(ctx.user) if ctx.game_active else None),
                                     # ORW-230: a game turn's think blocks never become the reply
                                     # (the token cap inside a think saves the reasoning as thinking).
                                     game=bool(ctx.framed),
@@ -2040,6 +2044,7 @@ def setup_chat_routes(
                                 game=bool(ctx.framed),
                                 game_moment=_stopped_moment2,
                                 game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                                game_day=(current_game_day(ctx.user) if ctx.game_active else None),
                                 announcements=_owed_anns,
                                 incognito=incognito,
                             )
