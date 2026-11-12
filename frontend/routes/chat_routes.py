@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Dict, Any, AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Form, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from core.models import ChatMessage, public_metadata
@@ -98,6 +98,23 @@ def _session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
 # token-stream (`chat_stream`) and resume (`chat_resume`) responses were missing it. Applied to the
 # OUTER StreamingResponse of each token stream.
 SSE_STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+def _game_build_ws_only() -> bool:
+    """ORW-44 S4b2: the game build is WebSocket-only. The SSE/poll chat routes (chat_stream, events, resume) refuse there with a typed error;
+    the non-game build keeps them."""
+    try:
+        from src.settings import ws_transport_enabled
+        return bool(ws_transport_enabled())
+    except Exception:  # failsoft-ok: settings unreadable -> behave as the non-game build (routes stay available), never lock chat out
+        return False
+
+
+WS_ONLY_ERROR = {"error": "ws-only", "reason": "this network blocks the live connection", "detail": "The game runs over a live (WebSocket) connection only."}
+
+
+def _ws_only_json() -> JSONResponse:
+    return JSONResponse(WS_ONLY_ERROR, status_code=426)
 
 
 def _sse_error_response(message: str, status: int = 400) -> StreamingResponse:
@@ -2229,7 +2246,9 @@ def setup_chat_routes(
     # fetches the authoritative state itself.
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/events/{session_id}")
-    async def chat_events(request: Request, session_id: str) -> StreamingResponse:
+    async def chat_events(request: Request, session_id: str):
+        if _game_build_ws_only():
+            return _ws_only_json()   # ORW-44 S4b2: the game build mirrors over the socket only
         # W2: same owner guard as every sibling session endpoint — without it any
         # authenticated user could subscribe to another user's activity stream
         # (a metadata side-channel + an unbounded subscriber slot).
@@ -2245,7 +2264,9 @@ def setup_chat_routes(
     # (e.g. after reopening a session whose agent kept running in the background)
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/resume/{session_id}")
-    async def chat_resume(request: Request, session_id: str, from_seq: int = Query(0)) -> StreamingResponse:
+    async def chat_resume(request: Request, session_id: str, from_seq: int = Query(0)):
+        if _game_build_ws_only():
+            return _ws_only_json()   # ORW-44 S4b2: the socket's replay-then-tail replaces resume
         _verify_session_owner(request, session_id)
         # ADR 0012 — allow resuming a run that EXISTS (running OR terminal-but-still-buffered within
         # the evict grace), not only an actively-running one. A short turn finishes before a peer's
