@@ -39,9 +39,10 @@ the engine over the **same Vault-free MCP player channel** (`orwell_engine.py`),
    modeled on hermes' `stream_dispatch.py` "eat the events you can't render"): a single outbound filter before
    `delivery.send` strips reasoning, operator-asides, and `npc:<id>` leaks for **every** platform. This is what
    makes the accordion-less transport leak-safe.
-4. **Decision-card text degradation:** `PendingDecisionView` (which the browser renders as a card) degrades to
-   an inline text prompt; the player replies in text, routed to the existing decision-submit path. The engine
-   already exposes the `binding` flag to drive this.
+4. **Chat only for now (Ryne, BDD card 33, 2026-11-11: "Chat only for now.").** A gateway turn is ONE narrated turn plus the scene
+   fold. The system prompt tells the model to present a pending decision's options as a numbered list in plain text, but the gateway
+   does NOT submit decisions and does NOT advance the game; deciding and advancing happen in the web client. (This item used to promise
+   decision-card text degradation with the reply routed to the decision-submit path; that was never built. Finishing it is a future card if Ryne asks.)
 5. **Game-build tool-gating respected:** platform players can reach only the keep-set tools; the
    `ORWELL_GAME_BUILD` drop-set stays unreachable (no inherited-workspace tools over a platform).
 6. **Cross-device reconcile reuses 0064:** a platform turn is just another device; existing `_publish_game_updated`
@@ -56,8 +57,7 @@ the engine over the **same Vault-free MCP player channel** (`orwell_engine.py`),
 - **Cross-user isolation holds.** No platform call returns another user's game (secret or not).
 - **Reasoning never reaches the public bubble.** A turn whose narration carries reasoning/operator-aside/`npc:<id>`
   is delivered scrubbed; the chokepoint fires regardless of which prompt produced the leak.
-- **Decisions degrade to text.** A pending decision is delivered as an inline text prompt and a text reply
-  submits it through the existing decision path (the `binding` flag honored).
+- **Chat only.** One narrated turn plus the scene fold; no decision submission and no advancing over the gateway (Ryne, 2026-11-11). A pending decision is only described in plain text; the player decides in the web client.
 - **Game build respected.** A platform player cannot invoke a drop-set / inherited-workspace tool.
 - **Pairing is hardened.** Codes are salted-hashed, TTL-bounded, rate-limited, and lock out after repeated
   failures; an expired/incorrect code is refused.
