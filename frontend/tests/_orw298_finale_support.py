@@ -1,4 +1,4 @@
-"""ORW-298 - the FINALE walked in a real browser from a STAGED RESTART (no season replay inside the browser run, no model, no API).
+"""ORW-298 - shared support for the six finale walks (test_orw298_finale_walk_*.py; one file per walk so the CI duration balancer spreads them). The FINALE walked in a real browser from a STAGED RESTART (no season replay inside the browser run, no model, no API).
 
 A finale takes a whole season, so each walk starts from an engine save positioned in the finale (`scripts/stage-finale-snapshot.ts` replays one season ONCE per variant at test time and
 saves the engine's own snapshot with `live.playedGame` set and the three-part Final HOH on; the save is Vault-bearing engine state, so it is generated, never committed). The real engine boots on
@@ -20,8 +20,6 @@ import pytest
 from test_m0_3_midgen_join import FRONTEND, REPO, STUB, _boot_stack, _stack  # noqa: F401
 from test_p0h_day1_clock_e2e import _engine, _session
 from test_orw191_golden_flows import COMPOSER, _launch, _open, _send
-
-pytestmark = pytest.mark.browser
 
 CARD = "#orwell-decision-card"
 _STAGED: dict[str, str] = {}
@@ -224,62 +222,7 @@ def _finish(page, stack, trace, want_kinds, forbid_kinds=()):
     no_watch_card(page, "at the end of the finale")
 
 
-@pytest.mark.timeout(1500)
-def test_npc_final_hoh_continue_then_typed_next_then_the_whole_finale():
-    """An NPC Final HOH (the player stays in as a finalist): the eviction decision step is answered by the Continue button, the result step by a typed 'next' (exactly one step), then the player's
-    statement and jury-question answers, and the ballot-by-ballot reveal ending in the winner.
-
-    FAILS TODAY (ORW-298 finding, kept as evidence): the typed 'next' DOES advance the engine exactly one step (the ceremony closes, pending becomes finale-statement), but the browser's
-    'Final 2 eviction - 2 of 2' Continue card is NOT removed - it stays on screen (never self-heals; only a reload clears it) and it blocks the next real card (the statement card) from mounting.
-    Pressing that stale Continue would advance the engine one more step."""
-    with finale_stack("npc") as stack:
-        from playwright.sync_api import sync_playwright
-        _session(stack, "o298-npc")
-        with sync_playwright() as pw:
-            b = _launch(pw)
-            page = _open(b, stack)
-            c1 = wait_card(page, "Final 2 eviction \u00b7 1 of 2")
-            assert c1["watch"] and c1["confirm"] == "Continue" and not c1["options"], c1
-            assert not __import__("re").search(r"evict(s|ed) ", c1["text"]), f"the decision step must not name the result: {c1['text']!r}"
-            before = beat_seq(stack)
-            click_continue(page)                                   # (a) the Continue button -> /api/orwell/ceremony-continue
-            wait_beat_after(stack, before, "Continue on the decision step")
-            c2 = wait_card(page, "2 of 2")
-            p2 = pending(stack)
-            assert p2 and p2["kind"] == "ceremony-step" and p2["ceremony"]["stepId"] == "result", p2
-            before = beat_seq(stack)
-            typed_next(page, stack)                                # (b) a typed 'next' advances exactly ONE step: the result step closes, nothing else is skipped
-            wait_beat_after(stack, before, "typed next on the result step")
-            no_watch_card(page, "after the result step")
-            p3 = pending(stack)
-            assert not p3 or p3["kind"] != "ceremony-step", f"the ceremony must be closed after the result: {p3}"
-            assert (eng_state(stack).get("phase") or "").startswith("finale"), eng_state(stack).get("phase")
-            trace = []
-            _finish(page, stack, trace, want_kinds=("finale-statement", "finale-answer"), forbid_kinds=("juror-vote", "juror-question"))
-            b.close()
-
-
-@pytest.mark.timeout(1500)
-def test_npc_final_hoh_continue_on_both_steps_then_the_whole_finale():
-    """The same NPC Final HOH walk with the Continue button on BOTH ceremony steps (the typed-'next' variant above is the one that fails today: see its docstring). Keeps the rest of the finale covered."""
-    with finale_stack("npc") as stack:
-        from playwright.sync_api import sync_playwright
-        _session(stack, "o298-npc-continue")
-        with sync_playwright() as pw:
-            b = _launch(pw)
-            page = _open(b, stack)
-            wait_card(page, "1 of 2")
-            for step in ("1 of 2", "2 of 2"):
-                wait_card(page, step)
-                before = beat_seq(stack)
-                click_continue(page)
-                wait_beat_after(stack, before, f"Continue on {step}")
-            no_watch_card(page, "after the result step")
-            _finish(page, stack, [], want_kinds=("finale-statement", "finale-answer"), forbid_kinds=("juror-vote", "juror-question"))
-            b.close()
-
-
-def _player_final_hoh_walk(strict):
+def player_final_hoh_walk(strict):
     with finale_stack("player") as stack:
         from playwright.sync_api import sync_playwright
         _session(stack, "o298-player")
@@ -312,57 +255,4 @@ def _player_final_hoh_walk(strict):
                     raise AssertionError("Continue never advanced the result step in three presses")
             no_watch_card(page, "after the result step")
             _finish(page, stack, [], want_kinds=("finale-statement", "finale-answer"), forbid_kinds=("juror-vote",))
-            b.close()
-
-
-@pytest.mark.timeout(1500)
-def test_player_final_hoh_choose_card_then_result_then_the_finale():
-    """The player is the Final HOH: the binding 'final-eviction' choose card (Confirm disabled until a pick), then the result step (ONE Continue press), then the finale to the winner.
-
-    FAILS TODAY (ORW-298 finding 2, kept as evidence): the first Continue press on the result step right after the choose card is swallowed - POST /api/orwell/ceremony-continue answers 200 with the
-    UNCHANGED view (same beatSeq, same result step; the stale-beat reconcile path returned the current state instead of advancing), the card stays, and only a second press advances."""
-    _player_final_hoh_walk(strict=True)
-
-
-@pytest.mark.timeout(1500)
-def test_player_final_hoh_walk_tolerating_a_swallowed_first_continue():
-    """The same player-Final-HOH walk, re-pressing Continue when the first press is swallowed (finding 2 above), so the statement / answer / reveal half is still walked."""
-    _player_final_hoh_walk(strict=False)
-
-
-@pytest.mark.timeout(1500)
-def test_player_evicted_at_the_final_3_leaves_no_stranded_continue():
-    """The Final HOH evicts the player: the decision step's Continue publishes it, and NOTHING is left to press (no result step, no ceremony left open); the player sits the jury and votes."""
-    with finale_stack("evicted") as stack:
-        from playwright.sync_api import sync_playwright
-        _session(stack, "o298-evicted")
-        with sync_playwright() as pw:
-            b = _launch(pw)
-            page = _open(b, stack)
-            wait_card(page, "Final 2 eviction \u00b7 1 of 2")
-            before = beat_seq(stack)
-            click_continue(page)
-            wait_beat_after(stack, before, "Continue on the decision step")
-            no_watch_card(page, "after the player's own eviction was published")
-            p = pending(stack)
-            assert not p or p["kind"] != "ceremony-step", f"a ceremony-step is left open after the player's eviction: {p}"
-            st = eng_state(stack)
-            assert (st.get("player") or {}).get("status") not in (None, "active"), f"the player was not evicted: {st.get('player')}"
-            trace = []
-            _finish(page, stack, trace, want_kinds=("juror-vote",), forbid_kinds=("finale-statement", "finale-answer"))
-            b.close()
-
-
-@pytest.mark.timeout(1500)
-def test_player_as_a_juror_asks_and_votes():
-    """The player was evicted earlier and sits on the jury: the Final HOH's eviction runs without them, then the player's own jury question card and juror-vote card, then the reveal and the winner."""
-    with finale_stack("juror") as stack:
-        from playwright.sync_api import sync_playwright
-        _session(stack, "o298-juror")
-        with sync_playwright() as pw:
-            b = _launch(pw)
-            page = _open(b, stack)
-            trace = []
-            _finish(page, stack, trace, want_kinds=("juror-vote",), forbid_kinds=("finale-statement", "finale-answer"))
-            print("JUROR TRACE kinds:", [t[0] for t in trace if t[0] != "next"])
             b.close()
