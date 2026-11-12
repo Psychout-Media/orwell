@@ -1524,6 +1524,10 @@ def setup_chat_routes(
                 yield f"data: {json.dumps({'type': 'compacted', 'context_length': ctx.context_length})}\n\n"
 
             full_response = ""
+            # ORW-293b: set once the turn's FINAL assistant row has been saved at [DONE]. The disconnect/cancel branches below save a "stopped partial" for a cut-short
+            # turn; if the consumer closes this generator at the final `yield chunk` (right AFTER the [DONE] save), that branch used to save the SAME reply a second time
+            # (two assistant rows with identical text, e.g. seq 3 and seq 5: the intermittent doubled reply).
+            _final_saved = False
             # Reasoning ("thinking:true") deltas are kept OUT of the public reply but must
             # still be PERSISTED so the collapsed "Thinking" accordion survives a reload and
             # renders the same in a second browser session. Accumulated separately here and
@@ -1720,6 +1724,7 @@ def setup_chat_routes(
                                     # window briefs "changed since your last turn" from here (K6 §5.1).
                                     brief_seen=(_served_brief_seen(ctx.user) if ctx.game_active else None),
                                 )
+                                _final_saved = True
                                 if _saved_id:
                                     # ADR 0012 §2.2/§3.3: carry the SERVER-MINTED message timestamp so
                                     # every window renders the identical time string (the sender no
@@ -1745,7 +1750,7 @@ def setup_chat_routes(
                             _stream_set(session, status="done")
                             yield chunk
                 except (asyncio.CancelledError, GeneratorExit):
-                    if full_response:
+                    if full_response and not _final_saved:
                         logger.info("Client disconnected mid-stream (chat mode) for session %s, saving partial (%d chars)", session, len(full_response))
                         # M2-6: a partial beat is still an in-game beat — stamp the in-world moment so a
                         # disconnect/stopped save reloads with the game moment, not the wall clock (the
@@ -2015,6 +2020,7 @@ def setup_chat_routes(
                                         logger.warning(
                                             f"Fold-ledger row-anchor attach failed session={session}: "
                                             f"{_anchor_e}")
+                                _final_saved = True
                                 if _saved_id:
                                     # ADR 0012 §2.2/§3.3: server-minted timestamp (see the chat-mode
                                     # save above) so all windows render the identical time string.
@@ -2042,7 +2048,7 @@ def setup_chat_routes(
                     # outer finally from running and left _active_streams
                     # with a stale entry).
                     try:
-                        if full_response:
+                        if full_response and not _final_saved:
                             logger.info("Client disconnected mid-stream for session %s, saving partial response (%d chars)", session, len(full_response))
                             # M2-6: stamp the in-world moment on a partial/stopped beat too (same source +
                             # casting gate as the [DONE] save), so a disconnect reloads with the game

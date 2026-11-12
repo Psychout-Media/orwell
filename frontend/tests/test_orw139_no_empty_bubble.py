@@ -37,6 +37,14 @@ def _run(_stack, tag, script, reply, refresh):
     with sync_playwright() as pw:
         browser = _launch(pw)
         page = _open(browser, _stack)
+        # ORW-293b diagnostics: if the reply is persisted twice, say WHO sent what. Every socket frame the client sends (turn up-frames and their clientMsgIds),
+        # the page console, and (below) the server's own history rows are folded into the failure message.
+        diag = {"sent": [], "console": []}
+
+        def _on_ws(ws):
+            ws.on("framesent", lambda payload: diag["sent"].append(str(payload)[:220]))
+        page.on("websocket", _on_ws)
+        page.on("console", lambda m: diag["console"].append(m.text[:200]))
         page.evaluate(_SAMPLER)
         STUB.script.extend(script)
         n0 = len(STUB.script) + 0
@@ -54,9 +62,20 @@ def _run(_stack, tag, script, reply, refresh):
         n_reply = _count_containing(page, AI_BUBBLE, reply)
         dump = page.evaluate("([sel, t]) => Array.from(document.querySelectorAll(sel)).filter(e => (e.textContent||'').includes(t)).map(e => ({cls: e.className, id: e.id, data: Object.assign({}, e.dataset), parent: e.parentElement && e.parentElement.id, html: e.outerHTML.slice(0, 260)}))", [AI_BUBBLE, reply])
         total_ai = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg.msg-ai')).filter(e => e.style.display !== 'none').length")
+        try:
+            import json as _json, urllib.request as _ur
+            sid = page.evaluate("() => window.sessionModule && window.sessionModule.getCurrentSessionId && window.sessionModule.getCurrentSessionId()")
+            with _ur.urlopen(f"{_stack['fe']}/api/history/{sid}", timeout=15) as r:
+                body = _json.loads(r.read() or b"{}")
+            rows = body if isinstance(body, list) else (body.get("messages") or body.get("history") or [])
+            diag["rows"] = [{"role": m.get("role"), "seq": (m.get("metadata") or {}).get("seq"), "cid": (m.get("metadata") or {}).get("client_msg_id"),
+                             "text": str(m.get("content", ""))[:60]} for m in rows if isinstance(m, dict)]
+        except Exception as e:  # diagnostics must never mask the real assertion
+            diag["rows"] = f"unavailable: {type(e).__name__}"
+        diag["turn_frames"] = [s for s in diag["sent"] if '"t": "turn"' in s or '"t":"turn"' in s]
         browser.close()
     assert not empties, f"an empty .msg-ai bubble existed during the turn: {empties[:3]}"
-    assert n_reply == 1, f"reply shown {n_reply} times: {dump}"
+    assert n_reply == 1, f"reply shown {n_reply} times: {dump}\nDIAG turn up-frames sent={len(diag['turn_frames'])}: {diag['turn_frames']}\nDIAG history rows: {diag.get('rows')}\nDIAG console (last 25): {diag['console'][-25:]}"
     return total_ai
 
 

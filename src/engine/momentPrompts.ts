@@ -1441,24 +1441,10 @@ export function renderGameContext(view: GameStateView): string {
     : [];
   return [
     "GAME CONTEXT:",
-    `- Week: ${view.week}`,
-    `- Phase: ${view.phase}${day === null ? "" : ` (day ${day} of the week)`}`,
-    // ADR 0006 — the in-game hour the HUD shows (one shared clock for the whole house). Voice THIS time of
-    // day and never narrate a different one (no "fresh morning" when the engine says evening). Guarded on
-    // the field's presence so a pre-game / clock-dormant view is byte-identical (no line emitted).
-    ...(view.timeOfDay
-      ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
-      : []),
-    // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
-    ...(view.clockLabel
-      ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
-      : []),
-    `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
-    "  do your own arithmetic about how many are left, on podiums, etc.).",
-    ...ceremonyLines,
-    ...whereaboutsLines,
-    ...presentKnowledgeLines,
-    ...premiereLines,
+    // ORW-296 (prompt cache): a provider caches only the identical PREFIX of consecutive requests. The STABLE lines (header,
+    // notoriety, showmances, who you are, the house + roster) come FIRST; every line whose text changes per turn (week/phase/clock,
+    // counts, ceremony, whereabouts, present knowledge, premiere, exchange, diary room, day schedule) follows as the tail. Order only -
+    // no line added, dropped or reworded.
     // FEATURE-01791 — RETURNING CAST NOTORIETY: the Vault-free legend clauses the house has heard about
     // the returning player. Always-on block (present in every prompt structure) — only renders content
     // when legend clauses exist (premiere/early-social with notoriety). Vault-free by construction:
@@ -1466,12 +1452,6 @@ export function renderGameContext(view: GameStateView): string {
     ...((view.notorietyLegend ?? []).length
       ? [`- RETURNING CAST: the house has heard things — ${view.notorietyLegend!.join("; ")}.`]
       : []),
-    // #1792 — Producer Read: the Vault-free post-scene exchange-accounting beat,
-    // delivered ONCE in the moment prompt immediately after a substantive interaction.
-    // Second person, economical, needles the informational imbalance — never states
-    // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
-    // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
-    ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // 0059/L40 — the ONLY romantic pairs the narrator may voice as a showmance: the public (visible)
     // ones the engine has surfaced. Everything else is friendship/strategy (the SHOWMANCES ARE RARE pin).
     ...((view.showmances ?? []).length
@@ -1499,6 +1479,48 @@ export function renderGameContext(view: GameStateView): string {
       (view.player.genderPresentation
         ? ` They present as ${genderPresentationPhrase(view.player.genderPresentation)} (use ${pronounsFor(view.player.genderPresentation)}) — never infer their gender/pronouns from their name.`
         : ""),
+    `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
+    "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
+    "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",
+    "  (npcVoice reports that) — they do NOT know each other's backstory, job, hometown, or history unless",
+    "  it was witnessed, told, or gossiped (on premiere/day 1, essentially nothing yet — they are strangers",
+    "  who just met). Describe people ONLY by what is observable and never say an archetype, a strategy, or",
+    "  a danger label out loud — the player discovers who everyone is by watching them play.",
+    "  THESE IDENTITY FACTS ARE FIXED AND AUTHORITATIVE — voice each houseguest CONSISTENTLY, never re-invent",
+    "  them. Every houseguest's name, vocation/profession, hometown, background, and biography below are their",
+    "  STABLE identity for the WHOLE season: they do NOT change or drift from scene to scene. A court reporter",
+    "  stays a court reporter in week 1 and week 8 — never a roller-derby blocker the next time they appear;",
+    "  an electrician stays an electrician, never re-cast with a new job to fit a moment. Before you place,",
+    "  mention, or voice anyone, GROUND yourself in their line here and keep that person EXACTLY who the roster",
+    "  says they are — same name, same job, same hometown, same story, every time they appear. Never",
+    "  confabulate a new profession, a new backstory, or a different identity for a houseguest you have already",
+    "  established; this roster is the single source of truth for who each person IS:",
+    roster,
+    // ORW-296: the per-turn tail starts here.
+    `- Week: ${view.week}`,
+    `- Phase: ${view.phase}${day === null ? "" : ` (day ${day} of the week)`}`,
+    // ADR 0006 — the in-game hour the HUD shows (one shared clock for the whole house). Voice THIS time of
+    // day and never narrate a different one (no "fresh morning" when the engine says evening). Guarded on
+    // the field's presence so a pre-game / clock-dormant view is byte-identical (no line emitted).
+    ...(view.timeOfDay
+      ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
+      : []),
+    // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
+    ...(view.clockLabel
+      ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
+      : []),
+    `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
+    "  do your own arithmetic about how many are left, on podiums, etc.).",
+    ...ceremonyLines,
+    ...whereaboutsLines,
+    ...presentKnowledgeLines,
+    ...premiereLines,
+    // #1792 — Producer Read: the Vault-free post-scene exchange-accounting beat,
+    // delivered ONCE in the moment prompt immediately after a substantive interaction.
+    // Second person, economical, needles the informational imbalance — never states
+    // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
+    // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
+    ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT
     // structural) Diary-Room surface: DR content is deliberately fed into the GM's context here. The
     // structural walls hold everywhere else (NPC knowledge via `deriveNpcKnowledge`, NPC behavior/voice
@@ -1542,23 +1564,6 @@ export function renderGameContext(view: GameStateView): string {
               : `- COMING UP: the ${MILESTONE_LABEL[view.daySchedule.next]} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it (pitches, last-minute deals); nobody is surprised when production calls them in.`,
         ]
       : []),
-    `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
-    "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
-    "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",
-    "  (npcVoice reports that) — they do NOT know each other's backstory, job, hometown, or history unless",
-    "  it was witnessed, told, or gossiped (on premiere/day 1, essentially nothing yet — they are strangers",
-    "  who just met). Describe people ONLY by what is observable and never say an archetype, a strategy, or",
-    "  a danger label out loud — the player discovers who everyone is by watching them play.",
-    "  THESE IDENTITY FACTS ARE FIXED AND AUTHORITATIVE — voice each houseguest CONSISTENTLY, never re-invent",
-    "  them. Every houseguest's name, vocation/profession, hometown, background, and biography below are their",
-    "  STABLE identity for the WHOLE season: they do NOT change or drift from scene to scene. A court reporter",
-    "  stays a court reporter in week 1 and week 8 — never a roller-derby blocker the next time they appear;",
-    "  an electrician stays an electrician, never re-cast with a new job to fit a moment. Before you place,",
-    "  mention, or voice anyone, GROUND yourself in their line here and keep that person EXACTLY who the roster",
-    "  says they are — same name, same job, same hometown, same story, every time they appear. Never",
-    "  confabulate a new profession, a new backstory, or a different identity for a houseguest you have already",
-    "  established; this roster is the single source of truth for who each person IS:",
-    roster,
   ].join("\n");
 }
 
@@ -1979,8 +1984,10 @@ export function buildSystemPrompt(
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.
     ...(producerVoice ? [producerVoice] : []),
-    renderGameContext(view),
+    // ORW-296 (prompt prefix cache): the world block is FROZEN for the whole season, so it rides BEFORE the game context (whose per-turn tail changes every round); after it, its ~1.5k chars were
+    // re-billed uncached on every round. A pure reorder: the same blocks, the same text.
     ...(worldContext ? [worldContext] : []),
+    renderGameContext(view),
     ...(storyFacts ? [storyFacts] : []),
     // SOC-1/4: the player's own freshly-surfaced knowledge, EVERY moment (unlike `storyFacts`, which
     // is gated to the re-entry/post-season lifecycle beats) — a confide/overhear/gossip surfacing is
