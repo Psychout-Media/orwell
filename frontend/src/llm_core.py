@@ -634,10 +634,10 @@ def _host_match(url: str, *domains: str) -> bool:
 
 
 def _keep_system_order_enabled() -> bool:
-    """ORW-296: ``ORWELL_KEEP_SYSTEM_ORDER=1`` stops the streaming request from hoisting every system message into the first one (default OFF until the live A/B approves it)."""
+    """ORW-296: ``ORWELL_KEEP_SYSTEM_ORDER=1`` stops the streaming request from hoisting every system message into the first one (default ON since the 2026-11-12 live A/B; =0 turns it off)."""
     if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
         return False
-    return str(os.environ.get("ORWELL_KEEP_SYSTEM_ORDER", "")).strip().lower() in ("1", "true", "yes", "on")
+    return str(os.environ.get("ORWELL_KEEP_SYSTEM_ORDER", "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _consolidate_system_messages(messages, url: str, provider: str):
@@ -645,7 +645,7 @@ def _consolidate_system_messages(messages, url: str, provider: str):
 
     ORW-296 (found with a live cache probe, 2026-11-12): hoisting EVERY system message to the top moves the per-turn ones (the Show Brief, production notes, the volatile game-state tail) into the first message, so the
     request prefix changes every turn at the very top and the provider's prefix cache covers only the first ~18k tokens - the whole chat history after it is re-billed uncached each turn. For a host known to accept
-    system messages anywhere (DeepSeek's own API) and with the flag on, only the LEADING run of system messages is merged; later ones stay exactly where they are, so the history stays a stable cacheable prefix.
+    system messages anywhere (DeepSeek's own API) and with the flag on (the default), only the LEADING run of system messages is merged; later ones stay exactly where they are, so the history stays a stable cacheable prefix.
     Every other provider, and the flag off, is byte-identical to the old behaviour."""
     if _keep_system_order_enabled() and provider == "openai" and _host_match(url, "deepseek.com"):
         i = 0

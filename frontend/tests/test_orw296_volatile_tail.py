@@ -63,9 +63,11 @@ def test_other_prompt_shapes_are_untouched():
     assert al._volatile_tail_wire(nomarker) is nomarker
 
 
-def test_default_off_and_the_diagnostic_profile_wins(monkeypatch):
+def test_default_on_explicit_off_and_the_diagnostic_profile_wins(monkeypatch):
     monkeypatch.delenv("ORWELL_VOLATILE_TAIL", raising=False)
     monkeypatch.delenv("ORWELL_FLAGS_OFF", raising=False)
+    assert al._volatile_tail_enabled() is True
+    monkeypatch.setenv("ORWELL_VOLATILE_TAIL", "0")
     assert al._volatile_tail_enabled() is False
     monkeypatch.setenv("ORWELL_VOLATILE_TAIL", "1")
     assert al._volatile_tail_enabled() is True
@@ -88,15 +90,16 @@ MSGS = [{"role": "system", "content": "S0"}, {"role": "system", "content": "S0b"
         {"role": "user", "content": "u2"}, {"role": "system", "content": "BRIEF"}, {"role": "system", "content": "VOLATILE"}]
 
 
-def test_default_hoists_every_system_message_to_the_top_byte_identical(monkeypatch):
-    monkeypatch.delenv("ORWELL_KEEP_SYSTEM_ORDER", raising=False)
+def test_flag_off_hoists_every_system_message_to_the_top_byte_identical(monkeypatch):
+    monkeypatch.setenv("ORWELL_KEEP_SYSTEM_ORDER", "0")
     out = lc._consolidate_system_messages([dict(m) for m in MSGS], DEEPSEEK, "openai")
     assert out[0] == {"role": "system", "content": "S0\n\nS0b\n\nBRIEF\n\nVOLATILE"}
     assert [m["role"] for m in out] == ["system", "user", "assistant", "user"]
 
 
-def test_flag_on_for_deepseek_merges_only_the_leading_run_and_leaves_the_per_turn_ones_in_place(monkeypatch):
-    monkeypatch.setenv("ORWELL_KEEP_SYSTEM_ORDER", "1")
+def test_default_for_deepseek_merges_only_the_leading_run_and_leaves_the_per_turn_ones_in_place(monkeypatch):
+    monkeypatch.delenv("ORWELL_KEEP_SYSTEM_ORDER", raising=False)
+    monkeypatch.delenv("ORWELL_FLAGS_OFF", raising=False)
     out = lc._consolidate_system_messages([dict(m) for m in MSGS], DEEPSEEK, "openai")
     assert out[0] == {"role": "system", "content": "S0\n\nS0b"}
     assert [m["role"] + ":" + m["content"] for m in out[1:]] == ["user:u1", "assistant:a1", "user:u2", "system:BRIEF", "system:VOLATILE"]
@@ -108,8 +111,9 @@ def test_flag_on_for_deepseek_merges_only_the_leading_run_and_leaves_the_per_tur
 
 @pytest.mark.parametrize("url,provider", [("https://openrouter.ai/api/v1/chat/completions", "openrouter"), ("http://127.0.0.1:8000/v1/chat/completions", "openai"),
                                           ("https://api.anthropic.com/v1/messages", "anthropic")])
-def test_flag_on_changes_nothing_for_any_other_host(monkeypatch, url, provider):
-    monkeypatch.setenv("ORWELL_KEEP_SYSTEM_ORDER", "1")
+def test_changes_nothing_for_any_other_host(monkeypatch, url, provider):
+    monkeypatch.delenv("ORWELL_KEEP_SYSTEM_ORDER", raising=False)
+    monkeypatch.delenv("ORWELL_FLAGS_OFF", raising=False)
     out = lc._consolidate_system_messages([dict(m) for m in MSGS], url, provider)
     assert out[0]["content"] == "S0\n\nS0b\n\nBRIEF\n\nVOLATILE" and [m["role"] for m in out] == ["system", "user", "assistant", "user"]
 

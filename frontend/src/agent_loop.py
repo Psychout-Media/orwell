@@ -1940,7 +1940,7 @@ _TOOL_CHOICE_REJECTERS = ("deepseek-v4", "deepseek/deepseek-v4", "deepseek-flash
 # ORW-296 slice 2 (live A/B 2026-11-12): the provider's prompt prefix cache reuses only the identical PREFIX of consecutive requests. The narrator's system message carries the per-turn game state (the Clock line, location,
 # knowledge blocks, the date paragraph) in the MIDDLE, so every turn the divergence sat at ~73.7k chars and everything after it - the rest of the system message AND the whole chat history (~40k of ~60k tokens by day 6) -
 # was uncached. This reorders the WIRE copy only: the stable part of the system message (instructions, roster, then TOOLS/RULES) stays first and byte-stable, the history follows, and the volatile block rides as one
-# trailing system message (the same slot the Show Brief uses). No wording changes; the lines move. Flag ORWELL_VOLATILE_TAIL (default OFF until the A/B approves it).
+# trailing system message (the same slot the Show Brief uses). No wording changes; the lines move. Flag ORWELL_VOLATILE_TAIL (default ON since the 2026-11-12 live A/B: 0=off).
 _VOLATILE_START = "\n- Week: "
 _STABLE_TAIL_START = "TOOLS. You run the game"
 
@@ -1948,7 +1948,7 @@ _STABLE_TAIL_START = "TOOLS. You run the game"
 def _volatile_tail_enabled() -> bool:
     if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
         return False
-    return str(os.environ.get("ORWELL_VOLATILE_TAIL", "")).strip().lower() in ("1", "true", "yes", "on")
+    return str(os.environ.get("ORWELL_VOLATILE_TAIL", "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _volatile_tail_wire(messages):
