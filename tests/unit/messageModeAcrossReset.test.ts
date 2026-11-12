@@ -70,3 +70,21 @@ describe("messageMode across a restart and a new-season reset", () => {
     expect(next.messageModeNow()).toBe(false);
   });
 });
+
+describe("ORW-281 slice 5 - playedGameNow (the one played-game flag) agrees with messageMode across restart and reset", () => {
+  type P = Sess & { playedGameNow(): boolean };
+  it("false before an announcement, true after, true after a restart, false after a new-season reset", () => {
+    const d = dir();
+    const reg = new GameSessionRegistry(new FileSaveStore(d));
+    const s = start(reg) as P;
+    expect(s.playedGameNow()).toBe(false);
+    s.noteMessage({ messageId: "m-1" });
+    expect(s.playedGameNow()).toBe(true);
+    reg.saveUser("u");
+    expect((reload(d) as P).playedGameNow(), "restored (and backfilled for a save that predates the flag)").toBe(true);
+    const fresh = reg.resetUser("u").session as unknown as P;
+    fresh.createCharacter({ playerName: "P", seed: 6 });
+    fresh.advanceGame(); fresh.advanceGame();
+    expect(fresh.playedGameNow()).toBe(false);
+  });
+});

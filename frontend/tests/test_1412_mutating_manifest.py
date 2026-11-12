@@ -83,6 +83,8 @@ READ_ONLY_TOOLS = frozenset({
     # guard, which an engine-only PR skips — the lever-drift trap — so #1631 landed the tool in
     # registry.ts INFRA_LEVERS latent on main until an FE-touching PR ran fe-unit.)
     "recordProducerProfile",
+    # ORW-223: `recordRoomCanon` is an FE-driven write-back of narrated room texture into the canon ledger; the status HUD never renders it.
+    "recordRoomCanon",
 })
 
 # `manageSandbox` is the ONE admin tool in the manifest (a sandbox reset / load moves the
