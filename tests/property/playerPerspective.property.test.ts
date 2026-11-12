@@ -22,8 +22,10 @@ import { PLAYER_PROJECTION_REGISTRY } from "../support/playerProjectionRegistry"
  * manifest / askJuror), or any surface once a recorded told/overheard pathway gave it to the player - exactly liveSentinel's existing exemption.
  * The ratchet (tests/unit/playerProjectionRatchet.test.ts) makes a NEW port projection join `PLAYER_PROJECTION_REGISTRY` (tests/support/playerProjectionRegistry.ts).
  *
- * MUTATION PROOF (run 2026-11-12, reverted, not committed): see the ORW-299 PR text. Dropping the hidden-event filter in a projection made this test go red
- * naming the surface and token; adding an unregistered projection method to the GameSession port made the ratchet go red.
+ * MUTATION PROOF (run 2026-11-12, both reverted, never committed): (1) in GameSessionAdapter.buildRecapForDay, replacing the daily-recap highlights filter
+ * `!e.hidden && (...)` with `true` turned this test RED at once: "LEAK: token SENTINEL-B42-event-2-57 reached player-facing surface turnIn at beat 24 phase=premiere ...
+ * dailyRecap.highlights". (2) adding `mutationProbeSummary(): { text: string }` to the GameSession port without registering it turned the ratchet
+ * (tests/unit/playerProjectionRatchet.test.ts) RED: "mutationProbeSummary ({ text: string }) is registered".
  */
 
 // The FULL deployed flag profile, read from its single source BEFORE the engine modules load (adapters read env at module load).
