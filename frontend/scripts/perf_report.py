@@ -12,8 +12,14 @@ headless Chromium with a 4x CPU throttle (CDP `Emulation.setCPUThrottlingRate`) 
               intervals (rAF), and MutationObserver callbacks + records fired.
 
 It prints a small table, writes JSON (`--out`, default perf-report.json) and appends a markdown table to
-$GITHUB_STEP_SUMMARY when set. It never gates: it exits 0 even if a number is bad (gating comes later, in the ratchet).
-It exits non-zero only if the harness itself could not run, so a silent dead harness is visible.
+$GITHUB_STEP_SUMMARY when set. By default it never gates: it exits 0 even if a number is bad, and non-zero (2) only if the
+harness itself could not run, so a silent dead harness is visible.
+
+ORW-181: with `--enforce-budget` the three DETERMINISTIC request-count measures are a gate (exit 3 on a breach): idle requests per
+minute, the largest one-second idle burst, and requests to first settle. CPU/frame timings stay report-only (runner noise).
+The budgets below come from measurements, not guesses: three runs on a test runner read idle 12.0/min, burst 2, 176 requests to
+settle (identical each time), so each budget is ~2.5x the measured idle value / ~1.3x the load value. The prod flood that motivated
+the gate (660 GET /api/orwell/state in 14 min = ~47/min) is far over the idle budget. Raise a budget only with a measurement.
 
 Every perf PR quotes its before/after numbers from this script. Run it twice (main vs branch) on the same runner
 class; the numbers are for comparison, not absolute truth (the CI runner is not Ryne's VM).
@@ -31,6 +37,25 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # frontend/
+
+# ── ORW-181 budgets (request counts only; see the module docstring for where the numbers come from) ──────────────────
+IDLE_BUDGET_REQUESTS_PER_MINUTE = 30.0
+IDLE_BUDGET_MAX_BURST_PER_SECOND = 6
+LOAD_BUDGET_REQUESTS_TO_SETTLE = 230
+
+
+def budget_violations(res: dict) -> list:
+    """Pure: the request-count budgets this result breaks, as human-readable lines (empty = within budget)."""
+    out = []
+    idle, load = res.get("idle") or {}, res.get("load") or {}
+    if idle.get("requests_per_minute", 0) > IDLE_BUDGET_REQUESTS_PER_MINUTE:
+        out.append(f"idle requests/min {idle['requests_per_minute']} > budget {IDLE_BUDGET_REQUESTS_PER_MINUTE}")
+    if idle.get("max_burst_per_second", 0) > IDLE_BUDGET_MAX_BURST_PER_SECOND:
+        out.append(f"idle largest 1-second burst {idle['max_burst_per_second']} > budget {IDLE_BUDGET_MAX_BURST_PER_SECOND}")
+    if load.get("requests", 0) > LOAD_BUDGET_REQUESTS_TO_SETTLE:
+        out.append(f"requests to settle {load['requests']} > budget {LOAD_BUDGET_REQUESTS_TO_SETTLE}")
+    return out
+
 
 # ── in-page probes (installed before any page script runs) ────────────────────────────────────────────────────────
 INIT_JS = r"""
@@ -321,6 +346,7 @@ def main() -> int:
     ap.add_argument("--low-power", default=os.environ.get("PERF_LOW_POWER", ""), choices=["", "0", "1", "auto"],
                     help="pin the low-power mode (ORW-154/190): 1 = reduced effects, 0 = glass, auto = detect, '' = leave the app default")
     ap.add_argument("--label", default=os.environ.get("PERF_LABEL", ""))
+    ap.add_argument("--enforce-budget", action="store_true", help="ORW-181: exit 3 when an idle/load request-count budget is exceeded")
     args = ap.parse_args()
 
     sys.path.insert(0, ROOT)
@@ -350,6 +376,14 @@ def main() -> int:
     if summary:
         with open(summary, "a", encoding="utf-8") as fh:
             fh.write(render_markdown(res))
+    bad = budget_violations(res)
+    for line in bad:
+        print(f"[perf] BUDGET EXCEEDED: {line}", file=sys.stderr)
+    if summary and bad:
+        with open(summary, "a", encoding="utf-8") as fh:
+            fh.write("\n**Request budget exceeded:**\n" + "".join(f"- {b}\n" for b in bad))
+    if args.enforce_budget and bad:
+        return 3
     return 0
 
 
