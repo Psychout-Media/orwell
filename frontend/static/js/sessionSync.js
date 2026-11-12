@@ -382,7 +382,8 @@
     if (wsActive()) { disconnect(); return; }
     // ORW-44 S4a (Ryne: WebSocket only): in the game build with the transport on, the SSE mirror is never opened - not even in the gap
     // before the socket is live. The socket replays then tails the chat channel on (re)subscribe, so nothing is missed.
-    if (gameBuildOn() && wsFlagOn()) { disconnect(); return; }
+    // (The canonical-game-session refresh below still runs: the convergence ladder and the socket's bind depend on it.)
+    if (gameBuildOn() && wsFlagOn()) { refreshCanonical(); disconnect(); return; }
     refreshCanonical();
     var id = desiredSession();
     if (id !== boundSession) {
