@@ -63,7 +63,8 @@ croniter
 ddgs
 pytest
 pytest-asyncio
-pytest-cov   # ORW-218: front-end coverage in the fe-unit shards (ci/check-fe-coverage.py)
+# ORW-218: front-end coverage in the fe-unit shards (ci/check-fe-coverage.py)
+pytest-cov
 # CI test-lane tooling (see .github/workflows/ci.yml fe-unit / fe-browser-tests + frontend/pyproject.toml):
 #   xdist         — parallelize the non-browser lane (`-n auto`); cuts the ~340-test unit run several-fold.
 #   rerunfailures — auto-retry the browser lane once, so the known environmental onboarding-scrim flake
