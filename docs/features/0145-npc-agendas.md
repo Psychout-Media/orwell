@@ -67,6 +67,16 @@ only 7 types seems wild to me."):
   purpose. Gate: `tests/unit/houseLife.test.ts` (16 cases; 8 mutants each go red). The overseer half wires it into the orchestrator in place
   of the 7-type tick and records each scene as an event (hidden unless the player is present), folding through the existing types.
 
+## Slice 4 core: memory with content, mood with a cause (`innerLife.ts`)
+- `memoryLine(kind)`: one engine sentence per memory kind, to the person ("you left me on the block when you held the veto") and about
+  them ("{subject} left me on the block when they held the veto"); `fillSubject` puts the public name in at the narrator seam (no names
+  in engine text). Lets any houseguest bring up what anyone did, not only the player.
+- `appraiseGoal(goal)`: a settled goal the holder cared about gives an existing soul event (the bounded arc is unchanged) and a cause in
+  their own words ("my plan to get {subject} out fell apart"); low-commitment goals pass without a feeling.
+- `mayShareCause(cause, listenerAffinity, candor)`: the mood is visible to all (tells); the CAUSE is said only to people they trust, and
+  revealing causes (a plan, a grudge, a con, a secret) need more trust and candor (Ryne 2026-11-12: no motive hints).
+- Gate: `tests/unit/innerLife.test.ts` (6 cases; 4 mutants each go red).
+
 ## Not in slice 1
 Decisions reading the agenda and stored reasons (slice 2); the hour-by-hour actions and next step (slice 3); memory sentences and mood
 causes (slice 4); model words (slice 5); jury and final HOH from character (slice 6); house culture (slice 3/5).
