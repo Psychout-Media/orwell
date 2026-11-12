@@ -58,6 +58,9 @@ import json
 import os
 import socket
 import subprocess
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "tests"))
+from _ws_turn_driver import ws_turn as _ws_turn  # noqa: E402
 import sys
 import tempfile
 import time
@@ -336,13 +339,8 @@ def main() -> int:
         # One warm turn over REST binds the canonical session + proves the model resolves,
         # so the multi-round turn below fails on the coalescing render, not on plumbing.
         def _rest_turn(text: str, timeout=600) -> None:
-            body = json.dumps({"message": text, "session": sess}).encode()
-            req = urllib.request.Request(f"{fbase}/api/chat_stream", data=body, method="POST",
-                                         headers={"content-type": "application/json"})
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    while resp.read(65536):
-                        pass
+                _ws_turn(fbase, sess, text, timeout=timeout)   # ORW-44 S4b3: the game build is WebSocket-only
             except Exception as e:
                 # Server-detached run: a client read-drop degrades to "poll for settle".
                 print(f"  warm-turn reader dropped ({type(e).__name__}) — waiting for settle",

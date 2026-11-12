@@ -13,11 +13,9 @@ because the stack shares frontend/data state with the other real-stack pins.
 from __future__ import annotations
 
 import json
-import urllib.parse
-import urllib.request
-
 import pytest
 
+from _ws_turn_driver import ws_turn
 from test_m0_3_midgen_join import STUB, _post_form, _post_json, _stack  # noqa: F401  (the shared real-stack fixture)
 
 pytestmark = pytest.mark.browser
@@ -39,12 +37,7 @@ def _schedule(stack):
 
 def _send(stack, session, text, client_msg_id):
     """One plain player message through the REAL chat route; returns the full streamed body."""
-    data = urllib.parse.urlencode({"message": text, "session": session, "client_msg_id": client_msg_id}).encode()
-    req = urllib.request.Request(stack["fe"] + "/api/chat_stream", data=data, method="POST",
-                                 headers={"content-type": "application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        assert r.status == 200
-        body = r.read().decode("utf-8", "replace")
+    body = ws_turn(stack["fe"], session, text, timeout=120, client_msg_id=client_msg_id)["body"]   # ORW-44 S4b3: the game build is WebSocket-only
     low = body.lower()
     assert "event: error" not in low, f"the turn streamed an error: {body[:400]}"
     assert "stale-beat" not in low, f"stale-beat on a turn: {body[:400]}"

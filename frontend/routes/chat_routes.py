@@ -2117,6 +2117,9 @@ def setup_chat_routes(
 
     @router.post("/api/chat_stream")
     async def chat_stream(request: Request) -> StreamingResponse:
+        if _game_build_ws_only():
+            # ORW-44 S4b3: a typed refusal the client turns into the "this network blocks the live connection" notice (the WS `turn` frame reuses _prepare_chat_stream, not this route).
+            return _sse_error_response("ws-only", 426)
         # Thin HTTP wrapper over the shared `_prepare_chat_stream` pipeline (unchanged behavior): build
         # the producer, then run the ADR 0012 run-keying / casting single-flight / subscribe tail. An
         # early pre-stream guard returns an `_sse_error_response` (a StreamingResponse) — forward it as-is.

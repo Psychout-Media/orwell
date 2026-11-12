@@ -42,6 +42,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "tests"))
+from _ws_turn_driver import ws_turn as _ws_turn  # noqa: E402
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.dirname(FRONTEND)
@@ -348,13 +351,8 @@ def main() -> int:
             client read timeout only drops this reader — the turn finishes server-side — so a slow
             reader degrades to 'poll for settle', never a crash (mirrors the fork's turn())."""
             t0 = time.time()
-            body = json.dumps({"message": text, "session": sess}).encode()
-            req = urllib.request.Request(f"{fbase}/api/chat_stream", data=body, method="POST",
-                                         headers={"content-type": "application/json"})
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    while resp.read(65536):
-                        pass
+                _ws_turn(fbase, sess, text, timeout=timeout)   # ORW-44 S4b3: the game build is WebSocket-only
             except Exception as e:
                 print(f"  turn reader dropped ({type(e).__name__}) — run continues detached; "
                       "waiting for settle", flush=True)

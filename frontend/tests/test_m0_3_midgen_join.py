@@ -313,18 +313,15 @@ def _stack():
 
 
 def _kick_turn_async(fbase: str, text: str, session: str):
-    """POST /api/chat_stream in a daemon thread (the 'third device' kicking the run) and
-    drain its stream so the server never blocks on backpressure."""
+    """Kick a turn over the socket in a daemon thread (the 'third device' starting the run) and drain it to completion so the server never blocks on
+    backpressure. ORW-44 S4b3: the game build is WebSocket-only, so the old plain-HTTP chat_stream POST is gone."""
+    from _ws_turn_driver import ws_turn
+
     def run():
-        body = json.dumps({"message": text, "session": session}).encode()
-        req = urllib.request.Request(f"{fbase}/api/chat_stream", data=body, method="POST",
-                                     headers={"content-type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=180) as r:
-                while r.read(65536):
-                    pass
+            ws_turn(fbase, session, text, timeout=180)
         except Exception as e:  # diagnosis must never be silent — the joiner asserts on it
-            print(f"[m03] chat_stream kick failed: {type(e).__name__}: {e}", flush=True)
+            print(f"[m03] ws turn kick failed: {type(e).__name__}: {e}", flush=True)
     t = threading.Thread(target=run, daemon=True)
     t.start()
     return t
