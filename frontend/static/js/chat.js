@@ -31,6 +31,7 @@ import { isNarrow } from './platform.js';
 // still owns all the logic and just references `chatState.X` where it used to reference `X`.
 import { chatState } from './chatState.js';
 import { applyDelta } from './chatStreamMachine.js';
+import './orwellWsBlocked.js';
 // #1414 (R3 PR1): the #738 scroll-edge mask + recede-on-scroll banner — the first leaf
 // extraction from this god-object. Behavior-preserving: chat.js still calls
 // _initChatScrollEdges() from init() exactly as before, the logic just lives in its own
