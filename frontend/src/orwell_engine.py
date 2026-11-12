@@ -729,6 +729,36 @@ async def world_snapshot_view(user: str | None = None) -> dict | None:
     return result if isinstance(result, dict) else None
 
 
+async def day_ledger(user: str | None = None) -> list:
+    """ORW-271: the Vault-free append-only per-night day ledger (``[{day, tier, events, themes, text?, coversDays?, merged?}]``).
+    Fail-soft: any engine error or non-list answer reads as ``[]`` (the prompt then simply sends the raw history, as before)."""
+    try:
+        result = await _call("dayLedger", {}, user=user)
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:ledger-read-failed", e, corrected="raw history", user=user)
+        return []
+    return result if isinstance(result, list) else []
+
+
+async def record_day_summary(day: int, text: str, tier: str = "day", covers_days: list | None = None,
+                             user: str | None = None) -> dict:
+    """ORW-271: FE-driven write-back of the model-authored summary of a closed in-game day (or, ``tier="week"``, of the
+    ``covers_days`` range). Idempotent per (day, tier) in the engine. Fail-soft: never raises; returns ``{accepted: False, ...}``."""
+    args: dict = {"day": day, "text": text}
+    if tier == "week":
+        args["tier"] = "week"
+        if covers_days:
+            args["coversDays"] = list(covers_days)
+    try:
+        result = await _call("recordDaySummary", args, user=user)
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:write-back-failed", e, corrected="raw history", user=user)
+        return {"accepted": False, "reason": f"error: {e}"}
+    return result if isinstance(result, dict) else {"accepted": False}
+
+
 async def record_producer_profile(overlay: dict, user: str | None = None) -> dict:
     """Issue #1626 (increment 3): write an LLM-AUTHORED, richer OFF-CAMERA PRODUCER persona BACK to the
     engine, which folds it onto the seeded producer as the source of truth. ``overlay`` carries any
