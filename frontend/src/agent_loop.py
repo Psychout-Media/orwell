@@ -3077,16 +3077,16 @@ async def _gather_move_extractions(narration, last_user, house, endpoint_url, mo
 # merged call asks for one JSON object {"scene":…, "npcMoves":…, "playerRoom":…} whose three values are EXACTLY the objects the
 # separate calls return today; each is validated by the SAME belt code (the belts take the section as their `raw`). Any call
 # error or a section that does not parse falls back to that section's own separate call, so behaviour is never worse than
-# today. FE-only flag (the engine's featureFlags registry does not carry it), default OFF until a live check approves it.
+# today. FE-only flag (the engine's featureFlags registry does not carry it), default ON since the 2026-11-12 live check (12 turns, same snapshot: -18% calls per turn, -30% extraction calls, scene recorded 10/10, no failures); ORWELL_MERGED_EXTRACTION=0 turns it off.
 _MERGED_EXTRACTION_FLAG = "ORWELL_MERGED_EXTRACTION"
 
 
 def _merged_extraction_enabled() -> bool:
-    """``ORWELL_MERGED_EXTRACTION=1|true|yes|on`` turns the merged extraction ON. Default OFF (ORW-294: unproven live); the diagnostic
+    """The merged extraction is ON by default (ORW-294, proven live 2026-11-12); ``ORWELL_MERGED_EXTRACTION=0|false|no|off`` turns it off and the diagnostic
     ``ORWELL_FLAGS_OFF=1`` profile forces it off."""
     if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
         return False
-    return str(os.environ.get(_MERGED_EXTRACTION_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
+    return str(os.environ.get(_MERGED_EXTRACTION_FLAG, "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _merged_extract_instructions() -> str:
