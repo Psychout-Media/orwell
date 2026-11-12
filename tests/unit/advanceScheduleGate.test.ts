@@ -11,6 +11,7 @@ function runningDay(gate: boolean) {
   s.setPerConversationClockEnabled(true);
   const live = () => s.snapshot().live as unknown as { timeOfDay?: string; pending?: unknown };
   toDayTwoMorning(s); // ORW-116: Day 2, 8am (no phase advance moves the clock)
+  (s as unknown as { live: { playedGame?: boolean } }).live.playedGame = true; // the gate applies only to a game a person is playing
   s.setAdvanceGateEnabled(gate); // (set after the setup advances: an ON gate would hold them)
   expect(live().timeOfDay, "precondition: the day is running").toBeDefined();
   return s;
@@ -30,7 +31,7 @@ describe("A65 - the engine schedule gate", () => {
     const s = runningDay(true);
     const before = s.getGameState() as { beatSeq: number; phase: string };
     const v = s.advanceGame({ idempotencyKey: "k1" });
-    expect(v.held).toEqual({ next: sched(s).next, minutesUntil: sched(s).minutesUntil });
+    expect(v.held).toEqual({ next: sched(s).next, minutesUntil: sched(s).minutesUntil, reason: "schedule" });
     expect(v.event).toBeNull();
     expect(v.pending).toBeNull();
     const after = s.getGameState() as { beatSeq: number; phase: string };
@@ -38,6 +39,13 @@ describe("A65 - the engine schedule gate", () => {
     expect(after.phase).toBe(before.phase);
     s.advanceGame(); s.advanceGame(); s.advanceGame(); // ordinary advances
     expect(s.getGameState().beatSeq).toBe(before.beatSeq);
+  });
+  it("ON but NOT a played game (headless driver): never held - byte-identical to the gate off", () => {
+    const s = runningDay(true);
+    (s as unknown as { live: { playedGame?: boolean } }).live.playedGame = undefined;
+    const v = s.advanceGame();
+    expect(v.held).toBeUndefined();
+    expect(v.pending?.kind ?? v.event?.beat, "the beat ran").toBeTruthy();
   });
   it("ON: once the milestone is due the same advance goes through", () => {
     const s = runningDay(true);

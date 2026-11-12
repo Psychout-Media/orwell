@@ -84,9 +84,12 @@ async function toPlayerGoodbyeOnSeed(seed: number) {
   expect(sb.session.dealDepthEnabledNow() && sb.session.triggersEnabledNow()).toBe(true);
   const mcp = runtime.registry.resolver()("player", user);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed });
+  // CI speed (ORW-97 / ORW-218): ONE announced message makes this a played game, then every "let time pass" step is the in-process clock step, not a persisted noteMessage each (see jurySequesterScenario).
+  await mcp.callTool("noteMessage", { messageId: `pg${seed}-open` });
+  const tick = (): void => sb.session.advanceClockPerConversation();
   for (let i = 0; i < 5_000; i++) {
     const adv = (await mcp.callTool("advanceGame", {})) as View;
-    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `pg${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `pg${seed}`, tick); // ORW-116: a held night is the player's: time passes, then they turn in
     if (adv.finished) break;
     if (adv.pending) {
       if (adv.pending.kind === "goodbye-message") return { mcp, pending: adv.pending };

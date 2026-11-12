@@ -15,7 +15,7 @@ const ctxBody = (): string => {
   return SRC.slice(a, b);
 };
 const interfaceMembers = (): Set<string> => new Set([...ctxBody().matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]!));
-const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor|hcStrategyFor|juryMemoryFor)$/;
+const MEMORY_LIKE = /^(?:\w+TiltFor|\w+PushFor|dealsOf|assuranceVoteFor|assuranceProtects|pitchTiltFor|vetoMemoryFor|drivePushFor|moodVetoFor|moodApproachFor|dealNomPushFor|hcMemoryFor|hcStrategyFor|juryMemoryFor|endgameMemoryFor)$/;
 const SCANNED = (Object.keys(DECISION_SOURCES) as StrategicDecision[]).filter((d): d is Exclude<StrategicDecision, "approaches"> => d !== "approaches");
 
 function fnBody(startMarker: string, endMarker: string): string {
@@ -33,6 +33,8 @@ const SLICES: Record<Exclude<StrategicDecision, "approaches">, () => string> = {
   vetoSave: () => fnBody("function npcVetoSave(", "/** The NPC HOH's replacement read")  /* ORW-281 4c: the NPC veto-save read moved into this shared helper */,
   houseguestsChoice: () => fnBody("function rollVetoDraw(", "\nfunction resolveVetoDraw(")  /* ORW-281 4b: the draw + NPC Houseguest's-Choice reads live in the shared roll */,
   juryVote: () => fnBody("function precomputeVotes(", "return votes;"),
+  final3Eviction: () => fnBody('case "final-eviction": {', "\n    }\n"),
+  secretVetoReplacement: () => fnBody("function playSecretVeto(", "s.finalNominees = [staying, replacement];"),
 };
 const readsOf = (body: string): Set<string> => new Set([...body.matchAll(/ctx\.(\w+)/g)].map((m) => m[1]!).filter((n) => MEMORY_LIKE.test(n)));
 
@@ -66,8 +68,6 @@ describe("decision x memory-source matrix (the drift gate)", () => {
  * (and decide deliberately whether it should) instead of a memory source creeping in unlisted. Tie-break needs no slice: it calls `voteChoice`, already held above.
  */
 const GAP_SLICES: Record<string, () => string> = {
-  final3Eviction: () => fnBody('case "final-eviction": {', "\n    }\n"),
-  secretVetoReplacement: () => fnBody("function secretVetoReplacementOptions(", "\n}\n"),
   autoDecision: () => fnBody("export function autoDecision(", "\n}\n"),
 };
 describe("known-gap decisions read no memory provider (AMEND 3b #3)", () => {

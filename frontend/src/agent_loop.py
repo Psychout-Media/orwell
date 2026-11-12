@@ -9234,6 +9234,15 @@ async def _stream_agent_loop_impl(
                                         # narration. Still returns False (the other callers' contract).
                                         _silent_advance_reconciled[0] = True
                                         return False  # board moved twice — reconciled, S1b picks it up
+                                if isinstance(_adv, dict) and _adv.get("held") and not _adv.get("event"):
+                                    # ORW-97: the engine REFUSED (A65 schedule hold / night hold): nothing committed, so this is not progress and must not reset the stall ladder or
+                                    # count as a forced advance. Mark the hold so no further nudge/force escalates against it (they would spin), and report False.
+                                    if _ch3.engine_held_is_schedule(_adv):
+                                        _ch3.note_engine_held(owner, _adv.get("held"))
+                                    logger.info("[orwell] silent advanceGame HELD by the engine (%s, phase=%s, held=%s) round %s user=%s",
+                                                _why, _phase, _adv.get("held"), round_num, owner)
+                                    return False
+                                _ch3.clear_engine_held(owner)
                                 _ch3._refresh_beat_seq(owner, _adv)  # track the new beatSeq
                                 # E-1 follow-up: this FE-issued advance may have committed a beat the player must SEE (the production chyron — incl. their OWN eviction result);
                                 # nothing owed it before, so it reached the client only if the model happened to voice/advance it itself (seen in 1 of 2 live runs).

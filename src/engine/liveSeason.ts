@@ -1003,6 +1003,8 @@ export interface SeasonCtx {
   moodVetoFor?: (nominee: EntityId, holder: EntityId) => number;
   /** B7 M4b (ORWELL_HC_MEMORY, approved tie-in #6): how much more (+) or less (-) an NPC Houseguest's-Choice holder wants `candidate` as the sixth veto player, from what they remember / believe / owe. Absent => +0, byte-identical. */
   hcMemoryFor?: (candidate: EntityId, holder: EntityId) => number;
+  /** ORW-87 (ORWELL_ENDGAME_MEMORY): the signed tilt (+ grudge, - favor) of an NPC `decider` toward acting AGAINST `subject` in the Final-3 eviction and the secret-veto replacement, from the NPC memory ledger. Present only for a played game; absent => +0, byte-identical. */
+  endgameMemoryFor?: (subject: EntityId, decider: EntityId) => number;
   /** ORW-101 (ORWELL_HC_STRATEGY): how much more (+) or less (-) the NPC Houseguest's-Choice holder's GAME this week wants `candidate` as the sixth veto player (role-aware: a nominee wants a strong player who would save them, the HOH wants one who won't rescue a nominee...), from the hidden relationship layer + competition stats. Deterministic, no rng. Absent => +0, byte-identical. */
   hcStrategyFor?: (candidate: EntityId, holder: EntityId) => number;
   /** B7 M3 (ORWELL_DEAL_NOMS): the nomination-score push from the HOH's open protective deals with `target` (<= 0). Absent => byte-identical. */
@@ -3076,7 +3078,9 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         return null;
       }
       // NPC final HOH evicts the higher-threat rival (relationship-driven, decision 0002).
-      const evictee = [...rivals].sort((a, b) => ctx.rel.edge(s.hoh!, b).threat - ctx.rel.edge(s.hoh!, a).threat)[0]!;
+      // ORW-87: ...plus what the HOH remembers of each (grudge up, favor down) when the memory layer is live for a played game.
+      const evictScore = (r: EntityId): number => ctx.rel.edge(s.hoh!, r).threat + (ctx.endgameMemoryFor?.(r, s.hoh!) ?? 0);
+      const evictee = [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
       const ev: BeatEvent = { beat: "final-eviction", content: `${s.hoh} evicts ${evictee}, setting the Final 2`, participants: [s.hoh!, evictee] };
       applyEviction(s, evictee, ctx, [s.hoh!]);
       return ev;
@@ -3296,7 +3300,8 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
   const staying = fn[0] === holder ? fn[1] : fn[0];
   const hoh = s.hoh!;
   const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
-  const replacement = [...options].sort((a, b) => nominationScore(hoh, b, ctx.rel, mood) - nominationScore(hoh, a, ctx.rel, mood))[0]!;
+  const replaceScore = (t: EntityId): number => nominationScore(hoh, t, ctx.rel, mood) + (ctx.endgameMemoryFor?.(t, hoh) ?? 0); // ORW-87: + the HOH's memory of the option
+  const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
   s.finalNominees = [staying, replacement];
   (s.firedTwists ??= []).push({ kind: "secret-veto", beat: s.week });
   return {

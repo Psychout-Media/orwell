@@ -270,6 +270,8 @@ async def _advance_through_eviction_night(res: dict, user: Optional[str], dec_ik
             logger.warning(f"[orwell] post-goodbye follow-up advance skipped: {_adv_e}")
             return res
         res = nxt
+        if isinstance(res, dict) and res.get("held") and not res.get("event"):
+            break  # ORW-97: a held advance committed nothing - re-calling it would only spin
         if _eviction_night_over(res):
             break
     return res

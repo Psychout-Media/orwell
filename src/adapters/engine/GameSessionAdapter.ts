@@ -1580,8 +1580,8 @@ export class GameSessionAdapter implements GameSession {
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
-  /** A65 (ORWELL_ADVANCE_GATE, default OFF): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
-  private advanceGateEnabled = process.env.ORWELL_ADVANCE_GATE === "1";
+  /** A65 (ORWELL_ADVANCE_GATE, default ON, applies ONLY to a played game - `live.playedGame`): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
+  private advanceGateEnabled = flagDefaultOn("ORWELL_ADVANCE_GATE");
   setAdvanceGateEnabled(on: boolean): void { this.advanceGateEnabled = on; }
   private scheduleGateBypass = false;
   private desireClockEnabled = DESIRE_CLOCK_ENABLED_DEFAULT;
@@ -8269,6 +8269,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
+      ...(this.endgameMemoryEnabled ? { endgameMemoryFor: (s: EntityId, d: EntityId) => this.endgameMemoryFor(s, d) } : {}),
       ...(this.hcMemoryEnabled ? { hcMemoryFor: (c: EntityId, h: EntityId) => this.hcMemoryFor(c, h) } : {}),
       ...(this.hcStrategyEnabled && this.live?.playedGame === true ? { hcStrategyFor: (c: EntityId, h: EntityId) => this.hcStrategyFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
@@ -10177,9 +10178,9 @@ export class GameSessionAdapter implements GameSession {
     // A65: defense in depth for the production schedule. With the gate on, the clock running and the next milestone NOT yet due, an ordinary beat is REFUSED here (typed `held`, no commit, no beatSeq
     // bump, not cached for idempotency) so the schedule no longer rests on the FE hold alone. Pending decisions, the premiere stages, the spectator fast-forward and the engine's own fast-forward
     // (`scheduleGateBypass`) are unaffected; flag off => this block is skipped entirely (byte-identical).
-    if (this.advanceGateEnabled && !this.scheduleGateBypass && this.perConversationClockLive() && !this.live.pending && !this.live.finished) {
+    if (this.advanceGateEnabled && !this.scheduleGateBypass && this.live.playedGame === true && this.perConversationClockLive() && !this.live.pending && !this.live.finished) {
       const m = nextMilestone(this.live);
-      if (m && !milestoneDueOf(this.live)) return { ...this.advanceView(null), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live) ?? 0 } };
+      if (m && !milestoneDueOf(this.live)) return { ...this.advanceView(null), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live) ?? 0, reason: "schedule" } };
     }
     // One persisted commit per beat (E3): interior persists (a deal broken mid-tally) defer to a
     // single hook call AFTER all state mutation — a refused commit throws instead of narrating.
@@ -12622,6 +12623,15 @@ export class GameSessionAdapter implements GameSession {
   juryMemoryFor(juror: EntityId, finalist: EntityId): number {
     if (!this.juryMemoryEnabled || juror === PLAYER || !this.npcMemoryEnabled) return 0;
     return Math.max(-JURY_MEMORY.max, Math.min(JURY_MEMORY.max, (0 - this.memoryTiltFor(finalist, juror)) * JURY_MEMORY.scale));
+  }
+
+  /** ORW-87 - the Final-3 eviction and the secret-veto replacement read the NPC's memory ledger too. ON by default; `=0` turns it off. Read only for a played game (`live.playedGame`), so headless calibration sims stay byte-identical. */
+  private endgameMemoryEnabled = flagDefaultOn("ORWELL_ENDGAME_MEMORY");
+  setEndgameMemoryEnabled(on: boolean): void { this.endgameMemoryEnabled = on; }
+  /** ORW-87 - the signed tilt (+ grudge, - favor) of NPC `decider` toward acting against `subject`: the ledger's tilt, bounded [-1, 1]. 0 for the player, off, no ledger, or a game nobody is playing. Deterministic, no rng. */
+  endgameMemoryFor(subject: EntityId, decider: EntityId): number {
+    if (!this.endgameMemoryEnabled || !this.npcMemoryEnabled || decider === PLAYER || this.live?.playedGame !== true) return 0;
+    return Math.max(-1, Math.min(1, this.memoryTiltFor(subject, decider)));
   }
 
   /** B7 M4b - the NPC Houseguest's-Choice holder's pick reads memory too (approved tie-in #6). OFF unless exactly `ORWELL_HC_MEMORY=1`; never-flipped. OFF => no ctx provider => byte-identical. */
