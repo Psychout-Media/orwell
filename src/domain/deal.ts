@@ -35,7 +35,9 @@ export function reliableHonorerFrom(factId: string): EntityId | undefined {
   return factId.startsWith(RELIABLE_FACT_PREFIX) ? (factId.slice(RELIABLE_FACT_PREFIX.length) as EntityId) : undefined;
 }
 
-export type DealStatus = "open" | "kept" | "broken";
+/** "lapsed" (ORW-316): an UNTESTED conditional / undelivered information pact whose term ran out. It is a terminal, neutral state (not kept, not broken, no fold) and is no longer part of the
+ *  live ledger (`forParty` / `npcOnly` / `open` skip it) - but the entry stays in the saved list, because the non-degradation checkpoint treats `deals` as append-only by id. */
+export type DealStatus = "open" | "kept" | "broken" | "lapsed";
 
 /**
  * What a binding action would have to do to break the deal. `protect` is the party who must not be

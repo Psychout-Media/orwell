@@ -12939,7 +12939,7 @@ export class GameSessionAdapter implements GameSession {
       parties: d.parties.map((id) => ({ id, name: this.nameOf(id) })),
       kind: d.kind,
       terms: d.terms,
-      status: sealed ? "open" : d.status,
+      status: sealed ? "open" : (d.status as DealView["status"]), // a "lapsed" deal never reaches a view: forParty / npcOnly skip it (ORW-316)
       ...(d.packageId ? { packageId: d.packageId } : {}),
       ...(d.expiresWeek !== undefined || d.vague
         ? { term: { ...(d.expiresWeek !== undefined ? { expiresWeek: d.expiresWeek } : {}), ...(d.vague ? { vague: true } : {}) } }
