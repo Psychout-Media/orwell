@@ -1,4 +1,4 @@
-# spec-only: BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0140 - Publicity-Priced Promises. Roles only.
+# Wired into cucumber.cjs by ORW-300 (steps in features/step_definitions/publicity_priced_promises.steps.ts); also gated by unit tests (see the design note). Feature 0140 - Publicity-Priced Promises. Roles only.
 
 Feature: Publicity-Priced Promises
 
