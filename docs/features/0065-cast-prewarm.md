@@ -52,9 +52,11 @@ earlier and decouples it from the player:
    authored cast** from `prewarm` — idempotent, reusing the warmed seed, never re-seeding or
    re-authoring. Portraits already match because they were shot from the authored store.
 
-**Graceful absence (no key / no model):** `preSeedCast` is never called, so `createCharacter`
-takes the unchanged path — the deterministic seeded floor still yields a complete, playable, deep
-cast. A facet **fingerprint backstop** in the FE re-shoots a portrait only if the deep store later
+**Absence (no key / no model):** `preSeedCast` is never called, so `createCharacter` takes the unchanged path.
+*(Amended 2026-11-12, ORW-286 item 3, Ryne BDD card 30: "I don't want a fallback".)* Under the default `strict`
+enrichment policy there is **no fallback cast**: a missing or failed authoring run is a loud refusal to start the game (0058,
+0116). Only the keyless-CI / `ORWELL_ALLOW_FLOOR_START=1` / `soft` lanes keep the deterministic seeded floor, so tests never depend on a live
+model. A facet **fingerprint backstop** in the FE re-shoots a portrait only if the deep store later
 changes, so even a no-key→key transition can't leave a stale face.
 
 ## Invariants (BDD/unit)

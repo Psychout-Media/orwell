@@ -71,7 +71,8 @@ Each houseguest is spawned with the §3 sections, **partitioned by who may ever 
 - **Diversity + non-mirroring are guaranteed by the engine**, not hoped for from the LLM: the cast must
   span archetype / disposition / voice / age / body / geography / class, and must **not echo the
   player's profile** (same seed ⇒ same cast regardless of who the player is). The seeded floor (L28) is
-  the deterministic fallback the engine validates/repairs the LLM output against.
+  the skeleton the engine validates/repairs the LLM output against — it is **not** a fallback cast: under the default `strict`
+  policy a failed authoring run refuses the game start (ORW-286 item 3, Ryne BDD card 30).
 
 ## 4. The hybrid (endless variety, airtight persistence) + the pipeline order
 
