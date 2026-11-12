@@ -271,46 +271,72 @@ Then(
   }
 );
 
-// ── Scenario: pending decisions degrade to inline text ───────────────────────
+// ── Scenario: the gateway is chat only (ORW-286 item 8; Ryne 2026-11-11) ────
 
 Given("a paired platform identity with a pending binding decision", function () {
-  // Structural: the gateway system prompt includes instructions to present
-  // decisions as a numbered list (test_gateway_build_gate.py covers the constant).
   _pairedIdentityCtx = { platformIdentity: "telegram:decision-test", orwellUser: "test-player-dec" };
 });
 
-When("the decision is delivered over the gateway", function () {
-  // The gateway system prompt is what tells the model to present pending decisions as plain text; build it for real below.
+/** One REAL gateway turn (handle_platform_turn) with a binding decision pending in the narration: the engine reads, the narrator and the consequence fold are doubled and recorded, and
+ * submit_decision / advance_game are doubled too so any call to them is seen. `checks` is the Python that asserts on `reply`, `calls` and `folded`. */
+function chatOnlyTurn(label: string, checks: string): void {
+  runPyScript(label, `${PY_HANDLER_HARNESS}
+do_pair("telegram:chat-only", "user_chat_only")
+calls, folded = [], []
+async def submit_decision(*a, **k):
+    calls.append(("submit_decision", k.get("user"))); return {}
+async def advance_game(*a, **k):
+    calls.append(("advance_game", k.get("user"))); return {}
+async def fold(user, message, reply, house):
+    folded.append((user, message, reply))
+async def state(user=None, **kw):
+    calls.append(("get_game_state", user)); return {"house": []}
+async def moment(moment=None, user=None, **kw):
+    calls.append(("get_moment_prompt", user)); return {"systemPrompt": "moment"}
+async def narrate(system_prompt, user_message, user):
+    calls.append(("narrate", user)); return "The room waits on you. 1. use the veto 2. keep the nominations."
+with mock.patch.object(orwell_engine, "get_game_state", state), \\
+     mock.patch.object(orwell_engine, "get_moment_prompt", moment), \\
+     mock.patch.object(orwell_engine, "submit_decision", submit_decision), \\
+     mock.patch.object(orwell_engine, "advance_game", advance_game), \\
+     mock.patch.object(h, "_narrate_gateway_turn", narrate), \\
+     mock.patch.object(h, "fold_gateway_turn", fold), \\
+     mock.patch.object(h, "screen_knowledge_wall", _ident), \\
+     mock.patch.object(h, "screen_presence_wall", _ident), \\
+     mock.patch("src.orwell_game_session.publish_game_updated", lambda *a, **k: None):
+    reply = asyncio.new_event_loop().run_until_complete(h.handle_platform_turn("telegram", "telegram:chat-only", "I keep the nominations."))
+${checks}
+`);
+}
+
+When("the identity sends a text message over the gateway", function () {
   assert.ok(_pairedIdentityCtx, "identity context set");
 });
 
-Then("it is rendered as an inline text prompt", function () {
-  // Call the real builder and check its RESULT carries the pending-decision instruction (a dead comment or an unused
-  // string in the source could not satisfy this).
-  runPyScript("gateway system prompt renders pending decisions inline", `
-import re, sys
-sys.path.insert(0, ".")
-from gateway.handler import _build_gateway_system_prompt
-prompt = _build_gateway_system_prompt("MOMENT-FRAMING", {"house": []})
-assert "MOMENT-FRAMING" in prompt, prompt
-assert re.search(r"pending decision[^.]*numbered list", prompt, re.I), prompt
-assert re.search(r"plain text", prompt, re.I), prompt
+Then("the reply is one narrated turn that mentions the pending decision as plain text", function () {
+  chatOnlyTurn("gateway chat-only: one narrated turn", `
+assert "1. use the veto" in reply and "2. keep the nominations" in reply, reply
+assert [c[0] for c in calls].count("narrate") == 1, calls
 `);
 });
 
-When("the identity replies with a text choice", function () {
-  // A text reply is routed through handle_platform_turn → _call_player_turn,
-  // which calls the engine's player channel (including submitDecision if pending).
-  assert.ok(_pairedIdentityCtx, "identity context set");
+Then("the gateway made no submit-decision call and no advance-game call", function () {
+  chatOnlyTurn("gateway chat-only: no decide/advance", `
+assert not [c for c in calls if c[0] in ("submit_decision", "advance_game")], calls
+assert any(c[0] == "get_game_state" for c in calls), calls   # a real turn ran: the doubled engine WAS used
+`);
+  // and no gateway code calls them at all (comments aside)
+  const dir = path.join(FRONTEND_DIR, "gateway");
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".py"))) {
+    const code = fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+    assert.ok(!/\.(submit_decision|advance_game)\(/.test(code), `gateway/${f} calls submit_decision/advance_game`);
+  }
 });
 
-Then("the choice is submitted through the existing decision path", function () {
-  // The text reply is routed through the same player-channel call the web client uses (orwell_engine),
-  // never an admin channel.
-  const src = fs.readFileSync(path.join(FRONTEND_DIR, "gateway", "handler.py"), "utf8");
-  assert.ok(src.includes("orwell_engine"), "handler must use orwell_engine (player channel)");
-  assert.ok(!/orwell_engine[^\n]*admin|admin[^\n]*orwell_engine/i.test(src), "handler must not route through an admin channel");
-  runPyTests("test_gateway_isolation.py::TestCrossUserIsolation::test_handler_uses_paired_user_not_another");
+Then("the turn's scene was folded through the consequence seam", function () {
+  chatOnlyTurn("gateway chat-only: scene folded", `
+assert len(folded) == 1 and folded[0][0] == "user_chat_only" and folded[0][1] == "I keep the nominations.", folded   # mandate #4: narrated means recorded
+`);
 });
 
 // ── Scenario: the game build is respected over the gateway ───────────────────

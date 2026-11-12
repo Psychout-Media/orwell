@@ -33,12 +33,14 @@ Feature: 0072 — multi-platform gateway: play your game from messaging platform
     Then the delivered reply is scrubbed of reasoning, operator-asides, and the npc id
     And the scrub chokepoint fires regardless of which prompt produced the leak
 
-  Scenario: pending decisions degrade to inline text
+  # ORW-286 item 8 (Ryne, BDD card 33, 2026-11-11: "Chat only for now."): the gateway is one narrated turn plus the scene fold. It does not submit decisions or advance the game;
+  # deciding happens in the web client. (The old scenario "the choice is submitted through the existing decision path" only grepped that the handler imports orwell_engine, so it passed with the feature absent.)
+  Scenario: the gateway is chat only - it never submits a decision or advances the game
     Given a paired platform identity with a pending binding decision
-    When the decision is delivered over the gateway
-    Then it is rendered as an inline text prompt
-    When the identity replies with a text choice
-    Then the choice is submitted through the existing decision path
+    When the identity sends a text message over the gateway
+    Then the reply is one narrated turn that mentions the pending decision as plain text
+    And the gateway made no submit-decision call and no advance-game call
+    And the turn's scene was folded through the consequence seam
 
   Scenario: the game build is respected over the gateway
     Given a paired platform identity with a live game

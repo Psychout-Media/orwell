@@ -7,7 +7,7 @@
 > hard, calibration-load-bearing invariant out of scope for a bounded build, and is left for a dedicated
 > owner-scoped change. The dramatic-irony reveal and the behavioral-uncertainty texture ride the
 > EXISTING 0002/0038 factId-lineage/hedge-phrase machinery verbatim. `src/engine/beliefReliability.ts`,
-> wired in `cucumber.cjs`, gated by `ORWELL_GOSSIP_CONSEQUENCE` (default OFF).
+> wired in `cucumber.cjs`, gated by `ORWELL_GOSSIP_CONSEQUENCE` (**default ON** since 2026-11-06, ORW-16 follow-up; `defaultOn` in `src/featureFlags.ts`, `=1` in the deploy defaults; corrected 2026-11-12, ORW-286 item 8).
 > **Tracks #865.**
 >
 > **Deploy status (2026-11-03):** only the **distorted-belief consequence** (the misfire/fold on a materially distorted belief) is intentionally OFF in the deployed profile. `ORWELL_GOSSIP_CONSEQUENCE` (GOSSIP_CONSEQUENCE family) is not emitted by `deploy/orwell-env-defaults.sh` and is kept dark for the first playtest by owner direction. The `confront` lever itself stays live: it still validates the cited fact against what the player holds, and with the flag off it always lands with no fold, so a distorted belief cannot misfire.

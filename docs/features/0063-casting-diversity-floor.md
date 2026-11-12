@@ -13,8 +13,8 @@
 > age, gender, race, experience. Please make this a good reflection of country." + the explicitly
 > wanted queer showmance) and `docs/legacy/BB_ProducersVault.md` (the showmance discipline: *"must
 > develop entirely organically through gameplay… The AI must never push this connection
-> artificially"*). **Executable spec:** `0063-casting-diversity-floor.feature` (skeleton; NOT yet in
-> `cucumber.cjs` — added when built to green, exactly as 0058 Phase 1's feature was).
+> artificially"*). **Executable spec:** `0063-casting-diversity-floor.feature` (wired into
+> `cucumber.cjs` — it was a skeleton at first and was added once built to green, exactly as 0058 Phase 1's feature was; corrected 2026-11-12, ORW-286 item 8).
 >
 > **AI-driven half — BUILT (issue #544, the deferred second half of the 2026-06-23 ruling).** The cast's
 > **descriptive** identity facets (heritage/ethnicity, gender presentation, orientation, disclosure, age)

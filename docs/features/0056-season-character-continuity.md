@@ -52,7 +52,8 @@ a **pure function of their authored fields** — it does **not** depend on the g
 
 - aptitudes are `spec.bias` for the authored archetype (fixed; the player never min-maxes past the
   NPC bounds, 0006 anti-sycophancy),
-- the public appearance is seeded off the **authored name** (`hashSeed(name)`),
+- the public appearance is **not** seeded from the name or the game seed: the human authors no look, so `appearance` stays empty (no name-hash, #529) and the portrait is never improvised from one (corrected 2026-11-12, ORW-286 item 8),
+- a returning player's **season notoriety** (0104; Vault-free, derived by the registry from the prior seasons' open-set outcome records) is carried into the new season separately from the authored fields; it is not part of the static `CHARACTER` and never a number to the player,
 - persona / backstory / motivation / private-strategy / interview notes are the authored material.
 
 Only the **NPC cast** consumes the game seed. Therefore "keep" needs **no special character
