@@ -414,6 +414,14 @@ def note_engine_delivery(user, game_state) -> bool:
     return False
 
 
+# ORW-167: per-user count of non-read engine calls (landed or failed: a write that timed out may still have been applied). Monotonic within the process; compared before and after a turn.
+_MUTATION_COUNT: dict = {}
+
+
+def mutation_count(user: str | None = None) -> int:
+    return _MUTATION_COUNT.get(user or "", 0)
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
@@ -438,6 +446,7 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
                 engine_read_cache.invalidate(user)
+                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)

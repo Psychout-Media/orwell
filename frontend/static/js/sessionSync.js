@@ -100,7 +100,10 @@
   // re-resolves instead of staying pinned to a stale id. We only LISTEN (platform.js's debounced
   // orwell:gamechanged is the ONE g15 dispatcher — we never dispatch it).
   try {
-    window.addEventListener('orwell:gamechanged', function () {
+    window.addEventListener('orwell:gamechanged', function (e) {
+      // ORW-168: a routine wave (settled turn / tab visible / decision card) never rebinds the game - keep the cached canonical id.
+      var rs = (e && e.detail && Array.isArray(e.detail.reasons)) ? e.detail.reasons : null;
+      if (rs && rs.length && rs.every(function (r) { return r === 'turn-settled' || r === 'tab-visible' || String(r).indexOf('decision:') === 0; })) return;
       _canon = { id: null, at: 0, inflight: false };
       // R2: a game just bound/changed — re-resolve the canonical id and (re)bind the SSE channel
       // PROMPTLY (refreshCanonical re-ticks on a new id) so this window subscribes to the new canonical
