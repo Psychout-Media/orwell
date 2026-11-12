@@ -52,10 +52,11 @@ def _run(_stack, tag, script, reply, refresh):
         page.wait_for_timeout(1200)
         empties = page.evaluate("() => window.__empties")
         n_reply = _count_containing(page, AI_BUBBLE, reply)
+        dump = page.evaluate("([sel, t]) => Array.from(document.querySelectorAll(sel)).filter(e => (e.textContent||'').includes(t)).map(e => ({cls: e.className, id: e.id, data: Object.assign({}, e.dataset), parent: e.parentElement && e.parentElement.id, html: e.outerHTML.slice(0, 260)}))", [AI_BUBBLE, reply])
         total_ai = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg.msg-ai')).filter(e => e.style.display !== 'none').length")
         browser.close()
     assert not empties, f"an empty .msg-ai bubble existed during the turn: {empties[:3]}"
-    assert n_reply == 1, f"reply shown {n_reply} times"
+    assert n_reply == 1, f"reply shown {n_reply} times: {dump}"
     return total_ai
 
 
