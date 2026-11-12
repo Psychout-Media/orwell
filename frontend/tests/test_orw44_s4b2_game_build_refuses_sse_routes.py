@@ -1,5 +1,5 @@
 """ORW-44 S4b2: the game build is WebSocket-only. The SSE mirror routes (events, resume) refuse there with a typed error (426 `ws-only`); the non-game build keeps them.
-The chat_stream refusal and its client notice land in S4b3, after the HTTP-driving tests move to a WS driver."""
+S4b3 adds the chat_stream refusal and its client notice (below)."""
 import uuid
 
 import pytest
@@ -45,3 +45,16 @@ def test_non_game_build_keeps_the_sse_routes(monkeypatch, client, sid):
     monkeypatch.setenv("ORWELL_GAME_BUILD", "0")
     r = client.get(f"/api/chat/resume/{sid}")
     assert r.status_code == 404 and r.json().get("detail") == "No active run for this session"   # the normal "no run to resume", not the ws-only refusal
+
+
+def test_game_build_chat_stream_refuses_with_a_streamed_ws_only_error(monkeypatch, client, sid):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
+    r = client.post("/api/chat_stream", data={"session_id": sid, "message": "hi"})
+    assert r.status_code == 200                       # the stream route never answers a bare 4xx (_sse_error_response contract)
+    assert "event: error" in r.text and '"error": "ws-only"' in r.text and "data: [DONE]" in r.text
+
+
+def test_client_turns_the_refusal_into_the_blocked_notice():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[1] / "static" / "js" / "chat.js").read_text(encoding="utf-8")
+    assert "if (json.error === 'ws-only')" in js and "new CustomEvent('orwell:ws-blocked'" in js

@@ -2123,6 +2123,9 @@ def setup_chat_routes(
 
     @router.post("/api/chat_stream")
     async def chat_stream(request: Request) -> StreamingResponse:
+        if _game_build_ws_only():
+            # ORW-44 S4b3: a typed refusal the client turns into the "this network blocks the live connection" notice (the WS `turn` frame reuses _prepare_chat_stream, not this route).
+            return _sse_error_response("ws-only", 426)
         # Thin HTTP wrapper over the shared `_prepare_chat_stream` pipeline (unchanged behavior): build
         # the producer, then run the ADR 0012 run-keying / casting single-flight / subscribe tail. An
         # early pre-stream guard returns an `_sse_error_response` (a StreamingResponse) — forward it as-is.
@@ -2477,9 +2480,9 @@ def setup_chat_routes(
         return StreamingResponse(stream_rewrite(), media_type="text/event-stream", headers=SSE_STREAM_HEADERS)
 
     # ── WebSocket Phase-1 (ADR 0017 §3.5): register the `turn` producer ──────────────────────────
-    # Build the factory over THIS closure's `_prepare_chat_stream` and hand it to ws_routes. Dormant
-    # behind ORWELL_WS_TRANSPORT (client-gated) — registering it is inert until a socket relays a
-    # `turn`; the HTTP path is untouched.
+    # Build the factory over THIS closure's `_prepare_chat_stream` and hand it to ws_routes.
+    # The game build's only turn path (ORW-44: WebSocket-only) — registering it is inert until a socket relays a
+    # `turn`.
     try:
         from routes.ws_routes import set_turn_stream_factory
         set_turn_stream_factory(make_ws_turn_stream_factory(_prepare_chat_stream))

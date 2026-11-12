@@ -316,7 +316,7 @@ Several substantial FE workstreams land as their own GitHub-issue tracks rather 
 
 - **WebSocket Phase-1 transport — landed (ADR 0017 / 0018; spec
   `docs/design/websocket-phase1-protocol.md` + test plan).** The full Phase-1 stack merged behind the
-  **`ORWELL_WS_TRANSPORT`** flag (**default ON** since 2026-07-10 (#1357)): per-device layout LWW storage (#1283), client transport + chat splice
+  **`ORWELL_WS_TRANSPORT`** flag (**default ON** since 2026-07-10 (#1357); **flag deleted 2026-11-12, ORW-44: the game build is WebSocket-only**): per-device layout LWW storage (#1283), client transport + chat splice
   + fallback negotiation (#1284), the server route (replay-then-tail over `agent_runs`, #1285),
   per-device layout client wiring (#1286), the decision-card confirm `decision` up-frame (#1287), and
   the server turn producer + layout leg (#1293) — plus the poll-kill batches that stand redundant HUD /
