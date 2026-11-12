@@ -2471,9 +2471,9 @@ def setup_chat_routes(
         return StreamingResponse(stream_rewrite(), media_type="text/event-stream", headers=SSE_STREAM_HEADERS)
 
     # ── WebSocket Phase-1 (ADR 0017 §3.5): register the `turn` producer ──────────────────────────
-    # Build the factory over THIS closure's `_prepare_chat_stream` and hand it to ws_routes. Dormant
-    # behind ORWELL_WS_TRANSPORT (client-gated) — registering it is inert until a socket relays a
-    # `turn`; the HTTP path is untouched.
+    # Build the factory over THIS closure's `_prepare_chat_stream` and hand it to ws_routes.
+    # The game build's only turn path (ORW-44: WebSocket-only) — registering it is inert until a socket relays a
+    # `turn`.
     try:
         from routes.ws_routes import set_turn_stream_factory
         set_turn_stream_factory(make_ws_turn_stream_factory(_prepare_chat_stream))
