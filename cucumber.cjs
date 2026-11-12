@@ -114,6 +114,7 @@ module.exports = {
       "docs/features/0130-exit-interviews.feature",
       "docs/features/0133-early-eviction-skip-or-watch.feature",
       "docs/features/0144-visible-mood-never-opposite.feature",
+      "docs/features/0134-telephone-game-payoffs.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
