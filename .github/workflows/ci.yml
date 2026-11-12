@@ -457,7 +457,8 @@ jobs:
         run: |
           python3 -m py_compile $(git ls-files 'frontend/**/*.py')
           for s in $(git ls-files 'frontend/scripts/*' 'frontend/integrations/**'); do
-            head -1 "$s" | grep -q python && python3 -m py_compile "$s" || true
+            # ORW-239: only a non-python shebang is skipped; a real compile error now fails the step (it used to end `|| true`).
+            if head -1 "$s" | grep -q python; then python3 -m py_compile "$s"; fi
           done
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - name: pytest — non-browser suite, parallel (app-admin 0029, game build 0032)
