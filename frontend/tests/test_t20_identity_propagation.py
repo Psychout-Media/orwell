@@ -36,8 +36,15 @@ tool_impl = importlib.import_module("src.tool_implementations")
 
 
 def _run(coro):
+    """Run on a PRIVATE loop. The shared per-thread loop can carry tasks an EARLIER test left pending (a fire-and-forget kickoff); `run_until_complete` on
+    it would also run those, and they post through the patched engine transport - a second request in `transport.requests`, so `(req,) = ...` failed
+    ('too many values to unpack') depending only on which tests shared the xdist worker. A fresh loop runs exactly this test's coroutine."""
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 # --- hermetic pin: even a transport-patch slip must never reach a live 8765 engine -----
@@ -163,3 +170,25 @@ def test_anonymous_caller_sends_no_user_header(transport):
     assert res.get("exit_code") == 0
     (req,) = transport.requests
     assert "X-Orwell-User" not in req["headers"]
+
+
+def test_a_task_left_pending_by_an_earlier_test_cannot_add_a_request_to_this_one(transport):
+    """The ordering leak itself: leave a pending engine call on the SHARED loop, as an earlier test can, then run the relay. Only this test's call is recorded."""
+    import asyncio
+    shared = asyncio.get_event_loop()
+
+    async def leaked():
+        await asyncio.sleep(0)
+        await orwell_engine.get_game_state(user="someone-else")
+
+    pending = shared.create_task(leaked())
+    try:
+        assert _run(tool_impl.do_get_game_state("", owner="owner-a")).get("exit_code") == 0
+        (req,) = transport.requests
+        assert req["headers"].get("X-Orwell-User") == "owner-a"
+    finally:
+        pending.cancel()
+        try:
+            shared.run_until_complete(pending)
+        except BaseException:  # noqa: BLE001 - cancellation of our own probe task
+            pass
