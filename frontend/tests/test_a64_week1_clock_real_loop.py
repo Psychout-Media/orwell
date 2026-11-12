@@ -52,7 +52,9 @@ def _roles(st):
     if me.get("status") not in (None, "active"):
         out.add(me.get("id"))
     return {"me": me.get("id"), "hoh": (cer.get("hoh") or {}).get("id"), "nominees": [x.get("id") for x in cer.get("nominees") or []],
-            "veto": ((cer.get("veto") or {}).get("holder") or {}).get("id"), "out": sorted(out)}
+            "veto": ((cer.get("veto") or {}).get("holder") or {}).get("id"), "out": sorted(out),
+            "cer": (((st.get("pending") or {}).get("ceremony")) or {}).get("kind"),
+            "cerstep": (((st.get("pending") or {}).get("ceremony")) or {}).get("step")}
 
 
 def _ruled_out(r, want):
@@ -142,7 +144,16 @@ def _assert_steps_honour_the_clock(obs):
                 # (1) an undue message in the same milestone costs exactly 5 minutes
                 assert ps["minutesUntil"] - s["minutesUntil"] in (5, 0), f"message {n}: {ps} -> {s}"
         if pend:
-            assert s["due"] is True, f"(3) a {pend} card was staged at message {n} before the milestone was due: {s}"
+            # ORW-281: a staged ceremony's watch step belongs to a ceremony that opened when ITS milestone was due; by the time later steps are on screen the schedule's `next` has already moved on to
+            # the following milestone (so `due` describes THAT one). Anchored to the card's OWN ceremony: the OPENING step (step 1) must land with its milestone due or be the engine's reported event of
+            # the day (`todaysEvent`); a LATER step (step > 1) is allowed only as the continuation of the SAME ceremony kind the previous observation already showed at the step before (or the same step
+            # again). An early step of a different ceremony, or a step with no opening, still fails. Every non-ceremony card still needs its milestone due.
+            ccer = roles.get("cer")
+            cstep = roles.get("cerstep") or 0
+            opening_ok = pend == "ceremony-step" and ccer is not None and s.get("todaysEvent") == ccer
+            continuing = (pend == "ceremony-step" and ccer is not None and cstep > 1 and prev is not None
+                          and prev[4].get("cer") == ccer and (prev[4].get("cerstep") or 0) in (cstep - 1, cstep))
+            assert s["due"] is True or opening_ok or continuing, f"(3) a {pend} card ({ccer} step {cstep}) was staged at message {n} before the milestone was due: {s}"
         prev = (n, s, phase, pend, roles)
     # (6) from what the ENGINE reports: each result lands on a step where its milestone was due, or on the message that brought it due - never early
     for milestone, landed in _LANDED:
