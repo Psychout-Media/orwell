@@ -70,6 +70,7 @@
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
+#   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
 #   ORWELL_TIE_REVEAL           Pre-show ties overhear scheduler (0095) - ON 2026-11-06 (ORW-16 follow-up; the 'dark for first playtest' direction was replaced by 'built means on').
 #   ORWELL_GOSSIP_CONSEQUENCE   Distorted-gossip consequences for confront (0094) - ON 2026-11-06 (ORW-16 follow-up).
 #   ORWELL_HANGOUT              'Hang out until X' (the safe fast-forward): short 15-30 min engine-timed beats that stop at the FIRST of the scheduled event coming due, the player
@@ -142,6 +143,7 @@ ORWELL_COMP_INTENT=1
 ORWELL_FINAL_HOH_THREE_PART=1
 ORWELL_WIPEOUT_REEL=1
 ORWELL_JUROR_PROFILES=1
+ORWELL_NPC_MINDS_ENDGAME=1
 ORWELL_TIE_REVEAL=1
 ORWELL_GOSSIP_CONSEQUENCE=1
 ORWELL_HANGOUT=1

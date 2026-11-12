@@ -19,6 +19,8 @@ export const JURY_MINDS = {
     aggressive: { "grudge-holder": 0.3, competitor: 0.2 }, social: { forgiver: 0.3 }, strategic: { competitor: 0.3, pragmatist: 0.2 },
     "under-the-radar": { pragmatist: 0.3 }, emotional: { "grudge-holder": 0.3, forgiver: 0.1 }, loyal: { loyalist: 0.4 },
   } as Readonly<Record<StrategyStyle, Lean>>,
+  /** ORW-318: the Final HOH's own jury estimate - each comp win of difference counts this much, and the evicted rival joins the jury this much against them. */
+  estimate: { resumePerWin: 0.05, evicteeGrudge: 0.3 },
   /** Seeded jitter (0..jitter): breaks near-ties only, never overrides a clear character lean. */
   jitter: 0.15,
   finalHoh: {
