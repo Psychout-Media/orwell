@@ -1465,7 +1465,22 @@ function _beaconHistoryParity(sessionId, parity, note) {
   } catch (_) { /* a beacon is an addition, never new behavior */ }
 }
 
+/** ORW-293: re-selecting the session the player is ALREADY on, while its reply is streaming, must change nothing. selectSession detaches the in-flight stream to the
+ * background and rebuilds the history; the detached reader then sees its channel close before the completion event and the drop-recovery auto-continue fires a SECOND
+ * generation, which persisted the same reply twice (two assistant rows, e.g. seq 3 and seq 5) - the "reply shown twice after a mid-stream refresh" CI failure. The live
+ * stream already is the truth; the settle-time softReloadHistory reconciles. Pure, so it is unit-tested under node. */
+export function isLiveReselect(id, currentId, chatModule) {
+  try {
+    return !!id && id === currentId && !!chatModule && typeof chatModule.hasActiveStream === 'function' && !!chatModule.hasActiveStream(id);
+  } catch (_) { return false; }
+}
+
 export async function selectSession(id, { keepSidebar = false } = {}) {
+  if (isLiveReselect(id, currentSessionId, window.chatModule)) {
+    const _el = document.querySelector(`.list-item[data-session-id="${id}"]`);
+    if (_el) _el.classList.add('active-session');
+    return;
+  }
   // Exit compare mode cleanly if active
   if (window.compareModule && window.compareModule.isActive()) {
     window.compareModule.deactivate(true);
