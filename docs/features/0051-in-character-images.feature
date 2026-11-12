@@ -1,12 +1,11 @@
 # spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # DRAFT executable spec — SPECCED, NOT BUILT (author: feature-maker; implementer makes it pass).
 # Feature 0051 — In-character images: the model PRODUCES images as part of play (a houseguest's
-# sketch, the memory-wall portrait, a "camera still"), inline in the chat. Pairs with E94 (attach =
+# sketch, the memory-wall portrait), inline in the chat. (Scene "camera stills" were cut 2026-11-12, ORW-286 item 4, Ryne: "I don't want pictures of scenes.") Pairs with E94 (attach =
 # analyze in; this = generate out). NOT in cucumber.cjs until the engine half is built to green;
-# the FE half is pytest/browser-smoke gated. HARD rule: roles only (player, NPC, HOH, nominee,
+# the FE half is pytest/browser-lane gated. HARD rule: roles only (player, NPC, HOH, nominee,
 # evictee). Binding rules: the Vault Wall (prompts from visible state only — E11/E15 discipline),
-# knowledge scope (depict only what the player knows), anti-sycophancy (never depict unresolved
-# outcomes — P1/P6), recorded-or-it-didn't-happen (image beats are recorded), ADR 0003 (inline in
+# recorded-or-it-didn't-happen (image beats are recorded), ADR 0003 (inline in
 # the chat; augments, never replaces; graceful absence).
 # Decisions locked 2026-06-11: auto-on-move-in portraits · photorealistic style · provider-agnostic
 # ImageGenerationPort · all declines in the production/show frame · portraits persisted to
@@ -78,18 +77,6 @@ Feature: In-character images — Vault-free generation, rendered inline in the c
     When an image prompt is assembled for any sanctioned generation moment
     Then the assembled prompt contains no hidden sentinel content
     And the prompt builder has no dependency on any engine-only store
-
-  Scenario: An image may depict only what the player knows
-    Given an off-screen scene whose witness set excludes the player
-    When the player requests a camera still of that scene
-    Then no image of it is generated
-    And the decline is voiced in the production frame without revealing that the scene exists
-
-  Scenario: No image asserts an unresolved outcome
-    Given an eviction vote that the engine has not yet resolved and revealed
-    When any image generation is requested for that ceremony
-    Then no image depicting the result is produced before the engine's reveal
-    And if declined, the refusal is voiced in the production frame
 
   # --- Style and consistency ---
 
