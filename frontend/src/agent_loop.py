@@ -3014,23 +3014,28 @@ def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers
     return fallback_url, fallback_model, fallback_headers
 
 
+def _player_move_instructions() -> str:
+    """The player-move extraction instruction block (ORW-294: shared verbatim by _move_player_extract and the merged call)."""
+    rooms = ", ".join(_HOUSE_ROOMS)
+    return (
+        "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
+        "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
+        "prose, no code fence:\n"
+        '{"room":"<one of the room ids below, or null>"}\n'
+        f"Room ids: {rooms}.\n"
+        "Pick the room the player ENDED UP IN if they clearly moved there themselves "
+        "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
+        'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
+        '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
+        "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."
+    )
+
+
 async def _move_player_extract(narration, last_user, endpoint_url, model, headers, owner) -> str:
     """ORW-173: the player-move EXTRACTION call alone (no engine write), so it can run concurrently with the NPC-move extraction."""
     from src.llm_core import llm_call_async
-    rooms = ", ".join(_HOUSE_ROOMS)
     msgs = [
-        {"role": "system", "content":
-            _EXTRACTION_UNTRUSTED_FENCE +
-            "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
-            "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
-            "prose, no code fence:\n"
-            '{"room":"<one of the room ids below, or null>"}\n'
-            f"Room ids: {rooms}.\n"
-            "Pick the room the player ENDED UP IN if they clearly moved there themselves "
-            "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
-            'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
-            '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
-            "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."},
+        {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _player_move_instructions()},
         {"role": "user", "content":
             f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
             f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -3042,14 +3047,19 @@ async def _move_player_extract(narration, last_user, endpoint_url, model, header
     return raw or ""
 
 
-async def _gather_move_extractions(narration, last_user, house, endpoint_url, model, headers, owner):
+async def _gather_move_extractions(narration, last_user, house, endpoint_url, model, headers, owner, prefetched=None):
     """ORW-173: run the player-move and NPC-move EXTRACTION calls concurrently (they only read the narration; ~1 s each, previously
     back to back). Returns (player_raw, npc_raw). The engine WRITES stay sequential and in the original order at the call site, so
     the beatSeq compare-and-swap never sees two writes at once. One extraction failing yields "" for it (that belt then no-ops
     exactly as a failed call did before) and never cancels the other."""
+    # ORW-294: `prefetched` = (player_raw, npc_raw) from the merged extraction; a section that is None (it failed to parse) is extracted by its
+    # own call here, a prefetched one is not called again. prefetched=None is exactly the ORW-173 behaviour.
+    async def _have(v):
+        return v
+    _p0, _n0 = prefetched if prefetched else (None, None)
     res = await asyncio.gather(
-        _move_player_extract(narration, last_user, endpoint_url, model, headers, owner),
-        _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner),
+        _have(_p0) if _p0 is not None else _move_player_extract(narration, last_user, endpoint_url, model, headers, owner),
+        _have(_n0) if _n0 is not None else _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner),
         return_exceptions=True)
     out = []
     for name, r in zip(("auto-move", "auto-move-npc"), res):
@@ -3060,6 +3070,97 @@ async def _gather_move_extractions(narration, last_user, house, endpoint_url, mo
             r = ""
         out.append(r or "")
     return out[0], out[1]
+
+
+# ── ORW-294: one structured call for the per-turn scene / NPC-move / player-move extractions ──────────────────────────────
+# The three belts each re-read the SAME narration with their own constrained call. When one turn would run all three, this
+# merged call asks for one JSON object {"scene":…, "npcMoves":…, "playerRoom":…} whose three values are EXACTLY the objects the
+# separate calls return today; each is validated by the SAME belt code (the belts take the section as their `raw`). Any call
+# error or a section that does not parse falls back to that section's own separate call, so behaviour is never worse than
+# today. FE-only flag (the engine's featureFlags registry does not carry it), default OFF until a live check approves it.
+_MERGED_EXTRACTION_FLAG = "ORWELL_MERGED_EXTRACTION"
+
+
+def _merged_extraction_enabled() -> bool:
+    """``ORWELL_MERGED_EXTRACTION=1|true|yes|on`` turns the merged extraction ON. Default OFF (ORW-294: unproven live); the diagnostic
+    ``ORWELL_FLAGS_OFF=1`` profile forces it off."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get(_MERGED_EXTRACTION_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _merged_extract_instructions() -> str:
+    """The three existing instruction blocks, verbatim (the same constants/builders the separate calls use, so the wording cannot
+    drift), under one output envelope (the caller prepends the untrusted-data fence, like every extraction belt). Vault-free like each block alone."""
+    return (
+        "You make THREE independent judgements about ONE Big Brother scene (the user message). Reply IMMEDIATELY with ONLY ONE JSON "
+        "object — no analysis, no thinking, no prose, no code fence — with exactly these three keys:\n"
+        '{"scene":<the JSON object described in SECTION 1>,"npcMoves":<the JSON object described in SECTION 2>,'
+        '"playerRoom":<the JSON object described in SECTION 3>}\n'
+        "Decide each section on its own, from its own instructions; each section's value is the whole object that section describes "
+        "(an empty answer is still that object, e.g. {\"withIds\":[]}, {\"moves\":[]}, {\"room\":null}).\n\n"
+        "=== SECTION 1 (key \"scene\") ===\n" + _SCENE_EXTRACT_INSTRUCTIONS + "\n\n"
+        "=== SECTION 2 (key \"npcMoves\") ===\n" + _npc_move_instructions() + "\n\n"
+        "=== SECTION 3 (key \"playerRoom\") ===\n" + _player_move_instructions())
+
+
+def _parse_merged_reply(raw: str) -> dict:
+    """Strictly split a merged reply into per-section RAW strings (JSON of exactly the shape each belt parses today). A section that is
+    missing or fails its shape check is None - the caller then runs that section's own separate call. Takes the LAST object carrying any
+    section key (reasoning models emit the answer last)."""
+    out = {"scene": None, "npcMoves": None, "playerRoom": None}
+    if not raw:
+        return out
+    dec = json.JSONDecoder()
+    best = None
+    for m in re.finditer(r"\{\s*\"", raw):
+        try:
+            cand, _ = dec.raw_decode(raw, m.start())
+        except Exception:
+            continue
+        if isinstance(cand, dict) and any(k in cand for k in out):
+            best = cand
+    if best is None:
+        return out
+    sc, nm, pr = best.get("scene"), best.get("npcMoves"), best.get("playerRoom")
+    if isinstance(sc, dict) and isinstance(sc.get("withIds"), list):
+        out["scene"] = json.dumps(sc, ensure_ascii=False)
+    if isinstance(nm, dict) and isinstance(nm.get("moves"), list):
+        out["npcMoves"] = json.dumps(nm, ensure_ascii=False)
+    if isinstance(pr, dict) and "room" in pr and (pr["room"] is None or isinstance(pr["room"], str)):
+        out["playerRoom"] = json.dumps(pr, ensure_ascii=False)
+    return out
+
+
+async def _merged_turn_extract(narration, last_user, house, endpoint_url, model, headers, owner) -> dict:
+    """ORW-294: ONE call for the scene + NPC-move + player-move extractions. Returns {"scene","npcMoves","playerRoom"} -> a raw
+    string for each section that parsed, else None (fall back to that section's own call). Never raises (a call error returns all
+    None, and nothing was written - this only reads)."""
+    none = {"scene": None, "npcMoves": None, "playerRoom": None}
+    try:
+        from src.llm_core import llm_call_async
+        roster = "\n".join(f'{h.get("id")} = {h.get("name")}' for h in house if h.get("id") and h.get("name"))
+        if not roster:
+            return none
+        msgs = [
+            {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _merged_extract_instructions()},
+            {"role": "user", "content":
+                f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
+                f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
+        ]
+        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                                   temperature=0.1, max_tokens=2400, timeout=60,
+                                   call_class="utility-extraction", user=_meter_user(owner))
+        res = _parse_merged_reply(raw or "")
+        _bad = [k for k, v in res.items() if v is None]
+        if _bad:
+            logger.info(f"[orwell] merged-extraction: sections {_bad} unparseable - falling back to their own calls (len={len(raw or '')})")
+        return res
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning(f"[orwell] merged-extraction failed ({type(e).__name__}: {e}) - falling back to the separate calls")
+        return none
 
 
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
@@ -3149,6 +3250,23 @@ def _player_summoned(last_user, name) -> bool:
     return bool(_SUMMON_RE.search(text))
 
 
+def _npc_move_instructions() -> str:
+    """The NPC-move extraction instruction block (ORW-294: shared verbatim by _move_npc_extract and the merged call)."""
+    rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
+    return (
+        "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
+        "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
+        "— no analysis, no thinking, no prose, no code fence:\n"
+        '{"moves":[{"id":"<houseguest id from the roster>","room":"<one of the room ids>"}]}\n'
+        f"Room ids: {rooms}.\n"
+        "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
+        "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
+        "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
+        "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
+        'If no houseguest clearly moved, reply {"moves":[]}.'
+    )
+
+
 async def _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner) -> str:
     """ORW-173: the NPC-move EXTRACTION call alone (no engine write), so it can run concurrently with the player-move extraction."""
     from src.llm_core import llm_call_async
@@ -3156,20 +3274,8 @@ async def _move_npc_extract(narration, last_user, house, endpoint_url, model, he
                        for h in house if h.get("id") and h.get("name"))
     if not roster:
         return ""
-    rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
     msgs = [
-        {"role": "system", "content":
-            _EXTRACTION_UNTRUSTED_FENCE +
-            "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
-            "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
-            "— no analysis, no thinking, no prose, no code fence:\n"
-            '{"moves":[{"id":"<houseguest id from the roster>","room":"<one of the room ids>"}]}\n'
-            f"Room ids: {rooms}.\n"
-            "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
-            "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
-            "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
-            "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
-            'If no houseguest clearly moved, reply {"moves":[]}.'},
+        {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _npc_move_instructions()},
         {"role": "user", "content":
             f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
             f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -3443,8 +3549,45 @@ def _normalize_with_ids(raw, valid_ids) -> tuple:
     return out, rejected
 
 
+# The scene-record extraction instruction block (ORW-294: shared verbatim by _auto_record_scene and the merged call).
+_SCENE_EXTRACT_INSTRUCTIONS = (
+    "Extract the recordable consequence of a Big Brother scene the player just had with "
+    "other houseguests. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no "
+    "thinking, no prose, no code fence:\n"
+    '{"withIds":[<ids of houseguests the player actually interacted WITH, from the roster>],'
+    '"kind":"<one of: bonding, betrayal, conflict, strategy, alliance, gossip, showmance>",'
+    '"content":"<one concise past-tense sentence of what passed between them>",'
+    '"feltMinutes":<how long the scene took IN-FICTION, in minutes: a quick word ~15-30, an '
+    'ordinary chat ~45-90, a long strategy summit ~120-240>,'
+    '"assurance":{"kind":"<safe|vote|loyal>","by":"<player, or the houseguest id who made it>"},'
+    '"heardAboutMe":{"nature":"<targeting|betrayal>","by":"<the houseguest id who told the others>"},'
+    '"consequence":{"edges":[{"toward":"<houseguest id>",'
+    '"direction":"<one of: warmer, cooler, more-trust, less-trust, more-threatened, '
+    'less-threatened, more-aligned, less-aligned>","emphasis":"<slight|notable|strong>"}],'
+    '"aboutEdges":[{"holder":"<houseguest id the player was actually talking to>",'
+    '"about":"<a DIFFERENT third houseguest, never the player>",'
+    '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
+    '"rationale":"<why, grounded in the scene>"}}\n'
+    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+    "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
+    "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
+    "emotional/strategic direction. Add `consequence` ONLY when "
+    "the scene moves different houseguests DIFFERENTLY (e.g. it warms one and threatens "
+    "another); otherwise omit it. Use `aboutEdges` SPECIFICALLY when the player pitched one "
+    "houseguest's opinion of a THIRD houseguest — 'I told holder that about is the real "
+    "threat/an ally/lying to them' — never for the player's own standing (use `edges` for "
+    "that). Propose only direction and relative emphasis — NEVER any number or magnitude "
+    "(the engine decides how far, and whether it lands at all). If no houseguest was "
+    'genuinely engaged (a solo/internal beat), reply {"withIds":[]}. #1729 — if THE '
+    "PLAYER'S MOVE reads as private out-of-character reflection/venting about the scene "
+    "rather than something said or done TO a houseguest, or if it looks like leftover "
+    "system/stream-recovery text rather than real player speech, that is NOT a recordable "
+    'scene either — reply {"withIds":[]}.'
+)
+
+
 async def _auto_record_scene(narration, last_user, house, endpoint_url, model, headers, owner,
-                              session_id=None) -> bool:
+                              session_id=None, raw=None) -> bool:
     """GUARANTEE the consequence loop fires (0055). When the model narrated a player↔houseguest
     scene but never recorded it, a constrained extraction call proposes {withIds, kind, content}
     and we call recordInteraction ourselves — so the hidden trust/affinity/threat weights actually
@@ -3518,39 +3661,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             return False
         msgs = [
             {"role": "system", "content":
-                _EXTRACTION_UNTRUSTED_FENCE +
-                "Extract the recordable consequence of a Big Brother scene the player just had with "
-                "other houseguests. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no "
-                "thinking, no prose, no code fence:\n"
-                '{"withIds":[<ids of houseguests the player actually interacted WITH, from the roster>],'
-                '"kind":"<one of: bonding, betrayal, conflict, strategy, alliance, gossip, showmance>",'
-                '"content":"<one concise past-tense sentence of what passed between them>",'
-                '"feltMinutes":<how long the scene took IN-FICTION, in minutes: a quick word ~15-30, an '
-                'ordinary chat ~45-90, a long strategy summit ~120-240>,'
-                '"assurance":{"kind":"<safe|vote|loyal>","by":"<player, or the houseguest id who made it>"},'
-                '"heardAboutMe":{"nature":"<targeting|betrayal>","by":"<the houseguest id who told the others>"},'
-                '"consequence":{"edges":[{"toward":"<houseguest id>",'
-                '"direction":"<one of: warmer, cooler, more-trust, less-trust, more-threatened, '
-                'less-threatened, more-aligned, less-aligned>","emphasis":"<slight|notable|strong>"}],'
-                '"aboutEdges":[{"holder":"<houseguest id the player was actually talking to>",'
-                '"about":"<a DIFFERENT third houseguest, never the player>",'
-                '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
-                '"rationale":"<why, grounded in the scene>"}}\n'
-                "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
-                "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
-                "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
-                "emotional/strategic direction. Add `consequence` ONLY when "
-                "the scene moves different houseguests DIFFERENTLY (e.g. it warms one and threatens "
-                "another); otherwise omit it. Use `aboutEdges` SPECIFICALLY when the player pitched one "
-                "houseguest's opinion of a THIRD houseguest — 'I told holder that about is the real "
-                "threat/an ally/lying to them' — never for the player's own standing (use `edges` for "
-                "that). Propose only direction and relative emphasis — NEVER any number or magnitude "
-                "(the engine decides how far, and whether it lands at all). If no houseguest was "
-                'genuinely engaged (a solo/internal beat), reply {"withIds":[]}. #1729 — if THE '
-                "PLAYER'S MOVE reads as private out-of-character reflection/venting about the scene "
-                "rather than something said or done TO a houseguest, or if it looks like leftover "
-                "system/stream-recovery text rather than real player speech, that is NOT a recordable "
-                'scene either — reply {"withIds":[]}.'},
+                _EXTRACTION_UNTRUSTED_FENCE + _SCENE_EXTRACT_INSTRUCTIONS},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
                 f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -3562,9 +3673,10 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # tiny, so the extra budget only matters for the reasoning preamble. (llm_call_async now also
         # reads the `reasoning`/`thinking` field, so the answer is recoverable even when the model
         # routes everything there.)
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
-                                   temperature=0.2, max_tokens=1500, timeout=45,
-                                   call_class="utility-extraction", user=_meter_user(owner))
+        if raw is None:  # ORW-294: a prefetched scene section (the merged extraction) skips the call
+            raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                                       temperature=0.2, max_tokens=1500, timeout=45,
+                                       call_class="utility-extraction", user=_meter_user(owner))
         raw = raw or ""
         # The JSON may sit after a reasoning block OR inside it — take the LAST object carrying
         # withIds (reasoning models emit the answer last). The object may now NEST a `consequence`
@@ -7495,6 +7607,7 @@ async def _stream_agent_loop_impl(
     _is_lull = False
     _progressed = False
     _phase = None
+    _merged_scene: dict = {}  # ORW-294: the merged extraction's scene section handed to the later scene-record belt
     _turn_deal_nudges = 0  # 0039 deal back-fill: at most one auto-makeDeal per finishing turn
     _turn_offer_nudges = 0  # 0123 deal-offer answer belt: at most one auto-answer per finishing turn
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
@@ -8959,11 +9072,26 @@ async def _stream_agent_loop_impl(
                     # already saw stands and we just make the engine agree with it. Model-driven moveTo
                     # always wins (`_moved` short-circuits `_want_move`). Vault-free (whereabouts).
                     _pm_raw = _nm_raw = None
+                    # ORW-294 (flag ORWELL_MERGED_EXTRACTION, default OFF): when this same turn will ALSO run the scene-record belt, make ONE
+                    # call for all three extractions. The gates are unchanged; only how the belts extract. A section that fails falls back below.
+                    _mx = None
+                    if (_merged_extraction_enabled() and _want_move and _want_npc_move and _want_record and not _want_deal
+                            and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
+                            and (cleaned_round or "")[:1500] == (_turn_narration_visible or "")[:1500]
+                            and not (_is_ooc_aside_text(_last_user_for_move) or _is_ooc_aside_text(cleaned_round)
+                                     or _is_nondiegetic_scene_text(_last_user_for_move) or _is_nondiegetic_scene_text(cleaned_round))
+                            and _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])):
+                        _mx = await _merged_turn_extract(_turn_narration_visible, _last_user_for_move, _house,
+                                                         _belt_endpoint, _belt_model, _belt_headers, owner)
+                        _pm_raw, _nm_raw = _mx["playerRoom"], _mx["npcMoves"]
+                        if _mx["scene"] is not None:
+                            _merged_scene["raw"], _merged_scene["narration"] = _mx["scene"], cleaned_round
                     if _want_move and _want_npc_move:
                         # ORW-173: both belts will extract this turn - run the two LLM calls concurrently, apply the writes in order below.
+                        # (ORW-294: a move section the merged call already returned is passed in, not re-extracted; one that failed is extracted here.)
                         _pm_raw, _nm_raw = await _gather_move_extractions(
                             _turn_narration_visible, _last_user_for_move, _house,
-                            _belt_endpoint, _belt_model, _belt_headers, owner)
+                            _belt_endpoint, _belt_model, _belt_headers, owner, prefetched=(_pm_raw, _nm_raw))
                     if _want_move:
                         _turn_move_nudges += 1  # once per turn
                         if await _auto_move_player(_turn_narration_visible, _last_user_for_move,
@@ -9110,9 +9238,13 @@ async def _stream_agent_loop_impl(
                                 and not _progress_only_board_advanced(
                                     owner, _extract_last_user_message(messages), _ledger_beat_seq_before)):
                             _turn_record_nudges += 1  # once per turn
+                            _scene_raw = None  # ORW-294: the merged call's scene section, only for the very narration it read
+                            if _merged_scene.get("narration") == cleaned_round:
+                                _scene_raw = _merged_scene.get("raw")
+                            _merged_scene.clear()
                             if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                        session_id=session_id):
+                                                        session_id=session_id, raw=_scene_raw):
                                 # gap #3 telemetry — only a recordInteraction the belt actually FIRED
                                 # counts (a withIds:[] extraction / failed call is a no-op)
                                 _note_belt(owner, "auto-record-scene")
