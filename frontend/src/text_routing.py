@@ -23,6 +23,9 @@ DIRECT_FLASH = "deepseek-flash"
 DIRECT_PRO = "deepseek-v4-pro"
 
 
+_LOGGED_REPOINTS: set = set()
+
+
 class TextRoutingRefused(Exception):
     """A text call to OpenRouter in the game build with no direct DeepSeek endpoint to take it instead."""
 
@@ -91,7 +94,9 @@ def enforce_text_destination(url: str, model: str, headers: Optional[Dict] = Non
         raise TextRoutingRefused("text calls may not use OpenRouter in the game build and no DeepSeek endpoint is configured")
     new_url, new_headers, ep_id = target
     new_model = map_openrouter_text_model(model)
-    logger.warning("[text-routing] OpenRouter text target re-pointed to DeepSeek direct (endpoint %s): %r -> %r", ep_id, model, new_model)
+    if model not in _LOGGED_REPOINTS:  # once per model per process: a per-user override would otherwise log on every narrator message
+        _LOGGED_REPOINTS.add(model)
+        logger.warning("[text-routing] OpenRouter text target re-pointed to DeepSeek direct (endpoint %s): %r -> %r", ep_id, model, new_model)
     return new_url, new_model, new_headers
 
 

@@ -207,6 +207,20 @@ def _ensure_current_event_loop() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _text_routing_inactive_by_default(request, monkeypatch) -> None:
+    """ORW-287: in the game build (the test default) the llm_core dispatchers re-point or refuse OpenRouter TEXT calls. The many
+    llm_core payload/trace/timeout tests drive an OpenRouter-shaped URL on purpose (that wire format is still real for the non-game
+    build), so the guard is off for them; test_orw287_text_is_deepseek_direct.py turns it on explicitly."""
+    if "test_orw287" in str(request.node.fspath):
+        return
+    try:
+        import src.text_routing as _tr
+    except Exception:
+        return
+    monkeypatch.setattr(_tr, "active", lambda: False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_game_session_store(tmp_path, monkeypatch) -> None:
     """The canonical game-session binding (feature 0064) persists to a JSON file at a MODULE-CONSTANT
     path (`orwell_game_session.GAME_SESSION_PATH`, under the non-overridable `DATA_DIR`), so every
