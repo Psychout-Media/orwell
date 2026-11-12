@@ -111,7 +111,8 @@ def test_framing_appends_the_location_barrier_fail_open():
     # apply_game_framing calls the location helper and appends it to gm_prompt.
     assert "_whereabouts_barrier_directive(" in src
     # It reads the whereabouts off the SAME game_state snapshot (no extra round-trip; supports D1).
-    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"))' in src
+    # deliberate re-pin (ORW-311): the call also passes the engine's public `asleep` list so the narrator is barred from voicing houseguests who have turned in.
+    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))' in src
     # The fetch is wrapped in try/except (fail-open) and warns on failure.
     loc_call = src.index('_loc = _whereabouts_barrier_directive(')
     assert "except Exception" in src[loc_call:loc_call + 400]

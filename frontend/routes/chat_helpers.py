@@ -1091,7 +1091,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     )
 
 
-def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
+def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
 
@@ -1136,9 +1136,14 @@ def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
     else:
         roster_line = ("HARD ROSTER (this turn): the player is alone - nobody else is in the room. Nobody else speaks, acts, reacts, overhears or is described as present this turn; "
                        "a name may be MENTIONED in conversation, never seen or heard in the room. ")
+    # ORW-311 (Coordinator ruling 2026-11-12): a houseguest the engine says has TURNED IN for the night is in their bed. The roster only said who is in the player's room; with an empty roster the narrator still
+    # voiced sleeping houseguests in the kitchen at 2:44am. Names only (the same public `asleep` list the HUD and the Show Brief carry); they may be mentioned, never seen or heard awake.
+    sleepers = _names(asleep)
+    asleep_line = (f"\nTURNED IN FOR THE NIGHT (engine truth): {', '.join(sleepers)} - asleep in their beds. They do NOT speak, act, walk, laugh, overhear or appear in any room this turn; "
+                   "they may only be MENTIONED. Do not write a scene, a line of dialogue or a movement for any of them." if sleepers else "")
     return (
         "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
-        f"the player is in the {room}, with: {here}.{nearby_line}\n"
+        f"the player is in the {room}, with: {here}.{nearby_line}{asleep_line}\n"
         + roster_line +
         "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
         "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
@@ -7763,7 +7768,7 @@ async def apply_game_framing(
         # and the model's grounding + the gadget reflect one snapshot (supports D1). Permits narrated
         # movement (D2 records it); forbids only the impossible. Best-effort / fail-open.
         try:
-            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"))
+            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))
             if _loc:
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).
