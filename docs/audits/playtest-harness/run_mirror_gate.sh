@@ -158,12 +158,7 @@ rm -f "$FE_DATA/auth.json" "$FE_DATA/sessions.json" "$FE_DATA/app.db" "$FE_DATA/
 # against a FAKE model that wires no per-class enrichment provider, so the runtime `strict` default
 # would (correctly) refuse game creation and the mirror could never start. "Floor for tests, loud
 # for production" — the SERVER/product default stays strict; only this automated gate opts to soft.
-# ORWELL_WS_TRANSPORT=0 (#1087 CI honesty): the product default flipped ON (2026-07-10), so an unset
-# env makes the page inject body[data-ws-transport="1"] and the client's `_flagOn()` honors it EVEN
-# when a leg's init script never sets the window global — i.e. the "SSE" leg silently ran WS. Pin the
-# server-injected flag OFF so transport selection is purely per-leg: an SSE leg (no init script) is
-# genuinely SSE/poll, and a WS leg forces `window.ORWELL_WS_TRANSPORT = true` before app JS (the
-# `/api/ws/session` route is registered regardless of the env flag, so the forced upgrade still works).
+# ORW-44 S4b2: the game build is WebSocket-only (the ORWELL_WS_TRANSPORT rollback flag is gone), so every leg below runs the WS transport.
 # DETERMINISTIC-CONTENT pins for the transport-parity gate: this gate proves two windows RENDER the
 # same stream (a transport invariant), so the CONTENT must be deterministic — any per-turn variance
 # reads as a false "windows diverge". `ENRICHMENT_POLICY=soft` pins the legacy fold shapes; the
@@ -174,7 +169,6 @@ rm -f "$FE_DATA/auth.json" "$FE_DATA/sessions.json" "$FE_DATA/app.db" "$FE_DATA/
 ( cd "$ROOT/frontend" && ORWELL_GAME_BUILD=1 AUTH_ENABLED=true LOCALHOST_BYPASS=false \
     ORWELL_ENRICHMENT_POLICY=soft \
     ORWELL_OVERSEER_MODE=off ORWELL_FAITHFULNESS_MODE=off \
-    ORWELL_WS_TRANSPORT=0 \
     ORWELL_ENGINE_MCP_URL="$ENGINE_URL" ORWELL_DATA_DIR="$FE_DATA" \
     exec .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port $FE_PORT >"$LOGS/fe.log" 2>&1 ) & PIDS+=($!)
 wait_http "$BASE_URL/login" frontend || { tail -30 "$LOGS/fe.log"; exit 1; }
@@ -217,24 +211,11 @@ if [ -n "${MIRROR_HUD:-}" ]; then
     echo ""; echo "[$1] gate exit: $rc (0=PASS · 1=FAIL · 2=precondition unmet)"
     return $rc
   }
-  if [ -n "${MIRROR_WS_TRANSPORT+x}" ]; then
-    if [ "$MIRROR_WS_TRANSPORT" = "1" ] || [ "$MIRROR_WS_TRANSPORT" = "true" ]; then
-      run_hud_parity ws 1; GATE=$?
-    else
-      run_hud_parity fallback 0; GATE=$?
-    fi
-  else
-    run_hud_parity fallback 0; GATE_SSE=$?
-    run_hud_parity ws 1;       GATE_WS=$?
-    echo ""; echo "──── BOTH-MODE SUMMARY (HUD parity) ────"
-    echo "  SSE/fallback : $([ "$GATE_SSE" -eq 0 ] && echo PASS || echo FAIL) (exit $GATE_SSE)"
-    echo "  WS transport : $([ "$GATE_WS" -eq 0 ] && echo PASS || echo FAIL) (exit $GATE_WS)"
-    if [ "$GATE_SSE" -eq 0 ] && [ "$GATE_WS" -eq 0 ]; then GATE=0; else GATE=1; fi
-  fi
+  run_hud_parity ws 1; GATE=$?
 elif [ -n "$TOOLTURN" ]; then
   # The tool-rich multi-round settled-parity gate, under BOTH transports (#1087 — the WS
   # rebind→ring-replay churn regression failed exactly this gate while the single-round live gate
-  # stayed green). Same transport model as the live-parity branch below: MIRROR_WS_TRANSPORT unset ⇒
+  # stayed green). WebSocket only (ORW-44 S4b2; formerly: MIRROR_WS_TRANSPORT unset ⇒
   # both legs; =0/1 ⇒ pin one (the CI matrix legs). Each leg gets a DISTINCT turn text: the fake
   # toolturn model's reply derives deterministically from the prompt, so re-sending the same turn on
   # the accumulated session would make the gate's own duplicate-text check flag the two identical,
@@ -248,33 +229,12 @@ elif [ -n "$TOOLTURN" ]; then
     echo ""; echo "[$1] gate exit: $rc  (0=PASS no dup/orphan across two windows on a tool-rich turn · 1=FAIL · 2=precondition unmet)"
     return $rc
   }
-  if [ -n "${MIRROR_WS_TRANSPORT+x}" ]; then
-    if [ "$MIRROR_WS_TRANSPORT" = "1" ] || [ "$MIRROR_WS_TRANSPORT" = "true" ]; then
-      run_toolturn ws 1; GATE=$?
-    else
-      run_toolturn fallback 0; GATE=$?
-    fi
-  else
-    run_toolturn fallback 0; GATE_SSE=$?
-    run_toolturn ws 1;       GATE_WS=$?
-    echo ""
-    echo "──── BOTH-MODE SUMMARY (tool-turn parity) ────"
-    echo "  SSE/fallback : $([ "$GATE_SSE" -eq 0 ] && echo PASS || echo FAIL)  (exit $GATE_SSE)"
-    echo "  WS transport : $([ "$GATE_WS" -eq 0 ] && echo PASS || echo FAIL)  (exit $GATE_WS)"
-    if [ "$GATE_SSE" -eq 0 ] && [ "$GATE_WS" -eq 0 ]; then GATE=0; else GATE=1; fi
-  fi
+  run_toolturn ws 1; GATE=$?
 else
   # WS Phase-1 turn-on gate (protocol spec §6/§7 case f · ADR 0017 §Phasing): the F5 two-window
   # live-parity invariant must hold under BOTH transports — the WebSocket (the production default
   # since 2026-07-10) AND the permanent SSE/poll fallback (the rollback path — it must stay proven).
-  # The gate pins the transport per leg CLIENT-side via `MIRROR_WS_TRANSPORT` (an init script inside
-  # mirror_live_parity.mjs sets the window global before app JS); the FE above runs with the
-  # server-injected flag pinned OFF (#1087) so an SSE leg is genuinely SSE — the product default is
-  # never touched. Acceptance is BYTE-IDENTICAL between modes: the same three checks + WS-engagement,
-  # either red fails the gate.
-  #
-  #   MIRROR_WS_TRANSPORT unset ⇒ run BOTH modes (fallback then WS); each must pass.
-  #   MIRROR_WS_TRANSPORT=0/1  ⇒ pin a single mode (used by the CI matrix leg + local diagnosis).
+  # ORW-44 S4b2: the F5 two-window live-parity invariant runs under the WebSocket transport, the only game-build transport (the SSE/poll fallback legs were removed).
   run_live_parity() {  # $1 = mode label · $2 = MIRROR_WS_TRANSPORT value
     say "6) MIRROR LIVE-PARITY GATE — $1 transport"
     ( cd "$ROOT" && MIRROR_WS_TRANSPORT="$2" exec node "$HARNESS/mirror_live_parity.mjs" )
@@ -282,22 +242,6 @@ else
     echo ""; echo "[$1] gate exit: $rc  (0=PASS windows mirror live · 1=FAIL diverge · 2=precondition unmet)"
     return $rc
   }
-  if [ -n "${MIRROR_WS_TRANSPORT+x}" ]; then
-    # Single pinned mode.
-    if [ "$MIRROR_WS_TRANSPORT" = "1" ] || [ "$MIRROR_WS_TRANSPORT" = "true" ]; then
-      run_live_parity ws 1; GATE=$?
-    else
-      run_live_parity fallback 0; GATE=$?
-    fi
-  else
-    # Both modes — each must pass for the gate to be green (spec §6 "Both modes must pass F5").
-    run_live_parity fallback 0; GATE_SSE=$?
-    run_live_parity ws 1;       GATE_WS=$?
-    echo ""
-    echo "──── BOTH-MODE SUMMARY (WS Phase-1 turn-on gate) ────"
-    echo "  SSE/fallback : $([ "$GATE_SSE" -eq 0 ] && echo PASS || echo FAIL)  (exit $GATE_SSE)"
-    echo "  WS transport : $([ "$GATE_WS" -eq 0 ] && echo PASS || echo FAIL)  (exit $GATE_WS)"
-    if [ "$GATE_SSE" -eq 0 ] && [ "$GATE_WS" -eq 0 ]; then GATE=0; else GATE=1; fi
-  fi
+  run_live_parity ws 1; GATE=$?
 fi
 exit $GATE

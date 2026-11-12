@@ -194,7 +194,6 @@ def _stack():
             env=dict(
                 os.environ,
                 ORWELL_GAME_BUILD="1", AUTH_ENABLED="false", LOCALHOST_BYPASS="true",
-                ORWELL_WS_TRANSPORT="0",  # F3's throw lives on the SSE/fetch reader path
                 ORWELL_ENGINE_MCP_URL=ebase,
                 PLAYWRIGHT_BROWSERS_PATH=os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers"),
                 DATABASE_URL="sqlite:///" + os.path.join(fe_db_dir, "app.db"),
