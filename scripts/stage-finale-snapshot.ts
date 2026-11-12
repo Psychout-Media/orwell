@@ -39,7 +39,11 @@ function drive(s: Any, wantPlayerIn: boolean): boolean {
   return false;
 }
 
-for (let seed = 1; seed <= 40; seed++) {
+// Seed search order: a seed known to give a usable season for the variant FIRST (ORW-218: the player-in variants burn ~35 s replaying 15 unusable seasons before seed 16), then the full 1..40 scan as the
+// fallback, so an engine change that moves which seeds qualify still finds one. Every candidate is verified by `drive` exactly as before - the hint only changes the order, never the check.
+const HINT: Record<string, number> = { npc: 16, player: 16, evicted: 16, juror: 1 };
+const seeds = [HINT[variant]!, ...Array.from({ length: 40 }, (_, i) => i + 1).filter((n) => n !== HINT[variant])];
+for (const seed of seeds) {
   const d = `${outDir}/s${seed}`;
   mkdirSync(d, { recursive: true });
   const s = open(d);
