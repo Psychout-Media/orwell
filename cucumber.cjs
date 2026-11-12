@@ -118,6 +118,7 @@ module.exports = {
       "docs/features/0137-the-producer-read.feature",
       "docs/features/0138-the-player-dossier.feature",
       "docs/features/0140-publicity-priced-promises.feature",
+      "docs/features/0139-the-booth-has-receipts.feature",
       "docs/features/0144-visible-mood-never-opposite.feature",
       "docs/features/0134-telephone-game-payoffs.feature",
     ],
