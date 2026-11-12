@@ -77,6 +77,15 @@ only 7 types seems wild to me."):
   revealing causes (a plan, a grudge, a con, a secret) need more trust and candor (Ryne 2026-11-12: no motive hints).
 - Gate: `tests/unit/innerLife.test.ts` (6 cases; 4 mutants each go red).
 
+## Slice 6 core: jury and final HOH from character (`juryMinds.ts`)
+- `jurorArchetypeFor(character, juror, seed)`: the juror's voting style (the five existing styles) comes from their archetype and strategy
+  style (a hothead holds grudges, a peacemaker forgives, a loyalist rewards loyalty, a comp beast rewards the game); the id hash is only a
+  near-tie jitter. Replaces `jurorProfile`'s pure id hash. The house-mean of each jury term now follows the cast (reported, never gated).
+- `finalHohChoice(hoh, options)`: the NPC Final HOH weighs its OWN estimate of its jury share against each possible finalist, the threat
+  and the bond, by character (a strategist sits beside who they can beat, a loyalist keeps the ally, a hothead cuts the threat), with a
+  real reason. Replaces "evict the higher-threat rival" (liveSeason.ts ~3106).
+- Gate: `tests/unit/juryMinds.test.ts` (7 cases; 4 mutants each go red).
+
 ## Not in slice 1
 Decisions reading the agenda and stored reasons (slice 2); the hour-by-hour actions and next step (slice 3); memory sentences and mood
 causes (slice 4); model words (slice 5); jury and final HOH from character (slice 6); house culture (slice 3/5).
