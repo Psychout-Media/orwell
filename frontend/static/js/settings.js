@@ -309,6 +309,15 @@ function _applyRemoteTab(state) {
 // keyboard-shortcuts wiring, and the /settings open path keep working.
 function initKitWindow() {
   const host = el('settings-host');
+  // ORW-161: lazy-mount. index.html ships the Settings DOM inside an inert <template>; stamp it
+  // into the host now (initAll runs only on the first open()) so it is not in the live document
+  // - and not ~half its element count - until the player opens Settings.
+  const tpl = host ? host.querySelector('template#settings-template') : null;
+  if (tpl) {
+    host.appendChild(tpl.content);
+    tpl.remove();
+    try { if (window.OrwellAvatar) window.OrwellAvatar.refresh(); } catch (_) {}
+  }
   const content = host ? host.querySelector('.settings-modal-content') : null;
   if (!content) return;
   // IMPORTANT: leave `content` inside #settings-host (in the document, just hidden) until the kit's
