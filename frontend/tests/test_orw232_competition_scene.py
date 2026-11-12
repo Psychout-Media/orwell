@@ -202,7 +202,8 @@ def test_every_fe_silent_advance_belt_respects_a_fresh_pause():
     src = pathlib.Path(__file__).resolve().parents[1].joinpath("src", "agent_loop.py").read_text()
     i = src.index("async def _commit_advance_silently")
     head = src[i:i + 2600]
-    assert "comp_pause_holds(owner)" in head and "return True" in head[head.index("comp_pause_holds(owner)"):head.index("comp_pause_holds(owner)") + 300]
+    # ORW-281 slice 5: the competition-only hold was generalised to the one event-pause hold (comp_pause_holds stays as an alias); the pin follows the new name, same guarantee.
+    assert "event_pause_holds(owner)" in head and "return True" in head[head.index("event_pause_holds(owner)"):head.index("event_pause_holds(owner)") + 300]
     assert src.count("async def _commit_advance_silently") == 1
 
 

@@ -9132,7 +9132,7 @@ async def _stream_agent_loop_impl(
                             _silent_advance_reconciled[0] = False  # reset per call (finding 4)
                             try:  # ORW-232 slice 2 (live run 3): a FRESH competition pause is the player's turn to talk - no FE belt (stall / decision-deliver / preview-commit) may advance it. True = "done this turn".
                                 from routes import chat_helpers as _ch_cp
-                                if _ch_cp.comp_pause_holds(owner):
+                                if _ch_cp.event_pause_holds(owner):
                                     logger.info(f"[orwell] silent advance ({_why}) skipped: the competition is paused for the player user={owner}")
                                     return True
                             except Exception:
