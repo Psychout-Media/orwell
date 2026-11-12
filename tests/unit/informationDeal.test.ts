@@ -51,8 +51,10 @@ describe("the pure rule", () => {
     told.delivered = 1;
     expect(ledger.expireWeekScoped(2)).toEqual([told]);
     expect(told.status).toBe("kept");
-    expect(idle.status).toBe("open");
+    // deliberate re-pin (ORW-316): the undelivered deal used to be DELETED from the ledger (its object kept the stale "open"), which the non-degradation checkpoint refuses; it now LAPSES and stays in the saved list.
+    expect(idle.status).toBe("lapsed");
     expect(ledger.open()).not.toContain(idle);
+    expect(ledger.serialize().map((d) => d.id)).toContain(idle.id);
   });
 });
 

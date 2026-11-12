@@ -187,12 +187,12 @@ export class DealLedger {
 
   /** All deals a given houseguest is party to (any status) — the player's own visibility scope. */
   forParty(id: EntityId): Deal[] {
-    return this.deals.filter((d) => d.parties.includes(id));
+    return this.deals.filter((d) => d.status !== "lapsed" && d.parties.includes(id));
   }
 
   /** Deals NOT involving the player (NPC↔NPC) — Vault-held, never an outward fact. */
   npcOnly(): Deal[] {
-    return this.deals.filter((d) => !d.parties.includes(PLAYER));
+    return this.deals.filter((d) => d.status !== "lapsed" && !d.parties.includes(PLAYER));
   }
 
   get all(): readonly Deal[] {
@@ -272,13 +272,15 @@ export class DealLedger {
       const negotiatedTermPassed = deal.expiresWeek !== undefined && currentWeek > deal.expiresWeek;
       if (kindHorizonPassed || negotiatedTermPassed) {
         // 0142 (coordinator ruling on #2405): a `conditional` pact still OPEN when its term ends was never TESTED (a tested one resolves at the vote: kept if honored, broken if not), so nobody kept
-        // anything. It is NOT marked `kept` (that status earns goodwill / "keeps their word" reads) and folds nothing either way: it is dropped from the live ledger (the formation event stays in the record).
+        // anything. It is NOT marked `kept` (that status earns goodwill / "keeps their word" reads) and folds nothing either way: it LAPSES (status "lapsed", out of the live ledger, kept in the saved list - ORW-316; the formation event stays in the record).
         if (deal.kind === "conditional" || (deal.kind === "information" && !deal.delivered)) { untested.push(deal); continue; }
         deal.status = "kept";
         resolved.push(deal);
       }
     }
-    if (untested.length > 0) this.deals = this.deals.filter((d) => !untested.includes(d));
+    // ORW-316: LAPSE, never delete. The old `this.deals.filter(...)` removed these entries, and the non-degradation checkpoint (`sessionCoreIsSuperset`: `deals` is append-only by id) then refused the
+    // week-roll advance as a "degradation" on every attempt - the game froze at the end of the first eviction whenever an untested conditional / undelivered information deal was open (found live 2026-11-12).
+    for (const d of untested) d.status = "lapsed";
     return resolved;
   }
 
