@@ -818,7 +818,12 @@ def _build_system_prompt(
     # browser provided timezone headers, with a server-local fallback.
     try:
         from src.user_time import current_datetime_prompt
-        agent_prompt = current_datetime_prompt() + agent_prompt
+        if game_mode:
+            # ORW-296 slice 2 (A/B arm): the clock paragraph changes every turn, so on a game turn it goes AFTER the stable TOOLS/RULES text, not before it
+            # - the provider's prefix cache then reuses TOOLS + RULES as well.
+            agent_prompt = agent_prompt.rstrip("\n") + "\n\n" + current_datetime_prompt().rstrip("\n") + "\n"
+        else:
+            agent_prompt = current_datetime_prompt() + agent_prompt
     except Exception:
         pass
 
