@@ -169,7 +169,7 @@ export function isInertBeat(beat: Beat): boolean {
  * WHOLE ceremony so the house event stays in session between steps. 4b-4d plug in by adding a row to `CEREMONY_STEPS` / `CEREMONY_STEP_TEXT`, not new machinery.
  * `outcome` is ENGINE-ONLY until the step that publishes it (it is never projected).
  */
-export type CeremonyKind = "nominations" | "veto-draw" | "veto-ceremony" | "eviction";
+export type CeremonyKind = "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | "final-eviction";
 export interface CeremonyProgress {
   kind: CeremonyKind;
   hold: CeremonyKind;
@@ -180,16 +180,18 @@ export interface CeremonyProgress {
   draw?: { compId: string; compName: string; field: EntityId[]; hc?: { holder: EntityId; candidates: EntityId[]; picked?: EntityId } };
   /** ORW-281 4c: the VETO CEREMONY's outcome, decided once (up front for an NPC holder, at the 'decide' step for the player) - ENGINE-ONLY until the 'result' step publishes it; never projected. `fromPlayer`: the player (HOH) named the replacement (so no assurance fold, as before). */
   vetoOutcome?: { used: boolean; saved?: EntityId; replacement?: EntityId; fromPlayer?: boolean };
+  /** ORW-291 (C): the FINAL HOH's eviction, decided once (up front for an NPC Final HOH by the same read as the one-beat path - no rng; at the 'choose' step for the player) - ENGINE-ONLY until the 'result' step publishes it; never projected. */
+  finalEvictee?: EntityId;
 }
 /** The Vault-free step handle every ceremony pending / advance result carries (`step` is 1-based). */
 export interface CeremonyRef { kind: CeremonyKind; step: number; of: number | null; stepId: string }
 /** Step lists per kind. */
 export const CEREMONY_STEPS: Record<CeremonyKind, { withChoice: string[]; npc: string[] } | undefined> = {
   nominations: { withChoice: ["hoh-speech", "choose", "named"], npc: ["hoh-speech", "named"] },
-  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": { withChoice: ["convene", "decide", "result"], npc: ["convene", "result"] }, eviction: { withChoice: ["speeches", "votes", "result"], npc: ["speeches", "votes", "result"] }, // 4d: speeches is the one WATCH step; votes/result ride the existing s.eviction stages. 4c: a "replacement" step is spliced in before "result" when the PLAYER (HOH) must name it; 4d add their step lists here
+  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": { withChoice: ["convene", "decide", "result"], npc: ["convene", "result"] }, "final-eviction": { withChoice: ["choose", "result"], npc: ["decision", "result"] }, eviction: { withChoice: ["speeches", "votes", "result"], npc: ["speeches", "votes", "result"] }, // 4d: speeches is the one WATCH step; votes/result ride the existing s.eviction stages. 4c: a "replacement" step is spliced in before "result" when the PLAYER (HOH) must name it; 4d add their step lists here
 };
 /** Binding steps (answered by `submitDecision` with the kind's existing pending); every other step id is a WATCH step. */
-export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice", "veto-ceremony/decide", "veto-ceremony/replacement"]);
+export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice", "veto-ceremony/decide", "veto-ceremony/replacement", "final-eviction/choose"]);
 /** The Vault-free line a WATCH step shows (public names via `{hoh}` and the step id only - never an outcome ahead of the engine). 4b-4d just add rows. */
 export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "nominations/hoh-speech": "{hoh} is about to name the nominees",
@@ -199,6 +201,8 @@ export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "eviction/speeches": "The nominees plead their case and the house gathers for the vote",
   "eviction/votes": "The votes are read, one ballot at a time", // not a pending (votes ride the s.eviction reveal stage); a row so the step list stays complete
   "eviction/result": "The vote is decided", // likewise - never names the evictee
+  "final-eviction/decision": "{hoh} has made the decision - the Final 2 is about to be set", // never names the evictee ahead of the engine
+  "final-eviction/result": "The Final 2 is set",
   "veto-ceremony/convene": "{hoh} has called the house together for the Veto Ceremony",
   "veto-ceremony/result": "The Veto Ceremony is over - the nominees are: {nominees}",
 };
@@ -220,6 +224,7 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
     if (c.kind === "veto-draw") s.pending = { kind: "houseguests-choice", by: ctx.player, options: [...c.draw!.hc!.candidates] };
     else if (c.kind === "veto-ceremony" && id === "decide") s.pending = { kind: "veto-decision", by: ctx.player, nominees: s.nominees!, saveable: selectableReplacements(weekState(s, ctx)).length > 0 ? [...s.nominees!] : [] };
     else if (c.kind === "veto-ceremony") s.pending = { kind: "replacement", by: ctx.player, saved: c.vetoOutcome!.saved!, options: replacementOptions(s, ctx, c.vetoOutcome!.saved) };
+    else if (c.kind === "final-eviction") { const r = s.active.filter((h) => h !== s.hoh) as EntityId[]; s.pending = { kind: "final-eviction", by: ctx.player, options: [r[0]!, r[1]!] }; }
     else s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
     return null;
   }
@@ -249,6 +254,12 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
         participants: [holder, o.saved!, s.hoh!, o.replacement!],
       };
     }
+  }
+  if (c.kind === "final-eviction" && id === "result") { // ORW-291 (C): the step that PUBLISHES the Final HOH's eviction: commit exactly what the one-beat path would have
+    const evictee = c.finalEvictee!;
+    ev = { beat: "final-eviction", content: `${s.hoh} evicts ${evictee}, setting the Final 2`, participants: [s.hoh!, evictee] };
+    applyEviction(s, evictee, ctx, [s.hoh!]);
+    if (evictee === ctx.player || s.pending || s.finished) { s.ceremony = undefined; return ev; } // an evicted player is out of the house (and any pending the commit raised stands): nothing left to watch
   }
   if (c.kind === "nominations" && id === "named") {
     const [a, b] = c.outcome!.nominees;
@@ -3074,6 +3085,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // Final 3 (0045): the final HOH evicts one of the other two; the survivor + HOH are the Final 2.
       const rivals = s.active.filter((h) => h !== s.hoh) as EntityId[];
       if (s.hoh === ctx.player) {
+        if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["final-eviction"]) { // ORW-291 (C): the player's choice is the ceremony's binding first step
+          s.ceremony = { kind: "final-eviction", hold: "eviction", steps: [...CEREMONY_STEPS["final-eviction"].withChoice], at: 0 };
+          return openCeremonyStep(s, ctx);
+        }
         s.pending = { kind: "final-eviction", by: ctx.player, options: [rivals[0]!, rivals[1]!] };
         return null;
       }
@@ -3081,6 +3096,11 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // ORW-87: ...plus what the HOH remembers of each (grudge up, favor down) when the memory layer is live for a played game.
       const evictScore = (r: EntityId): number => ctx.rel.edge(s.hoh!, r).threat + (ctx.endgameMemoryFor?.(r, s.hoh!) ?? 0);
       const evictee = [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
+      if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["final-eviction"]) { // ORW-291 (C): a played game stages the Final HOH's eviction (decision -> result); the evictee is decided HERE, once, by the same read
+        s.ceremony = { kind: "final-eviction", hold: "eviction", steps: [...CEREMONY_STEPS["final-eviction"].npc], at: 0, finalEvictee: evictee };
+        s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
+        return null;
+      }
       const ev: BeatEvent = { beat: "final-eviction", content: `${s.hoh} evicts ${evictee}, setting the Final 2`, participants: [s.hoh!, evictee] };
       applyEviction(s, evictee, ctx, [s.hoh!]);
       return ev;
@@ -3643,6 +3663,11 @@ export function applyDecision(
       const rivals = s.active.filter((h) => h !== s.hoh);
       if (!rivals.includes(input.evict)) throw new Error("can only evict one of the other two finalists");
       s.pending = undefined;
+      if (s.ceremony?.kind === "final-eviction") { // ORW-291 (C): the choice is the outcome; the 'result' step publishes it
+        s.ceremony.finalEvictee = input.evict;
+        s.ceremony.at = s.ceremony.steps.indexOf("result");
+        return openCeremonyStep(s, ctx)!;
+      }
       const ev: BeatEvent = { beat: "final-eviction", content: `${s.hoh} evicts ${input.evict}, setting the Final 2`, participants: [s.hoh!, input.evict] };
       applyEviction(s, input.evict, ctx, [s.hoh!]);
       return ev;

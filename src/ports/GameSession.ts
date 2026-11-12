@@ -1422,7 +1422,7 @@ export interface OpenDealOfferView {
 
 /** ORW-281 slice 4a: the staged-ceremony step handle (`step` is 1-based; `of` is null when a ceremony's length is open-ended). */
 export interface CeremonyStepView {
-  kind: "nominations" | "veto-draw" | "veto-ceremony" | "eviction";
+  kind: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | "final-eviction";
   step: number;
   of: number | null;
   stepId: string;
