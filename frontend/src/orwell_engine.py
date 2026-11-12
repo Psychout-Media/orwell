@@ -725,7 +725,9 @@ async def day_ledger(user: str | None = None) -> list:
     Fail-soft: any engine error or non-list answer reads as ``[]`` (the prompt then simply sends the raw history, as before)."""
     try:
         result = await _call("dayLedger", {}, user=user)
-    except Exception:
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:ledger-read-failed", e, corrected="raw history", user=user)
         return []
     return result if isinstance(result, list) else []
 
@@ -742,6 +744,8 @@ async def record_day_summary(day: int, text: str, tier: str = "day", covers_days
     try:
         result = await _call("recordDaySummary", args, user=user)
     except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:write-back-failed", e, corrected="raw history", user=user)
         return {"accepted": False, "reason": f"error: {e}"}
     return result if isinstance(result, dict) else {"accepted": False}
 

@@ -202,6 +202,11 @@ async def condense_day(owner, closed_day: int, *, llm_fn: Optional[LlmFn], histo
         return result
     except Exception as e:
         logger.warning("[day-condense] day condense failed: %s", e)
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("day-condense:condense-failed", e, corrected="raw history stays in the prompt")
+        except Exception:  # failsoft-ok: recorder-self
+            pass
         return {"accepted": False, "reason": "error"}
 
 
@@ -287,6 +292,11 @@ def kickoff_after_turn_in(owner, result) -> None:
                 await run_condense(owner, day)
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[day-condense] background task failed: %s", e)
+                try:
+                    from src import log_rings
+                    log_rings.record_soft_failure("day-condense:background-failed", e, corrected="raw history stays in the prompt")
+                except Exception:  # failsoft-ok: recorder-self
+                    pass
             finally:
                 _IN_FLIGHT.discard(k)
 
@@ -294,5 +304,5 @@ def kickoff_after_turn_in(owner, result) -> None:
             asyncio.get_running_loop().create_task(_runner())
         except RuntimeError:
             _IN_FLIGHT.discard(k)  # no loop (sync caller): skip rather than block sleep
-    except Exception:
+    except Exception:  # failsoft-ok: expected-empty (fire-and-forget kickoff; the author task records its own failures, and a missed kickoff just leaves the raw history in the prompt)
         pass
