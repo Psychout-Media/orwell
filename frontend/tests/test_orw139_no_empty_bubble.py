@@ -37,13 +37,8 @@ def _run(_stack, tag, script, reply, refresh):
     with sync_playwright() as pw:
         browser = _launch(pw)
         page = _open(browser, _stack)
-        # ORW-293b diagnostics: if the reply is persisted twice, say WHO sent what. Every socket frame the client sends (turn up-frames and their clientMsgIds),
-        # the page console, and (below) the server's own history rows are folded into the failure message.
-        diag = {"sent": [], "console": []}
-
-        def _on_ws(ws):
-            ws.on("framesent", lambda payload: diag["sent"].append(str(payload)[:220]))
-        page.on("websocket", _on_ws)
+        # ORW-293b diagnostics: if the reply count is ever wrong, the failure message carries the server's own history rows (every send and reply of the shared session) and the page console.
+        diag = {"console": []}
         page.on("console", lambda m: diag["console"].append(m.text[:200]))
         page.evaluate(_SAMPLER)
         STUB.script.extend(script)
@@ -72,15 +67,21 @@ def _run(_stack, tag, script, reply, refresh):
                              "text": str(m.get("content", ""))[:60]} for m in rows if isinstance(m, dict)]
         except Exception as e:  # diagnostics must never mask the real assertion
             diag["rows"] = f"unavailable: {type(e).__name__}"
-        diag["turn_frames"] = [s for s in diag["sent"] if '"t": "turn"' in s or '"t":"turn"' in s]
         browser.close()
     assert not empties, f"an empty .msg-ai bubble existed during the turn: {empties[:3]}"
-    assert n_reply == 1, f"reply shown {n_reply} times: {dump}\nDIAG turn up-frames sent={len(diag['turn_frames'])}: {diag['turn_frames']}\nDIAG history rows: {diag.get('rows')}\nDIAG console (last 25): {diag['console'][-25:]}"
+    assert n_reply == 1, f"reply shown {n_reply} times: {dump}\nDIAG history rows (user sends and replies of the whole shared session): {diag.get('rows')}\nDIAG console (last 25): {diag['console'][-25:]}"
     return total_ai
 
 
+# ORW-293c: NO automatic rerun for this test. Every framed turn lands in the module stack's ONE canonical session, so a rerun after a failed first attempt re-sent the
+# same line into a session that already held attempt 1's reply; with identical reply text the page then showed it "2 times" and the rerun failed for a reason that had
+# nothing to do with the real flake (the CI "reply shown 2 times" reports, seq 3 and seq 5, were that artifact). The reply is also unique per attempt now, so a count of 1
+# means exactly this attempt's reply. With the rerun off, the FIRST failure (whatever it really is) is what CI prints.
+@pytest.mark.flaky(reruns=0)
 @pytest.mark.parametrize("refresh", [False, True])
 def test_tool_first_round_no_empty_bubble(_stack, refresh):  # noqa: F811
-    reply = f"You glance around the room, refresh{int(refresh)}."
-    script = [{"tool_calls": [{"name": "whereabouts", "args": {}}]}, {"deltas": ["You glance ", f"around the room, refresh{int(refresh)}."], "delay": 0.25}]
+    import uuid
+    tag = f"refresh{int(refresh)}-{uuid.uuid4().hex[:6]}"
+    reply = f"You glance around the room, {tag}."
+    script = [{"tool_calls": [{"name": "whereabouts", "args": {}}]}, {"deltas": ["You glance ", f"around the room, {tag}."], "delay": 0.25}]
     _run(_stack, f"orw139-tool-{int(refresh)}", script, reply, refresh)

@@ -102,6 +102,9 @@ def _wait_consumed(n_before, timeout_s=30):
     return False
 
 
+# ORW-293c: no automatic rerun. Every framed turn lands in the module stack's ONE canonical session, and this test asserts "exactly one" of fixed texts, so a rerun
+# after a failed first attempt sees attempt 1's rows and fails for an unrelated reason (the CI "shown 2 times" artifact), hiding the real first failure.
+@pytest.mark.flaky(reruns=0)
 def test_golden_send_stream_reload_offline_queue_and_mirror(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
 
