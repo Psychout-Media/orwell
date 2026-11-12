@@ -99,3 +99,24 @@ export const AGENDA = {
   /** A personal, seeded stubbornness offset (+/- this) so no two houseguests of one type hold on the same. */
   personalStubbornness: 0.1,
 } as const;
+
+/** ORW-253 slice 2 (`agendaDecisions.ts`): goal pull on decisions and the stated-vs-real reason. */
+export const REASONS = {
+  /** Ryne 2026-11-12, answer 1: goals count as much as the threat read. A fully committed goal adds 1.0 x commitment, same scale as threat. */
+  goalWeight: 1.0,
+  /** "Pull them in" shields its target at this share of the goal weight (wanting someone is weaker than vowing to protect them). */
+  recruitShield: 0.5,
+  /** "Last alliance standing" shields each alliance mate at this share. */
+  allianceShield: 0.5,
+  /** How readily each archetype tells the truth about its reasons (0..1). */
+  candorByArchetype: {
+    "comp-beast": 0.7, mastermind: 0.3, "social-butterfly": 0.6, floater: 0.5, villain: 0.2, underdog: 0.75,
+    flirt: 0.5, loyalist: 0.8, wildcard: 0.55, analyst: 0.45, hothead: 0.85, peacemaker: 0.7,
+  } as Readonly<Record<string, number>>,
+  /** Style shifts candor: the strategic and under-the-radar hide more, the emotional and loyal blurt. */
+  candorByStyle: { aggressive: 0.05, social: 0, strategic: -0.15, "under-the-radar": -0.15, emotional: 0.1, loyal: 0.1 } as Readonly<Record<string, number>>,
+  /** A reason that reveals a plan or a grudge is admitted less often by this much. */
+  secretivePenalty: 0.25,
+  /** Of the not-fully-honest answers, the share that is a softened half-truth rather than a cover story. */
+  partTruthShare: 0.6,
+} as const;

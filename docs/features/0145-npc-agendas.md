@@ -36,6 +36,19 @@ utility model propose a season aim from the backstory, bounded to the closed goa
 Goals full strength (slice 2); secrets worth protecting = yes; long cons = yes, strategic or mastermind types only; the house you never
 saw = yes (retrospective, later slice); small wants = later; motives: no hints, actions are the evidence.
 
+## Slice 2 core: goals move decisions, and reasons are stored (`agendaDecisions.ts`)
+- `goalPull(agenda, candidate, board, mates)`: signed pull on one candidate, FULL STRENGTH (Ryne 2026-11-12: goals count as much as the
+  threat read; `REASONS.goalWeight = 1.0`, same 0..1 scale, not a small capped tilt). Get-them-out and revenge push against; keep-them-safe
+  and protect-my-person shield; pull-them-in and an alliance aim shield at half; a long con shields the mark before its stage and cuts
+  them after it. Names the goal that pulled hardest.
+- `explainDecision(real, speaker, seed, day)`: the REAL reason (goal + terms + tactic, Vault-class) gives a STATED reason from a closed
+  set (biggest threat, came after me, loyal to my side, pawn, kept my word, didn't trust you, had it planned, nothing personal, house
+  wanted it) with a candor the engine records: truth, part-truth or cover. Candor comes from archetype and style; reasons that reveal a
+  plan or grudge are admitted less; a backdoor HOH always says "pawn". Only `voiceableReason` (kind + subject) may reach the narrator.
+- Gate: `tests/unit/agendaDecisions.test.ts` (11 cases, 6 mutants each go red). The overseer half wires `goalPull` into nominations,
+  replacement, veto and votes (with ORW-305's term breakdown as `terms`) and hands the stated reason to the narrator in place of the
+  "invent the HOH's reason" instruction.
+
 ## Not in slice 1
 Decisions reading the agenda and stored reasons (slice 2); the hour-by-hour actions and next step (slice 3); memory sentences and mood
 causes (slice 4); model words (slice 5); jury and final HOH from character (slice 6); house culture (slice 3/5).
