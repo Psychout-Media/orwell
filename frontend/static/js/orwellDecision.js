@@ -1263,12 +1263,24 @@
   const _sig = (p) => (p && p.kind)
     ? p.kind + "|" + ((p.options || []).map((o) => o && o.id).join(",")) + "|" + (p.prompt || "")
     : "";
+  // ORW-298: a mounted ceremony WATCH card must follow the engine's pending. A typed progress message
+  // ("next") advances the step with no button press, so the card's own Continue handler never runs and the
+  // card (plus its stale Continue, which would fire an extra advanceGame) lingered and blocked the real next
+  // card from mounting. Drop it when the engine's pending is gone or is a different step/kind.
+  function _dropStaleWatchCard(pending) {
+    const c = document.getElementById(CARD_ID);
+    if (!c || !c.classList.contains("odec-watch")) return;
+    const cer = (pending && pending.kind === "ceremony-step" && pending.ceremony) || null;
+    const same = cer && String(cer.kind || "") === c.dataset.ceremony && String(cer.step || "") === c.dataset.step;
+    if (!same) removeCard();
+  }
   async function rearmFromStatus() {
     try {
       const r = await fetch("/api/orwell/status", { credentials: "same-origin" });
       if (!r.ok) return;
       const st = await r.json();
       const pending = st && st.pending && st.pending.kind ? st.pending : null;
+      _dropStaleWatchCard(pending);
       if (!pending) return;
       // F2: don't re-nag the EXACT card the player dismissed — a `gamechanged` / re-poll of the
       // SAME pending must stay dismissed; only a genuinely DIFFERENT pending re-arms.
@@ -1319,13 +1331,15 @@
       // a STALE/duplicate card after the WS `state` push has already taken over. (`_wsActive` is a
       // hoisted fn declaration below.)
       if (_wsActive()) return;
-      if (document.getElementById(CARD_ID)) return;    // a card is already showing
+      const _up = document.getElementById(CARD_ID);
+      if (_up && !_up.classList.contains("odec-watch")) return;   // a decision card is already showing
       if (!document.getElementById("chat-history")) return;
       const r = await fetch("/api/orwell/status", { credentials: "same-origin" });
       if (!r.ok || _wsActive()) return;                // WS took over while the fetch was in flight
       const st = await r.json();
       if (_wsActive()) return;                          // …or while parsing the body — do not dispatch
       const pending = st && st.pending && st.pending.kind ? st.pending : null;
+      _dropStaleWatchCard(pending);                     // ORW-298: a watch card follows the engine pending
       // F-NEW-4: respect a dismissal PER SIGNATURE, not as a blanket flag — the old
       // unconditional `if (_userDismissed) return` let a dismissed low-stakes pending
       // suppress a genuinely DIFFERENT, later card (e.g. nominations) on this backstop.

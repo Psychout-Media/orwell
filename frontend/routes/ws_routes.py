@@ -710,6 +710,7 @@ async def ws_session(websocket: WebSocket) -> None:
             from src import orwell_engine
             # CON-4 / F5 / DB1/DB2: import shared helpers from orwell_routes so the WS runs
             # the EXACT same seams the HTTP handler runs (fix #1866).
+            from routes.chat_helpers import _refresh_beat_seq
             from routes.orwell_routes import (
                 _post_decision_tail,
                 _recent_decision_failure,
@@ -745,7 +746,16 @@ async def ws_session(websocket: WebSocket) -> None:
                 # ── Shared post-submit tail (fix #1866) — runs the EXACT same seams the HTTP
                 # orwell_decision handler runs (F14 post-goodbye advance, pending cache,
                 # publish, DB2 clear).
-                await _post_decision_tail(decision, res, user, decision.get("kind"), idem)
+                # ORW-298: the FE's server-side last-seen beatSeq (the CAS token the NEXT progression call,
+                # e.g. /ceremony-continue, attaches) must follow this commit exactly as the HTTP handler does.
+                # Without it the token stayed one commit behind, so the first Continue press after a WS-submitted
+                # decision was refused stale-beat and silently "reconciled" into a no-op.
+                _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+                res = await _post_decision_tail(decision, res, user, decision.get("kind"), idem)
+                _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+                _tb = _beat_seq_of(res if isinstance(res, dict) else {})
+                if _tb is not None:
+                    sock["beatSeq"] = _tb
                 await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True}})
                 # Fan a state edge so every window re-reads the moved board (§4).
                 await send({"t": "state", "ch": "state", "d": {"beatSeq": sock["beatSeq"], "reason": "decision"}})

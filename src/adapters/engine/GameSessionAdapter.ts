@@ -10178,7 +10178,9 @@ export class GameSessionAdapter implements GameSession {
     // A65: defense in depth for the production schedule. With the gate on, the clock running and the next milestone NOT yet due, an ordinary beat is REFUSED here (typed `held`, no commit, no beatSeq
     // bump, not cached for idempotency) so the schedule no longer rests on the FE hold alone. Pending decisions, the premiere stages, the spectator fast-forward and the engine's own fast-forward
     // (`scheduleGateBypass`) are unaffected; flag off => this block is skipped entirely (byte-identical).
-    if (this.advanceGateEnabled && !this.scheduleGateBypass && this.live.playedGame === true && this.perConversationClockLive() && !this.live.pending && !this.live.finished) {
+    // ORW-303: NOT for a player who has left the game (evicted: a juror, or a spectator): their clock only moves with messages they never send as an outsider, and turnIn is a no-op for them, so the hold could never lift
+    // (the season froze for every evicted player once the gate shipped ON). Same exclusion as the night hold above.
+    if (this.advanceGateEnabled && !this.scheduleGateBypass && this.live.playedGame === true && !this.live.spectator && !playerHasLeft(this.live, PLAYER) && this.perConversationClockLive() && !this.live.pending && !this.live.finished) {
       const m = nextMilestone(this.live);
       if (m && !milestoneDueOf(this.live)) return { ...this.advanceView(null), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live) ?? 0, reason: "schedule" } };
     }

@@ -732,6 +732,18 @@ def note_premiere_turn(user, game_state) -> None:
         if stage in ("entrances", "toast"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
             _PREMIERE_MSGS.pop(key, None)
+            # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
+            # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
+            # none of them, the post-turn check re-grounds the NEXT turn ("the engine committed this beat but your last turn never voiced it ... use ONLY the names given here").
+            if stage == "entrances":
+                try:
+                    _ent = ((game_state or {}).get("premiere") or {}).get("entrance") or {}
+                    _ja = _ent.get("justArrived")
+                    _jn = str((_ja or {}).get("name") or "").strip() if isinstance(_ja, dict) else ""
+                    if _jn:
+                        note_ceremony_beat_for_voicing(user, f"{_jn} just walked in (premiere entrance {_ent.get('index')} of {_ent.get('total')})", [_jn])
+                except Exception:  # failsoft-ok: expected-empty (a malformed premiere view only skips the voicing check; the entrance itself is the engine's and is unaffected)
+                    pass
             # live finding (Thursday dry run): the engine RECORDS each toast batch, but a chatting player pulls the narrator off the circle and the speeches are never voiced. Remember who is
             # on the mic (names off the board) so the pacing ladder can hold the next batch until this one has actually been voiced.
             sp = []
