@@ -23167,3 +23167,9 @@ body.theme-frosted .msg-user:not(:nth-last-child(-n+12)) {
 .ow-week-card { padding: .6rem .8rem; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.25)); background: var(--panel, rgba(0,0,0,.2)); }
 .ow-week-card-title { font-weight: 700; font-size: 1.05rem; margin-bottom: .25rem; }
 .ow-week-card-line { margin: .1rem 0; }
+
+/* ORW-44 S3: persistent notice when the network cannot carry the live (WebSocket) connection. */
+.ow-ws-blocked {
+  padding: .5rem .75rem; margin: 0 0 .25rem 0; font-size: .9rem; line-height: 1.35;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg)); color: var(--fg); border-bottom: 1px solid var(--accent);
+}

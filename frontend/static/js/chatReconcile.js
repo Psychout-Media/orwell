@@ -389,6 +389,37 @@ export function _setReconcileDeps(deps) {
   const _streamIsLive = (sid) => hasActiveStream(sid);
 
   /**
+   * ORW-168: can this reconcile be answered by the newest server row alone? Only when the DOM is a plain, fully-adopted, idle
+   * transcript: no live stream, no one-shot forced rebuild, no optimistic/unadopted bubble, every visible bubble carries its
+   * {db-id, seq}, and the tail bubble IS the server's newest row (same id and seq) while the server's row count equals the number
+   * of distinct rendered messages. Then there is nothing to adopt, reorder, rescue or rebuild and the full fetch would be a no-op.
+   * Returns {converged:true}; or {data} when the server ignored `limit` and sent the whole log; or null = take the normal path.
+   * Pure read: no DOM write, no one-shot flag consumed.
+   */
+  async function _convergedProbe(sessionId) {
+    try {
+      const box = document.getElementById('chat-history');
+      if (!box || hasActiveStream(sessionId) || chatState._forceRebuild.has(sessionId)) return null;
+      const bubbles = Array.from(box.querySelectorAll('.msg')).filter((el) => !(el.style && el.style.display === 'none'));
+      if (!bubbles.length) return null;
+      if (bubbles.some((el) => _isPendingOptimisticBubble(el) || !el.dataset.dbId || !el.dataset.seq)) return null;
+      if (box.querySelector('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder]')) return null;
+      const ids = bubbles.map((el) => el.dataset.dbId).filter((v, i, a) => v !== a[i - 1]);
+      const last = bubbles[bubbles.length - 1];
+      const res = await fetch(`${_apiBase()}/api/history/${sessionId}?limit=1`);
+      if (!res.ok) return null;
+      const body = await res.json();
+      const page = body && body.page;
+      if (!page) return (body && Array.isArray(body.history)) ? { data: body } : null;   // old server: it sent everything
+      const row = (body.history || [])[0];
+      if (!row || (body.history || []).length !== 1) return null;
+      if (_serverMsgId(row) !== last.dataset.dbId || String(row.seq) !== last.dataset.seq) return null;
+      if (page.total !== ids.length) return null;
+      return { converged: true };
+    } catch (_) { return null; }
+  }
+
+  /**
    * ADR 0008 — render-and-reconcile to the authoritative seq-ordered log.
    *
    * The chat conversation is a FE-replicated log; the audit (S3-RACE) proved two tabs diverge
@@ -412,9 +443,17 @@ export function _setReconcileDeps(deps) {
     try { if (!_streamIsLive(sessionId)) pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) { /* never block the reconcile */ }
     let data;
     try {
-      const res = await fetch(`${_apiBase()}/api/history/${sessionId}`);
-      if (!res.ok) return;
-      data = await res.json();
+      // ORW-168: an idle, already-converged reconcile (the overwhelming common case) needs the newest server row, not the whole
+      // transcript. Probe with ?limit=1 and compare it with the DOM; ANYTHING that doesn't match exactly falls through to the
+      // unchanged full fetch below (an older server that ignores `limit` hands back the full log, which is then used as-is).
+      const probe = await _convergedProbe(sessionId);
+      if (probe && probe.converged) { chatState._pendingReconcile.delete(sessionId); return; }
+      if (probe && probe.data) data = probe.data;
+      else {
+        const res = await fetch(`${_apiBase()}/api/history/${sessionId}`);
+        if (!res.ok) return;
+        data = await res.json();
+      }
     } catch (_) { return; }
     if (!isCurrent()) return;
 
