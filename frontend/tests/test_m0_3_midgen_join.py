@@ -196,6 +196,12 @@ import urllib.parse  # noqa: E402  (used by _post_form)
 
 @pytest.fixture(scope="module")
 def _stack():
+    yield from _boot_stack()
+
+
+def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
+    """The shared real-stack boot (engine + FE + scripted stub). Defaults are the long-standing `_stack`: a fresh engine data dir and a seeded started game. ORW-298 passes a PRE-STAGED engine
+    data dir (`engine_data_dir`, a save the engine resumes at boot) with `create_game=False`, plus extra engine env (`engine_env_extra`)."""
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except Exception:
@@ -220,8 +226,8 @@ def _stack():
     threading.Thread(target=stub.serve_forever, daemon=True).start()
 
     engine_port = _free_port()
-    engine_env = dict(os.environ, ORWELL_DATA_DIR=tempfile.mkdtemp(prefix="orwell-m03-engine-"),
-                      ORWELL_ENGINE_PORT=str(engine_port))
+    engine_env = dict(os.environ, ORWELL_DATA_DIR=engine_data_dir or tempfile.mkdtemp(prefix="orwell-m03-engine-"),
+                      ORWELL_ENGINE_PORT=str(engine_port), **(engine_env_extra or {}))
     engine = subprocess.Popen(["node", dist], cwd=REPO, env=engine_env,
                               stdout=open("/tmp/m03-engine.log", "w"), stderr=subprocess.STDOUT)
     ebase = f"http://127.0.0.1:{engine_port}"
@@ -286,10 +292,11 @@ def _stack():
 
         # A seeded, STARTED game — engine-direct (the chat casting walk is the golden
         # driver's job, not this pin's; convergence only requires started !== false).
-        r = _post_json(ebase, "/player/call",
-                       {"name": "createCharacter", "args": {"playerName": "P", "seed": SEED}})
-        if "result" not in r:
-            raise RuntimeError(f"createCharacter failed: {r}")
+        if create_game:
+            r = _post_json(ebase, "/player/call",
+                           {"name": "createCharacter", "args": {"playerName": "P", "seed": SEED}})
+            if "result" not in r:
+                raise RuntimeError(f"createCharacter failed: {r}")
 
         yield {"fe": fbase, "engine": ebase, "settings": sfile, "prior": prior_settings,
                "endpoint_id": ep["id"]}
