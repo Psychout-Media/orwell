@@ -13,6 +13,12 @@ Every houseguest holds a small, lasting agenda (`src/engine/agenda.ts`, tunables
 - Each goal stores the target, **why** (pointers to the real threat read, bond, memory, board fact, secret or carry-over that caused it),
   a closed **success test** the engine evaluates, a **commitment** and a **status**.
 
+## The person, not only the type
+Leanings and stubbornness come from the archetype PLUS the houseguest's own strategy style, game philosophy and susceptibility to
+persuasion, plus a small personal seeded offset (`seasonLeanOf`, `stubbornnessOf`). Two houseguests of one archetype can want different
+things and hold on differently. Reading the free-text backstory (biography, identity concept, vocation) is model work: slice 5 lets the
+utility model propose a season aim from the backstory, bounded to the closed goal kinds and adjudicated by the engine (ADR 0022).
+
 ## The rules it keeps
 - **Goals outlive moods.** A held goal is replaced only when it settles (achieved or failed), when a new goal beats it by the holder's
   stubbornness margin, or when the holder gives up overnight. Stubbornness comes from the archetype.

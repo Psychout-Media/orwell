@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  seedAgenda, recheckAgenda, mullAgenda, isAgendaSuperset, evaluateTest, canRunLongCon,
+  seedAgenda, recheckAgenda, mullAgenda, isAgendaSuperset, evaluateTest, canRunLongCon, stubbornnessOf, seasonLeanOf,
   type Agenda, type AgendaBoard, type AgendaView, type AgendaCharacter, type Goal,
 } from "../../src/engine/agenda";
 import { AGENDA } from "../../src/engine/agendaConstants";
@@ -57,6 +57,25 @@ describe("season goals come from the character", () => {
     const a = seedAgenda(view(char("peacemaker", { preShowTie: { with: ALLY, hidden: false, friendly: true } })), board(), SEED);
     const g = active(a, "protect-my-person", ALLY)!;
     expect(g.why[0]).toMatchObject({ kind: "pre-show-tie", about: ALLY });
+  });
+});
+
+describe("the person, not only the type", () => {
+  it("houseguests of the same archetype want different things when their style and philosophy differ", () => {
+    const share = (c: AgendaCharacter): number => Array.from({ length: 40 }, (_, i) =>
+      seedAgenda(view(c, { owner: `npc:p${i}` }), board(), SEED).goals.find((g) => g.horizon === "season")!.kind).filter((k) => k === "last-alliance-standing").length / 40;
+    const loyal = share(char("social-butterfly", { philosophy: "loyal-soldier" }, "loyal"));
+    const plain = share(char("social-butterfly", { philosophy: "social-climber" }, "social"));
+    expect(loyal - plain, `loyal ${loyal} vs plain ${plain}`).toBeGreaterThan(0.3);
+    expect(seasonLeanOf(char("floater", { philosophy: "loyal-soldier" }, "loyal"))["last-alliance-standing"]).toBeCloseTo(0.65, 5);
+  });
+
+  it("stubbornness belongs to the person: style, how easily they are swayed, and a personal offset all count", () => {
+    const k = char("analyst", {}, "strategic");
+    expect(stubbornnessOf({ ...k, strategyStyle: "loyal" }, HOLDER, SEED)).toBeGreaterThan(stubbornnessOf(k, HOLDER, SEED));
+    expect(stubbornnessOf({ ...k, susceptibility: 0.9 }, HOLDER, SEED)).toBeLessThan(stubbornnessOf({ ...k, susceptibility: 0.1 }, HOLDER, SEED));
+    const people = new Set(Array.from({ length: 12 }, (_, i) => stubbornnessOf(k, `npc:${i}`, SEED).toFixed(3)));
+    expect(people.size, "no two people of one type need hold on the same").toBeGreaterThan(6);
   });
 });
 

@@ -18,7 +18,8 @@
  */
 import type { EntityId } from "../domain/ids";
 import type { Archetype, StrategyStyle, HiddenElementKind } from "./characterFactory";
-import { AGENDA, LONG_CON_ARCHETYPES, LONG_CON_STYLES, SEASON_GOAL_LEAN, STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
+import { AGENDA, LONG_CON_ARCHETYPES, LONG_CON_STYLES, PHILOSOPHY_LEAN, SEASON_GOAL_LEAN, STUBBORNNESS, STYLE_LEAN, STYLE_STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
+import type { GamePhilosophy } from "./philosophyConstants";
 
 // --- Types -------------------------------------------------------------------------------------------------------------------------
 
@@ -82,6 +83,10 @@ export interface AgendaCharacter {
   strategyStyle: StrategyStyle;
   /** Kinds of the holder's hidden elements (a secret worth protecting comes from these). */
   secretKinds: HiddenElementKind[];
+  /** The houseguest's own game philosophy (B40), if drawn. */
+  philosophy?: GamePhilosophy;
+  /** How easily THEY are swayed (0..1, `Character.influence.susceptibility`), if known. */
+  susceptibility?: number;
   /** A pre-show tie, if any, and whether it is hidden from the house. */
   preShowTie?: { with: EntityId; hidden: boolean; friendly: boolean };
 }
@@ -148,7 +153,23 @@ export function agendaRoll(seed: number, owner: EntityId, salt: string): number 
 const goalKey = (g: Pick<Goal, "kind" | "target">): string => `${g.kind}:${g.target ?? "-"}`;
 const makeId = (owner: EntityId, horizon: GoalHorizon, kind: GoalKind, target: EntityId | undefined, day: number): string =>
   `${owner}:${horizon}:${kind}:${target ?? "-"}:d${day}`;
-export const stubbornnessOf = (c: AgendaCharacter): number => STUBBORNNESS[c.archetype] ?? 0.5;
+/** How stubborn THIS houseguest is: archetype base, their style, their susceptibility, and a small personal seeded offset. */
+export function stubbornnessOf(c: AgendaCharacter, owner: EntityId, seed: number): number {
+  const base = (STUBBORNNESS[c.archetype] ?? 0.5) + (STYLE_STUBBORNNESS[c.strategyStyle] ?? 0);
+  const sway = c.susceptibility === undefined ? 0 : (0.5 - c.susceptibility) * AGENDA.susceptibilityWeight;
+  const personal = (agendaRoll(seed, owner, "stubborn") * 2 - 1) * AGENDA.personalStubbornness;
+  return clamp01(base + sway + personal);
+}
+/** This houseguest's season-goal leanings: archetype + their own style + their own philosophy (the person, not only the type). */
+export function seasonLeanOf(c: AgendaCharacter): Partial<Record<SeasonGoalKind, number>> {
+  const out: Partial<Record<SeasonGoalKind, number>> = { ...(SEASON_GOAL_LEAN[c.archetype] ?? {}) };
+  const add = (t: Partial<Record<SeasonGoalKind, number>> | undefined): void => {
+    for (const [k, w] of Object.entries(t ?? {}) as Array<[SeasonGoalKind, number]>) out[k] = (out[k] ?? 0) + w;
+  };
+  add(STYLE_LEAN[c.strategyStyle]);
+  if (c.philosophy) add(PHILOSOPHY_LEAN[c.philosophy]);
+  return out;
+}
 export const canRunLongCon = (c: AgendaCharacter): boolean =>
   LONG_CON_ARCHETYPES.includes(c.archetype) || LONG_CON_STYLES.includes(c.strategyStyle);
 const SECRET_KINDS: readonly HiddenElementKind[] = ["secret-motive", "divergent-persona", "concealed-aptitude"];
@@ -185,7 +206,7 @@ function seasonTest(kind: SeasonGoalKind, target: EntityId | undefined): Success
 /** The starting season goal(s) from the holder's character alone (season start: nobody has history yet). */
 export function seedAgenda(view: AgendaView, board: AgendaBoard, seed: number): Agenda {
   const c = view.character;
-  const lean = SEASON_GOAL_LEAN[c.archetype] ?? {};
+  const lean = seasonLeanOf(c);
   const scored = (Object.keys(lean) as SeasonGoalKind[])
     .map((k) => ({ k, w: (lean[k] ?? 0) + agendaRoll(seed, view.owner, `season:${k}`) * AGENDA.seasonJitter }))
     .sort((a, b) => b.w - a.w || a.k.localeCompare(b.k));
@@ -351,7 +372,7 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
     });
     return { ...agenda, goals: [], history: [...agenda.history, ...ended] };
   }
-  const stub = stubbornnessOf(view.character);
+  const stub = stubbornnessOf(view.character, view.owner, seed);
   const history = [...agenda.history];
   let goals: Goal[] = [];
   for (const g of agenda.goals) {
@@ -365,7 +386,7 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
   // Season goals: keep at least one main aim. If the main aim settled, a new one forms from where the holder now stands.
   const mainKinds: SeasonGoalKind[] = ["win-by-comps", "win-by-being-liked", "run-the-house", "reach-jury", "last-alliance-standing", "prove-not-a-floater"];
   if (!goals.some((g) => g.horizon === "season" && (mainKinds as GoalKind[]).includes(g.kind))) {
-    const lean = SEASON_GOAL_LEAN[view.character.archetype] ?? {};
+    const lean = seasonLeanOf(view.character);
     const done = new Set(history.filter((h) => h.status === "achieved").map((h) => h.kind));
     // Once the jury is reached, the aim moves to winning: the strongest "win" lean that has not already been achieved.
     const options = (Object.keys(lean) as SeasonGoalKind[])
@@ -415,7 +436,7 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
  */
 export function mullAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoard, seed: number, progressed: ReadonlySet<string> = new Set()): Agenda {
   if (board.evicted.includes(agenda.owner)) return recheckAgenda(agenda, view, board, "night", seed);
-  const stub = stubbornnessOf(view.character);
+  const stub = stubbornnessOf(view.character, view.owner, seed);
   const history = [...agenda.history];
   const goals: Goal[] = [];
   for (const g of agenda.goals) {
