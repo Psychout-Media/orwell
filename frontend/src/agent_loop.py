@@ -1937,6 +1937,46 @@ def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
 _TOOL_CHOICE_REJECTERS = ("deepseek-v4", "deepseek/deepseek-v4", "deepseek-flash", "deepseek-reasoner", "deepseek-r1")
 
 
+# ORW-296 slice 2 (live A/B 2026-11-12): the provider's prompt prefix cache reuses only the identical PREFIX of consecutive requests. The narrator's system message carries the per-turn game state (the Clock line, location,
+# knowledge blocks, the date paragraph) in the MIDDLE, so every turn the divergence sat at ~73.7k chars and everything after it - the rest of the system message AND the whole chat history (~40k of ~60k tokens by day 6) -
+# was uncached. This reorders the WIRE copy only: the stable part of the system message (instructions, roster, then TOOLS/RULES) stays first and byte-stable, the history follows, and the volatile block rides as one
+# trailing system message (the same slot the Show Brief uses). No wording changes; the lines move. Flag ORWELL_VOLATILE_TAIL (default OFF until the A/B approves it).
+_VOLATILE_START = "\n- Week: "
+_STABLE_TAIL_START = "TOOLS. You run the game"
+
+
+def _volatile_tail_enabled() -> bool:
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_VOLATILE_TAIL", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _volatile_tail_wire(messages):
+    """The request messages with the per-turn volatile block moved to a trailing system message; `messages` itself is never mutated. Returns the SAME list when the shape is not the game narrator's
+    (no GAME CONTEXT / markers), so a non-game or odd prompt is untouched."""
+    try:
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict) or m.get("role") != "system" or not isinstance(m.get("content"), str):
+                continue
+            c = m["content"]
+            g = c.find("GAME CONTEXT:")
+            if g < 0:
+                continue
+            a = c.find(_VOLATILE_START, g)
+            b = c.find(_STABLE_TAIL_START, a) if a >= 0 else -1
+            if a < 0 or b < 0 or b <= a:
+                return messages
+            volatile = c[a:b].strip()
+            stable = c[:a].rstrip() + "\n\n" + c[b:]
+            out = list(messages)
+            out[i] = {**m, "content": stable}
+            out.append({"role": "system", "content": "GAME CONTEXT - THIS TURN (the live state; the roster above is the cast):\n" + volatile})
+            return out
+        return messages
+    except Exception:
+        return messages
+
+
 def _model_honors_forced_tool_choice(model: str) -> bool:
     """True unless the resolved model is a KNOWN `tool_choice` rejecter (always-thinking DeepSeek). The
     issue's pin-the-provider requirement: forcing is only sent where it is honored (asserted live)."""
@@ -8225,7 +8265,7 @@ async def _stream_agent_loop_impl(
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
         async for chunk in _narrator_stream_with_outage_pause(
             _candidates,
-            messages,
+            _volatile_tail_wire(messages) if (game_mode == "game" and _volatile_tail_enabled()) else messages,
             owner=_force_owner,
             temperature=temperature,
             max_tokens=_effective_max_tokens,  # ADR 0010 #1: admin-editable per-class output cap
