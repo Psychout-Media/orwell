@@ -839,6 +839,9 @@ def main() -> int:
             check(wipes.get("chats") is True, f"system wipe: chats (live data) stays ({wipes})")
             check(wipes.get("memory") is False and wipes.get("notes") is False and wipes.get("gallery") is False,
                   f"system wipe: dropped verticals hidden under the game build ({wipes})")
+            # ORW-161: close the Settings window we opened, or it sits over the decision card below and swallows its clicks.
+            page.keyboard.press("Escape")
+            page.evaluate("() => { const m = document.getElementById('settings-modal'); const b = m && m.querySelector('.ow-close, .close-btn, .modal-close-btn, [data-action=\"close\"]'); if (b && m.offsetParent !== null) b.click(); }")
 
             # C20: the confirm-on-binding decision guardrail. Dispatch a synthetic pending
             # (exactly what chat.js emits from an advanceGame result) and assert the card
