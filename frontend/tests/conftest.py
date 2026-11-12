@@ -180,6 +180,21 @@ def _run_fixture() -> Callable[..., Any]:
 
 
 @pytest.fixture(autouse=True)
+def _engine_client_no_retry_backoff(request, monkeypatch) -> None:
+    """The FE engine client retries a transient failure (refused / 5xx / empty body) twice with an exponential backoff (0.25 s, 0.5 s ...). Tests that drive a game turn have no engine
+    behind them, so EVERY engine read in the loop (whereabouts, status, ...) hit a closed port and slept through the whole backoff: ~7 s of pure waiting per turn-driving test
+    (measured 2026-11-12 with a sleep spy: 8.3 s -> 1.4 s per drive), which is what pushed fe-unit shards toward their cap. Default the retry OFF; a test that exercises the retry or
+    backoff itself opts back in with `@pytest.mark.engine_retry` (module-level `pytestmark` works)."""
+    if request.node.get_closest_marker("engine_retry"):
+        return
+    try:
+        from src import orwell_engine
+        monkeypatch.setattr(orwell_engine, "_RETRY_ATTEMPTS", 0)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _ensure_current_event_loop() -> None:
     """Py3.12 guard: `asyncio.get_event_loop()` RAISES ("There is no current event loop in thread
     'MainThread'") when no loop is set for the thread — unlike 3.11, which silently auto-created one.
