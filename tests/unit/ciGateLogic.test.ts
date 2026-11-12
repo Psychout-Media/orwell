@@ -96,7 +96,7 @@ describe("ci.yml wiring (two-tier CI)", () => {
     const cond = "github.event_name != 'pull_request' || !github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'full-ci')";
     expect(cal).toContain(`  shards:\n    if: ${cond}\n`);
     expect(cal).toContain(`    if: always() && (${cond})\n`);
-    // deliberate re-pin (ORW-218): the pull_request trigger (and its `types:` list) was removed; only schedule + workflow_dispatch remain.
+    // deliberate re-pin (ORW-218): the pull_request trigger (and its `types:` list) was removed; only workflow_dispatch remains (the weekly schedule was removed too).
     expect(cal).not.toMatch(/^  pull_request:/m);
     expect(cal).toMatch(/workflow_dispatch:/);
   });
