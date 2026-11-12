@@ -59,7 +59,7 @@ describe("milestone hours vs the schedule (week 1, real loop)", () => {
   });
   it("every event of a played week lands in its slot: draw in the morning, the competition that afternoon of the SAME day, ceremonies and eviction in the evening", () => {
     const at = (next: string, ev: string) => rows.find((x) => x.next === next && x.event === ev)!;
-    const draw = at("veto-competition", "veto-draw");
+    const draw = at("veto-draw", "veto-draw"); // ORW-281: the draw is its own milestone (next === "veto-draw"), not the first advance of the veto-competition milestone
     expect(draw.dueTod, "the veto player draw is a MORNING event").toBe("morning");
     expect(draw.dueHour).toBeCloseTo(8, 1);
     const comp = at("veto-competition", "veto-competition");

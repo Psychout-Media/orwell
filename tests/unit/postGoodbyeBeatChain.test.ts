@@ -90,6 +90,7 @@ async function toPlayerGoodbyeOnSeed(seed: number) {
     if (adv.finished) break;
     if (adv.pending) {
       if (adv.pending.kind === "goodbye-message") return { mcp, pending: adv.pending };
+      if (adv.pending.kind === "ceremony-step") continue; // ORW-281: a watch step is answered by the next advanceGame
       const sub = (await mcp.callTool("submitDecision", answer(adv.pending))) as View;
       if (sub.pending?.kind === "goodbye-message") return { mcp, pending: sub.pending };
       if (sub.finished) break;
