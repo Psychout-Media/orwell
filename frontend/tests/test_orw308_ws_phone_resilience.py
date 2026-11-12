@@ -155,6 +155,21 @@ const blocked = () => events.some((e) => e.startsWith("orwell:ws-blocked"));
     first.onclose && first.onclose();                      // the old one finally reports closed
     assert(lastSock === second && second.readyState !== 3, "the successor is untouched");
   }
+  // I: a RECONNECT that MISSED something (the server's beat differs from the one held at the drop) hands the `state` listeners one edge ping (platform.js turns it into the single dispatch);
+  //    a first connect, and a reconnect that missed nothing, do not.
+  {
+    const ws = boot(); await tick();
+    const got = [];
+    ws.onFrame("state", (f) => got.push(f.d && f.d.reason + ":" + f.d.beatSeq));
+    await handshake(10);
+    assert(!got.some((g) => g.startsWith("reconnect")), "a first connect is not a reconnect refresh: " + JSON.stringify(got));
+    lastSock.onclose(); await advance(1000);
+    await handshake(10);                                   // nothing happened while away
+    assert(!got.some((g) => g.startsWith("reconnect")), "a reconnect that missed nothing asks for no refresh: " + JSON.stringify(got));
+    lastSock.onclose(); await advance(1000);
+    await handshake(12);                                   // the board moved while away
+    assert(got.includes("reconnect:12"), "a reconnect that missed a commit refreshes the board through the state listeners: " + JSON.stringify(got));
+  }
   console.log("OK");
   process.exit(0);
 })();
@@ -172,7 +187,7 @@ def test_the_live_socket_survives_phone_sleep_app_switch_and_network_handoff():
 
 # ── real Chromium at phone size against the live stack ───────────────────────────────────────────────────────────
 from test_m0_3_midgen_join import STUB, _stack  # noqa: E402,F401
-from test_p0h_day1_clock_e2e import _session  # noqa: E402
+from test_p0h_day1_clock_e2e import _engine, _session  # noqa: E402
 from test_orw191_golden_flows import AI_BUBBLE, COMPOSER, USER_BUBBLE, _expect_once, _launch, _open, _send, _wait_settled  # noqa: E402
 
 # Every WebSocket the page opens is recorded; while __wsBlock is set a new one is aimed at a refused port (the network is away: onclose fires without ever opening).
@@ -192,6 +207,22 @@ def _live(page):
 
 def _wait_live(page, timeout=25000):
     page.wait_for_function("() => !!(window.OrwellWs && window.OrwellWs.isActive() && window.OrwellWs.isChatSubscribed())", timeout=timeout)
+
+
+def _quiesce_stub(quiet_s=2.0, timeout_s=30):
+    """No other narrator call may pop the entry this test queues: wait until the stub has seen no new request for a moment, and drop any leftover scripted entry an earlier test did not consume."""
+    import time
+    end, last, since = time.time() + timeout_s, -1, time.time()
+    while time.time() < end:
+        with STUB.lock:
+            n = len(STUB.requests)
+        if n != last:
+            last, since = n, time.time()
+        elif time.time() - since >= quiet_s:
+            break
+        time.sleep(0.2)
+    with STUB.lock:
+        STUB.script.clear()
 
 
 def _kill_sockets(page):
@@ -222,6 +253,7 @@ def test_phone_viewport_the_socket_comes_back_after_idle_drop_mid_turn_drop_and_
         assert page.evaluate("() => window.OrwellWs.canonicalId()") == canon
 
         # (2) mid-turn drop: kill the socket while the reply is streaming; the reply must still settle, exactly once.
+        _quiesce_stub()
         say, reply = f"Phone mid-turn {tag}: look around.", f"The house settles around phone-mid-{tag}."
         STUB.script.append({"deltas": ["The house ", "settles around ", f"phone-mid-{tag}."], "delay": 0.9})
         n0 = len(STUB.script)
@@ -242,10 +274,51 @@ def test_phone_viewport_the_socket_comes_back_after_idle_drop_mid_turn_drop_and_
         assert page.evaluate("() => window.OrwellWs.canonicalId()") == canon
 
         # the game still plays after the outage
+        _quiesce_stub()
         say2, reply2 = f"Phone after outage {tag}: carry on.", f"The night goes on, phone-after-{tag}."
         STUB.script.append({"deltas": ["The night goes on, ", f"phone-after-{tag}."], "delay": 0.2})
         n1 = len(STUB.script)
         _send(page, say2, n1)
         _wait_settled(page, reply2)
         _expect_once(page, [(USER_BUBBLE, say2), (AI_BUBBLE, reply2)], "after the outage")
+        browser.close()
+
+
+def _step(step, of, text, kind="veto-ceremony"):
+    return {"kind": "ceremony-step", "id": f"{kind}-{step}", "binding": False, "text": text,
+            "ceremony": {"kind": kind, "step": step, "of": of, "stepId": f"{kind}-{step}"}}
+
+
+@pytest.mark.browser
+@pytest.mark.flaky(reruns=0)
+def test_phone_viewport_a_ceremony_step_that_advanced_while_the_socket_was_down_shows_after_reconnect(_stack):  # noqa: F811
+    """The pollers are off while a socket is live and the edge pings die with the socket, so a ceremony card changed during an outage must be re-read on reconnect."""
+    import json
+    from playwright.sync_api import sync_playwright
+
+    _session(_stack, "orw308-ceremony")
+    with sync_playwright() as pw:
+        browser = _launch(pw)
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        ctx.add_init_script(_WS_INIT)
+        page = ctx.new_page()
+        away = {"pending": None}
+
+        def status(route):
+            real = route.fetch()
+            body = real.json()
+            if away["pending"]:
+                body["pending"] = away["pending"]     # the engine moved to a ceremony step while we were away
+            route.fulfill(response=real, body=json.dumps(body), content_type="application/json")
+
+        page.route("**/api/orwell/status", status)
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        _wait_live(page)
+        assert page.query_selector(".odec-watch") is None
+        away["pending"] = _step(2, 3, "The host reads the veto result aloud.")
+        _kill_sockets(page)                              # the drop; the step advanced during the outage
+        _engine(_stack, "noteMessage", {"messageId": f"orw308-away-{id(away)}"})   # ...which is a real commit: the engine's beatSeq moves while the socket is down
+        page.wait_for_selector(".odec-watch", timeout=20000)   # reconnect -> one refresh through the dispatcher -> the card mounts
+        card = page.evaluate("() => { const c = document.querySelector('.odec-watch'); return { step: c.dataset.step, role: c.getAttribute('role'), n: document.querySelectorAll('.odec-watch').length }; }")
+        assert card == {"step": "2", "role": "group", "n": 1}, card
         browser.close()
