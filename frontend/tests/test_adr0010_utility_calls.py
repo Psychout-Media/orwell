@@ -111,3 +111,33 @@ def test_call_class_without_user_budgets_but_does_not_meter(monkeypatch):
     assert payload.get("reasoning") == {"enabled": False}   # off ⇒ genuine disable, still applied
     assert "usage" not in payload          # no metering ⇒ no usage-accounting request
     assert recorded == []                  # no user ⇒ not metered
+
+
+def test_orw292_traced_call_without_user_records_usage_but_is_not_metered(monkeypatch):
+    # ORW-292: the llm-io record of a non-stream call carries the provider's usage even with no user.
+    from src import llm_trace
+    seen = []
+    monkeypatch.setattr(llm_trace, "record_llm_call", lambda **kw: seen.append(kw))
+    from src import llm_core as lc
+    import asyncio as _a
+    sink = {}
+    monkeypatch.setattr(lc, "_get_http_client", lambda: _FakeClient(sink, _DATA))
+    monkeypatch.setattr(lc, "_is_host_dead", lambda u: False)
+    monkeypatch.setattr(lc, "note_model_activity", lambda *a, **k: None)
+    monkeypatch.setattr(lc, "_clear_host_dead", lambda *a, **k: None)
+    monkeypatch.setattr(lc, "_get_cached_response", lambda k: None)
+    monkeypatch.setattr(lc, "_set_cached_response", lambda *a, **k: None)
+    monkeypatch.setattr(llm_trace, "enabled", lambda: True)
+    from src import orwell_token_ledger as tl
+    recorded = []
+    monkeypatch.setattr(tl, "record_turn", lambda u, **kw: recorded.append((u, kw)))
+    _a.get_event_loop().run_until_complete(lc.llm_call_async(
+        OR_URL, "m", [{"role": "user", "content": "x"}], call_class="utility-extraction", user=None))
+    u = seen[-1]["response"]["usage"]
+    assert u["input_tokens"] == 100 and u["output_tokens"] == 50 and u["cached_tokens"] == 20
+    assert recorded == []
+
+
+def test_orw292_meter_user_buckets_auth_off_as_default():
+    from src.agent_loop import _meter_user
+    assert _meter_user(None) == "default" and _meter_user("role-user") == "role-user"

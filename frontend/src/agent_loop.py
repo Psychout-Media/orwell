@@ -2957,6 +2957,15 @@ _EXTRACTION_UNTRUSTED_FENCE = (
 )
 
 
+def _meter_user(owner):
+    """ORW-292: the user key a utility call meters under. Auth-off (AUTH_ENABLED=false, the owner's real
+    posture) runs with ``owner=None``; ``llm_call_async`` only meters when it has a user, so every belt
+    call went unmetered (no ledger line, no usage in the llm-io record) in that posture. The token ledger
+    already buckets a missing user as "default" (``orwell_token_ledger._key``) and the admin view reads
+    that same bucket, so meter under it."""
+    return owner or "default"
+
+
 def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers):
     """Resolve the cheap UTILITY endpoint+model for the ``_auto_*`` error-correction extraction belts.
 
@@ -3011,7 +3020,7 @@ async def _move_player_extract(narration, last_user, endpoint_url, model, header
     # Room for a reasoning model to think THEN emit the tiny room JSON (see _auto_record_scene).
     raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                temperature=0.1, max_tokens=1200, timeout=45,
-                               call_class="utility-extraction", user=owner)
+                               call_class="utility-extraction", user=_meter_user(owner))
     return raw or ""
 
 
@@ -3150,7 +3159,7 @@ async def _move_npc_extract(narration, last_user, house, endpoint_url, model, he
     # Room for a reasoning model to think THEN emit the moves JSON (see _auto_record_scene).
     raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                temperature=0.1, max_tokens=1500, timeout=45,
-                               call_class="utility-extraction", user=owner)
+                               call_class="utility-extraction", user=_meter_user(owner))
     return raw or ""
 
 
@@ -3537,7 +3546,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # routes everything there.)
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.2, max_tokens=1500, timeout=45,
-                                   call_class="utility-extraction", user=owner)
+                                   call_class="utility-extraction", user=_meter_user(owner))
         raw = raw or ""
         # The JSON may sit after a reasoning block OR inside it — take the LAST object carrying
         # withIds (reasoning models emit the answer last). The object may now NEST a `consequence`
@@ -4277,7 +4286,7 @@ async def _auto_record_casting(last_user, narration, endpoint_url, model, header
         # Room for a reasoning model to think THEN emit the tiny JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "fields")
         if obj is None:
             logger.info(f"[orwell] auto-casting: no parseable JSON (len={len(raw)})")
@@ -4371,7 +4380,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         # Room for a reasoning model to think THEN emit the deal JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = None
         for cand in reversed(re.findall(r"\{[^{}]*\"struck\"[^{}]*\}", raw, re.DOTALL)):
             try:
@@ -4463,7 +4472,7 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
         ]
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=600, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         ans = None
         for cand in reversed(re.findall(r"\{[^{}]*\"answer\"[^{}]*\}", raw, re.DOTALL)):
             try:
@@ -4564,7 +4573,7 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
         # Room for a reasoning model to think THEN emit the tiny npcId JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         # The JSON may sit after a reasoning block — take the LAST object carrying an "npcId" key.
         obj = _last_json_object_with_key(raw, "npcId")
         if obj is None:
@@ -4712,7 +4721,7 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
         ]
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "factId")
         if obj is None:
             logger.info(f"[orwell] auto-expose: no parseable JSON (len={len(raw)}) user={owner}")
@@ -4795,7 +4804,7 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
         ]
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "factId")
         if obj is None:
             logger.info(f"[orwell] auto-trade: no parseable JSON (len={len(raw)}) user={owner}")
@@ -11143,7 +11152,7 @@ async def _stream_agent_loop_impl(
     # and the soft spend-alert reads. Keyed by the CANONICAL game session (0064) so every device's
     # turns aggregate into one game. Fail-open — observability never hurts a turn; no player surface
     # ever sees these numbers. (Casting/utility-call metering is a follow-on.)
-    if _is_live_game and owner:
+    if _is_live_game:  # ORW-292: owner=None (auth-off) meters under the ledger's "default" bucket
         try:
             from src import orwell_token_ledger as _tl
             try:
