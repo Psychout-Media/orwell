@@ -24,17 +24,14 @@ describe("re-shard wiring", () => {
     expect(j).toContain("ORWELL_CI_SHARD: ${{ matrix.shard }}/5");
     expect(j).toContain("name: fe-browser-tests (${{ matrix.shard }}/5)");
   });
-  it("mirror-parity runs four jobs, and each of the six gate steps belongs to exactly one of them", () => {
+  it("mirror-parity runs three WebSocket-only jobs (ORW-44 S4d), and each of the three gate steps belongs to exactly one of them", () => {
     const j = job("mirror-parity");
-    expect(j).toContain("group: [live-sse, live-ws, toolturn, hud]");
+    expect(j).toContain("group: [live-ws, toolturn, hud]");
     const steps = [...j.matchAll(/- name: (mirror-[a-z]+ gate — [^\n]+)\n\s+if: matrix\.group == '([a-z-]+)'/g)].map((m) => `${m[1]} | ${m[2]}`);
-    // the exact six gate/group pairs (bot review: a duplicated gate must not be able to stand in for a missing one)
+    // the exact three gate/group pairs (bot review: a duplicated gate must not be able to stand in for a missing one)
     expect(steps.sort()).toEqual([
-      "mirror-hud gate — SSE/poll transport (blocking) | hud",
       "mirror-hud gate — WebSocket transport (blocking) | hud",
-      "mirror-parity gate — SSE/poll fallback transport (blocking) | live-sse",
       "mirror-parity gate — WebSocket transport (blocking) | live-ws",
-      "mirror-toolturn gate — SSE/poll transport (blocking) | toolturn",
       "mirror-toolturn gate — WebSocket transport (blocking) | toolturn",
     ]);
     expect(j).not.toMatch(/matrix\.group == '(live|rest)'/);
