@@ -206,7 +206,7 @@ describe("ORW-281 slice 3 — the private-scene suppression keys on ANY house ev
   });
   it("the veto draw (veto-competition beat, no vetoField) counts only when asked, and not once the field is drawn without a pending", () => {
     expect(k({ beat: "veto-competition" })).toBeUndefined();
-    expect(k({ beat: "veto-competition" }, { includeDraw: true })).toBe("veto-competition");
+    expect(k({ beat: "veto-competition" }, { includeDraw: true })).toBe("veto-draw"); // ORW-281 slice 1: the draw reports as its own ceremony kind
     expect(k({ beat: "veto-competition", vetoField: ["a"] }, { includeDraw: true })).toBeUndefined();
   });
 });

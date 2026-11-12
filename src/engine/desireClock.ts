@@ -28,6 +28,7 @@ export function desireFor(milestone: StructuralMilestone | undefined, role: Desi
   if (role.isHoh) return null;
   switch (milestone) {
     case "nominations": return "campaign";                                  // everyone off the block lobbies for safety before the noms
+    case "veto-draw": // ORW-281: the draw is its own milestone; the pressure is the veto's
     case "veto-competition":
     case "veto-ceremony": return role.isNominee ? "plea" : "probe";         // a nominee pleads for the save; others read the room
     case "eviction":
