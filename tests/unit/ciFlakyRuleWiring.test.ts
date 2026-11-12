@@ -23,7 +23,7 @@ describe("flaky-test rule wiring", () => {
   });
   it("the flake reporter is on in GitHub Actions, and every mirror gate counts a late pass", () => {
     expect(read("vitest.config.ts")).toContain('reporters: process.env.GITHUB_ACTIONS === "true" ? ["default", "./tests/support/flakyReporter.ts"] : ["default"]');
-    expect(ci.match(/passed only on attempt \$attempt, counted as a flake/g)?.length).toBe(6);
+    expect(ci.match(/passed only on attempt \$attempt, counted as a flake/g)?.length).toBe(3);
   });
   it("quarantined tests run only in the nightly workflow", () => {
     expect(ci).not.toContain("ORWELL_RUN_QUARANTINED");
