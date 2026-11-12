@@ -345,6 +345,20 @@ _SAMPLE_JS = """
 """
 
 
+_SETTLED_JS = """
+() => {
+  const box = document.getElementById('chat-history');
+  if (!box) return false;
+  const els = Array.from(box.querySelectorAll('.msg.msg-ai')).filter(el => (el.textContent || '').includes('beat-79'));
+  if (els.length !== 1) return false;
+  const el = els[0];
+  const cm = window.chatModule;
+  const live = !!(cm && cm.hasActiveStream && cm.hasActiveStream(window.sessionModule && window.sessionModule.getCurrentSessionId && window.sessionModule.getCurrentSessionId()));
+  return !!(el.dataset && el.dataset.dbId) && !el.classList.contains('streaming') && !live;
+}
+"""
+
+
 def test_second_window_joins_mid_generation_and_converges(_stack):
     from playwright.sync_api import sync_playwright
 
@@ -438,12 +452,17 @@ def test_second_window_joins_mid_generation_and_converges(_stack):
         slow.join(timeout=120)
 
         def settled(page):
+            # ORW-293: wait for the SETTLE signal, not for the last token. The old check returned as soon as "beat-79" appeared, so a window could be sampled
+            # mid-settle (the live holder before its action footer / reconcile) while the other, rendered from history, was already final: a spurious "F5 parity
+            # broken" (a trailing retry glyph and a missing space on window A). Settled = the slow bubble carries its persisted id, is no longer streaming,
+            # and the page has no stream in flight, held for two consecutive polls. The equality assertion below is unchanged.
             deadline2 = time.time() + 30
+            stable = 0
             while time.time() < deadline2:
-                s = page.evaluate(_SAMPLE_JS)
-                bodies = [b for b in (s.get("bodies") or []) if "beat-79" in b]
-                if bodies:
-                    return s
+                st = page.evaluate(_SETTLED_JS)
+                stable = stable + 1 if st else 0
+                if stable >= 2:
+                    return page.evaluate(_SAMPLE_JS)
                 page.wait_for_timeout(400)
             return page.evaluate(_SAMPLE_JS)
 
