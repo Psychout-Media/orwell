@@ -155,7 +155,8 @@ const blocked = () => events.some((e) => e.startsWith("orwell:ws-blocked"));
     first.onclose && first.onclose();                      // the old one finally reports closed
     assert(lastSock === second && second.readyState !== 3, "the successor is untouched");
   }
-  // I: a RECONNECT hands the `state` listeners one edge ping (platform.js turns it into the single dispatch); the first connect does not.
+  // I: a RECONNECT that MISSED something (the server's beat differs from the one held at the drop) hands the `state` listeners one edge ping (platform.js turns it into the single dispatch);
+  //    a first connect, and a reconnect that missed nothing, do not.
   {
     const ws = boot(); await tick();
     const got = [];
@@ -163,8 +164,11 @@ const blocked = () => events.some((e) => e.startsWith("orwell:ws-blocked"));
     await handshake(10);
     assert(!got.some((g) => g.startsWith("reconnect")), "a first connect is not a reconnect refresh: " + JSON.stringify(got));
     lastSock.onclose(); await advance(1000);
-    await handshake(12);
-    assert(got.includes("reconnect:12"), "the reconnect refreshes the board through the state listeners: " + JSON.stringify(got));
+    await handshake(10);                                   // nothing happened while away
+    assert(!got.some((g) => g.startsWith("reconnect")), "a reconnect that missed nothing asks for no refresh: " + JSON.stringify(got));
+    lastSock.onclose(); await advance(1000);
+    await handshake(12);                                   // the board moved while away
+    assert(got.includes("reconnect:12"), "a reconnect that missed a commit refreshes the board through the state listeners: " + JSON.stringify(got));
   }
   console.log("OK");
   process.exit(0);
@@ -183,7 +187,7 @@ def test_the_live_socket_survives_phone_sleep_app_switch_and_network_handoff():
 
 # ── real Chromium at phone size against the live stack ───────────────────────────────────────────────────────────
 from test_m0_3_midgen_join import STUB, _stack  # noqa: E402,F401
-from test_p0h_day1_clock_e2e import _session  # noqa: E402
+from test_p0h_day1_clock_e2e import _engine, _session  # noqa: E402
 from test_orw191_golden_flows import AI_BUBBLE, COMPOSER, USER_BUBBLE, _expect_once, _launch, _open, _send, _wait_settled  # noqa: E402
 
 # Every WebSocket the page opens is recorded; while __wsBlock is set a new one is aimed at a refused port (the network is away: onclose fires without ever opening).
@@ -313,6 +317,7 @@ def test_phone_viewport_a_ceremony_step_that_advanced_while_the_socket_was_down_
         assert page.query_selector(".odec-watch") is None
         away["pending"] = _step(2, 3, "The host reads the veto result aloud.")
         _kill_sockets(page)                              # the drop; the step advanced during the outage
+        _engine(_stack, "noteMessage", {"messageId": f"orw308-away-{id(away)}"})   # ...which is a real commit: the engine's beatSeq moves while the socket is down
         page.wait_for_selector(".odec-watch", timeout=20000)   # reconnect -> one refresh through the dispatcher -> the card mounts
         card = page.evaluate("() => { const c = document.querySelector('.odec-watch'); return { step: c.dataset.step, role: c.getAttribute('role'), n: document.querySelectorAll('.odec-watch').length }; }")
         assert card == {"step": "2", "role": "group", "n": 1}, card

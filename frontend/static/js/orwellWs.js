@@ -159,6 +159,7 @@
   var _everLive = false;
   var PROBE_TIMEOUT_MS = 4000;   // ORW-308: how long a wake-up liveness ping may go unanswered before the socket is declared a zombie
   var _probeTimer = null;
+  var _beatAtDrop = -1;           // ORW-308: the last beatSeq we held when a live socket died (-1 = unknown); a reconnect whose beat differs missed something
   var _connectStartedAt = 0;      // ORW-308: when the current connect attempt began (a wake-up replaces only an attempt that has had its chance)
   var _closingForGood = false;
   var _lastUpgradeAttempt = 0;                    // ms of the last fallback→WS upgrade attempt
@@ -804,6 +805,7 @@
       // + the run-gone reconcile below).
       var wasReconnect = _reconnectFails > 0 || _highestChatSeq >= 0;
       var runWasInFlight = _runInFlightAtDrop; // ORW-217: a live run was mid-tail when the socket dropped
+      var beatAtDrop = _beatAtDrop;           // ORW-308: what we held when the socket died
       _hello(perTabId).then(function (helloAck) {
         _clearHelloTimer();
         if (!_live) {
@@ -826,9 +828,15 @@
         }
         _activate();
         // ORW-308: a RECONNECT may have missed board changes (a ceremony step that advanced, a pending card that changed) while the phone was away: the state/hud edge pings that carried
-        // them died with the old socket, and the pollers are off while a socket is live. Hand the existing `state` listeners one edge ping (ids + beatSeq only, like every state frame):
-        // platform.js's bridge turns it into the single `orwell:gamechanged` dispatch (g15), so the HUD and the pending card re-read their projections now. No second dispatcher here.
-        if (wasReconnect) { try { _emit("state", { t: "state", ch: "state", d: { beatSeq: _beatSeq, reason: "reconnect" } }); } catch (_) {} }
+        // them died with the old socket, and the pollers are off while a socket is live. If the server's beat at reconnect differs from the beat we held at the drop (or we did not know it),
+        // something was missed: hand the existing `state` listeners one edge ping (ids + beatSeq only, like every state frame) - platform.js's bridge turns it into the single
+        // `orwell:gamechanged` dispatch (g15), so the HUD and the pending card re-read their projections now. A reconnect that missed nothing asks for nothing. No second dispatcher here.
+        if (wasReconnect) {
+          try {
+            var _hb2 = helloAck && helloAck.d && helloAck.d.beatSeq;
+            if (typeof _hb2 !== "number" || beatAtDrop < 0 || _hb2 !== beatAtDrop) _emit("state", { t: "state", ch: "state", d: { beatSeq: _beatSeq, reason: "reconnect" } });
+          } catch (_) {}
+        }
         // Fresh window ⇒ full replay from 0; a reconnect resumes from the gap.
         _subscribeChat(wasReconnect ? _highestChatSeq + 1 : 0)
           .then(function (subAck) {
@@ -897,6 +905,7 @@
   function _onSocketGone(sock) {
     if (_sock !== sock) return;
     _sock = null;
+    if (_mode === "ws") _beatAtDrop = (typeof _beatSeq === "number" ? _beatSeq : -1);
     _chatSubscribed = false;
     if (_liveRunKnown) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was known live at the drop)
     _liveRunKnown = false;
