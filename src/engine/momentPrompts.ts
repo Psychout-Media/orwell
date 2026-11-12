@@ -1779,7 +1779,9 @@ function withMemorySpeechInstruction(base: string): string {
   const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
   return base.replace(anchor, anchor + "\n" +
     "    If the voice carries `rememberedAboutYou`, those are the ONLY things this houseguest remembers about the player: let them colour how they speak, never invent another past between them. Raise one aloud, unprompted,\n" +
-    "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.");
+    "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.\n" +
+    "    If the voice carries `rememberedAboutOthers`, those are things this houseguest holds about others in the room (all things the whole house saw): they may\n" +
+    "    bring one up with that person when it fits the moment, in their own words; never invent another past between them.");
 }
 
 /** A49 - when npcVoice carries `tells`, tell the narrator how to use them (voice the observable facts, never invent a mood). Appended only while the flag is on. */
