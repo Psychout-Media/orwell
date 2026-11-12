@@ -159,3 +159,72 @@ def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack)
         body = page.inner_text("#chat-history")
         assert "w2 hello" in body and "goodnight" not in body and "w1 a" not in body  # the closing week's goodnight is in the past chapter
         browser.close()
+
+
+# ── ORW-161: the anchored history window ──────────────────────────────────────────────────────────────────────────
+def _seq_rows(n):
+    return [{"role": "assistant" if i % 2 else "user", "content": f"m{i}", "seq": i + 1, "metadata": {}} for i in range(n)]
+
+
+def test_orw161_a_short_transcript_is_untouched_and_a_long_one_keeps_the_newest_rows():
+    out = _node(f"""const s={json.dumps(_seq_rows(80))}, l={json.dumps(_seq_rows(200))};
+const a=c.windowOver(s,null), b=c.windowOver(l,null);
+process.stdout.write(JSON.stringify({{shortSame:a.rows===s,shortHidden:a.hidden,n:b.rows.length,hidden:b.hidden,first:b.rows[0].content,last:b.rows[b.rows.length-1].content,anchor:b.anchor}}));""")
+    assert out["shortSame"] is True and out["shortHidden"] == 0
+    assert out["n"] == 50 and out["hidden"] == 150 and out["first"] == "m150" and out["last"] == "m199" and out["anchor"] == 151
+
+
+def test_orw161_the_window_is_anchored_so_new_messages_append_without_dropping_the_oldest():
+    out = _node(f"""const l={json.dumps(_seq_rows(200))};
+const first=c.windowOver(l,null);
+const grown=l.concat([{{role:'user',content:'new',seq:201,metadata:{{}}}}]);
+const again=c.windowOver(grown,first.anchor);
+process.stdout.write(JSON.stringify({{n:again.rows.length,first:again.rows[0].content,last:again.rows[again.rows.length-1].content,hidden:again.hidden}}));""")
+    assert out == {"n": 51, "first": "m150", "last": "new", "hidden": 150}
+
+
+def test_orw161_rows_without_a_seq_are_never_windowed():
+    out = _node(f"""const l={json.dumps([{"role": "user", "content": str(i), "metadata": {}} for i in range(200)])};
+const w=c.windowOver(l,null);process.stdout.write(JSON.stringify({{same:w.rows===l,hidden:w.hidden}}));""")
+    assert out == {"same": True, "hidden": 0}
+
+
+def test_orw161_rows_for_windows_a_long_chat_and_reveals_older_rows_on_demand():
+    out = _node(f"""const l={json.dumps(_seq_rows(200))};
+const a=c.rowsFor('sess',l).length;
+c.showEarlier('sess','sess|all',l,151);
+const b=c.rowsFor('sess',l).length;
+c.showEarlier('sess','sess|all',l,91);
+const d=c.rowsFor('sess',l).length;
+c.showEarlier('sess','sess|all',l,31);
+const e=c.rowsFor('sess',l);
+process.stdout.write(JSON.stringify({{a,b,d,eSame:e===l,eLen:e.length}}));""")
+    assert out == {"a": 50, "b": 110, "d": 170, "eSame": True, "eLen": 200}
+
+
+@pytest.mark.browser
+def test_orw161_a_long_chat_renders_its_newest_rows_and_reveals_earlier_ones_on_tap(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    sid = _session(_stack, "ch161")
+    hist = [dict(_row("assistant" if i % 2 else "user", f"line{i:03d}"), id=f"id{i}", seq=i + 1) for i in range(200)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.wait_for_timeout(2500)
+        page.evaluate("(id) => window.sessionModule ? window.sessionModule.selectSession(id) : null", sid)
+        page.wait_for_selector("#orwell-history-more", timeout=15000)
+        count = lambda: page.evaluate("() => document.querySelectorAll('#chat-history .msg[data-from-history]').length")  # noqa: E731
+        page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 50", timeout=15000)
+        assert count() == 50
+        body = page.inner_text("#chat-history")
+        assert "line199" in body and "line150" in body and "line149" not in body
+        assert "(150)" in page.inner_text("#orwell-history-more")
+        page.click("#orwell-history-more")
+        page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 110", timeout=15000)
+        assert count() == 110 and "line090" in page.inner_text("#chat-history")
+        browser.close()

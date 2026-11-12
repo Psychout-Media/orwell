@@ -82,16 +82,87 @@ function _enabled() {
   try { return !(typeof localStorage !== 'undefined' && localStorage.getItem('orwell.chapters') === '0'); } catch (_) { return true; }
 }
 
-/** The rows a history render/reconcile should use for this session. Also refreshes the bar. */
+/** The rows a history render/reconcile should use for this session. Also refreshes the bar and the "show earlier" button. */
 export function rowsFor(sessionId, history) {
-  if (!_enabled() || !Array.isArray(history)) { updateBar(null, null); return history; }
+  if (!_enabled() || !Array.isArray(history)) { updateBar(null, null); updateMore(null); return history; }
   const idx = chapterIndex(history);
-  if (idx.weeks.length < 2) { updateBar(null, null); return history; }
+  if (idx.weeks.length < 2) { updateBar(null, null); return windowRows(sessionId, 'all', history); }
   let view = getView(sessionId);
   if (view !== 'current' && !idx.weeks.includes(view)) { _views.delete(sessionId); view = 'current'; }
   const want = view === 'current' ? idx.current : view;
   updateBar(sessionId, { weeks: idx.weeks, current: idx.current, viewing: want, isCurrent: want === idx.current });
-  return history.filter((_, i) => idx.rowWeek[i] === want);
+  return windowRows(sessionId, String(want), history.filter((_, i) => idx.rowWeek[i] === want));
+}
+
+// ── ORW-161: bounded history render ──────────────────────────────────────────────────────────────────────────────
+// Even inside one chapter (or a non-game chat) a long transcript rebuilt every bubble on every open/reconcile. Past WINDOW_MAX rows only the newest WINDOW_INIT are rendered, with a
+// "Show earlier messages" button above the chat that reveals WINDOW_STEP more per tap. The window is ANCHORED on a row's `seq` (not "the last N"), so a new message appends below
+// without pushing the oldest bubble out: the rendered id order stays a plain prefix-free match of the rows and the reconcile's converged check keeps its zero-churn contract.
+// A row without an integer seq, or a transcript of at most WINDOW_MAX rows, returns the SAME array untouched (byte-identical to before).
+export const WINDOW_MAX = 80;
+export const WINDOW_INIT = 50;
+export const WINDOW_STEP = 60;
+const _anchors = new Map(); // `${sessionId}|${view}` -> the seq of the oldest rendered row
+
+function _seqOf(m) { return m && Number.isInteger(m.seq) ? m.seq : null; }
+
+/** Pure: the window over `rows` for an optional anchor seq. Returns { rows, hidden, anchor } (anchor null = nothing windowed). */
+export function windowOver(rows, anchor) {
+  if (!Array.isArray(rows)) return { rows, hidden: 0, anchor: null };
+  let from = 0;
+  if (anchor != null) {
+    from = rows.findIndex((m) => { const q = _seqOf(m); return q !== null && q >= anchor; });
+    if (from < 0) from = 0;
+  } else if (rows.length > WINDOW_MAX) {
+    from = rows.length - WINDOW_INIT;
+  }
+  if (from <= 0) return { rows, hidden: 0, anchor: null };
+  const q = _seqOf(rows[from]);
+  if (q === null) return { rows, hidden: 0, anchor: null };
+  return { rows: rows.slice(from), hidden: from, anchor: q };
+}
+
+export function windowRows(sessionId, view, rows) {
+  const key = sessionId + '|' + view;
+  const w = windowOver(rows, _anchors.has(key) ? _anchors.get(key) : null);
+  if (w.anchor == null) { updateMore(null); return rows; } // an anchor of -1 ("show all") stays stored so a long chat the viewer fully expanded is not re-windowed
+  _anchors.set(key, w.anchor);
+  updateMore({ sessionId, key, hidden: w.hidden, rows, anchor: w.anchor });
+  return w.rows;
+}
+
+/** Reveal WINDOW_STEP more older rows (or all, when fewer remain) and ask the shared reconcile to re-render. */
+export function showEarlier(sessionId, key, rows, anchor) {
+  const at = rows.findIndex((m) => _seqOf(m) === anchor);
+  const to = Math.max(0, (at < 0 ? 0 : at) - WINDOW_STEP);
+  const q = to > 0 ? _seqOf(rows[to]) : null;
+  _anchors.set(key, q == null ? -1 : q);
+  try {
+    const box = document.getElementById('chat-history');
+    if (box && typeof MutationObserver !== 'undefined') {
+      const mo = new MutationObserver(() => { mo.disconnect(); setTimeout(() => { box.scrollTop = 0; }, 50); });
+      mo.observe(box, { childList: true });
+      setTimeout(() => mo.disconnect(), 4000);
+    }
+    window.dispatchEvent(new CustomEvent('orwell:chapter-view', { detail: { sessionId, view: getView(sessionId) } }));
+  } catch (_) { /* no window in tests */ }
+}
+
+const MORE_ID = 'orwell-history-more';
+export function updateMore(info) {
+  if (typeof document === 'undefined') return;
+  let btn = document.getElementById(MORE_ID);
+  if (!info) { if (btn) btn.remove(); return; }
+  const box = document.getElementById('chat-history');
+  if (!box || !box.parentNode) return;
+  if (!btn) {
+    btn = _h('button', 'ow-history-more');
+    btn.id = MORE_ID;
+    btn.type = 'button';
+    box.parentNode.insertBefore(btn, box);
+  }
+  btn.textContent = 'Show earlier messages (' + info.hidden + ')';
+  btn.onclick = () => showEarlier(info.sessionId, info.key, info.rows, info.anchor);
 }
 
 // ── the bar ──────────────────────────────────────────────────────────────────────────────────────────────────────
