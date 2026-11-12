@@ -411,7 +411,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
                 if (e instanceof StaleBeatError) {
                   return send(409, { error: e.message, code: e.code, beatSeq: e.beatSeq, board: e.board });
                 }
-                if (e instanceof TurnRefusedError) return send(409, { error: e.message });
+                if (e instanceof TurnRefusedError) return send(409, { error: e.message, code: "turn-refused", kinds: e.kinds, ...(e.invariants.length ? { invariant: e.invariants.join(",") } : {}) });
                 if (e instanceof PersistFailureError) return send(500, { error: e.message });
                 // E9/E7: a DELIBERATE refusal — `EngineRefusal`, or (back-compat) a plain Error
                 // thrown by the engine's validation (illegal nominee, unknown tool) — is the

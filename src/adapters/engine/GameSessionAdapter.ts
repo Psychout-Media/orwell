@@ -83,6 +83,8 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
+import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
+import type { AgendaCharacter } from "../../engine/agenda";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -8305,6 +8307,11 @@ export class GameSessionAdapter implements GameSession {
       ...(this.compMixedEnabled ? { mixedComps: true as const } : {}),
       ...(this.finalHohThreePartEnabled ? { finalHohThreePart: true as const } : {}),
       ...(this.jurorProfilesEnabled ? { jurorProfiles: true as const, jurorProfileSalt: this.gameSeed ?? 0 } : {}),
+      // ORW-318 (ORW-253 slice 6): juror style and the NPC Final HOH's choice from CHARACTER.
+      ...(this.npcMindsEndgameEnabled ? {
+        jurorArchetypeFor: (juror: EntityId) => { const c = this.agendaCharacterOf(juror); return c ? jurorArchetypeFor(c, juror, this.gameSeed ?? 0) : undefined; },
+        finalHohMind: (hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[]) => this.finalHohMindChoice(hoh, rivals, jury),
+      } : {}),
       // C1 (#1788): the Wipeout Reel presentation layer — present ONLY when enabled (off in the
       // calibration/golden harness ⇒ absent ⇒ no failure-style fact computed ⇒ byte-identical
       // `comp-elimination` content). `archetypeOf` rides ALONGSIDE it — `beginStaged` only ever reads it
@@ -9779,6 +9786,41 @@ export class GameSessionAdapter implements GameSession {
   setPhilosophiesEnabled(on: boolean): void { this.philosophiesEnabled = on; }
   philosophyOf(id: EntityId): GamePhilosophy {
     return drawPhilosophy(this.archetypeReadOf(id) ?? "", hashSeed(`${this.gameSeed ?? 0}:philosophy:${id}`));
+  }
+
+  /**
+   * ORW-318 (ORW-253 slice 6, Ryne approved the NPC minds design 2026-11-12): jurors vote by who they are (archetype + style, not an id
+   * hash) and an NPC Final HOH weighs who they can beat in front of the jury. ON unless `ORWELL_NPC_MINDS_ENDGAME=0`. Balance is measured
+   * and reported, never a gate (Ryne 2026-11-05/06).
+   */
+  private npcMindsEndgameEnabled = flagDefaultOn("ORWELL_NPC_MINDS_ENDGAME");
+  setNpcMindsEndgameEnabled(on: boolean): void { this.npcMindsEndgameEnabled = on; }
+
+  /** ORW-253: the agenda's view of a houseguest's own character (NPCs only; the player has none). */
+  agendaCharacterOf(id: EntityId): AgendaCharacter | undefined {
+    const n = this.house?.npcs.find((x) => x.id === id);
+    if (!n) return undefined;
+    const c = n.character;
+    return {
+      archetype: c.archetype, strategyStyle: c.strategyStyle, secretKinds: (c.hiddenElements ?? []).map((e) => e.kind),
+      ...(this.philosophiesEnabled ? { philosophy: this.philosophyOf(id) } : {}),
+      ...(c.influence ? { susceptibility: c.influence.susceptibility } : {}),
+    };
+  }
+
+  /** ORW-318: the NPC Final HOH's evictee from character and their OWN jury estimate (`juryMinds`); undefined = the pre-ORW-318 threat read. */
+  private finalHohMindChoice(hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[]): EntityId | undefined {
+    const me = this.agendaCharacterOf(hoh);
+    if (!me || rivals.length !== 2) return undefined;
+    const rel = this.rel;
+    const bond = (a: EntityId, b: EntityId): number => { const e = rel.edge(a, b); return (e.trust + e.affinity) / 2; };
+    const resume = (id: EntityId): number => this.live?.resume?.[id] ?? 0;
+    const options: FinalHohOption[] = rivals.map((evict) => {
+      const keep = rivals.find((r) => r !== evict)!;
+      const e = rel.edge(hoh, evict);
+      return { evict, keep, myJuryShareVsKeep: estimateJuryShare(hoh, keep, evict, jury, bond, resume), threatOfEvict: e.threat, bondWithEvict: e.affinity };
+    });
+    return finalHohChoice(me, options).evict;
   }
 
   private archetypeOf(id: EntityId): string {
@@ -12939,7 +12981,7 @@ export class GameSessionAdapter implements GameSession {
       parties: d.parties.map((id) => ({ id, name: this.nameOf(id) })),
       kind: d.kind,
       terms: d.terms,
-      status: sealed ? "open" : d.status,
+      status: sealed ? "open" : (d.status as DealView["status"]), // a "lapsed" deal never reaches a view: forParty / npcOnly skip it (ORW-316)
       ...(d.packageId ? { packageId: d.packageId } : {}),
       ...(d.expiresWeek !== undefined || d.vague
         ? { term: { ...(d.expiresWeek !== undefined ? { expiresWeek: d.expiresWeek } : {}), ...(d.vague ? { vague: true } : {}) } }

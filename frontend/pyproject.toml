@@ -8,6 +8,7 @@ asyncio_mode = "auto"
 timeout = 300
 markers = [
     "browser: a headless-Chromium Playwright test (sync_playwright); runs in the serial fe-browser-tests CI lane, not xdist",
+    "engine_retry: the test exercises the engine client's retry / backoff itself, so the conftest default (retry off) is not applied",
 ]
 
 # ORW-218: front-end coverage (measured by the fe-unit shards, combined and floor-checked by the `fe-coverage` job; ci/check-fe-coverage.py).

@@ -49,6 +49,43 @@ saw = yes (retrospective, later slice); small wants = later; motives: no hints, 
   replacement, veto and votes (with ORW-305's term breakdown as `terms`) and hands the stated reason to the narrator in place of the
   "invent the HOH's reason" instruction.
 
+## Slice 3 core: hour-by-hour house life (`houseLife.ts`)
+Replaces "a pair and 1 of 7 stock scene types" with ONE action per awake houseguest per game hour (Ryne 2026-11-11: "The fact there are
+only 7 types seems wild to me."):
+- **Built from parts:** an action from a library of ~50 in seven families (information, alliances, safety, attack, house life, romance,
+  alone, plus public reactions), with whom (anyone awake: one, a few, nobody), where (they walk to the partner on purpose, or the action's
+  usual room), how (warm, cold, nervous, angry, playful from mood), and honest or false for things said (scheming speech lies more).
+- **Caused by goals:** `nextStepFor(goal)` turns the strongest goal into a step (campaign against a target to the HOH, work the voters
+  when nominated, recruit, keep a long-con mark close, fish for an answer). A goal is pursued this hour when its commitment beats the
+  pull of ordinary life for the time of day; otherwise house life.
+- **House life:** habits (two or three per houseguest from the character, e.g. gym rat, house cook, night owl; slice 5 lets the model
+  write them from the backstory), a showmance partner, a low mood (homesick talk, venting, mulling), friction (chore fights), pranks,
+  stories, bed talk.
+- **Rules kept:** asleep = no action (caller passes the awake set); during a competition only public reactions (cheer, taunt, sulk) where
+  they stand; partners are only people awake in the house; the player can be approached but never acts through this.
+- **Scenes:** `assembleScenes` merges one hour's plans in a room that share a participant into one scene, each actor keeping their own
+  purpose. Gate: `tests/unit/houseLife.test.ts` (16 cases; 8 mutants each go red). The overseer half wires it into the orchestrator in place
+  of the 7-type tick and records each scene as an event (hidden unless the player is present), folding through the existing types.
+
+## Slice 4 core: memory with content, mood with a cause (`innerLife.ts`)
+- `memoryLine(kind)`: one engine sentence per memory kind, to the person ("you left me on the block when you held the veto") and about
+  them ("{subject} left me on the block when they held the veto"); `fillSubject` puts the public name in at the narrator seam (no names
+  in engine text). Lets any houseguest bring up what anyone did, not only the player.
+- `appraiseGoal(goal)`: a settled goal the holder cared about gives an existing soul event (the bounded arc is unchanged) and a cause in
+  their own words ("my plan to get {subject} out fell apart"); low-commitment goals pass without a feeling.
+- `mayShareCause(cause, listenerAffinity, candor)`: the mood is visible to all (tells); the CAUSE is said only to people they trust, and
+  revealing causes (a plan, a grudge, a con, a secret) need more trust and candor (Ryne 2026-11-12: no motive hints).
+- Gate: `tests/unit/innerLife.test.ts` (6 cases; 4 mutants each go red).
+
+## Slice 6 core: jury and final HOH from character (`juryMinds.ts`)
+- `jurorArchetypeFor(character, juror, seed)`: the juror's voting style (the five existing styles) comes from their archetype and strategy
+  style (a hothead holds grudges, a peacemaker forgives, a loyalist rewards loyalty, a comp beast rewards the game); the id hash is only a
+  near-tie jitter. Replaces `jurorProfile`'s pure id hash. The house-mean of each jury term now follows the cast (reported, never gated).
+- `finalHohChoice(hoh, options)`: the NPC Final HOH weighs its OWN estimate of its jury share against each possible finalist, the threat
+  and the bond, by character (a strategist sits beside who they can beat, a loyalist keeps the ally, a hothead cuts the threat), with a
+  real reason. Replaces "evict the higher-threat rival" (liveSeason.ts ~3106).
+- Gate: `tests/unit/juryMinds.test.ts` (7 cases; 4 mutants each go red).
+
 ## Not in slice 1
 Decisions reading the agenda and stored reasons (slice 2); the hour-by-hour actions and next step (slice 3); memory sentences and mood
 causes (slice 4); model words (slice 5); jury and final HOH from character (slice 6); house culture (slice 3/5).

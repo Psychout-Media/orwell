@@ -1787,6 +1787,8 @@ async def _health_snapshot(user: str | None) -> dict:
 
     fe_last = detail.get("lastError")  # the FE's recent view of engine trouble (recency-gated)
     frontend = {"lastError": fe_last, "store": _store_stats()}
+    if detail.get("integrityRefusal"):  # ORW-321: RED - the engine's integrity checkpoint is refusing turns (kinds + invariant NAME only)
+        frontend["integrityRefusal"] = detail["integrityRefusal"]
 
     # Tiers AGREE when the engine self-reports healthy AND the FE's recent experience of it
     # concurs (no fresh transport failure on record). A disagreement is itself the signal —
@@ -2557,6 +2559,7 @@ function render(d) {
     "<table><thead><tr><th>Time (UTC)</th><th>Tool</th><th>Error</th><th style='text-align:right'>Duration</th></tr></thead><tbody>" +
     (fails.map(f => "<tr><td>" + esc(fmt(f.ts)) + "</td><td>" + esc(f.tool) + "</td><td>" + esc(f.errorClass) + "</td><td class='num'>" + esc(f.durationMs) + " ms</td></tr>").join("") ||
      "<tr><td colspan=4>No recent failures on record.</td></tr>") + "</tbody></table>" +
+    (((d.frontend || {}).integrityRefusal) ? "<div class='fail' style='margin-top:8px;color:#c0392b;font-weight:600'>RED &mdash; the engine's integrity checkpoint is REFUSING turns (" + esc(((d.frontend || {}).integrityRefusal || {}).tool) + ", " + esc((((d.frontend || {}).integrityRefusal || {}).kinds || []).join(",")) + ", invariant " + esc(((d.frontend || {}).integrityRefusal || {}).invariant || "unknown") + ", " + esc(((d.frontend || {}).integrityRefusal || {}).count) + " refusal(s)). The game cannot advance; state is unchanged.</div>" : "") +
     (feLast ? "<div class='sub' style='margin-top:8px'>Front-end tier: " + esc(feLast.tool || "?") + " — " + esc(feLast.kind || "") + " — " + esc(feLast.error || "") + "</div>" : "");
   // CAST AUTHORING · ENRICHMENT (2026-07-12): the authoring run state + the per-class failure
   // ledger. Pre-game castAuthoring carries {pregame, givenUp, houseEntryHold}; in-game it carries
