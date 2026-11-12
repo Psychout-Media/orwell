@@ -70,6 +70,7 @@ def _walk_week_one(stack, sid, want=None):
     on the way (a comp round, the nominations, a veto decision, a tie-break...) is answered. `want` ("vote" / "block"): also stop as soon as the engine reports that path ruled out."""
     obs = []
     n = 0
+    ff = 0
     seg = 0  # ORW-116: a new segment starts after every bedtime or fast-forwarded stretch; the exact-5-minute invariant is checked within a segment only
     for _ in range(600):
         s, st = _schedule(stack)
@@ -93,8 +94,11 @@ def _walk_week_one(stack, sid, want=None):
         if isinstance(mu, int) and mu > 60 and not s.get("due"):
             # a day is 16 awake hours (~190 messages) and nothing but the clock moves it: let the idle stretch pass as the very same player-message ticks the FE announces (engine noteMessage, 5 min each)
             # and re-enter the real chat route for the last hour before the milestone.
+            # ORW-281: ids come from a running counter, NOT `n` - `n` only moves on a chat line, so two idle stretches in a row (the veto draw, then the 3 h wait for the competition) reused the same ids,
+            # the engine dedupes a repeated messageId, and the second stretch advanced NOTHING (the walk then spun on "minutesUntil=180" until its budget ran out).
             for k in range(mu // 5 - 12):
-                _engine(stack, "noteMessage", {"messageId": f"a64-ff-{n}-{k}"})
+                ff += 1
+                _engine(stack, "noteMessage", {"messageId": f"a64-ff-{ff}"})
             seg += 1
             continue
         _send(stack, sid, f"Plain chat line {n}.", f"a64-{n}")
