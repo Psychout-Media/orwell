@@ -155,16 +155,16 @@ const blocked = () => events.some((e) => e.startsWith("orwell:ws-blocked"));
     first.onclose && first.onclose();                      // the old one finally reports closed
     assert(lastSock === second && second.readyState !== 3, "the successor is untouched");
   }
-  // I: a RECONNECT asks THE dispatcher for a refresh (a ceremony step may have advanced while the phone was away); the first connect does not.
+  // I: a RECONNECT hands the `state` listeners one edge ping (platform.js turns it into the single dispatch); the first connect does not.
   {
     const ws = boot(); await tick();
-    const asked = [];
-    global.window.orwellGameChanged = (reason, beat) => asked.push(reason + ":" + beat);
+    const got = [];
+    ws.onFrame("state", (f) => got.push(f.d && f.d.reason + ":" + f.d.beatSeq));
     await handshake(10);
-    assert(asked.length === 0, "a first connect is not a reconnect refresh: " + JSON.stringify(asked));
+    assert(!got.some((g) => g.startsWith("reconnect")), "a first connect is not a reconnect refresh: " + JSON.stringify(got));
     lastSock.onclose(); await advance(1000);
     await handshake(12);
-    assert(asked.includes("ws:reconnect:12"), "the reconnect refreshes through the one dispatcher: " + JSON.stringify(asked));
+    assert(got.includes("reconnect:12"), "the reconnect refreshes the board through the state listeners: " + JSON.stringify(got));
   }
   console.log("OK");
   process.exit(0);
@@ -205,6 +205,22 @@ def _wait_live(page, timeout=25000):
     page.wait_for_function("() => !!(window.OrwellWs && window.OrwellWs.isActive() && window.OrwellWs.isChatSubscribed())", timeout=timeout)
 
 
+def _quiesce_stub(quiet_s=2.0, timeout_s=30):
+    """No other narrator call may pop the entry this test queues: wait until the stub has seen no new request for a moment, and drop any leftover scripted entry an earlier test did not consume."""
+    import time
+    end, last, since = time.time() + timeout_s, -1, time.time()
+    while time.time() < end:
+        with STUB.lock:
+            n = len(STUB.requests)
+        if n != last:
+            last, since = n, time.time()
+        elif time.time() - since >= quiet_s:
+            break
+        time.sleep(0.2)
+    with STUB.lock:
+        STUB.script.clear()
+
+
 def _kill_sockets(page):
     page.evaluate("() => window.__ws.forEach(s => { try { s.close(); } catch (e) {} })")
 
@@ -233,6 +249,7 @@ def test_phone_viewport_the_socket_comes_back_after_idle_drop_mid_turn_drop_and_
         assert page.evaluate("() => window.OrwellWs.canonicalId()") == canon
 
         # (2) mid-turn drop: kill the socket while the reply is streaming; the reply must still settle, exactly once.
+        _quiesce_stub()
         say, reply = f"Phone mid-turn {tag}: look around.", f"The house settles around phone-mid-{tag}."
         STUB.script.append({"deltas": ["The house ", "settles around ", f"phone-mid-{tag}."], "delay": 0.9})
         n0 = len(STUB.script)
@@ -253,6 +270,7 @@ def test_phone_viewport_the_socket_comes_back_after_idle_drop_mid_turn_drop_and_
         assert page.evaluate("() => window.OrwellWs.canonicalId()") == canon
 
         # the game still plays after the outage
+        _quiesce_stub()
         say2, reply2 = f"Phone after outage {tag}: carry on.", f"The night goes on, phone-after-{tag}."
         STUB.script.append({"deltas": ["The night goes on, ", f"phone-after-{tag}."], "delay": 0.2})
         n1 = len(STUB.script)
