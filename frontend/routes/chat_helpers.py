@@ -1517,6 +1517,8 @@ _LAST_FRAMED_BEAT_KEY: dict = {}
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent (pre-game / casting) ⇒ a neutral wall-clock
 # stamp (prior behavior). Vault-free by construction (closed-set public status only).
 _LAST_FRAMED_GAME_MOMENT: dict = {}
+# ORW-275: the engine's game WEEK stashed next to the moment (same keying), persisted as numeric metadata['week'] on every saved game row.
+_LAST_FRAMED_GAME_WEEK: dict = {}
 # ORW-271: the engine's in-game DAY number stamped next to the moment (same keying), persisted as metadata['game_day'] on the saved row.
 _LAST_FRAMED_GAME_DAY: dict = {}
 
@@ -6698,6 +6700,9 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     return " · ".join(parts) if parts else None
 
 
+def current_game_week(user) -> Optional[int]:
+    """ORW-275: the engine's game week (int) stashed by `apply_game_framing` this turn (None pre-game / casting)."""
+    return _LAST_FRAMED_GAME_WEEK.get(user or "default")
 def current_game_day(user) -> Optional[int]:
     """ORW-271: the engine's in-game day number stashed by `apply_game_framing` this turn (None pre-game / casting)."""
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
@@ -7397,6 +7402,12 @@ async def apply_game_framing(
         # beat's transcript timestamp so the fiction isn't dated by the wall clock. Keyed the SAME
         # "default"-fallback way as the beat key below. Vault-free (closed-set public status only).
         _LAST_FRAMED_GAME_MOMENT[user or "default"] = _format_game_moment(game_state)
+        # ORW-275: the game WEEK (same framing state, zero extra read). Pre-game / casting ⇒ none (rows stay unstamped).
+        _gw = game_state.get("week") if isinstance(game_state, dict) and game_state.get("started") else None
+        if isinstance(_gw, int) and not isinstance(_gw, bool) and _gw > 0:
+            _LAST_FRAMED_GAME_WEEK[user or "default"] = _gw
+        else:
+            _LAST_FRAMED_GAME_WEEK.pop(user or "default", None)
         # ORW-271: the in-game DAY (same framing state, zero extra read). Pre-game / no clock day ⇒ none (rows stay unstamped).
         _gd = game_state.get("dayNumber") if isinstance(game_state, dict) and game_state.get("started") else None
         if isinstance(_gd, int) and not isinstance(_gd, bool) and _gd > 0:
@@ -9200,7 +9211,7 @@ def clean_thinking_for_save(
 
 
 def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
-                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None, game_day: Optional[int] = None,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None, game_week: Optional[int] = None, game_day: Optional[int] = None,
                          announcements: Optional[list] = None, incognito: bool = False):
     """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
     the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
@@ -9214,6 +9225,8 @@ def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dic
     content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game, cut_off=True)
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275
     if isinstance(game_day, int) and not isinstance(game_day, bool) and game_day > 0:
         md["game_day"] = game_day  # ORW-271
     if announcements:
@@ -9247,6 +9260,7 @@ def save_assistant_response(
     game_moment: str = None,
     game: bool = False,
     brief_seen: dict = None,
+    game_week: int = None,
     game_day: int = None,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
@@ -9267,6 +9281,8 @@ def save_assistant_response(
         md["phase"] = phase
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275: numeric game week next to game_moment
     if isinstance(game_day, int) and not isinstance(game_day, bool) and game_day > 0:
         md["game_day"] = game_day  # ORW-271: the engine's in-game day; the prompt view condenses closed days by it
     # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF; the caller passes None when off): what the narrator last saw,
