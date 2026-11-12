@@ -54,7 +54,7 @@
 
   const DEAL_KIND_LABEL = {
     safety: "Safety", vote: "Vote", "final-two": "Final 2", "target-other": "Protection pact",
-    "comp-throw": "Comp throw", "veto-save": "Veto save", "protect-third": "Third-party pact",
+    "comp-throw": "Comp throw", "veto-save": "Veto save", "protect-third": "Third-party pact", "conditional": "If-on-the-block pact",
   };
   const DEAL_STATUS_LABEL = { open: "Still standing", kept: "Honored", broken: "Broken" };
 
