@@ -23162,6 +23162,12 @@ body.theme-frosted .msg-user:not(:nth-last-child(-n+12)) {
 .ow-chapter-bar select.ow-chapter-select option { color: #111; background: #fff; }
 @media (max-width: 480px) { .ow-chapter-bar { padding: .3rem .5rem; font-size: .8rem; } }
 
+/* ORW-161: the "Show earlier messages" button above a windowed history (a long transcript renders only its newest rows). */
+button.ow-history-more {
+  display: block; width: 100%; min-height: 40px; margin: 0 0 .25rem 0; padding: .4rem .75rem; cursor: pointer;
+  background: transparent; color: var(--fg); border: 0; border-bottom: 1px solid var(--border, rgba(255,255,255,.15)); font: inherit; font-size: .85rem;
+}
+
 /* ORW-275: the week-chapter recap card (the boundary row) - a card, not a normal reply, and no reply actions on it. */
 .msg[data-kind="week-chapter"] .msg-footer { display: none; }
 .ow-week-card { padding: .6rem .8rem; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.25)); background: var(--panel, rgba(0,0,0,.2)); }
