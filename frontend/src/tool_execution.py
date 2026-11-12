@@ -1667,6 +1667,13 @@ async def execute_tool_block(
     elif tool == "turnIn":
         desc = "turnIn"
         result = await do_turn_in(content, owner=owner)
+        # ORW-271: after a successful turnIn, condense the closed day in the BACKGROUND (idempotent, fail-soft, never blocks sleep).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_day_condense
+                orwell_day_condense.kickoff_after_turn_in(owner, result)
+            except Exception:
+                pass
     elif tool.startswith("mcp__"):
         # MCP tool dispatch
         mcp = get_mcp_manager()
