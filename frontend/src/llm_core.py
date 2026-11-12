@@ -633,6 +633,40 @@ def _host_match(url: str, *domains: str) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
+def _keep_system_order_enabled() -> bool:
+    """ORW-296: ``ORWELL_KEEP_SYSTEM_ORDER=1`` stops the streaming request from hoisting every system message into the first one (default ON since the 2026-11-12 live A/B; =0 turns it off)."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_KEEP_SYSTEM_ORDER", "")).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _consolidate_system_messages(messages, url: str, provider: str):
+    """Fold the system messages into ONE at the start (some models, e.g. Qwen3.5, reject a system message that is not first).
+
+    ORW-296 (found with a live cache probe, 2026-11-12): hoisting EVERY system message to the top moves the per-turn ones (the Show Brief, production notes, the volatile game-state tail) into the first message, so the
+    request prefix changes every turn at the very top and the provider's prefix cache covers only the first ~18k tokens - the whole chat history after it is re-billed uncached each turn. For a host known to accept
+    system messages anywhere (DeepSeek's own API) and with the flag on (the default), only the LEADING run of system messages is merged; later ones stay exactly where they are, so the history stays a stable cacheable prefix.
+    Every other provider, and the flag off, is byte-identical to the old behaviour."""
+    if _keep_system_order_enabled() and provider == "openai" and _host_match(url, "deepseek.com"):
+        i = 0
+        while i < len(messages) and messages[i].get("role") == "system":
+            i += 1
+        if i == 0:
+            return messages
+        lead = "\n\n".join((m.get("content") or "") for m in messages[:i])
+        return [{"role": "system", "content": lead}] + list(messages[i:])
+    sys_parts = []
+    non_sys = []
+    for m in messages:
+        if m.get("role") == "system":
+            sys_parts.append(m.get("content") or "")
+        else:
+            non_sys.append(m)
+    if sys_parts:
+        return [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
+    return non_sys
+
+
 def _detect_provider(url: str) -> str:
     """Detect the API provider from a configured endpoint URL.
 
@@ -2080,19 +2114,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
     provider = _detect_provider(url)
     messages_copy = _sanitize_llm_messages(messages)
 
-    # Consolidate multiple system messages into one at the start.
-    # Some models (e.g. Qwen3.5) reject system messages that aren't first.
-    sys_parts = []
-    non_sys = []
-    for m in messages_copy:
-        if m.get("role") == "system":
-            sys_parts.append(m.get('content') or '')
-        else:
-            non_sys.append(m)
-    if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
-    else:
-        messages_copy = non_sys
+    messages_copy = _consolidate_system_messages(messages_copy, url, provider)
 
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
