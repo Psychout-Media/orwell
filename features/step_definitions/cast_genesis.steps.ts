@@ -457,7 +457,16 @@ Then("no player field appears in any genesis prompt", function (this: BbWorld) {
   // The engine's entire genesis-prompt payload is the SEEDED season brief (the FE assembles the sketch/
   // deep prompts FROM this player-blind brief). It is player-INDEPENDENT by construction (arity 1) and
   // carries no player field — a cast cannot be bent toward a player it never saw.
-  assert.equal(generateSeasonBrief.length, 1, "the brief generator takes only the seed");
+  // ORW-286 item 9: not `generateSeasonBrief.length === 1` (function arity proves nothing about what the result depends on). Behaviour: the brief and its rendered prompt for a seed are
+  // identical whatever player-ish value is offered alongside, and carry neither the player's name nor any of a spread of plausible player names.
+  const seeds = [s.cgSeed!, 1, 42, 999];
+  for (const seed of seeds) {
+    const base = generateSeasonBrief(seed);
+    for (const player of [s.cgPlayerName!, "The Player", "Avery Quinn", "ER nurse from Austin"]) {
+      assert.deepEqual((generateSeasonBrief as unknown as (a: number, b: string) => unknown)(seed, player), base, `the brief for seed ${seed} changed when offered a player value`);
+      assert.ok(!JSON.stringify(base).includes(player) && !renderSeasonBrief(base).includes(player), `the player value ${JSON.stringify(player)} appears in the seed ${seed} brief`);
+    }
+  }
   assert.ok(!s.cgPromptText!.includes(s.cgPlayerName!), "a player field leaked into the genesis prompt");
 });
 
@@ -499,7 +508,14 @@ Then("the two briefs are byte-equal", function (this: BbWorld) {
 });
 
 Then("the brief derives from the seed alone, independent of the player", function () {
-  assert.equal(generateSeasonBrief.length, 1, "the brief generator takes only the seed (player-independent)");
+  // ORW-286 item 9: behavioural, not arity. The same seed yields the same brief however many unrelated arguments follow; a different seed yields a (usually) different one.
+  for (const seed of [0, 7, 108108, 2147483647]) {
+    const base = generateSeasonBrief(seed);
+    assert.deepEqual(base, generateSeasonBrief(seed), "the same seed is reproducible");
+    assert.deepEqual((generateSeasonBrief as unknown as (a: number, ...r: unknown[]) => unknown)(seed, { playerName: "Someone Else", vocation: "ER nurse" }, "x"), base, "extra player-ish arguments changed the brief");
+  }
+  const distinct = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => JSON.stringify(generateSeasonBrief(seed))));
+  assert.ok(distinct.size > 1, "the seed actually steers the brief");
 });
 
 Given("a proposal that ignores the season brief but satisfies every envelope validator", function (this: BbWorld) {

@@ -241,10 +241,13 @@ Given("a season started with seed {string} and no search provider configured", f
   this.wsFix = wsStart(label);
 });
 
-Then("the world snapshot seeds from framed knowledge or is absent", function (this: BbWorld) {
+Then("the world snapshot is seeded from framed knowledge", function (this: BbWorld) {
+  // ORW-286 item 9: the old step passed whether the snapshot was present or absent (`if (view) ...`). With no search provider the deterministic model-framed
+  // snapshot MUST stand (spec 0062 sections 8 and 11): assert it is there and has real content.
   const view = this.wsFix!.sb.session.worldSnapshotView();
-  // Either a model-framed fallback is present, or (had it been skipped) it would read absent — both legal.
-  if (view) assert.equal(view.source, "model-framed", "a no-provider snapshot was not the model-framed fallback");
+  assert.ok(view, "a no-provider season has no world snapshot at all (the model-framed fallback did not stand)");
+  assert.equal(view!.source, "model-framed", "a no-provider snapshot was not the model-framed fallback");
+  assert.ok(JSON.stringify(view).length > 40, "the model-framed snapshot is empty");
 });
 
 Then("an absent world snapshot round-trips as absent", function (this: BbWorld) {

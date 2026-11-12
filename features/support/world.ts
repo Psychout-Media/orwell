@@ -715,6 +715,14 @@ export class BbWorld extends World {
   txSkeletons?: import("../../src/ports/GameSession").OffscreenSceneSkeleton[];
   txWriteOk?: boolean;
   txRefusedReason?: string;
+  // ORW-286 item 9 (0070 scenarios 2 to 5): real two-game comparison and per-attempt refusal records.
+  txGameA?: { sb: import("../../src/composition/registry").UserSandbox; orch: import("../../src/composition/orchestrator").Orchestrator; user: string };
+  txGameB?: { sb: import("../../src/composition/registry").UserSandbox; orch: import("../../src/composition/orchestrator").Orchestrator; user: string };
+  txRefusals?: string[];
+  txBefore?: string;
+  txSourceNpc?: string;
+  txTemplates?: string[];
+  txFailedWrites?: boolean[];
   txSeedA?: string;
   txSeedB?: string;
 
