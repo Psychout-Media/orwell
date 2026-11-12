@@ -19,6 +19,13 @@ USAGE = {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13,
          "prompt_tokens_details": {"cached_tokens": 4}, "prompt_cache_hit_tokens": 4, "prompt_cache_miss_tokens": 6}
 
 
+@pytest.fixture(autouse=True)
+def _non_game_build_openrouter_payload(monkeypatch):
+    """ORW-287: the game build sends no text to OpenRouter (the dispatch guard re-points it). These tests pin the OpenRouter PAYLOAD
+    shape, which only the non-game build still reaches."""
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")
+
+
 def _chunk(content=None, role=None, finish=None, usage=None, choices=True):
     delta = {}
     if role:

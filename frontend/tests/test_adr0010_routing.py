@@ -4,9 +4,17 @@ Per-session stickiness keeps OpenRouter on the cache-warm provider; above the hi
 large prompt PINS (no fallback) so it never cold-cache-misses. Default threshold 0 ⇒ pin off ⇒
 byte-identical routing. Roles only.
 """
+import pytest
 import asyncio
 
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+@pytest.fixture(autouse=True)
+def _non_game_build_openrouter_payload(monkeypatch):
+    """ORW-287: the game build sends no text to OpenRouter (the dispatch guard re-points it). These tests pin the OpenRouter PAYLOAD
+    shape, which only the non-game build still reaches."""
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")
 
 
 class _FakeResp:
