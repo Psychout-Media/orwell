@@ -192,9 +192,11 @@ export class SoulStore implements SoulProvider {
    * is untouched, and a restore re-derives every index (`rebuildSoulIndex`).
    */
   discardPending(): void {
-    const keep = SoulStore.pending.filter((p) => p.store !== this);
-    SoulStore.pending.length = 0;
-    SoulStore.pending.push(...keep);
+    // Compact in place (no spread): `push(...keep)` overflows the call stack once the shared lane holds ~100k+ queued embeds (a long synchronous burst, e.g. a full season driven in one tick).
+    const q = SoulStore.pending;
+    let w = 0;
+    for (let r = 0; r < q.length; r++) if (q[r]!.store !== this) q[w++] = q[r]!;
+    q.length = w;
   }
 
   /** One synchronous embed+upsert (the ADR 0004 sync-per-call seam, unchanged). */

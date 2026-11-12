@@ -9,3 +9,15 @@ timeout = 300
 markers = [
     "browser: a headless-Chromium Playwright test (sync_playwright); runs in the serial fe-browser-tests CI lane, not xdist",
 ]
+
+# ORW-218: front-end coverage (measured by the fe-unit shards, combined and floor-checked by the `fe-coverage` job; ci/check-fe-coverage.py).
+# Product code only: tests, scripts, vendored libs and static assets are not measured. Branch coverage on, one data file per xdist worker
+# (parallel = true) so the two shards' files can be combined into one measurement.
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["."]
+omit = ["tests/*", "scripts/*", "static/*", "licenses/*", ".venv/*", "setup.py"]
+
+[tool.coverage.report]
+skip_empty = true
