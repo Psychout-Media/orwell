@@ -21,7 +21,7 @@ utility model propose a season aim from the backstory, bounded to the closed goa
 
 ## The rules it keeps
 - **Goals outlive moods.** A held goal is replaced only when it settles (achieved or failed), when a new goal beats it by the holder's
-  stubbornness margin, or when the holder gives up overnight. Stubbornness comes from the archetype.
+  stubbornness margin, or when the holder gives up overnight. Stubbornness belongs to the person (see above).
 - **Week close:** unmet week goals fail; next week's goals form on a clean board; a failed target carries over with a bonus.
 - **Night:** inner processing only (ORW-256): no-progress goals fade by (1 - stubbornness); below the floor they are dropped; keeping a
   secret is never given up.
