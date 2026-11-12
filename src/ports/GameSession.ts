@@ -1076,6 +1076,20 @@ export interface BriefSeenState {
 }
 
 /** The Show Brief v1 skeleton: one terminal system message, fixed section order, Vault-free by construction. */
+/** ORW-223: the room-canon write-back request. Exactly these two fields; extra keys are rejected. */
+export interface RecordRoomCanonReq {
+  roomId: string;
+  /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
+  feature: string;
+}
+
+export interface RecordRoomCanonResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+}
+
 export interface ShowBriefView {
   text: string;
   /** Echo this back as `brief.seen` on the next turn. */
@@ -1083,7 +1097,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1531,6 +1545,12 @@ export interface EvictionView {
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */
+/** ORW-275 - the week-chapter recap (public ceremony facts only). */
+export interface WeekChapterView {
+  week: number;
+  recap: { evicted: string[]; hoh: string | null; standing: string };
+}
+
 export interface AdvanceView {
   started: boolean;
   /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
@@ -1560,6 +1580,11 @@ export interface AdvanceView {
    * or nothing closed (a quiet/no-op turn-in) — the narrator voices it only when present, never invents one.
    */
   dailyRecap?: DailyRecapView;
+  /**
+   * ORW-275 - present ONLY on the played-game `turnIn` that crosses a week boundary (the bed on eviction night): the Vault-free
+   * "new chapter" recap. `week` is the NEW week. No numbers except the houseguest count in `standing`.
+   */
+  weekChapter?: WeekChapterView;
   /**
    * T0-3 — the Vault-free broadcast chyron(s) for every committed ceremony fact THIS advance/decision
    * just produced, in commit order (a T0-2 auto-advanced beat chained onto a resolved pending can
@@ -2945,6 +2970,17 @@ export interface GameSession {
    * the fallback's value (a partial capture never thins the snapshot — non-degradation).
    */
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
+
+  /**
+   * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that
+   * records a narrated TEXTURE feature of a room as append-only canon, so later turns stay consistent. Accepts
+   * ONLY `{ roomId, feature }` (a known room, a one-line feature of at most `ROOM_CANON_FEATURE_MAX` chars);
+   * anything else is rejected with a code. An invention can never create an event, outcome, secret, new place,
+   * plot device, relationship change, knowledge or number (the canon ledger's own fence rejects those), and this
+   * method touches no hidden state. A played game only; no rng; durable via the background seam (no beatSeq bump).
+   * Not a model lever (FE-driven, like `recordWorldSnapshot`).
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto
