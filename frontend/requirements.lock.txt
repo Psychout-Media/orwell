@@ -51,6 +51,8 @@ click==8.4.1
     #   typer
     #   uvicorn
     #   x-wr-timezone
+coverage==7.17.2
+    # via pytest-cov
 croniter==6.2.2
     # via -r requirements.txt
 cryptography==48.0.1
@@ -237,6 +239,8 @@ pytest==9.0.3
     #   -r requirements.txt
     #   pytest-asyncio
 pytest-asyncio==1.4.0
+    # via -r requirements.txt
+pytest-cov==7.1.0
     # via -r requirements.txt
 pytest-rerunfailures==16.4
     # via -r requirements.txt
