@@ -138,6 +138,9 @@ export function formationAudienceScale(
   return Math.min(constants.maxScale, 1 + constants.perWitness * audienceSize);
 }
 
+/** 0142 (package): the extra betrayal-shock, as a share of the ordinary break, a broken package part costs the breaker with the party who relied on the bundle. */
+export const PACKAGE_BREAK_SCALE = 0.5;
+
 export class DealLedger {
   private deals: Deal[] = [];
   private seq = 0;
@@ -220,6 +223,11 @@ export class DealLedger {
         // `applyBreak` below). A break from a PUBLIC action (nominate/replace) is never sealed.
         if (action.kind === "vote-evict" && action.actor !== PLAYER) deal.sealedBallot = true;
         if (wronged) this.applyBreak(deal, wronged, action.actor, action.kind, sink);
+        // 0142 idea 3 (package): a break of EITHER part also costs the package's reliability - the wronged party's read of the breaker takes a further, smaller betrayal-grade hit (they staked two promises on
+        // one word). Not for a sealed ballot (the extra hit would single the breaker out, #1963). The sibling part stays open and is adjudicated on its OWN condition.
+        if (wronged && deal.packageId && !deal.sealedBallot && sink.rel && sink.rng && sink.dealDepth) {
+          sink.rel.applyDirected(wronged, action.actor, "betrayal", sink.rng, breakSeverityScale(deal, sink.currentWeek) * PACKAGE_BREAK_SCALE);
+        }
       } else if (actionHonors(deal, action)) {
         this.applyHonor(deal, action.actor, sink);
         if (deal.kind === "comp-throw" && action.kind === "compete" && action.effortHard === true) {

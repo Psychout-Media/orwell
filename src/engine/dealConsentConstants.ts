@@ -42,6 +42,8 @@ export const DEAL_CONSENT = {
   offerCost: -0.09,
   /** 0142: willingness added when the ask is a CALLED-IN favor (the NPC owes the player one for a deal it kept). Tips a marginal ask, never buys an ask the NPC distrusts or fears. */
   calledFavorBonus: 0.1,
+  /** 0142 (package): a bundle asks more than either promise alone - the willingness drag applied to each part. */
+  packageDrag: 0.03,
   /** Half-width of the seeded per-decision jitter: a marginal NPC can wobble, a clear one never flips. */
   jitter: 0.03,
   /** A single drag at/above this is "material" enough to be named as THE reason even when the ask was dear anyway. */

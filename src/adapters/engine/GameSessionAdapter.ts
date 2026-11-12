@@ -4,7 +4,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -7559,7 +7559,7 @@ export class GameSessionAdapter implements GameSession {
    * distrusted or feared player is still refused. Honored => an ordinary deal binds (the NPC is the promisor of an active kind); ignored => the favor is spent and the player's own
    * read of them takes a betrayal-grade drop (hidden, seeded by the shared key, never narrated as a number). No new rng stream: the consent jitter is keyed as for any ask.
    */
-  callInFavor(npcId: EntityId, ask: MakeDealReq["kind"] = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
+  callInFavor(npcId: EntityId, ask: DealReqKind = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
     this.guardBeatSeq(expectedBeatSeq);
     const s = this.live;
     if (!s || !this.house || s.playedGame !== true || s.finished) return null;
@@ -10980,6 +10980,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return null;
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
+    // 0142 idea 3 (package): two promises bundled. Each part is gated and consent-checked on its own BEFORE anything is recorded; either refusing refuses the whole package (no event, no deal, no fold).
+    if (req.kind === "package") {
+      const out = this.makePackageDeal(req);
+      if (idemKey !== undefined && out !== null) this.rememberFoldIdempotent(idemKey, out);
+      return out;
+    }
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
     // 0142 idea 3: a conditional deal exists only for a played game with the deal-depth layer on (else refused, like the active kinds).
     if ((req.kind === "conditional" || req.kind === "information") && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
@@ -11042,6 +11048,54 @@ export class GameSessionAdapter implements GameSession {
     return view;
   }
 
+  /** The kinds a package may bundle: the defensive and the 0142 kinds. Not the 0121 active kinds (their direction/ask handling is its own thing). */
+  private static readonly PACKAGE_PART_KINDS: ReadonlySet<string> = new Set(["safety", "vote", "final-two", "target-other", "protect-third", "conditional", "information"]);
+
+  /**
+   * 0142 idea 3 (package) - bundle TWO promises with one houseguest. Played games with deal depth on only. Each part must pass its own gate (a protect-third names a valid third) and the NPC's own consent read
+   * (a bundle asks a little more, `DEAL_CONSENT.packageDrag`); only when BOTH clear are the two ordinary deals recorded (through this same `makeDeal` spine, so every per-kind rule applies), sharing a `packageId`.
+   * Each is then adjudicated on its OWN condition; a break of either also costs the package's reliability (`DealLedger.reconcile`). Leverage / a traded secret ride the first part only. Returns the first
+   * refusal, else a `package` view carrying both parts, else null for an invalid request.
+   */
+  private makePackageDeal(req: MakeDealReq): DealView | DealRefusal | null {
+    const parts = req.parts;
+    if (!this.dealDepthEnabled || this.live?.playedGame !== true || !this.house || !this.live) return null;
+    if (!Array.isArray(parts) || parts.length !== 2 || parts.some((p) => !p || typeof p !== "object" || !GameSessionAdapter.PACKAGE_PART_KINDS.has(p.kind))) return null;
+    if (parts[0]!.kind === parts[1]!.kind && parts[0]!.third === parts[1]!.third) return null;
+    const target = req.with;
+    const gone = new Set(this.live.evictionOrder);
+    if (target === PLAYER || gone.has(target) || !this.house.npcs.some((n) => n.id === target)) return null;
+    for (const p of parts) {
+      if (p.kind === "protect-third" && (!p.third || p.third === target || p.third === PLAYER || gone.has(p.third) || !this.house.npcs.some((n) => n.id === p.third))) return null;
+    }
+    if (this.npcDealConsentEnabled) {
+      for (const p of parts) {
+        const refusal = this.dealConsentRefusal(target, p.kind, undefined, -DEAL_CONSENT.packageDrag);
+        if (refusal) return refusal;
+      }
+    }
+    const views: DealView[] = [];
+    for (const [i, p] of parts.entries()) {
+      const { parts: _drop, expectedBeatSeq: _s, idempotencyKey: _k, ...rest } = req;
+      const part = { ...rest, kind: p.kind, terms: p.terms ?? req.terms, ...(p.third ? { third: p.third } : {}),
+        ...(i === 0 ? {} : { leverage: undefined, tradedSecret: undefined }) } as MakeDealReq;
+      const v = this.makeDealPartUnchecked(part);
+      if (v === null) return null; // pre-checked above, so unreachable in practice; never leaves half a package behind unrecorded
+      views.push(v);
+    }
+    const packageId = `pkg:${views[0]!.id}`;
+    for (const v of views) { const d = this.deals.all.find((x) => x.id === v.id); if (d) d.packageId = packageId; }
+    this.persist();
+    return { ...views[0]!, kind: "package", terms: views.map((v) => v.terms).join(" / "), parts: views.map((v) => ({ ...v, packageId })), packageId };
+  }
+
+  /** One package part: the ordinary `makeDeal` spine with the consent block already satisfied by the caller (consent was priced with the package drag, so it is not re-rolled here). */
+  private makeDealPartUnchecked(req: MakeDealReq): DealView | null {
+    const was = this.npcDealConsentEnabled;
+    this.npcDealConsentEnabled = false;
+    try { const out = this.makeDeal(req); return out !== null && !("refused" in out) ? out : null; } finally { this.npcDealConsentEnabled = was; }
+  }
+
   /**
    * ORW-85 (Ryne 2026-11-10: what NPCs overhear must have real impact and can change decisions) - an awake witness of a deal made in its presence writes a memory, reading the deal
    * against its OWN position: (1) the deal is a `target-other` that names the witness, or one of its allies, in its terms: a grudge toward BOTH dealmakers; (2) otherwise, if one of the
@@ -11084,7 +11138,7 @@ export class GameSessionAdapter implements GameSession {
    * the engine's own consent read says they accept it. It becomes the standing open `dealOffer` (the 0123 pattern: voiced in chat, no pop-up, lapses at week's end; accept goes through
    * the ordinary `deals.make` spine). Played games only, one standing offer at a time, no rng draw (the consent read keys its own jitter). Returns the Vault-free terms, or undefined.
    */
-  private maybeCounterOffer(npcId: EntityId, askedKind: MakeDealReq["kind"], refusal: DealRefusal): { kind: string; terms: string } | undefined {
+  private maybeCounterOffer(npcId: EntityId, askedKind: DealReqKind, refusal: DealRefusal): { kind: string; terms: string } | undefined {
     const s = this.live;
     if (!s || refusal.reason !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
     if (s.dealOffer || s.finished || s.beat === "finale" || s.beat === "complete" || askedKind === "safety") return undefined;
@@ -11139,7 +11193,7 @@ export class GameSessionAdapter implements GameSession {
     return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
   }
 
-  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
+  private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
@@ -12841,6 +12895,7 @@ export class GameSessionAdapter implements GameSession {
       kind: d.kind,
       terms: d.terms,
       status: sealed ? "open" : d.status,
+      ...(d.packageId ? { packageId: d.packageId } : {}),
       ...(d.expiresWeek !== undefined || d.vague
         ? { term: { ...(d.expiresWeek !== undefined ? { expiresWeek: d.expiresWeek } : {}), ...(d.vague ? { vague: true } : {}) } }
         : {}),

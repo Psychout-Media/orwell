@@ -5932,6 +5932,19 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
             if not _third:
                 return {"error": "third (the houseguest to be protected) is required for a protect-third deal", "exit_code": 1}
             _extra["third"] = _third
+        if kind == "package":  # 0142: two bundled promises; shape-filtered here, gated and consent-checked part by part by the ENGINE
+            _parts = []
+            for _p in (args.get("parts") or []):
+                if isinstance(_p, dict) and isinstance(_p.get("kind"), str):
+                    _row = {"kind": _p["kind"].strip()}
+                    if isinstance(_p.get("third"), str) and _p["third"].strip():
+                        _row["third"] = _p["third"].strip()
+                    if isinstance(_p.get("terms"), str) and _p["terms"].strip():
+                        _row["terms"] = _p["terms"].strip()[:200]
+                    _parts.append(_row)
+            if len(_parts) != 2:
+                return {"error": "parts (exactly two promises, each {kind, third?, terms?}) is required for a package deal", "exit_code": 1}
+            _extra["parts"] = _parts
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal

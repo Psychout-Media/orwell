@@ -206,6 +206,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["direction"] !== undefined && args["direction"] !== "offer" && args["direction"] !== "ask") refuse("direction", '"offer" or "ask" when present');
       // 0142 - the optional third houseguest of a protect-third deal: a houseguest id (string) when present (the engine refuses a protect-third without a valid one).
       if (args["third"] !== undefined && !isStr(args["third"])) refuse("third", "a houseguest id (string) when present");
+      // 0142 - the optional bundled promises of a package deal: an array when present (the engine gates each part and refuses a malformed package).
+      if (args["parts"] !== undefined && !Array.isArray(args["parts"])) refuse("parts", "a list of two promises when present");
       // 0109 / #1993 — the optional negotiated term must be an object when present; the ENGINE bounds its
       // contents (a junk `weeks` is ignored there), so only the container shape is refused at the boundary.
       if (args["term"] !== undefined && (typeof args["term"] !== "object" || args["term"] === null || Array.isArray(args["term"]))) {

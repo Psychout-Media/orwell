@@ -186,6 +186,9 @@ export interface DealView {
   status: "open" | "kept" | "broken";
   /** 0109 — the NEGOTIATED term, when one exists (the player's own knowledge; never a derived magnitude). */
   term?: { expiresWeek?: number; vague?: boolean };
+  /** 0142 (package): the id the two parts of a package share. On the `package` view itself, `parts` lists both. */
+  packageId?: string;
+  parts?: DealView[];
 }
 
 /**
@@ -783,11 +786,14 @@ export interface SecretLeverDescriptor {
   subject?: EntityId;
 }
 
+/** The single-promise deal kinds a `makeDeal` may name (a `package` bundles two of these). */
+export type DealReqKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional" | "information";
+
 export interface MakeDealReq {
   with: EntityId;
   // 0121 — the two ACTIVE-obligation kinds (comp-throw / veto-save) are accepted only when the deal-depth
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
-  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional" | "information";
+  kind: DealReqKind | "package";
   terms: string;
   /**
    * 0142 (ORW-88 idea 3) - for `protect-third` only: the THIRD houseguest the NPC swears not to move against (nominate, replace or vote out). The NPC is always the promisor (the player
@@ -807,6 +813,11 @@ export interface MakeDealReq {
    * byte-identical to 0039.
    */
   term?: { weeks?: number; vague?: boolean };
+  /**
+   * 0142 (ORW-88 idea 3) - for `package` only: the TWO promises bundled in one deal with `with` (each `{ kind, third?, terms? }`, the kinds being any of the defensive kinds, `protect-third`, `conditional` or
+   * `information`; `third` as for `protect-third`). Each is adjudicated on its own; a break of either costs the package's reliability. Played games with deal depth on only. Ignored for every other kind.
+   */
+  parts?: Array<{ kind: Exclude<DealReqKind, "comp-throw" | "veto-save">; third?: EntityId; terms?: string }>;
   /**
    * 0093 — OPTIONAL leverage: a secret the player holds ABOUT the deal partner (`with`), pressed to make
    * them more likely to enter/honor the deal. The threat persists while the deal is open (owner R4);
@@ -2769,7 +2780,7 @@ export interface GameSession {
    * 0142 (ORW-88 idea 2) - call in a favor a houseguest owes the player (they kept a deal). `ask` is the deal kind requested (default "vote": "you owe me a vote"). Returns null when no favor is
    * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
    */
-  callInFavor(npcId: EntityId, ask?: MakeDealReq["kind"], expectedBeatSeq?: number): CallInFavorResult | null;
+  callInFavor(npcId: EntityId, ask?: DealReqKind, expectedBeatSeq?: number): CallInFavorResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /
