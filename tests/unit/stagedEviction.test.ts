@@ -70,16 +70,16 @@ describe("eviction as a staged ceremony - NPC HOH, player votes", () => {
     toEviction(s, "npc");
     const live = s.live as LiveSeasonState;
     const a = s.advanceGame();
-    expect(a.pending).toMatchObject({ kind: "ceremony-step", binding: false, ceremony: { kind: "eviction", step: 1, of: 3, stepId: "speeches" } });
+    expect(a.pending).toMatchObject({ kind: "ceremony-step", binding: false, ceremony: { kind: "eviction", step: 1, stepId: "speeches" } }); // ORW-291 (B): `of` = speeches + card + one step per ballot + result
     expect(a.event).toBeNull();
     expect(live.eviction).toBeUndefined();
     expect(s.houseEventInSession()).toMatchObject({ kind: "eviction" });
     const b = s.advanceGame();
-    expect(b.pending).toMatchObject({ kind: "eviction-vote", ceremony: { stepId: "votes", step: 2, of: 3 } });
+    expect(b.pending).toMatchObject({ kind: "eviction-vote", ceremony: { stepId: "votes", step: 2 } });
     expect(b.beatSeq).toBeGreaterThan(a.beatSeq);
     const c = s.submitDecision({ kind: "eviction-vote", vote: b.pending.options[0].id });
     expect(c.event?.beat).toBe("eviction-reveal");
-    expect(c.ceremony).toMatchObject({ stepId: "votes" });
+    expect(c.ceremony).toMatchObject({ stepId: "ballot" });
     const views = playOut(s, c);
     for (const v of views.filter((x) => x.event?.beat === "eviction-reveal")) {
       expect(v.event.content).toMatch(/a vote to evict/);
@@ -91,7 +91,8 @@ describe("eviction as a staged ceremony - NPC HOH, player votes", () => {
     expect(views[committed].ceremony).toBeDefined();
     const last = views[views.length - 1];
     expect(last.event?.beat).toBe("eviction-result");
-    expect(last.ceremony).toMatchObject({ stepId: "result", step: 3 });
+    expect(last.ceremony).toMatchObject({ stepId: "result" });
+    expect(last.ceremony.step).toBe(last.ceremony.of);
     expect(live.ceremony).toBeUndefined();
     expect(live.eviction).toBeUndefined();
     const seqs = views.map((v) => v.beatSeq);
@@ -133,7 +134,7 @@ describe("eviction as a staged ceremony - player HOH / headless / twist", () => 
     s.advanceGame();
     const b = s.advanceGame();
     expect(b.event?.beat).toBe("eviction-reveal");
-    expect(b.ceremony).toMatchObject({ stepId: "votes" });
+    expect(b.ceremony).toMatchObject({ stepId: "ballot", step: 2 });
     playOut(s, b);
     expect((s.live as LiveSeasonState).ceremony).toBeUndefined();
   });
