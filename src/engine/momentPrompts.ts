@@ -1984,8 +1984,10 @@ export function buildSystemPrompt(
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.
     ...(producerVoice ? [producerVoice] : []),
-    renderGameContext(view),
+    // ORW-296 (prompt prefix cache): the world block is FROZEN for the whole season, so it rides BEFORE the game context (whose per-turn tail changes every round); after it, its ~1.5k chars were
+    // re-billed uncached on every round. A pure reorder: the same blocks, the same text.
     ...(worldContext ? [worldContext] : []),
+    renderGameContext(view),
     ...(storyFacts ? [storyFacts] : []),
     // SOC-1/4: the player's own freshly-surfaced knowledge, EVERY moment (unlike `storyFacts`, which
     // is gated to the re-entry/post-season lifecycle beats) — a confide/overhear/gossip surfacing is

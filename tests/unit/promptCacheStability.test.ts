@@ -44,4 +44,16 @@ describe("ORW-296 - narrator prompt cache stability", () => {
       if (at >= 0) expect(at, volatile).toBeGreaterThan(roster);
     }
   });
+  it("the frozen world block precedes GAME CONTEXT, so it is part of the cached prefix", () => {
+    const s = startedGame();
+    (s as unknown as { recordWorldSnapshot(r: unknown): unknown }).recordWorldSnapshot({ slices: { news: ["a headline the house half-remembers"], mood: "restless" } });
+    const a = prompt(s);
+    const world = a.indexOf("THE WORLD YOU ALL MOVED IN WITH");
+    const ctx = a.indexOf("GAME CONTEXT:");
+    expect(world, "the world block is in the prompt").toBeGreaterThan(0);
+    expect(world).toBeLessThan(ctx);
+    for (let i = 0; i < 3; i++) s.advanceClockPerConversation();
+    const b = prompt(s);
+    expect(common(a, b), "the shared prefix runs past the world block").toBeGreaterThan(world + 200);
+  });
 });
