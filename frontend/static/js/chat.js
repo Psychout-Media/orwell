@@ -2248,6 +2248,8 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 _nextIsError = false;
                 const rawErrMsg = json.text || json.error?.message || `Error ${json.status || 'unknown'}`;
                 console.error('Stream error:', rawErrMsg);
+                // ORW-44 S4b3: the game build refuses the HTTP stream route (WebSocket only). A stale client that still posts to it gets this typed error: show the same persistent "this network blocks the live connection" notice instead of the interrupt line.
+                if (json.error === 'ws-only') { try { window.dispatchEvent(new CustomEvent('orwell:ws-blocked', { detail: { reason: 'ws-only-refusal' } })); } catch (_) {} }
                 if (spinner && spinner.element) spinner.destroy();
                 // Orwell #872 (item A): NEVER render a raw HTTP status / provider error into the GM
                 // body bubble in the game build — an "Error 400" reads to the player as a literal
