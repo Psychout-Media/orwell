@@ -1472,10 +1472,17 @@ def normalize_model_id(endpoint_url: str, requested: str, timeout: int = LLMConf
             return a
     return None
 
+def _enforce_text_route(url, model, headers):
+    """ORW-287: the game build sends no TEXT call to OpenRouter (see src/text_routing.py). Raises TextRoutingRefused."""
+    from src.text_routing import enforce_text_destination
+    return enforce_text_destination(url, model, headers if isinstance(headers, dict) else None)
+
+
 def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
              max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None, 
              timeout: int = LLMConfig.DEFAULT_TIMEOUT, prompt_type: Optional[str] = None) -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
+    url, model, headers = _enforce_text_route(url, model, headers)
     h = _provider_headers(_detect_provider(url))
     # Tolerate headers that arrive as a JSON string (some sessions stored them
     # double-encoded) — otherwise h.update() throws "dictionary update sequence
@@ -1819,6 +1826,7 @@ async def _llm_call_async_impl(
     ``obs_metadata`` (optional, feature 0112): a Vault-free correlation object attached as the
     OpenRouter/OpenAI ``metadata`` field so OpenRouter Broadcast forwards correlatable traces.
     ``None`` (observability disabled — the default) ⇒ the key is never added ⇒ byte-identical."""
+    url, model, headers = _enforce_text_route(url, model, headers)  # ORW-287
     provider = _detect_provider(url)
     messages_copy = _sanitize_llm_messages(messages)
 
@@ -2061,6 +2069,12 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
       - event: error                       — errors
       - data: [DONE]                       — end of stream
     """
+    try:
+        url, model, headers = _enforce_text_route(url, model, headers)  # ORW-287
+    except Exception as _refused:  # TextRoutingRefused: surface as the outage UX, never a silent OpenRouter text call
+        yield f'event: error\ndata: {json.dumps({"error": "text-provider-refused", "status": 503, "text": str(_refused), "error_type": "text-routing"})}\n\n'
+        yield "data: [DONE]\n\n"
+        return
     provider = _detect_provider(url)
     messages_copy = _sanitize_llm_messages(messages)
 
