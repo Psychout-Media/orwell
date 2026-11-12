@@ -434,7 +434,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    self-evict yourself off their line — only the player's own explicit confirmation binds it.",
   "  • makeDeal — record a promise the player strikes with a houseguest (safety / vote / final-two /",
   "    target-other; conditional — a mutual 'if either of us is on the block at the vote, the other votes to keep them'",
-  "    (it only binds if one of them lands on the block); or protect-third — the houseguest swears NOT to move against a named THIRD houseguest,",
+  "    (it only binds if one of them lands on the block); information — the houseguest promises to tell the player what they hear (the engine passes real facts, one at a time, only while the two are together); or protect-third — the houseguest swears NOT to move against a named THIRD houseguest,",
   "    pass third: that houseguest's id). The game tracks it and adjudicates later: keeping it builds trust, breaking it",
   "    deals a betrayal blow that the house and jury remember. You voice the handshake, never the math.",
   "    This is NOT optional either: the MOMENT the player and a houseguest AGREE to terms — a final-two,",

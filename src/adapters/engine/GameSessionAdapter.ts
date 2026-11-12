@@ -67,7 +67,7 @@ import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
-import { isPositiveObligation } from "../../domain/deal";
+import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
 import { AllianceStore, allianceTieBoost, allianceFavor, willingMembers, pickAllianceName, sameMembers, ALLIANCE } from "../../engine/alliances";
 import type { Alliance } from "../../engine/alliances";
@@ -2697,12 +2697,12 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0019 Layer 3 widens this read with `factId`/`pathway`/`ts` (already on every `KnowledgeFact`
     // — the registry passes the full fact through) so the knowledge-scope manifest can group a fact by
     // lineage across holders and skip the Diary-Room class. Optional ⇒ back-compatible with any caller.
-    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number }>;
+    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
   };
 
   setNpcKnowledgeProviders(p: {
-    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number }>;
+    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
   }): void {
     this.npcKnowledge = p;
@@ -10982,7 +10982,7 @@ export class GameSessionAdapter implements GameSession {
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
     // 0142 idea 3: a conditional deal exists only for a played game with the deal-depth layer on (else refused, like the active kinds).
-    if (req.kind === "conditional" && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
+    if ((req.kind === "conditional" || req.kind === "information") && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
     // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
     if (req.kind === "protect-third") {
       const gone = new Set(this.live.evictionOrder);
@@ -11023,7 +11023,7 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
-    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" ? [target, PLAYER] : [PLAYER, target];
+    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
     const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
@@ -11095,6 +11095,42 @@ export class GameSessionAdapter implements GameSession {
     this.onPlayerEvent?.(`${this.nameOf(npcId)} turns down a ${askedKind} deal and counters with a safety pact`, [PLAYER, npcId], "conversation");
     this.persist();
     return { kind: "safety", terms };
+  }
+
+  /**
+   * 0142 idea 3 (information) - "I will tell you what I hear". For each OPEN information deal whose promisor is in the player's room and awake, the promisor passes ONE fact they hold and the player does not.
+   * Moves facts ONLY through the existing co-presence rule (same room; no telling across the house) and the existing content-anchored `told-by:<npc>` pathway (`onJurorTell` -> `surfaceInformationTo`), so what
+   * reaches the player is a witnessed-or-told fact the NPC already holds - never Vault content (the candidate set is `npcKnowledge.known`, the same set `npcVoice(...).knows` exposes: never the Diary Room
+   * class, never a sealed attribution, never the teller's own business, never a reputation belief). The pick uses a DEDICATED rng keyed on (seed, deal, week, phase), never the shared stream. Played games only
+   * (an information deal cannot be made otherwise). The teller must still be willing: a houseguest the player has soured on (the same consent read) holds back that beat.
+   */
+  private deliverInformationDeals(): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || !this.npcKnowledge || !this.onJurorTell) return;
+    const open = this.deals.open().filter((d) => d.kind === "information");
+    if (open.length === 0) return;
+    const room = this.presence?.get(PLAYER);
+    if (!this.presence || room === undefined) return;
+    const playerHolds = this.playerKnowledgeReader?.() ?? [];
+    const heldIds = new Set(playerHolds.map((k) => k.factId).filter((f): f is string => !!f));
+    const heldText = new Set(playerHolds.map((k) => k.content));
+    for (const deal of open) {
+      const teller = deal.parties.find((p) => p !== PLAYER);
+      if (!teller || s.evictionOrder.includes(teller) || this.presence.get(teller) !== room) continue;
+      if (this.awakeAmong([teller]).length === 0) continue;
+      if (this.dealConsentRefusal(teller, "information") !== null) continue;
+      const candidates = this.npcKnowledge.known(teller)
+        .filter((f) => f.factId && f.pathway !== "diary-room" && !GameSessionAdapter.isSealedAttribution(f)
+          && !f.factId.startsWith(RELIABLE_FACT_PREFIX) && !heldIds.has(f.factId) && !heldText.has(f.content))
+        .filter((f) => f.subject !== teller);
+      if (candidates.length === 0) continue;
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:info-deal:${deal.id}:${s.week}:${this.phase}`));
+      const pick = candidates[Math.floor(rng.next() * candidates.length)]!;
+      const content = this.onJurorTell(teller, pick.factId!, 0.7);
+      if (content === null) continue;
+      deal.delivered = (deal.delivered ?? 0) + 1;
+      this.onPlayerEvent?.(`${this.nameOf(teller)} tells ${this.nameOf(PLAYER)} something they have heard, as promised`, [PLAYER, teller], "conversation");
+    }
   }
 
   /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
@@ -12073,6 +12109,8 @@ export class GameSessionAdapter implements GameSession {
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
     if (ev && ev.beat === "nominations") this.mintNpcDeal();
+    // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
+    if (ev) this.deliverInformationDeals();
     // 0041: the season changes a houseguest — fold the beat's emotional impact into the involved souls
     // (a comp win emboldens; a blindside rattles), evolving the hidden arc that bends their later play.
     if (ev) this.evolveFromBeat(ev);

@@ -53,6 +53,7 @@
     "veto-save": "Veto save",
     "protect-third": "Third-party pact",
     "conditional": "If-on-the-block pact",
+    "information": "Keep-me-posted pact",
   };
   // The status carries the whole drama: a promise still live, one honored, one betrayed.
   // F-NEW-12: each status carries a non-color GLYPH alongside its label, so open-vs-kept

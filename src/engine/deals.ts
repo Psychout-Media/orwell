@@ -265,7 +265,7 @@ export class DealLedger {
       if (kindHorizonPassed || negotiatedTermPassed) {
         // 0142 (coordinator ruling on #2405): a `conditional` pact still OPEN when its term ends was never TESTED (a tested one resolves at the vote: kept if honored, broken if not), so nobody kept
         // anything. It is NOT marked `kept` (that status earns goodwill / "keeps their word" reads) and folds nothing either way: it is dropped from the live ledger (the formation event stays in the record).
-        if (deal.kind === "conditional") { untested.push(deal); continue; }
+        if (deal.kind === "conditional" || (deal.kind === "information" && !deal.delivered)) { untested.push(deal); continue; }
         deal.status = "kept";
         resolved.push(deal);
       }
