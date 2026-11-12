@@ -31,8 +31,8 @@ payload, never a second public channel; bind-before-subscribe.
 The ``layout`` channel leg is now WIRED (#1293): it rides the same per-session ``session_events`` bus
 and its per-device ``patch_layout(user, deviceId, …)`` re-key has merged, so ``_run_layout_channel`` /
 ``_handle_layout`` below are live (per-device LWW, ADR 0017 §5 — geometry is per-device, only game
-state syncs). The route is registered but the client only ATTEMPTS the upgrade when the
-``ORWELL_WS_TRANSPORT`` flag is on — **default ON** since 2026-07-10 (#1357).
+state syncs). The route is registered; the client ATTEMPTS the upgrade in the game build, which is WebSocket-only
+(ORW-44, 2026-11-12: the ``ORWELL_WS_TRANSPORT`` rollback flag is gone).
 """
 from __future__ import annotations
 

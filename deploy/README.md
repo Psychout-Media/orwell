@@ -25,8 +25,9 @@ fails clearly instead of half-installing). One Proxmox LXC runs both tiers as sy
 > and `docs/INSTALL.md → Public deployment (any domain)`. Enabling local HTTPS (`orwell https`) also
 > re-pins `ORWELL_BIND_HOST=127.0.0.1` (the terminator becomes the only LAN entrypoint).
 >
-> **WebSocket transport is ON by default.** WS Phase-1 (ADR 0017, `GET /api/ws/session`) is active
-> while `ORWELL_WS_TRANSPORT=1` is set in `data/.env` (the default). Every terminator here (direct uvicorn, Caddy,
+> **The game runs over a WebSocket, and only a WebSocket.** WS Phase-1 (ADR 0017, `GET /api/ws/session`) is the game build's only transport (ORW-44, 2026-11-12:
+> the `ORWELL_WS_TRANSPORT` flag is gone; setting it does nothing, and there is no SSE/poll fallback). A network that blocks the live connection shows
+> the player a clear "this network blocks the live connection" message and cannot play. Every terminator here (direct uvicorn, Caddy,
 > Cloudflare Tunnel, Pangolin/Newt) passes the WebSocket `Upgrade` transparently — no extra config.
 > **LAN / loopback turn-on is safe today; PUBLIC turn-on is not yet** — the WS handshake lacks the
 > `Origin`/CSRF guard (a CSWSH surface on a public terminator; guard in flight on

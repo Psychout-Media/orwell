@@ -7,6 +7,16 @@
 > carries **every dynamic, Vault-free surface** as a framed channel.
 > **Status note (2026-11-03 doc-drift pass, #1939):** references below to `gameWatcher.ts` / `ORWELL_WATCHER_TICK_MS=0` describe the 2026-06-10 turn-driven ruling as it was first enforced. the wall-clock `GameWatcher` and every `ORWELL_WATCHER_*` knob were DELETED on 2026-07-10 (real-time purge, PO ruling), not merely disabled — the runtime clock is a pure `LogicalClock` and the only advance is one bounded off-screen tick per committed player turn; the ruling's substance (no engine-originated push) is unchanged.
 
+> **Amendment 2026-11-12 (ORW-44, Ryne: "Drop it" — WebSocket only):** the permanent SSE/poll fallback this ADR required is **withdrawn for the game
+> build.** The game build is **WebSocket-only**: no long-poll or SSE fallback, no `ORWELL_WS_TRANSPORT` rollback flag (the flag is deleted;
+> `ws_transport_enabled()` is the game build), and a network that blocks the live connection **cannot play** — the player sees a clear, persistent
+> message ("this network blocks the live connection", `orwell:ws-blocked`) instead of a silent downgrade. Server side, the game build refuses
+> `GET /api/chat/events/{id}`, `GET /api/chat/resume/{id}` and `POST /api/chat_stream` with a typed `426 ws-only` error; the WS `turn` frame reuses the chat
+> pipeline, not those routes. A window that boots before the game is live finds the canonical session over REST and upgrades the socket
+> (`OrwellWs.kick()`), since the SSE `run-started` invitation no longer exists. **The non-game build (`ORWELL_GAME_BUILD=0`) keeps the SSE/poll stack**
+> (`chat_stream`, `events`, `resume`, the HUD polls); that is all the fallback now means. The F5 mirror-parity CI gate runs the WebSocket transport only
+> (S4d). The "keep it permanently" statements below are therefore **superseded** for the game build; they stay as the 2026-07-09 record.
+
 > **Owner intent (verbatim goal):** *"notifications, chats, gadget status, locations, window positions,
 > window status, and anything else dynamic should go over WS — one multiplexed WS per session,
 > end-to-end."*
@@ -178,7 +188,7 @@ living-house ADR would build on (§Phasing Phase 3).
 - **Phase 1 — browser↔FE multiplexed WS.** Stand up one WS per canonical session behind a **feature flag**,
   carrying `hello`/`stream`/`event`/`state`/`turn`/`decision`/`layout`/`notice`. Port the replay-then-tail
   splice first (highest-risk). Delete the 20–30 s polls. **Keep the SSE/poll path as a PERMANENT fallback**
-  (owner call 2026-07-09) — a client behind a restrictive proxy that cannot upgrade to WS falls back to
+  (owner call 2026-07-09; **superseded for the game build 2026-11-12, see the amendment: WebSocket only**) — a client behind a restrictive proxy that cannot upgrade to WS falls back to
   today's transports and must still pass F5; the fallback is not dropped once WS proves out. Gated by: the
   Phase-0 harness green (must pass before *and* after) + the full FE pytest suite + new WS-specific tests
   (§Testability).
@@ -204,7 +214,7 @@ living-house ADR would build on (§Phasing Phase 3).
   "live pipe," never "playing." Any engine push must key off a real **activity signal** (the player taking
   turns), and choosing that signal re-litigates the 2026-06-10 ruling — a game-design call for the separate
   living-house ADR, not something the transport smuggles in.
-- **Dropping the SSE/poll fallback once WS proves out.** Rejected (owner call 2026-07-09): kept permanently
+- **Dropping the SSE/poll fallback once WS proves out.** Rejected (owner call 2026-07-09; **reversed 2026-11-12 for the game build: dropped, WebSocket only**): kept permanently
   so restrictive-proxy clients that cannot upgrade to WS still work and still pass F5.
 - **One shared per-user layout synced cross-device (0064-F).** Superseded (owner call 2026-07-09): layout is
   now **per-device**; only game state syncs cross-device.
@@ -222,7 +232,7 @@ living-house ADR would build on (§Phasing Phase 3).
   primitive); (b) **liveness handshake** — a `hello` for a dead/non-owned session is refused *before*
   subscribe (the #1085/#1086 guard, socket-native); (c) **multiplex isolation** — frames for one channel
   never leak into another; (d) **layout LWW** — `origin` self-echo suppression holds over the socket;
-  (e) **fallback** — a client with no WS falls back to SSE/poll and still passes F5.
+  (e) **fallback** — a client with no WS falls back to SSE/poll and still passes F5. *(2026-11-12: withdrawn for the game build; a client that cannot hold the socket sees the "blocks the live connection" message instead.)*
 - **Boundaries unchanged & still green:** the dependency-cruiser Vault-edge test + Vault sentinels (no new
   reader), cross-user isolation (0021), the full FE pytest suite, and the ADR 0008 `seq`/reconcile
   contract.
@@ -237,7 +247,7 @@ living-house ADR would build on (§Phasing Phase 3).
    must key off an explicit activity signal (the player taking turns), and choosing that signal
    re-litigates the 2026-06-10 turn-driven ruling. The separate ADR owns that game-design decision + the
    producer; this ADR only carries the bytes.
-4. **Fallback lifetime → KEEP the SSE/poll fallback permanently.** For restrictive proxies / clients that
+4. **Fallback lifetime → KEEP the SSE/poll fallback permanently.** *(Superseded 2026-11-12 for the game build: WebSocket only, Ryne "Drop it".)* For restrictive proxies / clients that
    cannot upgrade to WS; not dropped once WS is proven.
 3. **Layout policy → PER-DEVICE.** Supersedes 0064-F's single shared per-user layout: geometry is
    remembered per device and not synced cross-device; only game state syncs.
