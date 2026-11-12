@@ -27,6 +27,16 @@ function txGame(w: BbWorld, seed: number): void {
   w.txRegistry = reg; w.txUser = user; w.txSandbox = sb; w.txOrch = orch; w.txServer = server;
 }
 
+/** ORW-286 item 9: a game whose off-screen tick produced AT LEAST ONE scene. Scenarios 2 to 5 used to pass on an empty scene list (`if (skeletons.length > 0)`), proving nothing. */
+function txGameWithScenes(w: BbWorld, firstSeed: number): void {
+  for (let seed = firstSeed; seed < firstSeed + 12; seed++) {
+    txGame(w, seed);
+    runOffscreenTick(w);
+    if (w.txSandbox!.session.getOffscreenSceneSkeletons().length > 0) return;
+  }
+  throw new Error(`no seed in ${firstSeed}..${firstSeed + 11} produced an off-screen scene on the first tick`);
+}
+
 // Run one off-screen tick and return the scenes.
 function runOffscreenTick(w: BbWorld): void {
   w.txOrch!.advance(w.txUser!, "offscreen-tick");
@@ -35,8 +45,7 @@ function runOffscreenTick(w: BbWorld): void {
 // ─── Scenario 1: the texture write-back reaches the engine over the player channel ────────────────
 
 Given("a live game with off-screen scenes recorded this tick", function (this: BbWorld) {
-  txGame(this, 701);
-  runOffscreenTick(this);
+  txGameWithScenes(this, 701);
 });
 
 When("the off-screen scene skeletons are read over the player channel", async function (this: BbWorld) {
@@ -90,184 +99,191 @@ Then("the addressed scene now carries the voiced texture as its content", async 
 // ─── Scenario 2: an enriched off-screen scene stays hidden until a pathway reaches the player ─────
 
 Given("a live game with an enriched off-screen scene the player did not witness", async function (this: BbWorld) {
-  txGame(this, 702);
-  runOffscreenTick(this);
-  const skeletons = this.txSandbox!.session.getOffscreenSceneSkeletons();
-  if (skeletons.length > 0) {
-    const sk = skeletons[0]!;
-    this.txSandbox!.session.recordOffscreenSceneTexture({
-      eventId: sk.eventId,
-      content: "SENTINEL-0070-enriched-hidden-scene-content-secret",
-    });
-  }
+  txGameWithScenes(this, 702);
+  const sb = this.txSandbox!;
+  const skeletons = sb.session.getOffscreenSceneSkeletons();
+  const sk = skeletons[0]!;
+  const res = sb.session.recordOffscreenSceneTexture({ eventId: sk.eventId, content: "SENTINEL-0070-enriched-hidden-scene-content-secret" });
+  assert.ok(res.ok, `the enrichment write-back was refused: ${JSON.stringify(res)}`);
+  // POSITIVE CONTROL: the engine really holds the enriched prose for this scene, so the absence checks below mean something.
+  assert.ok(sb.session.getOffscreenSceneSkeletons().find((s) => s.eventId === sk.eventId)!.templateContent.includes("SENTINEL-0070"), "the engine does not hold the enriched scene");
   this.txSkeletons = skeletons;
 });
 
 Then("the player surface never shows the enriched scene", function (this: BbWorld) {
-  const visible = JSON.stringify(this.txSandbox!.session.getGameState());
-  assert.ok(!visible.includes("SENTINEL-0070"), "an enriched hidden scene leaked onto the player surface");
-  const momentCtx = JSON.stringify(this.txSandbox!.session.getMomentPrompt({}));
-  assert.ok(!momentCtx.includes("SENTINEL-0070"), "an enriched hidden scene leaked into the moment prompt");
+  const sb = this.txSandbox!;
+  const surfaces = [JSON.stringify(sb.session.getGameState()), JSON.stringify(sb.player.getVisibleState()),
+    JSON.stringify(sb.session.getMomentPrompt({})), JSON.stringify(sb.session.getMomentPrompt({ moment: "social" })),
+    JSON.stringify(sb.engine.knowledge.knownTo(PLAYER))];
+  for (const s of surfaces) assert.ok(!s.includes("SENTINEL-0070"), "an enriched hidden scene leaked onto a player surface");
 });
 
 Then("the admin surface never shows the enriched scene", function (this: BbWorld) {
-  const adminBlob = JSON.stringify(this.txSandbox!.session.gameStatus());
+  const sb = this.txSandbox!;
+  sb.syncAdmin();
+  const adminBlob = JSON.stringify(sb.session.gameStatus()) + JSON.stringify(sb.admin.inspect());
   assert.ok(!adminBlob.includes("SENTINEL-0070"), "an enriched hidden scene leaked onto the admin surface");
 });
 
 When("an in-game pathway surfaces the scene to the player as gossip", function (this: BbWorld) {
-  // Simulate an overhear / gossip surfacing via the public KnowledgeService API: seedBelief on the NPC,
-  // then surfaceInformationTo the player — the real gossip pathway (0002).
-  const sk = this.txSkeletons?.[0];
-  if (!sk) return; // no scene to surface (the tick produced none — still a valid test)
+  // The real gossip pathway (0002): the NPC who was there holds a (vague) belief, then it surfaces to the player through a `told-by` pathway.
+  const sk = this.txSkeletons![0]!;
   const sourceNpc = sk.participants[0] ?? npc(1);
   const driftedContent = "some NPC and another NPC were seen talking — vague whispers only";
-  // Seed the belief on the NPC (they were there); then surface it to the player with a `told-by` pathway.
-  this.txSandbox!.engine.knowledge.seedBelief(
-    sourceNpc,
-    { content: driftedContent, factId: `gossip:0070:test`, confidence: 0.4 },
-    `told-by:${sourceNpc}`,
-  );
-  this.txSandbox!.engine.knowledge.surfaceInformationTo(
-    PLAYER,
-    { content: driftedContent, confidence: 0.3 },
-    `told-by:${sourceNpc}`,
-  );
+  this.txSandbox!.engine.knowledge.seedBelief(sourceNpc, { content: driftedContent, factId: "gossip:0070:test", confidence: 0.4 }, `told-by:${sourceNpc}`);
+  this.txSandbox!.engine.knowledge.surfaceInformationTo(PLAYER, { content: driftedContent, confidence: 0.3 }, `told-by:${sourceNpc}`);
+  this.txSourceNpc = sourceNpc;
 });
 
 Then("the player learns a sourced, possibly-drifted belief, not the raw hidden scene", function (this: BbWorld) {
-  // The knowledge layer has the drifted belief for the player, not the enriched hidden scene prose.
-  const facts = this.txSandbox!.engine.knowledge.knownTo(PLAYER);
-  // The test merely checks that any knowledge surfaced is NOT the verbatim enriched hidden scene prose.
-  // The full gossip-diffusion guarantee is tested by feature 0002 / 0038.
-  for (const f of facts) {
-    assert.ok(!f.content.includes("SENTINEL-0070"), "the raw enriched hidden scene reached the player as a fact");
-  }
+  // ORW-286 item 9: assert the belief EXISTS and is sourced and uncertain, not merely that no fact contains the sentinel (an empty knowledge list passed before).
+  const facts = this.txSandbox!.engine.knowledge.knownTo(PLAYER) as unknown as Array<{ content: string; pathway?: string; confidence?: number }>;
+  const learned = facts.find((f) => f.content.includes("vague whispers only"));
+  assert.ok(learned, "the player holds no surfaced belief at all");
+  assert.ok(typeof learned!.pathway === "string" && learned!.pathway!.startsWith("told-by:"), `the belief is not sourced through a told-by pathway: ${JSON.stringify(learned)}`);
+  assert.ok(typeof learned!.confidence === "number" && learned!.confidence! < 1, `the belief carries no uncertainty: ${JSON.stringify(learned)}`);
+  for (const f of facts) assert.ok(!f.content.includes("SENTINEL-0070"), "the raw enriched hidden scene reached the player as a fact");
 });
 
 // ─── Scenario 3: the write-back is content-only and cannot pierce the closed set ───────────────────
-// Note: Scenario 3 reuses the `Given "a live game with off-screen scenes recorded this tick"` step
-// defined above (Scenario 1). No duplicate definition needed.
+// Reuses `Given "a live game with off-screen scenes recorded this tick"` (Scenario 1), which now guarantees at least one scene.
 
 When("a texture write-back attempts to set a witness, flip the hidden flag, or carry a relationship number", async function (this: BbWorld) {
-  const skeletons = this.txSandbox!.session.getOffscreenSceneSkeletons();
-  const eventId = skeletons.length > 0 ? skeletons[0]!.eventId : "offscreen:fake:0:0";
-  try {
-    await this.txServer!.callTool("recordOffscreenSceneTexture", {
-      eventId,
-      content: "some voiced prose",
-      witnessSet: ["player"], // FORBIDDEN — content-only
-    });
-    this.txRefusedReason = undefined; // should have thrown
-  } catch (err) {
-    this.txRefusedReason = (err as Error).message;
+  const sb = this.txSandbox!;
+  const sk = sb.session.getOffscreenSceneSkeletons()[0]!;
+  const ev = sb.engine.events.queryAll().find((e) => e.id === sk.eventId)!;
+  assert.ok(ev, "the addressed scene is a recorded event");
+  this.txBefore = JSON.stringify({ count: sb.engine.events.queryAll().length, witness: [...ev.witnessSet].sort(), hidden: ev.hidden, template: sk.templateContent,
+    edges: sk.participants.map((a) => sk.participants.map((b) => sb.engine.relationships.edge(a, b))) });
+  const attempts: Array<[string, Record<string, unknown>]> = [
+    ["witnessSet", { witnessSet: ["player"] }],
+    ["hidden", { hidden: false }],
+    ["relationship*", { relationshipTrust: 0.9 }],
+  ];
+  this.txRefusals = [];
+  for (const [field, extra] of attempts) {
+    try {
+      await this.txServer!.callTool("recordOffscreenSceneTexture", { eventId: sk.eventId, content: "some voiced prose", ...extra });
+      this.txRefusals.push(`${field}: NOT REFUSED`);
+    } catch (err) {
+      this.txRefusals.push(`${field}: ${(err as Error).message}`);
+    }
   }
 });
 
 Then("the write-back is refused at the channel boundary", function (this: BbWorld) {
-  assert.ok(typeof this.txRefusedReason === "string" && this.txRefusedReason.length > 0,
-    "expected the boundary to refuse the forbidden field but it did not");
-  assert.ok(this.txRefusedReason.includes("witnessSet"), `expected 'witnessSet' in the refusal message, got: ${this.txRefusedReason}`);
+  const r = this.txRefusals!;
+  assert.equal(r.length, 3, "all three forbidden attempts were made");
+  for (const line of r) {
+    assert.ok(!line.endsWith("NOT REFUSED"), `the boundary accepted a forbidden field: ${line}`);
+    const field = line.split(":")[0]!;
+    assert.ok(line.includes(field === "relationship*" ? "relationship" : field), `the refusal does not name the forbidden field: ${line}`);
+  }
 });
 
 Then("no event is created, no witness set changes, and no relationship number crosses", function (this: BbWorld) {
-  // The events count is unchanged relative to before the refused write-back attempt.
-  const events = this.txSandbox!.engine.events.queryAll();
-  // No extra events were created by the write-back.
-  const refusalEvents = events.filter((e) => e.id.startsWith("texture:"));
-  assert.equal(refusalEvents.length, 0, "unexpected texture: events were created by a refused write-back");
+  const sb = this.txSandbox!;
+  const sk = sb.session.getOffscreenSceneSkeletons()[0]!;
+  const ev = sb.engine.events.queryAll().find((e) => e.id === sk.eventId)!;
+  const after = JSON.stringify({ count: sb.engine.events.queryAll().length, witness: [...ev.witnessSet].sort(), hidden: ev.hidden, template: sk.templateContent,
+    edges: sk.participants.map((a) => sk.participants.map((b) => sb.engine.relationships.edge(a, b))) });
+  assert.equal(after, this.txBefore, "a refused write-back changed the event count, a witness set, the hidden flag, the prose or a relationship edge");
+  assert.ok(!sk.templateContent.includes("some voiced prose"), "the refused write-back's prose was applied");
 });
 
 // ─── Scenario 4: open/closed non-collapse — no texture means a byte-identical fold ───────────────
 
 Given("two identical seeded games", function (this: BbWorld) {
-  // Game A: no texture driver.
-  txGame(this, 704);
-  this.txSeedA = "game-A";
-  // Game B: texture driver present (same seed — will write texture AFTER the fold).
-  // We set up game B's seed tracking here; the actual second game is created in the "When" steps below.
-  this.txSeedB = "game-B";
+  // Two games, same seed; nothing is run yet. A = no texture driver; B = texture driver present.
+  const mk = (): { sb: ReturnType<GameSessionRegistry["sandboxFor"]>; orch: Orchestrator; user: string } => {
+    const reg = new GameSessionRegistry();
+    // The SAME user name in both games (each in its own registry): the engine keys its seeded streams on the user, so two different names would be two different games.
+    const user = "tx-fold";
+    const orch = new Orchestrator(reg, { now: () => 704 }, { seed: 704 });
+    const sb = reg.sandboxFor(user);
+    sb.session.createCharacter({ playerName: "The Player", seed: 704 });
+    return { sb, orch, user };
+  };
+  this.txGameA = mk(); this.txGameB = mk();
 });
 
 When("one advances an off-screen tick with the texture driver absent", function (this: BbWorld) {
-  // Game A: plain tick (no texture write-back).
-  runOffscreenTick(this);
-  // Capture the relationship fold state after the tick.
-  this.txSandbox!.session.snapshot(); // ensures the fold is persisted
+  const a = this.txGameA!;
+  a.orch.advance(a.user, "offscreen-tick");
 });
 
 When("the other advances the same tick with the texture driver present", function (this: BbWorld) {
-  // Game B: same seed, same tick — then write texture.
-  const regB = new GameSessionRegistry();
-  const userB = `tx${txUsers++}`;
-  const orchB = new Orchestrator(regB, { now: () => 704 }, { seed: 704 });
-  const sbB = regB.sandboxFor(userB);
-  sbB.session.createCharacter({ playerName: "The Player", seed: 704 });
-  // Advance the same tick.
-  orchB.advance(userB, "offscreen-tick");
-  // Write texture for all skeletons.
-  const skeletons = sbB.session.getOffscreenSceneSkeletons();
-  for (const sk of skeletons) {
-    sbB.session.recordOffscreenSceneTexture({ eventId: sk.eventId, content: "Voiced texture for game B." });
-  }
-  // Stash game B's snapshot for comparison.
-  this.txRegistry = regB; this.txUser = userB; this.txSandbox = sbB;
+  const b = this.txGameB!;
+  b.orch.advance(b.user, "offscreen-tick");
+  const skeletons = b.sb.session.getOffscreenSceneSkeletons();
+  assert.ok(skeletons.length > 0, "the tick produced scenes for the driver to enrich, so the comparison below is not vacuous");
+  for (const sk of skeletons) assert.ok(b.sb.session.recordOffscreenSceneTexture({ eventId: sk.eventId, content: "Voiced texture for game B." }).ok);
 });
 
 Then("both games produce the byte-identical seeded relationship fold", function (this: BbWorld) {
-  // We verify this by checking that the game B's relationship store is consistent with game A's,
-  // i.e., the texture write-back changed NOTHING about the relationship state. We do this by
-  // comparing the non-texture parts of the snapshot (excluding textureOverrides).
-  const snapB = this.txSandbox!.session.snapshot();
-  // The texture overrides key exists in game B (texture was written) — all other fields are the same.
-  // The key check: textureOverrides is present in B but the relationship fold fields are unchanged.
-  assert.ok(snapB.textureOverrides && Object.keys(snapB.textureOverrides).length > 0,
-    "expected game B to have texture overrides");
-  // The live state (week/phase) must be the same — no structural divergence.
-  assert.equal(snapB.week, 1, "unexpected week after one off-screen tick");
+  // ORW-286 item 9: actually COMPARE the two games (the old step looked only at game B, week === 1). The relationship fold, and every event's type/witnesses/hidden flag, match exactly.
+  const a = this.txGameA!.sb, b = this.txGameB!.sb;
+  const fold = (sb: typeof a): string => {
+    const ids = [...sb.session.getGameState().house.map((h) => h.id as string), PLAYER as string];
+    return JSON.stringify(ids.flatMap((x) => ids.filter((y) => y !== x).map((y) => sb.engine.relationships.edge(x as never, y as never))));
+  };
+  assert.ok(fold(a).length > 20, "game A has a relationship fold to compare");
+  assert.equal(fold(b), fold(a), "the texture write-back changed the relationship fold");
+  const shape = (sb: typeof a): string => JSON.stringify(sb.engine.events.queryAll().map((e) => [e.id, e.type, [...e.witnessSet].sort(), e.hidden]));
+  assert.equal(shape(b), shape(a), "the texture write-back changed an event's type, witnesses or hidden flag");
 });
 
 Then("only the scene prose differs between them", function (this: BbWorld) {
-  // The textureOverrides in game B are the only diff. The event store content for the underlying
-  // events is unchanged (the deterministic template). The texture override is the ADDITIVE layer.
-  const skeletons = this.txSandbox!.session.getOffscreenSceneSkeletons();
-  for (const sk of skeletons) {
-    assert.ok(sk.templateContent.includes("Voiced texture for game B."),
-      "expected the voiced texture to appear in game B's skeleton");
+  const a = this.txGameA!.sb, b = this.txGameB!.sb;
+  const skA = a.session.getOffscreenSceneSkeletons(), skB = b.session.getOffscreenSceneSkeletons();
+  assert.equal(skA.length, skB.length, "both games recorded the same number of scenes");
+  assert.ok(skB.length > 0);
+  for (let i = 0; i < skB.length; i++) {
+    assert.equal(skB[i]!.eventId, skA[i]!.eventId, "the same scene in both games");
+    assert.ok(skB[i]!.templateContent.includes("Voiced texture for game B."), "game B's scene carries the voiced texture");
+    assert.ok(!skA[i]!.templateContent.includes("Voiced texture"), "game A's scene stays the deterministic template");
   }
+  // and the texture is the ONLY snapshot key that differs
+  const strip = (s: Record<string, unknown>): string => JSON.stringify(Object.fromEntries(Object.entries(s).filter(([k]) => k !== "textureOverrides")));
+  assert.equal(strip(b.session.snapshot() as never), strip(a.session.snapshot() as never), "something other than the scene prose differs between the games");
 });
 
 // ─── Scenario 5: enrichment is budget-capped and fail-soft ──────────────────────────────────────
 
 Given("a live game advancing an off-screen tick", function (this: BbWorld) {
-  txGame(this, 705);
-  runOffscreenTick(this);
+  txGameWithScenes(this, 705);
 });
 
-When("the texture driver fails or no model is configured", function (this: BbWorld) {
-  // Simulate absent driver: we simply do NOT call recordOffscreenSceneTexture.
-  // This verifies the deterministic floor stands without needing a real model.
-  this.txSkeletons = this.txSandbox!.session.getOffscreenSceneSkeletons();
+When("the texture driver fails or no model is configured", async function (this: BbWorld) {
+  // A failing driver is modelled for real: its write-backs are malformed or address nothing, and the engine must shrug them off (no model ⇒ none are attempted).
+  const sb = this.txSandbox!;
+  this.txSkeletons = sb.session.getOffscreenSceneSkeletons();
+  this.txTemplates = this.txSkeletons.map((s) => s.templateContent);
+  const real = this.txSkeletons[0]!.eventId;
+  const results = [
+    sb.session.recordOffscreenSceneTexture({ eventId: "offscreen:does-not-exist:0:0", content: "orphan prose" }),
+    sb.session.recordOffscreenSceneTexture({ eventId: real, content: "   " }),
+  ];
+  this.txFailedWrites = results.map((r) => r.ok);
 });
 
 Then("every off-screen scene retains its deterministic template content", function (this: BbWorld) {
-  const skeletons = this.txSkeletons!;
-  for (const sk of skeletons) {
-    // The template content is the id-slug form (e.g. "npc:1 gossiped about the house with npc:2").
-    // It must be non-empty and must NOT be the voiced texture (since no driver ran).
-    assert.ok(typeof sk.templateContent === "string" && sk.templateContent.length > 0,
-      "a skeleton has no template content");
-    // There must be no texture override applied (the override map is empty).
-    assert.ok(!sk.templateContent.includes("Voiced texture"),
-      "unexpected texture was applied without a driver");
-  }
+  const sb = this.txSandbox!;
+  assert.deepEqual(this.txFailedWrites, [false, false], "a failed driver's write-backs were accepted");
+  const now = sb.session.getOffscreenSceneSkeletons().map((s) => s.templateContent);
+  assert.deepEqual(now, this.txTemplates, "a failed driver changed a scene's deterministic template content");
+  for (const c of now) assert.ok(c.length > 0 && !/orphan prose/.test(c), "a scene lost its template content");
+  // the template is the recorded event's own content, not something the skeleton reader invented
+  const events = sb.engine.events.queryAll();
+  for (const sk of this.txSkeletons!) assert.ok(events.some((e) => e.id === sk.eventId), "a skeleton has no recorded event behind it");
 });
 
 Then("the game advance is unaffected", function (this: BbWorld) {
-  // The off-screen tick ran successfully (integrity ok) — the game is still in a valid state.
-  const status = this.txSandbox!.session.gameStatus();
-  assert.ok(status, "game status is absent after tick");
-  // The week counter is still 1 (no week advancement from an off-screen tick alone).
-  const snap = this.txSandbox!.session.snapshot();
-  assert.equal(snap.week, 1, "unexpected week after off-screen tick only");
+  // After the failed driver, the game still advances: a real advance returns a view and the engine reports a sound state.
+  const sb = this.txSandbox!;
+  const before = JSON.stringify(sb.session.snapshot().week);
+  const view = sb.session.advanceGame();
+  assert.ok(view, "advanceGame returned nothing after a failed driver");
+  assert.ok(sb.session.gameStatus(), "game status is absent after a failed driver");
+  assert.equal(before, "1", "unexpected week before the advance");
 });

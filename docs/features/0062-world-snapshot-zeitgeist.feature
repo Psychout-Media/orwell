@@ -52,6 +52,6 @@ Feature: 0062 — Move-in zeitgeist snapshot (a frozen, shared world the whole c
   # §8 / §9 — fail-soft: no provider, never break
   Scenario: with no search provider the game runs unchanged
     Given a season started with seed "0062-7" and no search provider configured
-    Then the world snapshot seeds from framed knowledge or is absent
+    Then the world snapshot is seeded from framed knowledge
     And an absent world snapshot round-trips as absent
     And the season advances unchanged with no world snapshot present
