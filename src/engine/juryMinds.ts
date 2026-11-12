@@ -59,3 +59,23 @@ export function finalHohChoice(hoh: AgendaCharacter, options: readonly FinalHohO
     : top((o) => o.threatOfEvict) === best && w.threat >= w.bond ? "biggest-threat" : "loyal-to-ally";
   return { evict: best.evict, reason };
 }
+
+/**
+ * ORW-318: the Final HOH's OWN estimate of their jury share against `keep` if they evict `evictee`. Reads only what the HOH can see:
+ * their own bond with each juror, how close they have seen `keep` act with each juror (keep's own warmth toward them, observable), the
+ * public resume, and that the evictee joins the jury holding the eviction against them. Never a juror's hidden lean or ballot.
+ * `bond(a, b)` is a's (trust + affinity) / 2 toward b. Pure.
+ */
+export function estimateJuryShare(
+  hoh: EntityId, keep: EntityId, evictee: EntityId, jurorsSoFar: readonly EntityId[],
+  bond: (a: EntityId, b: EntityId) => number, resume: (id: EntityId) => number,
+): number {
+  const jury = [...jurorsSoFar, evictee];
+  const E = JURY_MINDS.estimate;
+  const resumeTerm = (resume(hoh) - resume(keep)) * E.resumePerWin;
+  const shares = jury.map((j) => {
+    const p = 0.5 + (bond(hoh, j) - bond(keep, j)) + resumeTerm - (j === evictee ? E.evicteeGrudge : 0);
+    return p < 0 ? 0 : p > 1 ? 1 : p;
+  });
+  return shares.reduce((a, b) => a + b, 0) / Math.max(1, shares.length);
+}

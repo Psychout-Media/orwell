@@ -78,7 +78,7 @@ import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
-import { jurorProfile, profiledLean, profiledWeights } from "./jurorProfile";
+import { jurorProfile, profileOfArchetype, profiledLean, profiledWeights, type JurorArchetype } from "./jurorProfile";
 import { drawCompetition, competitionById, COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS } from "./competitionLibrary";
 import type { CompetitionDef, CompetitionFormat, CompetitionPhase } from "./competitionLibrary";
 import { GEN_COMPETITION_BOUNDS } from "./genCompetitionConstants";
@@ -1092,6 +1092,16 @@ export interface SeasonCtx {
   juryMemoryFor?: (juror: EntityId, finalist: EntityId) => number;
   jurorProfiles?: boolean;
   jurorProfileSalt?: string | number;
+  /**
+   * ORW-318 (ORW-253 slice 6, Ryne approved 2026-11-12): the juror's voting style from their CHARACTER (`juryMinds.jurorArchetypeFor`) instead of an id hash.
+   * Read only when `jurorProfiles` is on. Absent => the id-hash profile (pre-ORW-318).
+   */
+  jurorArchetypeFor?: (juror: EntityId) => JurorArchetype | undefined;
+  /**
+   * ORW-318: the NPC Final HOH's choice from their character (`juryMinds.finalHohChoice`) - who they can beat in front of the jury vs threat vs bond. Returns the
+   * evictee, or undefined to fall back to the pre-ORW-318 threat read. Absent => "evict the higher-threat rival" (+ ORW-87 memory).
+   */
+  finalHohMind?: (hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[]) => EntityId | undefined;
   /**
    * C1 (#1788, Q8 hybrid-greenlit) — the WIPEOUT REEL layer is live for this turn
    * (`ORWELL_WIPEOUT_REEL`). Off/absent ⇒ `beginStaged` computes no `failureStyle` fact for any staged-
@@ -2951,7 +2961,8 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
   const votes: Record<EntityId, EntityId> = { ...(f.votes ?? {}) };
   for (const juror of f.jury) {
     if (votes[juror]) continue; // the player's own vote (recorded interactively) is kept
-    const prof = ctx.jurorProfiles ? jurorProfile(juror, ctx.jurorProfileSalt ?? 0) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
+    const fromCharacter = ctx.jurorProfiles ? ctx.jurorArchetypeFor?.(juror) : undefined; // ORW-318: the juror's style from who they are
+    const prof = ctx.jurorProfiles ? (fromCharacter ? profileOfArchetype(fromCharacter) : jurorProfile(juror, ctx.jurorProfileSalt ?? 0)) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
     const leanFor = prof
       ? (fin: EntityId): number =>
           profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin), prof) +
@@ -3106,7 +3117,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // NPC final HOH evicts the higher-threat rival (relationship-driven, decision 0002).
       // ORW-87: ...plus what the HOH remembers of each (grudge up, favor down) when the memory layer is live for a played game.
       const evictScore = (r: EntityId): number => ctx.rel.edge(s.hoh!, r).threat + (ctx.endgameMemoryFor?.(r, s.hoh!) ?? 0);
-      const evictee = [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
+      // ORW-318 (ORW-253 slice 6): an NPC Final HOH reasons from character - who they can beat in front of the jury, the threat, the bond.
+      const evictee = ctx.finalHohMind?.(s.hoh!, rivals, s.evictionOrder.slice(preJuryEvictionCount(s))) ?? [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
       if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["final-eviction"]) { // ORW-291 (C): a played game stages the Final HOH's eviction (decision -> result); the evictee is decided HERE, once, by the same read
         s.ceremony = { kind: "final-eviction", hold: "eviction", steps: [...CEREMONY_STEPS["final-eviction"].npc], at: 0, finalEvictee: evictee };
         s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
