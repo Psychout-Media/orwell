@@ -6939,6 +6939,90 @@ def _competition_scene_steer(log, continuing: bool = False, paused: bool = False
 _COMP_RUN_HOPS = 8
 
 
+def _is_watch_step(pending) -> bool:
+    """True for any open staged-ceremony WATCH step (pending kind `ceremony-step`, non-binding). Binding steps are other pending kinds and are never matched. Pure."""
+    return isinstance(pending, dict) and pending.get("kind") == "ceremony-step"
+
+
+async def _advance_one_watch_step(user, pending) -> bool:
+    """ORW-297: advance exactly ONE ceremony watch step, as the ceremony-continue route does (beatSeq CAS + idempotency key, then announcements), and hand the narrator the engine's already-public
+    line of the step now open (Vault-free; the evictee is only ever named by the engine's own result line). Returns True when the engine moved."""
+    from src import orwell_engine
+    try:
+        adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=_mint_idempotency_key(), user=user)
+    except Exception as e:
+        if _is_stale_beat_error(e):
+            await _handle_stale_beat(user, e)
+        from src import log_rings as _lr
+        _lr.record_soft_failure("progression:watch-step-advance", e, corrected="step-not-advanced", user=user)
+        return False
+    if not isinstance(adv, dict):
+        return False
+    _refresh_beat_seq(user, adv)
+    clear_engine_held(user)
+    mark_pre_resolved_advance(user)
+    stash_preresolved_announcements(user, adv)
+    nxt = adv.get("pending")
+    line = str((nxt or {}).get("text") or (nxt or {}).get("prompt") or "") if _is_watch_step(nxt) else ""
+    ev = adv.get("event") or {}
+    if not line:
+        line = str(ev.get("content") or "")
+    if line:
+        key = _runway_key(user)
+        prior = _SCHEDULE_STEER.get(key, "")
+        _SCHEDULE_STEER[key] = (prior + "\n\n" if prior else "") + (
+            "The player moved the ceremony on one step. Voice exactly this moment in the room and stop (do not run ahead to later steps, and name no result the engine has not supplied): " + line)
+    return True
+
+
+# ORW-291 pacing: a played eviction reads ONE anonymized ballot per engine step (a 13-voter vote is ~16 steps). A progress-only player message walks the ballot steps in one pass, capped here
+# (the Continue button stays one step at a time). Eviction-specific: comp pacing (_COMP_PAUSE_EVERY = 1) is untouched.
+_EVICTION_BALLOT_HOPS = 20
+
+
+def _is_eviction_ballot_step(pending) -> bool:
+    """True for an open staged-eviction BALLOT watch step (pending kind `ceremony-step`, ceremony eviction/ballot). Pure."""
+    if not isinstance(pending, dict) or pending.get("kind") != "ceremony-step":
+        return False
+    cer = pending.get("ceremony")
+    return isinstance(cer, dict) and cer.get("kind") == "eviction" and cer.get("stepId") == "ballot"
+
+
+async def _walk_eviction_ballots(user, pending) -> int:
+    """Advance the engine through the remaining ballot steps (stop at the first non-ballot step: the result keeps its own stop, any binding card stops it too), at most _EVICTION_BALLOT_HOPS.
+    Returns the number of advances made. The narrator is handed the ANONYMIZED ballot lines the engine supplied (the nominee each ballot evicts - never a voter, never a tally)."""
+    from src import orwell_engine
+    lines, n, cur = [], 0, pending
+    while n < _EVICTION_BALLOT_HOPS and _is_eviction_ballot_step(cur):
+        try:
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=_mint_idempotency_key(), user=user)
+        except Exception as e:
+            if _is_stale_beat_error(e):
+                await _handle_stale_beat(user, e)
+            from src import log_rings as _lr
+            _lr.record_soft_failure("progression:ballot-walk-advance", e, corrected="walk-stopped", user=user)
+            break
+        if not isinstance(adv, dict) or not adv.get("event"):
+            break
+        n += 1
+        _refresh_beat_seq(user, adv)
+        clear_engine_held(user)
+        mark_pre_resolved_advance(user)
+        stash_preresolved_announcements(user, adv)
+        ev = adv.get("event") or {}
+        if str(ev.get("beat") or "") == "eviction-reveal" and ev.get("content"):
+            lines.append(str(ev["content"]))
+        cur = adv.get("pending")
+    if lines:
+        key = _runway_key(user)
+        prior = _SCHEDULE_STEER.get(key, "")
+        _SCHEDULE_STEER[key] = (prior + "\n\n" if prior else "") + (
+            "The eviction ballots were read in one continuous reveal, in this order (voice them as one flowing scene; the voters stay secret, no tally, and do not name the evictee until the result is supplied): "
+            + "; ".join(lines))
+    logger.info("[orwell] eviction ballots walked %d step(s) for user=%s (progress-only message)", n, user)
+    return n
+
+
 async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None,
                                     _after_day_break: bool = False, _comp_hops: int = 0, _comp_log: Optional[list] = None) -> dict:
     """If the live game sits at an unresolved engine-driven beat with NO player decision pending,
@@ -6978,6 +7062,31 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             return game_state
         status = await orwell_engine.game_status(user=user)
         _refresh_beat_seq(user, status)  # 0065: track the freshest token before any progression call
+        if isinstance(status, dict) and _is_eviction_ballot_step(status.get("pending")) and _is_progress_only_message(player_msg):
+            # ORW-291 pacing: a bare "next"/"continue" walks the anonymized ballot steps in ONE pass (the speeches, the player's own card and the result keep their own stops).
+            _walked = await _walk_eviction_ballots(user, status.get("pending"))
+            if _walked:
+                try:
+                    _fresh = await _fetch_game_state(user, retry=retry)
+                    if isinstance(_fresh, dict):
+                        _refresh_beat_seq(user, _fresh)
+                        return _fresh
+                except Exception as _fe:
+                    from src import log_rings as _lr_walk
+                    _lr_walk.record_soft_failure("progression:ballot-walk-refetch", _fe, corrected="input-snapshot", user=user)
+            return game_state
+        if isinstance(status, dict) and _is_watch_step(status.get("pending")) and _is_progress_only_message(player_msg):
+            # ORW-297: a typed "next" on ANY open ceremony WATCH step moves it exactly ONE step - the same advance the Continue button (/api/orwell/ceremony-continue) makes.
+            if await _advance_one_watch_step(user, status.get("pending")):
+                try:
+                    _fresh = await _fetch_game_state(user, retry=retry)
+                    if isinstance(_fresh, dict):
+                        _refresh_beat_seq(user, _fresh)
+                        return _fresh
+                except Exception as _fe:
+                    from src import log_rings as _lr_one
+                    _lr_one.record_soft_failure("progression:watch-step-refetch", _fe, corrected="input-snapshot", user=user)
+            return game_state
         if not isinstance(status, dict) or status.get("pending") is not None:
             # The player is the decider (comp-intent, Houseguest's Choice, nominations, a vote, the
             # goodbye message…) — never auto-resolve their own decision; their card is waiting. A
@@ -7922,7 +8031,7 @@ _NOOP_ABLE_PROGRESSION_TOOLS = frozenset({"advanceGame", "submitDecision"})
 
 
 _PROGRESS_ONLY_RE = re.compile(
-    r"^\s*(next|continue|go on|go ahead|keep going|carry on|proceed|ok(ay)?|ready|yes|yep|yeah|sure|skip|go|then\??|and then\??|what now\??|\.{1,3}|\u2026)\s*[.!]?\s*$",
+    r"^\s*(?:(?:ok(?:ay)?|alright|right)[,.!]?\s+)?(next|continue|go on|go ahead|keep going|carry on|proceed|ok(ay)?|ready|yes|yep|yeah|sure|skip|go|then\??|and then\??|what now\??|\.{1,3}|\u2026)\s*[.!]?\s*$",
     re.IGNORECASE,
 )
 

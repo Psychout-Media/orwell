@@ -199,7 +199,8 @@ export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "veto-draw/chips": "The chips for the Power of Veto are being drawn",
   "veto-draw/field": "The Power of Veto players are set: {field}",
   "eviction/speeches": "The nominees plead their case and the house gathers for the vote",
-  "eviction/votes": "The votes are read, one ballot at a time", // not a pending (votes ride the s.eviction reveal stage); a row so the step list stays complete
+  "eviction/votes": "The votes are read, one ballot at a time", // the player's own ballot card (a binding pending); a row so the step list stays complete
+  "eviction/ballot": "A ballot is read", // ORW-291 (B): one step per ballot, anonymized (the beat names the nominee, never the voter, never a running tally)
   "eviction/result": "The vote is decided", // likewise - never names the evictee
   "final-eviction/decision": "{hoh} has made the decision - the Final 2 is about to be set", // never names the evictee ahead of the engine
   "final-eviction/result": "The Final 2 is set",
@@ -214,6 +215,14 @@ export function ceremonyRef(s: LiveSeasonState): CeremonyRef | null {
 /** Ceremonies stage play by play ONLY for a game a person is PLAYING and who is still in the house (a spectator's fast-forward and every headless sim keep the one-beat resolution). */
 function stagesCeremonies(s: LiveSeasonState, ctx: SeasonCtx): boolean {
   return s.playedGame === true && !s.spectator && s.active.includes(ctx.player);
+}
+
+/**
+ * ORW-291 (B): the eviction ceremony plays ONE BALLOT per step. Rebuild the step list as speeches -> [votes: the player's own card] -> ballot x N -> result (N = the number of voters, public).
+ * Presentation only: no rng, the reveal order/tally are decided elsewhere. Called when the ceremony opens and again when the ballots are fixed; `at` is preserved.
+ */
+function syncBallotSteps(c: CeremonyProgress, ballots: number, playerVotes: boolean): void {
+  c.steps = ["speeches", ...(playerVotes ? ["votes"] : []), ...Array<string>(ballots).fill("ballot"), "result"];
 }
 
 /** Open the ceremony's current step as `s.pending`; the step that PUBLISHES the outcome (`named`) applies it and returns the beat. */
@@ -2655,6 +2664,7 @@ function revealedTally(e: EvictionProgress): Record<EntityId, number> {
 /** Begin the staged eviction: precompute the (already-decided) votes + the seeded reveal order. */
 function beginEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource, playerVote: EntityId | undefined): void {
   const { fn, voteOf } = countEvictionVotes(s, ctx, playerVote);
+  if (s.ceremony?.kind === "eviction") syncBallotSteps(s.ceremony, voteOf.size, playerVote !== undefined);
   s.eviction = {
     stage: "votes",
     nominees: fn,
@@ -2682,10 +2692,11 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
         // The batch size is derived from the TOTAL ballot count (stable + restart-safe — no extra state),
         // so the votes stage lands in ~4-8 rounds. PRESENTATION ONLY: the seeded reveal ORDER, the
         // precomputed tally, and the evictee on the LAST ballot are all unchanged; NO randomness here.
-        const batch = stagedEvictionBatchSize(e.revealOrder.length);
+        const batch = s.ceremony?.kind === "eviction" ? 1 : stagedEvictionBatchSize(e.revealOrder.length); // ORW-291 (B): a staged ceremony reads ONE ballot per step
         const from = e.revealIx;
         const to = Math.min(from + batch, e.revealOrder.length);
         e.revealIx = to;
+        if (s.ceremony?.kind === "eviction") s.ceremony.at = s.ceremony.steps.indexOf("ballot") + to - 1; // the open step is the ballot just read
         // E12: eviction votes are SECRET BALLOTS — the reveal reads the ballot(s), never the voter
         // ("a vote to evict X…" / "N votes to evict X"). `voteOf` stays engine-internal (manner/deal
         // reconciliation); attributions unseal only in the 0048 post-season retrospective. Anonymized
@@ -2823,7 +2834,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // message, last, as a real pending decision (never engine-authored, never engine-toned).
   if (s.active.includes(ctx.player)) e.goodbyeFrom.push(ctx.player);
   e.stage = "goodbye";
-  if (s.ceremony?.kind === "eviction") { if (evictee === ctx.player) s.ceremony = undefined; else s.ceremony.at = 2; } // ORW-281 4d: the engine committed the evictee - the 'result' step begins (an evicted player is out of the house, so no hold)
+  if (s.ceremony?.kind === "eviction") { if (evictee === ctx.player) s.ceremony = undefined; else s.ceremony.at = s.ceremony.steps.length - 1; } // ORW-281 4d: the engine committed the evictee - the 'result' step begins (an evicted player is out of the house, so no hold)
   return { beat: "eviction", content: `${evictee} is evicted`, participants: [evictee] };
 }
 
@@ -3254,6 +3265,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       if (sp.handled) return sp.event; // a reveal event (played) OR null with the player's choice pending
       if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.eviction && !s.ceremony) { // ORW-291 (A): a played eviction (twist weeks and each double-eviction cycle included - the twist fires in rollWeek, after the result) opens with the speeches (no rng; nothing is named that is not already public)
         s.ceremony = { kind: "eviction", hold: "eviction", steps: [...CEREMONY_STEPS.eviction.withChoice], at: 0 };
+        syncBallotSteps(s.ceremony, evictionVoters({ ...weekState(s, ctx), nominees: s.finalNominees! }).length, evictionVoters({ ...weekState(s, ctx), nominees: s.finalNominees! }).includes(ctx.player)); // ORW-291 (B): the step count is known up front (the number of voters)
         s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
         return null;
       }
