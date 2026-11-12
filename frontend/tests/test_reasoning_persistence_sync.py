@@ -77,8 +77,8 @@ def test_resume_stream_splits_reasoning_and_uses_the_canonical_renderer():
     assert "let reasoningText = ''" in resume
     assert "let replyText = ''" in resume
     # the thinking:true flag is honored (the OLD code ignored it and folded everything raw)
-    assert "if (json.thinking) reasoningText += json.delta;" in resume
-    assert "else replyText += json.delta;" in resume
+    # deliberate re-pin (ORW-59 R3 step 4): the inline split is the shared chatStreamMachine.splitChannel (thinking -> reasoning buffer, else reply; tested in test_orw59_stream_machine.py)
+    assert "splitChannel({ reply: replyText, reasoning: reasoningText }, json)" in resume
     # reasoning is wrapped in a CLOSED <think> block so it can only reach the accordion
     assert "markdownModule.composeThinkSource(reasoningText, reply)" in resume  # A59: the one shared helper builds the CLOSED <think> block
     # the bubble is rendered through the SAME splitter as the primary path + history — never

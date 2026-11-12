@@ -36,3 +36,16 @@ export function applyDelta(st, json) {
     isReplyToken: !json.thinking,
   };
 }
+
+/**
+ * ORW-59 / R3 step 4 (slice): the F8 channel split alone, for the resume/mirror (`_trySelfResume`) and background-stream loops, which keep only the two buffers (no <think> wrapping, no round
+ * state). Same rule as `applyDelta`: `thinking` truthy -> reasoning buffer, falsy -> the public reply. One definition of "reasoning never reaches the body" for all three SSE loops.
+ * @param {{reply:string, reasoning:string}} bufs
+ * @param {{delta:string, thinking?:boolean}} json
+ * @returns {{reply:string, reasoning:string}}
+ */
+export function splitChannel(bufs, json) {
+  return json.thinking
+    ? { reply: bufs.reply, reasoning: bufs.reasoning + json.delta }
+    : { reply: bufs.reply + json.delta, reasoning: bufs.reasoning };
+}
