@@ -52,6 +52,14 @@ NEGATIVES = [
     "",
     "I never go to bed early.",
     "Maybe I'll sleep later.",
+    # ORW-310b precision set (Coordinator 2026-11-12): the FE now ACTS for the player, so a false positive is worse than a miss.
+    "I'm going to bed soon.",
+    "Should I sleep?",
+    "She went to bed.",
+    "I'm not going to sleep.",
+    "I'm going to bed tonight after the comp.",
+    "He's going to bed.",
+    "Would you go to bed now?",
 ]
 
 
@@ -157,6 +165,8 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
         return dict(status if status is not None else _NIGHT)
 
     monkeypatch.setattr(oe, "game_status", fake_status)
+    # The loop's OTHER engine reads (whereabouts, ...) have no engine behind them here: without this each one retried against a closed port with 0.5 s+ backoffs (~7 s per drive).
+    monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     rounds: list = []
     scripts = list(scripts if scripts is not None else [{"deltas": ["ok"]}])
@@ -173,6 +183,12 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr(al, "stream_llm_with_fallback", fake_stream)
+
+    async def _no_side_llm(*a, **k):  # the overseer / judge / extraction side calls would hit the unreachable test URL and wait out their timeouts (~7 s per drive)
+        return ""
+
+    import src.llm_core as _lc
+    monkeypatch.setattr(_lc, "llm_call_async", _no_side_llm)
 
     executed: list = []
 
@@ -276,12 +292,44 @@ def test_loop_kill_switch_off(monkeypatch):
     assert rounds[0]["tool_choice"] is None
 
 
-def test_rejecter_model_gets_the_textual_line_not_the_wire_force(monkeypatch):
-    rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK)
-    assert rounds[0]["tool_choice"] is None
-    assert rounds[0]["n_system"] == 2          # the original system prompt + the textual twin line
+@pytest.mark.parametrize("text", POSITIVES[:3])
+def test_rejecter_model_has_the_players_turn_in_run_directly_before_narration(monkeypatch, text):
+    # ORW-310b: deepseek-flash rejects tool_choice AND ignores the textual twin line (live check 2026-11-12), so the FE runs the player's own turnIn through the normal dispatcher.
+    rounds, belts, _, executed = _drive(monkeypatch, text=text, model=DEEPSEEK, turn_in_result=_res("morning"))
+    assert executed == ["turnIn"]                      # exactly once, via the dispatcher
+    assert rounds[0]["tool_choice"] is None            # never a wire force for a rejecter
+    assert rounds[0]["n_system"] == 2                  # the original system prompt + the production note that voices the result
+    assert belts.get("bedtime-turn-in") == 1 and belts.get("bedtime-turn-in-direct") == 1
+    assert "forced-tool-fallback-line:turnIn" not in belts
+
+
+def test_rejecter_held_turn_in_falls_back_to_the_textual_line_and_counts_nothing(monkeypatch):
+    held = _res("late-night", held={"next": "bedtime", "minutesUntil": 30})
+    rounds, belts, _, executed = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, turn_in_result=held)
+    assert executed == ["turnIn"]                      # the engine decided: held
+    assert "bedtime-turn-in" not in belts and "bedtime-turn-in-direct" not in belts
     assert belts.get("forced-tool-fallback-line:turnIn") == 1
-    assert "bedtime-turn-in" not in belts      # a line is only an attempt - no applied correction counted
+
+
+# Loop-level (each case drives the whole agent loop, ~3 s): only the cases most likely to be mistaken for a bedtime. The full NEGATIVES list is pinned at the detector level above.
+REJECTER_LOOP_NEGATIVES = ["I'm going to bed soon.", "Should I sleep?", "She went to bed.", "I'm not going to sleep.", "Goodnight everyone.", "I can't sleep."]
+
+
+@pytest.mark.parametrize("text", REJECTER_LOOP_NEGATIVES)
+def test_rejecter_never_runs_turn_in_for_talk_about_bed(monkeypatch, text):
+    rounds, belts, _, executed = _drive(monkeypatch, text=text, model=DEEPSEEK, turn_in_result=_res("morning"))
+    assert executed == [] and not belts
+
+
+@pytest.mark.parametrize("tod", ["morning", "afternoon", "evening"])
+def test_rejecter_never_runs_turn_in_where_the_engine_would_hold(monkeypatch, tod):
+    rounds, belts, _, executed = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, status={**_NIGHT, "timeOfDay": tod}, turn_in_result=_res("morning"))
+    assert executed == [] and not belts
+
+
+def test_rejecter_never_runs_turn_in_with_a_pending_decision(monkeypatch):
+    _, belts, _, executed = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, status={**_NIGHT, "pending": {"kind": "veto-use"}}, turn_in_result=_res("morning"))
+    assert executed == [] and not belts
 
 
 # ── part 2: the pre-emission unbacked-morning guard ──────────────────────────────────────────────

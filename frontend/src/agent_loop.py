@@ -1841,6 +1841,11 @@ def _player_means_going_to_bed(text) -> bool:
 _BEDTIME_FORCE_TIMES = frozenset({"night", "late-night"})
 
 
+_BEDTIME_DIRECT_NOTE = (
+    "(Production note, not for the player.) The player went to bed and the game has just ended the night: the turnIn result above is what the game now shows. "
+    "Voice the night passing and the new morning ONLY from that result and the current game context - never invent what it did not hand you, and do not call turnIn again.")
+
+
 def _bedtime_board_allows(status) -> bool:
     """ORW-310 — the board lets the player turn in: a started game, the clock running and in a deep-night
     band, and NO open player pending. (After a turnIn the clock reads morning, so 'already asleep' is the
@@ -8176,9 +8181,36 @@ async def _stream_agent_loop_impl(
                         _forced_belt_tool = "turnIn"
                         logger.info(f"[orwell] ORW-310 forcing turnIn (player went to bed) round={round_num} user={_force_owner}")
                     elif _bt_choice is not None and "turnIn" not in _rejecter_fallback_sent:
-                        messages.append({"role": "system", "content": _rejecter_force_fallback_line("turnIn")})
+                        # ORW-310b (live check 2026-11-12): a model that rejects `tool_choice` (deepseek-flash, the prod narrator) IGNORES the textual twin line - the night never ended.
+                        # The player's OWN, unambiguous act (they went to bed, the board allows it) is run by the FE through the normal dispatcher BEFORE narration, exactly like the
+                        # forced createCharacter finalize: the week-chapter save and day-condense still run, and the narrator is handed the engine's result to voice.
                         _rejecter_fallback_sent.add("turnIn")
-                        _note_belt(owner, "forced-tool-fallback-line:turnIn")
+                        _direct_applied = False
+                        try:
+                            _bt_block = ToolBlock("turnIn", "{}")
+                            yield f'data: {json.dumps({"type": "tool_start", "tool": "turnIn", "command": "{}", "round": round_num})}\n\n'
+                            _bt_desc, _bt_result = await execute_tool_block(
+                                _bt_block, session_id=session_id, disabled_tools=disabled_tools,
+                                tool_policy=tool_policy, owner=owner, workspace=workspace)
+                            _bt_out = (_bt_result.get("output") or _bt_result.get("error") or "") if isinstance(_bt_result, dict) else ""
+                            _bt_out = str(_bt_out)[:4000]
+                            yield f'data: {json.dumps({"type": "tool_output", "tool": "turnIn", "command": "{}", "output": "", "exit_code": _bt_result.get("exit_code") if isinstance(_bt_result, dict) else None})}\n\n'
+                            tool_events.append({"round": round_num, "tool": "turnIn", "command": "{}", "output": "", "exit_code": (_bt_result or {}).get("exit_code")})
+                            _direct_applied = _turn_in_applied(_bt_result)
+                            if _direct_applied:
+                                _bt_call_id = f"call_{round_num}_bedtime"
+                                messages.append({"role": "assistant", "content": None, "tool_calls": [
+                                    {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
+                                messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bt_out}\n```"})
+                                messages.append({"role": "system", "content": _BEDTIME_DIRECT_NOTE})
+                                _note_belt(owner, "bedtime-turn-in")
+                                _note_belt(owner, "bedtime-turn-in-direct")
+                                logger.info(f"[orwell] ORW-310b ran the player's turnIn directly (rejecter model) round={round_num} user={_force_owner}")
+                        except Exception as _bt_dir_err:
+                            logger.warning(f"[orwell] ORW-310b direct turnIn skipped: {_bt_dir_err}")
+                        if not _direct_applied:
+                            messages.append({"role": "system", "content": _rejecter_force_fallback_line("turnIn")})
+                            _note_belt(owner, "forced-tool-fallback-line:turnIn")
             except Exception as _bt_err:
                 logger.warning(f"[orwell] ORW-310 bedtime force skipped: {_bt_err}")
 
