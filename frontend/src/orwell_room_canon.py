@@ -90,6 +90,11 @@ async def capture_room_canon(narration: str, room_id: Optional[str], llm: LlmFn,
         return accepted
     except Exception as e:  # fail-soft: canon is enrichment, never the turn
         logger.debug(f"[room-canon] skipped: {e}")
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("room-canon:capture-failed", e, corrected="the show goes on without it")
+        except Exception:  # failsoft-ok: recorder-self
+            pass
         return 0
 
 
@@ -116,4 +121,9 @@ async def after_turn(narration: str, owner, endpoint_url, model, headers) -> int
         return await capture_room_canon(narration, room_id, _llm, _write)
     except Exception as e:
         logger.debug(f"[room-canon] hook skipped: {e}")
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("room-canon:hook-failed", e, corrected="the show goes on without it", user=owner)
+        except Exception:  # failsoft-ok: recorder-self
+            pass
         return 0

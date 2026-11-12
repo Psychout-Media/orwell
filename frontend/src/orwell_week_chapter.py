@@ -86,6 +86,11 @@ def save_week_chapter(owner, result) -> bool:
         # client place the chapter without a round trip. Ids/short public strings only - no Vault data.
         session_events.publish(sid, "message-added", {"type": "week_chapter", "week": wc["week"], "recap": wc["recap"]})
         return True
-    except Exception:
+    except Exception as e:
         logger.debug("[week-chapter] save skipped", exc_info=True)
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("week-chapter:save-failed", e, corrected="the chapter row is simply absent; the game continues", user=owner)
+        except Exception:  # failsoft-ok: recorder-self
+            pass
         return False
