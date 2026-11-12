@@ -478,10 +478,10 @@ export class Orchestrator {
     // ORW-281 slice 3 (Ryne: comps and ceremonies are built the same way): ANY comp-or-ceremony house event in session (comp, veto draw, nominations, veto ceremony, eviction), via the single
     // pure derivation the adapter's houseEventInSession also uses.
     const compRunning = (x: SessionSnapshot | undefined): boolean => isCompOrCeremonyKind(liveHouseEvent(x?.live as never, { includeDraw: milestoneDue(x?.live as never) })?.kind) // the draw counts only once its morning slot is due, not for the whole idle stretch before it;
-    // Only for a game a person is PLAYING: `messageModeNow()` is true once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
+    // Only for a game a person is PLAYING: `live.playedGame` (ORW-281 slice 5: the one played-game flag) is set once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
     // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
     const sess = this.registry.sandboxFor(user).session;
-    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), sess.messageModeNow(), compRunning(baseline), compRunning(candidate))) return;
+    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;
