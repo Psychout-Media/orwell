@@ -1,4 +1,4 @@
-# BUILT (ORW-194, #2227) and covered by unit tests; this .feature is still spec-only (NOT wired into the BDD gate: absent from cucumber.cjs paths, no step definitions yet). The facts it describes are pinned in
+# spec-only: BUILT (ORW-194, #2227) and covered by unit tests; this .feature is still spec-only (NOT wired into the BDD gate: absent from cucumber.cjs paths, no step definitions yet). The facts it describes are pinned in
 # tests/unit/premiereToastBasics.test.ts: every met houseguest card carries a public age (Character.age), job and hometown, and the gathered-toast prompt lists each houseguest's age, job and hometown and asks for a woven-in
 # first impression, never a data dump. When the steps are written, list the file in cucumber.cjs and mutation-check each scenario. Written by the BDD Auditor 2026-11-06 from Ryne's request.
 # Ryne (2026-11-06 04:38 UTC): "I also want to make a slight adjustment to how the champagne toast [works]. Should include some more basic info since this is my first impressions of people. We have the
