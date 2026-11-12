@@ -78,3 +78,44 @@ def test_the_real_prompt_still_has_the_markers_the_reorder_keys_on():
     mp = open(os.path.join(base, "src", "engine", "momentPrompts.ts"), encoding="utf-8").read()
     assert "`- Week: ${view.week}`" in mp and "GAME CONTEXT:" in mp
     assert al.GAME_AGENT_PREAMBLE.startswith(al._STABLE_TAIL_START)
+
+
+# ── the other half: the streaming request must not hoist per-turn system messages back to the top ────────────────────────────────────────────────────────────
+from src import llm_core as lc  # noqa: E402
+
+DEEPSEEK = "https://api.deepseek.com/chat/completions"
+MSGS = [{"role": "system", "content": "S0"}, {"role": "system", "content": "S0b"}, {"role": "user", "content": "u1"}, {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"}, {"role": "system", "content": "BRIEF"}, {"role": "system", "content": "VOLATILE"}]
+
+
+def test_default_hoists_every_system_message_to_the_top_byte_identical(monkeypatch):
+    monkeypatch.delenv("ORWELL_KEEP_SYSTEM_ORDER", raising=False)
+    out = lc._consolidate_system_messages([dict(m) for m in MSGS], DEEPSEEK, "openai")
+    assert out[0] == {"role": "system", "content": "S0\n\nS0b\n\nBRIEF\n\nVOLATILE"}
+    assert [m["role"] for m in out] == ["system", "user", "assistant", "user"]
+
+
+def test_flag_on_for_deepseek_merges_only_the_leading_run_and_leaves_the_per_turn_ones_in_place(monkeypatch):
+    monkeypatch.setenv("ORWELL_KEEP_SYSTEM_ORDER", "1")
+    out = lc._consolidate_system_messages([dict(m) for m in MSGS], DEEPSEEK, "openai")
+    assert out[0] == {"role": "system", "content": "S0\n\nS0b"}
+    assert [m["role"] + ":" + m["content"] for m in out[1:]] == ["user:u1", "assistant:a1", "user:u2", "system:BRIEF", "system:VOLATILE"]
+    # the prefix up to the newest user message is identical when only the trailing per-turn block changes
+    nxt = [dict(m) for m in MSGS[:-1]] + [{"role": "system", "content": "VOLATILE-2"}]
+    out2 = lc._consolidate_system_messages(nxt, DEEPSEEK, "openai")
+    assert out[:-1] == out2[:-1]
+
+
+@pytest.mark.parametrize("url,provider", [("https://openrouter.ai/api/v1/chat/completions", "openrouter"), ("http://127.0.0.1:8000/v1/chat/completions", "openai"),
+                                          ("https://api.anthropic.com/v1/messages", "anthropic")])
+def test_flag_on_changes_nothing_for_any_other_host(monkeypatch, url, provider):
+    monkeypatch.setenv("ORWELL_KEEP_SYSTEM_ORDER", "1")
+    out = lc._consolidate_system_messages([dict(m) for m in MSGS], url, provider)
+    assert out[0]["content"] == "S0\n\nS0b\n\nBRIEF\n\nVOLATILE" and [m["role"] for m in out] == ["system", "user", "assistant", "user"]
+
+
+def test_the_diagnostic_profile_wins(monkeypatch):
+    monkeypatch.setenv("ORWELL_KEEP_SYSTEM_ORDER", "1")
+    monkeypatch.setenv("ORWELL_FLAGS_OFF", "1")
+    out = lc._consolidate_system_messages([dict(m) for m in MSGS], DEEPSEEK, "openai")
+    assert out[0]["content"].endswith("VOLATILE") and len(out) == 4
