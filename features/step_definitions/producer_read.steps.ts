@@ -8,6 +8,7 @@ import { PLAYER } from "../../src/domain/ids";
 // Feature 0137 - the producer read. Roles only. The player-gain half is staged through the real knowledge service and the
 // real accounting function (nothing inside a recorded scene surfaces a fact synchronously, so the gain is surfaced first and
 // the accounting stashed through the session's own seam); the flag-gated sink wiring is exercised through a real recordInteraction.
+// Same services a real turn uses: knowledge.surfaceInformationTo is the pathway a told/overheard fact takes in play, computeExchangeAccounting is what the recordInteraction sink calls, and stashExchangeAccounting is the session method registry.ts's producer-read sink invokes; only the ORDER is staged (a real turn surfaces the fact on an earlier or later beat, not inside the same recordInteraction).
 type Sb = ReturnType<GameSessionRegistry["sandboxFor"]>;
 interface Ctx { sb: Sb; npc: string; first: string; second: string; stashCalls: number; prompt: string }
 const state = new WeakMap<object, Ctx>();
