@@ -3,14 +3,15 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { UserSandbox } from "../../src/composition/registry";
+import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
 
 // Feature 0139 - the booth has receipts. Roles only. Driven through the real season, the real deal lever and the real
 // playerReceipts read; hidden NPC events are written through the engine-side event store (the test seam the other steps use).
 type Receipt = { kind: string; summary: string; sourceEventIds?: string[] };
-type Rc = GameSession & { setBoothReceiptsEnabled(on: boolean): void; playerReceipts(): Receipt[] };
-interface Ctx { sb: UserSandbox; s: Rc; receipts: Receipt[]; said?: string; cast?: string; hiddenIds: string[] }
+type Rc = GameSessionAdapter;
+interface Ctx { sb: UserSandbox; s: Rc; receipts: ReadonlyArray<Receipt>; said?: string; cast?: string; hiddenIds: string[] }
 const state = new WeakMap<object, Ctx>();
 const st = (w: BbWorld): Ctx => state.get(w)!;
 
@@ -25,7 +26,7 @@ function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>, evictVo
 }
 function fresh(seed: number): Ctx {
   const sb = new GameSessionRegistry().sandboxFor(`booth-${seed}-${Math.random()}`);
-  const s = sb.session as unknown as Rc;
+  const s = sb.session as GameSessionAdapter;
   s.createCharacter({ playerName: "The Player", seed });
   s.setBoothReceiptsEnabled(true);
   return { sb, s, receipts: [], hiddenIds: [] };
