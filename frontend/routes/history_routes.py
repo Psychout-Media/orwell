@@ -658,14 +658,14 @@ def setup_history_routes(session_manager) -> APIRouter:
         _reject_compact_during_active_run(session_id)
 
         try:
-            from src.model_context import estimate_tokens, get_context_length
+            from src.model_context import estimate_tokens, get_context_length_async  # ORW-177: the size probe runs off the event loop
             from src.llm_core import llm_call_async
             from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
 
             if len(session.history) < 6:
                 return {"status": "ok", "message": "Not enough messages to compact"}
 
-            ctx_len = get_context_length(session.endpoint_url, session.model)
+            ctx_len = await get_context_length_async(session.endpoint_url, session.model)
             messages_before = session.get_context_messages()
             used_before = estimate_tokens(messages_before)
             pct_before = round((used_before / ctx_len) * 100, 1) if ctx_len else 0

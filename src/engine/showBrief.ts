@@ -28,6 +28,20 @@ export const BRIEF_ABSENCES_MAX = 6;
 /** A change line names at most this many people, then "and N more". */
 export const BRIEF_NAMES_PER_LINE = 8;
 
+/** The OPEN THREADS section holds at most this many lines. */
+export const BRIEF_THREADS_MAX = 6;
+
+/**
+ * ORW-223 slice 2: the "5. OPEN THREADS" section from pre-built, Vault-free "kind: status" lines (the adapter builds
+ * them from state the player already knows). Capped, de-duplicated, deterministic; undefined when empty so a quiet
+ * game's brief is byte-identical to before.
+ */
+export function openThreadsSection(lines: readonly string[] | undefined): string | undefined {
+  const clean = [...new Set((lines ?? []).map((l) => neutralizeForPrompt(l, 120)).filter((l) => l.length > 0))].slice(0, BRIEF_THREADS_MAX);
+  if (!clean.length) return undefined;
+  return ["5. OPEN THREADS (kind and status only; nothing here is a fact beyond that)", ...clean.map((l) => `- ${l}`)].join("\n");
+}
+
 /** K6 §3.3 rule 9: the token estimate is chars / 4.1. */
 export function estimateBriefTokens(text: string): number {
   return Math.ceil(text.length / 4.1);
@@ -105,7 +119,7 @@ export function cleanLastShown(raw: unknown): string | undefined {
  * Build the brief for this turn, or `undefined` when there is nothing to brief (pre-game, the player out of the
  * house, no whereabouts). `req` carries only the FE's optional echoes; the facts come from `view`.
  */
-export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}): ShowBriefView | undefined {
+export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, canonSection?: (room: Room) => string | undefined, threadLines?: readonly string[]): ShowBriefView | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts;
   if (!wa || !isRoom(wa.room)) return undefined;
@@ -220,12 +234,18 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}): Sho
     "SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.",
     "If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.",
   ].join("\n");
-  const sections = [
+  const sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; text: string }> = [
     { id: "header" as const, text: header },
     { id: "now" as const, text: now.join("\n") },
     { id: "changed" as const, text: changed.join("\n") },
     { id: "established" as const, text: established.join("\n") },
   ];
+  // 4. CANON (ORW-223): what the narration already established about THIS room, only when something is recorded.
+  const canon = canonSection?.(wa.room);
+  if (canon) sections.push({ id: "canon" as const, text: canon });
+  // 5. OPEN THREADS (ORW-223 slice 2): kind and status only, only when something is in motion.
+  const threads = openThreadsSection(threadLines);
+  if (threads) sections.push({ id: "threads" as const, text: threads });
   const text = sections.map((s) => s.text).join("\n\n");
   const nextSeen: BriefSeenState = {
     v: 1,

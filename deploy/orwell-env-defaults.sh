@@ -63,6 +63,7 @@
 #   ORWELL_SOUL_DEPTH           Deeper character evolution (0124) — hidden layer; CHARACTER byte-stable.
 #   ORWELL_BEDTIME_GATE         A turn-in in the morning/afternoon is refused (typed held); a narrator bedtime no longer loses a day.
 #   ORWELL_ADVANCE_GATE         The engine holds an ordinary advanceGame (typed held) until the schedule says an event is due; played games only (ORW-97).
+#   ORWELL_WEEK_CHAPTERS        Week chapters (ORW-275) - the bed on eviction night closes the week with a recap.
 #   ORWELL_COMP_MECHANICS_PLUS  Expanded competition mechanics (0126) — 12 => 30 no-repeat pool.
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
@@ -134,6 +135,7 @@ ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_BEDTIME_GATE=1
 ORWELL_ADVANCE_GATE=1
+ORWELL_WEEK_CHAPTERS=1
 ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_INTENT=1
@@ -187,6 +189,7 @@ ORWELL_LIES_CAUGHT=1
 ORWELL_HEARD_ABOUT_ME=1
 ORWELL_NO_HARD_CAPS=1
 ORWELL_JURY_MEMORY=1
+ORWELL_ROOM_CANON=1
 ORWELL_MEMORY_FRIENDS=1
 ORWELL_ACCUSE_COST=1
 ORWELL_CREDIBILITY=1
