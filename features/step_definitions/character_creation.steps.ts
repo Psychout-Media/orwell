@@ -57,7 +57,7 @@ Then("the player's Soul holds no relationship beliefs yet", function (this: BbWo
 
 // --- Validation ---------------------------------------------------------------
 
-Given("a character-creation input missing a required field", function (this: BbWorld) {
+Given("a character-creation input with no name", function (this: BbWorld) {
   this.oobeRejected = undefined; // intent: the next submit uses an input with no name
 });
 
