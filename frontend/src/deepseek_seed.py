@@ -104,47 +104,8 @@ def pin_legacy_model_defaults() -> bool:
     return True
 
 
-DEFAULT_FALLBACK_MODEL = "deepseek/deepseek-v4.1-flash"
-
-
-def seed_default_model_fallbacks() -> bool:
-    """Seed ``default_model_fallbacks`` so a failed DeepSeek call falls back to OpenRouter (ORW-144).
-
-    Fires only when the default endpoint is on a DeepSeek host, an enabled OpenRouter endpoint
-    exists, and the saved ``default_model_fallbacks`` is empty or unset. Never overwrites a
-    non-empty chain. Idempotent. Returns True when it wrote.
-    """
-    from core.database import SessionLocal, ModelEndpoint
-    from src import settings as _s
-    from src.llm_core import _host_match
-    with _seed_lock(_s.SETTINGS_FILE):
-        saved = _read_saved(_s.SETTINGS_FILE)
-        if saved.get("default_model_fallbacks"):
-            return False
-        default_id = (saved.get("default_endpoint_id") or "").strip()
-        if not default_id:
-            return False
-        db = SessionLocal()
-        try:
-            default_ep = db.query(ModelEndpoint).filter(ModelEndpoint.id == default_id).first()
-            if default_ep is None or not _is_deepseek(default_ep.base_url):
-                return False
-            or_ep = next(
-                (r for r in db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
-                 .order_by(ModelEndpoint.created_at).all()
-                 if _host_match(r.base_url or "", "openrouter.ai")),
-                None,
-            )
-            if or_ep is None:
-                return False
-            or_id = or_ep.id
-        finally:
-            db.close()
-        saved["default_model_fallbacks"] = [{"endpoint_id": or_id, "model": DEFAULT_FALLBACK_MODEL}]
-        _write_saved(saved)
-    logger.info("[deepseek-seed] seeded default_model_fallbacks -> OpenRouter endpoint %s (%s)",
-                or_id, DEFAULT_FALLBACK_MODEL)
-    return True
+# ORW-287: ``seed_default_model_fallbacks`` (ORW-144, a DeepSeek -> OpenRouter text fallback) was REMOVED. OpenRouter is for
+# images only; a DeepSeek failure surfaces as the outage UX, never a silent paid OpenRouter text call.
 
 
 def seed_deepseek_endpoint_from_env(environ: Optional[dict] = None) -> Optional[str]:

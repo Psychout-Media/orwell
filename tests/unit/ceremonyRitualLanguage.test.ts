@@ -25,8 +25,8 @@ describe("ceremony moment-prompt fragments carry the show's ritual-language cues
     expect(p).toMatch(/own words|not a copy of anyone else's/i);
   });
 
-  it("veto-competition: still cues the chip-draw ritual (pre-existing, unchanged)", () => {
-    const p = MOMENT_PROMPTS["veto-competition"];
+  it("veto-draw: still cues the chip-draw ritual (ORW-281 slice 1 moved it here from veto-competition: the draw is its own ceremony beat)", () => {
+    const p = MOMENT_PROMPTS["veto-draw"];
     expect(p).toMatch(/RITUAL BEAT/i);
     expect(p).toMatch(/Houseguest's Choice/);
   });

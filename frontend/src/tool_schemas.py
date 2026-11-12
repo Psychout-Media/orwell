@@ -1402,7 +1402,7 @@ FUNCTION_TOOL_SCHEMAS = [
                         "type": "string",
                         # ONE source of truth with the REST/WS relays (orwell_engine.DECISION_KINDS);
                         # the hand-copied enum drifted (exit-interview / deal-offer / secret-veto missing).
-                        "enum": sorted(_DECISION_KINDS),
+                        "enum": sorted(_DECISION_KINDS - {"ceremony-step"}),  # a watch step is answered by advanceGame; the engine always refuses it here, so never offer it to the model (ORW-281 4a)
                         "description": "Only comp-intent / comp-round (send `intent`) and deal-offer (send `vote`: accept | decline) "
                                        "are submittable here. deal-offer answers a houseguest's STANDING offer in the "
                                        "chat — it is not a pending decision card. Every other kind is committed ONLY by "

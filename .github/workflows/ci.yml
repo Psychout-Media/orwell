@@ -668,12 +668,12 @@ jobs:
     # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane), then in two parallel jobs (live, rest; about
     # 5 min each). ORW-229 re-shard: four parallel jobs; the legs are independent (each boots its own engine + FE on its own ports) and every one
     # still runs, with the same retries. Measured leg times: live SSE 174 s, live WS 91 s, the tool-turn pair and the HUD pair about 2 min each.
-    #   live-sse = F5 live parity, SSE/poll    live-ws = F5 live parity, WebSocket    toolturn = tool-turn parity, both    hud = HUD parity, both
+    #   live-ws = F5 live parity, WebSocket    toolturn = tool-turn parity    hud = HUD parity   (WS only: ORW-44 S4d removed the SSE/poll legs)
     # ORW-229: a gate that passes only on a later attempt is a flake: it is written to the job summary and raised as a warning (docs/CI.md).
     strategy:
       fail-fast: false
       matrix:
-        group: [live-sse, live-ws, toolturn, hud]
+        group: [live-ws, toolturn, hud]
     name: mirror-parity (${{ matrix.group }})
     steps:
       - uses: actions/checkout@v4
@@ -690,28 +690,7 @@ jobs:
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - name: front-end venv (the gate runs frontend/.venv/bin/python; it sees the cached deps above, so nothing is installed twice)
         run: python3 -m venv --system-site-packages frontend/.venv
-      - name: mirror-parity gate — SSE/poll fallback transport (blocking)
-        if: matrix.group == 'live-sse'
-        run: |
-          set -uo pipefail
-          # The blocking F5 gate runs in the SSE/poll FALLBACK transport (MIRROR_WS_TRANSPORT=0 ⇒
-          # ORWELL_WS_TRANSPORT off for this leg). Since 2026-07-10 (#1357) WS-on is the production
-          # default, so this leg proves the permanent fallback still passes F5. Pinned explicitly so the
-          # WS leg below never changes what this required leg proves. `MIRROR_WS_TRANSPORT=0` is a
-          # single-mode run of run_mirror_gate.sh.
-          for attempt in 1 2 3 4; do
-            echo "──── mirror-parity (SSE) attempt $attempt ────"
-            if MIRROR_WS_TRANSPORT=0 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
-              echo "mirror-parity (SSE): PASS on attempt $attempt"
-              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-parity (SSE) passed only on attempt $attempt"; echo "- mirror-parity (SSE): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
-              exit 0
-            fi
-            echo "mirror-parity (SSE): attempt $attempt did not pass; retrying"
-            sleep 3
-          done
-          echo "::error::mirror-parity gate failed all attempts (two windows diverged during streaming)"
-          exit 1
-      # ── WS Phase-1 turn-on gate — WebSocket transport (case f, protocol spec §6/§7) ──────────────
+      # ── The F5 mirror-parity gate — WebSocket transport (ORW-44 S4d: WS is the only game-build transport; the SSE/poll legs were removed) ──
       # The SAME F5 invariant under the WebSocket transport (`ORWELL_WS_TRANSPORT` forced on via an init
       # script inside mirror_live_parity.mjs). This PROVES the socket path mirrors A→B live and closes the
       # WS false-green hole (the `wsTransportEngaged` check fails a run that silently fell back). Now
@@ -743,22 +722,6 @@ jobs:
       # while both live legs stayed green, because the gate wasn't in CI). The toolturn gate also
       # asserts the WS frame-log collapse (one chat subscribe per attached run, no stale run-started
       # edge churn), so a reintroduced replay loop fails loudly here, not in production.
-      - name: mirror-toolturn gate — SSE/poll transport (blocking)
-        if: matrix.group == 'toolturn'
-        run: |
-          set -uo pipefail
-          for attempt in 1 2; do
-            echo "──── mirror-toolturn (SSE) attempt $attempt ────"
-            if MIRROR_TOOLTURN=1 MIRROR_WS_TRANSPORT=0 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
-              echo "mirror-toolturn (SSE): PASS on attempt $attempt"
-              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-toolturn (SSE) passed only on attempt $attempt"; echo "- mirror-toolturn (SSE): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
-              exit 0
-            fi
-            echo "mirror-toolturn (SSE): attempt $attempt did not pass; retrying"
-            sleep 3
-          done
-          echo "::error::mirror-toolturn SSE leg failed all attempts (dup/orphan bubbles across a tool-rich turn under the fallback transport)."
-          exit 1
       - name: mirror-toolturn gate — WebSocket transport (blocking)
         if: matrix.group == 'toolturn'
         run: |
@@ -782,22 +745,6 @@ jobs:
       # PUSH (the 0064 `game-updated` SSE or the ws:state bridge) within the budget, not on its own
       # 20-30s poll. Key-free, deterministic fake model, same run_mirror_gate.sh driver as the live
       # and toolturn parity gates. See docs/audits/playtest-harness/README.md §10.
-      - name: mirror-hud gate — SSE/poll transport (blocking)
-        if: matrix.group == 'hud'
-        run: |
-          set -uo pipefail
-          for attempt in 1 2 3; do
-            echo "──── mirror-hud (SSE) attempt $attempt ────"
-            if MIRROR_HUD=1 MIRROR_WS_TRANSPORT=0 bash docs/audits/playtest-harness/run_mirror_gate.sh; then
-              echo "mirror-hud (SSE): PASS on attempt $attempt"
-              [ "$attempt" -eq 1 ] || { echo "::warning title=Flaky gate (passed on a retry)::mirror-hud (SSE) passed only on attempt $attempt"; echo "- mirror-hud (SSE): passed only on attempt $attempt, counted as a flake (docs/CI.md)" >> "$GITHUB_STEP_SUMMARY"; }
-              exit 0
-            fi
-            echo "mirror-hud (SSE): attempt $attempt did not pass; retrying"
-            sleep 3
-          done
-          echo "::error::mirror-hud SSE leg failed all attempts (B's HUD did not reconcile off the SSE push within budget)."
-          exit 1
       - name: mirror-hud gate — WebSocket transport (blocking)
         if: matrix.group == 'hud'
         run: |

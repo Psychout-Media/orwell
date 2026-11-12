@@ -8,8 +8,11 @@ Two legs, both driven for real:
 
 Roles only.
 """
+import pytest
 import asyncio
 import json
+
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
 
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 OAI_URL = "https://api.openai.com/v1/chat/completions"
