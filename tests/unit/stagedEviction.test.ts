@@ -9,7 +9,7 @@ import type { LiveSeasonState } from "../../src/engine/liveSeason";
 
 /**
  * ORW-281 slice 4d - EVICTION as a staged ceremony: speeches (watch) -> votes (the existing anonymized batched reveal) -> result (commit .. goodbyes .. exit interview .. leaves).
- * The tally is decided once by the same rolls; played games only; headless / twist weeks stay one-beat. Roles only.
+ * The tally is decided once by the same rolls; played games only; headless stays one-beat; ORW-291 (A) twist weeks + double evictions stage the same way. Roles only.
  */
 type Any = Record<string, any>;
 const dir = (): string => mkdtempSync(join(tmpdir(), "orwell-ev-"));
@@ -144,12 +144,61 @@ describe("eviction as a staged ceremony - player HOH / headless / twist", () => 
     expect((s.live as LiveSeasonState).ceremony).toBeUndefined();
     expect(a.event?.beat).toBe("eviction-reveal");
   });
-  it("a twist week stays one-beat", () => {
+  it("a twist week (double eviction armed) stages the first eviction: speeches -> votes -> result, then the twist still fires after the result", () => {
     const s = boot(dir());
-    toEviction(s, "player");
+    toEviction(s, "npc");
+    const live = s.live as LiveSeasonState;
+    live.twist = { kind: "double-eviction", phase: "pending" } as never;
+    const a = s.advanceGame();
+    expect(a.pending).toMatchObject({ kind: "ceremony-step", ceremony: { kind: "eviction", stepId: "speeches" } });
+    expect(live.eviction).toBeUndefined();
+    const b = s.advanceGame();
+    expect(b.pending).toMatchObject({ kind: "eviction-vote", ceremony: { stepId: "votes" } });
+    expect(b.beatSeq).toBeGreaterThan(a.beatSeq);
+    playOut(s, s.submitDecision({ kind: "eviction-vote", vote: b.pending.options[0].id }));
+    expect(live.ceremony).toBeUndefined();
+    expect(live.twist).toMatchObject({ phase: "running" }); // the twist fired at the same point (rollWeek after the result)
+    expect(live.beat).toBe("twist-reveal");
+  });
+  it("a twist week: restart parity mid-ceremony and the stale-409 refusal", () => {
+    const d = dir();
+    const s = boot(d);
+    toEviction(s, "npc");
     (s.live as LiveSeasonState).twist = { kind: "double-eviction", phase: "pending" } as never;
     const a = s.advanceGame();
-    expect((s.live as LiveSeasonState).ceremony).toBeUndefined();
-    expect(a.event?.beat).toBe("eviction-reveal");
+    expect(() => s.advanceGame({ expectedBeatSeq: a.beatSeq - 1 })).toThrow(/stale/i);
+    const v = reload(d).getGameState();
+    expect(v.pending).toMatchObject({ kind: "ceremony-step", ceremony: a.ceremony, text: a.pending.text });
+    expect(JSON.stringify(v.pending)).not.toMatch(/voteRecord|voteOf|secret/i); // Vault sentinel on the step text
+  });
+  it("a double eviction night stages BOTH evictions in order (speeches -> votes -> result, twice)", () => {
+    const s = boot(dir());
+    toEviction(s, "npc");
+    const live = s.live as LiveSeasonState;
+    live.twist = { kind: "double-eviction", phase: "pending" } as never;
+    const opened: number[] = []; // week-agnostic: the evictee count at each speeches opening
+    let seenStep = "";
+    for (let i = 0; i < 600 && opened.length < 2; i++) {
+      const p = live.pending as Any | undefined;
+      if (p?.kind === "ceremony-step" && live.ceremony?.kind === "eviction" && live.ceremony.at === 0 && seenStep !== `${live.voteRecord?.length ?? 0}`) {
+        opened.push(live.voteRecord?.length ?? 0); seenStep = `${live.voteRecord?.length ?? 0}`;
+      }
+      if (!p) { s.advanceGame(); continue; }
+      if (p.kind === "ceremony-step") s.advanceGame();
+      else if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0].id, p.options[1].id] });
+      else if (p.kind === "houseguests-choice") s.submitDecision({ kind: "houseguests-choice", pick: p.options[0].id });
+      else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
+      else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0].id });
+      else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
+      else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
+      else if (p.kind === "eviction-vote") s.submitDecision({ kind: "eviction-vote", vote: p.nominees[0] });
+      else if (p.kind === "tie-break") s.submitDecision({ kind: "tie-break", vote: p.nominees[0] });
+      else if (p.kind === "goodbye-message") s.submitDecision({ kind: "goodbye-message", vote: "warm" });
+      else if (p.kind === "exit-interview") s.submitDecision({ kind: "exit-interview", vote: "gracious" });
+      else if (p.kind === "spectator-choice") s.submitDecision({ kind: "spectator-choice", vote: "watch" });
+      else s.submitDecision({ kind: p.kind, vote: p.options?.[0]?.id } as never);
+    }
+    expect(opened).toEqual([0, 1]); // second speeches opens after exactly one eviction has been recorded
+    expect(live.week).toBe(1); // same night, same week number
   });
 });
