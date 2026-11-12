@@ -36,7 +36,8 @@ describe("momentForPhase mapping audit (Batch C #5 — each phase → a fragment
     {
       phase: "veto-competition",
       moment: "veto-competition",
-      holds: [/Power of Veto competition/i, /SIX houseguests play/i, /chip\s*draw/i],
+      // ORW-281 slice 1: the chip draw is its own 'veto-draw' ceremony moment now (tests/unit/momentFramingFixes.test.ts pins its ritual there); the competition fragment keeps the play itself.
+      holds: [/Power of Veto competition/i, /SIX houseguests play/i],
     },
     {
       phase: "veto-ceremony",

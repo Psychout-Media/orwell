@@ -80,8 +80,9 @@ import { readFileSync } from "node:fs";
 describe("veto-save wiring (source pin; the bias is inline so the drift gate can scan it)", () => {
   it("the veto holder's own drive enters the save bias NEGATED (a target drive pushes toward evicting, i.e. away from saving)", () => {
     const src = readFileSync("src/engine/liveSeason.ts", "utf8");
-    const i = src.indexOf("// NPC veto holder: save self if nominated");
-    const slice = src.slice(i, src.indexOf("if (!saved) {", i));
+    // ORW-281 4c: the NPC veto-save read lives in the shared npcVetoSave helper now.
+    const i = src.indexOf("function npcVetoSave(");
+    const slice = src.slice(i, src.indexOf("/** The NPC HOH's replacement read", i));
     expect(slice).toContain("- (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)");
   });
 });

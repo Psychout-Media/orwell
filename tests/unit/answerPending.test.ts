@@ -14,7 +14,7 @@ const KINDS: Record<PendingView["kind"], true> = {
   "nominations": true, "veto-decision": true, "comp-intent": true, "comp-round": true, "houseguests-choice": true,
   "replacement": true, "eviction-vote": true, "tie-break": true, "final-eviction": true, "goodbye-message": true,
   "finale-statement": true, "finale-answer": true, "juror-question": true, "juror-vote": true, "exit-interview": true,
-  "self-evict": true, "secret-veto": true, "deal-offer": true, "spectator-choice": true, "finale-interview": true,
+  "self-evict": true, "secret-veto": true, "deal-offer": true, "ceremony-step": true, "spectator-choice": true, "finale-interview": true,
 };
 
 // The COMPLETE expected request for each kind (legal fields and values), so a generic `vote: options[0]` fallback or a malformed
@@ -38,7 +38,7 @@ const EXPECTED: Record<PendingView["kind"], unknown> = {
   "spectator-choice": { kind: "spectator-choice", vote: "watch" },
   "finale-interview": { kind: "finale-interview", vote: "gracious" },
   "secret-veto": { kind: "secret-veto", use: false },
-  "deal-offer": null,
+  "deal-offer": null, "ceremony-step": null,
   "self-evict": null,
 };
 
