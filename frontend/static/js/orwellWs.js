@@ -662,6 +662,9 @@
     // ORW-44 S1 (measure before deciding whether SSE can ever go): every permanent WS -> SSE downgrade is reported, once per page load (the guard above), with its reason. NOT red: falling back is the
     // designed behaviour today; the count per session is what the transport decision needs.
     try { if (window.OrwellReport) window.OrwellReport.fail('ws:fallback', String(_fallbackReason), 'this page load continues on the SSE transport', { corrected: 'SSE transport' }); } catch (_) {}
+    // ORW-44 S3: a PERMANENT fallback cause in the game build means this network cannot carry the live connection: tell the player (orwellWsBlocked.js shows the banner). The two recoverable
+    // pre-game causes never announce it (the next turn's ensure() retries them).
+    if (_gameBuild() && _fallbackReason !== "pregame-not-live" && _fallbackReason !== "pertab-pending") _emitWindow("orwell:ws-blocked", { reason: _fallbackReason });
     _chatSubscribed = false;
     _chatTailActive = false;
     _edgesSubscribed = false;
