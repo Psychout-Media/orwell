@@ -4514,7 +4514,7 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
     # returned held). Same `held` shape as do_advance_game; the engine is not called and no outcome is returned.
     try:
         from routes import chat_helpers as _ch_pause
-        if _ch_pause.comp_pause_holds(owner):
+        if _ch_pause.event_pause_holds(owner):
             return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. It is the player's turn inside the scene: do not advance or resolve it this turn, "
                                           "do not narrate further rounds or the winner. End on a moment they can answer; their next message continues it."}),
                     "exit_code": 0}
@@ -5279,7 +5279,7 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:  # ORW-232 slice 2: a paused competition is the player's turn - the model's advanceGame must not run the rest through the pause
         from routes import chat_helpers as _ch_pause3
-        if _ch_pause3.comp_pause_holds(owner):
+        if _ch_pause3.event_pause_holds(owner):
             return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not advance or resolve it this turn, and do not narrate further rounds or the winner. "
                                           "End on a moment the player can answer; their next message continues it."}), "exit_code": 0}
     except Exception:
@@ -5378,7 +5378,7 @@ async def do_submit_decision(content: str, owner: Optional[str] = None) -> Dict:
     if kind in ("comp-round", "comp-intent"):
         try:  # ORW-232 slice 2: a paused competition is the player's turn - the model must not answer its card and chain the rest through the pause
             from routes import chat_helpers as _ch_pause2
-            if _ch_pause2.comp_pause_holds(owner):
+            if _ch_pause2.event_pause_holds(owner):
                 return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not answer or advance its round this turn; end on a moment the player can answer in "
                                               "character. Their next message continues it."}), "exit_code": 0}
         except Exception:

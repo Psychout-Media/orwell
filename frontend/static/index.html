@@ -1604,6 +1604,8 @@
        drag / z-authority / focus-trap / F5 cross-session geometry. The kit titlebar replaces the old
        .modal-header; the "Peek" toggle is re-hosted into the kit titlebar. -->
   <div id="settings-host" hidden>
+    <!-- ORW-161: the Settings DOM (~half the page's elements) is INERT here and stamped into #settings-host by settings.js initKitWindow() on first open. -->
+    <template id="settings-template">
     <div class="modal-content settings-modal-content" role="dialog" aria-label="Settings">
       <div class="modal-header">
         <h4><span style="vertical-align:-1px;margin-right:6px;font-size:var(--fs-md)">&#x2699;</span>Settings</h4>
@@ -2716,6 +2718,7 @@
       </div>
       </div>
     </div>
+    </template>
   </div>
 
   <!-- Search overlay (Ctrl+K command palette) -->
