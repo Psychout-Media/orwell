@@ -1260,7 +1260,7 @@ async def _bundle_extras(user: str | None) -> dict:
     Vault-free; the whole assembly is wrapped so the bundle always serializes."""
     extras: dict = {}
     extras["versions"] = _versions()
-    extras["systemInfo"] = _system_info()
+    extras["systemInfo"] = await asyncio.to_thread(_system_info)
     extras["featureFlags"] = _feature_flags()
     extras["logs"] = _recent_logs()
     extras["opsStatus"] = await asyncio.to_thread(_ops_status_files)   # shells out to `systemctl is-active`

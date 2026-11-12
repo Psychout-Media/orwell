@@ -254,7 +254,7 @@ async def do_chat_with_model(content: str, session_id: Optional[str] = None, own
         return {"error": "No message provided (line 2+ is the message)"}
 
     try:
-        url, model, headers = _resolve_model(model_spec, owner=owner)
+        url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -307,7 +307,7 @@ async def do_ask_teacher(content: str, session_id: Optional[str] = None, owner: 
             return {"error": "No teacher model configured. Specify a model name or set teacher_model in settings."}
 
     try:
-        url, model, headers = _resolve_model(model_spec, owner=owner)
+        url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -353,7 +353,7 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
     focus = lines[1].strip() if len(lines) > 1 else ""
 
     try:
-        reviewer_url, reviewer_model, reviewer_headers = _resolve_model(model_spec, owner=owner)
+        reviewer_url, reviewer_model, reviewer_headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -494,7 +494,7 @@ async def do_create_session(content: str, session_id: Optional[str] = None, owne
         return {"error": "Session name cannot be empty"}
 
     try:
-        url, model, headers = _resolve_model(model_spec, owner=owner)
+        url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -732,7 +732,7 @@ async def do_pipeline(content: str, session_id: Optional[str] = None, owner: Opt
         if not model_spec or not instruction:
             return {"error": f"Step {i + 1}: both 'model' and 'instruction' are required"}
         try:
-            url, model, headers = _resolve_model(model_spec, owner=owner)
+            url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
             resolved.append((url, model, headers, instruction))
         except ValueError as e:
             return {"error": f"Step {i + 1}: {e}"}
@@ -1219,7 +1219,9 @@ async def do_list_models(content: str, session_id: Optional[str] = None, owner: 
                 model_ids = list(ANTHROPIC_MODELS)
             else:
                 try:
-                    r = httpx.get(build_models_url(base), headers=headers, timeout=5)
+                    # ORW-177: this is inside an async def, so a blocking httpx.get stalled the whole event loop for up to 5 s per endpoint.
+                    async with httpx.AsyncClient(timeout=5) as _client:
+                        r = await _client.get(build_models_url(base), headers=headers)
                     r.raise_for_status()
                     data = r.json()
                     model_ids = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
@@ -1443,7 +1445,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
 
         # Resolve the model to validate it exists
         try:
-            url, model_id, headers = _resolve_model(model_spec, owner=owner)
+            url, model_id, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
         except ValueError as e:
             return {"error": str(e)}
 
