@@ -1,5 +1,9 @@
 # 0018 — Engine event-push / the "living house"
 
+> **Amendment 2026-11-12 (ORW-44):** the delivery pipe is the WebSocket **only** in the game build — ADR 0017's SSE/poll fallback was withdrawn for it
+> (see 0017's amendment). Nothing in this ADR's game-design answer changes: the engine's activity signal, not which pipe is open, still decides whether any
+> beat exists. Read "the SSE/poll fallback" below as the non-game build's transport.
+>
 > **Status:** **Accepted** (owner directive, 2026-07-12). Accepted 2026-07-12 (owner directive — WS Phase-2
 > turn-on); originally owner-elected 2026-07-09. The game-design ADR that
 > [`0017`](./0017-multiplexed-websocket-session-transport.md) explicitly punted to (its §Engine hop /
@@ -224,8 +228,8 @@ not licence.** Restated so no implementer takes the shortcut 0017 already refuse
   existence tells us **nothing** about.
 - **0017 carries the bytes; 0018 decides when there are bytes to carry.** The socket may be wide open
   and the correct number of engine-originated beats is still **zero** (player away / signal false).
-- **No socket, no problem for fairness.** If the transport is the SSE/poll fallback (0017 keeps it
-  permanently) rather than WS, the *game-design* answer is unchanged — engine push, if adopted, keys
+- **No socket, no problem for fairness.** If the transport is the SSE/poll fallback (0017 kept it
+  permanently until the 2026-11-12 amendment withdrew it for the game build) rather than WS, the *game-design* answer is unchanged — engine push, if adopted, keys
   off the activity signal regardless of which pipe delivers it. (In practice a beat only *arrives*
   promptly over the WS; over polling it would arrive on the next poll. That is a delivery-latency
   detail, not a licence question.)
