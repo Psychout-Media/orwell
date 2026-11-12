@@ -2957,6 +2957,24 @@ _EXTRACTION_UNTRUSTED_FENCE = (
 )
 
 
+def _progress_only_board_advanced(owner, last_user, beat_seq_before) -> bool:
+    """ORW-292: True for a bare progress prompt ("next", "continue", a readiness cue with no real talk;
+    ``chat_helpers._is_progress_only_message``, the PO rule: a cue carrying real talk still counts as a scene)
+    on a turn where the engine's board moved (beatSeq grew over the turn). There is no player scene to fold,
+    so the in-loop ``_auto_record_scene`` extraction is skipped - the same reason the ORW-288 E22 fallback
+    stands down. Fail-open: any error or a missing baseline returns False (the extraction runs as before)."""
+    try:
+        if not isinstance(beat_seq_before, int):
+            return False
+        from routes import chat_helpers as _ch
+        if not _ch._is_progress_only_message(last_user):
+            return False
+        now = _ch.last_beat_seq(owner)
+        return isinstance(now, int) and now > beat_seq_before
+    except Exception:  # failsoft-ok: expected-empty (an optimisation; on error the extraction runs as before)
+        return False
+
+
 def _meter_user(owner):
     """ORW-292: the user key a utility call meters under. Auth-off (AUTH_ENABLED=false, the owner's real
     posture) runs with ``owner=None``; ``llm_call_async`` only meters when it has a user, so every belt
@@ -9088,7 +9106,9 @@ async def _stream_agent_loop_impl(
                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner):
                                 # gap #3 telemetry — only a tradeSecret the belt actually FIRED counts
                                 _note_belt(owner, "auto-trade-secret")
-                        if _want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN:
+                        if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
+                                and not _progress_only_board_advanced(
+                                    owner, _extract_last_user_message(messages), _ledger_beat_seq_before)):
                             _turn_record_nudges += 1  # once per turn
                             if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner,
