@@ -153,6 +153,13 @@
   var _helloTimer = null;
   var _reconnectFails = 0;
   var _reconnectTimer = null;
+  // ORW-308 (phone play): has THIS page load ever had a live (acked) socket? Once it has, a failed reconnect is "the network is away" (screen asleep, an app switch, a wifi/cell
+  // handoff, a tunnel) and never a "this network cannot carry WebSockets" verdict, so it retries forever instead of dropping to the permanent fallback (which, in the WS-only game
+  // build, is a dead game until a reload).
+  var _everLive = false;
+  var PROBE_TIMEOUT_MS = 4000;   // ORW-308: how long a wake-up liveness ping may go unanswered before the socket is declared a zombie
+  var _probeTimer = null;
+  var _connectStartedAt = 0;      // ORW-308: when the current connect attempt began (a wake-up replaces only an attempt that has had its chance)
   var _closingForGood = false;
   var _lastUpgradeAttempt = 0;                    // ms of the last fallback→WS upgrade attempt
   var _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS; // grows per failed upgrade, caps at MAX; reset on activate
@@ -691,6 +698,7 @@
 
   function _activate() {
     _mode = "ws";
+    _everLive = true;
     _reconnectFails = 0;
     // A live socket clears the fallback-recovery backoff so a FUTURE drop-to-fallback re-attempts
     // promptly rather than inheriting a grown interval.
@@ -772,6 +780,7 @@
     _pertabWaitStart = 0;
     _mode = "negotiating";
     _closingForGood = false;
+    _connectStartedAt = _now();
     var perTabId = _perTabId();
     var sock;
     try {
@@ -783,7 +792,10 @@
     // permanent fallback (§6). We never hang the player on a wedged upgrade.
     _clearHelloTimer();
     _helloTimer = setTimeout(function () {
-      if (_mode !== "ws") { try { sock.close(); } catch (_) {} _goFallback("proxy"); }
+      if (_mode === "ws") return;
+      // ORW-308: a RECONNECT whose hello is unanswered is a flaky link, not a blocked proxy: close and let onclose schedule the retry.
+      if (_everLive && _gameBuild()) { try { sock.close(); } catch (_) {} if (_sock === sock) _onSocketGone(sock); return; }
+      try { sock.close(); } catch (_) {} _goFallback("proxy");
     }, HELLO_TIMEOUT_MS);
 
     sock.onopen = function () {
@@ -854,10 +866,16 @@
         // handshake — a fresh connect AND a reconnect (both re-enter this onopen) —
         // so a dropped socket re-arms all three channels, not just chat.
         _subscribeEdges();
-      }).catch(function () { _clearHelloTimer(); _goFallback("handshake"); });
+      }).catch(function () {
+        _clearHelloTimer();
+        // ORW-308: a rejected/stranded hello on a RECONNECT (the socket died under it) retries; only a page that never went live falls back for good.
+        if (_everLive && _gameBuild()) { try { sock.close(); } catch (_) {} if (_sock === sock) _onSocketGone(sock); return; }
+        _goFallback("handshake");
+      });
     };
 
     sock.onmessage = function (ev) {
+      _clearProbe(); // ORW-308: any inbound frame proves the socket is alive
       var frame;
       try { frame = JSON.parse(ev.data); } catch (_) { return; }
       _handleFrame(frame);
@@ -866,32 +884,67 @@
     sock.onerror = function () { /* onclose drives the retry/fallback decision */ };
 
     sock.onclose = function () {
-      _sock = null;
-      _chatSubscribed = false;
-      if (_liveRunKnown) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was known live at the drop)
-      _liveRunKnown = false;
-      _chatTailActive = false;
-      _edgesSubscribed = false;
-      _rebinding = null;
-      _clearHelloTimer();
-      if (_closingForGood) return;
-      // A genuine mid-session drop: strand no in-flight turn/decision (its ack died with the socket).
-      _rejectPending("ws-closed");
-      if (_mode === "ws") {
-        // We were live — reconnect with the gap cursor (fromSeq = highest+1) and
-        // resume the buffered tail (§3.3 monotonicity). Bounded retries; past the
-        // cap we downgrade to SSE permanently (§6).
-        _mode = "negotiating";
-        _reconnectFails += 1;
-        if (_reconnectFails > RECONNECT_GIVEUP) { _goFallback("reconnect-exhausted"); return; }
-        var wait = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, _reconnectFails - 1));
-        if (_reconnectTimer) clearTimeout(_reconnectTimer);
-        _reconnectTimer = setTimeout(function () { if (!_closingForGood) _connect(); }, wait);
-      } else {
-        // Never got live (closed before ack) ⇒ fallback.
-        _goFallback("handshake");
-      }
+      if (_sock !== sock) return; // ORW-308: a stale socket (a wake-up already replaced it) must not tear down its successor
+      _onSocketGone(sock);
     };
+  }
+
+  // ORW-308: the one place a dead socket is accounted for (called from onclose AND from the hello-timeout/hello-reject paths, which can see the death before onclose fires).
+  function _onSocketGone(sock) {
+    if (_sock !== sock) return;
+    _sock = null;
+    _chatSubscribed = false;
+    if (_liveRunKnown) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was known live at the drop)
+    _liveRunKnown = false;
+    _chatTailActive = false;
+    _edgesSubscribed = false;
+    _rebinding = null;
+    _clearHelloTimer();
+    _clearProbe();
+    if (_closingForGood) return;
+    // A genuine mid-session drop: strand no in-flight turn/decision (its ack died with the socket).
+    _rejectPending("ws-closed");
+    if (_mode === "ws" || (_mode === "negotiating" && _everLive && _gameBuild())) {
+      // We were live (or a reconnect attempt just failed) - reconnect with the gap cursor (fromSeq = highest+1) and resume the buffered tail (§3.3 monotonicity).
+      // Before this page load ever went live the retries are bounded and past the cap we downgrade (§6). AFTER it has been live (ORW-308, the game build) there is no cap:
+      // the network is only away, and the backoff stays capped at RECONNECT_MAX_MS so a returning link is found within seconds.
+      _mode = "negotiating";
+      _reconnectFails += 1;
+      if (!_everLive && _reconnectFails > RECONNECT_GIVEUP) { _goFallback("reconnect-exhausted"); return; }
+      var wait = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, Math.min(_reconnectFails, 12) - 1));
+      if (_reconnectTimer) clearTimeout(_reconnectTimer);
+      _reconnectTimer = setTimeout(function () { _reconnectTimer = null; if (!_closingForGood) _connect(); }, wait);
+    } else {
+      // Never got live (closed before ack) ⇒ fallback.
+      _goFallback("handshake");
+    }
+  }
+
+  // ORW-308 - phone lifecycle. A phone that sleeps, switches apps or hops wifi/cell leaves the socket either dead-and-reported (onclose, handled above) or a ZOMBIE: readyState 1
+  // with nothing flowing, which the browser only notices minutes later. On every return signal we (a) if a reconnect is waiting out its backoff, cut the wait and reconnect now;
+  // (b) if the socket claims to be open, prove it with one ping (the server answers a client ping with a pong, ws_routes) and close it if nothing at all comes back.
+  function _clearProbe() { if (_probeTimer) { clearTimeout(_probeTimer); _probeTimer = null; } }
+
+  function _wake(reason) {
+    if (_closingForGood || !_everLive || !_flagOn() || !_gameBuild()) return;
+    if (_mode === "negotiating") {
+      if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; _reconnectFails = 0; _connect(); return; }
+      // an attempt is mid-flight: if it is older than the hello budget it is a zombie too - replace it
+      if (_sock && _sock.readyState !== 1 && _now() - _connectStartedAt > 1500) { var old = _sock; _sock = null; try { old.onclose = null; old.close(); } catch (_) {} _reconnectFails = 0; _connect(); }
+      return;
+    }
+    if (_mode === "ws" && _sock && _sock.readyState === 1) {
+      _clearProbe();
+      try { _sock.send(JSON.stringify({ t: "ping" })); } catch (_) { try { _sock.close(); } catch (__) {} return; }
+      var probed = _sock;
+      _probeTimer = setTimeout(function () {
+        _probeTimer = null;
+        if (_sock !== probed) return;
+        // no frame at all since the ping: a zombie. Treat it as dropped now rather than waiting for the browser's own timeout.
+        try { probed.onclose = null; probed.close(); } catch (_) {}
+        _onSocketGone(probed);
+      }, PROBE_TIMEOUT_MS);
+    }
   }
 
   function start() {
@@ -918,6 +971,16 @@
       // fired this event — connect promptly now that it's ready instead of waiting the next poll tick.
       else if (_mode === "idle") { try { _maybeConnectWhenPerTabReady(); } catch (_) {} }
     });
+  } catch (_) {}
+
+  try {
+    window.addEventListener("online", function () { _wake("online"); });
+    window.addEventListener("pageshow", function () { _wake("pageshow"); });
+    if (window.document && typeof window.document.addEventListener === "function") {
+      window.document.addEventListener("visibilitychange", function () {
+        if (window.document.visibilityState === "visible") _wake("visible");
+      });
+    }
   } catch (_) {}
 
   try {
@@ -957,6 +1020,7 @@
     lastRunId: function () { return _lastRunId; },   // #1087 reconcile-by-id (diagnostics/tests)
     // test seam: feed a frame straight through the router (no live socket).
     _handleFrame: _handleFrame,
+    _wake: _wake,   // test seam (ORW-308): the phone-return signal, without a real visibilitychange
     // test seam: force negotiation start (start() is auto-called on ready).
     _start: start
   };
