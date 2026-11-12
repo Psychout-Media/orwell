@@ -19,7 +19,7 @@ that the deterministic rules, the secret state, and the narration are cleanly se
 **Status: feature-complete through the drafted spec set (BDD/TDD-first; reconciled 2026-07-06).** Specs now run
 through **0110**, and the originally-drafted set is built and **green** — the spec ceiling and the
 *built* one are now nearly flush: **0075–0096, 0099–0102, 0104–0110** are built, while
-**0097/0098/0103** remain **frozen** (owner-parked "not planned," preserved not deleted, reopenable)
+**0097/0098/0103** are **retired and removed** (owner, 2026-11-11: "Retire and remove is fine."; ORW-267; previously frozen)
 — **0108** (the real-model golden-path gate), along with its screenshot siblings **0113** (visual-regression) and **0114** (theme-consistency) that rode the same fixture, was **DECOMMISSIONED (2026-07-21, owner directive)** — the fixture, record/replay scripts + `src/golden_path.py` seam, the three CI jobs, `golden-nightly.yml`, and unit gates were removed entirely (advisory/non-gating, perpetually stale, hang-prone #1713). The 2026-07-06 closure session shipped
 the last three spec-only files — 0094 (distorted-gossip consequences, shipped SCOPED as a new
 `confront(npcId, factId)` lever; deliberately did not retrofit nominate/vote, an owner-flagged design
@@ -51,7 +51,7 @@ MUST compose the kit.)* The game is **folded into the main chat**: the player-fa
 `docs/features/` (through **0110**; the 0067–0074 launch band is 0067/0068 public-internet exposure + ADR 0007, 0069 token economy,
 0070 off-screen texture enrichment, 0071 defensive hardening (redaction + URL/path guards), 0072 the
 multi-platform gateway, 0073 the structural anti-sycophancy game-build wall (a CI gate), and 0074 local &
-tunable HTTPS (ADR 0014); past the launch band, **0075–0096, 0099–0102, 0104–0110** are built and **0097/0098/0103** remain frozen (owner-parked, preserved not deleted) — 0108 (the golden-path replay gate) was **DECOMMISSIONED 2026-07-21 (owner directive)**: the fixture, scripts + seam, the `golden-path`/`visual-regression`/`theme-consistency` CI jobs, and `golden-nightly.yml` were removed entirely (advisory/non-gating, perpetually stale, hang-prone #1713);
+tunable HTTPS (ADR 0014); past the launch band, **0075–0096, 0099–0102, 0104–0110** are built and **0097/0098/0103** are retired and removed (owner, 2026-11-11; ORW-267) — 0108 (the golden-path replay gate) was **DECOMMISSIONED 2026-07-21 (owner directive)**: the fixture, scripts + seam, the `golden-path`/`visual-regression`/`theme-consistency` CI jobs, and `golden-nightly.yml` were removed entirely (advisory/non-gating, perpetually stale, hang-prone #1713);
 0052 — the house themes — shipped FE-side from the audit
 spec with no standalone file; 0051 in-character images shipped 2026-06-11, PR #235, and its
 follow-on **portrait/headshot lane** — Lane G — extended it FE-side: cast-portrait generation &
@@ -91,7 +91,7 @@ leak-prone build is a **failure state**, not a partial success.
    enforced in code at the port/tool boundary, *never* by prompt wording. The model "cannot
    leak what it never receives." **God Mode / admin is walled from the Vault too** (the human
    has never read it and must not be able to — spoilers ruin the game above all else).
-   **TWO sanctioned exceptions exist — and only these two.** (1) **owner-ruled DEBUG override: `producerVault`** — a live-Vault
+   **THREE sanctioned exceptions exist — and only these three.** (1) **owner-ruled DEBUG override: `producerVault`** — a live-Vault
    *unseal* for operator debugging. It is deliberately quarantined and is NOT a hole in the wall for
    normal play: it lives in `DEBUG_VAULT_TOOLS` (the *only* `readsVault: true` registry — the literal
    `ToolDescriptor.readsVault: false` guard still holds for every advertised tool), is **out-of-band**
@@ -104,7 +104,9 @@ leak-prone build is a **failure state**, not a partial success.
    departing evictee, airing to the player alone; subjects limited to the player, prior evictees,
    and facts already in the player's knowledge layer; never living players' secrets; adversarial-test-gated like `producerVault`;
    flag-gated off-by-default. Spec: `docs/design/2026-07-21-moonshot-round2-divergent-slate.md`
-   §5 Q1. Never extend Vault exposure beyond these two doors.
+   §5 Q1. (3) **The 0048 post-season retrospective (owner-approved 2026-11-10, card 29: "This seems fine as is."):** after the
+   winner is crowned and the season is over, the per-voter attribution of the secret eviction ballots unseals for the player's
+   look-back. Post-season only — never during play, never before the winner is crowned. Never extend Vault exposure beyond these three doors.
 3. **Anti-sycophancy.** The deterministic core + seeded randomness decide outcomes; the LLM
    only *narrates*. Ground truth lives in the stores and is *queried*, never "remembered"
    and bent to please the player.
@@ -348,8 +350,9 @@ them before touching the chat stream or the HUD.
 - **Two-window realtime parity rides on a LIVE canonical-session binding (ADR 0008/0012).** Two
   windows on one game mirror each other only when the *canonical game-session id*
   (`GET /api/orwell/game-session`, stored in `frontend/src/orwell_game_session.py`) resolves to a
-  **live FE chat-session row**: the persistent mirror stream `GET /api/chat/events/{id}` + resume
-  `GET /api/chat/resume/{id}` both 404 a non-row id, and `_resolve_canonical_session`
+  **live FE chat-session row**: in the game build the mirror rides the WebSocket (`/ws`, `state`/`chat` channels; the SSE
+  mirror and resume endpoints `GET /api/chat/events/{id}` / `GET /api/chat/resume/{id}` and `chat_stream` answer **426** there),
+  the non-game build keeps SSE/poll where those two both 404 a non-row id, and `_resolve_canonical_session`
   (`routes/chat_helpers.py`) is the server run-key. Convergence is gated on `started !== false` — a
   started game mirrors; casting stays per-tab by design. Two regressions to never reintroduce (both
   fixed): a session-delete that doesn't **unbind** the canonical id leaves the mirror subscribed to a
@@ -506,7 +509,8 @@ core, then ports + in-memory adapters with Vault/God-Mode isolation green).
 - Don't hold game state in a chat context window as the source of truth.
 - Don't hard-code a **fixed cast** (ruling #1, 2026-06-10): name corpora are raw material, but no
   full-name+persona pairing may be hard-coded, and the legacy Bible's names stay banned. (NPC names
-  are seeded samples from the vendored real-name corpora — never a fixed list, never a paired identity.)
+  are model-authored at casting and validated by the engine (owner kept this, 2026-11-11, card 31); the vendored real-name
+  corpora are raw material — never a fixed list, never a paired identity.)
 - Don't reference names in tests; don't ingest sample-save content as data.
 - Don't rely on prompt wording for the Vault Wall — enforce it in code.
 - Don't let the narrative layer decide or alter outcomes.
@@ -627,7 +631,7 @@ jury grudge book, season notoriety, named alliances, deal duration, vote deducti
 the daily recap 0102/#884, and — shipped in the 2026-07-06 closure session — distorted-gossip
 consequences 0094 (scoped: a new `confront` lever, not a nominate/vote retrofit — an owner-flagged
 design call), pre-show ties as time-bombs 0095, and emergent nemesis 0096), while **0097/0098/0103**
-remain **frozen** (owner-parked "not planned" 2026-06-27, preserved not deleted, reopenable) and
+are **retired and removed** (owner, 2026-11-11: "Retire and remove is fine."; ORW-267; they had been parked "not planned" 2026-06-27) and
 **0108** (the real-model golden-path gate) was **DECOMMISSIONED 2026-07-21 (owner directive)** — the fixture, record/replay seam, the `golden-path` PR job, and `golden-nightly` were removed entirely (advisory/non-gating, perpetually stale, hang-prone #1713).
 **0022** (the rich game UI / MVP-2) was **removed** in the 2026-06-28 PO review — by ADR 0003 the chat *is*
 the UI, and its goals were delivered chat-forward via 0020/0051/0054, so the standalone dashboard spec was cut.
@@ -641,10 +645,11 @@ in-game-time pivot 0117–0119, strategic cadence, deal depth, deeper confession
 evolution, competition variety/mechanics/mixed types, exit interviews); **0128/0129/0131/0132** are
 **spec-only**. `docs/features/README.md` is the per-feature source of truth. **Ship-gate F5** (realtime two-window mirror
 parity) is **fixed and wired as a required CI gate** (#1276, 2026-07-09) — no longer a launch blocker.
-A **WebSocket Phase-1 transport** (ADR 0017/0018; spec `docs/design/websocket-phase1-protocol.md`)
-landed and is **turned ON** — **default-ON behind `ORWELL_WS_TRANSPORT` since 2026-07-10 (#1357**; an
-explicit off/0/false rolls back to the permanent SSE/poll fallback, which stays a required blocking CI
-leg) — the full client/server/layout stack is merged (#1283–#1287, #1293) and ADRs 0017/0018 are
+A **WebSocket transport** (ADR 0017/0018; spec `docs/design/websocket-phase1-protocol.md`) is the
+**only** live transport of the game build (ORW-44, 2026-11-12): the `ORWELL_WS_TRANSPORT` rollback flag is **deleted**, and the
+game build refuses the SSE/poll endpoints (`/api/chat/events`, `/api/chat/resume`, `/api/chat_stream`) with **426 ws-only**.
+The non-game build keeps its SSE/poll stack. The two-window mirror gate is WS-only, and browser/e2e turns are driven through
+`frontend/tests/_ws_turn_driver.py`. The full client/server/layout stack is merged (#1283–#1287, #1293) and ADRs 0017/0018 are
 **Accepted**. The owed Phase-2 item is now the live two-window verification cadence
 (`live-harness-nightly.yml`). The **Apple-HIG audit (#694)** shipped all findings bar F-CHROME-1, and the
 **#660 game-build window-kit migration** is done (the Theme-window drag, #1289, was the last game-build
