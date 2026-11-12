@@ -2016,8 +2016,8 @@ _apply_game_build_schemas()
 # `with_deal_depth_kinds` swaps in the extended enum at SEND time when the flag is on (a deep copy, never
 # mutating the shared base). Off (the default) ⇒ the same list ⇒ byte-identical.
 BASE_DEAL_KINDS = ["safety", "vote", "final-two", "target-other"]
-ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save", "protect-third", "conditional"]
-_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them; protect-third = they swear not to move against a named THIRD houseguest (pass `third`); conditional = a mutual pact that only binds if one of you lands on the block (each votes to keep the other)"
+ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save", "protect-third", "conditional", "information", "package"]
+_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them; protect-third = they swear not to move against a named THIRD houseguest (pass `third`); conditional = a mutual pact that only binds if one of you lands on the block (each votes to keep the other); information = they promise to tell you what they hear, passed one fact at a time and only while you are together; package = TWO promises bundled in one deal (pass `parts`), each kept or broken on its own, a break of either costing the whole bundle's reliability"
 
 
 def current_deal_kinds() -> list:
@@ -2045,6 +2045,7 @@ def with_deal_depth_kinds(schemas: list) -> list:
                 kind["enum"] = BASE_DEAL_KINDS + ACTIVE_DEAL_KINDS
                 kind["description"] = f"The deal's nature. {_ACTIVE_DEAL_KIND_DESC}."
             props["third"] = {"type": "string", "description": "protect-third only: the id of the THIRD houseguest the deal partner swears not to nominate, replace or vote out (from the roster)."}
+            props["parts"] = {"type": "array", "minItems": 2, "maxItems": 2, "description": "package only: exactly TWO promises to bundle, each {kind, third?, terms?} where kind is one of safety / vote / final-two / target-other / protect-third / conditional / information (third as for protect-third).", "items": {"type": "object", "properties": {"kind": {"type": "string"}, "third": {"type": "string"}, "terms": {"type": "string"}}, "required": ["kind"]}}
             props["direction"] = {"type": "string", "enum": ["offer", "ask"], "description": "comp-throw / veto-save only: 'offer' (default) = the player promises to do it for them; 'ask' = the player asks THEM to throw / save for the player."}
         out.append(s)
     return out

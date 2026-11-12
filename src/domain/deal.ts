@@ -15,7 +15,7 @@ import type { EntityId } from "./ids";
  * The first four are DEFENSIVE (negative-obligation) promises — "don't move against me". The last two
  * (0121) are ACTIVE (positive-obligation) promises — "do this FOR me" — where a break is a FAILURE TO ACT.
  */
-export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional";
+export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional" | "information";
 
 /** 0121 — the ACTIVE-obligation kinds: a break is a failure to act (throw the comp / use the veto to save). */
 const POSITIVE_KINDS: ReadonlySet<DealKind> = new Set<DealKind>(["comp-throw", "veto-save"]);
@@ -97,12 +97,22 @@ export interface Deal {
    * 0038 diffusion pathway (no new fold mechanism).
    */
   formationWitnesses?: EntityId[];
+  /**
+   * 0142 idea 3 (information): how many facts the promisor has actually passed to the player under this deal (the engine counts them in `deliverInformationDeals`). 0 / absent ⇒ never delivered,
+   * so an expiring information deal is dropped neutrally; > 0 ⇒ it resolves kept at its horizon. Absent on every other kind.
+   */
+  delivered?: number;
+  /**
+   * 0142 idea 3 (package): the id shared by the two ordinary deals a package made. Each part is adjudicated on its OWN condition; a break of either also costs the package's reliability
+   * (see `DealLedger.reconcile`). Absent on a stand-alone deal.
+   */
+  packageId?: string;
 }
 
 /** The binding horizon of a deal kind (audit E43): one HOH reign, or the whole season. The active
  *  kinds (0121) resolve within their week — at that week's comp / veto ceremony. */
 export function horizonOf(kind: DealKind): "week" | "season" {
-  return kind === "safety" || kind === "vote" || kind === "comp-throw" || kind === "veto-save" || kind === "conditional" ? "week" : "season";
+  return kind === "safety" || kind === "vote" || kind === "comp-throw" || kind === "veto-save" || kind === "conditional" || kind === "information" ? "week" : "season";
 }
 
 /** A binding action through the live decision seam (0034/0005) the engine reconciles deals against. */
@@ -145,7 +155,7 @@ export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], thir
   // 0142 idea 3: `protect-third` - the promisor (`a`) swears not to move against a THIRD houseguest (`third`); `b` is who asked. Same one-way break rule as target-other, protecting `third`.
   if (kind === "protect-third" && third !== undefined) return { protect: third, promisors: [a] };
   // One-way bindings: `target-other` + the 0121 active kinds bind only the promisor (`a`) toward `b`.
-  if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save") return { protect: b, promisors: [a] };
+  if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save" || kind === "information") return { protect: b, promisors: [a] };
   // safety / vote / final-two are mutual: neither party may move against the other.
   return { protect: b, promisors: [a, b] };
 }
@@ -176,6 +186,7 @@ function positiveVerdict(deal: Deal, action: BindingAction): "kept" | "broken" |
 export function actionBreaks(deal: Deal, action: BindingAction): boolean {
   if (deal.status !== "open") return false;
   if (isPositiveObligation(deal.kind)) return positiveVerdict(deal, action) === "broken";
+  if (deal.kind === "information") return false; // 0142: an information promise has no adverse act to break - it is kept by telling
   if (!ADVERSE.has(action.kind)) return false;
   // 0142 idea 3: a `conditional` deal ("if you are on the block I vote to keep you, and the same for me") only comes due at the VOTE - nominating the partner is not a break, the promise binds only if they end up on the block.
   if (deal.kind === "conditional" && action.kind !== "vote-evict") return false;
@@ -207,6 +218,7 @@ export function wrongedParty(deal: Deal, action: BindingAction): EntityId | unde
 export function actionHonors(deal: Deal, action: BindingAction): boolean {
   if (deal.status !== "open") return false;
   if (isPositiveObligation(deal.kind)) return positiveVerdict(deal, action) === "kept";
+  if (deal.kind === "information") return false;
   if (!ADVERSE.has(action.kind)) return false;
   if (deal.kind === "conditional" && action.kind !== "vote-evict") return false; // 0142: only the vote can honor a conditional promise
   if (!deal.condition.promisors.includes(action.actor)) return false;

@@ -4,7 +4,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -67,7 +67,7 @@ import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, Deal } from "../../engine/deals";
-import { isPositiveObligation } from "../../domain/deal";
+import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
 import { AllianceStore, allianceTieBoost, allianceFavor, willingMembers, pickAllianceName, sameMembers, ALLIANCE } from "../../engine/alliances";
 import type { Alliance } from "../../engine/alliances";
@@ -2697,12 +2697,12 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0019 Layer 3 widens this read with `factId`/`pathway`/`ts` (already on every `KnowledgeFact`
     // — the registry passes the full fact through) so the knowledge-scope manifest can group a fact by
     // lineage across holders and skip the Diary-Room class. Optional ⇒ back-compatible with any caller.
-    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number }>;
+    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
   };
 
   setNpcKnowledgeProviders(p: {
-    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number }>;
+    known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
   }): void {
     this.npcKnowledge = p;
@@ -7565,7 +7565,7 @@ export class GameSessionAdapter implements GameSession {
    * distrusted or feared player is still refused. Honored => an ordinary deal binds (the NPC is the promisor of an active kind); ignored => the favor is spent and the player's own
    * read of them takes a betrayal-grade drop (hidden, seeded by the shared key, never narrated as a number). No new rng stream: the consent jitter is keyed as for any ask.
    */
-  callInFavor(npcId: EntityId, ask: MakeDealReq["kind"] = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
+  callInFavor(npcId: EntityId, ask: DealReqKind = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
     this.guardBeatSeq(expectedBeatSeq);
     const s = this.live;
     if (!s || !this.house || s.playedGame !== true || s.finished) return null;
@@ -11013,9 +11013,15 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return null;
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
+    // 0142 idea 3 (package): two promises bundled. Each part is gated and consent-checked on its own BEFORE anything is recorded; either refusing refuses the whole package (no event, no deal, no fold).
+    if (req.kind === "package") {
+      const out = this.makePackageDeal(req);
+      if (idemKey !== undefined && out !== null) this.rememberFoldIdempotent(idemKey, out);
+      return out;
+    }
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
     // 0142 idea 3: a conditional deal exists only for a played game with the deal-depth layer on (else refused, like the active kinds).
-    if (req.kind === "conditional" && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
+    if ((req.kind === "conditional" || req.kind === "information") && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
     // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
     if (req.kind === "protect-third") {
       const gone = new Set(this.live.evictionOrder);
@@ -11056,7 +11062,7 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
-    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" ? [target, PLAYER] : [PLAYER, target];
+    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
     const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
@@ -11073,6 +11079,54 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /** The kinds a package may bundle: the defensive and the 0142 kinds. Not the 0121 active kinds (their direction/ask handling is its own thing). */
+  private static readonly PACKAGE_PART_KINDS: ReadonlySet<string> = new Set(["safety", "vote", "final-two", "target-other", "protect-third", "conditional", "information"]);
+
+  /**
+   * 0142 idea 3 (package) - bundle TWO promises with one houseguest. Played games with deal depth on only. Each part must pass its own gate (a protect-third names a valid third) and the NPC's own consent read
+   * (a bundle asks a little more, `DEAL_CONSENT.packageDrag`); only when BOTH clear are the two ordinary deals recorded (through this same `makeDeal` spine, so every per-kind rule applies), sharing a `packageId`.
+   * Each is then adjudicated on its OWN condition; a break of either also costs the package's reliability (`DealLedger.reconcile`). Leverage / a traded secret ride the first part only. Returns the first
+   * refusal, else a `package` view carrying both parts, else null for an invalid request.
+   */
+  private makePackageDeal(req: MakeDealReq): DealView | DealRefusal | null {
+    const parts = req.parts;
+    if (!this.dealDepthEnabled || this.live?.playedGame !== true || !this.house || !this.live) return null;
+    if (!Array.isArray(parts) || parts.length !== 2 || parts.some((p) => !p || typeof p !== "object" || !GameSessionAdapter.PACKAGE_PART_KINDS.has(p.kind))) return null;
+    if (parts[0]!.kind === parts[1]!.kind && parts[0]!.third === parts[1]!.third) return null;
+    const target = req.with;
+    const gone = new Set(this.live.evictionOrder);
+    if (target === PLAYER || gone.has(target) || !this.house.npcs.some((n) => n.id === target)) return null;
+    for (const p of parts) {
+      if (p.kind === "protect-third" && (!p.third || p.third === target || p.third === PLAYER || gone.has(p.third) || !this.house.npcs.some((n) => n.id === p.third))) return null;
+    }
+    if (this.npcDealConsentEnabled) {
+      for (const p of parts) {
+        const refusal = this.dealConsentRefusal(target, p.kind, undefined, -DEAL_CONSENT.packageDrag);
+        if (refusal) return refusal;
+      }
+    }
+    const views: DealView[] = [];
+    for (const [i, p] of parts.entries()) {
+      const { parts: _drop, expectedBeatSeq: _s, idempotencyKey: _k, ...rest } = req;
+      const part = { ...rest, kind: p.kind, terms: p.terms ?? req.terms, ...(p.third ? { third: p.third } : {}),
+        ...(i === 0 ? {} : { leverage: undefined, tradedSecret: undefined }) } as MakeDealReq;
+      const v = this.makeDealPartUnchecked(part);
+      if (v === null) return null; // pre-checked above, so unreachable in practice; never leaves half a package behind unrecorded
+      views.push(v);
+    }
+    const packageId = `pkg:${views[0]!.id}`;
+    for (const v of views) { const d = this.deals.all.find((x) => x.id === v.id); if (d) d.packageId = packageId; }
+    this.persist();
+    return { ...views[0]!, kind: "package", terms: views.map((v) => v.terms).join(" / "), parts: views.map((v) => ({ ...v, packageId })), packageId };
+  }
+
+  /** One package part: the ordinary `makeDeal` spine with the consent block already satisfied by the caller (consent was priced with the package drag, so it is not re-rolled here). */
+  private makeDealPartUnchecked(req: MakeDealReq): DealView | null {
+    const was = this.npcDealConsentEnabled;
+    this.npcDealConsentEnabled = false;
+    try { const out = this.makeDeal(req); return out !== null && !("refused" in out) ? out : null; } finally { this.npcDealConsentEnabled = was; }
   }
 
   /**
@@ -11117,7 +11171,7 @@ export class GameSessionAdapter implements GameSession {
    * the engine's own consent read says they accept it. It becomes the standing open `dealOffer` (the 0123 pattern: voiced in chat, no pop-up, lapses at week's end; accept goes through
    * the ordinary `deals.make` spine). Played games only, one standing offer at a time, no rng draw (the consent read keys its own jitter). Returns the Vault-free terms, or undefined.
    */
-  private maybeCounterOffer(npcId: EntityId, askedKind: MakeDealReq["kind"], refusal: DealRefusal): { kind: string; terms: string } | undefined {
+  private maybeCounterOffer(npcId: EntityId, askedKind: DealReqKind, refusal: DealRefusal): { kind: string; terms: string } | undefined {
     const s = this.live;
     if (!s || refusal.reason !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
     if (s.dealOffer || s.finished || s.beat === "finale" || s.beat === "complete" || askedKind === "safety") return undefined;
@@ -11130,13 +11184,49 @@ export class GameSessionAdapter implements GameSession {
     return { kind: "safety", terms };
   }
 
+  /**
+   * 0142 idea 3 (information) - "I will tell you what I hear". For each OPEN information deal whose promisor is in the player's room and awake, the promisor passes ONE fact they hold and the player does not.
+   * Moves facts ONLY through the existing co-presence rule (same room; no telling across the house) and the existing content-anchored `told-by:<npc>` pathway (`onJurorTell` -> `surfaceInformationTo`), so what
+   * reaches the player is a witnessed-or-told fact the NPC already holds - never Vault content (the candidate set is `npcKnowledge.known`, the same set `npcVoice(...).knows` exposes: never the Diary Room
+   * class, never a sealed attribution, never the teller's own business, never a reputation belief). The pick uses a DEDICATED rng keyed on (seed, deal, week, phase), never the shared stream. Played games only
+   * (an information deal cannot be made otherwise). The teller must still be willing: a houseguest the player has soured on (the same consent read) holds back that beat.
+   */
+  private deliverInformationDeals(): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || !this.npcKnowledge || !this.onJurorTell) return;
+    const open = this.deals.open().filter((d) => d.kind === "information");
+    if (open.length === 0) return;
+    const room = this.presence?.get(PLAYER);
+    if (!this.presence || room === undefined) return;
+    const playerHolds = this.playerKnowledgeReader?.() ?? [];
+    const heldIds = new Set(playerHolds.map((k) => k.factId).filter((f): f is string => !!f));
+    const heldText = new Set(playerHolds.map((k) => k.content));
+    for (const deal of open) {
+      const teller = deal.parties.find((p) => p !== PLAYER);
+      if (!teller || s.evictionOrder.includes(teller) || this.presence.get(teller) !== room) continue;
+      if (this.awakeAmong([teller]).length === 0) continue;
+      if (this.dealConsentRefusal(teller, "information") !== null) continue;
+      const candidates = this.npcKnowledge.known(teller)
+        .filter((f) => f.factId && f.pathway !== "diary-room" && !GameSessionAdapter.isSealedAttribution(f)
+          && !f.factId.startsWith(RELIABLE_FACT_PREFIX) && !heldIds.has(f.factId) && !heldText.has(f.content))
+        .filter((f) => f.subject !== teller);
+      if (candidates.length === 0) continue;
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:info-deal:${deal.id}:${s.week}:${this.phase}`));
+      const pick = candidates[Math.floor(rng.next() * candidates.length)]!;
+      const content = this.onJurorTell(teller, pick.factId!, 0.7);
+      if (content === null) continue;
+      deal.delivered = (deal.delivered ?? 0) + 1;
+      this.onPlayerEvent?.(`${this.nameOf(teller)} tells ${this.nameOf(PLAYER)} something they have heard, as promised`, [PLAYER, teller], "conversation");
+    }
+  }
+
   /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
   private ownPushAgainstPlayer(npcId: EntityId): number {
     const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
     return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
   }
 
-  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
+  private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
@@ -12106,6 +12196,8 @@ export class GameSessionAdapter implements GameSession {
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
     if (ev && ev.beat === "nominations") this.mintNpcDeal();
+    // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
+    if (ev) this.deliverInformationDeals();
     // 0041: the season changes a houseguest — fold the beat's emotional impact into the involved souls
     // (a comp win emboldens; a blindside rattles), evolving the hidden arc that bends their later play.
     if (ev) this.evolveFromBeat(ev);
@@ -12836,6 +12928,7 @@ export class GameSessionAdapter implements GameSession {
       kind: d.kind,
       terms: d.terms,
       status: sealed ? "open" : d.status,
+      ...(d.packageId ? { packageId: d.packageId } : {}),
       ...(d.expiresWeek !== undefined || d.vague
         ? { term: { ...(d.expiresWeek !== undefined ? { expiresWeek: d.expiresWeek } : {}), ...(d.vague ? { vague: true } : {}) } }
         : {}),

@@ -138,6 +138,9 @@ export function formationAudienceScale(
   return Math.min(constants.maxScale, 1 + constants.perWitness * audienceSize);
 }
 
+/** 0142 (package): the extra betrayal-shock, as a share of the ordinary break, a broken package part costs the breaker with the party who relied on the bundle. */
+export const PACKAGE_BREAK_SCALE = 0.5;
+
 export class DealLedger {
   private deals: Deal[] = [];
   private seq = 0;
@@ -220,6 +223,11 @@ export class DealLedger {
         // `applyBreak` below). A break from a PUBLIC action (nominate/replace) is never sealed.
         if (action.kind === "vote-evict" && action.actor !== PLAYER) deal.sealedBallot = true;
         if (wronged) this.applyBreak(deal, wronged, action.actor, action.kind, sink);
+        // 0142 idea 3 (package): a break of EITHER part also costs the package's reliability - the wronged party's read of the breaker takes a further, smaller betrayal-grade hit (they staked two promises on
+        // one word). Not for a sealed ballot (the extra hit would single the breaker out, #1963). The sibling part stays open and is adjudicated on its OWN condition.
+        if (wronged && deal.packageId && !deal.sealedBallot && sink.rel && sink.rng && sink.dealDepth) {
+          sink.rel.applyDirected(wronged, action.actor, "betrayal", sink.rng, breakSeverityScale(deal, sink.currentWeek) * PACKAGE_BREAK_SCALE);
+        }
       } else if (actionHonors(deal, action)) {
         this.applyHonor(deal, action.actor, sink);
         if (deal.kind === "comp-throw" && action.kind === "compete" && action.effortHard === true) {
@@ -265,7 +273,7 @@ export class DealLedger {
       if (kindHorizonPassed || negotiatedTermPassed) {
         // 0142 (coordinator ruling on #2405): a `conditional` pact still OPEN when its term ends was never TESTED (a tested one resolves at the vote: kept if honored, broken if not), so nobody kept
         // anything. It is NOT marked `kept` (that status earns goodwill / "keeps their word" reads) and folds nothing either way: it is dropped from the live ledger (the formation event stays in the record).
-        if (deal.kind === "conditional") { untested.push(deal); continue; }
+        if (deal.kind === "conditional" || (deal.kind === "information" && !deal.delivered)) { untested.push(deal); continue; }
         deal.status = "kept";
         resolved.push(deal);
       }
