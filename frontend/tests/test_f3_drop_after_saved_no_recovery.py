@@ -1,29 +1,9 @@
-"""F3 (concurrent-session consistency) — a transport close AFTER server-confirmed completion must
-NOT trigger drop-recovery, and must never duplicate.
+"""Shared real-stack fixture (engine + FE + stub LLM) for the browser tests that import `_stack`/`_post_form`/`_send_first_message` from here.
 
-Root cause: `_tryAutoRecover` keyed on a channel CLOSE, not on a COMPLETION event. When the SSE
-reader ended (or the reader's own `if (!_streamSawDone) throw` fired) AFTER the full reply had
-streamed and the server had persisted it (`message_saved`) but before/without a trailing `[DONE]`,
-`_isRecoverableStreamErr` matched `closed|stream|eof|…` and auto-continue re-narrated already-produced
-content → a DUPLICATE reply + a player-visible "The stream dropped before you finished…" machinery
-leak. (Confirmed against a live glm-4.7 bundle: finishReason:stop, ok:true, full text present, yet
-recovery fired.)
-
-The fix gates auto-recover on server-confirmed completion — a `[DONE]` sentinel (`_streamSawDone`), a
-persisted `message_saved` (`_sawMessageSaved`), or a db id already on the holder = authoritative
-completion → skip recovery AND the generic error surface.
-
-This gate drives a REAL browser turn against a stub, then TRUNCATES the SSE response in-page exactly at
-the F3 boundary — right after `message_saved`, before `[DONE]` — so the reader throws "Stream closed
-before completion". It asserts:
-  * NO second (recovery) streaming request reaches the model — the stub's streaming-POST count stays 1;
-  * NO transient/settled DUPLICATE narration bubble at ANY frame;
-  * the "stream dropped" machinery prompt NEVER appears in the chat;
-  * the reply content is preserved (the turn stands).
-
-Pins the SSE/fetch reader path (where the "Stream closed before completion" throw lives — the WS leg
-reroutes replies through `_onWsChatFrame` and has no such throw), so it runs with ORWELL_WS_TRANSPORT=0.
-Roles only; the LLM is stubbed (the #822 lesson).
+ORW-44 S4c (Coordinator ruling B, 2026-11-12): the F3 test that lived in this module (a transport close AFTER server-confirmed completion must
+not trigger drop-recovery or duplicate) drove the SSE fetch-reader with ORWELL_WS_TRANSPORT=0 in the game build. The game build is WebSocket-only now,
+so that reader is reachable only in the non-game build. The invariant is pinned as a node unit test on the real chat.js functions:
+tests/test_orw44_s4c_sse_reader_invariants.py::test_f3_*. Roles only; the LLM is stubbed (the #822 lesson).
 """
 from __future__ import annotations
 
@@ -326,70 +306,3 @@ def _send_first_message(page, text):
         "() => { const f = document.getElementById('chat-form');"
         " if (f) { f.requestSubmit ? f.requestSubmit() : f.dispatchEvent(new Event('submit', {cancelable:true, bubbles:true})); } }"
     )
-
-
-def test_completed_turn_close_before_done_never_recovers_or_duplicates(_stack):
-    from playwright.sync_api import sync_playwright
-
-    fbase = _stack["fe"]
-    sess = _post_form(fbase, "/api/session", {
-        "name": "f3-fresh", "model": "stub-narrator", "skip_validation": "true",
-        "endpoint_id": _stack["endpoint_id"],
-    }).get("id")
-    assert sess, "could not create the fresh FE chat session"
-
-    with _STREAM_LOCK:
-        _STREAM_POSTS["n"] = 0
-
-    with sync_playwright() as pw:
-        try:
-            browser = pw.chromium.launch()
-        except Exception as e:
-            pytest.skip(f"chromium unavailable: {e}")
-        page = browser.new_page()
-        page.goto(fbase + "/", wait_until="load", timeout=30000)
-        page.wait_for_function(
-            "() => !!(window.sessionModule && window.sessionModule.loadSessions"
-            " && window.sessionModule.selectSession && window.sessionModule.getCurrentSessionId)",
-            timeout=15000)
-        page.evaluate("async () => { try { await window.sessionModule.loadSessions(); } catch (_) {} }")
-        page.wait_for_function(
-            "(sid) => { const sm = window.sessionModule;"
-            " if (!sm || !sm.getCurrentSessionId || !sm.selectSession) return false;"
-            " if (sm.getCurrentSessionId() === sid) return true;"
-            " try { sm.selectSession(sid); } catch (_) {} return false; }",
-            arg=sess, timeout=25000)
-        page.wait_for_timeout(2500)
-        assert page.evaluate(_INSTALL_JS), "could not install the truncation + observer (no #chat-history)"
-
-        _send_first_message(page, "I step into the house for the first time.")
-        # Cover the whole lifecycle: truncated stream throws → catch → (must NOT) recover → settle
-        # reconcile → the stream-end peer-resume flush window. If recovery WERE to fire, a second
-        # streaming POST + a duplicate bubble would appear within this window.
-        page.wait_for_timeout(9000)
-
-        res = page.evaluate("""() => ({
-          peakNarr: window.__peakNarr,
-          sawDropPrompt: window.__sawDropPrompt,
-          finalNarr: Array.from(document.querySelectorAll('#chat-history .msg.msg-ai, #chat-history .msg.msg-assistant'))
-              .filter(e => !(e.style && e.style.display === 'none') && !e.classList.contains('agent-thinking-dots')).length,
-          bodyText: (document.getElementById('chat-history') || {}).textContent || '',
-          wsActive: !!(window.OrwellWs && window.OrwellWs.isActive && window.OrwellWs.isActive()),
-        })""")
-        browser.close()
-
-    with _STREAM_LOCK:
-        stream_posts = _STREAM_POSTS["n"]
-
-    assert res["wsActive"] is False, "expected the SSE/fetch reader path (ORWELL_WS_TRANSPORT=0)"
-    # The turn genuinely produced + persisted a reply (guard against a vacuous pass).
-    assert res["finalNarr"] == 1, f"expected exactly ONE settled narration bubble, got {res['finalNarr']}"
-    assert "lights dim" in res["bodyText"], "the produced reply must be preserved after the close"
-    # THE GATE 1: no drop-recovery re-narration — exactly ONE streaming completion reached the stub.
-    assert stream_posts == 1, (
-        f"drop-recovery fired on a COMPLETED turn — the stub saw {stream_posts} streaming requests "
-        "(expected 1). A close after message_saved must NOT auto-continue.")
-    # THE GATE 2: no transient OR settled duplicate narration bubble at any frame.
-    assert res["peakNarr"] <= 1, f"a duplicate narration bubble appeared (peak={res['peakNarr']})"
-    # THE GATE 3: the "stream dropped" machinery prompt never surfaced in the player chat.
-    assert res["sawDropPrompt"] is False, "the 'stream dropped' machinery prompt leaked into the chat"

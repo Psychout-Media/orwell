@@ -837,20 +837,25 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "HOHs almost always add some version of 'this is purely strategic, nothing personal' to soften the " +
     "blow; let THIS HOH reach for that same beat in their own words, not a copy of anyone else's. Close on " +
     "the two nominees sitting with the news landing.",
-  "veto-competition":
-    "MOMENT — Power of Veto competition. SIX houseguests play, and WHO plays is DECIDED BY THE " +
-    "GAME — the drawn six are in gameStatus (veto.players: HOH + the two nominees + three by chip " +
-    "draw, including any Houseguest's Choice pick). Name THOSE EXACT players; never invent, guess, " +
-    "or substitute who is competing. If gameStatus shows no veto players yet, the chip draw has NOT " +
-    "run — call advanceGame to draw them and do NOT narrate any names you do not have. " +
+  // ORW-281: the veto DRAW is its own mini ceremony (its own moment, gate and gathering); the competition fragment below keeps only the comp.
+  "veto-draw":
+    "MOMENT — Power of Veto player draw. SIX houseguests play, and WHO plays is DECIDED BY THE GAME — the " +
+    "drawn six are in gameStatus (veto.players: HOH + the two nominees + three by chip draw, including any " +
+    "Houseguest's Choice pick). Name THOSE EXACT players; never invent, guess, or substitute who is competing. " +
+    "If gameStatus shows no veto players yet, the chip draw has NOT run — call advanceGame to draw them and do " +
+    "NOT narrate any names you do not have. " +
     "VOICE THE CHIP DRAW AS ITS OWN RITUAL BEAT — do NOT skip straight to the seated six. The HOH and " +
     "the two nominees are locked in; the other three seats are drawn from a bag of chips, and BB canon " +
     "is to read each draw out loud, one houseguest at a time, with the reactions. When the GAME's " +
     "veto-draw beat names a \"Houseguest's Choice\" chip, that is the showcase moment: voice WHO drew it " +
     "and, since the rules let them, WHO they picked to play instead of a random name — name exactly the " +
-    "player the GAME recorded for that pick, never your own substitute. Play the draw before the comp. " +
-    // COMP-3/COMP-13/COMP-14 (2026-07-03 audit): the veto-draw beat now names the drawn comp itself —
-    // voice it, and let the comp's own format shape the round-by-round drama rather than defaulting
+    "player the GAME recorded for that pick, never your own substitute. The draw beat also names the drawn " +
+    "comp: voice its own premise. Play the draw before the comp, and stop there: no venue, no rounds, no winner.",
+  "veto-competition":
+    "MOMENT — Power of Veto competition. SIX houseguests play, the six the GAME drew (gameStatus veto.players): " +
+    "name THOSE EXACT players; never invent or substitute. " +
+    // COMP-3/COMP-13/COMP-14 (2026-07-03 audit): the veto-draw beat names the drawn comp itself —
+    // let the comp's own format shape the round-by-round drama rather than defaulting
     // to a generic elimination shape for every veto (a puzzle comp reads nothing like an endurance one).
     "DRESS THE SPECIFIC COMP THE DRAW BEAT NAMED — voice its own premise, and let the per-round " +
     "comp-elimination beats' own wording guide how a houseguest goes out, instead of narrating every " +
@@ -1904,6 +1909,9 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
     case "nominations":
       if ((c?.nominees?.length ?? 0) > 0) return null;
       return { replace: true, note: "MOMENT NOTE - the nomination ceremony has NOT happened yet: the game has not run it, so no nominee exists. Do not narrate the ceremony, its ritual (the keys, the names, the speeches) or any nominee. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    case "veto-draw":
+      if ((c?.veto?.players?.length ?? 0) > 0) return null;
+      return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
     case "veto-competition":
       if ((c?.veto?.players?.length ?? 0) === 0) {
         return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
@@ -1913,7 +1921,7 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
         return { replace: true, note: "MOMENT NOTE - the veto competition has NOT started: the game has drawn the six players, but the competition is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: the players, the nominees and everyone else talk, scheme and kill time; the competition begins only when the game runs it." };
       }
       if (!c?.veto?.holder) {
-        return { replace: false, note: "MOMENT NOTE - the veto winner has NOT been decided: the game has drawn the six players but has not run the competition. Voice the draw and the field the game gave you; never name a winner, a result or a drop until advanceGame returns it." };
+        return { replace: false, note: "MOMENT NOTE - the veto winner has NOT been decided: the game has drawn the six players but has not run the competition. Voice the field the game gave you; never name a winner, a result or a drop until advanceGame returns it." };
       }
       return null;
     case "hoh-competition":

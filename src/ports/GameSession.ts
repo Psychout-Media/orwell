@@ -1332,6 +1332,7 @@ export interface NamedRef {
 export type BeatAnnouncementKind =
   | "hoh-winner"
   | "nominations"
+  | "veto-field"
   | "veto-winner"
   | "veto-decision"
   | "replacement-nominee"
@@ -1408,9 +1409,17 @@ export interface OpenDealOfferView {
   howToVoice: string;
 }
 
+/** ORW-281 slice 4a: the staged-ceremony step handle (`step` is 1-based; `of` is null when a ceremony's length is open-ended). */
+export interface CeremonyStepView {
+  kind: "nominations" | "veto-draw" | "veto-ceremony" | "eviction";
+  step: number;
+  of: number | null;
+  stepId: string;
+}
+
 /** A decision the live loop is blocked on until the player resolves it (0011 + the finale, 0037). */
 export interface PendingDecisionView {
-  kind: "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
+  kind: "ceremony-step" | "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
     | "goodbye-message" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote"
     // --- exit interview (0130): the player, as the evictee, answers the producers on the way out with their
     // own posture (gracious / defiant / bitter) + optional words, never engine-authored. `evictee` echoes who
@@ -1485,6 +1494,13 @@ export interface PendingDecisionView {
    * stakes decision. Absent for every other kind.
    */
   binding?: boolean;
+  /**
+   * ORW-281 slice 4a: present on EVERY pending that is a step of a staged ceremony (the `ceremony-step` watch pending AND a ceremony's binding step such as the
+   * nominations `choose`). Vault-free: the ceremony kind, the 1-based step, the step count and a stable engine step id.
+   */
+  ceremony?: CeremonyStepView;
+  /** ORW-281 4a: the short Vault-free line of a `ceremony-step` watch pending (public names + the step id only - never an outcome ahead of the engine). */
+  text?: string;
   /** How many to pick (nominations = 2; others = 1; finale-statement / juror-question = 0). */
   pick: number;
 }
@@ -1562,6 +1578,8 @@ export interface AdvanceView {
    * nothing). Vault-free; restart-safe.
    */
   beatSeq: number;
+  /** ORW-281 slice 4a: the staged-ceremony step this result opened (or, on a ceremony's closing Continue, the step that just closed). Absent outside a staged ceremony. */
+  ceremony?: CeremonyStepView;
   /** The beat that just resolved (null if blocked on a decision or the game is over). */
   event: BeatEventView | null;
   /** Set when the loop now needs a player decision before it can continue. */
@@ -1808,6 +1826,7 @@ export interface WhereaboutsView {
       | "hoh-competition"
       | "veto-competition"
       | "nominations"
+      | "veto-draw" // ORW-281: the veto player draw (a mini ceremony; also the Houseguest Choice card)
       | "veto-ceremony"
       | "eviction"
       // FEATURE 0111 — the premiere's GATHERED champagne circle. The whole house is convened in the
@@ -2196,7 +2215,8 @@ export interface BehavioralFlags {
 
 /** A player's answer to the current `PendingDecisionView`. */
 export interface SubmitDecisionReq {
-  kind: "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
+  // "ceremony-step" (ORW-281 4a) is a WATCH step answered by advanceGame; it is in this union only so a pending's kind is assignable - submitDecision REFUSES it (typed).
+  kind: "ceremony-step" | "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
     | "goodbye-message" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote"
     // --- exit interview (0130): the player-evictee's own posture leaving (gracious / defiant / bitter)
     // rides the shared `vote` field like a goodbye tone, with optional words on `statement`. Recorded for

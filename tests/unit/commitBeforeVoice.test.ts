@@ -46,8 +46,10 @@ describe("veto and eviction: the same gate", () => {
   it("veto competition with the draw committed but no winner: the draw is voiced, the winner is not", () => {
     const players = [1, 2, 3, 4, 5, 6].map((n) => ({ id: `npc:${n}`, name: `P${n}` }));
     const v = withPhase(base(), "veto-competition", { ceremony: { hoh: null, nominees: [], veto: { holder: null, used: false, players } } });
+    // ORW-281: the draw ritual moved to its own "veto-draw" moment (the live view reports it while the draw is the live scene); the competition moment keeps the winner guard.
+    expect(buildSystemPrompt("veto-draw", v)).toContain("VOICE THE CHIP DRAW AS ITS OWN RITUAL BEAT");
     const p = buildSystemPrompt("veto-competition", v);
-    expect(p).toContain("VOICE THE CHIP DRAW AS ITS OWN RITUAL BEAT");
+    expect(p).not.toContain("VOICE THE CHIP DRAW AS ITS OWN RITUAL BEAT");
     expect(p).toMatch(/winner has NOT been decided/);
   });
   it("eviction not run (no staged reveal, no card): the reveal script is absent", () => {

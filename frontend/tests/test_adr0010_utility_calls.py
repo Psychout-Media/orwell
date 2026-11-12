@@ -5,7 +5,10 @@ budgeted AND metered, so all four call classes are real (not just narration + ca
 Vault-free token/cost entry per call. No call_class ⇒ byte-identical (no reasoning, no usage-accounting
 request, no ledger entry). Roles only.
 """
+import pytest
 import asyncio
+
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
 
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 

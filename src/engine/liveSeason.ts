@@ -161,9 +161,123 @@ export function isInertBeat(beat: Beat): boolean {
   return INERT_BEATS.has(beat);
 }
 
+/**
+ * ORW-281 slice 4a - the GENERIC staged ceremony (Ryne 2026-11-11: every ceremony is play by play like a comp, each decision its own step and its own message).
+ * Modelled on how comps stage: the OUTCOME is decided ONCE up front (same seeded draws, same order as the one-beat resolution), then PLAYED OUT as steps that are
+ * presentation-only (no rng, no fold of their own). `steps` is the ordered step-id list for the kind (`CEREMONY_STEPS`); `at` is the open step (0-based); exactly one
+ * step is open at a time, surfaced as `s.pending` (a binding step is the kind's existing pending; a watch step is the `ceremony-step` pending). `hold` is the kind for the
+ * WHOLE ceremony so the house event stays in session between steps. 4b-4d plug in by adding a row to `CEREMONY_STEPS` / `CEREMONY_STEP_TEXT`, not new machinery.
+ * `outcome` is ENGINE-ONLY until the step that publishes it (it is never projected).
+ */
+export type CeremonyKind = "nominations" | "veto-draw" | "veto-ceremony" | "eviction";
+export interface CeremonyProgress {
+  kind: CeremonyKind;
+  hold: CeremonyKind;
+  steps: string[];
+  at: number;
+  outcome?: { nominees: [EntityId, EntityId]; target?: EntityId; fromPlayer?: boolean };
+  /** ORW-281 4b: the veto DRAW's outcome, decided once up front (ENGINE-ONLY until the 'field' step publishes it; never projected). `hc` is present when the Houseguest's-Choice chip was drawn (`candidates` = the player's options when the PLAYER holds it; `picked` = the NPC holder's pick or, later, the player's). */
+  draw?: { compId: string; compName: string; field: EntityId[]; hc?: { holder: EntityId; candidates: EntityId[]; picked?: EntityId } };
+  /** ORW-281 4c: the VETO CEREMONY's outcome, decided once (up front for an NPC holder, at the 'decide' step for the player) - ENGINE-ONLY until the 'result' step publishes it; never projected. `fromPlayer`: the player (HOH) named the replacement (so no assurance fold, as before). */
+  vetoOutcome?: { used: boolean; saved?: EntityId; replacement?: EntityId; fromPlayer?: boolean };
+}
+/** The Vault-free step handle every ceremony pending / advance result carries (`step` is 1-based). */
+export interface CeremonyRef { kind: CeremonyKind; step: number; of: number | null; stepId: string }
+/** Step lists per kind. */
+export const CEREMONY_STEPS: Record<CeremonyKind, { withChoice: string[]; npc: string[] } | undefined> = {
+  nominations: { withChoice: ["hoh-speech", "choose", "named"], npc: ["hoh-speech", "named"] },
+  "veto-draw": { withChoice: ["chips", "choice", "field"], npc: ["chips", "field"] }, "veto-ceremony": { withChoice: ["convene", "decide", "result"], npc: ["convene", "result"] }, eviction: { withChoice: ["speeches", "votes", "result"], npc: ["speeches", "votes", "result"] }, // 4d: speeches is the one WATCH step; votes/result ride the existing s.eviction stages. 4c: a "replacement" step is spliced in before "result" when the PLAYER (HOH) must name it; 4d add their step lists here
+};
+/** Binding steps (answered by `submitDecision` with the kind's existing pending); every other step id is a WATCH step. */
+export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choose", "veto-draw/choice", "veto-ceremony/decide", "veto-ceremony/replacement"]);
+/** The Vault-free line a WATCH step shows (public names via `{hoh}` and the step id only - never an outcome ahead of the engine). 4b-4d just add rows. */
+export const CEREMONY_STEP_TEXT: Record<string, string> = {
+  "nominations/hoh-speech": "{hoh} is about to name the nominees",
+  "nominations/named": "The nominees have been named",
+  "veto-draw/chips": "The chips for the Power of Veto are being drawn",
+  "veto-draw/field": "The Power of Veto players are set: {field}",
+  "eviction/speeches": "The nominees plead their case and the house gathers for the vote",
+  "eviction/votes": "The votes are read, one ballot at a time", // not a pending (votes ride the s.eviction reveal stage); a row so the step list stays complete
+  "eviction/result": "The vote is decided", // likewise - never names the evictee
+  "veto-ceremony/convene": "{hoh} has called the house together for the Veto Ceremony",
+  "veto-ceremony/result": "The Veto Ceremony is over - the nominees are: {nominees}",
+};
+export function ceremonyRef(s: LiveSeasonState): CeremonyRef | null {
+  const c = s.ceremony;
+  return c ? { kind: c.kind, step: c.at + 1, of: c.steps.length, stepId: c.steps[c.at]! } : null;
+}
+
+/** Ceremonies stage play by play ONLY for a game a person is PLAYING and who is still in the house (a spectator's fast-forward and every headless sim keep the one-beat resolution). */
+function stagesCeremonies(s: LiveSeasonState, ctx: SeasonCtx): boolean {
+  return s.playedGame === true && !s.spectator && s.active.includes(ctx.player);
+}
+
+/** Open the ceremony's current step as `s.pending`; the step that PUBLISHES the outcome (`named`) applies it and returns the beat. */
+function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null {
+  const c = s.ceremony!;
+  const id = c.steps[c.at]!;
+  if (CEREMONY_BINDING.has(`${c.kind}/${id}`)) {
+    if (c.kind === "veto-draw") s.pending = { kind: "houseguests-choice", by: ctx.player, options: [...c.draw!.hc!.candidates] };
+    else if (c.kind === "veto-ceremony" && id === "decide") s.pending = { kind: "veto-decision", by: ctx.player, nominees: s.nominees!, saveable: selectableReplacements(weekState(s, ctx)).length > 0 ? [...s.nominees!] : [] };
+    else if (c.kind === "veto-ceremony") s.pending = { kind: "replacement", by: ctx.player, saved: c.vetoOutcome!.saved!, options: replacementOptions(s, ctx, c.vetoOutcome!.saved) };
+    else s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
+    return null;
+  }
+  let ev: BeatEvent | null = null;
+  if (c.kind === "veto-draw" && id === "field") { // the step that PUBLISHES the draw: commit exactly what the one-beat resolution would have
+    const d = c.draw!;
+    const hc = d.hc;
+    s.vetoComp = d.compId;
+    s.vetoField = [...d.field, ...(hc?.picked !== undefined && !d.field.includes(hc.picked) ? [hc.picked] : [])];
+    const hcNote = hc?.picked !== undefined ? ` — ${hc.holder} draws Houseguest's Choice and picks ${hc.picked}` : "";
+    ev = { beat: "veto-draw", content: `the veto players are drawn for ${d.compName}: ${s.vetoField.join(", ")}${hcNote}`, participants: [...s.vetoField] };
+  }
+  if (c.kind === "veto-ceremony" && id === "result") { // the step that PUBLISHES the veto ceremony: commit exactly what the one-beat resolution would have
+    const o = c.vetoOutcome!;
+    const holder = s.vetoHolder!;
+    s.beat = "eviction";
+    if (!o.used) {
+      s.vetoUsed = false; s.finalNominees = [s.nominees![0], s.nominees![1]];
+      ev = { beat: "veto-ceremony", content: `${holder} does not use the veto`, participants: [holder] };
+    } else {
+      s.vetoUsed = true; s.saved = o.saved; s.replacement = o.replacement;
+      s.finalNominees = [otherNominee(s), o.replacement!];
+      if (!o.fromPlayer) ctx.assuranceNominated?.(s.hoh!, o.replacement!); // B4 review fix, as in resolveReplacement
+      ev = {
+        beat: "veto-ceremony",
+        content: `${holder} uses the veto on ${holder === o.saved ? "themselves" : o.saved}; ${s.hoh} names ${o.replacement} as the replacement`,
+        participants: [holder, o.saved!, s.hoh!, o.replacement!],
+      };
+    }
+  }
+  if (c.kind === "nominations" && id === "named") {
+    const [a, b] = c.outcome!.nominees;
+    if (!c.outcome!.fromPlayer) {
+      if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n);
+      ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
+    }
+    s.nominationTarget = c.outcome!.target;
+    s.nominees = [a, b]; s.beat = "veto-competition";
+    ev = { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
+  }
+  s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
+  return ev;
+}
+/** One Continue on a watch step: close the ceremony after its last step, else open the next. No rng. */
+function stepCeremony(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null {
+  const c = s.ceremony;
+  s.pending = undefined;
+  if (!c) return null;
+  c.at += 1;
+  if (c.at >= c.steps.length) { s.ceremony = undefined; return null; }
+  return openCeremonyStep(s, ctx);
+}
+
 /** A player decision the live loop is blocked on until `applyDecision` resolves it. */
 export type PendingDecision =
   | { kind: "nominations"; by: EntityId; options: EntityId[]; pick: 2 }
+  // ORW-281 slice 4a: a NON-BINDING watch step of a staged ceremony (answered by `advanceGame`, never `submitDecision`). Played games only.
+  | { kind: "ceremony-step"; by: EntityId; binding: false }
   | { kind: "veto-decision"; by: EntityId; nominees: [EntityId, EntityId]; saveable: EntityId[] }
   // --- competition intent (B46/audit B5): the player declares compete/throw/play-safe before a comp ---
   | { kind: "comp-intent"; by: EntityId; comp: "hoh-competition" | "veto-competition" }
@@ -584,6 +698,8 @@ export interface LiveSeasonState {
    * on the time-of-day path (calibration never touches it). Absent ⇒ no event charged yet.
    */
   eventClock?: { key: string; spent: number };
+  /** ORW-281 slice 4a: the STAGED-CEREMONY sub-state (played games only; absent on every headless sim and every older save). See `CeremonyProgress`. */
+  ceremony?: CeremonyProgress;
   /** ORW-232 slice 3: the hours a staged competition has already charged (its own slot, so it never collides with the eviction/finale `eventClock` budget). */
   compClock?: { key: string; spent: number };
   /** ORW-269: the finished comp's visible-effort tally, kept for the crown's deal adjudication (played games only; absent in headless sims). */
@@ -1467,16 +1583,21 @@ function hcBias(mem: SeasonCtx["hcMemoryFor"], strat: SeasonCtx["hcStrategyFor"]
   if (!mem && !strat) return undefined;
   return (c) => (mem ? mem(c, holder) : 0) + (strat ? strat(c, holder) : 0);
 }
-function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
-  // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
-  // including a restart mid-pause (0030) — resolves the SAME drawn competition (0042).
+/** The veto draw's seeded rolls, in their ONE order (comp first, then the chips + any NPC Houseguest's Choice) - shared by the one-beat resolution and the staged ceremony so both consume the same rng identically. */
+function rollVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource) {
   const def = drawFor(s, "veto", rng, ctx);
-  s.vetoComp = def.id;
   const draw = vetoParticipants(weekState(s, ctx), rng, {
     houseguestsChoiceChip: true,
     choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcBias(ctx.hcMemoryFor, ctx.hcStrategyFor, holder)),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
+  return { def, draw };
+}
+function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
+  // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
+  // including a restart mid-pause (0030) — resolves the SAME drawn competition (0042).
+  const { def, draw } = rollVetoDraw(s, ctx, rng);
+  s.vetoComp = def.id;
   s.vetoField = draw.participants;
   const hc = draw.houseguestsChoice;
   if (hc && hc.picked === undefined) {
@@ -1799,12 +1920,12 @@ function weekState(s: LiveSeasonState, ctx: SeasonCtx): WeekState {
 }
 
 /** Replacement nominees the HOH may name after a save (excludes HOH, noms, veto winner, the saved). */
-function replacementOptions(s: LiveSeasonState, ctx: SeasonCtx): EntityId[] {
-  return selectableReplacements(weekState(s, ctx)).filter((h) => h !== s.saved);
+function replacementOptions(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId | undefined = s.saved): EntityId[] {
+  return selectableReplacements(weekState(s, ctx)).filter((h) => h !== saved);
 }
 
-function otherNominee(s: LiveSeasonState): EntityId {
-  return s.nominees!.find((n) => n !== s.saved)!;
+function otherNominee(s: LiveSeasonState, saved: EntityId | undefined = s.saved ?? s.ceremony?.vetoOutcome?.saved): EntityId {
+  return s.nominees!.find((n) => n !== saved)!;
 }
 
 /**
@@ -2063,16 +2184,25 @@ export function eventBeatHours(s: LiveSeasonState, beat: Beat, weekBefore: numbe
     : FINALE_EVENT_BEATS.has(beat) ? "finale"
     : null;
   if (key === null) return null;
-  const spent = s.eventClock?.key === key ? s.eventClock.spent : 0;
-  const remaining = Math.max(0, budgetHours - spent);
   // ORW-262 — for a game a person is playing (`spreadSteps` given) the budget is SPREAD over the event's
   // steps (like a staged competition's rounds) so each message moves the clock a believable slice, and the
   // closing step settles whatever is left. Omitted ⇒ the original front-loaded charge (headless sims stay byte-identical).
   const closing = beat === "eviction-result" || beat === "final-eviction" || beat === "finale-result";
-  const hours = spreadSteps !== undefined && spreadSteps > 0 && !closing
-    ? Math.min(remaining, budgetHours / spreadSteps)
-    : remaining;
-  s.eventClock = { key, spent: spent + hours };
+  return spreadClockHours(s, "event", key, budgetHours, spreadSteps !== undefined && spreadSteps > 0 ? spreadSteps : 0, closing);
+}
+
+/**
+ * ORW-281 slice 4a - the ONE clock-spread helper (replaces the old compClock / eventClock copies). An event's whole `budget` hours are SPREAD over `steps` presentation
+ * steps (each non-closing step charges budget/steps, the closing step settles whatever is left; `steps <= 0` front-loads everything on the first call). Tracked per `key` in
+ * its slot (`comp` = `s.compClock`, `event` = `s.eventClock`) so it survives a save/restart mid-event. Clock path only: no rng, no fold.
+ */
+export function spreadClockHours(s: LiveSeasonState, slot: "comp" | "event", key: string, budget: number, steps: number, closing: boolean): number {
+  const cur = slot === "comp" ? s.compClock : s.eventClock;
+  const spent = cur?.key === key ? cur.spent : 0;
+  const remaining = Math.max(0, budget - spent);
+  const hours = steps > 0 && !closing ? Math.min(remaining, budget / steps) : remaining;
+  const next = { key, spent: spent + hours };
+  if (slot === "comp") s.compClock = next; else s.eventClock = next;
   return hours;
 }
 
@@ -2087,19 +2217,13 @@ export function competitionRoundHours(s: LiveSeasonState, beat: Beat, feltHours:
   if (!c || feltHours <= 0) return null;
   const rounds = Math.max(2, Math.ceil((c.field.length - 1) / stagedBatchSize(c.field.length)));
   const key = `comp:w${s.week}:${beat}`;
-  const spent = s.compClock?.key === key ? s.compClock.spent : 0;
-  const hours = Math.min(feltHours / rounds, Math.max(0, feltHours - spent));
-  s.compClock = { key, spent: spent + hours };
-  return hours;
+  return spreadClockHours(s, "comp", key, feltHours, rounds, false);
 }
 
 /** The crown's share: whatever the rounds left of the competition's felt hours (all of it when no round was charged). */
 export function competitionCrownHours(s: LiveSeasonState, beat: Beat, feltHours: number): number {
   const key = `comp:w${s.week}:${beat}`;
-  const spent = s.compClock?.key === key ? s.compClock.spent : 0;
-  const hours = Math.max(0, feltHours - spent);
-  s.compClock = { key, spent: spent + hours };
-  return hours;
+  return spreadClockHours(s, "comp", key, feltHours, 0, true);
 }
 
 /**
@@ -2147,13 +2271,18 @@ function markNightGateCrossed(s: LiveSeasonState): void {
   }
 }
 
+/** ORW-281: is the live loop at the veto DRAW (stage A of the `veto-competition` beat, before the six exist)? The ONE definition of "draw stage" - the schedule, the night gate and the advance all read it. */
+export function vetoDrawStage(s: Pick<LiveSeasonState, "beat" | "vetoField">): boolean {
+  return s.beat === "veto-competition" && !s.vetoField;
+}
+
 /** ORW-116 (b): would the NEXT ordinary advance be a night-gate day-break (the beat that rolls the night)? Pure read of the same one-shot flags `advance` tests. */
 export function nightBreakPending(s: LiveSeasonState): boolean {
   if (s.twist?.phase === "running" || s.nightDepth === undefined) return false;
   switch (s.beat) {
     case "hoh-competition": return s.week === 1 ? !s.firstNightPassed && (s.dayNumber ?? 1) < 2 : s.playedGame === true && !s.preHohNightPassed; // ORW-258: only for a game a person is playing (clockInteractive): headless calibration sims keep their cadence // ORW-258: every week's HOH is the day AFTER the eviction
     case "nominations": return !s.preNomsNightPassed;
-    case "veto-competition": return !s.preVetoNightPassed && !s.vetoField;
+    case "veto-competition": return !s.preVetoNightPassed && vetoDrawStage(s); // ORW-281: the night before the DRAW (the competition shares the draw day)
     case "veto-ceremony": return !s.preVetoCeremonyNightPassed;
     case "eviction": return !s.preEvictionNightPassed && !s.eviction;
     default: return false;
@@ -2614,10 +2743,24 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
         return null;
       }
       s.eviction = undefined;
+      if (s.ceremony?.kind === "eviction") s.ceremony = undefined; // ORW-281 4d: the ceremony closes with the result, before the week rolls
       rollWeek(s); // the week's ceremony state clears and the house rolls on (or into the finale)
       return { beat: "eviction-result", content: `${evictee} leaves the house`, participants: [evictee] };
     }
   }
+}
+
+/** The vote itself: a player voter pends their ballot; otherwise the NPC votes are decided and the (anonymized) reveal starts. Shared by the one-beat path and the 4d speeches step. */
+function startEvictionVote(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  const fn = s.finalNominees!;
+  const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
+  if (voters.includes(ctx.player)) {
+    s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
+    return null;
+  }
+  // The player is HOH or a nominee: NPC votes are decided; stage the one-at-a-time reveal (0047).
+  beginEviction(s, ctx, rng, undefined);
+  return advanceEviction(s, ctx, rng);
 }
 
 /** Once the evictee is known: record responsible manner, remove them, seed the goodbyes, open that stage. */
@@ -2667,6 +2810,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // message, last, as a real pending decision (never engine-authored, never engine-toned).
   if (s.active.includes(ctx.player)) e.goodbyeFrom.push(ctx.player);
   e.stage = "goodbye";
+  if (s.ceremony?.kind === "eviction") { if (evictee === ctx.player) s.ceremony = undefined; else s.ceremony.at = 2; } // ORW-281 4d: the engine committed the evictee - the 'result' step begins (an evicted player is out of the house, so no hold)
   return { beat: "eviction", content: `${evictee} is evicted`, participants: [evictee] };
 }
 
@@ -2887,6 +3031,11 @@ function advanceFinale(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource
  * blocked on a player decision (`state.pending` is set) or already complete.
  */
 export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  if (s.pending?.kind === "ceremony-step" && s.ceremony?.kind === "eviction") { // ORW-281 4d: the speeches step's Continue opens the vote (the secret-veto check already ran before the speeches)
+    s.pending = undefined; s.ceremony.at = 1;
+    return startEvictionVote(s, ctx, rng);
+  }
+  if (s.pending?.kind === "ceremony-step") return stepCeremony(s, ctx); // ORW-281 4a: a watch step is answered by advanceGame
   if (s.pending || s.finished || s.beat === "complete") return null;
 
   switch (s.beat) {
@@ -2954,6 +3103,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       if (s.hoh === ctx.player) {
+        if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.nominations) { // ORW-281 4a: a played game stages the ceremony (speech -> choose -> named)
+          s.ceremony = { kind: "nominations", hold: "nominations", steps: [...CEREMONY_STEPS.nominations.withChoice], at: 0 };
+          return openCeremonyStep(s, ctx);
+        }
         s.pending = { kind: "nominations", by: ctx.player, options: s.active.filter((h) => h !== ctx.player), pick: 2 };
         return null;
       }
@@ -2975,6 +3128,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
       });
       const nominees = plan.nominees;
+      if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.nominations) { // ORW-281 4a: outcome decided ONCE here (same read, no rng); played out as speech -> named
+        s.ceremony = { kind: "nominations", hold: "nominations", steps: [...CEREMONY_STEPS.nominations.npc], at: 0, outcome: { nominees: [nominees[0], nominees[1]], target: plan.target } };
+        return openCeremonyStep(s, ctx);
+      }
       if (ctx.assuranceNominated) for (const n of nominees) ctx.assuranceNominated(s.hoh!, n);
       ctx.assuranceKeptAtNominations?.(s.hoh!, nominees); // B4 slice 8: whoever the HOH had assured and did NOT nominate was spared => kept
       s.nominationTarget = plan.target; // #1948: the replacement branches on WHO the target is
@@ -2985,7 +3142,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // Phase 3a NIGHT-GATE: the veto comp is its own day (Day 3, after nominations on Day 2). The first
       // advance into it crosses the night as a one-shot diegetic day-break, before the chip draw. GATED on
       // the clock ⇒ a clock-off calibration game skips it ⇒ byte-identical.
-      if (ctx.nightGate && !s.preVetoNightPassed && !s.vetoField && s.twist?.phase !== "running") {
+      if (ctx.nightGate && !s.preVetoNightPassed && vetoDrawStage(s) && s.twist?.phase !== "running") {
         if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preVetoNightPassed = true;
         crossToNextDay(s);
@@ -2996,7 +3153,20 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       // E35 stage A: the chip draw is a witnessed ceremony of its own — it precedes any winner.
-      if (!s.vetoField) return resolveVetoDraw(s, ctx, rng);
+      if (vetoDrawStage(s)) {
+        if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["veto-draw"]) { // ORW-281 4b: a played game stages the draw (chips -> [choice] -> field); the outcome is rolled ONCE here, same rolls, same order
+          const { def, draw } = rollVetoDraw(s, ctx, rng);
+          const hc = draw.houseguestsChoice;
+          const playerHolds = !!hc && hc.picked === undefined;
+          s.ceremony = {
+            kind: "veto-draw", hold: "veto-draw", at: 0,
+            steps: [...(playerHolds ? CEREMONY_STEPS["veto-draw"].withChoice : CEREMONY_STEPS["veto-draw"].npc)],
+            draw: { compId: def.id, compName: def.name, field: [...draw.participants], ...(hc ? { hc: { holder: hc.holder, candidates: [...hc.candidates], ...(hc.picked !== undefined ? { picked: hc.picked } : {}) } } : {}) },
+          };
+          return openCeremonyStep(s, ctx);
+        }
+        return resolveVetoDraw(s, ctx, rng);
+      }
       // STAGED (0006 staged-rounds evolution): the veto comp plays out in elimination rounds exactly
       // like the HOH comp — the sub-loop pauses for the player's PER-ROUND approach when they are in
       // the drawn field. The draw (above) always precedes the rounds.
@@ -3017,6 +3187,10 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         };
       }
       const nominees = s.nominees!;
+      if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["veto-ceremony"]) { // ORW-281 4c: a played game stages the veto ceremony (convene -> [decide] -> [replacement] -> result)
+        s.ceremony = planVetoCeremony(s, ctx);
+        return openCeremonyStep(s, ctx);
+      }
       if (s.vetoHolder === ctx.player) {
         // The holder may save either nominee (incl. self if nominated) — the whole pair is saveable…
         // …UNLESS no legal replacement exists (the Final-4 rule, E36): then "use" is not a real
@@ -3028,15 +3202,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       }
       // NPC veto holder: save self if nominated, else the most save-worthy nominee — trust shaded
       // by demonstrated loyalty (E54), so a proven protector outranks an equally-liked stranger.
-      const saved = nominees.includes(s.vetoHolder!)
-        ? s.vetoHolder!
-        : ctx.rel.chooseVetoSave(
-          s.vetoHolder!, nominees,
-          // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-          ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
-            ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
-            : undefined,
-        );
+      const saved = npcVetoSave(s, ctx);
       if (!saved) {
         s.vetoUsed = false; s.finalNominees = [nominees[0], nominees[1]]; s.beat = "eviction";
         return { beat: "veto-ceremony", content: `${s.vetoHolder} does not use the veto`, participants: [s.vetoHolder!] };
@@ -3062,15 +3228,12 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // block before the vote (player: their choice; NPC: a rational self-save). One eviction still lands.
       const sp = maybePlaySecretVeto(s, ctx, rng);
       if (sp.handled) return sp.event; // a reveal event (played) OR null with the player's choice pending
-      const fn = s.finalNominees!;
-      const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
-      if (voters.includes(ctx.player)) {
-        s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
+      if (stagesCeremonies(s, ctx) && !s.twist && CEREMONY_STEPS.eviction && !s.ceremony) { // ORW-281 4d: a played, non-twist eviction opens with the speeches (no rng; nothing is named that is not already public)
+        s.ceremony = { kind: "eviction", hold: "eviction", steps: [...CEREMONY_STEPS.eviction.withChoice], at: 0 };
+        s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
         return null;
       }
-      // The player is HOH or a nominee: NPC votes are decided; stage the one-at-a-time reveal (0047).
-      beginEviction(s, ctx, rng, undefined);
-      return advanceEviction(s, ctx, rng);
+      return startEvictionVote(s, ctx, rng);
     }
     case "twist-reveal": {
       // The sealed twist FIRES (0025): a dramatic, witnessed production reveal — only now is it
@@ -3179,6 +3342,54 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   };
 }
 
+/** The NPC veto holder's save read (shared by the one-beat resolution and the staged ceremony's up-front plan; no rng). */
+function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
+  const nominees = s.nominees!;
+  return nominees.includes(s.vetoHolder!)
+    ? s.vetoHolder!
+    : ctx.rel.chooseVetoSave(
+      s.vetoHolder!, nominees,
+      // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
+      ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor
+        ? (n: EntityId) => (ctx.campaignPushFor ? -ctx.campaignPushFor(n, s.vetoHolder!) : 0) + (ctx.vetoMemoryFor?.(n, s.vetoHolder!) ?? 0) + (ctx.moodVetoFor?.(n, s.vetoHolder!) ?? 0) - (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)
+        : undefined,
+    );
+}
+
+/** The NPC HOH's replacement read (shared by the one-beat resolution and the staged ceremony; no rng). */
+function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[]): EntityId {
+  return replacementPick(s.hoh!, otherNominee(s, saved), options, s.active, ctx.rel, {
+    blocs: currentBlocs(s, ctx),
+    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+    style: ctx.nominationStyleOf?.(s.hoh!),
+    target: s.nominationTarget,
+    ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
+    ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
+    ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
+  });
+}
+
+/** ORW-281 4c: stage the veto ceremony. An NPC holder's use/save and an NPC HOH's replacement are decided HERE, once, by the same reads in the same order as the one-beat path (none draw rng); the player's own decisions are steps. */
+function planVetoCeremony(s: LiveSeasonState, ctx: SeasonCtx): CeremonyProgress {
+  const st = CEREMONY_STEPS["veto-ceremony"]!;
+  const base = { kind: "veto-ceremony" as const, hold: "veto-ceremony" as const, at: 0 };
+  if (s.vetoHolder === ctx.player) return { ...base, steps: [...st.withChoice] };
+  const steps = [...st.npc];
+  const saved = npcVetoSave(s, ctx);
+  let vetoOutcome: NonNullable<CeremonyProgress["vetoOutcome"]> = { used: false };
+  if (saved) {
+    const options = replacementOptions(s, ctx, saved);
+    if (options.length > 0) {
+      vetoOutcome = { used: true, saved };
+      if (s.hoh === ctx.player) steps.splice(steps.indexOf("result"), 0, "replacement");
+      else vetoOutcome.replacement = npcReplacementPick(s, ctx, saved, options);
+    }
+  }
+  return { ...base, steps, vetoOutcome };
+}
+
 /** After a veto save: the HOH names the replacement (player pends; NPC auto-picks). */
 function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null {
   const options = replacementOptions(s, ctx);
@@ -3195,17 +3406,7 @@ function resolveReplacement(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // The replacement reads the same blended strategy (0044): threat + the rattled-paranoia term + the
   // bloc shield + the HOH's style. If the target is still up (the pawn came down), the HOH names a new
   // PAWN; if the target came down — or this is a backdoor — they name the real target (0044 §9).
-  const replacement = replacementPick(s.hoh!, otherNominee(s), options, s.active, ctx.rel, {
-    blocs: currentBlocs(s, ctx),
-    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
-    style: ctx.nominationStyleOf?.(s.hoh!),
-    target: s.nominationTarget,
-    ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
-    ...(ctx.memoryTiltFor ? { memoryPush: (t: EntityId) => ctx.memoryTiltFor!(t, s.hoh!) } : {}),
-        ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
-        ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
-    ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
-  });
+  const replacement = npcReplacementPick(s, ctx, s.saved!, options);
   s.replacement = replacement; s.finalNominees = [otherNominee(s), replacement]; s.beat = "eviction";
   ctx.assuranceNominated?.(s.hoh!, replacement); // B4 review fix: naming an assured houseguest the REPLACEMENT breaks the HOH's assurance to them too
   return {
@@ -3295,6 +3496,8 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       // confirmation never rides `s.pending` (it lives on `selfEvictPending`), so the auto-driver
       // (calibration / admin fast-forward) is never asked to resolve one. Refuse defensively.
       throw new Error("self-eviction is a deliberate player choice — never auto-resolved");
+    case "ceremony-step":
+      throw new Error("a ceremony watch step is answered by advanceGame, never auto-decided");
     case "secret-veto":
       // 0025: a rational underdog on the block plays their one-time safety to save themselves.
       return { kind: "secret-veto", use: true };
@@ -3306,7 +3509,7 @@ export function applyDecision(
   s: LiveSeasonState, input: DecisionInput, ctx: SeasonCtx,
   // Only the Houseguest's-Choice resume needs randomness (to run the veto comp once the field completes);
   // the live adapter passes the beat-deterministic rng, so the same seed reproduces the same outcome.
-  rng: RandomnessSource = new SeededRandom(1),
+  rng: RandomnessSource = new SeededRandom(1)
 ): BeatEvent {
   // `comp-intent` and `comp-round` are interchangeable aliases for the staged per-round approach (the
   // live pending is `comp-round`; the legacy/alias input may arrive as either). Every other kind must match.
@@ -3321,6 +3524,12 @@ export function applyDecision(
       const [a, b] = input.choice;
       if (a === b) throw new Error("cannot nominate the same houseguest twice");
       if (!legal.has(a) || !legal.has(b)) throw new Error("illegal nominee");
+      if (s.ceremony?.kind === "nominations") { // ORW-281 4a: the choice is the outcome; the 'named' step publishes it
+        s.pending = undefined;
+        s.ceremony.outcome = { nominees: [a, b], fromPlayer: true };
+        s.ceremony.at = s.ceremony.steps.indexOf("named");
+        return openCeremonyStep(s, ctx)!;
+      }
       s.nominees = [a, b]; s.nominationTarget = undefined; s.pending = undefined; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
     }
@@ -3336,6 +3545,14 @@ export function applyDecision(
         throw new Error("the veto cannot be used — no legal replacement nominee exists, so the nominations stand");
       }
       s.pending = undefined;
+      if (s.ceremony?.kind === "veto-ceremony") { // ORW-281 4c: the decision is recorded, NOT published; the 'result' step (or the player's replacement) publishes it
+        const c = s.ceremony;
+        if (!input.use || replacementOptions(s, ctx, save).length === 0) c.vetoOutcome = { used: false };
+        else if (s.hoh === ctx.player) { c.vetoOutcome = { used: true, saved: save! }; c.steps.splice(c.steps.indexOf("result"), 0, "replacement"); }
+        else c.vetoOutcome = { used: true, saved: save!, replacement: npcReplacementPick(s, ctx, save!, replacementOptions(s, ctx, save)) };
+        c.at = c.steps.indexOf(c.vetoOutcome.used && !c.vetoOutcome.replacement ? "replacement" : "result");
+        return openCeremonyStep(s, ctx) as BeatEvent; // NULL (the player-HOH 'replacement' step opens, nothing published yet) is a legal commit(null); the declared type stays non-null so the many direct callers are untouched
+      }
       if (!input.use) {
         s.vetoUsed = false; s.finalNominees = [nominees[0], nominees[1]]; s.beat = "eviction";
         return { beat: "veto-ceremony", content: `${ctx.player} does not use the veto`, participants: [ctx.player] };
@@ -3363,6 +3580,14 @@ export function applyDecision(
     case "houseguests-choice": {
       // The player drew Houseguest's Choice and picks the sixth veto player (B45/audit B4).
       const options = (s.pending as { options: EntityId[] }).options;
+      if (s.ceremony?.kind === "veto-draw") { // ORW-281 4b: the pick completes the (not yet published) field; the 'field' step publishes it
+        const d = s.ceremony.draw!;
+        if (!options.includes(input.pick) || d.field.includes(input.pick)) throw new Error("the Houseguest's Choice must pick an eligible candidate who is not already drawn");
+        s.pending = undefined;
+        d.hc!.picked = input.pick;
+        s.ceremony.at = s.ceremony.steps.indexOf("field");
+        return openCeremonyStep(s, ctx)!;
+      }
       // C1: legality is RE-DERIVED at resume — the pick must be an offered candidate AND must not
       // already stand in the drawn field (a stale offer can never produce a duplicate competitor).
       if (!options.includes(input.pick) || s.vetoField!.includes(input.pick)) {
@@ -3379,6 +3604,14 @@ export function applyDecision(
       };
     }
     case "replacement": {
+      if (s.ceremony?.kind === "veto-ceremony") { // ORW-281 4c: the HOH's pick is the outcome; the 'result' step publishes it
+        const c = s.ceremony;
+        if (!new Set(replacementOptions(s, ctx, c.vetoOutcome!.saved)).has(input.replacement)) throw new Error("illegal replacement nominee");
+        s.pending = undefined;
+        c.vetoOutcome!.replacement = input.replacement; c.vetoOutcome!.fromPlayer = true;
+        c.at = c.steps.indexOf("result");
+        return openCeremonyStep(s, ctx)!; // the 'result' step publishes
+      }
       const legal = new Set(selectableReplacements(weekState(s, ctx)).filter((h) => h !== s.saved));
       if (!legal.has(input.replacement)) throw new Error("illegal replacement nominee");
       s.replacement = input.replacement; s.finalNominees = [otherNominee(s), input.replacement];

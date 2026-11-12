@@ -206,6 +206,15 @@ def _ensure_current_event_loop() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
+@pytest.fixture
+def non_game_text_routing(monkeypatch) -> None:
+    """ORW-287: the text-routing guard (src/text_routing.py) is ON in the suite, like prod's game build. The few test modules that
+    pin the OpenRouter wire/payload shape drive llm_core with an OpenRouter-style URL on purpose (that format is still real for the
+    non-game build); they opt out at module level with ``pytestmark = pytest.mark.usefixtures("non_game_text_routing")``."""
+    import src.text_routing as _tr
+    monkeypatch.setattr(_tr, "active", lambda: False)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_game_session_store(tmp_path, monkeypatch) -> None:
     """The canonical game-session binding (feature 0064) persists to a JSON file at a MODULE-CONSTANT

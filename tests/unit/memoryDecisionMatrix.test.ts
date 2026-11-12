@@ -29,9 +29,9 @@ function fnBody(startMarker: string, endMarker: string): string {
 const SLICES: Record<Exclude<StrategicDecision, "approaches">, () => string> = {
   evictionVote: () => fnBody("export function voteChoice(", "\n/** Count the eviction votes"),
   hohNominations: () => fnBody("const plan = nominationPlan(s.hoh!, s.active, ctx.rel, {", "const nominees = plan.nominees;"),
-  replacementNominee: () => fnBody("const replacement = replacementPick(s.hoh!", "s.replacement = replacement;"),
-  vetoSave: () => fnBody("// NPC veto holder: save self if nominated", "if (!saved) {"),
-  houseguestsChoice: () => fnBody("function resolveVetoDraw(", "const hc = draw.houseguestsChoice;"),
+  replacementNominee: () => fnBody("function npcReplacementPick(", "/** ORW-281 4c: stage the veto ceremony")  /* ORW-281 4c: the NPC replacement read moved into this shared helper */,
+  vetoSave: () => fnBody("function npcVetoSave(", "/** The NPC HOH's replacement read")  /* ORW-281 4c: the NPC veto-save read moved into this shared helper */,
+  houseguestsChoice: () => fnBody("function rollVetoDraw(", "\nfunction resolveVetoDraw(")  /* ORW-281 4b: the draw + NPC Houseguest's-Choice reads live in the shared roll */,
   juryVote: () => fnBody("function precomputeVotes(", "return votes;"),
 };
 const readsOf = (body: string): Set<string> => new Set([...body.matchAll(/ctx\.(\w+)/g)].map((m) => m[1]!).filter((n) => MEMORY_LIKE.test(n)));

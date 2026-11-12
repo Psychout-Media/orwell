@@ -669,6 +669,12 @@ def resolve_endpoint(
                 setting_prefix, _configured_model, served,
                 getattr(ep, "name", None) or getattr(ep, "id", "?"))
 
+        # ORW-287: game build - a text tier never resolves to OpenRouter; re-point at direct DeepSeek (or leave it for the dispatch guard to refuse).
+        try:
+            from src.text_routing import enforce_text_destination, TextRoutingRefused
+            chat_url, served, headers = enforce_text_destination(chat_url, served, headers, owner=owner)
+        except TextRoutingRefused:
+            pass  # failsoft-ok: the llm_core dispatch guard refuses this call loudly; resolution itself must not raise
         return chat_url, served, headers
     except Exception as e:
         logger.debug(f"Could not resolve {setting_prefix} endpoint: {e}")
@@ -759,5 +765,12 @@ def _resolve_fallback_candidates(setting_key: str, owner: Optional[str] = None) 
             continue
         resolved = resolve_endpoint_by_id(entry.get("endpoint_id", ""), entry.get("model", ""), owner=owner)
         if resolved:
+            # ORW-287: the game build has no OpenRouter text fallback (a DeepSeek failure is the outage UX, not a silent paid hop).
+            try:
+                from src import text_routing as _tr
+                if _tr.active() and _tr._is_openrouter(resolved[0]) and _tr._is_text_model(resolved[1]):
+                    continue
+            except Exception:  # failsoft-ok: the llm_core dispatch guard is the enforcement; this filter is only an early skip
+                pass
             out.append(resolved)
     return out

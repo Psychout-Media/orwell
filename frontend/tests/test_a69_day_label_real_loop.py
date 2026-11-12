@@ -35,6 +35,8 @@ def test_the_label_day_rises_when_the_schedule_rolls_and_never_goes_backwards(_s
         p = st.get("pending") or {}
         if p.get("kind") in ("comp-round", "comp-intent"):
             _engine(_stack, "submitDecision", {"kind": p["kind"], "intent": "compete"})
+        elif p.get("kind") == "ceremony-step":
+            _engine(_stack, "advanceGame")  # ORW-281: a staged ceremony step is a WATCH step - answered by advanceGame, refused by submitDecision
         elif p.get("kind"):
             opts = [o["id"] for o in (p.get("options") or [])]
             _engine(_stack, "submitDecision", {"kind": p["kind"], **({"choice": opts[:2]} if p["kind"] == "nominations" else {"use": False} if p["kind"] == "veto-decision" else {"vote": opts[0]} if opts else {})})

@@ -1,5 +1,5 @@
 import type { Beat, LiveSeasonState } from "./liveSeason";
-import { nightBreakPending } from "./liveSeason";
+import { nightBreakPending, vetoDrawStage } from "./liveSeason";
 import type { TimeOfDay } from "./timeOfDay";
 import { WAKE_HOUR, eventSpanHours, DAY_END_HOUR } from "./timeOfDay";
 import { CLOCK } from "./sleepConstants";
@@ -19,6 +19,7 @@ import { CLOCK } from "./sleepConstants";
 export type StructuralMilestone =
   | "hoh-competition"
   | "nominations"
+  | "veto-draw"
   | "veto-competition"
   | "veto-ceremony"
   | "eviction"
@@ -35,6 +36,8 @@ export type StructuralMilestone =
 export const DAY_SCHEDULE: Record<StructuralMilestone, TimeOfDay> = {
   "hoh-competition": "afternoon",
   "nominations": "evening",
+  // ORW-281 / ORW-116 (Ryne: "veto player draw in the morning"): the draw is a mini ceremony of its own, in the MORNING of the veto day; the competition follows that afternoon.
+  "veto-draw": "morning",
   "veto-competition": "afternoon",
   "veto-ceremony": "evening",
   "eviction": "evening",
@@ -42,13 +45,11 @@ export const DAY_SCHEDULE: Record<StructuralMilestone, TimeOfDay> = {
   "finale": "evening",
 };
 
-/** ORW-116: the veto player draw happens in the MORNING of the veto-competition day (the competition itself follows in the afternoon, `DAY_SCHEDULE["veto-competition"]`). */
-export const VETO_DRAW_PHASE: TimeOfDay = "morning";
-
 /** Readable names for the telegraphed milestones (narration priming + the HUD cue). Public, Vault-free. */
 export const MILESTONE_LABEL: Record<StructuralMilestone, string> = {
   "hoh-competition": "HOH competition",
   "nominations": "nomination ceremony",
+  "veto-draw": "veto player draw",
   "veto-competition": "Power of Veto competition",
   "veto-ceremony": "veto ceremony",
   "eviction": "eviction",
@@ -87,10 +88,10 @@ export interface NextMilestone {
 export function nextMilestone(live: LiveSeasonState | null | undefined): NextMilestone | null {
   const beat = live?.beat;
   if (!beat || !MILESTONE_BEATS.has(beat)) return null;
-  const m = beat as StructuralMilestone;
-  // ORW-116 (Ryne: "veto player draw in the morning", "the day of the veto comp"): the veto DRAW is the first advance of the veto-competition beat and is scheduled for the MORNING of the veto
-  // day; the competition itself (once the field is drawn) is the afternoon. `vetoField` is set exactly when the draw has happened.
-  const phase = m === "veto-competition" && !live?.vetoField ? VETO_DRAW_PHASE : DAY_SCHEDULE[m];
+  // ORW-281: the veto DRAW is its own milestone. The structural beat stays `veto-competition` (the draw is its first stage, so the seeded stream is untouched), but the schedule reads it as `veto-draw`
+  // (the morning of the veto day) until the field exists, and as the competition (afternoon) after.
+  const m: StructuralMilestone = vetoDrawStage(live!) ? "veto-draw" : (beat as StructuralMilestone);
+  const phase = DAY_SCHEDULE[m];
   return { beat: m, phase, targetHour: phaseStartHour(phase) };
 }
 
@@ -121,6 +122,7 @@ const DURATION_CATEGORY: Partial<Record<Beat, "competition" | "ceremony" | "evic
   "hoh-competition": "competition",
   "final-hoh-part": "competition", // 0128: each part of the three-part Final HOH costs a competition's time
   "veto-competition": "competition",
+  "veto-draw": "ceremony", // ORW-281: the chip draw is a mini ceremony - ceremony hours, not the flat default
   "nominations": "ceremony",
   "veto-ceremony": "ceremony",
   "eviction": "eviction",
@@ -171,7 +173,8 @@ function nightGatePendingForDue(live: LiveSeasonState): boolean {
  */
 const EVENT_BEFORE: Partial<Record<StructuralMilestone, StructuralMilestone>> = {
   nominations: "hoh-competition",
-  "veto-competition": "nominations",
+  "veto-draw": "nominations",
+  "veto-competition": "veto-draw",
   "veto-ceremony": "veto-competition",
   eviction: "veto-ceremony",
   "hoh-competition": "eviction",

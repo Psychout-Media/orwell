@@ -4437,8 +4437,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
           // fired). Skip BOTH recovery and the generic error surface so the settled live content
           // stands and the finally's reconcile adopts it. (This is the reader's own "Stream closed
           // before completion" throw when `message_saved` arrived without a trailing `[DONE]`.)
-          const _serverConfirmedDone = _streamSawDone || _sawMessageSaved ||
-            !!(holder && holder.dataset && holder.dataset.dbId);
+          const _serverConfirmedDone = _isServerConfirmedDone(_streamSawDone, _sawMessageSaved, holder);
           // Stream died unexpectedly — the "silently died" case. Re-engage the
           // model immediately (no wait) with a completion handshake, up to the
           // cap. Only auto-recover from connection-class failures; deterministic
@@ -4867,6 +4866,12 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
   // died" case). Deterministic errors — unsupported tools, HTTP 4xx/5xx, JSON
   // parse failures — will fail identically on retry, so surfacing them
   // immediately is both more honest and avoids wasting the nudge budget.
+  // F3: a turn the server has CONFIRMED complete: a [DONE] sentinel, a persisted message_saved, or a DB id already on the holder
+  // (also the ADR-0008 message-added completion adopted by the observer). A transport close after any of these is NOT an incomplete turn.
+  function _isServerConfirmedDone(sawDone, sawSaved, holder) {
+    return !!(sawDone || sawSaved || (holder && holder.dataset && holder.dataset.dbId));
+  }
+
   function _isRecoverableStreamErr(err) {
     if (!err) return false;
     if (err.name === 'TypeError') return true;   // fetch/reader network failure
