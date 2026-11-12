@@ -17,6 +17,7 @@
  *  - The holder's VIEW only: every input is the owner's own read (their threat/affinity edges, their memories, the public board).
  */
 import type { EntityId } from "../domain/ids";
+import { clamp01 } from "../domain/num";
 import type { Archetype, StrategyStyle, HiddenElementKind } from "./characterFactory";
 import { AGENDA, LONG_CON_ARCHETYPES, LONG_CON_STYLES, PHILOSOPHY_LEAN, SEASON_GOAL_LEAN, STUBBORNNESS, STYLE_LEAN, STYLE_STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
 import type { GamePhilosophy } from "./philosophyConstants";
@@ -141,7 +142,7 @@ export type AgendaTrigger =
 
 // --- Small pure helpers ------------------------------------------------------------------------------------------------------------
 
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+
 const strHash = (s: string): number => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h; };
 /** A unit roll from (seed, owner, salt) that touches no shared random stream. */
 export function agendaRoll(seed: number, owner: EntityId, salt: string): number {
