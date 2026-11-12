@@ -1718,7 +1718,9 @@ async def _llm_call_async_traced(
             policy = None
     # Only allocate a usage sink when we will actually meter (call_class + user) — otherwise the impl
     # stays byte-identical (no usage-accounting request, no capture).
-    _usage: Optional[Dict] = {} if (call_class and user) else None
+    # ORW-292: ALSO allocate it when the I/O trace is on, so a traced non-stream call's record carries the
+    # provider's usage even when it is not metered (no user). The ledger write stays call_class + user gated.
+    _usage: Optional[Dict] = {} if ((call_class and user) or llm_trace.enabled()) else None
     # The meta sink carries the terminal finish_reason (ADR 0010 #3 ledger field). Defined here so the
     # meter can read it regardless of whether the I/O trace is enabled; populated by both impl calls.
     _meta: Dict = {}
