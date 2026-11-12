@@ -155,6 +155,17 @@ const blocked = () => events.some((e) => e.startsWith("orwell:ws-blocked"));
     first.onclose && first.onclose();                      // the old one finally reports closed
     assert(lastSock === second && second.readyState !== 3, "the successor is untouched");
   }
+  // I: a RECONNECT asks THE dispatcher for a refresh (a ceremony step may have advanced while the phone was away); the first connect does not.
+  {
+    const ws = boot(); await tick();
+    const asked = [];
+    global.window.orwellGameChanged = (reason, beat) => asked.push(reason + ":" + beat);
+    await handshake(10);
+    assert(asked.length === 0, "a first connect is not a reconnect refresh: " + JSON.stringify(asked));
+    lastSock.onclose(); await advance(1000);
+    await handshake(12);
+    assert(asked.includes("ws:reconnect:12"), "the reconnect refreshes through the one dispatcher: " + JSON.stringify(asked));
+  }
   console.log("OK");
   process.exit(0);
 })();
@@ -248,4 +259,43 @@ def test_phone_viewport_the_socket_comes_back_after_idle_drop_mid_turn_drop_and_
         _send(page, say2, n1)
         _wait_settled(page, reply2)
         _expect_once(page, [(USER_BUBBLE, say2), (AI_BUBBLE, reply2)], "after the outage")
+        browser.close()
+
+
+def _step(step, of, text, kind="veto-ceremony"):
+    return {"kind": "ceremony-step", "id": f"{kind}-{step}", "binding": False, "text": text,
+            "ceremony": {"kind": kind, "step": step, "of": of, "stepId": f"{kind}-{step}"}}
+
+
+@pytest.mark.browser
+@pytest.mark.flaky(reruns=0)
+def test_phone_viewport_a_ceremony_step_that_advanced_while_the_socket_was_down_shows_after_reconnect(_stack):  # noqa: F811
+    """The pollers are off while a socket is live and the edge pings die with the socket, so a ceremony card changed during an outage must be re-read on reconnect."""
+    import json
+    from playwright.sync_api import sync_playwright
+
+    _session(_stack, "orw308-ceremony")
+    with sync_playwright() as pw:
+        browser = _launch(pw)
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        ctx.add_init_script(_WS_INIT)
+        page = ctx.new_page()
+        away = {"pending": None}
+
+        def status(route):
+            real = route.fetch()
+            body = real.json()
+            if away["pending"]:
+                body["pending"] = away["pending"]     # the engine moved to a ceremony step while we were away
+            route.fulfill(response=real, body=json.dumps(body), content_type="application/json")
+
+        page.route("**/api/orwell/status", status)
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        _wait_live(page)
+        assert page.query_selector(".odec-watch") is None
+        away["pending"] = _step(2, 3, "The host reads the veto result aloud.")
+        _kill_sockets(page)                              # the drop; the step advanced during the outage
+        page.wait_for_selector(".odec-watch", timeout=20000)   # reconnect -> one refresh through the dispatcher -> the card mounts
+        card = page.evaluate("() => { const c = document.querySelector('.odec-watch'); return { step: c.dataset.step, role: c.getAttribute('role'), n: document.querySelectorAll('.odec-watch').length }; }")
+        assert card == {"step": "2", "role": "group", "n": 1}, card
         browser.close()

@@ -825,6 +825,10 @@
           } catch (_) {}
         }
         _activate();
+        // ORW-308: a RECONNECT may have missed board changes (a ceremony step that advanced, a pending card that changed) while the phone was away: the state/hud edge pings that carried
+        // them died with the old socket, and the pollers are off while a socket is live. Route one refresh through THE single dispatcher helper (g15) so the HUD and the pending card
+        // re-read their projections now. Never an ad-hoc CustomEvent.
+        if (wasReconnect) { try { if (typeof window.orwellGameChanged === "function") window.orwellGameChanged("ws:reconnect", _beatSeq); } catch (_) {} }
         // Fresh window ⇒ full replay from 0; a reconnect resumes from the gap.
         _subscribeChat(wasReconnect ? _highestChatSeq + 1 : 0)
           .then(function (subAck) {
