@@ -51,7 +51,30 @@ def _run(_stack, tag, script, reply, refresh):
             for _ in range(6):
                 page.evaluate("() => { try { const a = document.querySelector('.list-item.active-session'); if (a) a.click(); } catch (e) {} }")
                 page.wait_for_timeout(120)
-        _wait_settled(page, reply)
+        try:
+            _wait_settled(page, reply)
+        except AssertionError as e:
+            # ORW-293d: a reply that never settles is the REAL flake (CI 09:5x on #2534: the new user line shown, no assistant bubble at all after 40 s). Say what the page and the
+            # server think, so the next red names the cause instead of just the DOM tail: socket/lock state in the page, the server's own history rows, and its stream status.
+            page_state = page.evaluate("""() => { const cm = window.chatModule, sm = window.sessionModule, ws = window.OrwellWs;
+              const cur = sm && sm.getCurrentSessionId && sm.getCurrentSessionId();
+              return { current: cur, hasActiveStream: !!(cm && cm.hasActiveStream && cm.hasActiveStream(cur)),
+                       ws: ws ? { mode: ws.mode && ws.mode(), active: ws.isActive && ws.isActive(), chatSubscribed: ws.isChatSubscribed && ws.isChatSubscribed(),
+                                  canonical: ws.canonicalId && ws.canonicalId(), lastRunId: ws.lastRunId && ws.lastRunId() } : null,
+                       aiBubbles: document.querySelectorAll('#chat-history .msg-ai').length, holders: document.querySelectorAll('#chat-history .msg-ai.streaming').length }; }""")
+            server = {}
+            try:
+                import json as _json, urllib.request as _ur
+                sid = page_state.get("current")
+                with _ur.urlopen(f"{_stack['fe']}/api/history/{sid}", timeout=15) as r:
+                    body = _json.loads(r.read() or b"{}")
+                rows = body if isinstance(body, list) else (body.get("messages") or body.get("history") or [])
+                server["rows"] = [{"role": m.get("role"), "text": str(m.get("content", ""))[:50]} for m in rows if isinstance(m, dict)][-8:]
+                with _ur.urlopen(f"{_stack['fe']}/api/chat/stream_status/{sid}", timeout=15) as r:
+                    server["stream_status"] = _json.loads(r.read() or b"{}")
+            except Exception as ex:  # diagnostics must never mask the real failure
+                server["error"] = type(ex).__name__
+            raise AssertionError(f"{e}\nDIAG page: {page_state}\nDIAG server: {server}\nDIAG console (last 25): {diag['console'][-25:]}")
         page.wait_for_timeout(1200)
         empties = page.evaluate("() => window.__empties")
         n_reply = _count_containing(page, AI_BUBBLE, reply)
