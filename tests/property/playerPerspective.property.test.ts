@@ -56,7 +56,8 @@ describe("ORW-299 - the player-perspective sentinel across every player-facing s
       total.ceremony += r.ceremony; total.recap += r.recap; total.chapter += r.chapter; total.ledger += r.ledger; total.dossier += r.dossier; total.shapes += r.shapes;
       for (const k of r.pendingKinds) total.pendingKinds.add(k);
     }
-    expect(total.finishedSeeds, "most seeds ran to a winner").toBeGreaterThanOrEqual(3);
+    // ORW-303 fixed (#2539): the schedule gate no longer freezes a player who has left, so EVERY seed runs to a winner (it used to stall on 10-14).
+    expect(total.finishedSeeds, "every seed ran to a winner").toBe(8);
     expect(total.ceremony, "staged ceremony step texts were produced and scanned").toBeGreaterThan(0);
     expect(total.ledger, "the day ledger had content").toBeGreaterThan(0);
     expect(total.recap, "a daily recap was produced and scanned").toBeGreaterThan(0);
