@@ -56,8 +56,8 @@ def test_dup_abort_runs_before_timestamp_or_id_stamping():
 
 def test_resume_paint_is_batched_per_chunk():
     src = _chat()
-    assert re.search(r"if \(json\.thinking\) reasoningText \+= json\.delta;\s*\n\s*"
-                     r"else replyText \+= json\.delta;.{0,600}?paintDirty = true;", src, re.S), \
+    # deliberate re-pin (ORW-59 R3 step 4): the inline F8 split became chatStreamMachine.splitChannel.
+    assert re.search(r"splitChannel\(\{ reply: replyText, reasoning: reasoningText \}, json\);.{0,600}?paintDirty = true;", src, re.S), \
         "delta handling marks dirty instead of painting per delta"
     assert re.search(r"if \(paintDirty\) \{ paintDirty = false; renderDelta\(\); \}", src), \
         "the chunk loop flushes one paint after its parts are processed (post-dup-check)"

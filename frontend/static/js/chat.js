@@ -30,7 +30,7 @@ import { isNarrow } from './platform.js';
 // imported binding is read-only; a shared object's fields are not). Behavior-preserving: chat.js
 // still owns all the logic and just references `chatState.X` where it used to reference `X`.
 import { chatState } from './chatState.js';
-import { applyDelta } from './chatStreamMachine.js';
+import { applyDelta, splitChannel } from './chatStreamMachine.js';
 import './orwellWsBlocked.js';
 // #1414 (R3 PR1): the #738 scroll-edge mask + recede-on-scroll banner — the first leaf
 // extraction from this god-object. Behavior-preserving: chat.js still calls
@@ -4800,8 +4800,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
           try { json = JSON.parse(payload); } catch (_) { continue; }
           if (json.type === 'user_message') continue;  // Sender already rendered its own bubble
           if (json.delta) {
-            if (json.thinking) reasoningText += json.delta;
-            else replyText += json.delta;
+            { const _ch = splitChannel({ reply: replyText, reasoning: reasoningText }, json); replyText = _ch.reply; reasoningText = _ch.reasoning; }  // ORW-59 R3 step 4: the one F8 split
             if (!gotDelta) { gotDelta = true; }
             paintDirty = true;
           } else if (json.type === 'message_saved') {
@@ -5380,8 +5379,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
           if (json.delta) {
             // Route reasoning (thinking:true) to its own buffer so it lands in the collapsed
             // accordion, exactly like the primary stream path — never raw into the bubble.
-            if (json.thinking) reasoningText += json.delta;
-            else replyText += json.delta;
+            { const _ch = splitChannel({ reply: replyText, reasoning: reasoningText }, json); replyText = _ch.reply; reasoningText = _ch.reasoning; }  // ORW-59 R3 step 4: the one F8 split
             if (!gotDelta) { gotDelta = true; try { spinner.destroy(); } catch (_) {} }
             // M1-1: paint per network CHUNK (after this parts-loop), not per delta — a
             // SETTLED run's replay arrives as one burst whose message_saved rides the same
