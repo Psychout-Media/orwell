@@ -165,6 +165,8 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
         return dict(status if status is not None else _NIGHT)
 
     monkeypatch.setattr(oe, "game_status", fake_status)
+    # The loop's OTHER engine reads (whereabouts, ...) have no engine behind them here: without this each one retried against a closed port with 0.5 s+ backoffs (~7 s per drive).
+    monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     rounds: list = []
     scripts = list(scripts if scripts is not None else [{"deltas": ["ok"]}])
@@ -181,6 +183,12 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
         yield "data: [DONE]\n\n"
 
     monkeypatch.setattr(al, "stream_llm_with_fallback", fake_stream)
+
+    async def _no_side_llm(*a, **k):  # the overseer / judge / extraction side calls would hit the unreachable test URL and wait out their timeouts (~7 s per drive)
+        return ""
+
+    import src.llm_core as _lc
+    monkeypatch.setattr(_lc, "llm_call_async", _no_side_llm)
 
     executed: list = []
 
@@ -303,7 +311,11 @@ def test_rejecter_held_turn_in_falls_back_to_the_textual_line_and_counts_nothing
     assert belts.get("forced-tool-fallback-line:turnIn") == 1
 
 
-@pytest.mark.parametrize("text", NEGATIVES)
+# Loop-level (each case drives the whole agent loop, ~3 s): only the cases most likely to be mistaken for a bedtime. The full NEGATIVES list is pinned at the detector level above.
+REJECTER_LOOP_NEGATIVES = ["I'm going to bed soon.", "Should I sleep?", "She went to bed.", "I'm not going to sleep.", "Goodnight everyone.", "I can't sleep."]
+
+
+@pytest.mark.parametrize("text", REJECTER_LOOP_NEGATIVES)
 def test_rejecter_never_runs_turn_in_for_talk_about_bed(monkeypatch, text):
     rounds, belts, _, executed = _drive(monkeypatch, text=text, model=DEEPSEEK, turn_in_result=_res("morning"))
     assert executed == [] and not belts
