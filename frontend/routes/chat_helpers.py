@@ -7921,6 +7921,30 @@ async def _e22_rich_extract(user, player_message, narration) -> bool:
 _NOOP_ABLE_PROGRESSION_TOOLS = frozenset({"advanceGame", "submitDecision"})
 
 
+_PROGRESS_ONLY_RE = re.compile(
+    r"^\s*(next|continue|go on|go ahead|keep going|carry on|proceed|ok(ay)?|ready|yes|yep|yeah|sure|skip|go|then\??|and then\??|what now\??|\.{1,3}|\u2026)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_progress_only_message(text) -> bool:
+    """ORW-288: True for a bare "keep the show moving" player message - one of a few continue words, or the agent loop's readiness cue ("move on", "let's go", "what's next") with NO other talk (the PO rule:
+    a readiness cue that also carries a real remark still counts as a scene). Pure and cheap."""
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if _PROGRESS_ONLY_RE.match(s):
+        return True
+    try:
+        from src.agent_loop import _LULL_READY_RE
+        if _LULL_READY_RE.search(s):
+            rest = _LULL_READY_RE.sub(" ", s)
+            return len(re.findall(r"[A-Za-z']+", rest)) < 4
+    except Exception:  # failsoft-ok: expected-empty (the classifier is an optimisation; on any error the guard keeps its old behaviour and records the fallback)
+        return False
+    return False
+
+
 async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None) -> bool:
     """E22 — the server-side guard for the cardinal sin. Prompt wording told the model to
     record scenes; nothing ENFORCED it (the GM asking "Record this interaction?" was the
@@ -7967,6 +7991,14 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
                 return False
         except Exception:  # fail-open: the guard's floor must still run
             pass
+    # ORW-288 (live premiere run, 2026-11-12: 32 of 52 premiere turns fired this WARN): a turn whose player message is a bare "keep going" prompt ("next", "continue", "ok" ...) carries NO social scene, and
+    # when the engine's board moved during it (the front-end's own pre-resolve advanced the premiere / a ceremony; the beats it committed are recorded events already) there is nothing for the fallback
+    # to fold - it only wrote a flat "Scene (auto-recorded): the player said 'next'" digest and paid an extraction call for it. A message that carries talk, or a turn where the board did NOT move, still gets the fallback.
+    if _is_progress_only_message(player_message) and isinstance(beat_seq_before, int):
+        _bn = last_beat_seq(user)
+        if isinstance(_bn, int) and _bn > beat_seq_before:
+            logger.info("[orwell] E22 guard: stood down - a bare progress prompt and the board advanced (beatSeq %s -> %s), no scene to fold (ORW-288) user=%s", beat_seq_before, _bn, user)
+            return False
     writes = [t for t in (tools_called or []) if t in GAME_ENGINE_WRITE_TOOLS]
     if writes:
         # A real write (recordInteraction, makeDeal, …) stands the fallback down by name. But when the
