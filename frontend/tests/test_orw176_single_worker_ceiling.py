@@ -1,11 +1,9 @@
 """ORW-176 - the front-end is a single worker with process-global state. Pin the recorded ceiling: nobody adds workers without moving that state,
-the documented inventory still names real globals, and the thread-pool knob does what it says."""
+and the documented inventory still names real globals."""
 import os
 import re
 
 import pytest
-
-from src import threadpool_tuning as TP
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.dirname(FRONTEND)
@@ -47,32 +45,3 @@ def test_the_documented_process_globals_exist_and_are_documented(module, names):
 
 def test_session_manager_keeps_its_sessions_in_process():
     assert re.search(r"self\.sessions\s*:\s*Dict\[str, Session\]\s*=\s*\{\}", _read(FRONTEND, "core", "session_manager.py"))
-
-
-def test_threadpool_size_unset_or_invalid_leaves_the_default():
-    for env in ({}, {"ORWELL_THREADPOOL_SIZE": ""}, {"ORWELL_THREADPOOL_SIZE": "abc"}, {"ORWELL_THREADPOOL_SIZE": "3"}, {"ORWELL_THREADPOOL_SIZE": "9999"}):
-        assert TP.requested_size(env) is None
-        class L: total_tokens = 40
-        lim = L()
-        assert TP.apply_threadpool_size(lim, env) is None and lim.total_tokens == 40
-
-
-def test_threadpool_size_valid_value_is_applied():
-    class L: total_tokens = 40
-    lim = L()
-    assert TP.apply_threadpool_size(lim, {"ORWELL_THREADPOOL_SIZE": "120"}) == 120
-    assert lim.total_tokens == 120
-
-
-def test_the_real_anyio_limiter_can_be_set():
-    import asyncio
-
-    async def go():
-        import anyio.to_thread
-        before = anyio.to_thread.current_default_thread_limiter().total_tokens
-        try:
-            assert TP.apply_threadpool_size(environ={"ORWELL_THREADPOOL_SIZE": "64"}) == 64
-            assert anyio.to_thread.current_default_thread_limiter().total_tokens == 64
-        finally:
-            anyio.to_thread.current_default_thread_limiter().total_tokens = before
-    asyncio.new_event_loop().run_until_complete(go())

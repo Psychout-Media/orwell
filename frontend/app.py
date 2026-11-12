@@ -1056,11 +1056,6 @@ async def runtime_info() -> Dict[str, object]:
 async def _lifespan(app):
     """Modern lifespan context manager replacing deprecated @app.on_event."""
     # ── STARTUP ──
-    try:
-        from src.threadpool_tuning import apply_threadpool_size  # ORW-176: opt-in (ORWELL_THREADPOOL_SIZE); unset leaves the anyio default (40) alone
-        apply_threadpool_size()
-    except Exception:  # failsoft-ok: tuning-knob (a bad pool size must never stop the server booting; the anyio default stands)
-        logger.debug("[threadpool] tuning skipped", exc_info=True)
     await _startup_event()
     yield
     # ── SHUTDOWN ──

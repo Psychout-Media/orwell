@@ -7,7 +7,7 @@ below. This is a recorded ceiling, not a bug; it is not urgent for the current p
 
 ## What the ceiling is
 
-- **Capacity** is one event loop plus one worker-thread pool (anyio default **40** tokens; `ORWELL_THREADPOOL_SIZE` can set it, unset keeps 40).
+- **Capacity** is one event loop plus one worker-thread pool (anyio default **40** tokens, not tuned).
   Blocking work (SQLite, engine-bridge calls, file IO) runs on that pool; the ORW-177 gate keeps the event loop itself free.
 - **The engine** (`orwell-engine`, Node) is a separate process and already holds the per-user game sandboxes; it is not what limits us here.
 
@@ -30,4 +30,4 @@ Pinned by `frontend/tests/test_orw176_single_worker_ceiling.py` so this list can
 2. **Pin users to workers.** Sticky routing by user (the `x-orwell-user` already keys everything): every request for one user reaches the same worker, so
    the in-memory state stays valid per user. Cheaper, but a worker restart drops that worker's users' run buffers (a resume then falls back to the saved history).
 
-Until then: one worker, measure first. If the pool is the limit, raise `ORWELL_THREADPOOL_SIZE` (watch memory; each thread is a stack).
+Until then: one worker, measure first. If the 40-thread pool proves to be the limit, tune it then, with a measurement behind it.
