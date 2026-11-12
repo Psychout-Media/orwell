@@ -15,7 +15,7 @@ import type { EntityId } from "./ids";
  * The first four are DEFENSIVE (negative-obligation) promises — "don't move against me". The last two
  * (0121) are ACTIVE (positive-obligation) promises — "do this FOR me" — where a break is a FAILURE TO ACT.
  */
-export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third";
+export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional";
 
 /** 0121 — the ACTIVE-obligation kinds: a break is a failure to act (throw the comp / use the veto to save). */
 const POSITIVE_KINDS: ReadonlySet<DealKind> = new Set<DealKind>(["comp-throw", "veto-save"]);
@@ -102,7 +102,7 @@ export interface Deal {
 /** The binding horizon of a deal kind (audit E43): one HOH reign, or the whole season. The active
  *  kinds (0121) resolve within their week — at that week's comp / veto ceremony. */
 export function horizonOf(kind: DealKind): "week" | "season" {
-  return kind === "safety" || kind === "vote" || kind === "comp-throw" || kind === "veto-save" ? "week" : "season";
+  return kind === "safety" || kind === "vote" || kind === "comp-throw" || kind === "veto-save" || kind === "conditional" ? "week" : "season";
 }
 
 /** A binding action through the live decision seam (0034/0005) the engine reconciles deals against. */
@@ -177,6 +177,8 @@ export function actionBreaks(deal: Deal, action: BindingAction): boolean {
   if (deal.status !== "open") return false;
   if (isPositiveObligation(deal.kind)) return positiveVerdict(deal, action) === "broken";
   if (!ADVERSE.has(action.kind)) return false;
+  // 0142 idea 3: a `conditional` deal ("if you are on the block I vote to keep you, and the same for me") only comes due at the VOTE - nominating the partner is not a break, the promise binds only if they end up on the block.
+  if (deal.kind === "conditional" && action.kind !== "vote-evict") return false;
   const c = deal.condition;
   if (!c.promisors.includes(action.actor)) return false;
   // The protected party was targeted — OR, for a mutual deal, either party was targeted by the other.
@@ -206,6 +208,7 @@ export function actionHonors(deal: Deal, action: BindingAction): boolean {
   if (deal.status !== "open") return false;
   if (isPositiveObligation(deal.kind)) return positiveVerdict(deal, action) === "kept";
   if (!ADVERSE.has(action.kind)) return false;
+  if (deal.kind === "conditional" && action.kind !== "vote-evict") return false; // 0142: only the vote can honor a conditional promise
   if (!deal.condition.promisors.includes(action.actor)) return false;
   const other = deal.parties.find((p) => p !== action.actor);
   if (!other || action.targets.length === 0 || action.targets.includes(other)) return false;

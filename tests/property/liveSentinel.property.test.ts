@@ -164,6 +164,7 @@ const args = (name: string, seed: number): Record<string, unknown> => {
     // The sweep proves the canary never bites its output (an empty subset is a valid capture).
     case "recordWorldSnapshot": return { slices: {} };
     case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
+    case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes
     // voiced prose — content-only. Point it at the real sentinel-bearing hidden event so the sweep
     // exercises the live write path; its result is a bare {ok} status that never echoes hidden content.

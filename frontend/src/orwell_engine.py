@@ -1346,6 +1346,14 @@ async def knowledge_scope_manifest(user: str | None = None):
     return await _call("knowledgeScopeManifest", {}, user=user)
 
 
+async def record_room_canon(room_id: str, feature: str, user: str | None = None) -> dict:
+    """ORW-223 (Showrunner memory, canon ledger v1): write ONE narrated texture feature of a room BACK to the engine as
+    append-only canon (``recordRoomCanon``). Sends exactly ``{roomId, feature}``; the engine re-validates the room, the
+    120-char cap and the content fence (no events, outcomes, secrets, places, devices, relationships, numbers) and
+    answers ``{accepted, reason?, entryId?}``. Vault-free; played games only."""
+    return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
+
+
 async def whereabouts(user: str | None = None):
     """The Vault-free presence read (0049): the player's room, who is in it, and who is in each
     ADJACENT room — names only, never motives or non-adjacent rooms. ``None`` pre-game."""

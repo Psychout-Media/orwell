@@ -841,6 +841,13 @@ export interface LiveSeasonState {
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
   /**
+   * ORW-275 (week chapters) - the last week a chapter boundary was surfaced for (default 1), and how many of `evictionOrder`
+   * that chapter's recap already covered. Both advance only at the played-game `turnIn` that detects `week > chapterWeek`.
+   * Persisted with the live state; absent on an older save or an unplayed sim => byte-identical.
+   */
+  chapterWeek?: number;
+  chapterEvictCursor?: number;
+  /**
    * ORW-282 — the highest game day that HAS a recap, and the append-only log of every day's digest (capped). Days that roll by the production schedule, the all-night wrap or a player who never turns in
    * used to get none (and the next bedtime recap lumped them under one label); a played game now catches up one recap per crossed day (`GameSessionAdapter.catchUpDailyRecaps`). Absent on a save from
    * before this field, and always absent in a headless sim ⇒ byte-identical there.
