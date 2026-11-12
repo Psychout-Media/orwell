@@ -10982,6 +10982,8 @@ export class GameSessionAdapter implements GameSession {
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
+    // 0142 idea 3: a conditional deal exists only for a played game with the deal-depth layer on (else refused, like the active kinds).
+    if (req.kind === "conditional" && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
     // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
     if (req.kind === "protect-third") {
       const gone = new Set(this.live.evictionOrder);

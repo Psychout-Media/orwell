@@ -936,6 +936,15 @@
     cancelRequest: cancelRequest,
     sendLayout: sendLayout,
     ensure: ensure,
+    // ORW-44 S4b: the WS-side bootstrap. sessionSync resolves the canonical game id over REST (no SSE in the WS-only game build); the moment one appears for a window that booted pre-game, kick() forces ONE
+    // immediate upgrade attempt (same recoverable-cause gate as ensure()), so a second window finds the live session without the old SSE run-started invitation.
+    kick: function () {
+      if (_mode !== "fallback") return false;
+      if (_fallbackReason !== "pregame-not-live" && _fallbackReason !== "pertab-pending") return false;
+      _lastUpgradeAttempt = 0; _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS;
+      _maybeUpgradeFromFallback();
+      return true;
+    },
     flagOn: _flagOn,   // ORW-44 S2: chat.js asks whether the WS transport is switched on (ORWELL_WS_TRANSPORT) before it treats the socket as the only send path
     rebind: rebind,
     isActive: function () { return _mode === "ws" && !!_sock && _sock.readyState === 1; },

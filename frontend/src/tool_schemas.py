@@ -2016,8 +2016,8 @@ _apply_game_build_schemas()
 # `with_deal_depth_kinds` swaps in the extended enum at SEND time when the flag is on (a deep copy, never
 # mutating the shared base). Off (the default) ⇒ the same list ⇒ byte-identical.
 BASE_DEAL_KINDS = ["safety", "vote", "final-two", "target-other"]
-ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save", "protect-third"]
-_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them; protect-third = they swear not to move against a named THIRD houseguest (pass `third`)"
+ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save", "protect-third", "conditional"]
+_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them; protect-third = they swear not to move against a named THIRD houseguest (pass `third`); conditional = a mutual pact that only binds if one of you lands on the block (each votes to keep the other)"
 
 
 def current_deal_kinds() -> list:

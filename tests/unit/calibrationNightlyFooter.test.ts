@@ -23,11 +23,11 @@ describe("calibration workflow carries no copy of the PO bands", () => {
 /** The cadence (card 21): weekly + on demand + PRs that touch tuning constants or default flags; the tracking issue is never opened from a PR run. */
 describe("calibration workflow cadence and triggers", () => {
   const wf = readFileSync(".github/workflows/calibration-nightly.yml", "utf8");
-  it("is weekly (not daily) with dispatch and a path-filtered pull_request trigger", () => {
+  it("is weekly (not daily) with dispatch and NO pull_request trigger (ORW-218, Ryne 2026-11-12: balance is not CI)", () => {
     expect(wf).toMatch(/cron: "17 3 \* \* 1"/);
     expect(wf).toContain("workflow_dispatch:");
-    expect(wf).toContain("pull_request:");
-    for (const p of ["temperatureConstants", "relationshipConstants", "decisionConstants", "juryConstants", "flagDefaults", "featureFlags", "orwell-env-defaults"]) expect(wf).toContain(p);
+    // deliberate re-pin (ORW-218): the per-PR trigger and its path filter were removed - up to 3 legs of 60 min on every flag-touching PR was pure CI cost; balance is a weekly + on-demand reading.
+    expect(wf).not.toMatch(/^  pull_request:/m);
   });
   it("only scheduled/dispatch runs open the tracking issue", () => {
     expect(wf).toMatch(/if: failure\(\) && github\.event_name != 'pull_request'/);

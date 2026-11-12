@@ -1,7 +1,6 @@
 name: calibration-nightly
 
-# CADENCE (AMEND Round-2 card 21, Ryne 2026-11-05): the balance gate need not run daily. It runs WEEKLY (Monday 03:17 UTC), on demand (workflow_dispatch), and on PULL REQUESTS that
-# FLIP a default flag or touch tuning constants (the `paths` below, incl. relationshipConstants -> COMP_WON_IMPACT; adding the `balance` label re-runs it on such a PR). It is never a required
+# CADENCE (AMEND Round-2 card 21, Ryne 2026-11-05): the balance gate need not run daily. It runs WEEKLY (Monday 03:17 UTC), on demand (workflow_dispatch), (ORW-218: no longer on pull requests). It is never a required
 # check and nobody should spend pre-playtest time on it - but it is on the pre-playtest/release checklist (docs/ROAD-TO-MARKET.md). The PO bands live ONLY in tests/calibration/poTargetBands.ts.
 
 # The PO-target calibration gate (tests/calibration/calibrationPoTarget.test.ts): passive / solid / reckless over 300 seeds on the DEFAULT flag
@@ -13,18 +12,8 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
-  pull_request:
-    # ORW-218 two tiers: a DRAFT PR skips this (three legs of up to 60 min) unless it carries `full-ci`; `ready_for_review` runs it when the draft is marked ready.
-    types: [opened, synchronize, reopened, labeled, ready_for_review]
-    paths:
-      - "src/domain/temperatureConstants.ts"
-      - "src/engine/relationshipConstants.ts"
-      - "src/engine/decisionConstants.ts"
-      - "src/engine/juryConstants.ts"
-      - "src/domain/flagDefaults.ts"
-      - "src/featureFlags.ts"
-      - "deploy/orwell-env-defaults.sh"
-      - "tests/calibration/poTargetBands.ts"
+  # ORW-218 (Ryne 2026-11-12: "I am not worried about the balance tests. Only CI."): the pull_request trigger is GONE - balance is a weekly + on-demand measurement, never per-PR CI cost
+  # (it ran up to 3 legs of 60 min on every PR touching featureFlags.ts / env-defaults). Run it from the Actions tab (workflow_dispatch) when a flag flip needs a reading.
 
 permissions:
   contents: read

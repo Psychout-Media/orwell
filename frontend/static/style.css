@@ -23145,6 +23145,29 @@ body.theme-frosted .msg-user:not(:nth-last-child(-n+12)) {
   backdrop-filter: none !important;
 }
 
+/* ORW-275: the week-chapter bar above the chat (only present for a played game spanning 2+ weeks). */
+.ow-chapter-bar {
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+  padding: .35rem .75rem; margin: 0 0 .25rem 0;
+  background: var(--panel, #111); color: var(--fg, #e6e6e6);
+  border-bottom: 1px solid var(--border, rgba(255,255,255,.15));
+  font-size: .85rem; line-height: 1.3;
+}
+.ow-chapter-bar .ow-chapter-title { font-weight: 600; }
+.ow-chapter-bar button.ow-chapter-back,
+.ow-chapter-bar select.ow-chapter-select {
+  min-height: 32px; padding: .2rem .6rem; border-radius: 8px; cursor: pointer;
+  background: transparent; color: inherit; border: 1px solid var(--border, rgba(255,255,255,.3)); font: inherit;
+}
+.ow-chapter-bar select.ow-chapter-select option { color: #111; background: #fff; }
+@media (max-width: 480px) { .ow-chapter-bar { padding: .3rem .5rem; font-size: .8rem; } }
+
+/* ORW-275: the week-chapter recap card (the boundary row) - a card, not a normal reply, and no reply actions on it. */
+.msg[data-kind="week-chapter"] .msg-footer { display: none; }
+.ow-week-card { padding: .6rem .8rem; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.25)); background: var(--panel, rgba(0,0,0,.2)); }
+.ow-week-card-title { font-weight: 700; font-size: 1.05rem; margin-bottom: .25rem; }
+.ow-week-card-line { margin: .1rem 0; }
+
 /* ORW-44 S3: persistent notice when the network cannot carry the live (WebSocket) connection. */
 .ow-ws-blocked {
   padding: .5rem .75rem; margin: 0 0 .25rem 0; font-size: .9rem; line-height: 1.35;
