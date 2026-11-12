@@ -1475,6 +1475,14 @@ export function isLiveReselect(id, currentId, chatModule) {
   } catch (_) { return false; }
 }
 
+/** ORW-293e: is the history snapshot BEHIND what the page already shows? True when the DOM holds a persisted message (a db id) that the snapshot does not contain. selectSession fetches the
+ * history first, then waits out a 120 ms fade, then wipes the pane and paints that snapshot. A turn that finishes in that window (its reply persisted and painted by the settle reconcile) makes
+ * the snapshot stale; painting it wipes the NEWER reply from the screen until a reload (seen in CI as "reply shown 0 times" while the server history had it). Pure, so it is unit-tested. */
+export function snapshotBehindDom(history, domDbIds) {
+  const have = new Set((history || []).map(m => String((m && (m.id || (m.metadata && m.metadata._db_id))) || '')).filter(Boolean));
+  return (domDbIds || []).some(id => id && !have.has(String(id)));
+}
+
 export async function selectSession(id, { keepSidebar = false } = {}) {
   if (isLiveReselect(id, currentSessionId, window.chatModule)) {
     const _el = document.querySelector(`.list-item[data-session-id="${id}"]`);
@@ -1666,6 +1674,13 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       chatHistory.style.opacity = '0';
       await new Promise(r => setTimeout(r, 120));
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
+      // ORW-293e: a same-session rebuild whose snapshot is BEHIND the page (a reply persisted and painted while we faded) must not wipe the newer content: keep it and restore the pane.
+      if (isSameSession && !isOC && snapshotBehindDom(msgHistory, Array.from(chatHistory.querySelectorAll('.msg[data-db-id]')).map(el => el.dataset.dbId))) {
+        chatHistory.style.transition = 'opacity 0.15s ease-in';
+        chatHistory.style.opacity = '1';
+        chatHistory.classList.remove('no-animate');
+        return;
+      }
       _liveHoldersToKeep = _collectLiveHolders();
       chatHistory.innerHTML = '';
     }
