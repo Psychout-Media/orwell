@@ -113,7 +113,7 @@ async def after_turn(narration: str, owner, endpoint_url, model, headers) -> int
         async def _llm(messages: list) -> str:
             return await llm_call_async(url=endpoint_url, model=model, messages=messages, headers=headers,
                                         temperature=0.2, max_tokens=600, timeout=30,
-                                        call_class="utility-extraction", user=owner)
+                                        call_class="utility-extraction", user=(owner or "default"))
 
         async def _write(payload: dict) -> dict:
             return await _oe.record_room_canon(payload["roomId"], payload["feature"], user=owner)

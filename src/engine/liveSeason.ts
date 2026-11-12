@@ -3232,7 +3232,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // block before the vote (player: their choice; NPC: a rational self-save). One eviction still lands.
       const sp = maybePlaySecretVeto(s, ctx, rng);
       if (sp.handled) return sp.event; // a reveal event (played) OR null with the player's choice pending
-      if (stagesCeremonies(s, ctx) && !s.twist && CEREMONY_STEPS.eviction && !s.ceremony) { // ORW-281 4d: a played, non-twist eviction opens with the speeches (no rng; nothing is named that is not already public)
+      if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.eviction && !s.ceremony) { // ORW-291 (A): a played eviction (twist weeks and each double-eviction cycle included - the twist fires in rollWeek, after the result) opens with the speeches (no rng; nothing is named that is not already public)
         s.ceremony = { kind: "eviction", hold: "eviction", steps: [...CEREMONY_STEPS.eviction.withChoice], at: 0 };
         s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
         return null;
