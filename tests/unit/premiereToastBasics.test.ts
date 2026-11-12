@@ -35,6 +35,33 @@ describe("the champagne toast gives real first impressions", () => {
     expect(prompt).toMatch(/never a data dump/i);
   });
 
+  it("the gathered-toast prompt carries every houseguest's public AGE next to their job (ORW-286)", () => {
+    const sb = premiere(7);
+    const pr = sb.session.premiereIntros()!;
+    const prompt = sb.session.getMomentPrompt({ moment: "premiere" }).systemPrompt;
+    const withBasics = pr.met.filter((c) => typeof c.age === "number" && c.vocation);
+    expect(withBasics.length).toBeGreaterThan(10);
+    for (const c of withBasics) expect(prompt, `${c.houseguest.id}: age then job`).toContain(`${c.age}, works as ${c.vocation}`);
+  });
+
+  it("the archetype rides the prompt only as the fenced private cue, never as a spoken fact (ORW-286)", () => {
+    const sb = premiere(7);
+    const pr = sb.session.premiereIntros()!;
+    const prompt = sb.session.getMomentPrompt({ moment: "premiere" }).systemPrompt;
+    const cued = pr.met.filter((c) => typeof (c as { archetype?: string }).archetype === "string" && (c as { archetype?: string }).archetype);
+    expect(cued.length, "the cards carry an archetype for the cue").toBeGreaterThan(0);
+    for (const c of cued) {
+      const label = (c as { archetype: string }).archetype;
+      const fenced = `(private cue, never said aloud: ${label})`;
+      // the houseguest's own roster line(s): the archetype label may appear there ONLY inside the fenced cue
+      const lines = prompt.split("\n").filter((l) => l.includes(c.houseguest.name) && l.includes("(private cue"));
+      expect(lines.length, `${c.houseguest.id}: a roster line with the fenced cue`).toBeGreaterThan(0);
+      // KNOWN FINDING (ORW-286, on the card): the deterministic FLOOR background is the template "a <job> who plays as a <archetype>" (characterFactory.ts:814/875), which puts the label in a PUBLIC field. Live
+      // casting replaces it with the model-authored background (Ryne: no fallback), so it only reaches a prompt when authoring is off; the template is stripped here and tracked separately.
+      for (const l of lines) expect(l.replace(fenced, "").replace(`who plays as a ${label}`, ""), `${c.houseguest.id}: archetype outside the fenced cue`).not.toContain(label);
+    }
+  });
+
   it("stays Vault-free: no secret, tie or hidden fields ride the card", () => {
     const sb = premiere(5);
     const c = JSON.stringify(sb.session.premiereIntros()!.met[0]);
