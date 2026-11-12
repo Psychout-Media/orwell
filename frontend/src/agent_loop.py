@@ -2957,6 +2957,33 @@ _EXTRACTION_UNTRUSTED_FENCE = (
 )
 
 
+def _progress_only_board_advanced(owner, last_user, beat_seq_before) -> bool:
+    """ORW-292: True for a bare progress prompt ("next", "continue", a readiness cue with no real talk;
+    ``chat_helpers._is_progress_only_message``, the PO rule: a cue carrying real talk still counts as a scene)
+    on a turn where the engine's board moved (beatSeq grew over the turn). There is no player scene to fold,
+    so the in-loop ``_auto_record_scene`` extraction is skipped - the same reason the ORW-288 E22 fallback
+    stands down. Fail-open: any error or a missing baseline returns False (the extraction runs as before)."""
+    try:
+        if not isinstance(beat_seq_before, int):
+            return False
+        from routes import chat_helpers as _ch
+        if not _ch._is_progress_only_message(last_user):
+            return False
+        now = _ch.last_beat_seq(owner)
+        return isinstance(now, int) and now > beat_seq_before
+    except Exception:  # failsoft-ok: expected-empty (an optimisation; on error the extraction runs as before)
+        return False
+
+
+def _meter_user(owner):
+    """ORW-292: the user key a utility call meters under. Auth-off (AUTH_ENABLED=false, the owner's real
+    posture) runs with ``owner=None``; ``llm_call_async`` only meters when it has a user, so every belt
+    call went unmetered (no ledger line, no usage in the llm-io record) in that posture. The token ledger
+    already buckets a missing user as "default" (``orwell_token_ledger._key``) and the admin view reads
+    that same bucket, so meter under it."""
+    return owner or "default"
+
+
 def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers):
     """Resolve the cheap UTILITY endpoint+model for the ``_auto_*`` error-correction extraction belts.
 
@@ -3011,7 +3038,7 @@ async def _move_player_extract(narration, last_user, endpoint_url, model, header
     # Room for a reasoning model to think THEN emit the tiny room JSON (see _auto_record_scene).
     raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                temperature=0.1, max_tokens=1200, timeout=45,
-                               call_class="utility-extraction", user=owner)
+                               call_class="utility-extraction", user=_meter_user(owner))
     return raw or ""
 
 
@@ -3150,7 +3177,7 @@ async def _move_npc_extract(narration, last_user, house, endpoint_url, model, he
     # Room for a reasoning model to think THEN emit the moves JSON (see _auto_record_scene).
     raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                temperature=0.1, max_tokens=1500, timeout=45,
-                               call_class="utility-extraction", user=owner)
+                               call_class="utility-extraction", user=_meter_user(owner))
     return raw or ""
 
 
@@ -3537,7 +3564,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # routes everything there.)
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.2, max_tokens=1500, timeout=45,
-                                   call_class="utility-extraction", user=owner)
+                                   call_class="utility-extraction", user=_meter_user(owner))
         raw = raw or ""
         # The JSON may sit after a reasoning block OR inside it — take the LAST object carrying
         # withIds (reasoning models emit the answer last). The object may now NEST a `consequence`
@@ -4277,7 +4304,7 @@ async def _auto_record_casting(last_user, narration, endpoint_url, model, header
         # Room for a reasoning model to think THEN emit the tiny JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "fields")
         if obj is None:
             logger.info(f"[orwell] auto-casting: no parseable JSON (len={len(raw)})")
@@ -4371,7 +4398,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         # Room for a reasoning model to think THEN emit the deal JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = None
         for cand in reversed(re.findall(r"\{[^{}]*\"struck\"[^{}]*\}", raw, re.DOTALL)):
             try:
@@ -4463,7 +4490,7 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
         ]
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=600, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         ans = None
         for cand in reversed(re.findall(r"\{[^{}]*\"answer\"[^{}]*\}", raw, re.DOTALL)):
             try:
@@ -4564,7 +4591,7 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
         # Room for a reasoning model to think THEN emit the tiny npcId JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         # The JSON may sit after a reasoning block — take the LAST object carrying an "npcId" key.
         obj = _last_json_object_with_key(raw, "npcId")
         if obj is None:
@@ -4712,7 +4739,7 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
         ]
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "factId")
         if obj is None:
             logger.info(f"[orwell] auto-expose: no parseable JSON (len={len(raw)}) user={owner}")
@@ -4795,7 +4822,7 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
         ]
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
-                                   call_class="utility-extraction", user=owner) or ""
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "factId")
         if obj is None:
             logger.info(f"[orwell] auto-trade: no parseable JSON (len={len(raw)}) user={owner}")
@@ -9079,7 +9106,9 @@ async def _stream_agent_loop_impl(
                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner):
                                 # gap #3 telemetry — only a tradeSecret the belt actually FIRED counts
                                 _note_belt(owner, "auto-trade-secret")
-                        if _want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN:
+                        if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
+                                and not _progress_only_board_advanced(
+                                    owner, _extract_last_user_message(messages), _ledger_beat_seq_before)):
                             _turn_record_nudges += 1  # once per turn
                             if await _auto_record_scene(cleaned_round, _extract_last_user_message(messages),
                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner,
@@ -11143,7 +11172,7 @@ async def _stream_agent_loop_impl(
     # and the soft spend-alert reads. Keyed by the CANONICAL game session (0064) so every device's
     # turns aggregate into one game. Fail-open — observability never hurts a turn; no player surface
     # ever sees these numbers. (Casting/utility-call metering is a follow-on.)
-    if _is_live_game and owner:
+    if _is_live_game:  # ORW-292: owner=None (auth-off) meters under the ledger's "default" bucket
         try:
             from src import orwell_token_ledger as _tl
             try:
