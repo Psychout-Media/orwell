@@ -15,7 +15,7 @@ def _node(program):
     if not node:
         pytest.skip("node not available")
     mod = os.path.join(STATIC, "chatStreamMachine.js").replace("\\", "/")
-    p = subprocess.run([node, "--input-type=module", "-e", f"import {{ applyDelta }} from 'file://{mod}';\n{program}"], capture_output=True, text=True, timeout=60)
+    p = subprocess.run([node, "--input-type=module", "-e", f"import {{ applyDelta, splitChannel }} from 'file://{mod}';\n{program}"], capture_output=True, text=True, timeout=60)
     assert p.returncode == 0, p.stderr
     return json.loads(p.stdout)
 
@@ -78,3 +78,16 @@ const r = applyDelta(st, {delta:'q', thinking:false});
 process.stdout.write(JSON.stringify({r, st}));""")
     assert out["st"] == {"accumulated": "x", "roundText": "y", "roundReplyText": "z", "roundReasoningText": "w", "thinkOpen": True}
     assert out["r"]["accumulated"] == "x</think>q" and out["r"]["thinkOpen"] is False
+
+
+def test_split_channel_matches_applydelta_and_the_two_sibling_loops_use_it():
+    """R3 step 4 slice: splitChannel is the same F8 split applyDelta does, and chat.js's resume + background loops call it instead of re-implementing it."""
+    out = _node("""const ds=[{delta:'a',thinking:true},{delta:'B'},{delta:'c',thinking:false},{delta:'d',thinking:true},{delta:'E',thinking:undefined}];
+let b={reply:'',reasoning:''}; const frozen=Object.freeze({reply:'x',reasoning:'y'}); splitChannel(frozen,{delta:'z'});
+let st={accumulated:'',roundText:'',roundReplyText:'',roundReasoningText:'',thinkOpen:false};
+for (const d of ds){ b=splitChannel(b,d); st=applyDelta(st,d); }
+process.stdout.write(JSON.stringify({b, a:{reply:st.roundReplyText,reasoning:st.roundReasoningText}}));""")
+    assert out["b"] == out["a"] == {"reply": "BcE", "reasoning": "ad"}
+    src = open(os.path.join(STATIC, "chat.js"), encoding="utf-8").read()
+    assert src.count("splitChannel({ reply: replyText, reasoning: reasoningText }, json)") == 2
+    assert "if (json.thinking) reasoningText += json.delta" not in src, "an inline copy of the F8 split came back"
