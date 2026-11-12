@@ -55,12 +55,16 @@ describe("the seeded draw", () => {
   });
 });
 
-describe("pure only: the only caller in src is the adapter's nomination-style read (ORW-37 wired it)", () => {
+describe("pure only: the callers in src are the adapter's nomination-style read (ORW-37 wired it) and the NPC agenda (ORW-253)", () => {
   const files = (d: string, out: string[] = []): string[] => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (p.endsWith(".ts")) out.push(p); } return out; };
   // Any import/export-from or dynamic import whose specifier ENDS in /philosophy or /philosophyConstants (any depth: ./x, ../engine/x, ../../engine/x).
   const IMPORT = /(?:from|import)\s*\(?\s*["'][^"']*\/philosophy(?:Constants)?["']/;
   const users = (): string[] => files("src").filter((f) => !/\/philosophy(Constants)?\.ts$/.test(f)).filter((f) => IMPORT.test(readFileSync(f, "utf8")));
-  it("no src file other than the philosophy modules and the adapter imports them", () => { expect(users()).toEqual(["src/adapters/engine/GameSessionAdapter.ts"]); });
+  // ORW-253 slice 1 (Ryne approved the NPC minds design 2026-11-12): the agenda reads a houseguest's philosophy as one of their own
+  // traits (season-goal leanings), type-only imports, so a season aim comes from the person and not only the archetype. Intended callers.
+  it("no src file other than the philosophy modules, the adapter and the agenda imports them", () => {
+    expect(users().sort()).toEqual(["src/adapters/engine/GameSessionAdapter.ts", "src/engine/agenda.ts", "src/engine/agendaConstants.ts"]);
+  });
   it("the pin recognises every import shape (a mutant that wires it from an adapter would be caught)", () => {
     for (const line of ['import { x } from "../engine/philosophy";', "import { x } from '../../engine/philosophyConstants';", 'import { x } from "./philosophy";', 'import("../engine/philosophy");', 'export * from "../engine/philosophy";']) expect(IMPORT.test(line), line).toBe(true);
     for (const line of ['import { x } from "../engine/philosophyOther";', 'import { x } from "../engine/notphilosophy2";']) expect(IMPORT.test(line), line).toBe(false);
