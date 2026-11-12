@@ -5850,6 +5850,65 @@ async def screen_streamed_met_everyone(user, sentence: str) -> bool:
         return True  # fail-open: never suppress on an error.
 
 
+# ── ORW-310 — the PRE-EMISSION "unbacked morning" guard. ───────────────────────────────────────── #
+# Live: the player went to bed, the model never called `turnIn`, and the narrator narrated a whole morning
+# (a houseguest waking the player) while the engine sat on Day 1 late-night. WHAT TIME IT IS and WHICH DAY is
+# closed-set board truth (the engine clock); a sentence that ASSERTS the morning/next day has arrived while
+# the board still reads evening/night/late-night is a phantom, dropped before the player sees it, with a
+# next-turn re-ground. Deliberately narrow (ADR 0005 #1): only a present/past ASSERTION of the day turning
+# ("the next morning comes", "morning arrives", "it is the next morning", "wakes you the next morning"), never
+# atmosphere ("morning light" - the A95 post-turn nudge owns that), and a future / hypothetical / dream
+# sentence is exempt. Fail-open on any engine hiccup.
+_UNBACKED_MORNING_RE = re.compile(
+    r"\b(?:the\s+)?next\s+(?:morning|day)\s+(?:comes|came|arrives|arrived|dawns|dawned|breaks|broke)\b"
+    r"|\bmorning\s+(?:has\s+|had\s+)?(?:comes?|came|arrives?|arrived|breaks?|broke|dawns?|dawned)\b"
+    r"|\bit(?:'s|\u2019s|\s+is|\s+was)\s+(?:now\s+|already\s+)*(?:the\s+)?(?:next\s+)?(?:morning|day\s+(?:2|two|3|three))\b"
+    r"|\b(?:wak\w+|woke|rous\w+|awaken\w*)\b[^.!?\n]{0,40}\b(?:next\s+morning|morning\s+(?:light|sun|sunlight)|in\s+the\s+morning)\b",
+    re.IGNORECASE,
+)
+_UNBACKED_MORNING_EXEMPT_RE = re.compile(
+    r"\b(?:will|would|could|might|going\s+to|about\s+to|if|imagine|suppose|tomorrow|until|till|before|when|whenever|dream\w*|hope|wish|"
+    r"see\s+you|wake\s+you\s+(?:up\s+)?(?:in|at|early|tomorrow)|'ll|\u2019ll)\b",
+    re.IGNORECASE,
+)
+_UNBACKED_MORNING_BOARD_TIMES = frozenset({"evening", "night", "late-night"})
+
+
+def _sentence_has_unbacked_morning_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter: does `text` assert the morning / next day has arrived (and is not a
+    future / hypothetical / dream sentence)? Keeps the ORW-310 guard off every other sentence."""
+    if not text or not _UNBACKED_MORNING_RE.search(text):
+        return False
+    return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
+
+
+async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
+    """ORW-310 mid-stream screen: HOLD (return False) a sentence asserting the morning/next day arrived while
+    the engine clock still reads evening/night/late-night; else EMIT (True). Stashes a next-turn re-ground when
+    it holds. Fail-open: any hiccup, an absent clock or a non-night band returns True (emit)."""
+    try:
+        if not _sentence_has_unbacked_morning_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        if not isinstance(status, dict):
+            return True
+        tod = str(status.get("timeOfDay") or "").strip().lower()
+        if tod not in _UNBACKED_MORNING_BOARD_TIMES:
+            return True
+        lab = status.get("clockLabel")
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
+            "reads " + (str(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
+            "goes to bed, call the `turnIn` tool FIRST and voice the morning only from what it returns.")
+        logger.warning("[orwell] pre-emission guard HELD an unbacked-morning claim for user=%s - engine clock still %s", user, tod)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission unbacked-morning guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
 def _sentence_has_met_everyone_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the player met the whole house? Keeps the S7
     guard off every sentence that never mentions it (mirrors `_sentence_has_closed_set_claim`)."""
