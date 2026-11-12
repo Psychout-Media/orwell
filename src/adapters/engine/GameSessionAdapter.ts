@@ -1138,6 +1138,12 @@ export class GameSessionAdapter implements GameSession {
   }
   /** True once the front-end has announced a player message (clock billing is per message from then on). */
   messageModeNow(): boolean { return this.messageMode; }
+  /**
+   * ORW-281 slice 5: the ONE "a person is PLAYING this game" predicate for the event-staging seams (comp round/crown hours, the eviction step spread, the ceremony gather) - `live.playedGame`, the persisted
+   * flag `noteMessage` sets, the same one the day schedule / night gate key on. Replaces the memory-only `messageMode` at those seams; `messageMode` stays the CLOCK-BILLING mode (billClockForCommit,
+   * clock-free commit diff, the world-plan), which is a different question. Headless drivers never announce a message, so both are false and the seeded trajectories are byte-identical.
+   */
+  playedGameNow(): boolean { return this.live?.playedGame === true; }
   /** The orchestrator's single clock-billing seam for a committed player turn (see `noteMessage`): legacy per-commit step until messages are announced, then nothing. */
   billClockForCommit(): void {
     if (!this.messageMode) this.advanceClockPerConversation();
@@ -4435,6 +4441,7 @@ export class GameSessionAdapter implements GameSession {
       ? { key: core.approachShown.key, initiators: [...core.approachShown.initiators] }
       : undefined;
     this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
+    if (this.live && this.seenMessageIds.length > 0) this.live.playedGame = true; // ORW-281 slice 5: a save that predates the persisted flag (or lost it) but has announced messages IS a played game - backfill so the two notions agree
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.copresenceTold = ToldLedger.restore(core.toldLedger);
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
@@ -10368,7 +10375,7 @@ export class GameSessionAdapter implements GameSession {
       // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
       // deficit is 0 (no night ran) and the conflict tally is still empty.
       // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
-      const compRoundHours = this.timeOfDayEnabled && this.messageMode && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+      const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
         ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
         : null;
       if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)) || (compRoundHours !== null && compRoundHours > 0))) {
@@ -10380,14 +10387,14 @@ export class GameSessionAdapter implements GameSession {
         // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
         let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
-        if (feltHours !== null && this.messageMode && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
+        if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
         // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
         // so one eviction night ran most of a day and the finale ran for days).
         // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
         // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
         const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.messageMode ? EVENT_SPREAD_STEPS : undefined)
+          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
           : null;
         if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
         else if (eventHours !== null) advanceClock(this.live!, eventHours);
@@ -13045,7 +13052,7 @@ export class GameSessionAdapter implements GameSession {
   private advanceView(ev: BeatEvent | null): AdvanceView {
     const s = this.live;
     // ORW-247b: a ceremony beat that RESOLVED this advance (an NPC HOH's nominations, a veto ceremony, an eviction) has no player pending, but its scene is still the narrated moment: keep the house gathered for it until the player next speaks. Only for a game a person is PLAYING (`messageMode`); a headless calibration/UAT/BDD sim never gathers, so its seeded outcomes stay byte-identical.
-    if (ev && this.messageMode) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
+    if (ev && this.playedGameNow()) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
     // T0-3 — drain whatever `commit()` buffered for THIS transaction (one or two commits, per the
     // T0-2 auto-advance chain — see `submitDecision`) into the returned view, then clear the buffer so
     // it never bleeds into a LATER, unrelated `advanceView()` call. Each entry's `beatSeq` is still

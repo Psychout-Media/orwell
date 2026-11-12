@@ -81,7 +81,13 @@ async function _resolveCanonicalGameSession() {
 // next loadSessions() re-resolves instead of forcing a stale id. The dispatcher is platform.js's
 // debounced orwell:gamechanged (the single g15 dispatcher) — we only LISTEN here.
 try {
-  window.addEventListener('orwell:gamechanged', () => { _canonGameCache = { id: null, at: 0 }; });
+  window.addEventListener('orwell:gamechanged', (e) => {
+    // ORW-168: a routine wave (a settled turn, the tab coming back, a decision card) never rebinds the game, so it must not drop
+    // the 4 s cache. ANY other / unknown / absent reason (next-season, reset, sync:game-updated, ws:state, a tool) still invalidates.
+    const rs = (e && e.detail && Array.isArray(e.detail.reasons)) ? e.detail.reasons : null;
+    if (rs && rs.length && rs.every((r) => r === 'turn-settled' || r === 'tab-visible' || String(r).indexOf('decision:') === 0)) return;
+    _canonGameCache = { id: null, at: 0 };
+  });
 } catch (_) {}
 
 // Research indicator tracking
@@ -3167,6 +3173,7 @@ const sessionModule = {
   getCurrentModel,
   getCurrentEndpointUrl,
   setCurrentSessionId,
+  _resolveCanonicalGameSession,   // ORW-168: test seam (read-only resolver; cached)
   initDragSort,
   updateModelPicker,
   markResearching,
