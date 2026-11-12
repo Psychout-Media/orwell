@@ -6,7 +6,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
-  DailyRecapView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
+  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -14,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordRoomCanonReq, RecordRoomCanonResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -22,6 +22,7 @@ import type {
   BeatAnnouncementView,
   NotorietyLegendView,
 } from "../../ports/GameSession";
+import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
 import { humanizeIds, humanizeForRetrospective } from "./humanize";
@@ -219,6 +220,8 @@ import type { CompEffort } from "../../engine/liveSeason";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
+import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
@@ -327,7 +330,7 @@ import { derivedLoyalty } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
-import { emptyCanonLedger, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
+import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, legendFrom, legendSeedProbability } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
@@ -549,6 +552,8 @@ const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
 const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
 const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_STANDALONE");
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
+/** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
+const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1138,6 +1143,12 @@ export class GameSessionAdapter implements GameSession {
   }
   /** True once the front-end has announced a player message (clock billing is per message from then on). */
   messageModeNow(): boolean { return this.messageMode; }
+  /**
+   * ORW-281 slice 5: the ONE "a person is PLAYING this game" predicate for the event-staging seams (comp round/crown hours, the eviction step spread, the ceremony gather) - `live.playedGame`, the persisted
+   * flag `noteMessage` sets, the same one the day schedule / night gate key on. Replaces the memory-only `messageMode` at those seams; `messageMode` stays the CLOCK-BILLING mode (billClockForCommit,
+   * clock-free commit diff, the world-plan), which is a different question. Headless drivers never announce a message, so both are false and the seeded trajectories are byte-identical.
+   */
+  playedGameNow(): boolean { return this.live?.playedGame === true; }
   /** The orchestrator's single clock-billing seam for a committed player turn (see `noteMessage`): legacy per-commit step until messages are announced, then nothing. */
   billClockForCommit(): void {
     if (!this.messageMode) this.advanceClockPerConversation();
@@ -1172,6 +1183,7 @@ export class GameSessionAdapter implements GameSession {
    * with holder===subject, dropped). DEFAULT-ON since 2026-11-04 with the standalone read (3-arm PO bands held); `=0` / `ORWELL_FLAGS_OFF=1` opts out. Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
+  private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -4435,6 +4447,7 @@ export class GameSessionAdapter implements GameSession {
       ? { key: core.approachShown.key, initiators: [...core.approachShown.initiators] }
       : undefined;
     this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
+    if (this.live && this.seenMessageIds.length > 0) this.live.playedGame = true; // ORW-281 slice 5: a save that predates the persisted flag (or lost it) but has announced messages IS a played game - backfill so the two notions agree
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.copresenceTold = ToldLedger.restore(core.toldLedger);
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
@@ -8509,6 +8522,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
+  setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -10368,7 +10382,7 @@ export class GameSessionAdapter implements GameSession {
       // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
       // deficit is 0 (no night ran) and the conflict tally is still empty.
       // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
-      const compRoundHours = this.timeOfDayEnabled && this.messageMode && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+      const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
         ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
         : null;
       if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat)) || (compRoundHours !== null && compRoundHours > 0))) {
@@ -10380,14 +10394,14 @@ export class GameSessionAdapter implements GameSession {
         // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
         let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
-        if (feltHours !== null && this.messageMode && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
+        if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
         // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
         // so one eviction night ran most of a day and the finale ran for days).
         // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
         // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
         const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.messageMode ? EVENT_SPREAD_STEPS : undefined)
+          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
           : null;
         if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
         else if (eventHours !== null) advanceClock(this.live!, eventHours);
@@ -10533,6 +10547,44 @@ export class GameSessionAdapter implements GameSession {
     if (candidates.length === 1) return candidates[0];
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:daily-recap:${day}`));
     return rng.pick(candidates);
+  }
+
+  /** ORW-277 - the in-memory Show Brief alarm (never persisted, never in the snapshot): a counter and the first failure's code. */
+  private briefAlarm: { failures: number; first: "threw" | "empty" } | undefined;
+  private noteBriefFailure(code: "threw" | "empty"): void {
+    if (!this.briefAlarm) {
+      this.briefAlarm = { failures: 0, first: code };
+      console.error(`[orwell] ALERT show-brief build ${code} in a played game (once per session; the turn continues without a brief)`);
+    }
+    this.briefAlarm.failures++;
+  }
+  /** Vault-free admin read: undefined until a failure has happened. Codes and a count only. */
+  briefAlarmStatus(): { failures: number; first: "threw" | "empty" } | undefined {
+    return this.briefAlarm ? { ...this.briefAlarm } : undefined;
+  }
+
+  /**
+   * ORW-223 slice 2 - the Show Brief's OPEN THREADS lines: in-motion threads the player already knows, by KIND and
+   * STATUS only (never an id, a number, a term, or any NPC motive). Sources are the player's own deals (the public
+   * ledger view) and what reached the player's knowledge since the last day close (the daily-recap source). No rng.
+   */
+  private openThreadLines(): string[] {
+    if (!this.house || !this.live) return [];
+    const week = this.live.week;
+    const lines: string[] = [];
+    for (const d of this.deals.forParty(PLAYER)) {
+      if (d.status !== "open") continue;
+      const other = d.parties.find((p) => p !== PLAYER);
+      if (!other) continue;
+      const who = this.nameOf(other);
+      const owed = isPositiveObligation(d.kind) && d.condition.promisors.includes(PLAYER);
+      const running = d.vague === true || (d.expiresWeek !== undefined && d.expiresWeek - week <= 1);
+      lines.push(owed ? `a promise you owe ${who}: still open` : `a deal with ${who}: ${running ? "running out" : "still standing"}`);
+    }
+    const known = this.playerKnowledgeReader?.() ?? [];
+    const from = Math.min(this.live.dailyRecapKnowledgeCursor ?? 0, known.length);
+    if (known.slice(from).some((f) => f.pathway !== NO_NPC_PATHWAY)) lines.push("a rumor that reached you: unconfirmed");
+    return lines;
   }
 
   /**
@@ -10681,6 +10733,27 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
   setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }
+  private weekChaptersEnabled = flagDefaultOn("ORWELL_WEEK_CHAPTERS");
+  setWeekChaptersEnabled(on: boolean): void { this.weekChaptersEnabled = on; }
+
+  /**
+   * ORW-275 - the week-boundary detector, run inside the `turnIn` commit. A played game whose `week` has passed `chapterWeek`
+   * (an eviction completed since the last chapter) gets ONE Vault-free recap and the cursors advance. No rng, no event, no fold.
+   */
+  private materializeWeekChapter(): WeekChapterView | undefined {
+    const s = this.live;
+    if (!s || !this.weekChaptersEnabled || s.playedGame !== true) return undefined;
+    const seen = s.chapterWeek ?? 1;
+    if (s.week <= seen) return undefined;
+    const from = Math.min(s.chapterEvictCursor ?? 0, s.evictionOrder.length);
+    const evicted = s.evictionOrder.slice(from).map((id) => this.nameOf(id));
+    const hoh = s.hoh ? this.nameOf(s.hoh) : null;
+    const remain = `${s.active.length} houseguests remain.`;
+    const standing = s.hoh === PLAYER ? `You are the Head of Household. ${remain}` : `You are still in the game. ${remain}`;
+    s.chapterWeek = s.week;
+    s.chapterEvictCursor = s.evictionOrder.length;
+    return { week: s.week, recap: { evicted, hoh, standing } };
+  }
   turnIn(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
     // 0065 Part B — replay an already-ended night verbatim (wins even if beatSeq has since moved), so a
     // retried/duplicate turnIn is REPLAYED, not re-executed: `playerTurnIn` never re-stamps `lastSleepDepth`
@@ -10709,6 +10782,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       const recap = this.materializeDailyRecap();
+      const weekChapter = this.materializeWeekChapter();
       // 0122 — most living NPCs privately confess the day that just closed (deeper than 0040, bare games
       // skipped). No-op unless the flag + in-game clock are live ⇒ byte-identical off. Records Vault-only.
       this.sweepDailyConfessionals(closingDay);
@@ -10717,7 +10791,7 @@ export class GameSessionAdapter implements GameSession {
       this.rollNightConflicts();
       this.persist();
       const view = this.advanceView(null);
-      return recap ? { ...view, dailyRecap: recap } : view;
+      return { ...view, ...(recap ? { dailyRecap: recap } : {}), ...(weekChapter ? { weekChapter } : {}) };
     }));
   }
 
@@ -13045,7 +13119,7 @@ export class GameSessionAdapter implements GameSession {
   private advanceView(ev: BeatEvent | null): AdvanceView {
     const s = this.live;
     // ORW-247b: a ceremony beat that RESOLVED this advance (an NPC HOH's nominations, a veto ceremony, an eviction) has no player pending, but its scene is still the narrated moment: keep the house gathered for it until the player next speaks. Only for a game a person is PLAYING (`messageMode`); a headless calibration/UAT/BDD sim never gathers, so its seeded outcomes stay byte-identical.
-    if (ev && this.messageMode) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
+    if (ev && this.playedGameNow()) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
     // T0-3 — drain whatever `commit()` buffered for THIS transaction (one or two commits, per the
     // T0-2 auto-advance chain — see `submitDecision`) into the returned view, then clear the buffer so
     // it never bleeds into a LATER, unrelated `advanceView()` call. Each entry's `beatSeq` is still
@@ -13321,7 +13395,20 @@ export class GameSessionAdapter implements GameSession {
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
-    const showBrief = req.brief !== undefined ? buildShowBrief(view, req.brief) : undefined;
+    let showBrief: ShowBriefView | undefined;
+    if (req.brief !== undefined) {
+      // ORW-277: fail-soft. A build that throws, or builds nothing for a started player with whereabouts in a played game,
+      // raises ONE admin-visible alarm per session (a counter always) and the turn goes on without a brief. Nothing here
+      // reads or prints game content; the output is otherwise byte-identical.
+      const played = this.live?.playedGame === true;
+      try {
+        showBrief = buildShowBrief(view, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
+      } catch {
+        showBrief = undefined;
+        if (played) this.noteBriefFailure("threw");
+      }
+    }
     return {
       moment,
       systemPrompt: buildSystemPrompt(
@@ -13483,6 +13570,36 @@ export class GameSessionAdapter implements GameSession {
     };
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { accepted: true, source: "web_search" };
+  }
+
+  /**
+   * ORW-223 slice 1 - record a narrated room-texture feature as canon (see the port doc). The engine re-validates
+   * everything: a played game, the flag, a known room, the length, and the canon ledger's own fence (no events,
+   * outcomes, secrets, places, devices, relationships, knowledge or numbers). Append-only; no rng; no Vault handle
+   * (this adapter holds none, so nothing hidden can be read or touched here); durable through the background seam.
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult {
+    if (!this.roomCanonEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.canonAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const p = roomCanonProposal(req);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const out = recordCanon(this.canonLedger, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, sceneKey: String(this.beatSeq),
+      idempotencyKey: `room:${p.room}:${canonHash(p.feature)}`, proposals: [p.proposal],
+    }, {
+      leaksVault: () => false, // the engine-only adapter tier holds no Vault; the lexicon + class fence below is the guard
+      forbiddenTerm: forbiddenFixtureTerm,
+      propCategoriesFor: (scope) => (scope.kind === "room" ? roomMapEntry(scope.room)?.allowedProps ?? [] : []),
+      isHouseguest: (id) => /^npc:\d+$/.test(id),
+    });
+    const r = out.result.results[0]!;
+    if (r.outcome !== "recorded") return { accepted: false, reason: r.reason ?? "rejected" };
+    if (!out.replay) {
+      this.canonLedger = out.ledger;
+      this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    }
+    return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
   }
 
   /**

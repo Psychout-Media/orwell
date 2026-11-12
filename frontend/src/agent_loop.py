@@ -9011,6 +9011,16 @@ async def _stream_agent_loop_impl(
                         `_want_*` gates and per-turn caps; telemetry is success-gated."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges
+                        # ORW-223 (Showrunner memory, canon ledger v1): the room texture this narration newly stated is written
+                        # back as canon (engine-validated; fail-soft; flag-gated on the Show Brief). Never on an OOC aside or
+                        # machinery turn. It invents nothing and touches no game state.
+                        if not (_is_ooc_aside_text(_extract_last_user_message(messages)) or _is_ooc_aside_text(_turn_narration)
+                                or _is_nondiegetic_scene_text(_turn_narration)):
+                            try:
+                                from src import orwell_room_canon as _rc
+                                await _rc.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                            except Exception as _rc_e:
+                                logger.debug(f"[room-canon] skipped: {_rc_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -9132,7 +9142,7 @@ async def _stream_agent_loop_impl(
                             _silent_advance_reconciled[0] = False  # reset per call (finding 4)
                             try:  # ORW-232 slice 2 (live run 3): a FRESH competition pause is the player's turn to talk - no FE belt (stall / decision-deliver / preview-commit) may advance it. True = "done this turn".
                                 from routes import chat_helpers as _ch_cp
-                                if _ch_cp.comp_pause_holds(owner):
+                                if _ch_cp.event_pause_holds(owner):
                                     logger.info(f"[orwell] silent advance ({_why}) skipped: the competition is paused for the player user={owner}")
                                     return True
                             except Exception:
