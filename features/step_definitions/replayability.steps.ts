@@ -125,10 +125,11 @@ Then("every houseguest display name is unique within the house", function (this:
   assert.equal(new Set(names).size, names.length, "names must be unique within the house");
 });
 
-// E38 / ruling #1 (2026-06-10): names are seeded samples from vendored REAL-NAME corpora.
+// E38 / ruling #1 (2026-06-10): the DETERMINISTIC factory's names are seeded samples from vendored
+// REAL-NAME corpora (live casting names are model-authored + validated, Ryne 2026-11-11).
 // The corpora are raw material — never a fixed cast: no full-name+persona pairing is
 // hard-coded, and the legacy Bible's names stay banned (excluded from the corpora).
-Then("every generated name is sampled from the vendored real-name corpora", function (this: BbWorld) {
+Then("every deterministic-factory name is sampled from the vendored real-name corpora", function (this: BbWorld) {
   for (const n of this.house!.npcs) {
     assert.ok(isCorpusName(n.name), `name "${n.name}" must be sampled from the corpora`);
     assert.match(n.name, /^[A-Z][a-z]+ [A-Z][a-z]+$/, "names keep the display-name shape");
