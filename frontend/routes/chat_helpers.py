@@ -925,6 +925,13 @@ def _day_break_narration_steer(content: str) -> str:
 # general fallback covers every other kind (nominations is HOH-only; comp-intent/veto-decision/
 # replacement/votes/tie-break/final-eviction/finale-* fall through to it where unlisted).
 _PENDING_KIND_HINTS = {
+    "ceremony-step": (
+        "This is a WATCH step of a staged ceremony, not a choice. The engine supplies the one line that "
+        "just happened (quoted above); voice THAT moment in the fiction, in the room, and stop. Do NOT call "
+        "advanceGame or submitDecision and do NOT narrate the next step: the player moves the ceremony on "
+        "with the Continue button, one step at a time, and the engine then supplies the next line. Never "
+        "reveal a result, a vote or a name the engine has not yet supplied."
+    ),
     "goodbye-message": (
         "The player must author their GOODBYE MESSAGE to the houseguest who was just evicted. "
         "Bring them to the moment, prompt them for their farewell words (the tone and message are "
@@ -977,7 +984,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     kind = str(pending.get("kind") or "").strip() or "this decision"
     by = pending.get("by") if isinstance(pending.get("by"), dict) else {}
     who = (by.get("name") or "the player").strip() or "the player"
-    prompt = str(pending.get("prompt") or "").strip()
+    prompt = str(pending.get("prompt") or (pending.get("text") if kind == "ceremony-step" else "") or "").strip()  # a watch step carries its engine line as `text`
     hint = _PENDING_KIND_HINTS.get(kind, _PENDING_GENERAL_HINT)
     quoted = f' The engine\'s instruction is: "{prompt}".' if prompt else ""
     # LW9 (audit 2026-06-21): a STAGED competition NARROWS each round. The model reliably narrates a
