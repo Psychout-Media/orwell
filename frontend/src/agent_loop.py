@@ -6503,7 +6503,7 @@ _EMPTY_PRODUCER_LINE = (
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
 # names no machinery, and reads as production handling a beat off-camera (the momentPrompts contract).
 _SCENE_CUTAWAY_LINE = (
-    "The live feeds cut away — a slow pan over the empty backyard, the low hum of the walls — the way "
+    "The live feeds cut away — a slow pan over the quiet walls of the house, the low hum of the feeds — the way "
     "they do when the control room isn't ready to show you the next moment. Give it a beat and pick the "
     "scene back up."
 )
@@ -6802,6 +6802,12 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _ptt.set(_extract_last_user_message(_msgs or []) or "")
     except Exception:
         _ptt = None
+    _mut0 = None
+    try:
+        from src import orwell_engine as _oe_mut
+        _mut0 = _oe_mut.mutation_count(kwargs.get("owner"))
+    except Exception as _e:  # failsoft-ok: the push below is an optimisation; without a baseline the turn simply sends none
+        logger.debug("167: mutation baseline failed: %s", _e)
     try:
         async for _evt in _stream_agent_loop_impl(*args, **kwargs):
             yield _evt
@@ -6814,6 +6820,16 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         except Exception as _e:  # failsoft-ok: durability is best-effort and must never fail a turn
             logger.debug("ORW-202: belt-state save_soon failed: %s", _e)
         _reset_turn_observability_context(_obs_token)
+        # ORW-167: ONE "game-updated" ping per game turn that changed the game through a narrator tool, so the user's OTHER open windows re-read their panels instead of waiting for a poll.
+        # A ping carries no content (same helper the enrichment write-backs use); a read-only turn sends none.
+        try:
+            if _mut0 is not None and kwargs.get("game_mode"):
+                from src import orwell_engine as _oe_mut2
+                if _oe_mut2.mutation_count(kwargs.get("owner")) > _mut0:
+                    from src import orwell_game_session as _ogs
+                    _ogs.publish_game_updated(kwargs.get("owner"))
+        except Exception as _e:  # failsoft-ok: a failed push must never affect the turn that already finished; polling still catches up
+            logger.debug("167: turn-end game-updated push failed: %s", _e)
         if _user_token is not None:
             try:
                 from src import llm_trace as _lt
@@ -7208,6 +7224,18 @@ async def _stream_agent_loop_impl(
     # ORW-10 (c): the deterministic fallback lines the FE shows the player (the feeds-cut cutaway, the engine-truth recital, the blank-turn lines) are saved in the chat as assistant turns; left in the model's own
     # history they teach it to emit them again (replay 7: the narrator copied the cutaway sentence for ~30 turns). Keep them out of what the narrator sees; the player's transcript is untouched.
     messages = _drop_fallback_turns(messages)
+
+    # ORW-271: closed in-game days are sent as ONE "[Story so far]" system message built from the engine's day ledger (the
+    # stored chat rows are never touched; only what is SENT changes). Read once per turn, here, not per round. Fail-soft.
+    if game_mode in (True, "game"):
+        try:
+            from src import orwell_day_condense, orwell_engine as _oe_dc
+            if orwell_day_condense.enabled():
+                _ledger_dc = await _oe_dc.day_ledger(user=owner)
+                if _ledger_dc:
+                    messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
+        except Exception as _e_dc:
+            logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
 
     _t3 = time.time()
     try:
@@ -8983,6 +9011,16 @@ async def _stream_agent_loop_impl(
                         `_want_*` gates and per-turn caps; telemetry is success-gated."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges
+                        # ORW-223 (Showrunner memory, canon ledger v1): the room texture this narration newly stated is written
+                        # back as canon (engine-validated; fail-soft; flag-gated on the Show Brief). Never on an OOC aside or
+                        # machinery turn. It invents nothing and touches no game state.
+                        if not (_is_ooc_aside_text(_extract_last_user_message(messages)) or _is_ooc_aside_text(_turn_narration)
+                                or _is_nondiegetic_scene_text(_turn_narration)):
+                            try:
+                                from src import orwell_room_canon as _rc
+                                await _rc.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                            except Exception as _rc_e:
+                                logger.debug(f"[room-canon] skipped: {_rc_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -9104,7 +9142,7 @@ async def _stream_agent_loop_impl(
                             _silent_advance_reconciled[0] = False  # reset per call (finding 4)
                             try:  # ORW-232 slice 2 (live run 3): a FRESH competition pause is the player's turn to talk - no FE belt (stall / decision-deliver / preview-commit) may advance it. True = "done this turn".
                                 from routes import chat_helpers as _ch_cp
-                                if _ch_cp.comp_pause_holds(owner):
+                                if _ch_cp.event_pause_holds(owner):
                                     logger.info(f"[orwell] silent advance ({_why}) skipped: the competition is paused for the player user={owner}")
                                     return True
                             except Exception:

@@ -623,6 +623,28 @@
     return _request("decision", "chat", d, "decision");
   }
   // layout is fire-and-forget per-device LWW (§5) — no cid/ack.
+  // ORW-44 S2: the game build has no SSE send path any more, so a turn first makes sure the socket is up. ensure() resolves true when the socket is live (waiting out a reconnect that is already in flight, and
+  // forcing ONE immediate upgrade attempt for the two RECOVERABLE fallback causes: the canonical id was not live yet, or the per-tab id had not resolved), and false when it cannot be: a permanent
+  // fallback cause (proxy / handshake / exhausted retries = a network that blocks WebSockets) or the deadline. Never throws.
+  function ensure(timeoutMs) {
+    return new Promise(function (resolve) {
+      var deadline = _now() + (timeoutMs > 0 ? timeoutMs : 8000);
+      var kicked = false;
+      (function check() {
+        if (_mode === "ws" && _sock && _sock.readyState === 1) return resolve(true);
+        if (_mode === "fallback") {
+          var recoverable = _fallbackReason === "pregame-not-live" || _fallbackReason === "pertab-pending";
+          if (!recoverable || kicked) return resolve(false);   // permanent cause, or our one upgrade attempt already fell back again
+          kicked = true;
+          _lastUpgradeAttempt = 0; _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS;
+          _maybeUpgradeFromFallback();
+        }
+        if (_now() >= deadline) return resolve(false);
+        setTimeout(check, 150);
+      })();
+    });
+  }
+
   function sendLayout(d) { return _send({ t: "layout", ch: "layout", d: d || {} }); }
 
   // ── negotiation + lifecycle (§6) ────────────────────────────────────────
@@ -640,6 +662,9 @@
     // ORW-44 S1 (measure before deciding whether SSE can ever go): every permanent WS -> SSE downgrade is reported, once per page load (the guard above), with its reason. NOT red: falling back is the
     // designed behaviour today; the count per session is what the transport decision needs.
     try { if (window.OrwellReport) window.OrwellReport.fail('ws:fallback', String(_fallbackReason), 'this page load continues on the SSE transport', { corrected: 'SSE transport' }); } catch (_) {}
+    // ORW-44 S3: a PERMANENT fallback cause in the game build means this network cannot carry the live connection: tell the player (orwellWsBlocked.js shows the banner). The two recoverable
+    // pre-game causes never announce it (the next turn's ensure() retries them).
+    if (_gameBuild() && _fallbackReason !== "pregame-not-live" && _fallbackReason !== "pertab-pending") _emitWindow("orwell:ws-blocked", { reason: _fallbackReason });
     _chatSubscribed = false;
     _chatTailActive = false;
     _edgesSubscribed = false;
@@ -910,6 +935,17 @@
     sendDecision: sendDecision,
     cancelRequest: cancelRequest,
     sendLayout: sendLayout,
+    ensure: ensure,
+    // ORW-44 S4b: the WS-side bootstrap. sessionSync resolves the canonical game id over REST (no SSE in the WS-only game build); the moment one appears for a window that booted pre-game, kick() forces ONE
+    // immediate upgrade attempt (same recoverable-cause gate as ensure()), so a second window finds the live session without the old SSE run-started invitation.
+    kick: function () {
+      if (_mode !== "fallback") return false;
+      if (_fallbackReason !== "pregame-not-live" && _fallbackReason !== "pertab-pending") return false;
+      _lastUpgradeAttempt = 0; _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS;
+      _maybeUpgradeFromFallback();
+      return true;
+    },
+    flagOn: _flagOn,   // ORW-44 S2: chat.js asks whether the WS transport is switched on (ORWELL_WS_TRANSPORT) before it treats the socket as the only send path
     rebind: rebind,
     isActive: function () { return _mode === "ws" && !!_sock && _sock.readyState === 1; },
     isFallback: function () { return _mode === "fallback"; },

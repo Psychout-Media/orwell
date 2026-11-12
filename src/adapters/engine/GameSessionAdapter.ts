@@ -1,11 +1,12 @@
+import { liveHouseEvent } from "../../engine/houseEvent";
 import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
-  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult,
-  DailyRecapView,
+  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
+  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -13,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordRoomCanonReq, RecordRoomCanonResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -21,6 +22,7 @@ import type {
   BeatAnnouncementView,
   NotorietyLegendView,
 } from "../../ports/GameSession";
+import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
 import { humanizeIds, humanizeForRetrospective } from "./humanize";
@@ -218,6 +220,8 @@ import type { CompEffort } from "../../engine/liveSeason";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
+import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
@@ -326,9 +330,9 @@ import { derivedLoyalty } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
-import { emptyCanonLedger, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
+import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
-import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, LEGEND, legendFrom } from "../../engine/gossip";
+import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, legendFrom, legendSeedProbability } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
@@ -480,6 +484,9 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  * length. Used by the 0062 zeitgeist write-back (`recordWorldSnapshot`) — the snapshot is non-secret
  * public flavor, but it is still player/FE-sourced text woven into the moment prompt.
  */
+const DAY_LEDGER_MAX_EVENTS = 12;
+const DAY_LEDGER_EVENT_CHARS = 240;
+const DAY_LEDGER_TEXT_CHARS = 900;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -545,6 +552,8 @@ const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
 const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
 const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_STANDALONE");
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
+/** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
+const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -921,6 +930,9 @@ function groupPlayerDossier(
 /** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
 export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
 
+/** ORW-282: how many daily recaps the append-only log keeps (a season is well under this). */
+const DAILY_RECAP_LOG_CAP = 60;
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -1045,7 +1057,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private campaigns: Campaign[] = [];
   /**
-   * 0085 Phase B2 — whether the live campaign layer RUNS. DEFAULT OFF: the calibration/UAT harness
+   * 0085 Phase B2 — whether the live campaign layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness
    * composes its runtime without enabling it, so every seeded gate (juryReach/gradient/UAT) is
    * BYTE-IDENTICAL; the live deploy enables it via `composeRuntime({ campaigns: true })`. When off,
    * no campaign forms/advances and `ctx().campaignTiltFor` is absent ⇒ the seeded vote is unchanged.
@@ -1131,19 +1143,25 @@ export class GameSessionAdapter implements GameSession {
   }
   /** True once the front-end has announced a player message (clock billing is per message from then on). */
   messageModeNow(): boolean { return this.messageMode; }
+  /**
+   * ORW-281 slice 5: the ONE "a person is PLAYING this game" predicate for the event-staging seams (comp round/crown hours, the eviction step spread, the ceremony gather) - `live.playedGame`, the persisted
+   * flag `noteMessage` sets, the same one the day schedule / night gate key on. Replaces the memory-only `messageMode` at those seams; `messageMode` stays the CLOCK-BILLING mode (billClockForCommit,
+   * clock-free commit diff, the world-plan), which is a different question. Headless drivers never announce a message, so both are false and the seeded trajectories are byte-identical.
+   */
+  playedGameNow(): boolean { return this.live?.playedGame === true; }
   /** The orchestrator's single clock-billing seam for a committed player turn (see `noteMessage`): legacy per-commit step until messages are announced, then nothing. */
   billClockForCommit(): void {
     if (!this.messageMode) this.advanceClockPerConversation();
     else this.hangOutSkipStepAt = undefined; // message mode: a hang-out must not leave a stale skip that makes the NEXT note bill 0
   }
   /**
-   * 0006b — whether NPCs carry a derived COMPETITION INTENT. DEFAULT OFF: the calibration/UAT harness
+   * 0006b — whether NPCs carry a derived COMPETITION INTENT. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness
    * never enables it, so `ctx().compIntentOf` is absent and every NPC "compete"s ⇒ every seeded gate is
    * BYTE-IDENTICAL; the live deploy enables it via `ORWELL_COMP_INTENT=1` / `setCompIntentEnabled`.
    */
   private compIntentEnabled = COMP_INTENT_ENABLED_DEFAULT;
   /**
-   * 0110 — whether the eviction jury grudge folds on the evictee's DEDUCED belief. DEFAULT OFF: the
+   * 0110 — whether the eviction jury grudge folds on the evictee's DEDUCED belief. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness never enables it, so `ctx().voteDeduction` is false and the true `votesToEvict`
    * is folded ⇒ every seeded gate is BYTE-IDENTICAL; the live deploy enables it via `ORWELL_VOTE_DEDUCTION=1`.
    */
@@ -1165,6 +1183,7 @@ export class GameSessionAdapter implements GameSession {
    * with holder===subject, dropped). DEFAULT-ON since 2026-11-04 with the standalone read (3-arm PO bands held); `=0` / `ORWELL_FLAGS_OFF=1` opts out. Only matters while `ORWELL_NPC_MEMORY` is on. OFF ⇒ no new entry.
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
+  private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -1414,7 +1433,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private playerCampaignProgressBeat: number | null = null;
   /**
-   * 0100 — whether the JURY-HOUSE grudge layer RUNS. DEFAULT OFF: the calibration/UAT harness leaves it
+   * 0100 — whether the JURY-HOUSE grudge layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness leaves it
    * off, so with it unset NO jury-house stretch runs, NO draw is taken, and NO grudge is applied ⇒ every
    * seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL; the live deploy enables it. A test flips it
    * via `setJuryHouseEnabled`.
@@ -1431,7 +1450,7 @@ export class GameSessionAdapter implements GameSession {
   private socialFatigueEnabled = SOCIAL_FATIGUE_ENABLED_DEFAULT;
   private multiNightFatigueEnabled = MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT;
   /**
-   * Feature #1400 — generative competition design. DEFAULT OFF (its `ORWELL_GEN_COMPETITIONS` env
+   * Feature #1400 — generative competition design. default ON in the shipped game (the calibration/UAT harness turns it off) (its `ORWELL_GEN_COMPETITIONS` env
    * default): when off, `competitionStagingView` returns null and `recordCompetitionFiction` refuses, so
    * NO fiction is ever authored/stored ⇒ the deterministic 0042 library floor stands, byte-identical to
    * the pre-feature model (the `genCompetitionNeutral` proof pins it). Flipped by a test's setter (below).
@@ -1445,7 +1464,7 @@ export class GameSessionAdapter implements GameSession {
    *  known (a fresh game, or a pre-limbo save): derived on the first tick. Persisted as `juryHouseArrivals`. */
   private juryHouseArrivals: number | null = null;
   /**
-   * 0101 — whether NPC MYTH-MAKING runs. DEFAULT OFF: the calibration/UAT harness never enables it, so
+   * 0101 — whether NPC MYTH-MAKING runs. default ON in the shipped game (the calibration/UAT harness turns it off): the calibration/UAT harness never enables it, so
    * with it unset `legendTick` draws nothing and mints no legend ⇒ every seeded gate (juryReach/gradient/
    * UAT) is BYTE-IDENTICAL; the live deploy may enable it. A test flips it via `setMythMakingEnabled`.
    */
@@ -1464,7 +1483,7 @@ export class GameSessionAdapter implements GameSession {
    *  re-selected into a second legend (0101). Monotonic (non-decreasing). */
   private legendLastActTick = 0;
   /**
-   * 0101 (#1401) — the AI SHOWRUNNER. `showrunnerEnabled` gates the whole layer (DEFAULT OFF ⇒
+   * 0101 (#1401) — the AI SHOWRUNNER. `showrunnerEnabled` gates the whole layer (default ON in the shipped game (the calibration/UAT harness turns it off) ⇒
    * calibration byte-identical). `showrunnerNotes` is the Vault-held, APPEND-ONLY production bible (one
    * note per (week, phase) beat — the once-per-beat dedupe mirrors the scheduler's own cadence);
    * `showrunnerNoteCount` is its monotonic per-season count (a `SessionCoreCounts` dimension). Both reset
@@ -1482,7 +1501,7 @@ export class GameSessionAdapter implements GameSession {
    * Stays 0 whenever the reweight sub-flag is off ⇒ byte-shaped like a pre-Phase-2 save. */
   private showrunnerReweightCount = 0;
   /**
-   * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs. DEFAULT OFF: the
+   * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness never enables it, so with it unset `secretBarterTick` returns before drawing
    * anything and no secret changes hands ⇒ every seeded gate (juryReach/gradient/UAT) is BYTE-IDENTICAL;
    * the live deploy may enable it. A test flips it via `setSecretBarterEnabled`.
@@ -1513,7 +1532,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private nemesisTrack: NemesisTrack = NO_NEMESIS;
   /**
-   * 0087 — whether the RELATIONSHIP-TRAJECTORY layer RUNS. DEFAULT OFF (the dedicated `ORWELL_TRAJECTORIES`
+   * 0087 — whether the RELATIONSHIP-TRAJECTORY layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off) (the dedicated `ORWELL_TRAJECTORIES`
    * flag): when off, no momentum is computed, the off-screen tick passes no `trajectoryOf` ⇒ `natureWeights`
    * is the identity, and every seeded gate is BYTE-IDENTICAL (the calibration-neutrality guarantee). Per
    * instance; a test flips it via `setTrajectoriesEnabled`.
@@ -1538,7 +1557,7 @@ export class GameSessionAdapter implements GameSession {
   private compThemesEnabled = COMP_THEMES_ENABLED_DEFAULT;
 
   /**
-   * #1790 — whether the TRAITORS'-FURY juror-bearing word layer RUNS. DEFAULT OFF: the
+   * #1790 — whether the TRAITORS'-FURY juror-bearing word layer RUNS. default ON in the shipped game (the calibration/UAT harness turns it off): the
    * calibration/UAT harness leaves it off, so `bearingWord` returns a constant ("settled")
    * and the seeded jury-read spine is byte-identical. A test flips it via `setTraitorsFuryEnabled`.
    */
@@ -1946,6 +1965,7 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
+    this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
     this.onPersist?.();
   }
 
@@ -4427,6 +4447,7 @@ export class GameSessionAdapter implements GameSession {
       ? { key: core.approachShown.key, initiators: [...core.approachShown.initiators] }
       : undefined;
     this.seenMessageIds = core.seenMessageIds ? [...core.seenMessageIds].slice(-256) : [];
+    if (this.live && this.seenMessageIds.length > 0) this.live.playedGame = true; // ORW-281 slice 5: a save that predates the persisted flag (or lost it) but has announced messages IS a played game - backfill so the two notions agree
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.copresenceTold = ToldLedger.restore(core.toldLedger);
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
@@ -4670,6 +4691,7 @@ export class GameSessionAdapter implements GameSession {
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.owedFavors?.length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
       // /recap — otherwise it hangs on the last ceremony state post-season. Vault-free (public winner).
@@ -5314,7 +5336,9 @@ export class GameSessionAdapter implements GameSession {
   private gatherForCeremony(force = false): boolean {
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
-    const room: Room | null = kind === "nominations" || kind === "veto-draw" || kind === "veto-ceremony" || kind === "eviction" ? "living-room" : null; // ORW-281: the veto draw is a mini ceremony: the house gathers for it
+    // ORW-281 slice 6 (Ryne 2026-11-11): ceremonies live in the living room, comps all take place in the backyard. Comps move the house for real in a PLAYED game only (headless sims keep no gather).
+    const room: Room | null = kind === "nominations" || kind === "veto-draw" || kind === "veto-ceremony" || kind === "eviction" ? "living-room"
+      : (kind === "hoh-competition" || kind === "veto-competition") && this.live?.playedGame === true ? "backyard" : null;
     if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
     if (!force && this.ceremonyHeld === kind) return true;
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
@@ -5342,23 +5366,9 @@ export class GameSessionAdapter implements GameSession {
     // convened in the living room. This is a whole-house event exactly like a comp/ceremony (no field
     // split — nobody competes, the house simply toasts), so the pin (movePlayer no-op) + gathered
     // whereabouts come for free. Released to `"done"` on the model's first advanceGame (see advanceGame).
-    if (s.premiereEntrance?.stage === "entrances") return { kind: "premiere-entrances" }; // A9
-    if (s.champagneCircle === "gathered") return { kind: "champagne-circle" };
-    if (s.competition) { // a staged comp is running ⇒ its real field is authoritative
-      return { kind: s.competition.comp, field: [...s.competition.field] };
-    }
-    if (s.ceremony) return { kind: s.ceremony.hold }; // ORW-281 4a: the staged ceremony holds the house event for its WHOLE length (the gathering never dissolves between steps)
-    const p = s.pending;
-    if (!p) return this.ceremonyBeat && !s.finished ? { kind: this.ceremonyBeat } : null; // ORW-247b: a resolved ceremony beat stays the live scene until the player speaks
-    if (p.kind === "comp-intent" || p.kind === "comp-round") { // a comp surfaced but not yet staged
-      if (p.comp === "veto-competition") return { kind: "veto-competition", field: s.vetoField ? [...s.vetoField] : [] };
-      const finalThree = s.active.length === 3; // Final 3 lifts the outgoing-HOH restriction
-      return { kind: "hoh-competition", field: s.active.filter((id) => finalThree || id !== s.outgoingHoh) };
-    }
-    if (p.kind === "nominations") return { kind: "nominations" };
-    if (p.kind === "houseguests-choice") return { kind: "veto-draw" }; // ORW-281: the Houseguest Choice card is the DRAW (it said veto-ceremony)
-    if (p.kind === "veto-decision" || p.kind === "replacement") return { kind: "veto-ceremony" };
-    if (p.kind === "eviction-vote" || p.kind === "tie-break" || p.kind === "final-eviction") return { kind: "eviction" };
+    const ev = liveHouseEvent(s); // ORW-281 slice 3: the ONE derivation (src/engine/houseEvent.ts), shared with the orchestrator's private-scene suppression
+    if (ev) return ev;
+    if (!s.pending && this.ceremonyBeat && !s.finished) return { kind: this.ceremonyBeat }; // ORW-247b: a resolved ceremony beat stays the live scene until the player speaks
     return null;
   }
 
@@ -7537,6 +7547,49 @@ export class GameSessionAdapter implements GameSession {
    * real betrayal folds (0026 `IMPACT.betrayal`), seeded per (npc, week, phase). Off ⇒ always `landed:
    * true`, no fold. The engine never states why a misfire happened; no confidence/distortion value ever crosses.
    */
+  /** 0142 - a kept deal banks a favor owed to the PLAYER (the honored side) by the houseguest who kept it. Played games only; at most 3 banked per houseguest. */
+  private bankOwedFavor(honorer: EntityId, honored: EntityId): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || honored !== PLAYER || honorer === PLAYER) return;
+    const list = (s.owedFavors ??= []);
+    const row = list.find((f) => f.debtor === honorer);
+    if (row) row.n = Math.min(3, row.n + 1); else list.push({ debtor: honorer, n: 1, madeWeek: s.week });
+  }
+
+  private owedFavorsView(): OwedFavorView[] {
+    return (this.live?.owedFavors ?? []).filter((f) => f.n > 0).map((f) => ({ from: this.named(f.debtor)!, n: f.n }));
+  }
+
+  /**
+   * 0142 (ORW-88 idea 2) - call in a favor. The houseguest's consent read prices the ask like a normal deal plus the called-favor bonus, so a marginal ask can be honored but a
+   * distrusted or feared player is still refused. Honored => an ordinary deal binds (the NPC is the promisor of an active kind); ignored => the favor is spent and the player's own
+   * read of them takes a betrayal-grade drop (hidden, seeded by the shared key, never narrated as a number). No new rng stream: the consent jitter is keyed as for any ask.
+   */
+  callInFavor(npcId: EntityId, ask: MakeDealReq["kind"] = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
+    this.guardBeatSeq(expectedBeatSeq);
+    const s = this.live;
+    if (!s || !this.house || s.playedGame !== true || s.finished) return null;
+    const row = s.owedFavors?.find((f) => f.debtor === npcId && f.n > 0);
+    if (!row || this.dealOfferPartyGone(npcId)) return null;
+    if (isPositiveObligation(ask) && !this.dealDepthEnabled) return null;
+    const direction = isPositiveObligation(ask) ? "ask" : undefined;
+    const refusal = this.dealConsentRefusal(npcId, ask, direction, DEAL_CONSENT.calledFavorBonus);
+    row.n -= 1;
+    if (row.n <= 0) s.owedFavors = s.owedFavors!.filter((f) => f !== row);
+    if (s.owedFavors?.length === 0) delete s.owedFavors;
+    if (!refusal) {
+      const terms = "a favor called in";
+      const evId = this.onPlayerEvent?.(`${this.nameOf(PLAYER)} calls in a favor and ${this.nameOf(npcId)} honors it with a ${ask} deal`, [PLAYER, npcId], "deal");
+      this.deals.make(direction === "ask" ? [npcId, PLAYER] : [PLAYER, npcId], ask, terms, evId, s.week);
+      this.persist();
+      return { honored: true, kind: ask, narratable: "they honor the favor they owed" };
+    }
+    this.onPlayerEvent?.(`${this.nameOf(npcId)} ignores ${this.nameOf(PLAYER)}'s called-in favor`, [PLAYER, npcId], "conversation");
+    this.rel.applyDirected(PLAYER, npcId, "betrayal", new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:favor-ignored:${npcId}:${s.week}`)));
+    this.persist();
+    return { honored: false, kind: ask, narratable: "they brush off the favor they owed" };
+  }
+
   confront(npcId: EntityId, factId: string, expectedBeatSeq?: number): ConfrontResult | null {
     this.guardBeatSeq(expectedBeatSeq);
     if (!this.house || !this.live) return null;
@@ -8475,6 +8528,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
+  setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -9420,15 +9474,14 @@ export class GameSessionAdapter implements GameSession {
    * neither `rel` nor `subjects` — so a legend never moves any NPC's read of the player and never folds the
    * player's own edges (mandate #3 / ADR 0003 — the human forms their own read); this also makes the pass
    * calibration-neutral BY CONSTRUCTION even while ON (only the hidden knowledge layer changes, never a
-   * relationship edge). The per-season cap (`LEGEND.maxPerSeason`) and the notable-act watermark
+   * relationship edge). The rising cost per legend (`legendSeedProbability`, ORW-283: no hard cap) and the notable-act watermark
    * (`legendLastActTick`, so a used act is never re-picked) are enforced here.
    */
   legendTick(events: EventStore, knowledge: KnowledgeService): void {
     if (!this.mythMakingEnabled || !this.house) return;
-    if (this.legendCount >= LEGEND.maxPerSeason) return;
     this.legendTickCount += 1;
     const rng = new SeededRandom(hashSeed(`legend:${this.gameSeed ?? ""}:${this.legendTickCount}`));
-    if (rng.next() >= LEGEND.seedProb) return; // rare — most ticks mint nothing
+    if (rng.next() >= legendSeedProbability(this.legendCount)) return; // rare — most ticks mint nothing, and each legend already minted makes the next rarer
     const playerName = this.house.player.name;
     const acts = notablePlayerActs(events.query({ witnessedBy: PLAYER }), playerName, this.legendLastActTick);
     if (acts.length === 0) return;
@@ -10338,7 +10391,7 @@ export class GameSessionAdapter implements GameSession {
       // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
       // deficit is 0 (no night ran) and the conflict tally is still empty.
       // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
-      const compRoundHours = this.timeOfDayEnabled && this.messageMode && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+      const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
         ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
         : null;
       if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat) && ceremonyHours === null) || (compRoundHours !== null && compRoundHours > 0) || (ceremonyHours !== null && ceremonyHours > 0))) {
@@ -10351,15 +10404,15 @@ export class GameSessionAdapter implements GameSession {
         // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
         let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
         if (ceremonyHours !== null) feltHours = ceremonyHours; // ORW-281 4a: a staged ceremony's hours are SPREAD over its steps (one helper, like a comp's rounds)
-        if (ev?.beat === "veto-draw" && !this.messageMode) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
-        if (feltHours !== null && this.messageMode && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
+        if (ev?.beat === "veto-draw" && !this.playedGameNow()) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
+        if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
         // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
         // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
         // so one eviction night ran most of a day and the finale ran for days).
         // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
         // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
         const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.messageMode ? EVENT_SPREAD_STEPS : undefined)
+          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
           : null;
         if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
         else if (eventHours !== null) advanceClock(this.live!, eventHours);
@@ -10388,6 +10441,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private ceremonyClockHours(before: ReturnType<typeof ceremonyRef>, now: ReturnType<typeof ceremonyRef>): number | null {
     const ref = now ?? before;
+    if (ref?.kind === "eviction") return null; // ORW-281 4d: the eviction keeps its own ORW-262 event-hours spread (eventBeatHours)
     const live = this.live;
     if (!ref || !live || !this.timeOfDayEnabled || !this.messageMode || !this.perConversationClockLive() || live.timeOfDay === undefined || live.playerRetired) return null;
     const felt = beatFeltHours(ref.kind as never) ?? 0;
@@ -10528,6 +10582,44 @@ export class GameSessionAdapter implements GameSession {
     return rng.pick(candidates);
   }
 
+  /** ORW-277 - the in-memory Show Brief alarm (never persisted, never in the snapshot): a counter and the first failure's code. */
+  private briefAlarm: { failures: number; first: "threw" | "empty" } | undefined;
+  private noteBriefFailure(code: "threw" | "empty"): void {
+    if (!this.briefAlarm) {
+      this.briefAlarm = { failures: 0, first: code };
+      console.error(`[orwell] ALERT show-brief build ${code} in a played game (once per session; the turn continues without a brief)`);
+    }
+    this.briefAlarm.failures++;
+  }
+  /** Vault-free admin read: undefined until a failure has happened. Codes and a count only. */
+  briefAlarmStatus(): { failures: number; first: "threw" | "empty" } | undefined {
+    return this.briefAlarm ? { ...this.briefAlarm } : undefined;
+  }
+
+  /**
+   * ORW-223 slice 2 - the Show Brief's OPEN THREADS lines: in-motion threads the player already knows, by KIND and
+   * STATUS only (never an id, a number, a term, or any NPC motive). Sources are the player's own deals (the public
+   * ledger view) and what reached the player's knowledge since the last day close (the daily-recap source). No rng.
+   */
+  private openThreadLines(): string[] {
+    if (!this.house || !this.live) return [];
+    const week = this.live.week;
+    const lines: string[] = [];
+    for (const d of this.deals.forParty(PLAYER)) {
+      if (d.status !== "open") continue;
+      const other = d.parties.find((p) => p !== PLAYER);
+      if (!other) continue;
+      const who = this.nameOf(other);
+      const owed = isPositiveObligation(d.kind) && d.condition.promisors.includes(PLAYER);
+      const running = d.vague === true || (d.expiresWeek !== undefined && d.expiresWeek - week <= 1);
+      lines.push(owed ? `a promise you owe ${who}: still open` : `a deal with ${who}: ${running ? "running out" : "still standing"}`);
+    }
+    const known = this.playerKnowledgeReader?.() ?? [];
+    const from = Math.min(this.live.dailyRecapKnowledgeCursor ?? 0, known.length);
+    if (known.slice(from).some((f) => f.pathway !== NO_NPC_PATHWAY)) lines.push("a rumor that reached you: unconfirmed");
+    return lines;
+  }
+
   /**
    * 0102 (PO review 2026-06-27 redesign, #884) — materialize the "day in review" digest for the day
    * that just closed, called from `turnIn` BEFORE the clock rolls to the next morning (the player's
@@ -10547,6 +10639,15 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s) return undefined;
     const day = s.dayNumber ?? 1;
+    const recap = this.buildRecapForDay(day);
+    s.dayNumber = day + 1;
+    if (this.messageMode) s.dailyRecapDay = day; // ORW-282: this day now has its recap (the crossing catch-up must not make a second one)
+    return recap;
+  }
+
+  /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
+  private buildRecapForDay(day: number): DailyRecapView {
+    const s = this.live!;
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
     const highlights = allEvents.slice(evFrom)
@@ -10560,10 +10661,48 @@ export class GameSessionAdapter implements GameSession {
     const hook = this.buildDailyRecapHook(day, surfaced);
     const recap: DailyRecapView = { day, highlights, surfaced, ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
+    if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
+      // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
+      const kinds = new Set<string>();
+      for (const e of allEvents.slice(evFrom)) {
+        if (e.hidden) continue;
+        if (e.type === "deal") kinds.add("deal");
+        else if (e.type === "betrayal") kinds.add("betrayal");
+        else if (e.id.startsWith("season:")) kinds.add("ceremony");
+      }
+      if (surfaced.length > 0) kinds.add("rumor");
+      if (hook?.thread) kinds.add(`thread-${String(hook.thread).split(":")[0]!.replace(/[^a-z-]/gi, "").slice(0, 24)}`); // the thread KIND only, never its id
+      const ledger = (s.dayLedger ??= []);
+      if (!ledger.some((d) => d.tier === "day" && d.day === day)) {
+        ledger.push({
+          day, tier: "day",
+          events: [...highlights, ...surfaced].slice(0, DAY_LEDGER_MAX_EVENTS).map((t) => t.slice(0, DAY_LEDGER_EVENT_CHARS)),
+          themes: [...kinds].sort(),
+        });
+      }
+    }
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
-    s.dayNumber = day + 1;
+    if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
+    if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
+  }
+
+  /**
+   * ORW-282 (BDD card 29): every game day gets a recap, not only the days the player turns in. A day that rolled by the production schedule (`crossToNextDay`, the HOH-to-nominations night gate), the
+   * all-night wrap or a player who never turned in has `dayNumber` ahead of the last recapped day; catch up one recap per crossed day, oldest first, each from the tail since the previous recap (so no
+   * day is merged and nothing is counted twice). Same Vault-free sources and perspective rule as the bedtime recap (the player's witnessed highlights and the knowledge the player actually holds), no rng
+   * (the hint rides its own per-day stream), and nothing folded. PLAYED games only: a headless sim never runs it, so seeded balance runs and snapshots stay byte-identical. A save from before this field
+   * starts from the day it loads on (no back-fill of days that were already lost).
+   */
+  private catchUpDailyRecaps(): void {
+    const s = this.live;
+    if (!s || !this.messageMode || s.finished || !this.house) return;
+    const cur = s.dayNumber ?? 1;
+    let done = s.dailyRecapDay ?? (cur - 1);
+    if (done + 1 >= cur) { if (s.dailyRecapDay === undefined) s.dailyRecapDay = done; return; }
+    while (done + 1 < cur) { done += 1; this.buildRecapForDay(done); }
+    s.dailyRecapDay = done;
   }
 
   /**
@@ -10573,6 +10712,44 @@ export class GameSessionAdapter implements GameSession {
    */
   dailyRecap(): DailyRecapView | null {
     return this.live?.lastDailyRecap ?? null;
+  }
+
+  /** ORW-271 — the append-only day ledger (deep copy; Vault-free). */
+  dayLedger(): DaySummary[] {
+    return JSON.parse(JSON.stringify(this.live?.dayLedger ?? [])) as DaySummary[];
+  }
+
+  /** ORW-271 — FE-driven write-back of a model-authored day/week summary. Idempotent per (day, tier). */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult {
+    const s = this.live;
+    const ledger = s?.dayLedger;
+    if (!s || !ledger) return { accepted: false, reason: "absent" };
+    const text = String(req.text ?? "")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
+    if (!text) return { accepted: false, reason: "empty" };
+    const day = Math.trunc(req.day);
+    if (req.tier === "week") {
+      const [a, b] = req.coversDays ?? [day, day];
+      const from = Math.trunc(Math.min(a, b)), to = Math.trunc(Math.max(a, b));
+      const covered = ledger.filter((d) => d.tier === "day" && d.day >= from && d.day <= to);
+      if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
+      const existing = ledger.find((d) => d.tier === "week" && d.day === day);
+      if (existing) {
+        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+      } else {
+        ledger.push({
+          day, tier: "week", coversDays: [from, to], text,
+          events: [], themes: [...new Set(covered.flatMap((d) => d.themes))].sort(),
+        });
+      }
+      for (const d of covered) d.merged = true;
+    } else {
+      const entry = ledger.find((d) => d.tier === "day" && d.day === day);
+      if (!entry) return { accepted: false, reason: "unknown-day" };
+      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+    }
+    this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
+    return { accepted: true };
   }
 
   /**
@@ -10589,6 +10766,27 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
   setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }
+  private weekChaptersEnabled = flagDefaultOn("ORWELL_WEEK_CHAPTERS");
+  setWeekChaptersEnabled(on: boolean): void { this.weekChaptersEnabled = on; }
+
+  /**
+   * ORW-275 - the week-boundary detector, run inside the `turnIn` commit. A played game whose `week` has passed `chapterWeek`
+   * (an eviction completed since the last chapter) gets ONE Vault-free recap and the cursors advance. No rng, no event, no fold.
+   */
+  private materializeWeekChapter(): WeekChapterView | undefined {
+    const s = this.live;
+    if (!s || !this.weekChaptersEnabled || s.playedGame !== true) return undefined;
+    const seen = s.chapterWeek ?? 1;
+    if (s.week <= seen) return undefined;
+    const from = Math.min(s.chapterEvictCursor ?? 0, s.evictionOrder.length);
+    const evicted = s.evictionOrder.slice(from).map((id) => this.nameOf(id));
+    const hoh = s.hoh ? this.nameOf(s.hoh) : null;
+    const remain = `${s.active.length} houseguests remain.`;
+    const standing = s.hoh === PLAYER ? `You are the Head of Household. ${remain}` : `You are still in the game. ${remain}`;
+    s.chapterWeek = s.week;
+    s.chapterEvictCursor = s.evictionOrder.length;
+    return { week: s.week, recap: { evicted, hoh, standing } };
+  }
   turnIn(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
     // 0065 Part B — replay an already-ended night verbatim (wins even if beatSeq has since moved), so a
     // retried/duplicate turnIn is REPLAYED, not re-executed: `playerTurnIn` never re-stamps `lastSleepDepth`
@@ -10617,6 +10815,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       const recap = this.materializeDailyRecap();
+      const weekChapter = this.materializeWeekChapter();
       // 0122 — most living NPCs privately confess the day that just closed (deeper than 0040, bare games
       // skipped). No-op unless the flag + in-game clock are live ⇒ byte-identical off. Records Vault-only.
       this.sweepDailyConfessionals(closingDay);
@@ -10625,7 +10824,7 @@ export class GameSessionAdapter implements GameSession {
       this.rollNightConflicts();
       this.persist();
       const view = this.advanceView(null);
-      return recap ? { ...view, dailyRecap: recap } : view;
+      return { ...view, ...(recap ? { dailyRecap: recap } : {}), ...(weekChapter ? { weekChapter } : {}) };
     }));
   }
 
@@ -10815,6 +11014,14 @@ export class GameSessionAdapter implements GameSession {
     // 0121: the ACTIVE-obligation kinds (comp-throw / veto-save) exist only when the deal-depth layer is on
     // (off ⇒ refuse, so no such deal is ever made in the calibration harness / a stock game — byte-identical).
     if (isPositiveObligation(req.kind) && !this.dealDepthEnabled) return null;
+    // 0142 idea 3: a conditional deal exists only for a played game with the deal-depth layer on (else refused, like the active kinds).
+    if (req.kind === "conditional" && (!this.dealDepthEnabled || this.live.playedGame !== true)) return null;
+    // 0142 idea 3: protect-a-third-person exists only for a played game with the deal-depth layer on, and names a living houseguest who is neither party.
+    if (req.kind === "protect-third") {
+      const gone = new Set(this.live.evictionOrder);
+      if (!this.dealDepthEnabled || this.live.playedGame !== true || !req.third || req.third === req.with || req.third === PLAYER
+        || gone.has(req.third) || !this.house.npcs.some((n) => n.id === req.third)) return null;
+    }
     const target = req.with;
     const evicted = new Set(this.live.evictionOrder);
     const isActiveOther = target !== PLAYER
@@ -10849,8 +11056,8 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
-    const parties: [EntityId, EntityId] = isPositiveObligation(req.kind) && req.direction === "ask" ? [target, PLAYER] : [PLAYER, target];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses);
+    const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" ? [target, PLAYER] : [PLAYER, target];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
@@ -10929,7 +11136,7 @@ export class GameSessionAdapter implements GameSession {
     return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
   }
 
-  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask"): DealRefusal | null {
+  private dealConsentRefusal(npcId: EntityId, kind: MakeDealReq["kind"], direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
     const e = this.rel.edge(npcId, PLAYER);
@@ -10946,7 +11153,7 @@ export class GameSessionAdapter implements GameSession {
       favor: memoryFavor(entries, live.week, decay, carry),
       targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
       jitter,
-      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) } : {}),
+      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     });
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
@@ -11747,6 +11954,7 @@ export class GameSessionAdapter implements GameSession {
         this.dealReputationSink?.(honorer, other);
         // B2: the partner remembers the deal being KEPT (a favor), written alongside the diffusing reputation (same `dealDepth` gate). `remember` skips the player as holder.
         if (this.npcMemoryWritersEnabled) this.remember(other, honorer, "deal-kept", 0.5);
+        this.bankOwedFavor(honorer, other);
       },
       // 0014: the wronged party will weigh this betrayal against the breaker in their jury lean.
       // #1802: formation-witness deal collateral — when enabled, the formation trust-fold
@@ -12830,7 +13038,7 @@ export class GameSessionAdapter implements GameSession {
     const refs = (ids: EntityId[]): NamedRef[] => ids.map((id) => ({ id, name: this.nameOf(id) }));
     const cer = ceremonyRef(this.live!);
     if (p.kind === "ceremony-step" && cer) { // ORW-281 4a: a WATCH step of a staged ceremony (non-binding; answered by advanceGame)
-      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household").replace("{field}", cer.kind === "veto-draw" && this.live!.vetoField ? this.live!.vetoField.map((id) => this.nameOf(id)).join(", ") : ""); // {field}: named only AFTER the engine committed it (the 'field' step)
+      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household").replace("{field}", cer.kind === "veto-draw" && this.live!.vetoField ? this.live!.vetoField.map((id) => this.nameOf(id)).join(", ") : "").replace("{nominees}", cer.kind === "veto-ceremony" && this.live!.finalNominees ? this.live!.finalNominees.map((id) => this.nameOf(id)).join(" and ") : ""); // {nominees}: the FINAL nominees, named only at the veto ceremony's 'result' step (after the engine committed them) // {field}: named only AFTER the engine committed it (the 'field' step)
       return { kind: "ceremony-step", by, prompt: text, options: [], pick: 0, binding: false, ceremony: cer, text };
     }
     switch (p.kind) {
@@ -12841,8 +13049,8 @@ export class GameSessionAdapter implements GameSession {
         // At Final 4 no replacement exists, so the set is EMPTY and the prompt says why — the
         // engine never offers "use" only to silently invert it into "does not use the veto".
         return p.saveable.length === 0
-          ? { kind: p.kind, by, prompt: "You hold the Power of Veto — but no replacement nominee exists at Final 4, so the veto cannot change the nominations. Confirm leaving them standing.", options: [], pick: 1 }
-          : { kind: p.kind, by, prompt: "You hold the Power of Veto — use it to save a nominee, or leave the nominations.", options: refs(p.saveable), pick: 1 };
+          ? { kind: p.kind, by, prompt: "You hold the Power of Veto — but no replacement nominee exists at Final 4, so the veto cannot change the nominations. Confirm leaving them standing.", options: [], pick: 1, ...(cer ? { ceremony: cer } : {}) }
+          : { kind: p.kind, by, prompt: "You hold the Power of Veto — use it to save a nominee, or leave the nominations.", options: refs(p.saveable), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "comp-intent":
         // The "options" ARE the three intents (id = the intent value), so the generic decision path
         // and the front-end both pick from them; the first ("compete") is the default (B46/audit B5).
@@ -12871,11 +13079,11 @@ export class GameSessionAdapter implements GameSession {
       case "houseguests-choice":
         return { kind: p.kind, by, prompt: "You drew Houseguest's Choice — pick the sixth houseguest to play in the veto competition.", options: refs(p.options), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "replacement":
-        return { kind: p.kind, by, prompt: `You used the veto on ${this.nameOf((p as { saved: EntityId }).saved)} — name a replacement nominee.`, options: refs(p.options), pick: 1 };
+        return { kind: p.kind, by, prompt: `You used the veto on ${this.nameOf((p as { saved: EntityId }).saved)} — name a replacement nominee.`, options: refs(p.options), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "eviction-vote":
-        return { kind: p.kind, by, prompt: "Cast your vote to evict one of the two nominees.", options: refs(p.nominees), pick: 1 };
+        return { kind: p.kind, by, prompt: "Cast your vote to evict one of the two nominees.", options: refs(p.nominees), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "tie-break":
-        return { kind: p.kind, by, prompt: "The eviction vote is tied — as Head of Household you cast the deciding vote.", options: refs(p.nominees), pick: 1 };
+        return { kind: p.kind, by, prompt: "The eviction vote is tied — as Head of Household you cast the deciding vote.", options: refs(p.nominees), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "final-eviction":
         return { kind: p.kind, by, prompt: "You are the final Head of Household — evict one houseguest; the other sits beside you at the Final 2.", options: refs(p.options), pick: 1 };
       // --- eviction night (E34): the player's own goodbye — tone is THEIR choice, never engine-read ---
@@ -12953,7 +13161,7 @@ export class GameSessionAdapter implements GameSession {
   private advanceView(ev: BeatEvent | null): AdvanceView {
     const s = this.live;
     // ORW-247b: a ceremony beat that RESOLVED this advance (an NPC HOH's nominations, a veto ceremony, an eviction) has no player pending, but its scene is still the narrated moment: keep the house gathered for it until the player next speaks. Only for a game a person is PLAYING (`messageMode`); a headless calibration/UAT/BDD sim never gathers, so its seeded outcomes stay byte-identical.
-    if (ev && this.messageMode) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-draw" ? "veto-draw" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
+    if (ev && this.playedGameNow()) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-draw" ? "veto-draw" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "final-eviction" ? "eviction" : null;
     // T0-3 — drain whatever `commit()` buffered for THIS transaction (one or two commits, per the
     // T0-2 auto-advance chain — see `submitDecision`) into the returned view, then clear the buffer so
     // it never bleeds into a LATER, unrelated `advanceView()` call. Each entry's `beatSeq` is still
@@ -13232,7 +13440,20 @@ export class GameSessionAdapter implements GameSession {
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
-    const showBrief = req.brief !== undefined ? buildShowBrief(view, req.brief) : undefined;
+    let showBrief: ShowBriefView | undefined;
+    if (req.brief !== undefined) {
+      // ORW-277: fail-soft. A build that throws, or builds nothing for a started player with whereabouts in a played game,
+      // raises ONE admin-visible alarm per session (a counter always) and the turn goes on without a brief. Nothing here
+      // reads or prints game content; the output is otherwise byte-identical.
+      const played = this.live?.playedGame === true;
+      try {
+        showBrief = buildShowBrief(view, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
+      } catch {
+        showBrief = undefined;
+        if (played) this.noteBriefFailure("threw");
+      }
+    }
     return {
       moment,
       systemPrompt: buildSystemPrompt(
@@ -13394,6 +13615,36 @@ export class GameSessionAdapter implements GameSession {
     };
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { accepted: true, source: "web_search" };
+  }
+
+  /**
+   * ORW-223 slice 1 - record a narrated room-texture feature as canon (see the port doc). The engine re-validates
+   * everything: a played game, the flag, a known room, the length, and the canon ledger's own fence (no events,
+   * outcomes, secrets, places, devices, relationships, knowledge or numbers). Append-only; no rng; no Vault handle
+   * (this adapter holds none, so nothing hidden can be read or touched here); durable through the background seam.
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult {
+    if (!this.roomCanonEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.canonAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const p = roomCanonProposal(req);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const out = recordCanon(this.canonLedger, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, sceneKey: String(this.beatSeq),
+      idempotencyKey: `room:${p.room}:${canonHash(p.feature)}`, proposals: [p.proposal],
+    }, {
+      leaksVault: () => false, // the engine-only adapter tier holds no Vault; the lexicon + class fence below is the guard
+      forbiddenTerm: forbiddenFixtureTerm,
+      propCategoriesFor: (scope) => (scope.kind === "room" ? roomMapEntry(scope.room)?.allowedProps ?? [] : []),
+      isHouseguest: (id) => /^npc:\d+$/.test(id),
+    });
+    const r = out.result.results[0]!;
+    if (r.outcome !== "recorded") return { accepted: false, reason: r.reason ?? "rejected" };
+    if (!out.replay) {
+      this.canonLedger = out.ledger;
+      this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    }
+    return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
   }
 
   /**
@@ -13800,6 +14051,7 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       eviction: this.evictionView(),
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.owedFavors?.length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
       // facts gameStatus() exposes), so the narrator voices the REAL HOH/nominees/veto, never invents.

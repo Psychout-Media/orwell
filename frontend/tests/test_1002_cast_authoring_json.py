@@ -12,10 +12,13 @@ with NO log. These pin the fix:
 Roles only (no names as data). The injectable orchestrator makes the whole pipeline testable with a
 stubbed model — but whether DeepSeek actually returns parseable JSON now can ONLY be confirmed live.
 """
+import pytest
 import json
 
 from conftest import _run
 from src import orwell_cast_authoring as A
+
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
 
 
 class _LogSink:

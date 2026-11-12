@@ -57,6 +57,7 @@ import sessionModule from './sessions.js';
 import markdownModule from './markdown.js';
 import { chatState } from './chatState.js';
 import { _outboxConfirmDelivery } from './chatOutbox.js';
+import { rowsFor as _chapterRows, installLiveGuard as _installChapterGuard } from './orwellChapters.js';
 
 // ── chat.js-internal deps injected at module-eval (see the header) ────────────────
 // hasActiveStream (the SSE-reader liveness helper) + resumeStream (the R2 live-resume attach) STAY in
@@ -388,6 +389,37 @@ export function _setReconcileDeps(deps) {
   const _streamIsLive = (sid) => hasActiveStream(sid);
 
   /**
+   * ORW-168: can this reconcile be answered by the newest server row alone? Only when the DOM is a plain, fully-adopted, idle
+   * transcript: no live stream, no one-shot forced rebuild, no optimistic/unadopted bubble, every visible bubble carries its
+   * {db-id, seq}, and the tail bubble IS the server's newest row (same id and seq) while the server's row count equals the number
+   * of distinct rendered messages. Then there is nothing to adopt, reorder, rescue or rebuild and the full fetch would be a no-op.
+   * Returns {converged:true}; or {data} when the server ignored `limit` and sent the whole log; or null = take the normal path.
+   * Pure read: no DOM write, no one-shot flag consumed.
+   */
+  async function _convergedProbe(sessionId) {
+    try {
+      const box = document.getElementById('chat-history');
+      if (!box || hasActiveStream(sessionId) || chatState._forceRebuild.has(sessionId)) return null;
+      const bubbles = Array.from(box.querySelectorAll('.msg')).filter((el) => !(el.style && el.style.display === 'none'));
+      if (!bubbles.length) return null;
+      if (bubbles.some((el) => _isPendingOptimisticBubble(el) || !el.dataset.dbId || !el.dataset.seq)) return null;
+      if (box.querySelector('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder]')) return null;
+      const ids = bubbles.map((el) => el.dataset.dbId).filter((v, i, a) => v !== a[i - 1]);
+      const last = bubbles[bubbles.length - 1];
+      const res = await fetch(`${_apiBase()}/api/history/${sessionId}?limit=1`);
+      if (!res.ok) return null;
+      const body = await res.json();
+      const page = body && body.page;
+      if (!page) return (body && Array.isArray(body.history)) ? { data: body } : null;   // old server: it sent everything
+      const row = (body.history || [])[0];
+      if (!row || (body.history || []).length !== 1) return null;
+      if (_serverMsgId(row) !== last.dataset.dbId || String(row.seq) !== last.dataset.seq) return null;
+      if (page.total !== ids.length) return null;
+      return { converged: true };
+    } catch (_) { return null; }
+  }
+
+  /**
    * ADR 0008 — render-and-reconcile to the authoritative seq-ordered log.
    *
    * The chat conversation is a FE-replicated log; the audit (S3-RACE) proved two tabs diverge
@@ -411,9 +443,17 @@ export function _setReconcileDeps(deps) {
     try { if (!_streamIsLive(sessionId)) pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) { /* never block the reconcile */ }
     let data;
     try {
-      const res = await fetch(`${_apiBase()}/api/history/${sessionId}`);
-      if (!res.ok) return;
-      data = await res.json();
+      // ORW-168: an idle, already-converged reconcile (the overwhelming common case) needs the newest server row, not the whole
+      // transcript. Probe with ?limit=1 and compare it with the DOM; ANYTHING that doesn't match exactly falls through to the
+      // unchanged full fetch below (an older server that ignores `limit` hands back the full log, which is then used as-is).
+      const probe = await _convergedProbe(sessionId);
+      if (probe && probe.converged) { chatState._pendingReconcile.delete(sessionId); return; }
+      if (probe && probe.data) data = probe.data;
+      else {
+        const res = await fetch(`${_apiBase()}/api/history/${sessionId}`);
+        if (!res.ok) return;
+        data = await res.json();
+      }
     } catch (_) { return; }
     if (!isCurrent()) return;
 
@@ -422,7 +462,8 @@ export function _setReconcileDeps(deps) {
     const modelName = data.model || null;
     // Authoritative seq-ordered log (the API orders by seq), minus the continuation/instruction
     // prompts the live view never shows.
-    const visible = (data.history || [])
+    // ORW-275: reconcile honours the week-chapter the viewer is on (the same rows selectSession rendered), so the adopt pass, the seq order check and the rebuild all compare like with like.
+    const visible = _chapterRows(sessionId, data.history || [])
       .filter(m => !(m.role === 'user' && _isSkippableUserPrompt(_historyMsgText(m))));
 
     // 1) ADOPT PASS — no DOM churn.
@@ -495,7 +536,10 @@ export function _setReconcileDeps(deps) {
     // S17: a live holder that selectSession KEPT across a history repaint (marked `data-kept-live`) is id-converged once adopted by dbId but was never FINALIZED (no footer, live-path header), so a
     // window that joined a run mid-generation settled on a different transcript than a fresh window. Such a bubble is not converged: rebuild it from the authoritative log. Only marked
     // bubbles count, so every other adopted bubble keeps the zero-churn contract (#873 / #985).
-    const liveUnfinalized = Array.from(box.querySelectorAll('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder]')).some((el) =>
+    // ORW-274: the SENDER's own WS holder is `msg msg-ai streaming` (no live-holder mark) and is adopted by {id, seq} at `message_saved`; the WS `done` settle then reconciles with every
+    // lock released. If that adopt makes the id order "converged" the holder was never finalized: it stayed `streaming` with no footer for good (1 in ~25 golden-flow runs). A `.streaming`
+    // bubble at a point where NO stream owns the session (the hasActiveStream defer below covers a genuinely live one) is an unfinalized shell: rebuild it from the log.
+    const liveUnfinalized = Array.from(box.querySelectorAll('.msg.msg-ai[data-kept-live], .msg.msg-ai[data-live-holder], .msg.msg-ai.streaming')).some((el) =>
       !(el.style && el.style.display === 'none') && !el.querySelector('.msg-footer'));
     const converged = orphanFree && !liveUnfinalized &&
       renderedIds.length === serverIds.length &&
@@ -541,6 +585,20 @@ export function _setReconcileDeps(deps) {
       // Reader was scrolled up — keep their place (new content was appended below).
       box.scrollTop = prevScrollTop;
     }
+  }
+
+  // ORW-275: switching the week the viewer is reading re-renders through the SAME reconcile (it applies the chapter rows, sees the rendered ids differ from them, and rebuilds; a live
+  // stream defers it to the stream end like any other rebuild). Installed once.
+  if (typeof window !== 'undefined' && !window.__orwellChapterListener) {
+    window.__orwellChapterListener = true;
+    window.addEventListener('orwell:chapter-view', (ev) => {
+      const id = ev && ev.detail && ev.detail.sessionId;
+      const cur = sessionModule && sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId();
+      if (!id || id !== cur) return;
+      try { Promise.resolve(softReloadHistory(id)).catch(function () {}); } catch (_) { /* a failed re-render leaves the old view; the next reconcile repairs it */ }
+    });
+    const _arm = () => { try { _installChapterGuard(() => sessionModule && sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId()); } catch (_) { /* optional guard */ } };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _arm); else _arm();
   }
 
   /** ADR 0008: flush a reconcile deferred because a stream was in flight (called at stream end).

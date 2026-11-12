@@ -49,6 +49,10 @@
     "vote": "Vote",
     "final-two": "Final 2",
     "target-other": "Protection pact",
+    "comp-throw": "Comp throw",
+    "veto-save": "Veto save",
+    "protect-third": "Third-party pact",
+    "conditional": "If-on-the-block pact",
   };
   // The status carries the whole drama: a promise still live, one honored, one betrayed.
   // F-NEW-12: each status carries a non-color GLYPH alongside its label, so open-vs-kept

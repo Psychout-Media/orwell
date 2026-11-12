@@ -10,6 +10,7 @@ import { initModelPicker, updateModelPicker } from './modelPicker.js';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
 import { isNarrow } from './platform.js';
+import { rowsFor as _chapterRows } from './orwellChapters.js';
 
 const API_BASE = window.location.origin;
 
@@ -81,7 +82,13 @@ async function _resolveCanonicalGameSession() {
 // next loadSessions() re-resolves instead of forcing a stale id. The dispatcher is platform.js's
 // debounced orwell:gamechanged (the single g15 dispatcher) — we only LISTEN here.
 try {
-  window.addEventListener('orwell:gamechanged', () => { _canonGameCache = { id: null, at: 0 }; });
+  window.addEventListener('orwell:gamechanged', (e) => {
+    // ORW-168: a routine wave (a settled turn, the tab coming back, a decision card) never rebinds the game, so it must not drop
+    // the 4 s cache. ANY other / unknown / absent reason (next-season, reset, sync:game-updated, ws:state, a tool) still invalidates.
+    const rs = (e && e.detail && Array.isArray(e.detail.reasons)) ? e.detail.reasons : null;
+    if (rs && rs.length && rs.every((r) => r === 'turn-settled' || r === 'tab-visible' || String(r).indexOf('decision:') === 0)) return;
+    _canonGameCache = { id: null, at: 0 };
+  });
 } catch (_) {}
 
 // Research indicator tracking
@@ -1581,6 +1588,8 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       const data = await res.json();
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
       msgHistory = data.history || [];
+      // ORW-275: a played game spanning 2+ weeks shows ONE week (the current by default) with the others one tap away; with fewer weeks this returns the same array.
+      msgHistory = _chapterRows(id, msgHistory);
       modelName = data.model || null;
       // The model returned by /api/history is the authoritative one the
       // backend will use for this session. Write it back into the cached
@@ -3167,6 +3176,7 @@ const sessionModule = {
   getCurrentModel,
   getCurrentEndpointUrl,
   setCurrentSessionId,
+  _resolveCanonicalGameSession,   // ORW-168: test seam (read-only resolver; cached)
   initDragSort,
   updateModelPicker,
   markResearching,

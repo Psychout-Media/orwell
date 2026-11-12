@@ -805,7 +805,7 @@ def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
     try:
-        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or comp_pause_holds(user)  # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
+        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or event_pause_holds(user)  # ORW-232 slice 2: a fresh competition pause also stops the FE's own stall-nudge silent advance (live run: "stall L0" finished the competition in the paused turn)
     except Exception:
         return False
 
@@ -1524,6 +1524,10 @@ _LAST_FRAMED_BEAT_KEY: dict = {}
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent (pre-game / casting) ⇒ a neutral wall-clock
 # stamp (prior behavior). Vault-free by construction (closed-set public status only).
 _LAST_FRAMED_GAME_MOMENT: dict = {}
+# ORW-275: the engine's game WEEK stashed next to the moment (same keying), persisted as numeric metadata['week'] on every saved game row.
+_LAST_FRAMED_GAME_WEEK: dict = {}
+# ORW-271: the engine's in-game DAY number stamped next to the moment (same keying), persisted as metadata['game_day'] on the saved row.
+_LAST_FRAMED_GAME_DAY: dict = {}
 
 # #1626 increment 2 — the Vault-free PRODUCER (production-voice) name from the moment prompt, captured
 # from the SAME framing read that fetches the GM prompt (increment 1 exposed `MomentPromptView.
@@ -1625,6 +1629,19 @@ _LAST_MILESTONE_DUE: dict = {}
 # agent loop CONSUMES this flag (`consume_pre_resolved_advance`) to treat the turn as already-progressed
 # (reset the staleness clock) AND suppress its backstop — exactly mirroring the `_peer_advanced` guard.
 _PRE_RESOLVED_ADVANCE: dict = {}
+
+
+# ORW-273: the pre-resolve walked competition ROUNDS for this user this turn (set where the walk is logged, consumed when the turn's baseline signature is captured - which happens AFTER the walk, so
+# before == live and the A-9 screen would otherwise read the narrator voicing the engine's own rounds as a result the engine never produced).
+_COMP_WALKED_THIS_TURN: dict = {}
+
+
+def mark_comp_walked(user) -> None:
+    _COMP_WALKED_THIS_TURN[_desync_key(user)] = True
+
+
+def consume_comp_walked(user) -> bool:
+    return bool(_COMP_WALKED_THIS_TURN.pop(_desync_key(user), False))
 
 
 def mark_pre_resolved_advance(user) -> None:
@@ -4493,7 +4510,8 @@ _CLAIM_COMP_RESULT_RE = re.compile(
 # STRONG forms use competition-elimination verbs ("goes out", "drops off", "slips down") and stand on their own;
 # idioms are excluded ("goes out for a walk", "out of your…", "out in the yard"). The WEAK copula forms
 # ("X is out", "you are out") are ambiguous prose and only count with competition context (`_COMP_CONTEXT_RE`).
-_ELIM_NAME = r"(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
+# ORW-273: a sentence-initial pronoun / determiner is not a houseguest ("He goes down hard on the plank" was cut as a named elimination).
+_ELIM_NAME = r"(?:(?!(?:He|She|They|It|We|I|His|Her|Their|This|That|There|Then|Everyone|Someone|Somebody|Nobody)\b)[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
 _ELIM_NOT_IDIOM = (r"(?!\s+(?:of\s+(?:your|my|his|her|their|our)\b|in\s+the\b|at\s+the\b|by\s+the\b|"
                    r"for\b|to\b|with\b|into\b|onto\b|there\b|again\b|later\b))")
 _CLAIM_COMP_ELIM_STRONG_RE = re.compile(
@@ -4599,6 +4617,9 @@ def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
     return None
 
 
+_COMP_ROUND_CUE_RE = re.compile(r"the (?:yard|house|crowd) erupts", re.IGNORECASE)
+
+
 def _unsettled_competition_result(text: str, live: dict, before: dict) -> Optional[str]:
     """A-9 — STRUCTURAL screen: the engine's competition is UNSETTLED (a competition phase, still waiting on
     the player's `comp-intent`/`comp-round` approach) and the COMPETITION did not progress this turn, so any
@@ -4619,6 +4640,7 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
     # approach pending, yet the competition is just as unsettled; a result narrated with NO progress is invented.
     if live.get("pending") not in (None, "comp-intent", "comp-round"):
         return None
+    walked = bool(before.get("compWalked"))
     for k in ("phase", "pending", "hoh", "vetoHolder", "compSig"):
         if before.get(k) != live.get(k):
             return None  # the competition moved (resolved, or a staged round advanced) — the engine produced events
@@ -4629,8 +4651,12 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
                 continue
-            if (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
-                    or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent))):
+            if walked:  # ORW-273: round-level cues (a crowd reaction, who dropped) are the rounds the engine walked; only a WINNER / crown / title claim is ahead of the engine
+                _hit = any(not _COMP_ROUND_CUE_RE.fullmatch(m.group(0)) for m in _CLAIM_COMP_RESULT_RE.finditer(clause))
+            else:
+                _hit = (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
+                        or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent)))
+            if _hit:
                 return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
                         "still waiting on the player's approach)")
     return None
@@ -6681,6 +6707,14 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     return " · ".join(parts) if parts else None
 
 
+def current_game_week(user) -> Optional[int]:
+    """ORW-275: the engine's game week (int) stashed by `apply_game_framing` this turn (None pre-game / casting)."""
+    return _LAST_FRAMED_GAME_WEEK.get(user or "default")
+def current_game_day(user) -> Optional[int]:
+    """ORW-271: the engine's in-game day number stashed by `apply_game_framing` this turn (None pre-game / casting)."""
+    return _LAST_FRAMED_GAME_DAY.get(user or "default")
+
+
 def current_game_moment(user) -> Optional[str]:
     """M2-6 — the IN-WORLD moment string stashed for `user` by `apply_game_framing` this turn (the beat
     the model was framed on). The persist site stamps it onto the assistant beat's transcript timestamp;
@@ -6770,16 +6804,41 @@ _COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition p
 _COMP_PAUSE_EVERY = 1  # ORW-232 slice 3 (Ryne 2026-11-10: "a full play by play"): ONE round per message, each with its share of the competition's hours (the engine spreads them)
 _COMP_PAUSED: dict = {}  # runway key -> the (week:phase) signature of a competition paused mid-run
 _COMP_CONT: dict = {}    # runway key -> True while this pass CONTINUES a paused competition
-_COMP_PAUSE_FRESH: set = set()  # runway keys whose competition paused in THIS turn: the model's own progression tools are held until the player speaks again
+# ORW-281 slice 5 (Ryne: comps and ceremonies are built the same way under the hood): the "fresh pause" hold is ONE EVENT-PAUSE hold that ANY multi-step house event sets (a comp round today; an eviction reveal
+# step or any future staged ceremony the same way), so the FE stall-nudge, the silent-advance belts and the model's advanceGame / submitDecision stand down identically. runway key -> the event kind that paused.
+_EVENT_PAUSE_FRESH: dict = {}
+
+
+def event_pause_begin(user, kind: str = "competition") -> None:
+    """Set the event-pause hold for this player: a multi-step house event stopped mid-run and the next beat is the player's turn to talk. Held until the next framed turn begins."""
+    _EVENT_PAUSE_FRESH[_runway_key(user)] = kind
+
+
+def event_pause_clear(user) -> None:
+    _EVENT_PAUSE_FRESH.pop(_runway_key(user), None)
+
+
+def event_pause_kind(user):
+    """The kind of house event currently paused for this player (None when nothing is)."""
+    try:
+        return _EVENT_PAUSE_FRESH.get(_runway_key(user))
+    except Exception:
+        return None
+
+
+def event_pause_holds(user) -> bool:
+    """ORW-232 slice 2 (live run 2026-11-10): the pause is the player's turn to talk. In the paused turn the narrator itself called submitDecision, which chain-advanced the rest of the competition and the winner
+    straight through the pause. While a pause is fresh, the model's advanceGame / submitDecision are answered with a plain 'paused' note and the engine is not called. ORW-281 slice 5: generalised from the
+    competition-only hold to any multi-step house event (see event_pause_begin)."""
+    try:
+        return _runway_key(user) in _EVENT_PAUSE_FRESH
+    except Exception:
+        return False
 
 
 def comp_pause_holds(user) -> bool:
-    """ORW-232 slice 2 (live run 2026-11-10): the pause is the player's turn to talk. In the paused turn the narrator itself called submitDecision, which chain-advanced the rest of the competition and the winner
-    straight through the pause. While a pause is fresh, the model's advanceGame / submitDecision are answered with a plain 'the competition is paused' note and the engine is not called."""
-    try:
-        return _runway_key(user) in _COMP_PAUSE_FRESH
-    except Exception:
-        return False
+    """Back-compat alias: the competition pause IS an event pause (ORW-281 slice 5)."""
+    return event_pause_holds(user)
 
 
 
@@ -6853,7 +6912,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     for real and, if it landed the player in a NEW spectator beat, arm a fresh runway for it."""
     from src import orwell_engine
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
-        _COMP_PAUSE_FRESH.discard(_runway_key(user))  # a new framed turn: last turn's pause no longer holds the model's tools
+        event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -7054,6 +7113,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 _COMP_STEER_BASE[_runway_key(user)] = (_SCHEDULE_STEER.get(_runway_key(user)) or "").split("THE COMPETITION")[0].rstrip()  # keep any production cue, never a stale competition record from an unconsumed earlier pass
                 _COMP_CONT[_runway_key(user)] = _runway_key(user) in _COMP_PAUSED  # (kept until the pass ends: the hops below still need it for `ready`)
             _comp_log.append((_beat_kind, str(_beat)))
+            mark_comp_walked(user)  # ORW-273
             _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
             _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False))
         if phase == "nominations" and _beat:
@@ -7111,7 +7171,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if _comp_log and sum(1 for _k, _c in _comp_log if _k == "comp-elimination") >= _COMP_PAUSE_EVERY:
                 # ORW-232 slice 2: the competition is still running (same week:phase) and this pass has voiced its share of rounds - PAUSE here. The rest stays UNRUN in the engine.
                 _COMP_PAUSED[_runway_key(user)] = sig
-                _COMP_PAUSE_FRESH.add(_runway_key(user))
+                event_pause_begin(user, "competition")
                 _prior = _COMP_STEER_BASE.get(_runway_key(user), "")
                 _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False), paused=True)
                 logger.info("[orwell] competition paused after %d round(s) for user=%s - the player can talk inside it", len(_comp_log), user)
@@ -7349,6 +7409,18 @@ async def apply_game_framing(
         # beat's transcript timestamp so the fiction isn't dated by the wall clock. Keyed the SAME
         # "default"-fallback way as the beat key below. Vault-free (closed-set public status only).
         _LAST_FRAMED_GAME_MOMENT[user or "default"] = _format_game_moment(game_state)
+        # ORW-275: the game WEEK (same framing state, zero extra read). Pre-game / casting ⇒ none (rows stay unstamped).
+        _gw = game_state.get("week") if isinstance(game_state, dict) and game_state.get("started") else None
+        if isinstance(_gw, int) and not isinstance(_gw, bool) and _gw > 0:
+            _LAST_FRAMED_GAME_WEEK[user or "default"] = _gw
+        else:
+            _LAST_FRAMED_GAME_WEEK.pop(user or "default", None)
+        # ORW-271: the in-game DAY (same framing state, zero extra read). Pre-game / no clock day ⇒ none (rows stay unstamped).
+        _gd = game_state.get("dayNumber") if isinstance(game_state, dict) and game_state.get("started") else None
+        if isinstance(_gd, int) and not isinstance(_gd, bool) and _gd > 0:
+            _LAST_FRAMED_GAME_DAY[user or "default"] = _gd
+        else:
+            _LAST_FRAMED_GAME_DAY.pop(user or "default", None)
         # ADR 0011: stash the FRAMING beat key (the beat the model is grounded on THIS turn) so the
         # agent loop can distinguish a concurrent PEER's advance from the model under-calling — the
         # two-tab "20-step loop" fix. Engine's raw fields (NOT the RE_ENTRY display moment). Zero extra
@@ -7513,6 +7585,8 @@ async def apply_game_framing(
                 # SUCCESS-GATED belt (one per segment) makes voiced-vs-queued measurable.
                 _note_belt(user, "desync-reground-voiced", _reground.count(_REGROUND_SEP) + 1)
             _LAST_BEAT_SIG[_dkey] = await _capture_beat_signature(user)
+            if consume_comp_walked(user) and isinstance(_LAST_BEAT_SIG.get(_dkey), dict):
+                _LAST_BEAT_SIG[_dkey]["compWalked"] = True  # ORW-273: rounds the engine walked this turn are voiced FROM the prompt; A-9 stands down on round-level cues
         except Exception as e:
             logger.warning("[orwell] beat-signature checkpoint skipped for user=%s: %s", _gkey, e)
         # 0065 Part E2: ADDITIVE — alongside the full authoritative GAME CONTEXT block (built into the
@@ -9144,7 +9218,7 @@ def clean_thinking_for_save(
 
 
 def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
-                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None, game_week: Optional[int] = None, game_day: Optional[int] = None,
                          announcements: Optional[list] = None, incognito: bool = False):
     """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
     the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
@@ -9158,6 +9232,10 @@ def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dic
     content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game, cut_off=True)
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275
+    if isinstance(game_day, int) and not isinstance(game_day, bool) and game_day > 0:
+        md["game_day"] = game_day  # ORW-271
     if announcements:
         md["announcements"] = announcements
     if game and not (content or "").strip() and not md.get("thinking") and not md.get("announcements"):
@@ -9189,6 +9267,8 @@ def save_assistant_response(
     game_moment: str = None,
     game: bool = False,
     brief_seen: dict = None,
+    game_week: int = None,
+    game_day: int = None,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
 
@@ -9208,6 +9288,10 @@ def save_assistant_response(
         md["phase"] = phase
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275: numeric game week next to game_moment
+    if isinstance(game_day, int) and not isinstance(game_day, bool) and game_day > 0:
+        md["game_day"] = game_day  # ORW-271: the engine's in-game day; the prompt view condenses closed days by it
     # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF; the caller passes None when off): what the narrator last saw,
     # kept on the row so a restart or another window picks the Show Brief's "changed since" up from here (K6 §5.1).
     if isinstance(brief_seen, dict):

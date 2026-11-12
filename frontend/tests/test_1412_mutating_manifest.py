@@ -75,7 +75,7 @@ READ_ONLY_TOOLS = frozenset({
     # which an engine-only PR skips — the lever-drift trap — so it landed latent on main until an
     # FE-touching PR ran fe-unit.)
     "recordCastGenesis",
-    "recordWorldSnapshot", "recordOffscreenSceneTexture", "recordCompetitionFiction",
+    "recordWorldSnapshot", "recordDaySummary", "dayLedger", "recordOffscreenSceneTexture", "recordCompetitionFiction",
     # #1626 (increment 3): `recordProducerProfile` is an FE-driven write-back that DEEPENS the
     # OFF-CAMERA producer persona — it moves only the seeded producer's public voice prose, which
     # the status HUD never renders — NOT a HUD-mutating lever, exactly like its sibling
@@ -83,6 +83,8 @@ READ_ONLY_TOOLS = frozenset({
     # guard, which an engine-only PR skips — the lever-drift trap — so #1631 landed the tool in
     # registry.ts INFRA_LEVERS latent on main until an FE-touching PR ran fe-unit.)
     "recordProducerProfile",
+    # ORW-223: `recordRoomCanon` is an FE-driven write-back of narrated room texture into the canon ledger; the status HUD never renders it.
+    "recordRoomCanon",
 })
 
 # `manageSandbox` is the ONE admin tool in the manifest (a sandbox reset / load moves the
@@ -163,7 +165,7 @@ def test_the_current_mutator_set_is_pinned():
         "recordInteraction", "runCompetition", "surfaceInformationTo", "diaryRoom", "recordImageBeat",
         "moveTo", "moveHouseguest", "markHouseguestMet", "turnIn", "hangOut", "noteMessage",
         "makeDeal", "formAlliance", "joinAlliance", "askJuror",
-        "exposeSecret", "tradeSecret", "confront", "accuseTie",
+        "exposeSecret", "tradeSecret", "confront", "accuseTie", "callInFavor",
         "manageSandbox", "raiseSpectatorChoice",
     }
     assert set(_manifest_tools()) == expected

@@ -4514,7 +4514,7 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
     # returned held). Same `held` shape as do_advance_game; the engine is not called and no outcome is returned.
     try:
         from routes import chat_helpers as _ch_pause
-        if _ch_pause.comp_pause_holds(owner):
+        if _ch_pause.event_pause_holds(owner):
             return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. It is the player's turn inside the scene: do not advance or resolve it this turn, "
                                           "do not narrate further rounds or the winner. End on a moment they can answer; their next message continues it."}),
                     "exit_code": 0}
@@ -5279,7 +5279,7 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:  # ORW-232 slice 2: a paused competition is the player's turn - the model's advanceGame must not run the rest through the pause
         from routes import chat_helpers as _ch_pause3
-        if _ch_pause3.comp_pause_holds(owner):
+        if _ch_pause3.event_pause_holds(owner):
             return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not advance or resolve it this turn, and do not narrate further rounds or the winner. "
                                           "End on a moment the player can answer; their next message continues it."}), "exit_code": 0}
     except Exception:
@@ -5378,7 +5378,7 @@ async def do_submit_decision(content: str, owner: Optional[str] = None) -> Dict:
     if kind in ("comp-round", "comp-intent"):
         try:  # ORW-232 slice 2: a paused competition is the player's turn - the model must not answer its card and chain the rest through the pause
             from routes import chat_helpers as _ch_pause2
-            if _ch_pause2.comp_pause_holds(owner):
+            if _ch_pause2.event_pause_holds(owner):
                 return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not answer or advance its round this turn; end on a moment the player can answer in "
                                               "character. Their next message continues it."}), "exit_code": 0}
         except Exception:
@@ -5927,6 +5927,11 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         _dir = (args.get("direction") or "").strip().lower()
         if _dir in ("offer", "ask") and kind in ("comp-throw", "veto-save"):  # B55: only meaningful for the active kinds
             _extra["direction"] = _dir
+        _third = (args.get("third") or "").strip()
+        if kind == "protect-third":  # 0142: the engine refuses a protect-third without a valid third houseguest
+            if not _third:
+                return {"error": "third (the houseguest to be protected) is required for a protect-third deal", "exit_code": 1}
+            _extra["third"] = _third
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal
@@ -6094,6 +6099,28 @@ async def do_confront(content: str, owner: Optional[str] = None) -> Dict:
     try:
         res = await orwell_engine.confront(npc_id, fact_id, user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+async def do_call_in_favor(content: str, owner: Optional[str] = None) -> Dict:
+    """Feature 0142 — the player CALLS IN a favor a houseguest owes them. The ENGINE prices and resolves it
+    (null when none is owed or no game is being played); we only forward {npcId, ask} and return its Vault-free result."""
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    npc_id = (args.get("npcId") or args.get("npc_id") or "").strip()
+    ask = (args.get("ask") or "").strip() or None
+    if not npc_id:
+        return {"error": "npcId (the houseguest who owes the favor) is required", "exit_code": 1}
+    try:
+        res = await orwell_engine.call_in_favor(npc_id, ask, user=owner)
+        if res is None:
+            return {"output": json.dumps({"honored": None, "note": "no favor is owed by that houseguest"}), "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

@@ -646,6 +646,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
 }
 
 /**
@@ -785,8 +787,13 @@ export interface MakeDealReq {
   with: EntityId;
   // 0121 — the two ACTIVE-obligation kinds (comp-throw / veto-save) are accepted only when the deal-depth
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
-  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
+  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional";
   terms: string;
+  /**
+   * 0142 (ORW-88 idea 3) - for `protect-third` only: the THIRD houseguest the NPC swears not to move against (nominate, replace or vote out). The NPC is always the promisor (the player
+   * asked them); a played game with the deal-depth layer on is required. Ignored for every other kind.
+   */
+  third?: EntityId;
   /**
    * B55 - for the ACTIVE kinds only (comp-throw / veto-save): who promises. `offer` (the default - "I'll throw it for you") binds the PLAYER; `ask` ("will you throw it for me?") binds the NPC. Ignored for the defensive kinds.
    */
@@ -928,6 +935,12 @@ export interface ConfrontResult {
   landed: boolean;
 }
 
+/** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
+export interface OwedFavorView { from: NamedRef; n: number }
+
+/** 0142: a called-in favor. The ENGINE priced it; `honored` => an ordinary deal of `kind` now binds the houseguest; otherwise they ignored it (the favor is spent and the player's read of them drops). */
+export interface CallInFavorResult { honored: boolean; kind: string; narratable: string }
+
 /**
  * The result of a `confide` (feature 0075). The engine decided WHETHER the houseguest opened up,
  * WHICH tier (how much), and whether it was a real confidence or a fabricated one (a lie). The
@@ -1063,6 +1076,20 @@ export interface BriefSeenState {
 }
 
 /** The Show Brief v1 skeleton: one terminal system message, fixed section order, Vault-free by construction. */
+/** ORW-223: the room-canon write-back request. Exactly these two fields; extra keys are rejected. */
+export interface RecordRoomCanonReq {
+  roomId: string;
+  /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
+  feature: string;
+}
+
+export interface RecordRoomCanonResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+}
+
 export interface ShowBriefView {
   text: string;
   /** Echo this back as `brief.seen` on the next turn. */
@@ -1070,7 +1097,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1205,6 +1232,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
   /**
    * F3: whether the season is OVER (a winner is crowned). Mirrors the same public over-signal as
    * `AdvanceView.finished` / `SeasonRecap.finished` (`this.live.finished`). Surfaced here so a client
@@ -1532,6 +1561,12 @@ export interface EvictionView {
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */
+/** ORW-275 - the week-chapter recap (public ceremony facts only). */
+export interface WeekChapterView {
+  week: number;
+  recap: { evicted: string[]; hoh: string | null; standing: string };
+}
+
 export interface AdvanceView {
   started: boolean;
   /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
@@ -1563,6 +1598,11 @@ export interface AdvanceView {
    * or nothing closed (a quiet/no-op turn-in) — the narrator voices it only when present, never invents one.
    */
   dailyRecap?: DailyRecapView;
+  /**
+   * ORW-275 - present ONLY on the played-game `turnIn` that crosses a week boundary (the bed on eviction night): the Vault-free
+   * "new chapter" recap. `week` is the NEW week. No numbers except the houseguest count in `standing`.
+   */
+  weekChapter?: WeekChapterView;
   /**
    * T0-3 — the Vault-free broadcast chyron(s) for every committed ceremony fact THIS advance/decision
    * just produced, in commit order (a T0-2 auto-advanced beat chained onto a resolved pending can
@@ -2021,6 +2061,33 @@ export interface DailyRecapHook {
  * layer never appears. `hook` is present only when an in-motion, player-perceivable thread is
  * eligible (a quiet day closes with none — never a manufactured cliffhanger).
  */
+export interface DaySummary {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  /** Model-authored summary (FE write-back), capped; absent = floor entry only. */
+  text?: string;
+  /** Week tier: the inclusive day range this entry condenses. */
+  coversDays?: [number, number];
+  /** Day tier: true once a week entry has condensed it (kept in the ledger, never deleted). */
+  merged?: boolean;
+}
+
+/** ORW-271 — FE-driven write-back: the model-authored summary for a closed day (or a week of days). */
+export interface RecordDaySummaryReq {
+  day: number;
+  text: string;
+  tier?: "day" | "week";
+  coversDays?: [number, number];
+}
+
+export interface RecordDaySummaryResult {
+  accepted: boolean;
+  /** Why not accepted (absent when accepted). */
+  reason?: "absent" | "unknown-day" | "empty";
+}
+
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
@@ -2718,6 +2785,11 @@ export interface GameSession {
    * marker. `null` pre-game / for an unknown or non-active houseguest / an unrecognized `factId`.
    */
   confront(npcId: EntityId, factId: string, expectedBeatSeq?: number): ConfrontResult | null;
+  /**
+   * 0142 (ORW-88 idea 2) - call in a favor a houseguest owes the player (they kept a deal). `ask` is the deal kind requested (default "vote": "you owe me a vote"). Returns null when no favor is
+   * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
+   */
+  callInFavor(npcId: EntityId, ask?: MakeDealReq["kind"], expectedBeatSeq?: number): CallInFavorResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /
@@ -2832,6 +2904,18 @@ export interface GameSession {
   dailyRecap(): DailyRecapView | null;
 
   /**
+   * ORW-271 — the append-only per-night day ledger (Vault-free; `[]` before any night closed). FE read.
+   */
+  dayLedger(): DaySummary[];
+
+  /**
+   * ORW-271 — FE-driven write-back (like `recordWorldSnapshot`; NOT a model lever): attach the
+   * model-authored summary `text` to a closed day (idempotent per day+tier), or add a week-tier entry
+   * covering `coversDays` and mark those day entries `merged` (kept, never deleted).
+   */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult;
+
+  /**
    * The Vault unsealing (0048 §1): the hidden story of THIS user's FINISHED season. Returns `null`
    * for a live (or not-started) season — the gate is the terminal state, enforced in code, never
    * by prompt. The one sanctioned Vault-reading seam, post-season only, player-triggered.
@@ -2906,6 +2990,17 @@ export interface GameSession {
    * the fallback's value (a partial capture never thins the snapshot — non-degradation).
    */
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
+
+  /**
+   * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that
+   * records a narrated TEXTURE feature of a room as append-only canon, so later turns stay consistent. Accepts
+   * ONLY `{ roomId, feature }` (a known room, a one-line feature of at most `ROOM_CANON_FEATURE_MAX` chars);
+   * anything else is rejected with a code. An invention can never create an event, outcome, secret, new place,
+   * plot device, relationship change, knowledge or number (the canon ledger's own fence rejects those), and this
+   * method touches no hidden state. A played game only; no rng; durable via the background seam (no beatSeq bump).
+   * Not a model lever (FE-driven, like `recordWorldSnapshot`).
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto

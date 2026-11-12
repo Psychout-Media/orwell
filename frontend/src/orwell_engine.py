@@ -414,6 +414,14 @@ def note_engine_delivery(user, game_state) -> bool:
     return False
 
 
+# ORW-167: per-user count of non-read engine calls (landed or failed: a write that timed out may still have been applied). Monotonic within the process; compared before and after a turn.
+_MUTATION_COUNT: dict = {}
+
+
+def mutation_count(user: str | None = None) -> int:
+    return _MUTATION_COUNT.get(user or "", 0)
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
@@ -438,6 +446,7 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
                 engine_read_cache.invalidate(user)
+                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
@@ -721,6 +730,36 @@ async def world_snapshot_view(user: str | None = None) -> dict | None:
     input (§6)."""
     result = await _call("worldSnapshotView", {}, user=user)
     return result if isinstance(result, dict) else None
+
+
+async def day_ledger(user: str | None = None) -> list:
+    """ORW-271: the Vault-free append-only per-night day ledger (``[{day, tier, events, themes, text?, coversDays?, merged?}]``).
+    Fail-soft: any engine error or non-list answer reads as ``[]`` (the prompt then simply sends the raw history, as before)."""
+    try:
+        result = await _call("dayLedger", {}, user=user)
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:ledger-read-failed", e, corrected="raw history", user=user)
+        return []
+    return result if isinstance(result, list) else []
+
+
+async def record_day_summary(day: int, text: str, tier: str = "day", covers_days: list | None = None,
+                             user: str | None = None) -> dict:
+    """ORW-271: FE-driven write-back of the model-authored summary of a closed in-game day (or, ``tier="week"``, of the
+    ``covers_days`` range). Idempotent per (day, tier) in the engine. Fail-soft: never raises; returns ``{accepted: False, ...}``."""
+    args: dict = {"day": day, "text": text}
+    if tier == "week":
+        args["tier"] = "week"
+        if covers_days:
+            args["coversDays"] = list(covers_days)
+    try:
+        result = await _call("recordDaySummary", args, user=user)
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:write-back-failed", e, corrected="raw history", user=user)
+        return {"accepted": False, "reason": f"error: {e}"}
+    return result if isinstance(result, dict) else {"accepted": False}
 
 
 async def record_producer_profile(overlay: dict, user: str | None = None) -> dict:
@@ -1060,7 +1099,7 @@ async def social_initiatives(user: str | None = None) -> dict:
 async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None = None,
                     traded_secret: dict | None = None, expected_beat_seq: int | None = None,
                     idempotency_key: str | None = None, user: str | None = None,
-                    term: dict | None = None, direction: str | None = None) -> dict:
+                    term: dict | None = None, direction: str | None = None, third: str | None = None) -> dict:
     """Record a player<->NPC deal (0039). The engine tracks and adjudicates it. 0065 Part A — an
     optional `expected_beat_seq` CAS token is threaded in only when provided (absent ⇒ identical to
     today).
@@ -1078,6 +1117,8 @@ async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None =
     args: dict = {"with": with_id, "kind": kind, "terms": terms}
     if direction in ("offer", "ask"):  # B55: who promises, for the active kinds only; absent => the engine defaults to the player's offer
         args["direction"] = direction
+    if third:  # 0142: protect-third only - the third houseguest the partner swears not to move against
+        args["third"] = third
     if leverage is not None:
         args["leverage"] = leverage
     if traded_secret is not None:
@@ -1218,6 +1259,18 @@ async def confront(npc_id: str, fact_id: str, expected_beat_seq: int | None = No
     return await _call("confront", args, user=user)
 
 
+async def call_in_favor(npc_id: str, ask: str | None = None, expected_beat_seq: int | None = None,
+                        user: str | None = None) -> dict:
+    """Feature 0142 — the player CALLS IN a favor a houseguest owes them (they kept a deal). The engine prices
+    whether it is honored and returns the Vault-free `{honored, kind, narratable}`; null (None) when no favor is owed."""
+    args: dict = {"npcId": npc_id}
+    if ask:
+        args["ask"] = ask
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    return await _call("callInFavor", args, user=user)
+
+
 async def accuse_tie(a_id: str, b_id: str, expected_beat_seq: int | None = None,
                      user: str | None = None) -> dict:
     """Feature 0095 — the player accuses two houseguests of a PRE-SHOW tie. The engine checks whether
@@ -1291,6 +1344,14 @@ async def knowledge_scope_manifest(user: str | None = None):
     a fact no in-game pathway gave them (the room-to-room asymmetry: the player told B, A must not
     recall it). Returns a list of ``{content, knownTo}``; ``[]`` pre-game or when nothing is bounded."""
     return await _call("knowledgeScopeManifest", {}, user=user)
+
+
+async def record_room_canon(room_id: str, feature: str, user: str | None = None) -> dict:
+    """ORW-223 (Showrunner memory, canon ledger v1): write ONE narrated texture feature of a room BACK to the engine as
+    append-only canon (``recordRoomCanon``). Sends exactly ``{roomId, feature}``; the engine re-validates the room, the
+    120-char cap and the content fence (no events, outcomes, secrets, places, devices, relationships, numbers) and
+    answers ``{accepted, reason?, entryId?}``. Vault-free; played games only."""
+    return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
 
 
 async def whereabouts(user: str | None = None):

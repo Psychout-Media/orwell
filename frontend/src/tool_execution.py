@@ -1177,7 +1177,7 @@ async def execute_tool_block(
         do_social_initiatives, do_diary_room, do_make_deal, do_confide, do_ask_juror, do_whereabouts, do_move_to,
         do_form_alliance, do_join_alliance,
         do_expose_secret, do_trade_secret,
-        do_confront, do_accuse_tie,
+        do_confront, do_accuse_tie, do_call_in_favor,
         do_premiere_intros, do_mark_houseguest_met,
         do_season_recap, do_season_retrospective, do_player_receipts, do_player_dossier, do_daily_recap, do_world_snapshot_view, do_npc_voice,
         do_app_api,
@@ -1637,6 +1637,9 @@ async def execute_tool_block(
     elif tool == "tradeSecret":
         desc = "tradeSecret"
         result = await do_trade_secret(content, owner=owner)
+    elif tool == "callInFavor":
+        desc = "callInFavor"
+        result = await do_call_in_favor(content, owner=owner)
     elif tool == "confront":
         desc = "confront"
         result = await do_confront(content, owner=owner)
@@ -1664,6 +1667,20 @@ async def execute_tool_block(
     elif tool == "turnIn":
         desc = "turnIn"
         result = await do_turn_in(content, owner=owner)
+        # ORW-275: a turnIn that crossed a week boundary carries `weekChapter` - save the chapter row (idempotent per week, fail-soft).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_week_chapter
+                orwell_week_chapter.save_week_chapter(owner, result)
+            except Exception:
+                pass
+        # ORW-271: after a successful turnIn, condense the closed day in the BACKGROUND (idempotent, fail-soft, never blocks sleep).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_day_condense
+                orwell_day_condense.kickoff_after_turn_in(owner, result)
+            except Exception:
+                pass
     elif tool.startswith("mcp__"):
         # MCP tool dispatch
         mcp = get_mcp_manager()

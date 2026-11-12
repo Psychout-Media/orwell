@@ -13,6 +13,8 @@ import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
 import { SOCIETY_TICK_HOURS } from "../engine/sleepConstants";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "../engine/characterFactory";
+import { milestoneDue } from "../engine/daySchedule";
+import { liveHouseEvent, isCompOrCeremonyKind } from "../engine/houseEvent";
 import { PLAYER } from "../domain/ids";
 import type { EntityId } from "../domain/ids";
 import type { VoiceProfile } from "../domain/voiceProfile";
@@ -87,6 +89,8 @@ export interface HealthRecord {
    * neither advances nor resets the corruption streak.
    */
   circuitOpen: boolean;
+  /** ORW-277: present only after the Show Brief failed to build in a played game; codes and a count, never content. */
+  briefAlarm?: { failures: number; first: "threw" | "empty" };
 }
 
 export interface AdvanceResult {
@@ -471,13 +475,15 @@ export class Orchestrator {
     const peStage = (x: SessionSnapshot | undefined): string | undefined => (x?.live as { premiereEntrance?: { stage?: string } } | undefined)?.premiereEntrance?.stage;
     if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
     // ORW-232 slice 3 / ORW-256 (Ryne 2026-11-10: "If everyone is outside in a comp, everything that happens is very public ... houseguests can't leave and make alliances or something like that"):
-    // while a staged competition is running everyone is out in it, so a commit inside it (a round, a chat message, the crown) earns NO private off-screen scenes. Public reactions ride the
+    // while a house event (comp or ceremony) is in session everyone is gathered in it, so a commit inside it (a round, a chat message, the crown) earns NO private off-screen scenes. Public reactions ride the
     // crown's own fold. Only a live-clock game has a competition "running" in game time; the seeded calibration spine (clock off) never reaches this, so it is byte-identical.
-    const compRunning = (x: SessionSnapshot | undefined): boolean => !!(x?.live as { competition?: unknown } | undefined)?.competition;
-    // Only for a game a person is PLAYING: `messageModeNow()` is true once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
+    // ORW-281 slice 3 (Ryne: comps and ceremonies are built the same way): ANY comp-or-ceremony house event in session (comp, veto draw, nominations, veto ceremony, eviction), via the single
+    // pure derivation the adapter's houseEventInSession also uses.
+    const compRunning = (x: SessionSnapshot | undefined): boolean => isCompOrCeremonyKind(liveHouseEvent(x?.live as never, { includeDraw: milestoneDue(x?.live as never) })?.kind) // the draw counts only once its morning slot is due, not for the whole idle stretch before it;
+    // Only for a game a person is PLAYING: `live.playedGame` (ORW-281 slice 5: the one played-game flag) is set once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
     // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
     const sess = this.registry.sandboxFor(user).session;
-    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), sess.messageModeNow(), compRunning(baseline), compRunning(candidate))) return;
+    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;
@@ -699,9 +705,15 @@ export class Orchestrator {
   /** Vault-free health metadata for God Mode (0016). Per-user, or all sandboxes. */
   sandboxHealth(user?: string): HealthRecord | HealthRecord[] {
     if (user !== undefined) {
-      return this.health.get(user) ?? this.freshHealth(user);
+      return this.withBriefAlarm(user, this.health.get(user) ?? this.freshHealth(user));
     }
-    return this.registry.usernames().map((u) => this.health.get(u) ?? this.freshHealth(u));
+    return this.registry.usernames().map((u) => this.withBriefAlarm(u, this.health.get(u) ?? this.freshHealth(u)));
+  }
+
+  /** ORW-277: overlay the session's Show Brief alarm at read time (absent until a failure, so the record is otherwise unchanged). */
+  private withBriefAlarm(user: string, rec: HealthRecord): HealthRecord {
+    const a = this.registry.sandboxFor(user).session.briefAlarmStatus();
+    return a ? { ...rec, briefAlarm: a } : rec;
   }
 
   private freshHealth(user: string): HealthRecord {

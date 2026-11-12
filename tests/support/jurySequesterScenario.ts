@@ -42,6 +42,11 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
     const user = `jury-sequester-${seed}`;
     const mcp = runtime.registry.resolver()("player", user);
     await mcp.callTool("createCharacter", { playerName: "The Player", seed });
+    // CI speed (ORW-218): ONE announced message makes this a PLAYED game (playedGame, the clock/night gates); every later "let time pass" step is the in-process clock step (what a message bills),
+    // NOT another `noteMessage` - each of those persists the whole game, and a held night needs ~35 of them, so the scenario made ~7000 full-state saves (800+ s) for the same clock.
+    await mcp.callTool("noteMessage", { messageId: `js${seed}-open` });
+    const session = runtime.registry.sandboxFor(user).session as unknown as { advanceClockPerConversation(): void };
+    const tick = (): void => session.advanceClockPerConversation();
     const events = () => runtime.registry.sandboxFor(user).engine.events.queryAll();
     const outAt = new Map<string, number>(); // anyone out of the game (evicted or seated on the jury) -> event index
     const jurors: string[] = [];
@@ -50,10 +55,11 @@ export async function runJurySequesterScenario(composeRuntime: typeof ComposeRun
     let probed = false;
     for (let i = 0; i < 8000 && weeksSince < WEEKS_AFTER_FIRST_JUROR; i++) {
       const adv = (await mcp.callTool("advanceGame", {})) as Adv;
-      if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `js${seed}`); // ORW-116: a held night is the player's: time passes, then they turn in
+      if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `js${seed}`, tick); // ORW-116: a held night is the player's: time passes, then they turn in
       if (adv.finished) break;
       // A refused decision here is a real failure, never an early exit.
-      if (adv.pending) await mcp.callTool("submitDecision", answer(adv.pending));
+      // ORW-281: a ceremony-step is a WATCH step (answered by the next advanceGame, never by submitDecision).
+      if (adv.pending && (adv.pending as { kind?: string }).kind !== "ceremony-step") await mcp.callTool("submitDecision", answer(adv.pending));
       const st = (await mcp.callTool("getGameState", {})) as State;
       if (st.player?.status !== "active") break; // the player became a juror/evictee — not this scenario's case
       for (const c of st.house) {
