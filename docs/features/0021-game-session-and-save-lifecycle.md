@@ -143,3 +143,4 @@ game in the main chat; `docs/features/0007-persistence-non-degradation.md` (the 
 - **Account deletion ⇒ sandbox deletion.** Deleting a user's account implies deleting that
   user's **sandbox data** (saves, events, souls, portraits under their key) — per-user data has
   no owner once the account is gone (cross-user isolation's complement; ties to 0029).
+  **As built (Ryne, BDD card 34, 2026-11-11, accepted as-is; noted 2026-11-12, ORW-286 item 8):** account deletion is a **rename of the user's save folder**, not a purge of the sandbox data. If real deletion (a purge) is wanted, that is a future card and needs Ryne's say-so.
