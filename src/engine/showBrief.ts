@@ -116,6 +116,11 @@ export function cleanLastShown(raw: unknown): string | undefined {
   return flat.length ? flat : undefined;
 }
 
+/** ORW-311: the house counts as "quieting down" once this share of the (non-player) active houseguests has turned in (2 of 3), and "nothing more tonight" once the next scheduled event is at least this far off. */
+const QUIETING_NUM = 2;
+const QUIETING_DEN = 3;
+const QUIETING_QUIET_MINUTES = 120;
+
 /**
  * Build the brief for this turn, or `undefined` when there is nothing to brief (pre-game, the player out of the
  * house, no whereabouts). `req` carries only the FE's optional echoes; the facts come from `view`.
@@ -184,6 +189,12 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
   };
   if (absent.length) now.push(`NOT HERE: ${absent.map(absenceLine).join(" ")}`);
   if (asleep.length) now.push(`Turned in for the night: ${nameList(asleep.map(name), false)}.`);
+  // ORW-311 (Ryne 2026-11-12: one rule for every night, still 5 minutes a message): once most of the house has turned in, say so, so the narrator voices the house quieting down. Bed is the player's own choice every night (Ryne 2026-11-12): the cue never offers a fast-forward to morning. A text cue from the PUBLIC turned-in count only: no pacing change, no curfew, no hidden state. Same on every night, the premiere night included. Not during a whole-house event.
+  const turnedInAll = new Set((view.asleep ?? []).map((a) => a.id).filter((x) => active.includes(x)));
+  if (!wa.houseEvent && active.length > 0 && turnedInAll.size * QUIETING_DEN >= active.length * QUIETING_NUM) {
+    const nothingLeft = view.daySchedule && !view.daySchedule.due && (view.daySchedule.minutesUntil ?? 0) >= QUIETING_QUIET_MINUTES;
+    now.push(`The house is quieting down: ${turnedInAll.size} of ${active.length} houseguests have turned in.${nothingLeft ? " Nothing more is scheduled tonight." : ""} You can go to bed whenever you are ready.`);
+  }
   const unseen = active.filter((id) => !visible.has(id) && !asleepSet.has(id) && !absentSet.has(id)).sort(idOrder);
   if (unseen.length) {
     now.push(wa.houseEvent?.kind === "premiere-entrances"

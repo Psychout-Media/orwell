@@ -197,3 +197,34 @@ describe("buildShowBrief: invariants", () => {
     expect(buildShowBrief(livingRoom(), { seen: first.seen })!.text).toContain("Nothing you could see has changed.");
   });
 });
+
+describe("ORW-311: the house-is-quieting-down cue (public turned-in count only)", () => {
+  const asleepN = (n: number) => Array.from({ length: n }, (_, i) => ref(i));
+  const at = (n: number, extra: Partial<GameStateView> = {}, wa: Partial<WhereaboutsView> = {}) =>
+    buildShowBrief(view({ room: "bedroom-a", ...wa }, { asleep: asleepN(n), clockLabel: "1:10am, Day 2", ...extra }), {})!.text;
+
+  it("says so once two thirds of the house has turned in, with the count, and only that the player can go to bed when ready (never a fast-forward)", () => {
+    const t = at(10);
+    expect(t).toContain("The house is quieting down: 10 of 15 houseguests have turned in.");
+    expect(t).toContain("You can go to bed whenever you are ready.");
+    expect(t).not.toMatch(/hang out|until morning|fast-forward/i); // Ryne 2026-11-12: bed is the player's choice every night; no skip to morning
+  });
+  it("is silent below the threshold and for an empty or absent turned-in list", () => {
+    expect(at(9)).not.toContain("quieting down");
+    expect(at(0)).not.toContain("quieting down");
+    expect(buildShowBrief(view({ room: "bedroom-a" }), {})!.text).not.toContain("quieting down");
+  });
+  it("adds 'nothing more is scheduled tonight' only when the engine's next event is far off", () => {
+    expect(at(12, { daySchedule: { next: "hoh-competition", phase: "afternoon", due: false, minutesUntil: 600 } } as Partial<GameStateView>)).toContain("Nothing more is scheduled tonight.");
+    expect(at(12, { daySchedule: { next: "nominations", phase: "evening", due: false, minutesUntil: 30 } } as Partial<GameStateView>)).not.toContain("Nothing more is scheduled");
+    expect(at(12)).not.toContain("Nothing more is scheduled");
+  });
+  it("never during a whole-house event, and it carries names nowhere (a count only)", () => {
+    expect(at(12, {}, { houseEvent: { kind: "premiere-entrances" } } as Partial<WhereaboutsView>)).not.toContain("quieting down");
+    const line = at(12).split("\n").find((l) => l.includes("quieting down")) ?? "";
+    expect(line).not.toMatch(/NPC [A-O]/);
+  });
+  it("a step of the premiere changes nothing about pacing: the cue is plain text (no clock, no rng)", () => {
+    expect(at(12)).toBe(at(12));
+  });
+});

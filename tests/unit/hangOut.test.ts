@@ -107,3 +107,43 @@ describe("hangOutBedtime", () => {
     expect(hangOutBedtime(5, 1)).toBe(false);
   });
 });
+
+describe("ORW-311 (Ryne 2026-11-12): hanging out never skips the night or reaches the next morning", () => {
+  // Chain hang-out calls the way a player could (one after another) with the REAL bedtime rule and NO scheduled event in the way. Bed is the player's own choice: the chain must stall at bedtime.
+  const chain = (startHour: number, awakeNpcs: number) => {
+    let hour = startHour;
+    const probes: HangOutProbes = {
+      advance: (h) => { hour += h; },
+      hoursUntilEvent: () => null, eventDue: () => false,
+      bedtime: () => hangOutBedtime(hour, awakeNpcs, 20, 24),
+      pulled: () => null, approach: () => null, observed: () => null,
+    };
+    const stops: string[] = [];
+    for (let call = 0; call < 40; call++) {
+      const r = runHangOut(probes, rng(call + 1));
+      stops.push(r.stopReason);
+      if (r.stopReason === "bedtime") break;
+    }
+    return { hour, stops };
+  };
+  it.each([8, 12, 16, 19.9, 20, 21.5, 23.9])("from hour %s with a busy house it stops at bedtime within one beat of midnight and never reaches the morning", (start) => {
+    const { hour, stops } = chain(start, 5);
+    expect(stops[stops.length - 1]).toBe("bedtime");
+    expect(hour).toBeGreaterThanOrEqual(24);
+    expect(hour).toBeLessThanOrEqual(24.5 + 1e-9); // at most one 30-minute beat past midnight
+    expect(hour).toBeLessThan(32);                 // 32 = the next 8am: a hang-out can never get there
+  });
+  it("once it is past midnight a hang-out spends no time at all", () => {
+    for (const h of [24, 26, 29, 31.9]) {
+      const w = world({ startHour: h, bedHour: 24 });
+      expect(runHangOut({ ...w.probes, bedtime: () => hangOutBedtime(w.hour(), 5, 20, 24) }, rng())).toEqual({ stopReason: "bedtime", beats: 0, minutes: 0 });
+      expect(w.log).toEqual([]);
+    }
+  });
+  it("a thinned house (the player plus at most one awake) stops it earlier, in the night block only", () => {
+    expect(chain(20, 1).hour).toBe(20);
+    const early = chain(15, 0).hour;  // the thin-house rule does not apply before 8pm: it runs to the start of the night block and stops there
+    expect(early).toBeGreaterThanOrEqual(20);
+    expect(early).toBeLessThanOrEqual(20.5 + 1e-9);
+  });
+});
