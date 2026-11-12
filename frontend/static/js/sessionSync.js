@@ -42,6 +42,7 @@
     catch (_) { return false; }
   }
 
+  var _lastWsNudge = 0;
   function wsFlagOn() {
     try { return !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn()); }
     catch (_) { return false; }
@@ -383,7 +384,14 @@
     // ORW-44 S4a (Ryne: WebSocket only): in the game build with the transport on, the SSE mirror is never opened - not even in the gap
     // before the socket is live. The socket replays then tails the chat channel on (re)subscribe, so nothing is missed.
     // (The canonical-game-session refresh below still runs: the convergence ladder and the socket's bind depend on it.)
-    if (gameBuildOn() && wsFlagOn()) { refreshCanonical(); disconnect(); return; }
+    if (gameBuildOn() && wsFlagOn()) {
+      refreshCanonical(); disconnect();
+      // The SSE mirror used to deliver the `game-updated` that re-armed a WS that fell back for a RECOVERABLE cause (the canonical game not live yet when this window loaded). With it gone, nudge the
+      // socket ourselves (ensure() forces ONE upgrade attempt for those causes only; a permanent cause stays down), at most every 5s.
+      var _t = Date.now();
+      if (_t - _lastWsNudge > 5000) { _lastWsNudge = _t; try { window.OrwellWs && window.OrwellWs.ensure && window.OrwellWs.ensure(1); } catch (_) {} }
+      return;
+    }
     refreshCanonical();
     var id = desiredSession();
     if (id !== boundSession) {
