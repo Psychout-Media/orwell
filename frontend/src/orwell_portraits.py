@@ -1162,10 +1162,10 @@ async def _generate_one(prompt: str, user: Optional[str],
     if not model_spec:
         for candidate in IMAGE_AUTODETECT_CANDIDATES:
             try:
-                _resolve_model(candidate, owner=user or None)
+                await asyncio.to_thread(_resolve_model, candidate, owner=user or None)  # ORW-177: a /models probe (up to 5 s) must not run on the event loop
                 model_spec = candidate
                 break
-            except Exception:
+            except Exception:  # failsoft-ok: capability-probe (a candidate that does not resolve is simply not configured ⇒ try the next; none ⇒ _note_gen_error("no-model") below)
                 continue
     if not model_spec:
         _note_gen_error("no-model")

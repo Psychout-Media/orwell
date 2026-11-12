@@ -32,6 +32,7 @@ unit, ``orwell-ops-public-deployment.path``) so a missing or stopped root watche
 through the same ops-progress channel the status page polls.
 """
 
+import asyncio
 import datetime as _dt
 import json
 import os
@@ -173,7 +174,7 @@ def setup_admin_public_deployment_routes() -> APIRouter:
             "hostPinned": bool(allowed) and allowed != ["*"],
             "tunnel": {
                 "installed": shutil.which("cloudflared") is not None,
-                "active": _cloudflared_active(),
+                "active": await asyncio.to_thread(_cloudflared_active),
                 "publicUrl": _stored_public_url(),
             },
             "lastApply": _read_last_apply(),
