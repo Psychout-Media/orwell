@@ -1,7 +1,7 @@
 import type { GameSessionRegistry, UserSandbox } from "./registry";
 import type { Clock } from "../ports/Clock";
 import type { SessionSnapshot } from "../engine/sessionSnapshot";
-import { toGameState, sessionCoreCounts, sessionCoreCountsNonDecreasing, sessionCoreIsSuperset } from "../engine/sessionSnapshot";
+import { toGameState, sessionCoreCounts, sessionCoreCountsNonDecreasing, sessionCoreSupersetViolation } from "../engine/sessionSnapshot";
 import { counts, isSuperset, countsNonDecreasing } from "../domain/saveState";
 import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
@@ -65,6 +65,8 @@ export interface Fault {
   when: number;
   /** `persist-failure` is its OWN class (audit E7): a disk failure is never misread as degradation. */
   kind: "degradation" | "no-daily-event" | "vault-leak" | "persist-failure";
+  /** ORW-321: the NAME of the first failing invariant (a field / count name only - never game content or a Vault value), so a refusal is diagnosable in one look. */
+  detail?: string;
 }
 
 /** Vault-free health metadata for God Mode (0016) — never game content, never Vault. */
@@ -290,7 +292,7 @@ export class Orchestrator {
   /** Surface a fault where an operator can see it (B58/E6) — stderr, with user + kinds. */
   private logFaults(user: string, trigger: Trigger, faults: Fault[]): void {
     console.error(
-      `[orwell] integrity fault user=${user} trigger=${trigger} kinds=${faults.map((f) => f.kind).join(",")}` +
+      `[orwell] integrity fault user=${user} trigger=${trigger} kinds=${faults.map((f) => f.kind).join(",")}${faults.some((f) => f.detail) ? ` invariant=${faults.map((f) => f.detail).filter(Boolean).join(",")}` : ""}` +
       (this.circuitOpen(user) ? " circuit=OPEN" : ""),
     );
   }
@@ -433,7 +435,7 @@ export class Orchestrator {
     // Fail-closed: roll the in-memory sandbox back to the last good state, DO NOT persist, and
     // surface the refusal as an ERROR to the caller (E3) — state unchanged, request failed.
     this.recordFault(user, "player-turn", when, faults, baseline);
-    throw new TurnRefusedError(faults.map((f) => f.kind));
+    throw new TurnRefusedError(faults.map((f) => f.kind), faults.map((f) => f.detail).filter((d): d is string => !!d));
   }
 
   /** Roll back (when a good baseline exists), count the fault, log it, and record health. */
@@ -629,11 +631,22 @@ export class Orchestrator {
     // history, texture overrides, …) — a regression there was invisible to this gate. `sessionCore*`
     // (src/engine/sessionSnapshot.ts) is the engine-layer companion check, same discipline, always
     // fully verified (these maps are small — no fast-path relaxation needed).
-    if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })
-        || !countsNonDecreasing(counts(gsCand), counts(gsBase))
-        || !sessionCoreIsSuperset(candidate, baseline)
-        || !sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
-      faults.push({ when, kind: "degradation" });
+    const firstDropped = (later: object, earlier: object): string | null => {
+      for (const k of Object.keys(earlier)) if ((later as Record<string, number>)[k] < (earlier as Record<string, number>)[k]) return k;
+      return null;
+    };
+    let degradation: string | null = null;
+    if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })) degradation = "gameState";
+    else if (!countsNonDecreasing(counts(gsCand), counts(gsBase))) degradation = `gameState.counts.${firstDropped(counts(gsCand), counts(gsBase)) ?? "?"}`;
+    else {
+      const core = sessionCoreSupersetViolation(candidate, baseline);
+      if (core !== null) degradation = `sessionCore.${core}`;
+      else if (!sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
+        degradation = `sessionCore.counts.${firstDropped(sessionCoreCounts(candidate), sessionCoreCounts(baseline)) ?? "?"}`;
+      }
+    }
+    if (degradation !== null) {
+      faults.push({ when, kind: "degradation", detail: degradation });
     }
     // Daily-event (0008): a progression advance must produce ≥1 new event. A player-turn COMMIT
     // (B41) opts out — not every player tool call adds a beat (a deal, a surfacing, a DR entry).

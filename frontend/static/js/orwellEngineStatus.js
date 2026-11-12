@@ -143,7 +143,7 @@
         // health payload (this banner just mirrors that health poll), so it is not re-beaconed here —
         // and the g11 failure ring is reserved for the fail-open CATCH below, per its contract.
         show("down", _OUTAGE_TITLE, _OUTAGE_BODY);
-      } else if (d.lastError && d.lastError.error) {
+      } else if ((d.lastError && d.lastError.error) || d.integrityRefusal) { // ORW-321: a standing integrity-checkpoint refusal is the same honest 'degraded' signal
         if (busy) { showHolding(); return; } // mid-creation hiccups hold in-fiction too
         // Engine reachable, but a recent call failed — an honest signal in one production voice; the raw
         // tool name + backend error string (MICRO-15) never reach the player banner (they remain on the
