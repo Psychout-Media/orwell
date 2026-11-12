@@ -10,6 +10,7 @@ import { initModelPicker, updateModelPicker } from './modelPicker.js';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
 import { isNarrow } from './platform.js';
+import { rowsFor as _chapterRows } from './orwellChapters.js';
 
 const API_BASE = window.location.origin;
 
@@ -1587,6 +1588,8 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       const data = await res.json();
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
       msgHistory = data.history || [];
+      // ORW-275: a played game spanning 2+ weeks shows ONE week (the current by default) with the others one tap away; with fewer weeks this returns the same array.
+      msgHistory = _chapterRows(id, msgHistory);
       modelName = data.model || null;
       // The model returned by /api/history is the authoritative one the
       // backend will use for this session. Write it back into the cached
