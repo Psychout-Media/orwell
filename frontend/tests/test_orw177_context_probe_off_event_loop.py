@@ -63,6 +63,7 @@ def _fresh(monkeypatch):
 def test_context_info_route_does_not_block_the_event_loop(monkeypatch):
     _fresh(monkeypatch)
     monkeypatch.setattr(session_routes, "_verify_session_owner", lambda *a, **k: None)
+    monkeypatch.setattr(session_routes.router, "routes", [])  # the module router is global: routes an earlier test bound to a real manager would win
     app = FastAPI()
     app.include_router(session_routes.setup_session_routes(_Mgr(), {}))
 
