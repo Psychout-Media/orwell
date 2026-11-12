@@ -9080,6 +9080,15 @@ async def _stream_agent_loop_impl(
                     turn_advance_nudges=_turn_advance_nudges, max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN, previewed_uncommitted=_previewed_uncommitted,
                     decision_undelivered=_decision_undelivered, want_drain_eviction=_want_drain_eviction, milestone_due=_milestone_due, progressed=_progressed,
                     runway_holding=_runway_holding, loop_stalled=_loop_stalled, is_lull=_is_lull, stale=_stale)
+                # ORW-321: a recent integrity-checkpoint REFUSAL is not a model stall - the engine would refuse the advance again, so the stall nudge / forced advance / anti-stale ladder stand down
+                # (they only add noise, and climbed to level 40 on the live freeze). The refusal itself is already RED for the operator and voiced to the player via the tool error.
+                try:
+                    from src import orwell_engine as _oe_ir
+                    if _want_advance and _oe_ir.integrity_refusal_recent(owner):
+                        _want_advance = False
+                        logger.info(f"[orwell] ORW-321 advance belts stand down: a recent integrity refusal holds (user={owner})")
+                except Exception:
+                    pass
                 # PO ruling (Ryne 2026-11-04): "if you have a real talk and say 'let's move on' in the same
                 # message, the talk STILL COUNTS" - so a turn that ALSO advanced (the model called
                 # advanceGame/submitDecision) is banked like any other. NOT gated on `_progressed`: the
