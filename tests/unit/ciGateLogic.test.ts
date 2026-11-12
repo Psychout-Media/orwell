@@ -91,12 +91,14 @@ describe("ci.yml wiring (two-tier CI)", () => {
     expect(bddJob).toContain("run: npm run test:bdd");
     expect(bddJob).toContain("uses: ./.github/actions/setup-fe-python");
   });
-  it("calibration-nightly skips a draft PR unless it carries full-ci, and runs when the draft is marked ready", () => {
+  it("calibration-nightly has NO pull_request trigger (ORW-218, Ryne 2026-11-12: balance is not CI); the draft-PR guard stays harmless for dispatch/schedule", () => {
     const cal = readFileSync(fileURLToPath(new URL("../../.github/workflows/calibration-nightly.yml", import.meta.url)), "utf8");
     const cond = "github.event_name != 'pull_request' || !github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'full-ci')";
     expect(cal).toContain(`  shards:\n    if: ${cond}\n`);
     expect(cal).toContain(`    if: always() && (${cond})\n`);
-    expect(cal).toMatch(/types: \[opened, synchronize, reopened, labeled, ready_for_review\]/);
+    // deliberate re-pin (ORW-218): the pull_request trigger (and its `types:` list) was removed; only schedule + workflow_dispatch remain.
+    expect(cal).not.toMatch(/^  pull_request:/m);
+    expect(cal).toMatch(/workflow_dispatch:/);
   });
   it("triggers: PR (incl. ready_for_review), merge_group and main", () => {
     expect(yml).toMatch(/types: \[opened, synchronize, reopened, ready_for_review\]/);
