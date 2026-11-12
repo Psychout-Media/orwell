@@ -691,3 +691,36 @@ def test_orw26_the_belt_notes_a_decline_when_every_proposed_id_is_off_scene():
     i = src.index("dropped off-scene withIds")
     seg = src[i:i + 900]
     assert "if not ids:" in seg and "note_belt_declined(owner, session_id)" in seg
+
+
+# ── ORW-288: a bare "keep going" prompt whose turn moved the board has no scene to fold (32 of 52 premiere turns in the 2026-11-12 live run fired the WARN) ──
+
+
+@pytest.mark.parametrize("msg", ["next", "Next.", "continue", "ok", "go on", "what's next", "let's move on", "...", "yes"])
+def test_orw288_progress_only_messages_are_recognised(msg):
+    assert chat_helpers._is_progress_only_message(msg) is True
+
+
+@pytest.mark.parametrize("msg", ["", "next week I want Alex out", "tell Dana I'll vote with her", "let's move on, but first tell me what Sam said about the veto", "hi"])
+def test_orw288_real_talk_is_not_progress_only(msg):
+    assert chat_helpers._is_progress_only_message(msg) is False
+
+
+def test_orw288_progress_prompt_with_an_advanced_board_does_not_fold(monkeypatch):
+    calls = _capture_record(monkeypatch)
+    monkeypatch.setattr(chat_helpers, "last_beat_seq", lambda user: 14)
+    narration = "The doors part and the house light hits you full in the face. " * 4
+    assert _run(chat_helpers.ensure_turn_recorded("u", "next", narration, [], beat_seq_before=12)) is False
+    assert calls == []
+
+
+def test_orw288_the_guard_still_fires_when_it_should(monkeypatch):
+    calls = _capture_record(monkeypatch)
+    narration = "The kitchen goes quiet as the player walks in. " * 5
+    # a progress prompt but the board did NOT move: the old behaviour (a record is the safe floor)
+    monkeypatch.setattr(chat_helpers, "last_beat_seq", lambda user: 12)
+    assert _run(chat_helpers.ensure_turn_recorded("u", "next", narration, [], beat_seq_before=12)) is True
+    # real talk with an advanced board: still folded
+    monkeypatch.setattr(chat_helpers, "last_beat_seq", lambda user: 14)
+    assert _run(chat_helpers.ensure_turn_recorded("u", "tell Dana I will vote with her", narration, [], beat_seq_before=12)) is True
+    assert len(calls) == 2
