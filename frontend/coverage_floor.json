@@ -1,0 +1,12 @@
+{
+  "_comment": "ORW-218: front-end coverage floors (percent) per top-level directory, enforced by ci/check-fe-coverage.py in the fe-coverage job on the combined fe-unit shards (non-browser tests only). Measured 2026-11-12 minus about 1 point. Floors only go up: when the job prints 'ratchet up', raise the number in the same PR.",
+  "TOTAL": {"line": 42, "branch": 33},
+  "(root)": {"line": 68, "branch": 38},
+  "companion": {"line": 24, "branch": 0},
+  "core": {"line": 67, "branch": 53},
+  "gateway": {"line": 78, "branch": 66},
+  "mcp_servers": {"line": 6, "branch": 1},
+  "routes": {"line": 34, "branch": 26},
+  "services": {"line": 14, "branch": 3},
+  "src": {"line": 52, "branch": 43}
+}

@@ -465,15 +465,25 @@ jobs:
             if head -1 "$s" | grep -q python; then python3 -m py_compile "$s"; fi
           done
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
+      - run: mkdir -p frontend/covdata
       - name: pytest — non-browser suite, parallel (app-admin 0029, game build 0032)
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: fail the lane if the skip count rises above frontend/tests/skip_ceiling.json
           ORWELL_SKIP_LANE: unit
           ORWELL_CI_SHARD: ${{ matrix.shard }}/2
+          # ORW-218: front-end coverage on every shard (pytest-cov, branch; config in frontend/pyproject.toml [tool.coverage]). One data file per shard,
+          # covdata/fe-shard<i>, merged from the xdist workers by pytest-cov; the `fe-coverage` job combines both and enforces frontend/coverage_floor.json.
+          COVERAGE_FILE: covdata/fe-shard${{ matrix.shard }}
         # ORW-229 flaky-test rule (docs/CI.md): one automatic rerun, like the browser lane; a test that passes only on the rerun is listed in the job
         # summary (frontend/tests/_flaky_report.py). Quarantined tests are deselected here and run nightly (frontend/tests/_quarantine.py).
         # --durations=0: every test's time is in the log, so frontend/tests/_ci_refresh_durations.py can refresh the shard table from any green run
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --reruns 1 -q -rs --durations=0
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -q -rs --durations=0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fe-coverage-data-${{ matrix.shard }}
+          path: frontend/covdata/
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -488,6 +498,39 @@ jobs:
             node --check "$tmp/check.mjs" 2>"$tmp/err" || { echo "::error file=$f::$(head -5 "$tmp/err" | tr '\n' ' ')"; bad=1; }
           done
           exit $bad
+
+  # ── Front-end coverage gate (ORW-218) ───────────────────────────────────────────
+  # Mirrors the engine `coverage` job: the two fe-unit shards each upload their coverage data (`fe-coverage-data-<i>`); this job combines them into ONE
+  # measurement and runs ci/check-fe-coverage.py against the per-directory line + branch floors in frontend/coverage_floor.json. It fails below a floor and
+  # prints "ratchet up: raise ..." when a directory is 2+ points above its floor (raise the floor in the same PR; floors only go up).
+  fe-coverage:
+    needs: [changes, fe-unit]
+    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-fe-python
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fe-coverage-data-*
+          path: frontend/covdata
+          merge-multiple: true
+      - name: both shards' data must be present
+        run: |
+          ls frontend/covdata | sed 's/^/  /'
+          for i in 1 2; do ls frontend/covdata/fe-shard$i >/dev/null || { echo "::error::no coverage data from fe-unit shard $i"; exit 1; }; done
+      - name: combine the shards and check the floors
+        run: |
+          cd frontend
+          python3 -m coverage combine covdata/fe-shard1 covdata/fe-shard2
+          python3 -m coverage json -o ../fe-coverage.json
+          python3 -m coverage report --skip-covered --format=total
+          python3 ../ci/check-fe-coverage.py ../fe-coverage.json coverage_floor.json | tee ../fe-coverage.txt
+          { echo '### Front-end coverage'; echo '```'; cat ../fe-coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
 
   # The headless-Chromium pytest tests (the `browser` marker). Serial WITHIN a job (they bind fixed ports / drive a
   # real page) with `--reruns 1` so the known environmental onboarding-scrim flake (#925/#1148/#930)
@@ -838,6 +881,7 @@ jobs:
       - coverage
       - smoke
       - fe-unit
+      - fe-coverage
       - fe-browser-tests
       - fe-browser
       - fe-responsive
@@ -857,6 +901,7 @@ jobs:
             coverage=${{ needs.coverage.result }}
             smoke=${{ needs.smoke.result }}
             fe-unit=${{ needs.fe-unit.result }}
+            fe-coverage=${{ needs.fe-coverage.result }}
             fe-browser-tests=${{ needs.fe-browser-tests.result }}
             fe-browser=${{ needs.fe-browser.result }}
             fe-responsive=${{ needs.fe-responsive.result }}
@@ -880,7 +925,7 @@ jobs:
               test|bdd|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;
               heavy-sims) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
-              fe-unit|fe-browser-tests) echo "$FRONTEND" ;;
+              fe-unit|fe-coverage|fe-browser-tests) echo "$FRONTEND" ;;
               fe-browser|fe-responsive|mirror-parity) echo "$FE_RENDER" ;;
               *) echo true ;;
             esac
