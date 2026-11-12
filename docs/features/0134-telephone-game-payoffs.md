@@ -21,4 +21,4 @@ Only `hops` is carried, never source, pathway or original content; it becomes a 
 `tests/unit/humanize.test.ts`, `tests/unit/surfacedFactsDelivery.test.ts` (flag-OFF byte-identity and Vault assertions); `tests/unit/gossipDriftNeutral.test.ts` was run per the PR (not in its diff).
 
 ## Known gaps
-Word reflects chain length only, not distortion magnitude. No BDD wiring.
+Word reflects chain length only, not distortion magnitude. BDD-wired by ORW-300.
