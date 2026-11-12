@@ -22,7 +22,7 @@ def fe():
     import responsive_matrix as rm
     proc = rm.boot_fe()
     yield rm.FE
-    proc.terminate()
+    rm.stop_fe(proc)
 
 
 def _strip(page):

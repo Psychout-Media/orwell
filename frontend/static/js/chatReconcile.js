@@ -57,6 +57,7 @@ import sessionModule from './sessions.js';
 import markdownModule from './markdown.js';
 import { chatState } from './chatState.js';
 import { _outboxConfirmDelivery } from './chatOutbox.js';
+import { rowsFor as _chapterRows, installLiveGuard as _installChapterGuard } from './orwellChapters.js';
 
 // ── chat.js-internal deps injected at module-eval (see the header) ────────────────
 // hasActiveStream (the SSE-reader liveness helper) + resumeStream (the R2 live-resume attach) STAY in
@@ -461,7 +462,8 @@ export function _setReconcileDeps(deps) {
     const modelName = data.model || null;
     // Authoritative seq-ordered log (the API orders by seq), minus the continuation/instruction
     // prompts the live view never shows.
-    const visible = (data.history || [])
+    // ORW-275: reconcile honours the week-chapter the viewer is on (the same rows selectSession rendered), so the adopt pass, the seq order check and the rebuild all compare like with like.
+    const visible = _chapterRows(sessionId, data.history || [])
       .filter(m => !(m.role === 'user' && _isSkippableUserPrompt(_historyMsgText(m))));
 
     // 1) ADOPT PASS — no DOM churn.
@@ -583,6 +585,20 @@ export function _setReconcileDeps(deps) {
       // Reader was scrolled up — keep their place (new content was appended below).
       box.scrollTop = prevScrollTop;
     }
+  }
+
+  // ORW-275: switching the week the viewer is reading re-renders through the SAME reconcile (it applies the chapter rows, sees the rendered ids differ from them, and rebuilds; a live
+  // stream defers it to the stream end like any other rebuild). Installed once.
+  if (typeof window !== 'undefined' && !window.__orwellChapterListener) {
+    window.__orwellChapterListener = true;
+    window.addEventListener('orwell:chapter-view', (ev) => {
+      const id = ev && ev.detail && ev.detail.sessionId;
+      const cur = sessionModule && sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId();
+      if (!id || id !== cur) return;
+      try { Promise.resolve(softReloadHistory(id)).catch(function () {}); } catch (_) { /* a failed re-render leaves the old view; the next reconcile repairs it */ }
+    });
+    const _arm = () => { try { _installChapterGuard(() => sessionModule && sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId()); } catch (_) { /* optional guard */ } };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _arm); else _arm();
   }
 
   /** ADR 0008: flush a reconcile deferred because a stream was in flight (called at stream end).
