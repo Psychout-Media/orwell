@@ -153,8 +153,7 @@ jobs:
             case "$name" in
               engine)    re="$ENGINE_RE" ;;
               frontend)  re="$FRONTEND_RE" ;;
-              # ORW-218: the F5 mirror-parity gate script lives under docs/audits/playtest-harness/, outside frontend/, so a change to ONLY the gate used to skip every render lane.
-              fe_render) re="$FRONTEND_RE|^docs/audits/playtest-harness/"; subject="$fe_changed" ;;
+              fe_render) re="$FRONTEND_RE"; subject="$fe_changed" ;;
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
               heavy)     re="$HEAVY_RE" ;;
             esac
