@@ -39,6 +39,8 @@ VOTER_SEEDS = (30012, 2, 4)      # an NPC HOH, the player is not on the block: w
 def _decide(stack, p):
     """Answer ANY pending kind the engine emits (the player may be evicted in week 1, which opens an exit-interview / goodbye-message / spectator-choice). A kind with no
     scripted answer raises loudly (see tests/_a64_decisions.py + test_a64_decisions_cover_every_pending_kind.py)."""
+    if p.get("kind") == "ceremony-step":  # ORW-281: a staged ceremony step is a WATCH step - answered by advanceGame, refused by submitDecision
+        return _engine(stack, "advanceGame", {})
     return _engine(stack, "submitDecision", answer_for(p))
 
 

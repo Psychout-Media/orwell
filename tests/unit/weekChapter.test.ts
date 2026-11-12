@@ -9,8 +9,9 @@ import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
  */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
-function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<AdvanceView["pending"]>): void {
-  if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
+function resolveLegally(s: Pick<GameSession, "submitDecision" | "advanceGame">, p: NonNullable<AdvanceView["pending"]>): void {
+  if (p.kind === "ceremony-step") s.advanceGame(); // ORW-281: a staged ceremony step is a watch step - answered by advanceGame, refused by submitDecision
+  else if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
   else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
   else if (p.kind === "replacement") s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
   else if (p.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: "compete" });
