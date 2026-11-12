@@ -206,17 +206,12 @@ def _ensure_current_event_loop() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
-@pytest.fixture(autouse=True)
-def _text_routing_inactive_by_default(request, monkeypatch) -> None:
-    """ORW-287: in the game build (the test default) the llm_core dispatchers re-point or refuse OpenRouter TEXT calls. The many
-    llm_core payload/trace/timeout tests drive an OpenRouter-shaped URL on purpose (that wire format is still real for the non-game
-    build), so the guard is off for them; test_orw287_text_is_deepseek_direct.py turns it on explicitly."""
-    if "test_orw287" in str(request.node.fspath):
-        return
-    try:
-        import src.text_routing as _tr
-    except Exception:
-        return
+@pytest.fixture
+def non_game_text_routing(monkeypatch) -> None:
+    """ORW-287: the text-routing guard (src/text_routing.py) is ON in the suite, like prod's game build. The few test modules that
+    pin the OpenRouter wire/payload shape drive llm_core with an OpenRouter-style URL on purpose (that format is still real for the
+    non-game build); they opt out at module level with ``pytestmark = pytest.mark.usefixtures("non_game_text_routing")``."""
+    import src.text_routing as _tr
     monkeypatch.setattr(_tr, "active", lambda: False)
 
 
