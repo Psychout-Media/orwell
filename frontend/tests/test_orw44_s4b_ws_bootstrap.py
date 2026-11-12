@@ -30,4 +30,9 @@ def test_session_sync_opens_no_event_source_in_the_ws_only_game_build():
 
 def test_canonical_resolution_kicks_the_socket():
     ss = _src("sessionSync.js")
-    assert "if (_canon.id && wsOnlyGame()) { try { window.OrwellWs.kick(); } catch (_) {} }" in ss
+    assert "if (_canon.id && wsOnlyGame()) {" in ss and "window.OrwellWs.kick()" in ss
+
+
+def test_a_window_with_no_session_converges_onto_the_canonical_one_before_the_kick():
+    ss = _src("sessionSync.js")
+    assert "if (!currentSession()) { convergeView(_cid).then(_kick); } else { _kick(); }" in ss

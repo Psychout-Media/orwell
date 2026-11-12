@@ -99,7 +99,12 @@
           // and live-attaches during the stream). tick() is idempotent (no-op if already on this id).
           if (_canon.id && _canon.id !== prev) { try { tick(); } catch (_) {} }
           // ORW-44 S4b: in the WS-only game build there is no SSE invitation to wake a window that booted before the game was live. The canonical id just resolved over REST, so nudge the socket to upgrade now.
-          if (_canon.id && wsOnlyGame()) { try { window.OrwellWs.kick(); } catch (_) {} }
+          // A window with NO session of its own (a fresh second window) has no perTabId to say hello with, and the old SSE run-started handler is what used to select the canonical session for it: do that here, THEN kick.
+          if (_canon.id && wsOnlyGame()) {
+            var _cid = _canon.id;
+            var _kick = function () { try { window.OrwellWs.kick(); } catch (_) {} };
+            if (!currentSession()) { convergeView(_cid).then(_kick); } else { _kick(); }
+          }
         })
         .catch(function () { _canon = { id: null, at: Date.now(), inflight: false }; });
     } catch (_) { _canon = { id: null, at: Date.now(), inflight: false }; }
