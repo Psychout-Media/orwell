@@ -620,7 +620,7 @@
   }
   function _ceremonyTitle(kind) {
     return ({ "nominations": "Nominations", "veto-draw": "Veto draw", "veto-ceremony": "Veto ceremony",
-              "eviction": "Eviction night" })[kind] || "Ceremony";
+              "eviction": "Eviction night", "final-eviction": "Final 2 eviction" })[kind] || "Ceremony";
   }
 
   function render(pending) {

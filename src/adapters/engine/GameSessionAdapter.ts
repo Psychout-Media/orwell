@@ -10442,7 +10442,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private ceremonyClockHours(before: ReturnType<typeof ceremonyRef>, now: ReturnType<typeof ceremonyRef>): number | null {
     const ref = now ?? before;
-    if (ref?.kind === "eviction") return null; // ORW-281 4d: the eviction keeps its own ORW-262 event-hours spread (eventBeatHours)
+    if (ref?.kind === "eviction" || ref?.kind === "final-eviction") return null; // ORW-281 4d: the eviction (and the ORW-291 (C) Final HOH eviction) keeps its own ORW-262 event-hours spread (eventBeatHours)
     const live = this.live;
     if (!ref || !live || !this.timeOfDayEnabled || !this.messageMode || !this.perConversationClockLive() || live.timeOfDay === undefined || live.playerRetired) return null;
     const felt = beatFeltHours(ref.kind as never) ?? 0;
@@ -13188,7 +13188,7 @@ export class GameSessionAdapter implements GameSession {
       case "tie-break":
         return { kind: p.kind, by, prompt: "The eviction vote is tied — as Head of Household you cast the deciding vote.", options: refs(p.nominees), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       case "final-eviction":
-        return { kind: p.kind, by, prompt: "You are the final Head of Household — evict one houseguest; the other sits beside you at the Final 2.", options: refs(p.options), pick: 1 };
+        return { kind: p.kind, by, prompt: "You are the final Head of Household — evict one houseguest; the other sits beside you at the Final 2.", options: refs(p.options), pick: 1, ...(cer ? { ceremony: cer } : {}) };
       // --- eviction night (E34): the player's own goodbye — tone is THEIR choice, never engine-read ---
       case "goodbye-message":
         return {
