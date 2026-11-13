@@ -16,9 +16,6 @@ import type { HouseStory, HouseStoryDecision, HouseStoryGoal } from "../ports/Ga
 
 const label = (s: string): string => s.replace(/-/g, " ");
 
-/** The most reflection nights kept per houseguest (their story moves on more days than this in a long season; the writer is one cheap call each). */
-export const REFLECTION_NIGHT_CAP = 12;
-
 const AIM_WORDS: Readonly<Record<string, string>> = {
   "win-by-comps": "win by winning competitions", "win-by-being-liked": "win by being liked", "run-the-house": "run the house",
   "reach-jury": "make it to the jury", "last-alliance-standing": "see their alliance last", "prove-not-a-floater": "prove they were not a floater",
@@ -95,14 +92,6 @@ function realLine(r: StatedReasonRecord, nameOf: (id: EntityId) => string, goalB
   return parts.length ? parts.join("; ") : "pure game read";
 }
 
-/** Pick at most `cap` days, always keeping the first and last, spread evenly between. */
-function sampleDays(days: number[], cap: number): number[] {
-  if (days.length <= cap) return days;
-  const out: number[] = [];
-  for (let i = 0; i < cap; i++) out.push(days[Math.round((i * (days.length - 1)) / (cap - 1))]!);
-  return [...new Set(out)];
-}
-
 export interface HouseStoryInputs {
   agendas: Readonly<Record<EntityId, Agenda>> | undefined;
   statedReasons: readonly StatedReasonRecord[] | undefined;
@@ -161,7 +150,7 @@ export function buildHouseStories(inp: HouseStoryInputs): HouseStory[] {
     const days = new Set<number>();
     for (const g of all) { days.add(g.formedDay); if (g.resolvedDay !== undefined) days.add(g.resolvedDay); }
     for (const r of decided) days.add(r.day);
-    const reflectionNights = sampleDays([...days].sort((a, b) => a - b), REFLECTION_NIGHT_CAP);
+    const reflectionNights = [...days].sort((a, b) => a - b);
     const reflections = [...(inp.reflections?.[owner] ?? [])].sort((a, b) => a.night - b.night).map((r) => ({ night: r.night, text: scrub(r.text) }));
     const left = inp.leftWeek.get(owner);
     out.push({

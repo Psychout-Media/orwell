@@ -166,3 +166,37 @@ def test_wiring_the_route_kicks_it_and_the_model_lever_output_drops_the_story():
     assert 'k != "houseYouNeverSaw"' in impl
     eng = open("src/orwell_engine.py", encoding="utf-8").read()
     assert '_call("recordNpcReflections"' in eng
+
+
+def test_every_night_is_written_with_no_per_houseguest_cap_and_the_expected_count_is_logged(caplog):
+    story = dict(STORY_A, reflectionNights=list(range(1, 41)))
+    seen = []
+
+    async def llm(msgs):
+        seen.append(1)
+        return GOOD
+
+    async def write(req):
+        return {"accepted": len(req["reflections"]), "rejected": 0}
+
+    import logging
+    with caplog.at_level(logging.INFO):
+        out = run(hr.write_reflections([story], llm, write))
+    assert len(seen) == 40 and out["accepted"] == 40 and out["guarded"] == 0
+    assert any("expecting about 40" in r.getMessage() for r in caplog.records)
+
+
+def test_spend_guard_stops_a_runaway_newest_nights_first_and_alerts(monkeypatch):
+    monkeypatch.setattr(hr, "_SPEND_GUARD_CALLS", 3)
+    story = dict(STORY_A, reflectionNights=[1, 2, 3, 4, 5])
+    written = []
+
+    async def llm(msgs):
+        return GOOD
+
+    async def write(req):
+        written.extend(r["night"] for r in req["reflections"])
+        return {"accepted": len(req["reflections"]), "rejected": 0}
+
+    out = run(hr.write_reflections([story], llm, write))
+    assert out["guarded"] == 2 and sorted(written) == [3, 4, 5], "the late, dramatic nights are the ones kept"

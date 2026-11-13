@@ -69,7 +69,7 @@ limits: only after the winner is crowned; never during play; never admin during 
   `part-truth`, or `truth`; a secret ballot says it was never aired), `longCon`, `reflectionNights`, `reflections`. Plain sentences: names and days only, no weights, ids
   scrubbed by `retroScrub`. An early evictee's story is complete (their agenda history and decisions are never trimmed).
 - **Reflections:** the engine stores none of its own, so "the engine's version stands" means NO reflection (nothing invented). `reflectionNights` are the nights the houseguest's
-  story moved (a goal formed or ended, a decision made), at most 12 spread across the season. The FE writer (`frontend/src/orwell_house_reflections.py`, kicked when the
+  story moved (a goal formed or ended, a decision made), every such night (no per-houseguest cap: a long-lasting houseguest's late nights are the dramatic ones). Expected cost: a few hundred cheap utility calls once a season (about 15 houseguests x their story days, roughly $0.05-0.10); the FE logs the expected count up front and a generous spend guard (1500 calls, newest nights first, RED alert) stops only a runaway. The FE writer (`frontend/src/orwell_house_reflections.py`, kicked when the
   retrospective is opened) writes one `{reflection}` per houseguest-night with the utility model (<= 60 words, first person; input = that houseguest's own story as of that
   night; retry once, then skip + admin alert) and writes back through `recordNpcReflections` (FE-driven, `INFRA_LEVERS`, refused until finished, write-once per houseguest-night).
 - **Model lever:** the host model's `seasonRetrospective` output drops `houseYouNeverSaw` (it is the window's content, and long).

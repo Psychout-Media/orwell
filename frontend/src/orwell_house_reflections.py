@@ -26,6 +26,11 @@ WriteFn = Callable[[dict], Awaitable[dict]]
 
 MAX_WORDS = 60
 _CONCURRENCY = 4
+# Spend guard (ORW-320 review): every reflection night is written (a long-lasting houseguest's late nights are the dramatic ones), so there is no
+# per-houseguest count cap. The season's expected calls are LOGGED up front; only a runaway total (far above the few hundred a season normally
+# costs) stops further calls, newest nights first, with a RED alert so it is never silent.
+_SPEND_GUARD_CALLS = 1500
+_EST_COST_PER_CALL_USD = 0.0003
 _IN_FLIGHT: set[str] = set()
 _ATTEMPTED: set[str] = set()
 _FIRST_PERSON = re.compile(r"\b(I|I'm|I've|I'd|I'll|my|me|mine|myself)\b")
@@ -120,7 +125,11 @@ async def write_reflections(stories: list[dict], llm_fn: LlmFn, write_fn: WriteF
     """One call per houseguest-night not yet written (retry once), then ONE write-back per houseguest of every success.
     Returns ``{accepted, rejected, skipped: n, writeFailed: bool}``. Never raises."""
     sem = asyncio.Semaphore(_CONCURRENCY)
-    totals = {"accepted": 0, "rejected": 0, "skipped": 0, "writeFailed": False}
+    totals = {"accepted": 0, "rejected": 0, "skipped": 0, "writeFailed": False, "guarded": 0}
+    planned = sum(len([n for n in s.get("reflectionNights") or [] if isinstance(n, int)]) for s in stories)
+    logger.info("[house-reflections] expecting about %d reflection call(s) this season (~$%.2f at %.4f per call; guard %d)",
+                planned, planned * _EST_COST_PER_CALL_USD, _EST_COST_PER_CALL_USD, _SPEND_GUARD_CALLS)
+    calls = {"n": 0}
 
     async def one(story: dict) -> None:
         hid = (story.get("houseguest") or {}).get("id")
@@ -129,7 +138,11 @@ async def write_reflections(stories: list[dict], llm_fn: LlmFn, write_fn: WriteF
         have = {r.get("night") for r in story.get("reflections") or []}
         todo = [n for n in story.get("reflectionNights") or [] if isinstance(n, int) and n not in have]
         got = []
-        for night in todo:
+        for night in sorted(todo, reverse=True):  # newest first: if the guard ever trips, the late dramatic nights are the ones kept
+            if calls["n"] >= _SPEND_GUARD_CALLS:
+                totals["guarded"] += 1
+                continue
+            calls["n"] += 1
             msgs = reflection_messages(story, night)
             async with sem:
                 text = await _attempt(llm_fn, msgs) or await _attempt(llm_fn, msgs)
@@ -181,6 +194,8 @@ async def run_reflections(owner: Optional[str], stories: list[dict]) -> dict:
         return await orwell_engine.record_npc_reflections(req, user=owner)
 
     res = await write_reflections(stories, llm_fn, _write)
+    if res.get("guarded"):
+        _alert(owner, "house-reflections:spend-guard", f"spend guard stopped {res['guarded']} reflection call(s) after {_SPEND_GUARD_CALLS}")
     if res.get("skipped") or res.get("writeFailed"):
         _alert(owner, "house-reflections:skipped", f"{res.get('skipped', 0)} reflection(s) skipped" + (" (write-back failed)" if res.get("writeFailed") else ""))
     return res
