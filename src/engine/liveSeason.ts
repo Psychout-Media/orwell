@@ -795,6 +795,8 @@ export interface LiveSeasonState {
    */
   nightDepth?: number;
   lastSleepDepth?: number;
+  /** ORW-322: how many conversation ticks the PLAYER has played in the night band (20:00 on) since the last wake. Sleep debt is banked off the clock edge ONLY when this is > 0 - i.e. when the player chose to stay up. Ceremony-beat hours (presentation) alone never bank debt. Undefined (serialization-neutral) when 0. */
+  nightTurns?: number;
   /**
    * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
    * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
@@ -2173,14 +2175,20 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
   if (s.finished) return;
   if (s.playerRetired) { s.nightDepth = s.wakeHour ?? WAKE_HOUR; s.timeOfDay = DAY_START; s.playerRetired = false; return; } // P4d: an early riser wakes at their own hour
   if (s.nightDepth === undefined) { s.nightDepth = WAKE_HOUR; s.timeOfDay = DAY_START; return; }
+  if (!wrapAtEnd && hours > 0 && s.nightDepth >= CLOCK.phaseStartsHour.night) s.nightTurns = (s.nightTurns ?? 0) + 1; // ORW-322: the player lingered into the night (their own choice)
   const next = s.nightDepth + hours;
   if (next >= DAY_END_HOUR) {
     if (wrapAtEnd) {
       // A full night passed without the player turning in — they were "up" to the 8am forced wake
       // (Principle 6 is theirs: nobody sent them to bed). They wake the next morning running on empty:
       // last awake to the bitter end ⇒ the maximum sleep debt.
-      s.lastSleepDepth = DAY_END_HOUR;
-      s.lastSleepPhase = DAY_END_HOUR;
+      // ORW-322: ...but ONLY if the player actually lingered into the night. Ceremony-beat hours are presentation (felt durations differ from the flat default), and a debt banked off them made the outcome depend on
+      // presentation time (0119 "the felt duration never changes who wins"). Debt comes from the player's choice to stay up (night conversation ticks), or their turnIn hour.
+      if ((s.nightTurns ?? 0) > 0) {
+        s.lastSleepDepth = DAY_END_HOUR;
+        s.lastSleepPhase = DAY_END_HOUR;
+      }
+      s.nightTurns = undefined;
       s.wakeHour = undefined;
       s.dayNumber = (s.dayNumber ?? 1) + 1; // A69: a real night passed - it is a new day
       s.nightDepth = WAKE_HOUR;
@@ -2365,6 +2373,7 @@ export function crossToNextDay(s: LiveSeasonState): void {
   // ORW-116 (b): the player outlasted the whole night without turning in (the clock sat at the bitter pre-dawn edge) - they wake at 8am running on empty: FULL sleep debt, same as the per-beat wrap.
   if (!s.playerRetired && s.nightDepth >= DAY_END_HOUR - 0.01) { s.lastSleepDepth = DAY_END_HOUR; s.lastSleepPhase = DAY_END_HOUR; }
   s.wakeHour = undefined;
+  s.nightTurns = undefined; // ORW-322: a new night starts counting from zero
   s.nightDepth = WAKE_HOUR;
   s.timeOfDay = DAY_START;
   s.playerRetired = false;
@@ -2382,6 +2391,7 @@ export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   s.lastSleepDepth = hour;
   s.lastSleepPhase = hour; // legacy field name; now the clock-hour the player was last awake to
   s.playerRetired = true;
+  s.nightTurns = undefined; // ORW-322: the player chose bed; their debt is the bed hour just stamped
   // ORW-116 (b): the night the player just took IS the night the pending day-break would have rolled. Mark that gate crossed (the turn-in already rolled the day), or the clock ticks that follow (which clear
   // `playerRetired`) would leave the gate held again - a second night nobody asked for.
   if (nightBreakPending(s)) markNightGateCrossed(s);
