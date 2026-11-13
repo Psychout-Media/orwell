@@ -3475,6 +3475,11 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
     the board). Whereabouts is a Vault-free projection, so nothing secret is touched. Returns the
     number of houseguest moves the engine applied."""
     try:
+        from src import fold_ledger as _fl_wo0
+        _fl_wo0.note_walked_out(owner, ())  # ORW-328: a fresh turn starts with nobody walked out
+    except Exception:
+        pass
+    try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
         roster = "\n".join(f'{h.get("id")} = {h.get("name")}'
@@ -3509,11 +3514,14 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
         # appear and react as if they'd heard. An ARRIVAL INTO THE PLAYER'S ROOM is only relayed when the
         # player actually asked that houseguest to come (an engine-driven approach never goes through this
         # belt - the engine moves its own people). Moves elsewhere in the house are the NPCs' own business.
+        _pre_present: set = set()  # ORW-328: who shared the player's room BEFORE any relocation below
         if picks:
             try:
                 _w = await _oe.whereabouts(user=owner)
             except Exception:
                 _w = None
+            if isinstance(_w, dict):
+                _pre_present = {p.get("id") for p in (_w.get("present") or []) if isinstance(p, dict) and p.get("id")}
             _proom = _w.get("room") if isinstance(_w, dict) else None
             if _proom:
                 _kept = []
@@ -3526,6 +3534,7 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
         if not picks:
             return 0
         recorded = 0
+        _walked_out: set = set()
         try:
             from routes import chat_helpers as _ch
         except Exception:
@@ -3537,6 +3546,8 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 # are legitimate (already there / not a legal move) and simply don't count.
                 if isinstance(res, dict) and res.get("status") == "moved":
                     recorded += 1
+                    if hid in _pre_present:
+                        _walked_out.add(hid)
                     # A29: an applied move COMMITS in the engine (bumps beatSeq) - adopt the post-commit token it returns, or the next compare-and-swap call
                     # (e.g. the deferred scene-fold settle) carries a stale expectedBeatSeq and 409s for nothing.
                     if _ch is not None:
@@ -3558,6 +3569,12 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             except Exception as e:
                 logger.warning(f"[orwell] auto move_houseguest failed for {hid}: "
                                f"{type(e).__name__}: {e}".rstrip(': '))
+        # ORW-328: whoever was in the player's room and just walked out of it WAS a witness of this turn's scene; hand that to the scene belt.
+        try:
+            from src import fold_ledger as _fl_wo
+            _fl_wo.note_walked_out(owner, _walked_out)
+        except Exception:
+            pass
         if recorded:
             logger.info(f"[orwell] auto-moved {recorded} houseguest(s) user={owner}")
         return recorded
@@ -3937,6 +3954,15 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # withIds folded as-is — exactly the phantom-witness case this issue closes. `is not None`
         # applies the filter whenever we got a real (possibly empty) presence read, and reserves the
         # fail-OPEN behavior for a genuine None (read failed / no whereabouts available at all).
+        # ORW-328: a houseguest the NPC move belt just walked OUT of the player's room this turn was in the scene (the prose has them leave at the
+        # end); the board now says "elsewhere", but they witnessed it. Only those who truly shared the room at the start of the turn count.
+        try:
+            from src import fold_ledger as _fl_wo
+            _walked_out = _fl_wo.consume_walked_out(owner)
+        except Exception:
+            _walked_out = set()
+        if present_ids is not None and _walked_out:
+            present_ids = set(present_ids) | _walked_out
         if present_ids is not None:
             _off_scene = [i for i in ids if i not in present_ids]
             ids = [i for i in ids if i in present_ids]
