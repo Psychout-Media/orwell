@@ -18,6 +18,12 @@ function withoutAgendas<T>(fn: () => T): T {
   proto.seedAgendas = () => {}; proto.agendaRecheck = () => {}; proto.mullAgendasOvernight = () => {};
   try { return fn(); } finally { proto.seedAgendas = keep.seed; proto.agendaRecheck = keep.re; proto.mullAgendasOvernight = keep.mull; }
 }
+/** ORW-314: agendas present but their pull on decisions zeroed (the season as it was before decisions read goals). */
+function withPullZeroed<T>(fn: () => T): T {
+  const keep = proto.agendaPullOf;
+  proto.agendaPullOf = () => ({ value: 0 });
+  try { return fn(); } finally { proto.agendaPullOf = keep; }
+}
 const outcome = (l: Live) => JSON.stringify({ winner: l.winner, evictionOrder: l.evictionOrder, jury: l.jury, finalTwo: l.finalTwo, voteRecord: l.voteRecord });
 const strip = (l: Live): string => JSON.stringify({ ...l, agendas: undefined });
 
@@ -34,18 +40,22 @@ describe("ORW-312: NPC agendas on the live season", () => {
     for (const a of Object.values(ag)) expect(a.goals.some((g) => g.horizon === "season")).toBe(true);
   });
 
-  it("(a) a full played season with the wiring reaches the same winner, evictions and jury votes as before", () => {
+  it("(a) ORW-314: with the agenda's pull zeroed a played season is exactly the pre-wiring one; with the pull on it is a different season, REPORTED not gated (balance is a report)", () => {
     for (const seed of [3]) {
-      const on = playSeason(seed);
       const off = withoutAgendas(() => playSeason(seed));
+      const zero = withPullZeroed(() => playSeason(seed));
+      const on = playSeason(seed);
       expect(on.finished).toBe(true);
       expect(off.finished).toBe(true);
-      expect(outcome(liveOf(on.s))).toBe(outcome(liveOf(off.s)));
-      expect(strip(liveOf(on.s))).toBe(strip(liveOf(off.s))); // nothing else on the live season moved either
+      expect(zero.finished).toBe(true);
+      // the mutation: agendas present, but pulling nothing, is the season as it was before the decisions read goals (and the hidden reason record is the only difference)
+      expect(outcome(liveOf(zero.s))).toBe(outcome(liveOf(off.s)));
+      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined });
+      expect(noReasons(liveOf(zero.s))).toBe(noReasons(liveOf(off.s)));
       expect(liveOf(off.s).agendas).toBeUndefined();
       expect(Object.keys(liveOf(on.s).agendas ?? {})).toHaveLength(15);
       // eslint-disable-next-line no-console
-      console.log(`ORW-312 determinism seed ${seed}: winner=${liveOf(on.s).winner} evictions=${liveOf(on.s).evictionOrder.length} bytes(outcome)=${outcome(liveOf(on.s)).length} identical=true`);
+      console.log(`ORW-314 report seed ${seed}: pre-wiring winner=${liveOf(off.s).winner} evictions=${liveOf(off.s).evictionOrder.join(",")} | goals-on winner=${liveOf(on.s).winner} evictions=${liveOf(on.s).evictionOrder.join(",")} same=${outcome(liveOf(on.s)) === outcome(liveOf(off.s))}`);
     }
   }, 900_000);
 

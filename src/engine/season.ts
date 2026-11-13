@@ -8,6 +8,7 @@ import type { NominationTactic } from "./decisionConstants";
 import type { RelationshipDisposition } from "./relationshipConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { sumVals, whyOption, runnerUp, type WhySink } from "./decisionWhy";
+import { REASONS } from "./agendaConstants";
 
 /**
  * Shared season primitives (feature 0011). The weekly loop itself lives in `liveSeason.ts` — the
@@ -59,9 +60,9 @@ export function nominationBaseVals(hoh: EntityId, target: EntityId, rel: Relatio
 }
 
 /** ORW-305: the term names of the strategic nomination score, in the exact order the score adds them. */
-export const NOMINATION_TERM_NAMES = ["threat", "paranoia", "bloc", "floater", "duo", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying"] as const;
+export const NOMINATION_TERM_NAMES = ["threat", "paranoia", "bloc", "floater", "duo", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda"] as const;
 /** The target-oriented read (no pawn-seat floater / duo pull): the same terms minus those two. */
-export const NOMINATION_TARGET_TERM_NAMES = ["threat", "paranoia", "bloc", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying"] as const;
+export const NOMINATION_TARGET_TERM_NAMES = ["threat", "paranoia", "bloc", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda"] as const;
 
 /**
  * ORW-305: the named terms of a candidate's strategic nomination score, in score order. `shape` carries the (already
@@ -74,7 +75,7 @@ export function nominationTermVals(
   const [threat, paranoia] = nominationBaseVals(hoh, t, rel, mood);
   const out = [threat, paranoia, blocTerm(blocs, hoh, t)];
   if (shape) out.push(shape.floaterWeight * floaterRead(t, shape.active, rel), shape.duoWeight * duoRead(t, hoh, shape.active, rel));
-  out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0);
+  out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0);
   return out;
 }
 
@@ -179,6 +180,8 @@ export interface NominationRead {
   dealPush?: (target: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the bounded, credibility-weighted tilt from the pitches NPCs made to this HOH (`lobbying.ts`). Absent => +0, byte-identical. */
   pitchPush?: (target: EntityId) => number;
+  /** ORW-314 (ORW-253 slice 2): the HOH's AGENDA pull on this candidate (`goalPull`: revenge / get-them-out / a long-con mark after its stage push; keep-them-safe / protect / pull-them-in / a long-con mark before its stage shield). FULL STRENGTH, same 0..1 scale as the threat read - NOT clamped. Supplied only for a played game; absent => +0, byte-identical. */
+  agendaPush?: (target: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): the HOH holds a KEPT casual assurance toward `target` ("you're safe with me") - kept off the block while two legal others remain. Absent => byte-identical. */
   protectedByAssurance?: (target: EntityId) => boolean;
   /** ORW-305: receives the decision's WHY breakdown (a record only; absent => nothing built, the decision is byte-identical either way). */
@@ -217,6 +220,7 @@ export function nominationPlan(
   const mates = blocFor(blocs, hoh)?.members ?? [];
   const nonMates = cands.filter((c) => !mates.includes(c));
   if (nonMates.length >= 2) cands = nonMates;
+  if (read.agendaPush) { const free = cands.filter((c) => read.agendaPush!(c) > -REASONS.shieldFloor); if (free.length >= 2) cands = free; } // ORW-314: someone the HOH vowed to protect (or is conning) stays off the block while two legal others remain
   if (read.protectedByAssurance) { const free = cands.filter((c) => !read.protectedByAssurance!(c)); if (free.length >= 2) cands = free; } // B4: a kept assurance shields the assured
   const N = DECISION.nomination;
   // ORW-305: one pass - each candidate's named terms are computed once (memoised for this call) and the score is their sum.
@@ -279,6 +283,7 @@ export function replacementPick(
   read: NominationRead = {},
 ): EntityId {
   const { blocs = [], mood = 0.5, style = "threat-hunter", target } = read;
+  if (read.agendaPush) { const free = options.filter((c) => read.agendaPush!(c) > -REASONS.shieldFloor); if (free.length > 0 && free.length < options.length) options = free; } // ORW-314: a shielded houseguest is not named the replacement while a legal alternative remains
   const S = NOMINATION_STYLES[style];
   const P = NOMINATION_PRESSURE;
   // ORW-305: one pass - the named terms per candidate are computed once (memoised for this call); each score is their sum.

@@ -84,3 +84,13 @@ Feature: Every houseguest holds a lasting agenda of their own
   Scenario: The agenda is secret and deterministic
     Then the same season gives the same agendas
     And no agenda reaches the player, the narrator or the admin view
+
+  # ORW-314 (slice 2 wiring): goals drive the decisions at full strength and the narrator voices only the stated reason.
+  Scenario: A revenge goal moves the nomination off the top threat read
+    Then an HOH holding a revenge goal on a houseguest who is not their top threat nominates that houseguest, and does not once the goal is zeroed
+
+  Scenario: A long con keeps the mark off the block before the jury and nominates them after it starts
+    Then a long-con holder leaves the mark off the block before the jury and nominates them once the jury has started
+
+  Scenario: The narrator voices the stated reason and nothing behind it
+    Then the nominations prompt carries the decider's stated reason and never the goal, the terms or the candor

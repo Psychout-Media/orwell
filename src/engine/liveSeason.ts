@@ -1,4 +1,5 @@
 import type { Agenda } from "./agenda";
+import { termsFromWhy, reasonGoalOf, type StatedReasonRecord, type GoalPull, type RealReason, type StatedReason, type DecisionKind } from "./agendaDecisions";
 import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
@@ -689,6 +690,12 @@ export interface LiveSeasonState {
    */
   decisionWhy?: DecisionWhy[];
   /**
+   * ORW-314 (ORW-253 slice 2) - for each NPC decision of a played game: the REAL reason (goal, terms, tactic) and the STATED reason (what the decider says aloud, with its candor).
+   * HIDDEN + ENGINE-ONLY (Vault side, beside `decisionWhy`): the real reason and the candor never leave the engine. Only the stated reason's kind + subject (`voiceableReason`) is
+   * handed to the narrator, under the decider's own voice block, and only for a public act. Append-only, persisted with the season. Absent until the first such decision.
+   */
+  statedReasons?: StatedReasonRecord[];
+  /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
    * exit-interview beat resolves; resurfaced in the 0048 retrospective as first-person exit accounts.
@@ -1011,6 +1018,10 @@ export interface SeasonCtx {
   campaignPushFor?: (target: EntityId, decider: EntityId) => number;
   /** B51 (ORWELL_DRIVE_DECISIONS): the decider's OWN drive toward `target` as a nomination / veto-save push (positive = toward evicting). */
   drivePushFor?: (target: EntityId, decider: EntityId) => number;
+  /** ORW-314 (ORW-253 slice 2, played games only): the decider's AGENDA pull on `target` (`goalPull`, signed: + wants them out, - wants them kept), FULL STRENGTH (goals count as much as the threat read). 0 for the player. Absent => byte-identical. ENGINE-ONLY. */
+  agendaPullFor?: (target: EntityId, decider: EntityId) => GoalPull;
+  /** ORW-314: turn an NPC decision's REAL reason into the reason the decider gives aloud (`explainDecision`; deterministic, no shared rng). Present only with `agendaPullFor`. ENGINE-ONLY: the candor never crosses. */
+  statedReasonFor?: (real: RealReason, day: number) => StatedReason;
   /**
    * 0024 — the signed, bounded RESIDUAL memory tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`,
    * net of what the relationship edge still carries): a broken deal, a trusted friend who nominated/replaced them,
@@ -2003,6 +2014,38 @@ export function recordWhy(s: LiveSeasonState, by: EntityId, w: Omit<DecisionWhy,
 /** A `WhySink` bound to a live season + decider. */
 const whySinkFor = (s: LiveSeasonState, by: EntityId): WhySink => (w) => recordWhy(s, by, w);
 
+const WHY_DECISION: Partial<Record<DecisionWhy["kind"], { decision: DecisionKind; public: boolean }>> = {
+  "nomination-target": { decision: "nominate", public: true }, "nomination-seat": { decision: "nominate", public: true }, replacement: { decision: "replacement", public: true },
+  vote: { decision: "vote", public: false }, "tie-break": { decision: "vote", public: true }, veto: { decision: "veto", public: true }, "final-hoh-eviction": { decision: "final-hoh-evict", public: true },
+};
+/**
+ * ORW-314: from a finished ORW-305 breakdown, build the decision's REAL reason (the goal that pulled, the named terms, the tactic), run `explainDecision`
+ * through the adapter's seam and store both as hidden engine metadata. A record only: reads the breakdown and the agenda, draws no rng, changes no choice.
+ */
+function noteStatedReason(s: LiveSeasonState, ctx: SeasonCtx, by: EntityId, w: Omit<DecisionWhy, "by" | "week">): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || by === ctx.player) return; // NPC deciders only: a person's own choice is never given a stated reason
+  const map = WHY_DECISION[w.kind];
+  const chosen = w.options[0];
+  if (!map || !chosen || chosen.role !== "chosen") return;
+  // A backdoor names its REAL target off the block: the target record is skipped, the seat record (the two on the block) is the decision the house sees and the stated reason is the pawn line.
+  if (w.kind === "nomination-target" && w.tactic === "backdoor") return;
+  if (w.kind === "nomination-seat" && w.rule !== "backdoor-ranks-2-3") return;
+  if (w.kind === "veto" && (w.rule === "holder-on-block-saves-self" || chosen.option === "hold")) return;
+  const choice = chosen.option as EntityId;
+  if (choice === by || !s.active.includes(choice)) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === by && r.decision === map.decision && r.real.choice === choice)) return;
+  const pull = ctx.agendaPullFor(choice, by);
+  const terms = termsFromWhy(chosen.terms, chosen.inputs);
+  if (!terms.some((t) => t.name === "goal") && pull.value !== 0) terms.push({ name: "goal", value: map.decision === "veto" ? -pull.value : pull.value }); // a breakdown that did not carry the agenda term (a rule-based seat)
+  const tactic: RealReason["tactic"] | undefined = w.kind === "nomination-seat" ? "backdoor" : w.tactic === "pawn" && w.kind === "replacement" ? "pawn" : w.kind === "nomination-target" || w.kind === "replacement" ? "direct" : undefined;
+  const real: RealReason = { decision: map.decision, decider: by, choice, ...reasonGoalOf(map.decision, pull, terms), terms, ...(tactic ? { tactic } : {}) };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: by, decision: map.decision, public: map.public, real, stated: ctx.statedReasonFor(real, day) });
+}
+/** `whySinkFor` plus ORW-314's stated-reason record (inert unless the context supplies the agenda seam, i.e. a played game). */
+const reasonSinkFor = (s: LiveSeasonState, ctx: SeasonCtx, by: EntityId): WhySink => (w) => { recordWhy(s, by, w); noteStatedReason(s, ctx, by, w); };
+
 /** The house's CURRENT blocs (0043) — derived fresh per decision; [] when loyalty isn't wired. */
 function currentBlocs(s: LiveSeasonState, ctx: SeasonCtx): Bloc[] {
   if (!ctx.loyaltyOf) return [];
@@ -2065,6 +2108,8 @@ export function voteChoice(
     -(V.juryManagementWeight * ctx.rel.edge(n, voter).trust),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
     n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
+    // ORW-314: this voter's AGENDA pull on `n` (revenge / get-them-out push, protect / alliance shield), full strength. Absent provider => 0 => byte-identical.
+    ctx.agendaPullFor?.(n, voter).value ?? 0,
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2082,7 +2127,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -2095,7 +2140,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
   const votes: Record<EntityId, number> = { [fn[0]]: 0, [fn[1]]: 0 };
   const voteOf = new Map<EntityId, EntityId>();
   for (const v of voters) {
-    const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined, whySinkFor(s, v));
+    const target = v === ctx.player && playerVote ? playerVote : voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined, reasonSinkFor(s, ctx, v));
     votes[target]++;
     voteOf.set(v, target);
     if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target, voters); // B4 slice 4: voting the assured out breaks the assurance (SEALED ballot: ORW-15 - the fold is shared across every voter, never attributed to this one)
@@ -2770,7 +2815,7 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
       else if (tally[e.nominees[1]]! > tally[e.nominees[0]]!) evictee = e.nominees[1];
       else {
         if (s.hoh === ctx.player) { s.pending = { kind: "tie-break", by: ctx.player, nominees: e.nominees }; return null; }
-        evictee = voteChoice(s.hoh!, e.nominees, ctx, currentBlocs(s, ctx), undefined, (w) => recordWhy(s, s.hoh!, { ...w, kind: "tie-break" }));
+        evictee = voteChoice(s.hoh!, e.nominees, ctx, currentBlocs(s, ctx), undefined, (w) => reasonSinkFor(s, ctx, s.hoh!)({ ...w, kind: "tie-break" }));
         // B4 review fix: the HOH's tie-break is a vote too - it breaks (evicts the assured) or keeps (spares) their assurances like any ballot.
         ctx.assuranceVotedOut?.(s.hoh!, evictee);
         ctx.assuranceKeptAtVote?.(s.hoh!, e.nominees[0] === evictee ? e.nominees[1] : e.nominees[0]);
@@ -3165,17 +3210,17 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       }
       // NPC final HOH evicts the higher-threat rival (relationship-driven, decision 0002).
       // ORW-87: ...plus what the HOH remembers of each (grudge up, favor down) when the memory layer is live for a played game.
-      const evictVals = (r: EntityId): number[] => [ctx.rel.edge(s.hoh!, r).threat, ctx.endgameMemoryFor?.(r, s.hoh!) ?? 0]; // ORW-305: named terms (threat, memory); the score is their sum
+      const evictVals = (r: EntityId): number[] => [ctx.rel.edge(s.hoh!, r).threat, ctx.endgameMemoryFor?.(r, s.hoh!) ?? 0, ctx.agendaPullFor?.(r, s.hoh!).value ?? 0]; // ORW-305: named terms (threat, memory); the score is their sum
       const evictScore = (r: EntityId): number => sumVals(evictVals(r));
       // ORW-318 (ORW-253 slice 6): an NPC Final HOH reasons from character - who they can beat in front of the jury, the threat, the bond.
       let mindWhy: Omit<DecisionWhy, "by" | "week"> | undefined;
       const minded = ctx.finalHohMind?.(s.hoh!, rivals, s.evictionOrder.slice(preJuryEvictionCount(s)), (w) => { mindWhy = w; });
       const evictee = minded ?? [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
-      if (minded !== undefined && mindWhy) recordWhy(s, s.hoh!, mindWhy);
+      if (minded !== undefined && mindWhy) reasonSinkFor(s, ctx, s.hoh!)(mindWhy);
       else {
-        const nm = ["threat", "memory"] as const;
+        const nm = ["threat", "memory", "agenda"] as const;
         const ru = rivals.find((r) => r !== evictee);
-        recordWhy(s, s.hoh!, { kind: "final-hoh-eviction", rule: "evict-the-higher-threat-rival", options: ru !== undefined ? [whyOption(evictee, "chosen", nm, evictVals(evictee), evictScore(evictee)), whyOption(ru, "runner-up", nm, evictVals(ru), evictScore(ru))] : [whyOption(evictee, "chosen", nm, evictVals(evictee), evictScore(evictee))] });
+        reasonSinkFor(s, ctx, s.hoh!)({ kind: "final-hoh-eviction", rule: "evict-the-higher-threat-rival", options: ru !== undefined ? [whyOption(evictee, "chosen", nm, evictVals(evictee), evictScore(evictee)), whyOption(ru, "runner-up", nm, evictVals(ru), evictScore(ru))] : [whyOption(evictee, "chosen", nm, evictVals(evictee), evictScore(evictee))] });
       }
       if (stagesCeremonies(s, ctx) && CEREMONY_STEPS["final-eviction"]) { // ORW-291 (C): a played game stages the Final HOH's eviction (decision -> result); the evictee is decided HERE, once, by the same read
         s.ceremony = { kind: "final-eviction", hold: "eviction", steps: [...CEREMONY_STEPS["final-eviction"].npc], at: 0, finalEvictee: evictee };
@@ -3230,8 +3275,9 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.dealNomPushFor || ctx.tieNomPushFor ? { dealPush: (t: EntityId) => (ctx.dealNomPushFor?.(t, s.hoh!) ?? 0) + (ctx.tieNomPushFor?.(t, s.hoh!) ?? 0) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
+        ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
-        why: whySinkFor(s, s.hoh!), // ORW-305: record WHY (a record only)
+        why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
       });
       const nominees = plan.nominees;
       if (stagesCeremonies(s, ctx) && CEREMONY_STEPS.nominations) { // ORW-281 4a: outcome decided ONCE here (same read, no rng); played out as speech -> named
@@ -3471,12 +3517,12 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
     return holder;
   }
   // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-  const hasBias = !!(ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor);
+  const hasBias = !!(ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor || ctx.agendaPullFor);
   const biasParts = new Map<EntityId, number[]>();
   const bias = hasBias
     ? (n: EntityId): number => {
       // ORW-305: the four named bias terms, in the order they were always added; the bias is their sum.
-      const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0)];
+      const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0), -(ctx.agendaPullFor?.(n, holder).value ?? 0)]; // ORW-314: the holder's goals - a get-them-out / revenge pull cuts the save, a protect / pull-them-in / mark-before-its-stage pull raises it, FULL strength
       biasParts.set(n, parts);
       return sumVals(parts);
     }
@@ -3487,13 +3533,13 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
   const names = ["trust", "reliability", "bias"] as const;
   const opt = (r: (typeof rows)[number], role: "chosen" | "runner-up") => {
     const p = biasParts.get(r.c);
-    return whyOption(r.c, role, names, [r.trust, r.reliability, r.bias], total(r), p ? { campaign: p[0]! + 0, memory: p[1]! + 0, mood: p[2]! + 0, drive: p[3]! + 0 } : undefined);
+    return whyOption(r.c, role, names, [r.trust, r.reliability, r.bias], total(r), p ? { campaign: p[0]! + 0, memory: p[1]! + 0, mood: p[2]! + 0, drive: p[3]! + 0, agenda: p[4]! + 0 } : undefined);
   };
   const total = (r: (typeof rows)[number]): number => sumVals([r.trust, r.reliability, r.bias]);
   if (saved) {
     const chosen = rows.find((r) => r.c === saved)!;
     const ru = runnerUp(rows, chosen, total);
-    recordWhy(s, holder, { kind: "veto", options: ru ? [opt(chosen, "chosen"), opt(ru, "runner-up")] : [opt(chosen, "chosen")] });
+    reasonSinkFor(s, ctx, holder)({ kind: "veto", options: ru ? [opt(chosen, "chosen"), opt(ru, "runner-up")] : [opt(chosen, "chosen")] });
   } else if (rows.length > 0) {
     // Nobody cleared the bar: the veto stays in the holder's pocket. The "hold" option IS the bar; the best candidate fell under it.
     const ru = rows.reduce((best, r) => (total(r) > total(best) ? r : best), rows[0]!);
@@ -3516,7 +3562,8 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
     ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
-    why: whySinkFor(s, s.hoh!), // ORW-305: record WHY (a record only)
+    ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
+    why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
 }
 

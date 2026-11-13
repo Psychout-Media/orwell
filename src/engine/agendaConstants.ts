@@ -106,6 +106,10 @@ export const REASONS = {
   goalWeight: 1.0,
   /** "Pull them in" shields its target at this share of the goal weight (wanting someone is weaker than vowing to protect them). */
   recruitShield: 0.5,
+  /** ORW-314: a goal is credited as the REASON for a decision only when its pull is at least this share of the largest other pushing term. */
+  goalCreditShare: 0.5,
+  /** ORW-314: a shield (a negative goal pull) at least this strong takes the candidate OFF the block entirely while a legal alternative remains (a vow to protect someone, a long-con mark before its stage, the recruit shield at full commitment); a weaker shield only lowers the score. */
+  shieldFloor: 0.25,
   /** "Last alliance standing" shields each alliance mate at this share. */
   allianceShield: 0.5,
   /** How readily each archetype tells the truth about its reasons (0..1). */

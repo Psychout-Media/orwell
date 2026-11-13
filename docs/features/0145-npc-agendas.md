@@ -48,6 +48,15 @@ saw = yes (retrospective, later slice); small wants = later; motives: no hints, 
 - Gate: `tests/unit/agendaDecisions.test.ts` (11 cases, 6 mutants each go red). The overseer half wires `goalPull` into nominations,
   replacement, veto and votes (with ORW-305's term breakdown as `terms`) and hands the stated reason to the narrator in place of the
   "invent the HOH's reason" instruction.
+- **Wired (ORW-314).** `agendaPush` (a new additive slot beside `campaignPush`) carries `goalPull` into the nomination, the replacement pick,
+  the NPC veto save (negated), the NPC eviction vote and tie-break, and the NPC Final HOH's eviction, at full strength (never clamped below
+  the threat read). Played games only: the hook is on the season context only when `live.playedGame` and `live.agendas` exist, so a headless
+  seeded sim adds `+0` and is byte-identical. Every NPC decision stores a `RealReason` (goal credited only when its pull is at least half the
+  largest other term, terms from ORW-305's breakdown, the tactic) and the `explainDecision` result on `live.statedReasons` (hidden, append-only,
+  persisted). A backdoor's stated reason is recorded about the pawn on the block, never the real target. Only `voiceableReason` (kind + subject)
+  reaches the narrator, in the decider's `npcVoice` block and the present-houseguest block, only for a public act already on the board this week
+  (a secret ballot's reason is stored and never voiced). The nominations moment prompt now says to voice the decider's stated reason and give no
+  other. Balance is a report, not a gate: `tests/calibration/agendaGoalsReport.test.ts` (`ORWELL_AGENDA_REPORT=1`).
 
 ## Slice 3 core: hour-by-hour house life (`houseLife.ts`)
 Replaces "a pair and 1 of 7 stock scene types" with ONE action per awake houseguest per game hour (Ryne 2026-11-11: "The fact there are

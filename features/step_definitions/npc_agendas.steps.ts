@@ -6,6 +6,10 @@ import {
 } from "../../src/engine/agenda";
 import type { Archetype, StrategyStyle } from "../../src/engine/characterFactory";
 import { PLAYER } from "../../src/domain/ids";
+import { goalPull } from "../../src/engine/agendaDecisions";
+import { nominationPlan } from "../../src/engine/season";
+import { RelationshipModel } from "../../src/engine/relationships";
+import { STATED_REASON_GLOSS } from "../../src/engine/momentPrompts";
 import { playSeason, startPlayedSeason } from "../../tests/support/agendaSeasonDriver";
 
 /**
@@ -297,4 +301,42 @@ Then("no agenda reaches the player, the narrator or the admin view", function ()
   const surfaces = [s.gameStatus(), s.getGameState(), s.getMomentPrompt("nominations" as never)];
   const text = JSON.stringify(surfaces);
   assert.ok(!text.includes(token) && !/endNote|"agendas"/.test(text));
+});
+
+// --- ORW-314: goals drive decisions; the narrator voices the stated reason ----------------------------------------------------
+/** A small house where the HOH reads one candidate (`top`) as the clear threat and the goal's subject (`mark`) as a low read. */
+function nominate(c: Ctx, goalKind: Goal["kind"], commitment: number, juryStarted: boolean, markRead: number): { target: string; nominees: string[] } {
+  const hoh = c.ids[0]!, ids = c.ids.slice(0, 7), top = ids[1]!, mark = ids[2]!;
+  const rel = new RelationshipModel(0.5);
+  for (const a of ids) for (const b of ids) if (a !== b) { const e = rel.edge(a, b); e.trust = 0.5; e.affinity = 0.5; e.threat = 0.2; }
+  rel.edge(hoh, top).threat = 0.9; rel.edge(hoh, mark).threat = markRead;
+  const goal: Goal = { id: "g", owner: hoh, horizon: "season", kind: goalKind, target: mark, why: [{ kind: "character", weight: 1 }],
+    test: goalKind === "long-con" ? { kind: "cut-later", who: mark, stage: "jury" } : { kind: "evicted", who: mark }, commitment, status: "active", formedDay: 1, formedWeek: 1 };
+  const agenda: Agenda = { owner: hoh, goals: [goal], history: [], formedForWeek: 1 };
+  const board: AgendaBoard = { ...c.board, juryStarted };
+  const plan = nominationPlan(hoh, ids, rel, { agendaPush: (t) => goalPull(agenda, t, board, []).value });
+  return { target: plan.target, nominees: [...plan.nominees] };
+}
+Then("an HOH holding a revenge goal on a houseguest who is not their top threat nominates that houseguest, and does not once the goal is zeroed", function () {
+  const c = ctxOf(this); const mark = c.ids[2]!, top = c.ids[1]!;
+  assert.equal(nominate(c, "revenge", 1, false, 0.1).target, mark);
+  assert.equal(nominate(c, "revenge", 0, false, 0.1).target, top);
+});
+Then("a long-con holder leaves the mark off the block before the jury and nominates them once the jury has started", function () {
+  const c = ctxOf(this); const mark = c.ids[2]!;
+  assert.ok(!nominate(c, "long-con", 1, false, 0.55).nominees.includes(mark));
+  assert.equal(nominate(c, "long-con", 1, true, 0.55).target, mark);
+});
+Then("the nominations prompt carries the decider's stated reason and never the goal, the terms or the candor", function () {
+  const c = ctxOf(this); const s = c.s;
+  const core = s.snapshot(); const lv = core.live as unknown as { hoh?: string; nominees?: string[]; week: number; dayNumber?: number; statedReasons?: unknown[] };
+  const decider = c.ids[0]!, mark = c.ids[1]!, pawn = c.ids[2]!;
+  lv.hoh = decider; lv.nominees = [mark, pawn];
+  (lv.statedReasons ??= []).push({ week: lv.week, day: lv.dayNumber ?? lv.week, decider, decision: "nominate", public: true,
+    real: { decision: "nominate", decider, choice: mark, goalKind: "revenge", goalId: "SENTINEL-BDD-314-GOAL", terms: [{ name: "SENTINEL-BDD-314-TERM", value: 1 }] }, stated: { kind: "had-it-planned", about: mark, candor: "cover" } });
+  s.restore(core);
+  (s as unknown as { ceremonyBeat: string }).ceremonyBeat = "nominations";
+  const text = JSON.stringify([s.getMomentPrompt({ moment: "nominations" } as never), s.npcVoice(decider)]);
+  assert.ok(text.includes(STATED_REASON_GLOSS["had-it-planned"]!));
+  assert.ok(!/SENTINEL-BDD-314|revenge|candor|"cover"/.test(text));
 });
