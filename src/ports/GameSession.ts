@@ -1896,6 +1896,13 @@ export interface NpcVoiceView {
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
   rememberedAboutYou?: string[];
+  /**
+   * ORW-317 (ORW-253 slice 4): what this houseguest holds about OTHER houseguests in the room with them, first person, public names filled
+   * in, with a recency word. ONLY memories of things the whole house saw (nominations, the veto used or withheld, being named the replacement),
+   * so voicing one can never surface hidden off-screen content; private memories (deals, exposed secrets) reach speech only through the
+   * engine's disclosure rules (theme 2). Up to 3. Absent when the memory-speech flag is off or they hold none about anyone present.
+   */
+  rememberedAboutOthers?: string[];
   /** A54: the engine decided this houseguest may raise the past unprompted THIS beat (seeded, salience-barred, at most once per in-game day). The model only words it. */
   bringUp?: true;
   houseguest: NamedRef;
