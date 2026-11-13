@@ -65,6 +65,7 @@ PLAYER = "player"
 NOTE_MAX = 160
 TERMS_MAX = 120
 RATIONALE_MAX = 200
+CONTENT_MAX = 2000
 ID_MAX = 64
 MAX_PARTICIPANTS = 8
 MAX_EFFECTS = 6
@@ -171,6 +172,8 @@ def _norm_effect(e: object) -> tuple:
         cons = _norm_consequence(e.get("consequence"))
         if cons:
             out["consequence"] = cons
+        if isinstance(e.get("content"), str) and e["content"].strip():  # C5: the free text of the record (checked for closed-set claims)
+            out["content"] = e["content"].strip()[:CONTENT_MAX]
         return out, None
     if t == "move":
         who, room = _id(e.get("who")), _id(e.get("room"))
@@ -376,6 +379,12 @@ def check_plan(plan: object, view: object) -> PlanVerdict:
                 del out["consequence"]["rationale"]
                 if not out["consequence"]:
                     del out["consequence"]
+            if "content" in e:
+                kept_text = _without_closed_set_sentences(e["content"])
+                if kept_text != e["content"]:
+                    R("closed-set-claim", f"{ep}.content", "closed-set outcome stated")
+                if kept_text:
+                    out["content"] = kept_text
             out_effects.append(out)
         elif t == "move":
             if not scene_ok(e["who"], f"{ep}.who"):
@@ -409,6 +418,22 @@ def check_plan(plan: object, view: object) -> PlanVerdict:
         else:
             trimmed["note"] = norm["note"]
     return PlanVerdict(trimmed, rej)
+
+
+# A sentence that talks ABOUT a possible outcome (a worry, a guess, a plan) is scene texture, not a stated result: recorded
+# strategy chatter is full of "afraid she'll be nominated". Only content is exempted; note / rationale / terms stay strict.
+_IRREALIS_RE = re.compile(
+    r"\b(?:might|may|could|would|will|going\s+to|gonna|if|whether|who|afraid|worried|scared|fear\w*|wonder\w*|"
+    r"hope\w*|plan\w*|think\w*|guess\w*|rumou?r\w*|chance|risk|threat\w*)\b|'ll\b", re.IGNORECASE)
+
+
+def _without_closed_set_sentences(text: str) -> str:
+    """Drop the sentences that ASSERT a closed-set outcome from record content (a trim: what remains is a subset of the
+    input, in order). A sentence that only speculates about one (`_IRREALIS_RE`) is kept."""
+    if not states_closed_set_outcome(text):
+        return text
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    return " ".join(x for x in parts if not (states_closed_set_outcome(x) and not _IRREALIS_RE.search(x))).strip()
 
 
 def _check_consequence(c: object, path: str, known: set, scene_ok, R) -> Optional[dict]:
@@ -456,7 +481,8 @@ def plan_to_json_schema() -> dict:
         {"type": "object", "additionalProperties": False, "required": ["type", "withIds"],
          "properties": {"type": {"const": "record"},
                         "withIds": {"type": "array", "maxItems": MAX_PARTICIPANTS, "items": sid},
-                        "kind": {"enum": list(RECORD_KINDS)}, "consequence": consequence}},
+                        "kind": {"enum": list(RECORD_KINDS)}, "consequence": consequence,
+                        "content": {"type": "string", "maxLength": CONTENT_MAX}}},
         {"type": "object", "additionalProperties": False, "required": ["type", "who", "room"],
          "properties": {"type": {"const": "move"}, "who": sid, "room": sid}},
         {"type": "object", "additionalProperties": False, "required": ["type", "with", "kind"],
@@ -471,3 +497,72 @@ def plan_to_json_schema() -> dict:
                 "act": {"enum": list(ACTS)},
                 "effects": {"type": "array", "maxItems": MAX_EFFECTS, "items": {"oneOf": effects}},
                 "note": {"type": "string", "maxLength": NOTE_MAX}}}
+
+
+# ------------------------------------------------------------------------------------ C5: the extraction gate
+
+class SceneGate(NamedTuple):
+    """The trimmed scene-record proposal. ``dropped`` => record nothing. ``content`` None => the caller's own default
+    sentence (the content was empty or entirely closed-set claims). ``trimmed`` is True when ANYTHING was removed."""
+    dropped: bool
+    ids: list
+    content: Optional[str]
+    consequence: Optional[dict]
+    codes: list
+    trimmed: bool
+
+
+def _rej_index(path: str, key: str) -> Optional[int]:
+    m = re.search(r"\.consequence\." + key + r"\[(\d+)\]", path)
+    return int(m.group(1)) if m else None
+
+
+def gate_scene_record(ids: list, kind: str, content: Optional[str], consequence: Optional[dict], view: object,
+                      act: str = "talk") -> SceneGate:
+    """ORW-223 C5: run the C1 checker over the scene extraction (``withIds``/kind/content/consequence the merged
+    or separate extraction proposed) BEFORE it is recorded. TRIM ONLY, never add: illegal participants are dropped
+    (unlike a model plan, an extraction record is trimmed to its legal participants rather than dropped whole), a
+    record left with no NPC is dropped, closed-set claims leave the free text, and everything else is returned as
+    the ORIGINAL objects (byte-identical when nothing is rejected). Pure, total (a checker fault returns the input
+    unchanged: the gate is an extra filter, never a precondition). The first MAX_PARTICIPANTS ids are checked;
+    any beyond are passed through untouched."""
+    try:
+        head, tail = list(ids[:MAX_PARTICIPANTS]), list(ids[MAX_PARTICIPANTS:])
+        cons = consequence if isinstance(consequence, dict) else {}
+        extra = [x for k, f in (("edges", "toward"), ("aboutEdges", "holder")) for e in (cons.get(k) or [])
+                 if isinstance(e, dict) and isinstance(e.get(f), str) for x in [e[f]]]
+        parts = list(dict.fromkeys(head + extra))[:MAX_PARTICIPANTS]
+        v1 = check_plan({"participants": parts, "act": act, "effects": []}, view)
+        if v1.plan_trimmed is None:
+            return SceneGate(False, list(ids), content, consequence, [], False)
+        kept = v1.plan_trimmed["participants"]
+        codes = [r["code"] for r in v1.rejections]
+        legal = [i for i in head if i in kept]
+        eff: dict = {"type": "record", "withIds": legal, "kind": kind}
+        if consequence:
+            eff["consequence"] = copy.deepcopy(consequence)
+        if content:
+            eff["content"] = content
+        v2 = check_plan({"participants": kept, "act": act, "effects": [eff]}, view)
+        codes += [r["code"] for r in v2.rejections]
+        out_eff = (v2.plan_trimmed or {}).get("effects") or []
+        if not out_eff:
+            return SceneGate(True, [], None, None, codes or ["effect-empty"], True)
+        new_content, new_cons = content, consequence
+        if any(r["path"].endswith(".content") for r in v2.rejections):
+            new_content = out_eff[0].get("content")
+        if consequence and any(".consequence." in r["path"] for r in v2.rejections):
+            new_cons = copy.deepcopy(consequence)
+            for key in ("edges", "aboutEdges"):
+                drop = {_rej_index(r["path"], key) for r in v2.rejections}
+                if key in new_cons:
+                    new_cons[key] = [e for n, e in enumerate(new_cons[key]) if n not in drop]
+                    if not new_cons[key]:
+                        del new_cons[key]
+            if any(r["path"].endswith("consequence.rationale") for r in v2.rejections):
+                new_cons.pop("rationale", None)
+            if not new_cons.get("edges") and not new_cons.get("aboutEdges"):
+                new_cons = None
+        return SceneGate(False, legal + tail, new_content, new_cons, codes, bool(codes))
+    except Exception:
+        return SceneGate(False, list(ids), content, consequence, [], False)

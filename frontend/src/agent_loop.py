@@ -3762,6 +3762,32 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
 )
 
 
+async def _scene_check_gate(owner, ids, kind, content, consequence, present_ids, valid, last_user):
+    """ORW-223 C5: build the C1 view from the SAME engine reads the belts use (whereabouts' present set, already read by the
+    caller; the game state's asleep list + open pending) and gate the extraction. None => no gate (a read or checker fault
+    fails OPEN: the gate is an extra filter on top of the 0055 guarantee, never a precondition)."""
+    try:
+        from src import orwell_engine as _oe
+        from src import orwell_scene_plan as _sp
+        gs = await _oe.get_game_state(owner)
+        gs = gs if isinstance(gs, dict) else {}
+        asleep = [a.get("id") for a in (gs.get("asleep") or []) if isinstance(a, dict) and a.get("id")]
+        pend = gs.get("pending")
+        pend = (pend.get("kind") or pend.get("type") or "pending") if isinstance(pend, dict) else (pend if isinstance(pend, str) else None)
+        if present_ids is not None:
+            present = {i for i in present_ids if isinstance(i, str)}
+        else:  # the presence read failed: fail OPEN on presence (everything the proposal names counts as in the room)
+            present = set(ids) | {e.get(f) for k, f in (("edges", "toward"), ("aboutEdges", "holder"))
+                                  for e in ((consequence or {}).get(k) or []) if isinstance(e, dict)}
+            present = {i for i in present if isinstance(i, str)}
+        view = {"present": sorted(present), "awake": sorted(present - set(asleep)),
+                "known_ids": sorted(i for i in valid if isinstance(i, str)), "asleep": asleep, "pending": pend or None}
+        act = "go-to-bed" if _player_means_going_to_bed(last_user) else "talk"
+        return _sp.gate_scene_record(ids, kind, content, consequence, view, act)
+    except Exception:
+        return None
+
+
 async def _auto_record_scene(narration, last_user, house, endpoint_url, model, headers, owner,
                               session_id=None, raw=None) -> bool:
     """GUARANTEE the consequence loop fires (0055). When the model narrated a player↔houseguest
@@ -3926,6 +3952,24 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # ADR 0005: validate the proposed descriptor against the SAME roster id-set used for withIds;
         # a None result (nothing valid) means we forward NOTHING — exactly the kind-only path.
         consequence = _validate_consequence(obj.get("consequence"), valid)
+        # ORW-223 C5 - the deterministic post-extraction gate (C1 checker, no model call): AFTER normalization + presence above, it
+        # additionally drops asleep / unknown participants and edges, an open-decision bedtime, and closed-set claims in the free text.
+        # Trim only; a clean proposal passes through as the same objects.
+        _gate_trimmed = False
+        _gate = await _scene_check_gate(owner, ids, kind, content, consequence, present_ids, valid, last_user)
+        if _gate is not None:
+            if _gate.dropped:
+                _note_belt(owner, "scene-check-drop")
+                logger.info(f"[orwell] scene-check: dropped the record, codes={_gate.codes}")
+                if session_id is not None:
+                    from src import fold_ledger as _fl_gate
+                    _fl_gate.note_belt_declined(owner, session_id)
+                return False
+            if _gate.trimmed:
+                ids, consequence = _gate.ids, _gate.consequence
+                content = (_gate.content or "").strip() or "The player and a houseguest had a private exchange."
+                _gate_trimmed = True  # counted below, only once the trimmed record was actually recorded/staged
+                logger.info(f"[orwell] scene-check: trimmed the record, codes={_gate.codes}")
         assurance = _validate_assurance(obj.get("assurance"), ids)
         heard_about_me = _validate_heard_about_me(obj.get("heardAboutMe"), ids)
         # 0065 Part A: attach the CAS token + refresh last-seen from the response. A single stale 409
@@ -3978,6 +4022,8 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 lever="propose-record", ok=True, user=owner)
         except Exception:
             pass
+        if _gate_trimmed:
+            _note_belt(owner, "scene-check-trim")  # success-gated: something was trimmed AND the rest was recorded
         return True
     except Exception as _e:
         logger.warning(f"[orwell] auto-record failed: {_e}")
