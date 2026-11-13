@@ -325,3 +325,22 @@ export function assembleScenes(plans: readonly PlannedAction[]): HourScene[] {
   }
   return scenes;
 }
+
+/** ORW-315: the engine's one-line record of an action (ids, never names; hidden content until a pathway carries it). */
+const VERB: Readonly<Record<ActionKind, string>> = {
+  fish: "fished for information from", "test-a-rumor": "tested a rumor on", plant: "planted a story with", confirm: "confirmed a plan with",
+  leak: "leaked something to", "keep-quiet": "kept quiet", pitch: "pitched an alliance to", recruit: "tried to recruit", "check-in": "checked in with",
+  "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
+  "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
+  frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",
+  cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
+  "chore-fight": "fought over chores with", "homesick-talk": "talked about home with", "bed-talk": "talked late in bed with",
+  "game-of-cards": "played cards with", sunbathe: "sunbathed with", "tell-stories": "told stories with", flirt: "flirted with", cuddle: "cuddled with",
+  mull: "mulled things over", "vent-in-diary-room": "vented in the Diary Room", "study-for-comps": "studied for comps", pray: "prayed",
+  "talk-to-cameras": "talked to the cameras", cheer: "cheered on", taunt: "taunted", sulk: "sulked",
+};
+export function actionLine(p: PlannedAction): string {
+  const who = p.with.length ? ` ${p.with.join(", ")}` : "";
+  const about = p.about && !p.with.includes(p.about) ? (p.kind === "lobby-for" ? ` for ${p.about}` : ` about ${p.about}`) : "";
+  return `${p.actor} ${VERB[p.kind]}${who}${about}`;
+}

@@ -67,6 +67,14 @@ only 7 types seems wild to me."):
   purpose. Gate: `tests/unit/houseLife.test.ts` (16 cases; 8 mutants each go red). The overseer half wires it into the orchestrator in place
   of the 7-type tick and records each scene as an event (hidden unless the player is present), folding through the existing types.
 
+## Slice 3 wiring (ORW-315, 2026-11-13)
+Live behind `ORWELL_HOUSE_LIFE` (default ON) for a game a person PLAYS (`playedGame`, the agendas' gate); headless calibration drivers keep
+the old stretch (their seeded spine is byte-identical). Each society tick (debounced to `SOCIETY_TICK_HOURS` of play, ORW-323), every awake
+NPC who is not in the player's room acts once (`GameSessionAdapter.houseLifeStretch`), walks to the action's place (both presence views),
+and each partnered action records ONE hidden event (`houseLife` record: action, place, manner, truthful, about, stretch) folded through
+its action's interaction type; showmance folds keep the 0059/0063 gate. Solo actions record nothing. The rest of the tick (gossip,
+overhears, trajectories, confessionals, campaigns, jury house) runs on these scenes unchanged. Gate: `tests/unit/houseLifeLive.test.ts`.
+
 ## Slice 4 core: memory with content, mood with a cause (`innerLife.ts`)
 - `memoryLine(kind)`: one engine sentence per memory kind, to the person ("you left me on the block when you held the veto") and about
   them ("{subject} left me on the block when they held the veto"); `fillSubject` puts the public name in at the narrator seam (no names
