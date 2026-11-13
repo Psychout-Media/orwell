@@ -7186,10 +7186,21 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _mut0 = _oe_mut.mutation_count(kwargs.get("owner"))
     except Exception as _e:  # failsoft-ok: the push below is an optimisation; without a baseline the turn simply sends none
         logger.debug("167: mutation baseline failed: %s", _e)
+    _ttfw_rec = _ttfw_tok = None
+    try:  # ORW-223c C2: TTFW stamp (always on, fail-soft)
+        if kwargs.get("game_mode") in (True, "game"):
+            from src import orwell_ttfw as _ttfw
+            _ttfw_rec, _ttfw_tok = _ttfw.begin_turn(kwargs.get("session_id"))
+    except Exception as _e:  # failsoft-ok: instrumentation only
+        logger.debug("223c2: begin_turn failed: %s", _e)
     try:
         async for _evt in _stream_agent_loop_impl(*args, **kwargs):
+            if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
+                _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        if _ttfw_rec is not None:
+            _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
             _ptt.set("")
         try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
