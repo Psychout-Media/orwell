@@ -283,7 +283,7 @@ export function replacementPick(
   read: NominationRead = {},
 ): EntityId {
   const { blocs = [], mood = 0.5, style = "threat-hunter", target } = read;
-  if (read.agendaPush) { const free = options.filter((c) => read.agendaPush!(c) > -REASONS.shieldFloor); if (free.length > 0 && free.length < options.length) options = free; } // ORW-314: a shielded houseguest is not named the replacement while a legal alternative remains
+  if (read.agendaPush) { const free = options.filter((c) => read.agendaPush!(c) > -REASONS.shieldFloor); if (free.length > 0 && free.length < options.length) options = free; } // ORW-314: a shielded houseguest is not named the replacement while a legal alternative remains. NOTE the thresholds differ on purpose: a nomination needs TWO unshielded candidates left (it names two seats), the replacement needs only ONE (it names one seat), hence `free.length > 0` here against `>= 2` in `nominationPlan`.
   const S = NOMINATION_STYLES[style];
   const P = NOMINATION_PRESSURE;
   // ORW-305: one pass - the named terms per candidate are computed once (memoised for this call); each score is their sum.
