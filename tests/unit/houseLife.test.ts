@@ -151,6 +151,12 @@ describe("one hour's actions become scenes", () => {
     expect(kitchen.actions.map((x) => x.kind).sort()).toEqual(["bargain", "beg"]);
     expect(scenes.length).toBe(3);
   });
+
+  it("ORW-329: an ex is avoided in free time (a goal step may still seek them out)", () => {
+    const v = hv({ avoid: [FRIEND], whereabouts: new Map<string, Room>([[HOLDER, "living-room"], [FRIEND, "living-room"]]), affinity: new Map([[FRIEND, 0.9]]) });
+    expect(hours(v, 120).every((p) => p.with[0] !== FRIEND || p.goalId)).toBe(true);
+    expect(hours({ ...v, avoid: [] }, 120).some((p) => p.with[0] === FRIEND)).toBe(true);
+  });
 });
 
 describe("ORW-324: friction and honest folds (the house was 73% alliance, under 1% conflict)", () => {
