@@ -377,7 +377,7 @@ Then("it yields a well-formed outcome the band gate can score", function (this: 
   // AMEND 0078 #3: a SPECIFIC, deterministic expected outcome (the wiring-only check accepted all three statuses). Seed 1 / passive on the current model: the player makes the jury,
   // does not reach Final 2, with one public comp win. Re-pin DELIBERATELY when calibration moves (A10 / any movement-strength change) - a silent drift here is the point.
   // Re-pinned 2026-11-06 for ORW-132 (pre-show ties are now rare, so the seed-1 cast seeds differently): same status, the player's one public comp win became zero. (ORW-116, 2026-11-07: measured again with the clock-from-entry flow merged - unchanged.)
-  assert.deepEqual(r, { seed: 1, status: "jury", f2Win: false, playerCompWins: 0 }, "seed 1, passive, current model");
+  assert.deepEqual(r, { seed: 1, status: "jury", f2Win: false, playerCompWins: 1 }, "seed 1, passive, current model"); // re-pinned 2026-11-13 for ORW-19 (comp-win threat 0.3 -> 0.45): same status, the player's public comp wins 0 -> 1
   assert.ok(MOVEMENT_INTENT.moveIntentStrength > 0, "the intentional-movement lever is live in the measured model");
 });
 
