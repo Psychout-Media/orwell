@@ -5146,6 +5146,13 @@ async def do_create_character(
                             orwell_producer_authoring.kickoff_producer_authoring(owner)
                         except Exception as e:  # noqa: BLE001 — persona flavor; never block anything
                             logger.warning("[create] deferred producer-authoring kickoff failed: %s", e)
+                        # ORW-319 (ORW-253 slice 5): the model's cast-time words (habits + aim hints, house culture). Best-effort;
+                        # a failure retries once, then skips with an admin alert (Ryne 2026-11-12) - the engine's own version stands.
+                        try:
+                            from src import orwell_npc_minds_words
+                            orwell_npc_minds_words.kickoff_npc_minds_words(owner)
+                        except Exception as e:  # noqa: BLE001 — never block the gate-clear
+                            logger.warning("[create] deferred npc-minds-words kickoff failed: %s", e)
                     _authoring_gate.kickoff_house_ready_watch(
                         owner, on_ready=_deferred_post_start)
                     holding = {
@@ -5194,6 +5201,12 @@ async def do_create_character(
                 orwell_producer_authoring.kickoff_producer_authoring(owner)
             except Exception as e:  # noqa: BLE001 — persona flavor; never block game start
                 logger.warning("[create] producer-authoring kickoff failed: %s", e)
+            # ORW-319 (ORW-253 slice 5): the model's cast-time words (habits + aim hints, house culture); retry once, then skip + alert.
+            try:
+                from src import orwell_npc_minds_words
+                orwell_npc_minds_words.kickoff_npc_minds_words(owner)
+            except Exception as e:  # noqa: BLE001 — never block game start
+                logger.warning("[create] npc-minds-words kickoff failed: %s", e)
         # ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an auto-corrected change is not a cloak)
         # and a plain line for the narrator so the casting card and the player are told the STORED style, never the one asked for.
         _out = json.dumps(res, indent=2)

@@ -1,3 +1,4 @@
+import type { Agenda } from "./agenda";
 import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
@@ -79,6 +80,7 @@ import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
+import type { NpcMindsAuthored } from "./npcMindsAuthored";
 import { jurorProfile, profileOfArchetype, profiledLean, profiledWeights, type JurorArchetype } from "./jurorProfile";
 import { drawCompetition, competitionById, COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS } from "./competitionLibrary";
 import type { CompetitionDef, CompetitionFormat, CompetitionPhase } from "./competitionLibrary";
@@ -594,6 +596,8 @@ export interface LiveSeasonState {
    * otherwise ⇒ flags-off saves are byte-identical). Engine-only; persisted with the live state; never projected.
    */
   npcMemory?: NpcMemoryLedger;
+  /** ORW-319 (ORW-253 slice 5): what the utility model wrote at cast time - habits + aim hints per houseguest, and the house culture. Write-once; engine-side. */
+  npcMindsAuthored?: NpcMindsAuthored;
   vetoField?: EntityId[];
   vetoHolder?: EntityId;
   vetoUsed: boolean;
@@ -836,6 +840,8 @@ export interface LiveSeasonState {
   clockInteractive?: boolean;
   /** ORW-258: a PERSON is playing this game (set by their first announced message; persisted). `clockInteractive` is not enough - a staged premiere sets it for headless drivers too - so the event-per-day cadence keys on THIS, keeping calibration sims byte-identical. */
   playedGame?: boolean;
+  /** ORW-312 (ORW-253 slice 1, spec 0145): every NPC houseguest's lasting AGENDA (goals, why, history). VAULT-CLASS hidden state: never projected to any surface. Played games only (seeded when the person starts playing); absent => byte-identical. Persisted with the season (0007/0030); `sessionCoreSupersetViolation` refuses a save that thins any agenda's history. NOTHING READS IT YET (slice 2 makes decisions read it). */
+  agendas?: Record<EntityId, Agenda>;
   /** ORW-261 (spec 0141): houseguests who have already told the player their private orientation by their own choice (once each; persisted so a reload never re-tells). Played games only; absent => byte-identical. */
   orientationTold?: Record<string, true>;
   /**

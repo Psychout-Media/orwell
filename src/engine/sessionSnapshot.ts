@@ -9,6 +9,7 @@ import type { Deal } from "../domain/deal";
 import type { Campaign, Drive } from "./campaigns";
 import type { Trajectory, FoldSignal } from "./trajectory";
 import type { Alliance } from "./alliances";
+import { isAgendaSuperset } from "./agenda";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
@@ -917,6 +918,13 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // id counter never goes back (`canonSupersetProblems`). Both sides are read the way a load reads them.
   if (earlier.canon !== undefined || later.canon !== undefined) {
     if (canonSupersetProblems(restoreCanon(earlier.canon).ledger, restoreCanon(later.canon).ledger).length > 0) return "canon";
+  }
+
+  // agendas (ORW-312 / 0145): an NPC's resolved-goal history only ever grows (`isAgendaSuperset`), and an agenda once seeded is never dropped.
+  const laterAgendas = later.live?.agendas ?? {};
+  for (const [id, prev] of Object.entries(earlier.live?.agendas ?? {})) {
+    const next = laterAgendas[id];
+    if (!next || !isAgendaSuperset(prev, next)) return "agendas";
   }
 
   return null;
