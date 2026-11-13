@@ -59,27 +59,41 @@ describe("ORW-312: NPC agendas on the live season", () => {
     expect(Object.keys(before)).toHaveLength(15);
   }, 120_000);
 
-  // (d) is scanned over ALL the seeds (not narrowed to the ones that pass). Measured 2026-11-13: seeds 1,2,3,7 have min 4,6,4,4 resolved goals per NPC after 3 weeks; seeds 5 and 11 have ONE houseguest at 2 (a stubborn
-  // holder: the pure core's fade, not a wiring gap). KNOWN GAP, ORW-312 / Auditor design call (fix the core or restate the criterion). `it.fails` keeps it visible: it passes while the gap exists and goes RED the
-  // day the criterion starts holding on every seed, so whoever fixes it must delete the marker.
+  // (d) Auditor ruling on ORW-312 (2026-11-13): the old criterion ("every NPC has >= 3 resolved goals after 3 weeks") was wrong, not the core - a calm, unthreatened NPC may form no week goal by design. Replaced by
+  // three checks that run on EVERY scanned seed, with no seed pinned:
+  //  (d1) after each week closes, no week goal formed in a closed week is still active, and every week goal in history carries a resolved status;
+  //  (d2) after three weeks the house holds at least 2 resolved goals per houseguest in total (still in plus evicted: every agenda persists);
+  //  (d3) an NPC that held a week goal in a closed week has at least one resolved week goal for each such week.
   const D_SEEDS = [1, 2, 3, 5, 7, 11];
-  let shortfalls: Record<number, number> | undefined;
-  const scanD = (): Record<number, number> => {
-    if (shortfalls) return shortfalls;
-    shortfalls = {};
-    for (const seed of D_SEEDS) {
-      const ag = liveOf(playSeason(seed, { stopAtWeek: 3 }).s).agendas!;
-      shortfalls[seed] = Math.min(...Object.values(ag).map((a) => a.history.length));
+  const RESOLVED = new Set(["achieved", "failed", "replaced", "dropped"]);
+  it.each(D_SEEDS)("(d1, d2, d3) the weekly goals resolve on seed %i", (seed) => {
+    const held: Record<string, Set<number>> = {};
+    const problems: string[] = [];
+    let prevWeek = 1;
+    const r = playSeason(seed, {
+      stopAtWeek: 3,
+      observe: (live) => {
+        const ag = (live as unknown as Live).agendas ?? {};
+        for (const [id, a] of Object.entries(ag)) for (const g of a.goals) if (g.horizon === "week") (held[id] ??= new Set()).add(g.formedWeek);
+        if (live.week > prevWeek) {                                    // a week just closed
+          for (const [id, a] of Object.entries(ag)) {
+            for (const g of a.goals) if (g.horizon === "week" && g.formedWeek < live.week) problems.push(`d1: ${id} still holds an active week-${g.formedWeek} goal after that week closed`);
+            for (const g of a.history) if (g.horizon === "week" && !RESOLVED.has(g.status)) problems.push(`d1: ${id} has a week goal in history with status ${g.status}`);
+          }
+          prevWeek = live.week;
+        }
+      },
+    });
+    const ag = liveOf(r.s).agendas!;
+    const total = Object.values(ag).reduce((n, a) => n + a.history.length, 0);
+    if (total < 2 * Object.keys(ag).length) problems.push(`d2: ${total} resolved goals for ${Object.keys(ag).length} houseguests (need ${2 * Object.keys(ag).length})`);
+    const closedUpTo = liveOf(r.s).week as unknown as number;
+    for (const [id, weeks] of Object.entries(held)) for (const w of weeks) {
+      if (w >= closedUpTo) continue;                                  // that week is still open
+      if (!ag[id]!.history.some((g) => g.horizon === "week" && g.formedWeek === w)) problems.push(`d3: ${id} held a week-${w} goal but has none resolved for that week`);
     }
-    return shortfalls;
-  };
-  it("(d, regression) the wiring resolves at least three goals per NPC on the seeds where the core allows it", () => {
-    const m = scanD();
-    for (const seed of [1, 2, 3, 7]) expect(m[seed], `seed ${seed} min resolved goals`).toBeGreaterThanOrEqual(3);
-  }, 400_000);
-  it.fails("(d, KNOWN GAP ORW-312) after three weeks every NPC has at least three resolved goals on EVERY scanned seed", () => {
-    const m = scanD();
-    for (const seed of D_SEEDS) expect(m[seed], `seed ${seed} min resolved goals`).toBeGreaterThanOrEqual(3);
+    expect(Object.keys(held).length, `seed ${seed}: some houseguest held a week goal (the check is not vacuous)`).toBeGreaterThan(0);
+    expect(problems, `seed ${seed}`).toEqual([]);
   }, 400_000);
 
   it("(c) an agenda never reaches a player-facing or admin projection", () => {

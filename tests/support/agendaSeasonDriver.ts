@@ -7,7 +7,7 @@ import { resolvePending } from "../../features/support/answerPending";
  * orchestrator's sleep step (`settleOvernight`) after each night. Roles only. `maxSteps` bounds the loop; `stopAtWeek` ends it after that many weeks have closed (for the 3-week case).
  */
 export interface PlayedSeason { s: GameSessionAdapter; nights: number; finished: boolean }
-export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?: number; mull?: boolean } = {}): PlayedSeason {
+export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?: number; mull?: boolean; observe?: (live: Record<string, unknown> & { week: number }) => void } = {}): PlayedSeason {
   GameSessionAdapter.setTimeOfDayEnabled(true);
   const s = new GameSessionRegistry().sandboxFor(`agenda-${seed}-${Math.random()}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed });
@@ -19,6 +19,7 @@ export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?:
   const max = opts.maxSteps ?? 30000;
   for (let step = 0; step < max; step++) {
     const l = live();
+    opts.observe?.(s.snapshot().live as unknown as Record<string, unknown> & { week: number });
     if (l.finished || (opts.stopAtWeek !== undefined && l.week > opts.stopAtWeek)) break;
     const d = (s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule;
     if (d?.due) {
