@@ -56,7 +56,7 @@ export interface SeasonResult {
 }
 
 /** The passive policy: first legal option everywhere; compete; veto only ever used on self. */
-function passiveAnswer(p: PendingView): Record<string, unknown> {
+export function passiveAnswer(p: PendingView): Record<string, unknown> {
   switch (p.kind) {
     case "nominations":
       return { kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] };
