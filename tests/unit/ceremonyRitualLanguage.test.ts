@@ -19,10 +19,13 @@ describe("ceremony moment-prompt fragments carry the show's ritual-language cues
     const p = MOMENT_PROMPTS.nominations;
     expect(p).toMatch(/turns a key for each safe houseguest|the key turns/i);
     expect(p).toContain("I've nominated you, and you, for eviction");
-    expect(p).toMatch(/purely strategic/i);
-    expect(p).toMatch(/nothing personal/i);
+    // ORW-314: the HOH's reason is the one the game states for THIS decider (their block says it aloud); the narrator never invents a "purely strategic, nothing personal" of its own.
+    expect(p).toMatch(/reason the game gives this HOH to say aloud/i);
+    expect(p).toMatch(/said aloud/);
+    expect(p).toMatch(/no other reason of your own/i);
+    expect(p).not.toMatch(/however brief|nothing personal|purely strategic|soften the/i);
     // Framing, not a script: the model is told to use its OWN words / the game's real names.
-    expect(p).toMatch(/own words|not a copy of anyone else's/i);
+    expect(p).toMatch(/own words/i);
   });
 
   it("veto-draw: still cues the chip-draw ritual (ORW-281 slice 1 moved it here from veto-competition: the draw is its own ceremony beat)", () => {

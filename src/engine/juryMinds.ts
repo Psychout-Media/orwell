@@ -41,6 +41,8 @@ export interface FinalHohOption {
   /** The HOH's threat read of `evict` and bond (affinity) with `evict` (0..1). */
   threatOfEvict: number;
   bondWithEvict: number;
+  /** ORW-314: the Final HOH's agenda pull toward evicting `evict` (`goalPull`, signed, full strength). Absent => 0, byte-identical. */
+  agendaPush?: number;
 }
 
 export interface FinalHohDecision { evict: EntityId; reason: "beatable-in-finale" | "biggest-threat" | "loyal-to-ally" }
@@ -53,7 +55,7 @@ export function finalHohChoice(hoh: AgendaCharacter, options: readonly FinalHohO
   if (options.length === 0) throw new Error("finalHohChoice: no options");
   const w = { ...JURY_MINDS.finalHoh.base, ...(JURY_MINDS.finalHoh.byArchetype[hoh.archetype] ?? {}) };
   // ORW-305: one pass - the three named terms in the order the score adds them; the score is their sum (`a - b` is `a + (-b)` bit for bit).
-  const vals = (o: FinalHohOption): number[] => [w.juryOdds * o.myJuryShareVsKeep, w.threat * o.threatOfEvict, -(w.bond * o.bondWithEvict)];
+  const vals = (o: FinalHohOption): number[] => [w.juryOdds * o.myJuryShareVsKeep, w.threat * o.threatOfEvict, -(w.bond * o.bondWithEvict), o.agendaPush ?? 0];
   const score = (o: FinalHohOption): number => sumVals(vals(o));
   const best = [...options].sort((a, b) => score(b) - score(a) || b.myJuryShareVsKeep - a.myJuryShareVsKeep || a.evict.localeCompare(b.evict))[0]!;
   // The real reason: what the chosen option was best at. Best jury odds => "beatable"; else the biggest threat; else they kept their ally.
@@ -61,7 +63,7 @@ export function finalHohChoice(hoh: AgendaCharacter, options: readonly FinalHohO
   const reason: FinalHohDecision["reason"] = top((o) => o.myJuryShareVsKeep) === best && w.juryOdds >= w.bond ? "beatable-in-finale"
     : top((o) => o.threatOfEvict) === best && w.threat >= w.bond ? "biggest-threat" : "loyal-to-ally";
   if (why) {
-    const nm = ["jury-odds", "threat", "bond"] as const;
+    const nm = ["jury-odds", "threat", "bond", "agenda"] as const;
     const ru = options.find((o) => o !== best);
     why({ kind: "final-hoh-eviction", rule: reason, options: ru ? [whyOption(best.evict, "chosen", nm, vals(best), score(best)), whyOption(ru.evict, "runner-up", nm, vals(ru), score(ru))] : [whyOption(best.evict, "chosen", nm, vals(best), score(best))] });
   }

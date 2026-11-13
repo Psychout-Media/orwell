@@ -148,3 +148,52 @@ export function explainDecision(real: RealReason, speaker: AgendaCharacter, seed
 export function voiceableReason(s: StatedReason): { kind: StatedReasonKind; about: EntityId } {
   return { kind: s.kind, about: s.about };
 }
+
+// --- ORW-314 (slice 2 wiring): the stored reason record -----------------------------------------------------------------------------------
+
+/**
+ * One NPC decision's reasons, kept as HIDDEN, ENGINE-ONLY metadata on the live season (`LiveSeasonState.statedReasons`, append-only,
+ * persisted with the season). `real` and `stated.candor` are Vault-class: no player, prompt or admin surface may carry them. Only
+ * `voiceableReason(stated)` (kind + subject) crosses, and only through the decider's own voice block.
+ */
+export interface StatedReasonRecord {
+  week: number;
+  day: number;
+  decider: EntityId;
+  decision: DecisionKind;
+  /** A public act (nominations, the replacement, the veto, a tie-break, the final HOH's eviction). A secret ballot is NOT: its reason is stored but never voiced. */
+  public: boolean;
+  real: RealReason;
+  stated: StatedReason;
+}
+
+/** The ORW-305 term names (and the veto's bias inputs) mapped onto the closed set a RealReason carries. Unmapped names are dropped. */
+const TERM_OF: Readonly<Record<string, DecisionTerm["name"] | undefined>> = {
+  threat: "threat", paranoia: "mood", bloc: "alliance", floater: "style", duo: "style", "pawn-seat-floater": "style", "duo-partner": "style",
+  campaign: "campaign", memory: "memory", mood: "mood", drive: "style", belief: "belief", deals: "deal", deal: "deal", lobbying: "pitch",
+  agenda: "goal", "pre-show-tie": "bond", assurance: "deal", "jury-management": "bond", "bond-keep": "bond", "hoh-referendum": "alliance",
+  trust: "bond", reliability: "bond", bond: "bond", "jury-odds": "style",
+};
+
+/** Fold an ORW-305 option's named terms (plus any non-additive inputs that are themselves signed pushes) into RealReason terms, summing duplicates. */
+export function termsFromWhy(terms: ReadonlyArray<readonly [string, number]>, inputs?: Readonly<Record<string, number>>, extra?: ReadonlyArray<readonly [string, number]>): DecisionTerm[] {
+  const sum = new Map<DecisionTerm["name"], number>();
+  const add = (name: string, v: number): void => { const t = TERM_OF[name]; if (t && v !== 0 && Number.isFinite(v)) sum.set(t, (sum.get(t) ?? 0) + v); };
+  for (const [n, v] of terms) add(n, v);
+  // The veto's `bias` term is the sum of campaign / memory / mood / drive / agenda: read its parts from `inputs` instead.
+  if (inputs && terms.some(([n]) => n === "bias")) for (const k of ["campaign", "memory", "mood", "drive", "agenda"]) if (k in inputs) add(k, inputs[k]!);
+  for (const [n, v] of extra ?? []) add(n, v);
+  return [...sum.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The goal that counts as a REASON for this choice: the agenda's pull must point the way the decision went (a veto save is the "for"
+ * direction, every other decision is "against") and be at least half of the largest other pushing term, so a faint goal never takes the credit.
+ */
+export function reasonGoalOf(decision: DecisionKind, pull: GoalPull, terms: readonly DecisionTerm[]): { goalKind?: GoalKind; goalId?: string } {
+  if (!pull.goalKind || !pull.goalId) return {};
+  const aligned = decision === "veto" ? -pull.value : pull.value;
+  if (!(aligned > 0)) return {};
+  const others = Math.max(0, ...terms.filter((t) => t.name !== "goal").map((t) => Math.abs(t.value)));
+  return aligned >= REASONS.goalCreditShare * others ? { goalKind: pull.goalKind, goalId: pull.goalId } : {};
+}
