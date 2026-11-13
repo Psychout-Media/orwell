@@ -9494,6 +9494,9 @@ export class GameSessionAdapter implements GameSession {
           rng,
           origin: juror,
           fact: { content },
+          // ORW-325: an EXPLICIT blame-prefixed lineage id (instead of the minted `fact:<origin>:<n>`), so the diffused copies are recognised as sealed attributions (`isSealedAttribution`) and never
+          // become candidates of the generic co-presence spread; a given id also skips the mint draw (on this stretch's own dedicated rng, which nothing reads afterwards).
+          factId: `${factBase}:diffused`,
           rounds: JURY_HOUSE.rounds,
           transmitProb: JURY_HOUSE.transmitProb,
           decay: JURY_HOUSE.decay,
