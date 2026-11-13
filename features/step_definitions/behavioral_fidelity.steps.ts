@@ -78,7 +78,7 @@ const hiddenScenes = (w: BbWorld) => w.liveFidelity!.events.filter((e) => e.hidd
 // --- Background ---------------------------------------------------------------
 
 Given("an active game simulated over many in-game days with a fixed seed", function (this: BbWorld) {
-  playLive(this, 4); // #2005: seed 4 FAILED the no-dumping cap before the per-stretch reveal cap (kept as the regression pin); an alliance forms AND fractures
+  playLive(this, 1); // re-selected 2026-11-13 (ORW-19 comp-win threat 0.3 -> 0.45): alliances form and fracture on most seeds (8/8 at 0.3, 6/8 at 0.45 over seeds 1-8); seed 4 (the old pin) and 7 no longer fracture one in 4 weeks. Seed 4 FAILED the no-dumping cap before the per-stretch reveal cap (#2005). // #2005: seed 4 FAILED the no-dumping cap before the per-stretch reveal cap (kept as the regression pin); an alliance forms AND fractures
 });
 
 When("the simulated stretch completes", function (this: BbWorld) {

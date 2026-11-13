@@ -65,7 +65,7 @@ describe("ENDGAME-4 — the post-season crowning is framed by placement, before 
 
   it("NEUTRALITY: adding the framing changes NO computed value — moment stays post-season, finished/winner are exactly the engine's decision (a winning season)", () => {
     let checked = false;
-    for (let seed = 1; seed <= 30 && !checked; seed++) {
+    for (let seed = 1; seed <= 120 && !checked; seed++) { // bound widened 30 -> 120 on 2026-11-12 (ORW-19 comp-win threat 0.3 -> 0.45: the player wins less often; the loop still stops at the first won season)
       const s = playToFinish(seed);
       const gs = s.getGameState();
       if (!gs.finished) continue;

@@ -200,8 +200,8 @@ describe("0130 — Vault-safe + deterministic + calibration-neutral", () => {
     // replacement branch on the stored HOH target. Re-captured 2026-11-03 (seeds 7, 42 and 108, under the ORWELL_FLAGS_OFF profile this test replays) for the comp-win threat retune (#1953); seed 42 re-anchored again 2026-11-03 for #1971 (the new-target replacement branch ranks without floater/duo). The exit-interview beat must stay inert against this anchor.
     const BASELINE: Record<number, string[]> = {
       7: ["npc:7","npc:13","npc:15","npc:3","npc:8","npc:11","npc:5","npc:4","npc:12","npc:9","npc:2","player","npc:6","npc:14"], // re-anchored 2026-11-06 for ORW-132 (pre-show ties are now rare, so the seed-7 cast seeds differently even with every flag off); seeds 42 and 108 are unchanged
-      42: ["npc:4","npc:13","npc:1","npc:3","npc:12","npc:8","npc:2","npc:7","player","npc:14","npc:9","npc:6","npc:5","npc:15"],
-      108: ["npc:5","npc:7","npc:3","npc:8","npc:1","npc:12","npc:9","npc:6","npc:13","npc:4","player","npc:15","npc:11","npc:2"],
+      42: ["npc:4","npc:13","npc:1","npc:6","npc:12","npc:8","npc:3","npc:7","npc:2","player","npc:5","npc:15","npc:10","npc:14"], // re-anchored 2026-11-12 for the ORW-19 comp-win threat retune 0.3 -> 0.45 (the exit-interview beat itself draws no rng; see liveSeason.ts)
+      108: ["npc:5","npc:6","npc:3","npc:8","npc:1","npc:12","npc:4","npc:9","npc:10","npc:11","npc:7","npc:2","npc:14","player"], // re-anchored 2026-11-12 for the ORW-19 comp-win threat retune 0.3 -> 0.45
     };
     for (const [seed, expected] of Object.entries(BASELINE)) {
       const sb = new FlagsOffRegistry().sandboxFor(`ei-off${userSeq++}`);
