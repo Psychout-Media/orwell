@@ -11,6 +11,7 @@ import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP }
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
 import { SOCIETY_TICK_HOURS } from "../engine/sleepConstants";
+import { loopFingerprint } from "./chatProgress";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "../engine/characterFactory";
 import { milestoneDue } from "../engine/daySchedule";
@@ -491,12 +492,7 @@ export class Orchestrator {
     const session = this.registry.sandboxFor(user).session;
     // Once the FE announces player messages (`noteMessage`), the announcement itself steps the in-game clock INSIDE the tool - so a clock-only change must not make this commit look like a
     // beat commit (which would earn an un-debounced society tick every message). Strip ONLY the clock fields from the comparison in that mode.
-    const clockFree = (l: SessionSnapshot["live"] | undefined): string => {
-      if (!l || !session.messageModeNow()) return JSON.stringify(l ?? null);
-      const { nightDepth: _n, timeOfDay: _t, ...rest } = l as unknown as Record<string, unknown>;
-      void _n; void _t;
-      return JSON.stringify(rest);
-    };
+    const clockFree = (l: SessionSnapshot["live"] | undefined): string => loopFingerprint(l, session.messageModeNow()); // ORW-323: see chatProgress.ts
     const progressed = !baseline || !baseline.started
       || baseline.week !== candidate.week
       || baseline.phase !== candidate.phase
