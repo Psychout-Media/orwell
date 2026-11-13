@@ -14,12 +14,22 @@ export interface HeldCandidate { factId: string; content: string; firstHand: boo
 
 const lineageOf = (f: KnowledgeFact): string => f.factId ?? f.id;
 
-/** The facts `holder` could tell `listener`: held by the holder, absent from the listener's knowledge (by lineage), most-recent-first-stable. */
+/**
+ * 0129 / E12 (ORW-325) - a vote-DEDUCTION belief ("X believes A turned on them in the eviction vote": the traitors-fury blame seeding, 0110) attributes a SEALED ballot, so it never rides a telling. The
+ * jury-house diffusion already spreads it through its own graph; the generic co-presence spread must not pick it up as one more fact to tell. Left in, the flag changed the season for everyone: the extra
+ * facts took places among a pair's top candidates and consumed rolls, so the told ledger (and everything downstream of it) diverged between a flag-on and a flag-off season on about 1 seed in 4.
+ */
+export function isSealedAttribution(f: { pathway?: string; factId?: string }): boolean {
+  return (f.pathway ?? "").startsWith("jury-house:blame") || (f.factId ?? "").startsWith("traitors-fury:blame");
+}
+
+/** The facts `holder` could tell `listener`: held by the holder, absent from the listener's knowledge (by lineage), most-recent-first-stable. Sealed ballot attributions are never candidates (see isSealedAttribution). */
 export function heldCandidates(holderFacts: readonly KnowledgeFact[], listenerFacts: readonly KnowledgeFact[]): HeldCandidate[] {
   const listenerHas = new Set(listenerFacts.map(lineageOf));
   const seen = new Set<string>();
   const out: HeldCandidate[] = [];
   for (const f of holderFacts) {
+    if (isSealedAttribution(f as { pathway?: string; factId?: string })) continue;
     const id = lineageOf(f);
     if (listenerHas.has(id) || seen.has(id)) continue;
     seen.add(id);
