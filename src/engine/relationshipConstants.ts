@@ -240,11 +240,11 @@ export type CeremonyAct = "nominated" | "veto-saved" | "replaced" | "evicted" | 
  * player reached Final 2 in 29% of 300 seasons (target 12-20%). At 0.3 the same arm reaches it ~20% (20.7% on seeds 1-300, 20.0% on
  * independent seeds 301-600) with passive (~11% F2 / ~3% win) and reckless (~3% F2 / ~1% win) unmoved. The knee is at 0.3: solid reach
  * is flat for 0.3-0.4 while win-given-F2 keeps falling, so 0.3 is the gentlest value that lands reach in band. The constant is a pure threat-only impact (no rng of its own); the shared ceremony fold still applies its seeded temperature jitter to it.
- * RETUNED 0.3 -> 0.45 (2026-11-12, ORW-19; the bands in tests/calibration/poTargetBands.ts unchanged): the first full 300-seed reading after the default-profile changes had solid
- * reach at 23.7% (outside 12-20%; passive 8.0/2.7, reckless 5.0/3.3). Solid arm over 900 seeds (1-300 gate seeds + 301-900 fresh), reach / win: 0.3 -> ~22.6% / ~11.1%;
- * 0.45 -> 20.7% / 9.9% (17.3% / 9.3% on the gate seeds 1-300); 0.55 -> 22.1% / 9.8%; 0.5 -> ~20.0% / ~9.9% and 0.6 -> ~20.2% but BOTH trip the passive "earned wins" jury
- * guard (a crowned passive player needs >= 2 public comp wins; seed 15 / seed 10 landed on 1) - a 20-seed check that any trajectory shift can trip, so the value is the smallest one
- * that holds BOTH the PO bands and the jury gates (0.35, 0.4, 0.45, 0.55, 0.65, 0.7 pass the jury gates; 0.4 read 25.3% on the gate seeds, 0.45 reads 17.3%).
+ * RETUNED 0.3 -> 0.45 (2026-11-13, ORW-19; the bands in tests/calibration/poTargetBands.ts unchanged). The real PO gate on main after #2574 (the sleep curve), seeds 1-300, reach F2 / win:
+ * threat 0.3 -> passive 9.3% / 4.7%, SOLID 31.3% / 14.7% (outside 12-20%, so the gate FAILED), reckless 5.7% / 3.7%;
+ * threat 0.45 -> passive 6.3% / 2.0%, solid 20.0% / 9.3%, reckless 5.7% / 3.3% (every band holds, the aggregate gate passes).
+ * Why 0.45 and not 0.5 / 0.6: the passive "earned wins" jury guard (a crowned passive player needs >= 2 public comp wins, a 20-seed check any trajectory shift can trip) tripped at 0.5 and 0.6
+ * (seeds 15 / 10 landed on 1 comp win) while 0.35, 0.4, 0.45, 0.55, 0.65 and 0.7 held it. Before #2574 the same lever measured, on 900 solid seeds, 0.3 -> ~22.6% / ~11.1% and 0.45 -> 20.7% / 9.9%.
  */
 const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.45 };
 
