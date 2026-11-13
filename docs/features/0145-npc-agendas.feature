@@ -1,8 +1,5 @@
-# spec-only: ORW-253 slice 1 - the pure core is unit-gated (tests/unit/agenda.test.ts); these steps are wired into cucumber.cjs with the live-season wiring (overseer half). Roles only.
 # ORW-253 slice 1 - NPC agendas: lasting goals (theme 1, NPC minds; design approved by Ryne 2026-11-12).
-# Status: the pure engine module is BUILT and unit-gated (tests/unit/agenda.test.ts, one case per scenario below).
-# These scenarios are wired into cucumber when the agenda is carried on the live season (the overseer half of slice 1).
-# Roles only.
+# Status: BUILT and BDD-wired (ORW-312): the pure core (src/engine/agenda.ts, tests/unit/agenda.test.ts) is carried on the live season; steps drive a real played season (features/step_definitions/npc_agendas.steps.ts). Roles only.
 
 Feature: Every houseguest holds a lasting agenda of their own
 

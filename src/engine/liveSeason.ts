@@ -1,3 +1,4 @@
+import type { Agenda } from "./agenda";
 import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
@@ -831,6 +832,8 @@ export interface LiveSeasonState {
   clockInteractive?: boolean;
   /** ORW-258: a PERSON is playing this game (set by their first announced message; persisted). `clockInteractive` is not enough - a staged premiere sets it for headless drivers too - so the event-per-day cadence keys on THIS, keeping calibration sims byte-identical. */
   playedGame?: boolean;
+  /** ORW-312 (ORW-253 slice 1, spec 0145): every NPC houseguest's lasting AGENDA (goals, why, history). VAULT-CLASS hidden state: never projected to any surface. Played games only (seeded when the person starts playing); absent => byte-identical. Persisted with the season (0007/0030); `sessionCoreSupersetViolation` refuses a save that thins any agenda's history. NOTHING READS IT YET (slice 2 makes decisions read it). */
+  agendas?: Record<EntityId, Agenda>;
   /** ORW-261 (spec 0141): houseguests who have already told the player their private orientation by their own choice (once each; persisted so a reload never re-tells). Played games only; absent => byte-identical. */
   orientationTold?: Record<string, true>;
   /**

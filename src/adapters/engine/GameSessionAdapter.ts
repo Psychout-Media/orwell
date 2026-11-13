@@ -59,7 +59,7 @@ import type { CastingIntake, DossierForCoherence } from "../../engine/castingInt
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -85,7 +85,8 @@ import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionCo
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { validateTraits, validateCulture } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
-import type { AgendaCharacter } from "../../engine/agenda";
+import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
+import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
 import { memoryLine, fillSubject } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
@@ -937,6 +938,16 @@ export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
 /** ORW-282: how many daily recaps the append-only log keeps (a season is well under this). */
 const DAILY_RECAP_LOG_CAP = 60;
 
+/** ORW-312: which memory kinds re-check the holder's agenda, and as what. */
+const AGENDA_MEMORY_TRIGGER: Partial<Record<MemoryKind, AgendaTrigger>> = {
+  "deal-broken": "deal-broken", "scene-betrayal": "betrayed", "nominated-by-friend": "betrayed", "replaced-by-friend": "betrayed", "secret-exposed": "secret-exposed",
+};
+/** ORW-312: the agenda trigger a resolved beat stands for. */
+const AGENDA_BEAT_TRIGGER: Partial<Record<string, AgendaTrigger>> = {
+  nominations: "nominated", "veto-ceremony": "power-changed", eviction: "week-closed", "final-eviction": "week-closed",
+  "hoh-competition": "comp-result", "veto-competition": "comp-result",
+};
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -1125,6 +1136,7 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
+    this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
@@ -1330,6 +1342,7 @@ export class GameSessionAdapter implements GameSession {
   private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told"): void {
     if (!this.liesCaughtWriting || holder === PLAYER) return;
     recordClaim((this.live!.beliefs ??= {}), { holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
+    this.agendaRecheck("caught-lying", [holder]); // ORW-312
   }
   /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
@@ -8463,6 +8476,7 @@ export class GameSessionAdapter implements GameSession {
       if (!living.has(hg.id)) continue;
       for (let i = 0; i < steps; i++) evolveEmotion(hg.soul, "calm", undefined, undefined, { soulDepth: this.soulDepthEnabled });
     }
+    this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     return steps;
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
@@ -9283,6 +9297,7 @@ export class GameSessionAdapter implements GameSession {
       const a = this.alliances.add(name, founder, willing, beat);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
       if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER);
+      this.agendaRecheck("alliance-changed"); // ORW-312
       this.persist();
       return; // one new alliance per tick (bounded)
     }
@@ -9819,6 +9834,99 @@ export class GameSessionAdapter implements GameSession {
    */
   private npcMindsEndgameEnabled = flagDefaultOn("ORWELL_NPC_MINDS_ENDGAME");
   setNpcMindsEndgameEnabled(on: boolean): void { this.npcMindsEndgameEnabled = on; }
+
+  // --- ORW-312 (ORW-253 slice 1, spec 0145): NPC agendas on the live season. VAULT-CLASS; nothing reads them yet. --------------------------------------------------------------
+  /** The public board as the agenda sees it. `ev` is the beat that just resolved (an eviction closes the week). */
+  private agendaBoard(ev?: BeatEvent): AgendaBoard {
+    const s = this.live!;
+    const evicted = [...s.evictionOrder];
+    const closing = ev?.beat === "eviction" || ev?.beat === "final-eviction";
+    if (closing && s.evictee && !evicted.includes(s.evictee)) evicted.push(s.evictee);
+    const out = new Set(evicted);
+    return {
+      day: s.dayNumber ?? s.week, week: s.week, inHouse: s.active.filter((h) => !out.has(h)), evicted,
+      juryStarted: s.active.length <= 10 || evicted.length >= 7, finalFive: s.active.length <= 5,
+      ...(s.hoh ? { hoh: s.hoh } : {}), ...(s.vetoHolder ? { vetoHolder: s.vetoHolder } : {}),
+      nominees: s.nominees ? [...s.nominees] : [], weekClosed: closing,
+      ...(s.finalTwo ? { finalTwo: [...s.finalTwo] } : {}), ...(s.winner ? { winner: s.winner } : {}),
+    };
+  }
+  /** The holder's OWN view: their edges, their memory ledger, their soul, their alliances, their exposure, their power record. */
+  private agendaView(owner: EntityId): AgendaView | undefined {
+    const s = this.live;
+    const character = this.agendaCharacterOf(owner);
+    if (!s || !character) return undefined;
+    const others = [PLAYER, ...(this.house?.npcs.map((n) => n.id) ?? [])].filter((x) => x !== owner);
+    const threats = others.map((toward) => ({ toward, threat: this.rel.edge(owner, toward).threat }));
+    const affinity = others.map((toward) => ({ toward, affinity: this.rel.edge(owner, toward).affinity }));
+    const grudges: AgendaView["grudges"] = [];
+    let secretExposed = false;
+    for (const toward of Object.keys(s.npcMemory?.[owner] ?? {}).sort()) {
+      const entries = s.npcMemory![owner]![toward]!;
+      if (entries.some((e) => e.kind === "secret-exposed")) secretExposed = true;
+      const kinds = new Set(entries.filter((e) => isGrudgeKind(e.kind)).map((e) => e.kind));
+      if (kinds.size === 0) continue;
+      const sal = salience(entries, kinds, s.week, 1);
+      if (sal <= 0) continue;
+      const top = entries.filter((e) => kinds.has(e.kind)).sort((a, b) => b.severity - a.severity || a.kind.localeCompare(b.kind))[0]!;
+      grudges.push({ toward, salience: sal, ref: top.kind });
+    }
+    const mates = new Set<EntityId>();
+    for (const a of this.alliances.forMember(owner)) for (const m of a.members) if (m !== owner) mates.add(m);
+    const tie = this.seededRels.ties.find((t) => t.a === owner || t.b === owner);
+    const character2: AgendaCharacter = tie
+      ? { ...character, preShowTie: { with: tie.a === owner ? tie.b : tie.a, hidden: (tie.visibility ?? "secret") === "secret", friendly: tie.nature !== "rival" && tie.nature !== "ex" } }
+      : character;
+    return {
+      owner, character: character2, threats, affinity, grudges, emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
+      allianceMates: [...mates].sort(), secretExposed, openQuestions: [], answered: [], powerWins: s.resume?.[owner] ?? 0,
+    };
+  }
+  /** Seed every NPC's agenda once, for a played game (idempotent: an existing agenda is never reseeded). Fail-soft. */
+  private seedAgendas(): void {
+    try {
+      const s = this.live;
+      if (!s || !this.house || s.playedGame !== true || s.agendas) return;
+      const board = this.agendaBoard();
+      const seed = this.gameSeed ?? 0;
+      const agendas: Record<EntityId, Agenda> = {};
+      for (const n of this.house.npcs) {
+        const view = this.agendaView(n.id);
+        if (view) agendas[n.id] = seedAgenda(view, board, seed);
+      }
+      s.agendas = agendas;
+    } catch { /* fail-soft: an agenda is hidden enrichment, never a reason to stop the turn */ }
+  }
+  /** Re-check agendas (every living NPC's, or just `only`) after a real event. Played games only; fail-soft; no rng. */
+  private agendaRecheck(trigger: AgendaTrigger, only?: readonly EntityId[], ev?: BeatEvent): void {
+    try {
+      const s = this.live;
+      if (!s || !this.house || s.playedGame !== true) return;
+      if (!s.agendas) this.seedAgendas();
+      if (!s.agendas) return;
+      const board = this.agendaBoard(ev);
+      const seed = this.gameSeed ?? 0;
+      for (const id of (only ?? Object.keys(s.agendas)).filter((x) => s.agendas![x])) {
+        const view = this.agendaView(id);
+        if (view) s.agendas[id] = recheckAgenda(s.agendas[id]!, view, board, trigger, seed);
+      }
+    } catch { /* fail-soft */ }
+  }
+  /** The nightly mull (ORW-256 sleep step): once per night, every agenda fades what made no progress. Inner processing only. */
+  private mullAgendasOvernight(): void {
+    try {
+      const s = this.live;
+      if (!s || !this.house || s.playedGame !== true) return;
+      if (!s.agendas) this.seedAgendas();
+      if (!s.agendas) return;
+      const board = this.agendaBoard();
+      const seed = this.gameSeed ?? 0;
+      for (const id of Object.keys(s.agendas)) {
+        const view = this.agendaView(id);
+        if (view) s.agendas[id] = mullAgenda(s.agendas[id]!, view, board, seed);
+      }
+    } catch { /* fail-soft */ }
+  }
 
   /** ORW-253: the agenda's view of a houseguest's own character (NPCs only; the player has none). */
   agendaCharacterOf(id: EntityId): AgendaCharacter | undefined {
@@ -11571,6 +11679,7 @@ export class GameSessionAdapter implements GameSession {
       willing, "alliance",
     );
     const a = this.alliances.add(name, PLAYER, willing, this.beatSeqNow());
+    this.agendaRecheck("alliance-changed"); // ORW-312
     this.persist();
     return this.allianceView(a);
   }
@@ -11604,6 +11713,7 @@ export class GameSessionAdapter implements GameSession {
     if (Math.min(bondOf(PLAYER, a.founder), bondOf(a.founder, PLAYER)) < ALLIANCE.joinBondFloor) return null; // not close enough
     const joined = this.alliances.join(a.id, PLAYER)!;
     this.onPlayerEvent?.(`${this.nameOf(PLAYER)} joins the alliance "${joined.name}"`, [...joined.members], "alliance");
+    this.agendaRecheck("alliance-changed"); // ORW-312
     this.persist();
     return this.allianceView(joined);
   }
@@ -11668,6 +11778,7 @@ export class GameSessionAdapter implements GameSession {
           );
         }
         this.alliances.removeMember(al.id, action.actor); // the betrayer is out — the alliance fractures
+        this.agendaRecheck("alliance-changed"); // ORW-312
       }
     }
   }
@@ -12274,6 +12385,8 @@ export class GameSessionAdapter implements GameSession {
     // HIDDEN relationship layer — the player's action changes how the house feels about them (and each
     // other). Engine-owned, magnitudes from constants, never surfaced (the Vault Wall, 0001).
     if (ev) this.foldCeremonyConsequence(ev);
+    // ORW-312: the beat is a real event for every agenda (nominations / veto / eviction + week close / comp results). Reads only; no rng.
+    if (ev) this.agendaRecheck(AGENDA_BEAT_TRIGGER[ev.beat] ?? "comp-result", undefined, ev);
     // B51/audit C5: on the WEEK ROLLOVER (the eviction's result lands → a new week begins) untended
     // relationships decay slowly toward baseline — grudges and bonds fade if not refreshed, so the house
     // doesn't pin to extremes over a season. Slow (`DECAY_RATE`), disposition-scaled, threat lingers.
@@ -12599,6 +12712,9 @@ export class GameSessionAdapter implements GameSession {
   private remember(holder: EntityId, subject: EntityId, kind: MemoryKind, severity: number): void {
     if (!this.npcMemoryEnabled || !this.live || holder === PLAYER || holder === subject) return;
     recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity });
+    // ORW-312: a deal broken / a betrayal / an exposed secret is a real event for the HOLDER's agenda (fail-soft, no rng, played games only).
+    const t = AGENDA_MEMORY_TRIGGER[kind];
+    if (t) this.agendaRecheck(t, [holder]);
   }
 
   /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the

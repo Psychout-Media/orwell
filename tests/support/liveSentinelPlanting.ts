@@ -77,6 +77,19 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
     asr.items.push({ id: i === 0 ? assuranceTag : `asr:planted-${i}`, from: hg.id, to, kind: "safe", week: live.week, sincerity: 1, source: "npc", status: "open" });
   });
   asr.seq = asr.items.length;
+  // (1c-2) ORW-312 / 0145 - the NPC AGENDA (`live.agendas`, ENGINE-ONLY Vault-class): a resolved goal in a few houseguests' history carries the sentinel in its free-text `endNote` and in a cause `ref`
+  // (the two string fields a leaky projection could echo). A played game keeps the history (append-only), so the sentinel survives the whole sweep.
+  const agendaTag = mk("agenda");
+  const agendas = (live.agendas ??= {});
+  npcs.forEach((hg, i) => {
+    if (i % 2 === 1) return;
+    const target = npcs[(i + 1) % npcs.length]!.id;
+    agendas[hg.id] = {
+      owner: hg.id, goals: [], formedForWeek: 0,
+      history: [{ id: `${hg.id}:week:get-them-out:${target}:d1`, owner: hg.id, horizon: "week", kind: "get-them-out", target, why: [{ kind: "memory", about: target, ref: agendaTag, weight: 1 }],
+        test: { kind: "evicted", who: target }, commitment: 1, status: "failed", formedDay: 1, formedWeek: 1, resolvedDay: 1, endNote: agendaTag }],
+    };
+  });
   sb.session.restore(core); // also rebuilds the soul recall index from the (now sentinel-bearing) memory
   // (1d) B44 - the B10/B11 co-presence TOLD ledger (engine-private; the fact id is the only free text). Planted AFTER the restore so a restore that rebuilds the ledger from the snapshot cannot wipe it.
   const toldTag = mk("told");

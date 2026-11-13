@@ -1,7 +1,7 @@
 # 0145 - NPC agendas: lasting goals (ORW-253 slice 1)
 
-> **Status:** slice 1 core BUILT (pure engine module + unit gate). Wiring onto the live season (persist, re-check on events, nightly mull,
-> admin-free) is the overseer half of slice 1. **Design:** vault "NPC Minds Design Theme 1", approved by Ryne 2026-11-12 ("Yes I approve.
+> **Status:** slice 1 BUILT (pure engine module + unit gate, ORW-253) and WIRED onto the live season (ORW-312: `live.agendas` for played games, persisted
+> and superset-guarded, re-checked on real events, mulled once per night, Vault-sealed). Nothing reads it yet. **Design:** vault "NPC Minds Design Theme 1", approved by Ryne 2026-11-12 ("Yes I approve.
 > Let's get started."). **Scenarios:** `0145-npc-agendas.feature`. **Tests:** `tests/unit/agenda.test.ts`.
 
 ## What it is
