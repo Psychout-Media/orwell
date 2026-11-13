@@ -27,7 +27,7 @@ export interface WhyOption {
 
 export type DecisionWhyKind =
   | "nomination-target" | "nomination-seat" | "replacement" | "vote" | "tie-break" | "veto" | "secret-veto-replacement"
-  | "final-hoh-eviction" | "deal-consent";
+  | "final-hoh-eviction" | "deal-consent" | "deal-break" | "deal-renegotiate";
 
 export interface DecisionWhy {
   kind: DecisionWhyKind;

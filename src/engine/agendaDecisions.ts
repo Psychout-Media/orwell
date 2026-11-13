@@ -21,7 +21,7 @@ import { agendaRoll } from "./agenda";
 import { REASONS } from "./agendaConstants";
 
 /** Which way a decision cuts against a candidate: nominate / vote to evict / final-HOH eviction are "against"; a veto save is "for". */
-export type DecisionKind = "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent";
+export type DecisionKind = "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
 
 export interface GoalPull {
   /** Signed: positive = the agenda wants this candidate OUT; negative = it wants them kept. Same scale as a threat read. */

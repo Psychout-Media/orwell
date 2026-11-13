@@ -109,6 +109,11 @@ export interface Deal {
    * (see `DealLedger.reconcile`). Absent on a stand-alone deal.
    */
   packageId?: string;
+  /**
+   * 0142 idea 4: the last in-game week the promisor WEIGHED breaking this deal (`weighDealBreaks`). Once per deal per week: a deal already weighed this week is not rolled again.
+   * Absent on a deal never weighed (every headless / pre-idea-4 deal) => byte-identical. Engine-only bookkeeping; never projected.
+   */
+  weighedWeek?: number;
 }
 
 /** The binding horizon of a deal kind (audit E43): one HOH reign, or the whole season. The active

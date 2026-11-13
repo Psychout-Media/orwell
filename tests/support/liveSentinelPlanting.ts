@@ -102,6 +102,18 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
     real: { decision: "nominate", decider: holder0, choice: npcs[1]!.id, goalKind: "get-them-out", goalId: goalIdTag, terms: [{ name: termTag as never, value: 0.9 }], tactic: "direct" },
     stated: { kind: "nothing-personal", about: npcs[1]!.id, candor: "cover" },
   });
+  // (1c-4) 0142 idea 4 - an NPC that WEIGHED breaking a deal: the temptation terms (a term NAME + a goal id) ride a `deal-break` why/stated record (never public, never voiced) and a `deal-renegotiate`
+  // stated record (public while its offer stands: only its kind + subject may be voiced). The real reason, the goal and the terms are Vault-class and must reach no player, prompt or admin surface.
+  const breakTerm = mk("dealbreakterm");
+  const breakGoal = mk("dealbreakgoal");
+  (live.decisionWhy ??= []).push({ kind: "deal-break", by: holder0, week: live.week, options: [{ option: PLAYER, role: "chosen", total: 0.4, terms: [[breakTerm, 0.4]] }] });
+  for (const decision of ["deal-break", "deal-renegotiate"] as const) {
+    live.statedReasons.push({
+      week: live.week, day: 1, decider: holder0, decision, public: decision === "deal-renegotiate",
+      real: { decision, decider: holder0, choice: PLAYER, goalKind: "get-them-out", goalId: breakGoal, terms: [{ name: breakTerm as never, value: 0.4 }] },
+      stated: { kind: "nothing-personal", about: PLAYER, candor: "cover" },
+    });
+  }
   // (1e) ORW-305 - the NPC decision WHY record (`live.decisionWhy`, HIDDEN + ENGINE-ONLY): a unique token rides a breakdown's TERM NAME, its option REF and its tactic/rule, beside the real
   // records the engine appends every NPC decision. Nothing reads it back, so it persists whole for the season; no player, prompt or admin surface may carry any of the three.
   const whyTerm = mk("whyterm");
