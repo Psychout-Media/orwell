@@ -6,11 +6,11 @@ import { DEAL_TEMPTATION as T } from "./dealTemptationConstants";
  * 0142 idea 4 - NPCs WEIGH BREAKING A DEAL. Pure: no rng, no I/O, no Vault handle. The adapter reads the NPC's own state, calls `weighDealBreak`, then draws ONE roll from
  * a side stream and feeds it to `decideDealBreak`. The engine decides; the narrator is never told (a quiet break is not narrated as content).
  *
- *   temptation = kindScale * ( threatWeight*max(0,threat-floor) + lowBondWeight*max(0,mid-bond) + pushWeight*ownPush + agendaWeight*max(0,agendaPull) + endgame )
+ *   temptation = kindScale * ( threatWeight*max(0,threat-floor) + lowBondWeight*max(0,mid-bond) + pushWeight*ownPush + agendaWeight*agendaPull   (SIGNED) + endgame )
  *   cost       = credibilityWeight*credibility + reliableWeight*reliableShare + bondWeight*bond + loyaltyWeight*loyalty      (the price of being known as a liar)
  *   margin     = temptation - cost
- *   P(break)   = margin > 0 ? min(breakCap, breakSlope*margin) : 0
- *   P(renegotiate) = margin <= 0 && temptation >= renegotiateFloor ? min(renegotiateCap, renegotiateSlope*(temptation - renegotiateFloor + epsilon)) : 0
+ *   P(break)   = clamp(breakSlope*margin, 0, 1)   (the margin alone sets the chance; no arbitrary ceiling)
+ *   P(renegotiate) = margin <= 0 && temptation >= renegotiateFloor ? clamp(renegotiateSlope*(temptation - renegotiateFloor + epsilon), 0, 1) : 0
  */
 export interface DealBreakInputs {
   kind: DealKind;
@@ -18,7 +18,7 @@ export interface DealBreakInputs {
   threat: number; trust: number; affinity: number;
   /** The NPC's own standing plan against the player (campaign / drive), >= 0. */
   ownPush: number;
-  /** The agenda's pull on the player (`goalPull.value`, + = out). 0 when the NPC has no agenda. */
+  /** The agenda's pull on the player (`goalPull.value`, SIGNED: + = wants them out, - = wants them kept, e.g. a protect goal or a long con not yet at its break stage). 0 when the NPC has no agenda. */
   agendaPull: number;
   /** The NPC's loyalty, 0..1. */
   loyalty: number;
@@ -55,7 +55,7 @@ export function weighDealBreak(i: DealBreakInputs): DealBreakWeighing {
     threat: T.threatWeight * Math.max(0, i.threat - T.threatFloor),
     lowBond: T.lowBondWeight * Math.max(0, T.bondMid - bond),
     push: T.pushWeight * Math.max(0, i.ownPush),
-    agenda: T.agendaWeight * Math.max(0, i.agendaPull),
+    agenda: T.agendaWeight * i.agendaPull,
     endgame: i.endgame === 2 ? T.endgameFinalFive : i.endgame === 1 ? T.endgameJury : 0,
     costCredibility: T.credibilityWeight * clamp01(i.credibility),
     costReliable: T.reliableWeight * clamp01(i.reliableShare),
@@ -65,9 +65,10 @@ export function weighDealBreak(i: DealBreakInputs): DealBreakWeighing {
   const temptation = scale * (terms.threat + terms.lowBond + terms.push + terms.agenda + terms.endgame);
   const cost = terms.costCredibility + terms.costReliable + terms.costBond + terms.costLoyalty;
   const margin = temptation - cost;
-  const pBreak = margin > 0 ? Math.min(T.breakCap, T.breakSlope * margin) : 0;
+  const clamp = (x: number): number => Math.max(0, Math.min(1, x));
+  const pBreak = margin > 0 ? clamp(T.breakSlope * margin) : 0;
   const pRenegotiate = margin <= 0 && temptation >= T.renegotiateFloor
-    ? Math.min(T.renegotiateCap, T.renegotiateSlope * (temptation - T.renegotiateFloor + 0.05)) : 0;
+    ? clamp(T.renegotiateSlope * (temptation - T.renegotiateFloor + 0.05)) : 0;
   return { temptation, cost, margin, pBreak, pRenegotiate, terms };
 }
 

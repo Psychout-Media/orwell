@@ -23,7 +23,8 @@ describe("the pure weighing", () => {
     const w = weighDealBreak({ ...base, trust: 0.2, affinity: 0.2, threat: 0.9, agendaPull: 0.9, credibility: 0.3, reliableShare: 0, loyalty: 0.2 });
     expect(w.margin).toBeGreaterThan(0);
     expect(w.pBreak).toBeGreaterThan(0);
-    expect(w.pBreak).toBeLessThanOrEqual(DEAL_TEMPTATION.breakCap);
+    expect(w.pBreak).toBeLessThanOrEqual(1);
+    expect(w.pBreak).toBeCloseTo(Math.min(1, DEAL_TEMPTATION.breakSlope * w.margin), 10); // the margin alone sets the chance
     expect(decideDealBreak(w, 0)).toBe("break");
     expect(decideDealBreak(w, 0.999)).toBe("keep");
   });
@@ -72,7 +73,7 @@ type Internals = {
   resolveDealOffer(accept: boolean): unknown;
 };
 type Setup = { s: GameSessionAdapter; g: Internals; npc: string; deal: Deal };
-function setup(o: { trust: number; affinity: number; threat: number; goal?: boolean; played?: boolean; kind?: Deal["kind"]; seed?: number }): Setup {
+function setup(o: { trust: number; affinity: number; threat: number; goal?: boolean; goalKind?: "keep-them-safe" | "long-con-final-five"; active?: number; played?: boolean; kind?: Deal["kind"]; seed?: number }): Setup {
   const sb = new GameSessionRegistry().sandboxFor(`weigh-${Math.random()}`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: o.seed ?? 7 });
   sb.session.advanceGame(); sb.session.advanceGame();
@@ -83,7 +84,10 @@ function setup(o: { trust: number; affinity: number; threat: number; goal?: bool
   const npc = [...s.livingIds()].find((i) => i !== PLAYER)!;
   g.live.hoh ??= npc; g.live.pending = undefined;
   const e = g.rel.edge(npc, PLAYER); e.trust = o.trust; e.affinity = o.affinity; e.threat = o.threat;
-  g.live.agendas = { [npc]: { owner: npc, formedForWeek: 1, history: [], goals: o.goal ? [{ id: "g1", owner: npc, horizon: "season", kind: "get-them-out", target: PLAYER, why: [], test: { kind: "evicted", who: PLAYER }, commitment: 1, status: "active", formedDay: 1, formedWeek: 1 }] : [] } };
+  if (o.active !== undefined) (g.live as unknown as { active: string[] }).active = (g.live as unknown as { active: string[] }).active.slice(0, o.active);
+  const goalKind = o.goalKind === "keep-them-safe" ? "keep-them-safe" : o.goalKind ? "long-con" : "get-them-out";
+  const goalTest = o.goalKind === "long-con-final-five" ? { kind: "cut-later", who: PLAYER, stage: "final-five" } : { kind: "evicted", who: PLAYER };
+  g.live.agendas = { [npc]: { owner: npc, formedForWeek: 1, history: [], goals: o.goal || o.goalKind ? [{ id: "g1", owner: npc, horizon: "season", kind: goalKind, target: PLAYER, why: [], test: goalTest, commitment: 1, status: "active", formedDay: 1, formedWeek: 1 } as never] : [] } };
   const deal = g.deals.make([npc as never, PLAYER], o.kind ?? "safety", "t", undefined, g.live.week);
   return { s, g, npc, deal };
 }
@@ -134,6 +138,31 @@ describe("(a) a played week: who breaks and who keeps", () => {
     expect(reason.public).toBe(false);
     expect((x.s as unknown as { statedReasonsFor(id: string): unknown[] }).statedReasonsFor(x.npc)).toEqual([]); // a quiet break is never voiced
     expect(x.s.seasonRecap().highlights.some((h) => /broke/.test(h))).toBe(false); // no player-witnessed betrayal event: the break is Vault-held
+  });
+});
+
+describe("signed agenda pull: a goal to keep the player, or a long con not yet at its break stage, makes the NPC LESS tempted", () => {
+  // threat 1, no bond, endgame pressure: the same NPC with no goal breaks sometimes (positive margin), so a subtracting goal has something to take away.
+  const hot = { trust: 0, affinity: 0, threat: 1, active: 5 } as const;
+  it("a protect-the-player goal lowers the break frequency below the same NPC with no goal (and below a get-them-out goal)", () => {
+    const none = sweep(setup({ ...hot })).broke;
+    const protect = sweep(setup({ ...hot, goalKind: "keep-them-safe" })).broke;
+    const out = sweep(setup({ ...hot, goal: true })).broke;
+    expect(none).toBeGreaterThan(0);
+    expect(protect).toBeLessThan(none);
+    expect(out).toBeGreaterThan(none);
+  });
+  it("a long con keeps the deal before its break stage and only turns tempted once the stage is reached", () => {
+    const early = { trust: 0, affinity: 0, threat: 1, active: 6 } as const; // 6 left: final five not reached
+    const atStage = { trust: 0, affinity: 0, threat: 1, active: 5 } as const; // 5 left: the con's cut stage
+    const noneEarly = sweep(setup({ ...early })).broke;
+    const conEarly = sweep(setup({ ...early, goalKind: "long-con-final-five" })).broke;
+    const noneStage = sweep(setup({ ...atStage })).broke;
+    const conStage = sweep(setup({ ...atStage, goalKind: "long-con-final-five" })).broke;
+    expect(conEarly).toBeLessThanOrEqual(noneEarly);
+    expect(conEarly).toBe(0);
+    expect(conStage).toBeGreaterThan(noneStage);
+    expect(conStage).toBeGreaterThan(conEarly);
   });
 });
 

@@ -11,7 +11,7 @@ export const DEAL_TEMPTATION = {
   lowBondWeight: 0.5,
   /** Temptation: the NPC's own standing plan against the player (campaign / held target drive), 0..1 push. */
   pushWeight: 0.5,
-  /** Temptation: the agenda's pull on the player (`goalPull`, signed; only the positive "out" side tempts). FULL STRENGTH, like every other agenda read (Ryne 2026-11-12). */
+  /** Temptation: the agenda's pull on the player (`goalPull`, SIGNED: a protect goal or a long con before its break stage subtracts). FULL STRENGTH, like every other agenda read (Ryne 2026-11-12). */
   agendaWeight: 1.0,
   /** Temptation: the endgame (jury started / final five) makes a promise to a rival dear. */
   endgameJury: 0.1,
@@ -26,11 +26,9 @@ export const DEAL_TEMPTATION = {
   bondWeight: 0.45,
   /** Cost: the NPC's own loyalty (character + mood), 0..1. */
   loyaltyWeight: 0.3,
-  /** A quiet break: probability = slope * margin, capped small. */
+  /** A quiet break: probability = clamp(slope * margin, 0, 1). The margin alone sets the chance (the card: a seeded decision from interest vs the price); the price of a bad call is already in the cost terms. */
   breakSlope: 0.5,
-  breakCap: 0.3,
   /** Renegotiation: temptation at or above this with a margin that is NOT positive. */
   renegotiateFloor: 0.3,
   renegotiateSlope: 0.5,
-  renegotiateCap: 0.25,
 } as const;
