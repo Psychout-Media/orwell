@@ -30,6 +30,12 @@ export interface OutcomeWeights {
    */
   sleepPenalty: number;
   /**
+   * ORW-322 (Ryne 2026-11-12: "I think there should be a higher competition penalty... the longer you push back going to bed, that's when the sleep debt kicks in"): the CURVE of that malus over the graded rest
+   * deficit d (0..1 = hours past midnight / 8): `min(cap, scale * d^exponent)`. Convex: gentle for a 1am chat (d=.125 -> .035), real by 2am (.10), harsh from 3am (.18) and 4am (.28), capped at `cap` so even an
+   * all-nighter plays out (a very likely loss, never a guaranteed one). `sleepPenalty` above stays the on/off switch (0 disables the whole sleep -> comp consequence). Replaced the old linear `0.20 * d`.
+   */
+  sleepCurve: { scale: number; exponent: number; cap: number };
+  /**
    * Feature 0127 (mixed-type competitions) — OPT-IN, DEFAULT-INERT AT RUNTIME. When a caller passes a
    * competition's SECONDARY aptitude (a genuine hybrid comp — "crawl through mud, then solve a puzzle"),
    * the score's stat base becomes a weighted blend: `primary·(1 − w) + secondary·w`, where `w` is this
@@ -86,7 +92,7 @@ export const TEMPERATURE_CONSTANTS: TemperatureConstants = {
   // 2026-06-28: temperature raised 0.36 → 0.40 so upsets are a TAD more common and raw comp stats are
   // a bit less dominant now that character depth also lives in emotions (0041) + sleep (0066) — a clear
   // favorite drops from ~64% to ~59% average across field sizes (juryReach EARNED-WINS re-verified).
-  outcome: { stat: 1.0, temperature: 0.40, emotion: 0.2, throwPenalty: 1.5, playSafePenalty: 0.2, sleepPenalty: 0.20, mixedSecondaryWeight: 0.35 },
+  outcome: { stat: 1.0, temperature: 0.40, emotion: 0.2, throwPenalty: 1.5, playSafePenalty: 0.2, sleepPenalty: 0.20, sleepCurve: { scale: 0.8, exponent: 1.5, cap: 0.6 }, mixedSecondaryWeight: 0.35 },
   emotional: { baseline: 0.5, volatilityScale: 0.5, meanReversionRate: 0.3, swingTemperatureWeight: 0.25 },
   hiddenSurfacingRate: 0.05,
 };
