@@ -6,7 +6,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -380,6 +380,14 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!Array.isArray(args["traits"])) refuse("traits", "an array");
       for (const t of args["traits"] as unknown[]) if (typeof t !== "object" || t === null || typeof (t as Record<string, unknown>)["id"] !== "string") refuse("traits[]", "objects with a string id");
       return;
+    case "recordNpcReflections":
+      // ORW-320: `reflections` must be an array of objects with a string id, a numeric night and a string reflection; the engine validates deeper and refuses until the season is finished.
+      if (!Array.isArray(args["reflections"])) refuse("reflections", "an array");
+      for (const r of args["reflections"] as unknown[]) {
+        const o = r as Record<string, unknown> | null;
+        if (typeof o !== "object" || o === null || typeof o["id"] !== "string" || typeof o["night"] !== "number" || typeof o["reflection"] !== "string") refuse("reflections[]", "objects with a string id, a numeric night and a string reflection");
+      }
+      return;
     case "recordHouseCulture":
       // ORW-319: every part OPTIONAL; refuse only a present part of the wrong shape (validated deeper in the adapter).
       if (args["spots"] !== undefined && !Array.isArray(args["spots"])) refuse("spots", "an array when present");
@@ -525,6 +533,9 @@ export class McpServer {
       case "recordNpcTraits":
         // ORW-319: freeze each houseguest's model-read habits + aim hint (validated, write-once, engine-side).
         return this.deps.session.recordNpcTraits(args as unknown as RecordNpcTraitsReq);
+      case "recordNpcReflections":
+        // ORW-320: post-crown nightly reflections (refused until finished; validated; write-once per houseguest-night).
+        return this.deps.session.recordNpcReflections(args as unknown as RecordNpcReflectionsReq);
       case "recordHouseCulture":
         // ORW-319: freeze the season's house culture (validated, write-once).
         return this.deps.session.recordHouseCulture(args as unknown as RecordHouseCultureReq);

@@ -38,3 +38,22 @@ Feature: Season retrospective & the Vault unsealing
     When the player starts a new season
     Then the snapshot taken of the prior season before the reset still reads as finished, with its winner
     And a fresh game begins with one active game for that user
+
+  # ORW-320 (spec 0146 slice 7, "the house you never saw")
+  Scenario: The house you never saw stays sealed while the season is live
+    Given a live played season
+    When the player of the played season requests the unsealed story before it is over
+    Then nothing of the house is returned
+    And a post-crown reflection write is refused and stores nothing
+
+  Scenario: After the crown each houseguest's real story unseals, lies marked
+    Given a finished played season with a planted long con and a cover-story reason
+    When the player opens the retrospective of the played season
+    Then every houseguest has a story with their goals in order
+    And the long con is named and the cover-story reason is marked as a lie beside what was said
+    And a reflection written after the crown appears with the houseguest's story
+
+  Scenario: A houseguest evicted early keeps their whole story
+    Given a finished played season with a planted long con and a cover-story reason
+    When the player opens the retrospective of the played season
+    Then the first evictee's story holds every goal their agenda ever held

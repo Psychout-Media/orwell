@@ -1042,6 +1042,12 @@ def setup_orwell_routes() -> APIRouter:
             return JSONResponse(status_code=502, content={"error": f"engine unreachable: {detail}"})
         if retro is None:
             return JSONResponse(status_code=404, content={"error": "The season is still live — the Vault opens only after a winner is crowned."})
+        # ORW-320: the post-crown nightly reflections (utility model; background, fail-soft, retry-once-then-skip + alert). The engine's own story stands without them.
+        try:
+            from src import orwell_house_reflections
+            orwell_house_reflections.kickoff_house_reflections(_current_user(request), retro)
+        except Exception as e:  # never let the enrichment break the retrospective route
+            logger.info(f"[orwell] house reflections kickoff skipped: {e}")
         return {"retrospective": retro}
 
     @router.get("/whereabouts")
