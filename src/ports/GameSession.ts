@@ -248,6 +248,17 @@ export interface RecordWorldSnapshotReq {
   slices?: Partial<WorldSnapshotSlices>;
 }
 
+/**
+ * ORW-319 (ORW-253 slice 5, spec 0146 lane 1): the FE-driven write-back of what the utility model read from each houseguest's PUBLIC
+ * profile: habits (2-3 from the closed set) and a season-aim hint (closed set) with a short why. The engine validates every value and
+ * keeps each houseguest's first accepted record (frozen, like the zeitgeist). Engine-side only (an aim is a motive: Vault-class).
+ */
+export interface RecordNpcTraitsReq { traits: Array<{ id: EntityId; habits: string[]; aimHint?: string; aimWhy?: string }> }
+export interface RecordNpcTraitsResult { accepted: number; rejected: number }
+/** ORW-319 (spec 0146 lane 2): the FE-driven house-culture write-back (spots, rituals, a running joke), from the cast's PUBLIC facets. Once per season. */
+export interface RecordHouseCultureReq { spots?: Array<{ room: string; nickname: string }>; rituals?: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }
+export interface RecordHouseCultureResult { accepted: boolean; reason?: string }
+
 /** Whether the zeitgeist write-back was accepted, and the resulting source tier (0062). */
 export interface RecordWorldSnapshotResult {
   /** True iff a game is started and the snapshot could be frozen onto it. */
@@ -3008,6 +3019,10 @@ export interface GameSession {
    * the fallback's value (a partial capture never thins the snapshot — non-degradation).
    */
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
+  /** ORW-319: freeze each houseguest's model-read habits + season-aim hint (validated, write-once). Not a model lever. */
+  recordNpcTraits(req: RecordNpcTraitsReq): RecordNpcTraitsResult;
+  /** ORW-319: freeze the season's house culture (validated, write-once). Not a model lever. */
+  recordHouseCulture(req: RecordHouseCultureReq): RecordHouseCultureResult;
 
   /**
    * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that

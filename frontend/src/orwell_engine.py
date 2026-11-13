@@ -794,6 +794,19 @@ async def record_world_snapshot(snapshot: dict, user: str | None = None) -> dict
     return await _call("recordWorldSnapshot", snapshot, user=user)
 
 
+async def record_npc_traits(req: dict, user: str | None = None) -> dict:
+    """ORW-319 (spec 0146 lane 1): write each houseguest's model-read habits + season-aim hint BACK to the engine, which validates them
+    against closed sets and keeps each houseguest's first record (write-once). ``req`` is ``{"traits": [{id, habits, aimHint?, aimWhy?}]}``.
+    Returns ``{accepted, rejected}``. Engine-side only (an aim is a motive)."""
+    return await _call("recordNpcTraits", req, user=user)
+
+
+async def record_house_culture(req: dict, user: str | None = None) -> dict:
+    """ORW-319 (spec 0146 lane 2): write the season's house culture (spots, rituals, a running joke) BACK to the engine (validated,
+    write-once). Returns ``{accepted, reason?}``."""
+    return await _call("recordHouseCulture", req, user=user)
+
+
 async def world_snapshot_view(user: str | None = None) -> dict | None:
     """Feature 0062 (BE-103 close-out, the G5 gap): read the Vault-free projection of the FROZEN
     move-in zeitgeist ``record_world_snapshot`` captured — ``{ capturedFor, source, slices,

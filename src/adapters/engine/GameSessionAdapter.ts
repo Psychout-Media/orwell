@@ -14,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordRoomCanonReq, RecordRoomCanonResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -83,6 +83,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
+import { validateTraits, validateCulture } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { AgendaCharacter } from "../../engine/agenda";
 import { memoryLine, fillSubject } from "../../engine/innerLife";
@@ -13757,6 +13758,36 @@ export class GameSessionAdapter implements GameSession {
    * freeze onto). The slices are bounded to the budget (§11 #3); empty slices keep the fallback's value
    * so a partial capture never thins the snapshot (non-degradation).
    */
+  /**
+   * ORW-319 (ORW-253 slice 5, spec 0146 lane 1): freeze each NPC's model-read habits + season-aim hint. Validated against the closed sets
+   * (`npcMindsAuthored.validateTraits`); the player and unknown ids are rejected; a houseguest's FIRST accepted record is kept (write-once,
+   * frozen like the zeitgeist, so a retry or a second season-start kick can never thin or flip it). Engine-side only; durable, no beat bump.
+   */
+  recordNpcTraits(req: RecordNpcTraitsReq): RecordNpcTraitsResult {
+    if (!this.house || !this.live) return { accepted: 0, rejected: req.traits?.length ?? 0 };
+    const npcIds = new Set(this.house.npcs.map((n) => n.id));
+    const store = (this.live.npcMindsAuthored ??= {});
+    const traits = (store.traits ??= {});
+    let accepted = 0, rejected = 0;
+    for (const t of req.traits ?? []) {
+      const v = npcIds.has(t?.id) && traits[t.id] === undefined ? validateTraits(t) : undefined;
+      if (v) { traits[t.id] = v; accepted++; } else rejected++;
+    }
+    if (accepted > 0) this.backgroundPersist();
+    return { accepted, rejected };
+  }
+
+  /** ORW-319 (spec 0146 lane 2): freeze the season's house culture (validated; write-once). */
+  recordHouseCulture(req: RecordHouseCultureReq): RecordHouseCultureResult {
+    if (!this.house || !this.live) return { accepted: false, reason: "no-game" };
+    if (this.live.npcMindsAuthored?.culture) return { accepted: false, reason: "frozen" };
+    const c = validateCulture(req);
+    if (!c) return { accepted: false, reason: "invalid" };
+    (this.live.npcMindsAuthored ??= {}).culture = c;
+    this.backgroundPersist();
+    return { accepted: true };
+  }
+
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult {
     if (!this.house || !this.worldSnapshot) return { accepted: false, source: "absent" };
     const base = this.worldSnapshot;

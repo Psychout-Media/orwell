@@ -78,6 +78,7 @@ import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
+import type { NpcMindsAuthored } from "./npcMindsAuthored";
 import { jurorProfile, profileOfArchetype, profiledLean, profiledWeights, type JurorArchetype } from "./jurorProfile";
 import { drawCompetition, competitionById, COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS } from "./competitionLibrary";
 import type { CompetitionDef, CompetitionFormat, CompetitionPhase } from "./competitionLibrary";
@@ -593,6 +594,8 @@ export interface LiveSeasonState {
    * otherwise ⇒ flags-off saves are byte-identical). Engine-only; persisted with the live state; never projected.
    */
   npcMemory?: NpcMemoryLedger;
+  /** ORW-319 (ORW-253 slice 5): what the utility model wrote at cast time - habits + aim hints per houseguest, and the house culture. Write-once; engine-side. */
+  npcMindsAuthored?: NpcMindsAuthored;
   vetoField?: EntityId[];
   vetoHolder?: EntityId;
   vetoUsed: boolean;
