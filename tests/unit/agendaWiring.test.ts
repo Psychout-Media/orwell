@@ -59,14 +59,28 @@ describe("ORW-312: NPC agendas on the live season", () => {
     expect(Object.keys(before)).toHaveLength(15);
   }, 120_000);
 
-  it("(d) after three weeks every NPC has at least three resolved goals in their history", () => {
-    // Pinned on seeds where it holds. Measured 2026-11-13: seeds 1,2,3,7 min 4,6,4,4; seeds 5 and 11 have ONE houseguest at 2 (a stubborn holder) - the pure core's fade, not a wiring gap.
-    for (const seed of [1, 2, 3, 7]) {
-      const r = playSeason(seed, { stopAtWeek: 3 });
-      const ag = liveOf(r.s).agendas!;
-      for (const [id, a] of Object.entries(ag)) expect(a.history.length, `seed ${seed} ${id}`).toBeGreaterThanOrEqual(3);
+  // (d) is scanned over ALL the seeds (not narrowed to the ones that pass). Measured 2026-11-13: seeds 1,2,3,7 have min 4,6,4,4 resolved goals per NPC after 3 weeks; seeds 5 and 11 have ONE houseguest at 2 (a stubborn
+  // holder: the pure core's fade, not a wiring gap). KNOWN GAP, ORW-312 / Auditor design call (fix the core or restate the criterion). `it.fails` keeps it visible: it passes while the gap exists and goes RED the
+  // day the criterion starts holding on every seed, so whoever fixes it must delete the marker.
+  const D_SEEDS = [1, 2, 3, 5, 7, 11];
+  let shortfalls: Record<number, number> | undefined;
+  const scanD = (): Record<number, number> => {
+    if (shortfalls) return shortfalls;
+    shortfalls = {};
+    for (const seed of D_SEEDS) {
+      const ag = liveOf(playSeason(seed, { stopAtWeek: 3 }).s).agendas!;
+      shortfalls[seed] = Math.min(...Object.values(ag).map((a) => a.history.length));
     }
-  }, 240_000);
+    return shortfalls;
+  };
+  it("(d, regression) the wiring resolves at least three goals per NPC on the seeds where the core allows it", () => {
+    const m = scanD();
+    for (const seed of [1, 2, 3, 7]) expect(m[seed], `seed ${seed} min resolved goals`).toBeGreaterThanOrEqual(3);
+  }, 400_000);
+  it.fails("(d, KNOWN GAP ORW-312) after three weeks every NPC has at least three resolved goals on EVERY scanned seed", () => {
+    const m = scanD();
+    for (const seed of D_SEEDS) expect(m[seed], `seed ${seed} min resolved goals`).toBeGreaterThanOrEqual(3);
+  }, 400_000);
 
   it("(c) an agenda never reaches a player-facing or admin projection", () => {
     const r = playSeason(3, { stopAtWeek: 2 });
