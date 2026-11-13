@@ -186,7 +186,7 @@ async def run_words(owner: Optional[str]) -> dict:
     try:
         from src.orwell_cast_authoring import _resolve_llm_fn
         llm_fn = await _resolve_llm_fn(owner)
-    except Exception as e:  # noqa: BLE001 - never raise from a background driver
+    except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
         _alert(owner, "npc-minds:resolver-failed", e)
         return {"traits": None, "culture": None, "reason": "resolver-failed"}
     if llm_fn is None:
@@ -195,7 +195,7 @@ async def run_words(owner: Optional[str]) -> dict:
     from src import orwell_engine
     try:
         state = await orwell_engine.get_game_state(user=owner)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
         _alert(owner, "npc-minds:state-failed", e)
         return {"traits": None, "culture": None, "reason": "state-failed"}
     house = [hg for hg in (state or {}).get("house") or [] if isinstance(hg, dict) and hg.get("id") and not hg.get("isPlayer")]
@@ -225,7 +225,7 @@ def kickoff_npc_minds_words(owner: Optional[str]) -> None:
     async def _runner():
         try:
             await run_words(owner)
-        except Exception as e:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
             _alert(owner, "npc-minds:background-run-failed", e)
         finally:
             _IN_FLIGHT.discard(k)
