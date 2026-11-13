@@ -206,3 +206,12 @@ def test_dry_run_wipe_changes_nothing(tmp_path):
     assert _run(app, "backup").returncode == 0
     r = _run(app, "wipe", "--dry-run")
     assert r.returncode == 0 and _n(str(app / "frontend" / "data" / "app.db"), "sessions") == 3
+
+
+def test_script_never_pipes_into_grep_q_under_pipefail():
+    # grep -q exits at the first match; the writer then dies of SIGPIPE and `set -o pipefail` reports the whole pipeline as failed (found by the dev rehearsal on a
+    # real, larger archive; a tiny stub archive never trips it).
+    src = open(SCRIPT, encoding="utf-8").read()
+    assert "pipefail" in src
+    bad = [ln for ln in src.splitlines() if "| grep -q" in ln and not ln.lstrip().startswith("#")]
+    assert bad == [], bad

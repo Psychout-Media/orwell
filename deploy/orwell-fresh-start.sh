@@ -68,7 +68,9 @@ wipe_py() {
   return 1
 }
 valid_ref() { [[ "$1" =~ ^[0-9a-fA-F]{7,40}$ ]]; }
-svc_exists() { systemctl list-unit-files "${1}.service" --no-legend 2>/dev/null | grep -q .; }
+# NB: never `cmd | grep -q` under pipefail - grep -q exits at the first match, the writer gets SIGPIPE, and the pipeline reports FAILURE for a match (rehearsal found this on a big archive).
+has_line() { [[ -n "$1" ]]; }
+svc_exists() { local o; o="$(systemctl list-unit-files "${1}.service" --no-legend 2>/dev/null)"; has_line "$o"; }
 fe_db_count() {  # count only - never a value
   python3 - "$FE_DATA/app.db" "$1" <<'PY' 2>/dev/null || echo "?"
 import sqlite3, sys
@@ -115,9 +117,9 @@ do_backup() {
   [[ -n "$tar" && -s "$tar" ]] || die "no backup archive produced in ${BACKUP_DIR} - nothing was changed."
   local n; n="$(tar tzf "$tar" 2>/dev/null | wc -l)"
   [[ "$n" -gt 5 ]] || die "backup ${tar} lists only ${n} entries - refusing to treat it as a backup."
-  tar tzf "$tar" | grep -q 'frontend/data/app.db' || die "backup ${tar} has no frontend/data/app.db."
+  [[ "$(tar tzf "$tar" | grep -c 'frontend/data/app.db')" -ge 1 ]] || die "backup ${tar} has no frontend/data/app.db."
   local sum; sum="$(sha256sum "$tar" | cut -d' ' -f1)"
-  pass "archive ${tar} ($(du -h "$tar" | cut -f1), ${n} entries, sha256 ${sum:0:16}...)"
+  pass "archive ${tar} ($(stat -c %s "$tar") bytes, ${n} entries, sha256 ${sum:0:16}...)"
   state_set BACKUP "$tar"; state_set BACKUP_SHA256 "$sum"; state_set PREV_SHA "$(git -C "$APP_DIR" rev-parse HEAD)"; state_set BACKUP_AT "$(date -u +%FT%TZ)"
   if [[ -n "$OFFBOX" ]]; then
     scp -q -o BatchMode=yes "$tar" "$OFFBOX" && pass "copied off the box to ${OFFBOX}" || die "off-box copy to ${OFFBOX} FAILED - do not wipe."
@@ -190,7 +192,7 @@ do_postcheck() {
   [[ "$verdict" == *healthy* ]] && pass "doctor: ${verdict}" || fail "doctor: ${verdict:-no verdict line}"
   if bash "$DEPLOY/orwell-ready.sh" >/tmp/orwell-fresh-ready.txt 2>&1; then pass "ready: READY"; else fail "ready: $(grep -E 'NOT READY' /tmp/orwell-fresh-ready.txt | head -2 | tr '\n' ' ')"; fi
   # the one-time migration line appears only on the boot that migrates; otherwise the routing is already direct (host only, never the key)
-  if journalctl -u "$FRONTEND_SVC" --since "$since" --no-pager 2>/dev/null | grep -q '\[text-routing\] migrated saved text selections'; then
+  if [[ "$(journalctl -u "$FRONTEND_SVC" --since "$since" --no-pager 2>/dev/null | grep -c '\[text-routing\] migrated saved text selections')" -ge 1 ]]; then
     pass "text routing: the migration line was logged this boot"
   else
     local host; host="$(python3 - "$FE_DATA/settings.json" "$FE_DATA/app.db" <<'PY' 2>/dev/null
@@ -210,7 +212,7 @@ PY
   [[ "$keyed" == "0" ]] && pass "session rows holding an auth header: 0" || fail "session rows holding an auth header: ${keyed} (count only)"
   local deadline=$(( SECONDS + FIRST_TURN_WAIT )) seen=0
   while :; do
-    if journalctl -u "$FRONTEND_SVC" --since "$since" --no-pager 2>/dev/null | grep -q 'LLM stream to https://api.deepseek.com'; then seen=1; break; fi
+    if [[ "$(journalctl -u "$FRONTEND_SVC" --since "$since" --no-pager 2>/dev/null | grep -c 'LLM stream to https://api.deepseek.com')" -ge 1 ]]; then seen=1; break; fi
     [[ $SECONDS -ge $deadline ]] && break
     sleep 5
   done
