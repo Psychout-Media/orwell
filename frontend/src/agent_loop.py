@@ -3913,11 +3913,6 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
-        try:  # ORW-223c C2: tell the shadow record what the existing extraction recorded (ids + kind only)
-            from src import orwell_scene_plan_shadow as _sps_x
-            _sps_x.note_extraction(ids, kind)
-        except Exception:  # failsoft-ok
-            pass
         # 0066 Ext 6 (PR 2) — the model's proposed scene DURATION in minutes. The engine bounds it
         # (`feltHoursFromMinutes`, 15-240) and paces the scene-based clock by it; None/invalid ⇒ the engine's
         # deterministic per-exchange increment (byte-identical to "no proposal"). This is the belt path — the
@@ -7134,21 +7129,21 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _mut0 = _oe_mut.mutation_count(kwargs.get("owner"))
     except Exception as _e:  # failsoft-ok: the push below is an optimisation; without a baseline the turn simply sends none
         logger.debug("167: mutation baseline failed: %s", _e)
-    _shadow_rec = _shadow_tok = None
-    try:  # ORW-223c C2: TTFW stamp (flag-independent, fail-soft) + the shadow-plan turn record
+    _ttfw_rec = _ttfw_tok = None
+    try:  # ORW-223c C2: TTFW stamp (always on, fail-soft)
         if kwargs.get("game_mode") in (True, "game"):
-            from src import orwell_scene_plan_shadow as _sps
-            _shadow_rec, _shadow_tok = _sps.begin_turn(kwargs.get("session_id"))
+            from src import orwell_ttfw as _ttfw
+            _ttfw_rec, _ttfw_tok = _ttfw.begin_turn(kwargs.get("session_id"))
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
     try:
         async for _evt in _stream_agent_loop_impl(*args, **kwargs):
-            if _shadow_rec is not None and _shadow_rec.t_first_word is None:
-                _sps.note_stream_event(_shadow_rec, _evt)
+            if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
+                _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
-        if _shadow_rec is not None:
-            _sps.end_turn(_shadow_rec, _shadow_tok)
+        if _ttfw_rec is not None:
+            _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
             _ptt.set("")
         try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
@@ -7927,15 +7922,6 @@ async def _stream_agent_loop_impl(
     # round-cap exhaustion above. Reset each round; after the loop, the terminal round's value drives a
     # `truncated` Continue affordance so a cut-off reply doesn't just stop mid-sentence with no signal.
     _round_finish_reason = None
-
-    if _is_live_game:  # ORW-223c C2: the SHADOW scene-plan call (ORWELL_SCENE_PLAN_SHADOW=1, default off): logged only, never injected
-        try:
-            from src import orwell_scene_plan_shadow as _sps_run
-            await _sps_run.maybe_run(owner, messages, (_belt_endpoint, _belt_model, _belt_headers), rooms=_HOUSE_ROOMS)
-        except asyncio.CancelledError:
-            raise
-        except Exception as _sps_e:  # failsoft-ok
-            logger.debug("223c2: shadow plan skipped: %s", _sps_e)
 
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None

@@ -49,9 +49,6 @@ _DEFAULT_EFFORT = {
                                   # the prompts forbid thinking and the 2026-06-21 I/O trace showed it wasted.
     "casting": "medium",
     "background-authoring": "low",
-    # ORW-223c C2: the shadow scene-plan call. Deliberately NOT in CALL_CLASSES (no admin knob, no settings seed): a code-only class so an
-    # unknown name does not fall back to narration's "medium" reasoning on a latency-measured call.
-    "scene-plan": "off",
 }
 # The per-class default output cap. ``None`` means "use the caller's model-aware default" — the
 # resolver leaves ``max_tokens`` as ``None`` so the call site (which knows the concrete model)
@@ -74,7 +71,6 @@ _DEFAULT_MAX_TOKENS = {
     # silent no-op #1002 chased). Raised to a comfortable floor so a reasoning model can both think a
     # little (effort stays "low" for this structured task) AND emit the whole JSON object.
     "background-authoring": 3000,
-    "scene-plan": 400,
 }
 # "off" -> reasoning omitted (None). The full set of admin-acceptable values.
 _VALID_EFFORTS = ("off", "low", "medium", "high")
