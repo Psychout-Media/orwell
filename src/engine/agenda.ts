@@ -89,7 +89,7 @@ export interface AgendaCharacter {
   /** How easily THEY are swayed (0..1, `Character.influence.susceptibility`), if known. */
   susceptibility?: number;
   /** A pre-show tie, if any, and whether it is hidden from the house. */
-  preShowTie?: { with: EntityId; hidden: boolean; friendly: boolean };
+  preShowTie?: { with: EntityId; hidden: boolean; friendly: boolean; /** ORW-329: the tie's nature (family, ex, old-friend, rival, ...); absent on older callers. */ nature?: string };
 }
 
 /** The holder's own view this moment. Every field is the HOLDER's read, never an omniscient ledger. */
@@ -204,6 +204,13 @@ function seasonTest(kind: SeasonGoalKind, target: EntityId | undefined): Success
   }
 }
 
+const isFamilyProtect = (g: Goal): boolean => g.kind === "protect-my-person" && g.why.some((w) => w.kind === "pre-show-tie" && w.ref === "family");
+
+/** ORW-329: the houseguests this holder avoids spending free time with (an ex from before the show: awkward). */
+export function tieAvoids(c: AgendaCharacter): EntityId[] {
+  return c.preShowTie?.nature === "ex" ? [c.preShowTie.with] : [];
+}
+
 /** The starting season goal(s) from the holder's character alone (season start: nobody has history yet). */
 export function seedAgenda(view: AgendaView, board: AgendaBoard, seed: number): Agenda {
   const c = view.character;
@@ -214,11 +221,18 @@ export function seedAgenda(view: AgendaView, board: AgendaBoard, seed: number): 
   const goals: Goal[] = [];
   const top = scored[0];
   const tie = c.preShowTie;
-  if (tie && tie.friendly) {
-    // A friend from before the show: protecting them is the first thing they want (it can sit beside the main goal).
-    goals.push(toGoal({ horizon: "season", kind: "protect-my-person", target: tie.with, weight: 0.7,
-      why: [{ kind: "pre-show-tie", about: tie.with, weight: 0.7 }], test: seasonTest("protect-my-person", tie.with) }, view.owner, board));
+  // ORW-329 (Ryne 2026-11-03, epic #2017 idea 4: "Family protects, rivals target, exes are awkward, old friends are loyal until pressured").
+  if (tie && tie.nature === "rival") {
+    // Bad blood from before the show: they want the rival gone from day one.
+    goals.push(toGoal({ horizon: "season", kind: "get-them-out", target: tie.with, weight: AGENDA.tie.rival,
+      why: [{ kind: "pre-show-tie", about: tie.with, ref: "rival", weight: AGENDA.tie.rival }], test: { kind: "evicted", who: tie.with } }, view.owner, board));
+  } else if (tie && tie.friendly && tie.nature !== "ex") {
+    // A friend or family from before the show: protecting them is the first thing they want (it can sit beside the main goal). Family hardest.
+    const w = tie.nature === "family" ? AGENDA.tie.family : AGENDA.tie.friend;
+    goals.push(toGoal({ horizon: "season", kind: "protect-my-person", target: tie.with, weight: w,
+      why: [{ kind: "pre-show-tie", about: tie.with, ...(tie.nature ? { ref: tie.nature } : {}), weight: w }], test: seasonTest("protect-my-person", tie.with) }, view.owner, board));
   }
+  // An ex is neither protected nor targeted: it is awkward (house life avoids them; see `tieAvoids`).
   if (top) {
     goals.push(toGoal({ horizon: "season", kind: top.k, weight: clamp01(top.w), why: [{ kind: "character", ref: c.archetype, weight: clamp01(top.w) }],
       test: seasonTest(top.k, undefined) }, view.owner, board));
@@ -382,6 +396,16 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
     else if (g.horizon === "week" && board.weekClosed) history.push(resolve(g, "failed", board.day, "week closed"));
     else goals.push(g);
   }
+  // ORW-329: an old friend is loyal until pressured: once the friend reads as a real threat (past the holder's stubbornness margin), the
+  // protection gives way. Family never does.
+  const threatOf = new Map(view.threats.map((t) => [t.toward, t.threat]));
+  goals = goals.filter((g) => {
+    if (g.kind !== "protect-my-person" || !g.target || isFamilyProtect(g)) return true;
+    const isOldFriend = g.why.some((w) => w.kind === "pre-show-tie" && w.ref === "old-friend");
+    if (!isOldFriend || (threatOf.get(g.target) ?? 0) < AGENDA.targetThreat * (1 + stub)) return true;
+    history.push(resolve(g, "replaced", board.day, "pressured: the friend became a threat"));
+    return false;
+  });
   const working: Agenda = { ...agenda, goals, history };
 
   // Season goals: keep at least one main aim. If the main aim settled, a new one forms from where the holder now stands.
@@ -443,7 +467,7 @@ export function mullAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoard,
   for (const g of agenda.goals) {
     if (progressed.has(g.id)) { goals.push({ ...g, commitment: clamp01(g.commitment + 0.1) }); continue; }
     const faded = clamp01(g.commitment - (1 - stub) * AGENDA.mullFade);
-    if (faded < AGENDA.dropFloor && g.kind !== "keep-my-secret") history.push(resolve({ ...g, commitment: faded }, "dropped", board.day, "gave up"));
+    if (faded < AGENDA.dropFloor && g.kind !== "keep-my-secret" && !isFamilyProtect(g)) history.push(resolve({ ...g, commitment: faded }, "dropped", board.day, "gave up"));
     else goals.push({ ...g, commitment: faded });
   }
   return recheckAgenda({ ...agenda, goals, history }, view, board, "night", seed);

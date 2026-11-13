@@ -92,7 +92,7 @@ import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { validateTraits, validateCulture, validateReflection } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
-import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
+import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids } from "../../engine/agenda";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
@@ -9917,8 +9917,9 @@ export class GameSessionAdapter implements GameSession {
       for (const a of this.alliances.forMember(id)) for (const m of a.members) if (m !== id) mates.add(m);
       const others = actors.filter((x) => x !== id);
       const showmance = this.showmancePartnerOf(id);
+      const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
       plans.push(chooseHourAction({
-        owner: id, character, agenda: s.agendas?.[id], habits: authored[id]?.habits ?? habitsFor(character, id, seed),
+        owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: where,
         affinity: new Map(others.map((o) => [o, this.rel.edge(id, o).affinity] as const)),
         threat: new Map(others.map((o) => [o, this.rel.edge(id, o).threat] as const)),
@@ -9996,7 +9997,7 @@ export class GameSessionAdapter implements GameSession {
     for (const a of this.alliances.forMember(owner)) for (const m of a.members) if (m !== owner) mates.add(m);
     const tie = this.seededRels.ties.find((t) => t.a === owner || t.b === owner);
     const character2: AgendaCharacter = tie
-      ? { ...character, preShowTie: { with: tie.a === owner ? tie.b : tie.a, hidden: (tie.visibility ?? "secret") === "secret", friendly: tie.nature !== "rival" && tie.nature !== "ex" } }
+      ? { ...character, preShowTie: { with: tie.a === owner ? tie.b : tie.a, hidden: (tie.visibility ?? "secret") === "secret", friendly: tie.nature !== "rival" && tie.nature !== "ex", nature: tie.nature } }
       : character;
     return {
       owner, character: character2, threats, affinity, grudges, emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
