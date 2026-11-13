@@ -186,6 +186,20 @@ export interface PlannedAction {
   goalKind?: GoalKind;
   /** Who the action is ABOUT when that is not a partner (the target being campaigned against, the person being framed). */
   about?: EntityId;
+  /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
+  fold?: InteractionType;
+}
+
+/** ORW-324: how quick this houseguest is to direct friction (0..1), by archetype. A hothead clashes, a peacemaker almost never. */
+export function temperOf(c: AgendaCharacter): number {
+  return HOUSE_LIFE.temper[c.archetype] ?? 0.3;
+}
+
+/** ORW-324: the fold an action actually makes. Recruiting, pitching and promising build an ALLIANCE only with someone already allied; otherwise it is strategy talk. */
+export function foldOf(kind: ActionKind, partner: EntityId | undefined, mates: readonly EntityId[]): InteractionType | undefined {
+  const base = ACTIONS[kind].fold;
+  if ((kind === "pitch" || kind === "recruit" || kind === "make-a-promise") && partner !== undefined && !mates.includes(partner)) return "strategy";
+  return base;
 }
 
 const mannerOf = (emotional: number, kind: ActionKind): Manner => {
@@ -219,6 +233,11 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
   switch (goal.kind) {
     case "get-them-out": case "revenge": {
       if (!t) return undefined;
+      // ORW-324: sharing a room with the person they want gone, a quick-tempered houseguest clashes with them directly (a rattled mood makes it likelier).
+      if (roomOf(v, t) === v.room && pool.includes(t)) {
+        const heat = temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1);
+        if (variant < heat) return pick("confront", [t]);
+      }
       const ears = byScore(voters, aff);
       const k: ActionKind = v.nominees.includes(t) ? "flip-a-vote" : v.hoh && v.hoh !== v.owner ? "campaign-against" : goal.kind === "revenge" ? "frame" : "drive-a-wedge";
       return k === "campaign-against" ? pick(k, [v.hoh!], t) : pick(k, ears, t);
@@ -259,7 +278,8 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     const place = a.place ?? (a.with[0] !== undefined ? roomOf(v, a.with[0]) : spec.place ?? v.room);
     const lieBase = a.goalKind === "long-con" || a.kind === "frame" || a.kind === "plant" ? HOUSE_LIFE.schemingLieBoost : 0;
     const truthful = !spec.speech || roll("truth") < Math.max(0, v.candor - lieBase);
-    return { actor: v.owner, ...a, place, manner: mannerOf(v.emotional, a.kind), truthful };
+    const fold = foldOf(a.kind, a.with[0], v.mates);
+    return { actor: v.owner, ...a, place, manner: mannerOf(v.emotional, a.kind), truthful, ...(fold && fold !== ACTIONS[a.kind].fold ? { fold } : {}) };
   };
 
   if (v.inCompetition) {
@@ -295,7 +315,9 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   }
   const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3)[0];
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [] });
-  const friction = (v.affinity.get(partner) ?? 0.4) < 0.3 && roll("friction") < HOUSE_LIFE.frictionChance;
+  // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
+  const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+  const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
   const pickLife: ActionKind = friction ? "chore-fight"
     : v.timeOfDay === "late-night" ? (roll("late") < 0.6 ? "bed-talk" : "homesick-talk")
     : v.timeOfDay === "night" ? (["bed-talk", "tell-stories", "game-of-cards", "homesick-talk"] as const)[Math.floor(roll("night") * 4)]!

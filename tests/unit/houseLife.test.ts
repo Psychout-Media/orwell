@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ACTIONS, HABITS, habitsFor, chooseHourAction, assembleScenes, type HourView, type PlannedAction, type ActionKind } from "../../src/engine/houseLife";
+import { ACTIONS, HABITS, habitsFor, chooseHourAction, assembleScenes, foldOf, temperOf, type HourView, type PlannedAction, type ActionKind } from "../../src/engine/houseLife";
 import type { Agenda, AgendaCharacter, Goal } from "../../src/engine/agenda";
 import type { Room } from "../../src/domain/house";
 import type { TimeOfDay } from "../../src/engine/timeOfDay";
@@ -150,5 +150,34 @@ describe("one hour's actions become scenes", () => {
     expect(kitchen.participants).toEqual([FRIEND, VOTER].sort());
     expect(kitchen.actions.map((x) => x.kind).sort()).toEqual(["bargain", "beg"]);
     expect(scenes.length).toBe(3);
+  });
+});
+
+describe("ORW-324: friction and honest folds (the house was 73% alliance, under 1% conflict)", () => {
+  const sameRoom = new Map<string, Room>([[HOLDER, "kitchen"], [TARGET, "kitchen"], [FRIEND, "living-room"], [VOTER, "backyard"], [HOH, "hoh-room"]]);
+  const confronts = (k: Archetype) => hours(hv({ character: char(k), agenda: agenda(goal("get-them-out", TARGET)), hoh: HOH, room: "kitchen", whereabouts: sameRoom, timeOfDay: "evening" }), 200)
+    .filter((p) => p.kind === "confront" && p.with[0] === TARGET).length;
+
+  it("a hothead sharing a room with the person they want gone sometimes confronts them; a peacemaker far less", () => {
+    const hot = confronts("hothead"), calm = confronts("peacemaker");
+    expect(hot).toBeGreaterThan(20);
+    expect(hot).toBeGreaterThan(calm * 3);
+    expect(temperOf(char("hothead"))).toBeGreaterThan(temperOf(char("peacemaker")));
+  });
+
+  it("pitching or recruiting someone not yet allied is strategy talk; inside an alliance it is an alliance fold", () => {
+    expect(foldOf("pitch", VOTER, [])).toBe("strategy");
+    expect(foldOf("recruit", VOTER, [VOTER])).toBe("alliance");
+    expect(foldOf("make-a-promise", VOTER, [])).toBe("strategy");
+    expect(foldOf("bed-talk", VOTER, [])).toBe("bonding");
+    const p = hours(hv({ agenda: agenda(goal("pull-them-in", VOTER)), timeOfDay: "evening" })).find((x) => x.kind === "pitch" || x.kind === "recruit")!;
+    expect(p.fold).toBe("strategy");
+  });
+
+  it("mild dislike is enough for a short-tempered houseguest to pick a chore fight; a calm, content one rarely does", () => {
+    const fights = (k: Archetype, emotional: number) => hours(hv({ character: char(k), emotional, affinity: new Map([[FRIEND, 0.4]]), room: "kitchen",
+      whereabouts: new Map<string, Room>([[HOLDER, "kitchen"], [FRIEND, "kitchen"]]) }), 200).filter((p) => p.kind === "chore-fight").length;
+    expect(fights("hothead", 0.5), "temper, same mood").toBeGreaterThan(fights("peacemaker", 0.5) + 5);
+    expect(fights("loyalist", 0.32), "a bad mood, same temper").toBeGreaterThan(fights("loyalist", 0.6) + 3);
   });
 });

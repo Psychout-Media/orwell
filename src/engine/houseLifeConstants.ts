@@ -20,8 +20,15 @@ export const HOUSE_LIFE = {
   habitChance: 0.6,
   /** Chance a showmance pair spends a free hour together when both are around. */
   romanceChance: 0.5,
-  /** Chance two houseguests who dislike each other turn a shared hour into a chore fight. */
+  /** Base chance a free hour with someone they don't warm to turns into a chore fight (scaled by dislike, temper and mood; ORW-324). */
   frictionChance: 0.4,
+  /** ORW-324: affinity below this counts as dislike for friction (was 0.3: friction only between enemies made the house 99% friendly). */
+  frictionAffinity: 0.45,
+  /** ORW-324: how quick each archetype is to direct friction (confronting a target, a chore fight). */
+  temper: {
+    hothead: 0.75, wildcard: 0.6, villain: 0.5, "comp-beast": 0.45, mastermind: 0.25, analyst: 0.2, flirt: 0.3, floater: 0.15,
+    "social-butterfly": 0.2, underdog: 0.3, loyalist: 0.35, peacemaker: 0.08,
+  } as Readonly<Record<Archetype, number>>,
   /** Chance a light free hour with company is a prank. */
   prankChance: 0.15,
   /** Scheming speech (a long con, a frame, a plant) is false this much more often than the holder's normal candor. */
