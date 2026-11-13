@@ -202,6 +202,9 @@ jobs:
       # its own parallel `bdd` job below, so this job is typecheck + build only (the fast tier a draft runs, ORW-218).
       - run: npm run typecheck
       - run: npm run build
+      # The dependency-cruiser CLI (the whole rule set, including `no-circular`). The vitest architecture test only covers the Vault-Wall edges, so an import cycle (emotionalArc <-> characterFactory <-> tells,
+      # introduced by #2178) sat on main unflagged until this step existed. Seconds; part of the fast tier a draft runs.
+      - run: npm run test:arch
 
   # ── BDD gate, its own job (ORW-229 re-shard) ───────────────────────────────────────
   # `npm run test:bdd` (Cucumber over the implemented .feature files) used to run at the end of `test`, after the typecheck and build, which put
