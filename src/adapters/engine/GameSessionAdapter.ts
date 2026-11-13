@@ -9445,7 +9445,6 @@ export class GameSessionAdapter implements GameSession {
     // nothing routes a pathway to the player. The suspicion/confidence numbers stay in
     // `DeducedVoters.perVoter` (engine-only), never seeded into the belief.
     if (this.traitorsFuryEnabled && this.live.deducedCulprits) {
-      const furyEventsBefore = events.count(); // ORW-325: measured around the block, so the count is exact however many tellings a later one overwrites
       const nameOf = (id: EntityId): string => this.nameOf(id);
       // Build the jury-house social graph for blame diffusion — same structure as runJuryHouseStretch
       // (jurors only, NO player node). Reuse the existing `rel` edge reader.
@@ -9503,13 +9502,8 @@ export class GameSessionAdapter implements GameSession {
           decay: JURY_HOUSE.decay,
         });
       }
-      const furyAdded = events.count() - furyEventsBefore;
-      if (furyAdded > 0) this.live.furyEvents = (this.live.furyEvents ?? 0) + furyAdded;
     }
   }
-
-  /** ORW-325: the events the Traitors' Fury blame diffusion has added to the store (0 with the flag off): the orchestrator leaves them out of the co-presence seed key. */
-  furyEventCountNow(): number { return this.live?.furyEvents ?? 0; }
 
   /** Turn the JURY-HOUSE grudge layer on/off (0100). Off by default — the calibration harness leaves it off
    *  (with it off no stretch runs ⇒ zero draws ⇒ the seeded spine is byte-identical). */

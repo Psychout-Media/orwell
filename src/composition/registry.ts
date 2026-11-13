@@ -323,7 +323,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
         }
       }
     }
-    const rng = new SeededRandom(hashSeed(`${core.seed ?? user}:deal-reputation:${honorer}:${core.week}:${engine.events.count()}`));
+    const rng = new SeededRandom(hashSeed(`${core.seed ?? user}:deal-reputation:${honorer}:${other}:${core.week}`));
     // Diffuse the Vault-free "keeps their word" belief NPC→NPC under a STABLE `reliable:<honorer>` lineage (so
     // a holder's belief resolves back to the honorer for the deal-willingness read), and give every third
     // party who hears it a small AFFINITY-ONLY whisper toward the honorer (`GOSSIP_HEARD.reliable`; single

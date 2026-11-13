@@ -757,7 +757,6 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   const evicted = new Set(core.live?.evictionOrder ?? []);
   const ids = (core.house?.npcs ?? []).filter((n) => !evicted.has(n.id)).map((n) => n.id);
   const before = sandbox.engine.events.count();
-  const furyAtBefore = sandbox.session.furyEventCountNow(); // ORW-325: read at the same instant as `before`, so the two describe the same store (this tick's blame events are recorded later)
 
   // House presence (0049): the tick re-seats the house FIRST (seeded, affinity-clustered, adjacent
   // moves only), so this stretch's scenes happen somewhere and overhears have ground truth.
@@ -931,10 +930,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default OFF): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
   // while on (so the OFF path, which never reaches this branch, is byte-identical). Dedicated rng per (holder, listener, tick); hidden layer only; the player is never a node (off-screen scenes exclude them).
   if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
-    // ORW-325 / 0135: each pair's roll is keyed on how many events the store held, so any event a flag adds shifts every later roll. The Traitors' Fury blame diffusion records hidden retelling events (and only
-    // those, all linked to facts carrying the blame lineage); they must not move the seeded season, so the key counts the store WITHOUT them (the adapter tallies them as the blame block records them). Flag off => none => exactly `before`, byte-identical.
-    // (The general fragility, every purpose sharing one count, is its own card: per-purpose rng streams.)
-    const copresenceSeedKey = before - furyAtBefore;
+    // ORW-334: each pair's roll is its own purpose stream: keyed on the pair, the in-game time and the scene's order within the tick, never on how many events the store holds (so an event another feature records cannot re-roll it).
+    let sceneOrdinal = 0;
     const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
     const relm = sandbox.engine.relationships;
     const beliefObs = sandbox.session.beliefReceiptObserver();
@@ -943,7 +940,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
       {
         knowledge: sandbox.engine.knowledge,
         told: sandbox.session.copresenceToldLedger(),
-        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${copresenceSeedKey}`)),
+        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${sceneOrdinal++}`)),
         trust: (a, b) => relm.edge(a, b).trust,
         affinity: (a, b) => relm.edge(a, b).affinity,
         threat: (a, b) => relm.edge(a, b).threat,
@@ -1014,10 +1011,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // 0089 — the off-screen confessional REACTS to the confessor's OWN witnessed events too (the scenes
     // they were just part of are already recorded this tick). `selectRecentForConfessional` bounds to
     // `witnessedBy: confessor` and returns only Vault-safe class-keyed gists — never another houseguest's
-    // hidden read (mandate #2/#3). The tiebreak rng is DEDICATED (derived off confessor + clock + log
-    // size), never the shared society/vote stream `rng`, so the seeded calibration spine is untouched
+    // hidden read (mandate #2/#3). The tiebreak rng is DEDICATED (derived off confessor + clock), never the shared society/vote stream `rng`, so the seeded calibration spine is untouched
     // (the selection draws no rng at all unless two of the confessor's events fully tie).
-    const recentRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-recent:${confessor}:${clockNow}:${before}`));
+    const recentRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-recent:${confessor}:${clockNow}`));
     const recentEvents = selectRecentForConfessional(sandbox.engine.events.queryAll(), confessor, clockNow, { rng: recentRng });
     // BB-2/SG-8 — without these three, EVERY confessional all season rendered the identical first
     // template (`pick()` falls back to `lines[0]` with no rng) and named the player with the bare
@@ -1027,7 +1023,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // 0084 voice colors which pool it draws from (never a fact, only texture); `nameOf` bakes the
     // confessor's actual read/display name for their target/ally — including the player's real name
     // in place of the literal "player" token.
-    const phrasingRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-phrasing:${confessor}:${clockNow}:${before}`));
+    const phrasingRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-phrasing:${confessor}:${clockNow}`));
     const houseguests = core.house?.npcs ?? [];
     const voice = houseguests.find((n) => n.id === confessor)?.character.voice;
     const nameOf = (id: EntityId): string =>
@@ -1110,7 +1106,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     }
     if (!alreadyToday) {
       const ambientRng = new SeededRandom(
-        hashSeed(`${core.seed ?? ""}:house-event:${core.week}:${core.phase}:${before}`),
+        hashSeed(`${core.seed ?? ""}:house-event:${core.week}:${core.phase}:${clockNow}`),
       );
       sandbox.engine.events.record({
         id: `orch:day:${clockNow}:${before}`,
