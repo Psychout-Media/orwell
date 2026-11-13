@@ -92,7 +92,7 @@ def test_ttfw_line_is_written_with_no_flag_set(monkeypatch, _env):
     ls = _lines(_env)
     assert len(ls) == 1
     L = ls[0]
-    assert set(L) == {"ts", "sid", "beat", "ttfw_ms"}
+    assert set(L) == {"ts", "sid", "ttfw_ms"}
     assert isinstance(L["ttfw_ms"], int) and L["ttfw_ms"] >= 0
     assert isinstance(L["sid"], str) and len(L["sid"]) == 10
 

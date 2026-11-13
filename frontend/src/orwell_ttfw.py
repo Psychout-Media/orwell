@@ -5,9 +5,9 @@ reaches the consumer. ``ttfw_ms`` goes into a bounded in-memory ring and one JSO
 
 JSONL line (``<DATA_DIR>/ttfw.jsonl``, append-only, ids / ints ONLY - no narration, no names)::
 
-    {"ts": float epoch, "sid": 10-hex sha1 of the session id | null, "beat": int | null, "ttfw_ms": int}
+    {"ts": float epoch, "sid": 10-hex sha1 of the session id | null, "ttfw_ms": int}
 
-``beat`` is null unless a caller sets it on the record. Nothing here can affect a turn: every failure is swallowed.
+Nothing here can affect a turn: every failure is swallowed.
 """
 from __future__ import annotations
 
@@ -57,7 +57,6 @@ class TurnRecord:
         self.session_id = session_id
         self.t_turn_start: float = clock()
         self.t_first_word: Optional[float] = None
-        self.beat: Optional[int] = None
 
     def first_word(self) -> None:
         if self.t_first_word is None:
@@ -73,7 +72,6 @@ class TurnRecord:
         return {
             "ts": round(time.time(), 3),
             "sid": _hash(self.session_id),
-            "beat": self.beat if isinstance(self.beat, int) and not isinstance(self.beat, bool) else None,
             "ttfw_ms": self.ttfw_ms,
         }
 
