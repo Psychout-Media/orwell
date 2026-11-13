@@ -1902,7 +1902,19 @@ export interface HouseguestMoveResult {
  * (that is the game); other houseguests' private knowledge, the Vault, souls, and every number
  * stay out by construction.
  */
+/**
+ * ORW-314 (ORW-253 slice 2): a reason a houseguest GAVE ALOUD for a public act already on the board (the stated KIND from a closed set, and the SUBJECT by name).
+ * The ONLY thing about a decision's why that reaches the narrator. Never the candor (truth / part-truth / cover), never the goal, never the terms: those stay engine-side.
+ */
+export interface StatedReasonView {
+  decision: "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent";
+  kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it";
+  about: NamedRef;
+}
+
 export interface NpcVoiceView {
+  /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
+  statedReasons?: StatedReasonView[];
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default OFF): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
@@ -2048,6 +2060,8 @@ export interface PresentKnowledgeView {
   mood?: string;
   currentRead?: { toward: string; drift: "warming" | "cooling" | "steady" };
   rivalry?: { tone: "simmering" | "open" };
+  /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
+  statedReasons?: StatedReasonView[];
 }
 
 /**

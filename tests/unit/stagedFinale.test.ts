@@ -53,7 +53,10 @@ function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSea
   s.setFinalHohThreePartEnabled(true); s.scheduleGateBypass = true;
   const live = s.live as LiveSeasonState;
   const others = live.active.filter((h) => h !== PLAYER);
-  live.hoh = hoh === "player" ? PLAYER : others[0]!;
+  if (hoh === "npc") (s as { agendaPullOf: unknown }).agendaPullOf = () => ({ value: 0 }); // ORW-314: this file pins the CEREMONY'S STRUCTURE, not who the NPC HOH evicts; goals drive that choice now, so the pull is zeroed here ...
+  // ... and the Final HOH is the NPC whose own read evicts the OTHER NPC (an NPC HOH that evicts the player is a different, correct branch: the player leaves, nothing is left to watch).
+  const evictsPlayer = (h: string): boolean => s.finalHohMindChoice(h, live.active.filter((x) => x !== h), live.evictionOrder.slice(7)) === PLAYER;
+  live.hoh = hoh === "player" ? PLAYER : others.find((h) => !evictsPlayer(h)) ?? others[0]!;
   return { s, live, d, seed: m.seed };
 }
 const find = seatedAt;
