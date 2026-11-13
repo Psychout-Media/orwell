@@ -35,8 +35,10 @@ Feature: 0087 — Relationship trajectories (a bond that warms or curdles, with 
 
   Rule: The engine owns momentum; the model only proposes shape
 
-    Scenario: A model-proposed consequence shape feeds direction, never magnitude
-      Given the player records a scene with an NPC and proposes a cooler consequence shape
+    # ORW-335: a player scene's consequence descriptor does not feed trajectories (only off-screen NPC-to-NPC folds do); this pins the
+    # direction-not-magnitude rule on the fold itself.
+    Scenario: A cooler-shaped fold feeds direction, never magnitude
+      Given a cooler-shaped fold lands between two houseguests
       When the engine folds the scene and updates the trajectory
       Then the trajectory direction reflects the proposed shape
       And the momentum magnitude is the engine's own bounded, seeded amount
