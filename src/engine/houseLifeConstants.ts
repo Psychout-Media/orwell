@@ -10,6 +10,8 @@ export type Habit = "early-riser" | "night-owl" | "gym-rat" | "house-cook" | "ne
 export const HOUSE_LIFE = {
   /** How strongly a goal pulls its holder into acting on it this hour (x commitment), against the pull of ordinary life. */
   goalDrive: 1.0,
+  /** A season-long MAIN aim (run the house, be liked...) pulls at this share of a pressing goal's drive (ORW-315 tuning: it dominated hours). */
+  mainAimDrive: 0.35,
   /** The pull of ordinary house life by time of day (a goal must beat this x a seeded roll to be pursued this hour). Mornings and late nights are for living. */
   lifePull: { morning: 0.9, afternoon: 0.6, evening: 0.5, night: 0.7, "late-night": 0.9 } as Readonly<Record<TimeOfDay, number>>,
   /** A content houseguest (emotional > 0.6) is pulled a little more toward plain living. */
