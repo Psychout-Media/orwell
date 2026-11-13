@@ -180,4 +180,10 @@ describe("ORW-324: friction and honest folds (the house was 73% alliance, under 
     expect(fights("hothead", 0.5), "temper, same mood").toBeGreaterThan(fights("peacemaker", 0.5) + 5);
     expect(fights("loyalist", 0.32), "a bad mood, same temper").toBeGreaterThan(fights("loyalist", 0.6) + 3);
   });
+
+  it("downtime includes ordinary gossip about someone who is not in the room", () => {
+    const plans = hours(hv({ timeOfDay: "afternoon" }), 200).filter((p) => p.kind === "gossip");
+    expect(plans.length).toBeGreaterThan(10);
+    for (const p of plans) expect(p.about && p.about !== p.with[0] && p.about !== HOLDER).toBeTruthy();
+  });
 });

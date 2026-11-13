@@ -39,7 +39,7 @@ export type ActionKind =
   // attack
   | "drive-a-wedge" | "frame" | "flip-a-vote" | "campaign-against" | "confront"
   // house life
-  | "cook" | "work-out" | "do-chores" | "nap" | "prank" | "comfort" | "chore-fight" | "homesick-talk" | "bed-talk" | "game-of-cards" | "sunbathe" | "tell-stories"
+  | "gossip" | "cook" | "work-out" | "do-chores" | "nap" | "prank" | "comfort" | "chore-fight" | "homesick-talk" | "bed-talk" | "game-of-cards" | "sunbathe" | "tell-stories"
   // romance
   | "flirt" | "cuddle"
   // alone
@@ -86,6 +86,7 @@ export const ACTIONS: Readonly<Record<ActionKind, ActionSpec>> = {
   "flip-a-vote": { family: "attack", partners: { min: 1, max: 1 }, fold: "strategy", speech: true },
   "campaign-against": { family: "attack", partners: { min: 1, max: 2 }, fold: "strategy", speech: true },
   confront: { family: "attack", partners: { min: 1, max: 1 }, fold: "conflict", speech: true },
+  gossip: { family: "house-life", partners: { min: 1, max: 2 }, fold: "gossip", speech: true },
   cook: { family: "house-life", partners: { min: 0, max: 3 }, fold: "bonding", speech: false, place: "kitchen" },
   "work-out": { family: "house-life", partners: { min: 0, max: 2 }, fold: "bonding", speech: false, place: "backyard" },
   "do-chores": { family: "house-life", partners: { min: 0, max: 2 }, fold: "bonding", speech: false, place: "kitchen" },
@@ -223,6 +224,7 @@ const byScore = (xs: EntityId[], f: (p: EntityId) => number): EntityId[] => [...
 export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room } | undefined {
   // A season-long aim is lived in many small ways, not one repeated move: `variant` (a 0..1 roll) picks among its fitting actions.
   const among = <T,>(xs: readonly T[]): T => xs[Math.min(xs.length - 1, Math.floor(variant * xs.length))]!;
+  const v2 = (variant * 7.31) % 1; // a second, independent-enough roll from the same draw
   const pool = others(v);
   const t = goal.target;
   const aff = (p: EntityId): number => v.affinity.get(p) ?? 0.4;
@@ -239,8 +241,11 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
         if (variant < heat) return pick("confront", [t]);
       }
       const ears = byScore(voters, aff);
-      const k: ActionKind = v.nominees.includes(t) ? "flip-a-vote" : v.hoh && v.hoh !== v.owner ? "campaign-against" : goal.kind === "revenge" ? "frame" : "drive-a-wedge";
-      return k === "campaign-against" ? pick(k, [v.hoh!], t) : pick(k, ears, t);
+      // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
+      if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
+      if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
+      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor"] as const));
+      return pick(k, ears, t);
     }
     case "stay-safe": {
       if (v.hoh && v.hoh !== v.owner && !v.nominees.includes(v.owner)) return pick(aff(v.hoh) > 0.5 ? "check-in" : "make-a-promise", [v.hoh]);
@@ -250,10 +255,11 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
       }
       return { kind: "lie-low", with: [], goalId: goal.id, goalKind: goal.kind };
     }
-    case "pull-them-in": return t ? pick(aff(t) > 0.7 ? "recruit" : "pitch", [t]) : undefined;
+    // ORW-324: winning someone over is mostly time spent with them; an explicit pitch is the occasional step, not every hour.
+    case "pull-them-in": return t ? pick(among(["pitch", "check-in", "comfort", "tell-stories", "cook", "game-of-cards"] as const) === "pitch" ? (aff(t) > 0.7 ? "recruit" : "pitch") : among(["pitch", "check-in", "comfort", "tell-stories", "cook", "game-of-cards"] as const), [t]) : undefined;
     case "keep-them-safe": return t ? pick(v.hoh && v.hoh !== v.owner ? "lobby-for" : "count-votes", v.hoh && v.hoh !== v.owner ? [v.hoh] : byScore(voters, aff), t) : undefined;
-    case "protect-my-person": return t ? pick("check-in", [t]) : undefined;
-    case "long-con": return t ? pick(v.nominees.includes(t) ? "flip-a-vote" : "check-in", v.nominees.includes(t) ? byScore(voters, aff) : [t], t) : undefined;
+    case "protect-my-person": return t ? pick(among(["check-in", "comfort", "tell-stories", "cook"] as const), [t]) : undefined;
+    case "long-con": return t ? (v.nominees.includes(t) ? pick("flip-a-vote", byScore(voters, aff), t) : pick(among(["check-in", "comfort", "tell-stories", "game-of-cards"] as const), [t], t)) : undefined;
     case "find-out": return pick(t ? "fish" : "test-a-rumor", byScore(pool.filter((p) => p !== t), aff), t);
     case "win-power": return { kind: "study-for-comps", with: [], goalId: goal.id, goalKind: goal.kind };
     case "keep-my-secret": return undefined; // a secret is kept by what they DON'T do: it shapes speech (themes 2 and 4), not an hourly action
@@ -318,6 +324,11 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
   const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
   const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
+  // ORW-324: talking about whoever isn't in the room is half of Big Brother downtime (the house's ordinary gossip, not a scheme).
+  const absent = [...v.threat.keys()].filter((p) => p !== partner && roomOf(v, p) !== v.room).sort((a, b) => (v.threat.get(b) ?? 0) - (v.threat.get(a) ?? 0) || a.localeCompare(b));
+  if (!friction && absent.length > 0 && v.timeOfDay !== "late-night" && roll("gossip") < HOUSE_LIFE.gossipChance * (v.timeOfDay === "night" ? 0.6 : 1)) {
+    return finish({ kind: "gossip", with: [partner], about: absent[Math.floor(roll("gossip-about") * Math.min(3, absent.length))]! });
+  }
   const pickLife: ActionKind = friction ? "chore-fight"
     : v.timeOfDay === "late-night" ? (roll("late") < 0.6 ? "bed-talk" : "homesick-talk")
     : v.timeOfDay === "night" ? (["bed-talk", "tell-stories", "game-of-cards", "homesick-talk"] as const)[Math.floor(roll("night") * 4)]!
@@ -362,7 +373,7 @@ const VERB: Readonly<Record<ActionKind, string>> = {
   "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
   "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
   frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",
-  cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
+  gossip: "gossiped with", cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
   "chore-fight": "fought over chores with", "homesick-talk": "talked about home with", "bed-talk": "talked late in bed with",
   "game-of-cards": "played cards with", sunbathe: "sunbathed with", "tell-stories": "told stories with", flirt: "flirted with", cuddle: "cuddled with",
   mull: "mulled things over", "vent-in-diary-room": "vented in the Diary Room", "study-for-comps": "studied for comps", pray: "prayed",
