@@ -57,6 +57,27 @@
     return r.json();
   }
 
+  // ORW-320: the nightly reflections are written AFTER the crown by the utility model (background), so a freshly opened Vault may lack them. Re-read the
+  // retrospective a few times (45s apart, at most 8) while any houseguest still has a night without one; the engine's story stands if none ever arrives.
+  let _reflTries = 0, _reflTimer = null;
+  function _reflectionCount(u) {
+    return ((u && u.houseYouNeverSaw) || []).reduce((n, h) => n + ((h.reflections || []).length), 0);
+  }
+  function _reflectionsPending(u) {
+    return ((u && u.houseYouNeverSaw) || []).some((h) => (h.reflectionNights || []).length > (h.reflections || []).length);
+  }
+  function _watchReflections() {
+    if (_reflTimer || !unsealed || !_reflectionsPending(unsealed) || _reflTries >= 8) return;
+    _reflTimer = setTimeout(async () => {
+      _reflTimer = null; _reflTries += 1;
+      try {
+        const data = await getJSON("/api/orwell/retrospective");
+        if (data && data.retrospective) { unsealed = data.retrospective; if (_lastRecap) render(_lastRecap); }
+      } catch (_) { /* fail-open: the story stands without them */ }
+      _watchReflections();
+    }, 45000);
+  }
+
   function el(tag, css, text) {
     const e = document.createElement(tag);
     if (css) e.style.cssText = css;
@@ -155,9 +176,11 @@
     // SR focus to <body>. Skip the rebuild when nothing changed; only a real change (the Vault
     // unseal) re-renders. The full body teardown then happens at most twice (recap, then unsealed).
     const sig = JSON.stringify({ w: recap.winner && recap.winner.name, wk: recap.weeksPlayed,
-      h: (recap.highlights || []).length, u: !!unsealed, p: recap.placement, m: recap.margin });
+      h: (recap.highlights || []).length, u: !!unsealed, p: recap.placement, m: recap.margin, rf: _reflectionCount(unsealed) });
     if (sig === _lastSig && _body.childNodes.length) { showPanel(true); return; }
     _lastSig = sig;
+    // ORW-320: a rebuild (the post-crown reflections arriving) must not snap the reader's opened houseguest sections shut.
+    const _openHouse = new Set([..._body.querySelectorAll("details.oretro-house[open]")].map((d) => d.getAttribute("data-houseguest")));
     _body.replaceChildren();
 
     // J5-09: the winner is the panel's apex — give it real typographic weight, not the same
@@ -288,6 +311,61 @@
       if (reel.length) section("The Diary Room reel", reel);
       const mine = (unsealed.playerConfessionals || []).filter((c) => typeof c === "string" && c.trim()).map(clean);
       if (mine.length) section("Your own confessionals", mine);
+      // ORW-320 (spec 0146 slice 7): "the house you never saw" - one COLLAPSED section per houseguest (a native <details>: phone-readable, tap-to-open,
+      // keyboard + SR friendly, inside this kit window). Render-only, textContent, names + days only (the engine pairs id+name and scrubs every sentence;
+      // a raw id is never shown). A lie is MARKED beside what they said; a secret ballot says it was never aired. Absent/empty => skipped (fail-open).
+      const house = (unsealed.houseYouNeverSaw || []).filter((h) => h && h.houseguest && h.houseguest.name);
+      if (house.length) {
+        const _houseHd = el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "The house you never saw");
+        vaultWrap.appendChild(_houseHd);
+        vaultWrap.appendChild(el("div", "opacity:0.7;font-size:11.5px;margin-bottom:4px", "Who they really were, house guest by house guest. Tap a name to open."));
+        for (const h of house) {
+          const d = el("details", "margin:4px 0;border-radius:8px;background:var(--surface-2, rgba(127,127,127,0.10))");
+          d.className = "oretro-house";
+          if (_openHouse.has(h.houseguest.name)) d.open = true;
+          d.setAttribute("data-houseguest", h.houseguest.name);
+          const sum = el("summary", "cursor:pointer;min-height:44px;padding:10px;display:flex;align-items:center;font-weight:600;list-style-position:inside",
+            h.houseguest.name + (h.leftWeek ? " (out in week " + h.leftWeek + ")" : ""));
+          d.appendChild(sum);
+          const inner = el("div", "padding:0 10px 10px;font-size:12.5px;line-height:1.5");
+          const sub = (t) => inner.appendChild(el("div", "margin:8px 0 2px;font-weight:600", t));
+          const list = (items) => { const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9"); for (const t of items) ul.appendChild(el("li", "", clean(t))); inner.appendChild(ul); };
+          if (h.seasonAim) {
+            sub("Their season aim: " + clean(h.seasonAim.aim));
+            if ((h.seasonAim.why || []).length) list(["Why: " + h.seasonAim.why.map(clean).join("; ")]);
+          }
+          if ((h.goals || []).length) {
+            sub("Their goals, in order");
+            list(h.goals.map((g) => `${g.from}: ${g.aim} - ${g.ended}.` + ((g.why || []).length ? ` Because ${g.why.map(clean).join("; ")}.` : "")));
+          }
+          if ((h.decisions || []).length) {
+            sub("What they did, and what they said");
+            const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9");
+            for (const x of h.decisions) {
+              const li = el("li", "", `Week ${x.week}, day ${x.day}: ${clean(x.act)}. Real reason: ${clean(x.real)}. `
+                + (x.aired === false ? "Secret ballot, never said aloud; the line they would have given: " : "They said: ") + clean(x.said));
+              if (x.honesty === "lie" || x.honesty === "part-truth") {
+                const tag = el("strong", "margin-left:4px;color:var(--danger, #c0392b)", x.honesty === "lie" ? "(a lie)" : "(only part of the truth)");
+                tag.className = "oretro-lie";
+                li.appendChild(tag);
+              }
+              ul.appendChild(li);
+            }
+            inner.appendChild(ul);
+          }
+          if (h.longCon) {
+            sub("Their long con");
+            list([`Kept ${clean(h.longCon.mark)} close from ${h.longCon.from}: ${clean(h.longCon.plan)}. ${clean(h.longCon.ended)}.`
+              + ((h.longCon.why || []).length ? ` Because ${h.longCon.why.map(clean).join("; ")}.` : "")]);
+          }
+          if ((h.reflections || []).length) {
+            sub("Their nights");
+            list(h.reflections.map((r) => `Day ${r.night}: “${clean(r.text)}”`));
+          }
+          d.appendChild(inner);
+          vaultWrap.appendChild(d);
+        }
+      }
       // ENDGAME-1: the full hidden story, not just the latest 40 — a completed season with off-screen
       // sim, gossip diffusion, confessionals, threads, and seeded ties easily runs to hundreds of rows,
       // and dropping the early/mid season silently guts the "you were blindsided, and it was real all
@@ -326,6 +404,7 @@
     }
     _body.appendChild(vaultWrap);
     showPanel(true);
+    _watchReflections();
   }
 
   async function tick() {

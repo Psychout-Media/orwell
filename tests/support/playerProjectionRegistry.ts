@@ -68,6 +68,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "noteMessage", coveredBy: "receipt", note: "{accepted, beatSeq} - no text" },
   { method: "recordDaySummary", coveredBy: "write-back", note: "FE write-back; bare status result" },
   { method: "recordWorldSnapshot", coveredBy: "write-back", note: "FE write-back; bare status result" },
+  { method: "recordNpcReflections", coveredBy: "write-back", note: "ORW-320 post-crown FE write-back; refused while live; bare {accepted, rejected} counts" },
   { method: "recordNpcTraits", coveredBy: "write-back", note: "ORW-319 FE write-back; bare {accepted, rejected} counts" },
   { method: "recordHouseCulture", coveredBy: "write-back", note: "ORW-319 FE write-back; bare {accepted, reason} status" },
   { method: "recordRoomCanon", coveredBy: "write-back", note: "FE write-back; bare status result" },

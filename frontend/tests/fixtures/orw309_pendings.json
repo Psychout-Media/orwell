@@ -1,0 +1,392 @@
+{
+ "ceremony-step/final-eviction#2": {
+  "binding": false,
+  "ceremony": {
+   "kind": "final-eviction",
+   "of": 2,
+   "step": 2,
+   "stepId": "final-eviction-2"
+  },
+  "id": "final-eviction-2",
+  "kind": "ceremony-step",
+  "text": "The Final 2 is set."
+ },
+ "ceremony-step/veto-ceremony#2": {
+  "binding": false,
+  "ceremony": {
+   "kind": "veto-ceremony",
+   "of": 3,
+   "step": 2,
+   "stepId": "veto-ceremony-2"
+  },
+  "id": "veto-ceremony-2",
+  "kind": "ceremony-step",
+  "text": "The host reads the veto result aloud, and the room waits to hear who is saved from the block this week."
+ },
+ "comp-round": {
+  "binding": true,
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "comp-round",
+  "options": [
+   {
+    "id": "compete",
+    "name": "compete"
+   },
+   {
+    "id": "throw",
+    "name": "throw"
+   },
+   {
+    "id": "play-safe",
+    "name": "play-safe"
+   }
+  ],
+  "pick": 1,
+  "prompt": "Set your approach to this competition: compete, throw (drop out), or play it safe. Still in with you: Lance Fraser, Ana Rangel, Asher Franklin, Fiona Rosales, Irene Parks, Ryan Snyder, Sierra Ross, Malia Mccarthy, Chase Poole, Kyle Tucker, Joey Phelps, Wesley Dominguez, Miles Paul, Patricia Blake, Jaxon Lang. This locks in how you play the comp.",
+  "round": 1,
+  "stillIn": [
+   {
+    "id": "player",
+    "name": "The Player"
+   },
+   {
+    "id": "npc:1",
+    "name": "Lance Fraser"
+   },
+   {
+    "id": "npc:2",
+    "name": "Ana Rangel"
+   },
+   {
+    "id": "npc:3",
+    "name": "Asher Franklin"
+   },
+   {
+    "id": "npc:4",
+    "name": "Fiona Rosales"
+   },
+   {
+    "id": "npc:5",
+    "name": "Irene Parks"
+   },
+   {
+    "id": "npc:6",
+    "name": "Ryan Snyder"
+   },
+   {
+    "id": "npc:7",
+    "name": "Sierra Ross"
+   },
+   {
+    "id": "npc:8",
+    "name": "Malia Mccarthy"
+   },
+   {
+    "id": "npc:9",
+    "name": "Chase Poole"
+   },
+   {
+    "id": "npc:10",
+    "name": "Kyle Tucker"
+   },
+   {
+    "id": "npc:11",
+    "name": "Joey Phelps"
+   },
+   {
+    "id": "npc:12",
+    "name": "Wesley Dominguez"
+   },
+   {
+    "id": "npc:13",
+    "name": "Miles Paul"
+   },
+   {
+    "id": "npc:14",
+    "name": "Patricia Blake"
+   },
+   {
+    "id": "npc:15",
+    "name": "Jaxon Lang"
+   }
+  ]
+ },
+ "eviction-vote": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "eviction-vote",
+  "options": [
+   {
+    "id": "npc:15",
+    "name": "Jaxon Lang"
+   },
+   {
+    "id": "npc:14",
+    "name": "Patricia Blake"
+   }
+  ],
+  "pick": 1,
+  "prompt": "Cast your vote to evict one of the two nominees."
+ },
+ "exit-interview": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "evictee": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "exit-interview",
+  "options": [
+   {
+    "id": "gracious",
+    "name": "gracious"
+   },
+   {
+    "id": "defiant",
+    "name": "defiant"
+   },
+   {
+    "id": "bitter",
+    "name": "bitter"
+   }
+  ],
+  "pick": 1,
+  "prompt": "You have been evicted \u2014 the producers sit you down for your exit interview. Choose the posture you leave on; your own words carry it.",
+  "stances": [
+   "gracious",
+   "defiant",
+   "bitter"
+  ]
+ },
+ "goodbye-message": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "evictee": {
+   "id": "npc:14",
+   "name": "Patricia Blake"
+  },
+  "kind": "goodbye-message",
+  "options": [
+   {
+    "id": "warm",
+    "name": "warm"
+   },
+   {
+    "id": "respectful",
+    "name": "respectful"
+   },
+   {
+    "id": "cold",
+    "name": "cold"
+   }
+  ],
+  "pick": 1,
+  "prompt": "Patricia Blake has been evicted \u2014 record your goodbye message. Choose its tone; your own words carry it."
+ },
+ "houseguests-choice": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "houseguests-choice",
+  "options": [
+   {
+    "id": "npc:2",
+    "name": "Ana Rangel"
+   },
+   {
+    "id": "npc:8",
+    "name": "Malia Mccarthy"
+   },
+   {
+    "id": "npc:9",
+    "name": "Chase Poole"
+   }
+  ],
+  "pick": 1,
+  "prompt": "You drew Houseguest's Choice \u2014 pick the sixth houseguest to play in the veto competition."
+ },
+ "juror-question": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "finalist": {
+   "id": "npc:2",
+   "name": "Ana Rangel"
+  },
+  "kind": "juror-question",
+  "options": [
+   {
+    "id": "npc:2",
+    "name": "Ana Rangel"
+   }
+  ],
+  "pick": 0,
+  "prompt": "You sit on the jury \u2014 ask Ana Rangel your question. It sways nothing by itself; their answer is theirs."
+ },
+ "juror-vote": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "juror-vote",
+  "options": [
+   {
+    "id": "npc:2",
+    "name": "Ana Rangel"
+   },
+   {
+    "id": "npc:3",
+    "name": "Asher Franklin"
+   }
+  ],
+  "pick": 1,
+  "prompt": "You sit on the jury \u2014 cast your vote for the winner."
+ },
+ "nominations": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "nominations",
+  "options": [
+   {
+    "id": "npc:2",
+    "name": "Tamara Reese"
+   },
+   {
+    "id": "npc:4",
+    "name": "Tony Schaefer"
+   },
+   {
+    "id": "npc:5",
+    "name": "Kylie Howe"
+   },
+   {
+    "id": "npc:6",
+    "name": "Sara Crane"
+   },
+   {
+    "id": "npc:7",
+    "name": "Talia Hammond"
+   },
+   {
+    "id": "npc:8",
+    "name": "Eddie Dorsey"
+   },
+   {
+    "id": "npc:9",
+    "name": "Daniel Cervantes"
+   },
+   {
+    "id": "npc:10",
+    "name": "Christina Abbott"
+   },
+   {
+    "id": "npc:11",
+    "name": "Jason Howell"
+   },
+   {
+    "id": "npc:13",
+    "name": "Michelle Burns"
+   },
+   {
+    "id": "npc:14",
+    "name": "Gage Hurley"
+   },
+   {
+    "id": "npc:15",
+    "name": "Finn Waters"
+   }
+  ],
+  "pick": 2,
+  "prompt": "You are Head of Household \u2014 name two houseguests for eviction."
+ },
+ "replacement": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "replacement",
+  "options": [
+   {
+    "id": "npc:6",
+    "name": "Sara Crane"
+   },
+   {
+    "id": "npc:7",
+    "name": "Talia Hammond"
+   },
+   {
+    "id": "npc:8",
+    "name": "Eddie Dorsey"
+   },
+   {
+    "id": "npc:9",
+    "name": "Daniel Cervantes"
+   },
+   {
+    "id": "npc:10",
+    "name": "Christina Abbott"
+   },
+   {
+    "id": "npc:11",
+    "name": "Jason Howell"
+   },
+   {
+    "id": "npc:14",
+    "name": "Gage Hurley"
+   },
+   {
+    "id": "npc:15",
+    "name": "Finn Waters"
+   }
+  ],
+  "pick": 1,
+  "prompt": "You used the veto on Tamara Reese \u2014 name a replacement nominee."
+ },
+ "secret-veto": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "secret-veto",
+  "options": [
+   {
+    "id": "player",
+    "name": "The Player"
+   }
+  ],
+  "pick": 1,
+  "prompt": "You are on the block \u2014 and you secretly hold a one-time SECRET VETO. Play it now to pull yourself off the block (the Head of Household must name a replacement), or hold it and take your chances at the vote."
+ },
+ "veto-decision": {
+  "by": {
+   "id": "player",
+   "name": "The Player"
+  },
+  "kind": "veto-decision",
+  "options": [
+   {
+    "id": "npc:12",
+    "name": "Wesley Dominguez"
+   },
+   {
+    "id": "player",
+    "name": "The Player"
+   }
+  ],
+  "pick": 1,
+  "prompt": "You hold the Power of Veto \u2014 use it to save a nominee, or leave the nominations."
+ }
+}

@@ -82,6 +82,7 @@ import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { maybeFireTwist, triggeredTwist } from "./reserveTwists";
 import type { ReserveTwist, TwistEvent, TwistKind, TwistPlan, TwistSignals } from "./reserveTwists";
 import type { NpcMindsAuthored } from "./npcMindsAuthored";
+import type { MoodCause } from "./innerLife";
 import { jurorProfile, profileOfArchetype, profiledLean, profiledWeights, type JurorArchetype } from "./jurorProfile";
 import { drawCompetition, competitionById, COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS } from "./competitionLibrary";
 import type { CompetitionDef, CompetitionFormat, CompetitionPhase } from "./competitionLibrary";
@@ -599,6 +600,8 @@ export interface LiveSeasonState {
   npcMemory?: NpcMemoryLedger;
   /** ORW-319 (ORW-253 slice 5): what the utility model wrote at cast time - habits + aim hints per houseguest, and the house culture. Write-once; engine-side. */
   npcMindsAuthored?: NpcMindsAuthored;
+  /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
+  moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
   vetoHolder?: EntityId;
   vetoUsed: boolean;

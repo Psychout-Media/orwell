@@ -253,6 +253,20 @@ def _isolate_game_session_store(tmp_path, monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sync_ledger_store(tmp_path, monkeypatch) -> None:
+    """The sync ledger (`orwell_sync_ledger.LEDGER_PATH`, under the non-overridable `DATA_DIR`) is a module-constant JSON file read-modify-written on
+    every recorded turn, so under `pytest-xdist` every WORKER shares ONE file and a concurrent worker's write overwrote another's entry (a lost update):
+    `test_orw294_merged_extraction::test_belt_fires_are_counted_per_applied_correction_not_per_call` read `{}` for its own unique owner purely by
+    co-run timing (passes alone, passes serially, fails in parallel). Redirect it per test, like the game-session store above. Tests that need a
+    specific path still monkeypatch it themselves (their patch runs after this fixture and wins)."""
+    try:
+        import src.orwell_sync_ledger as _led
+    except Exception:
+        return
+    monkeypatch.setattr(_led, "LEDGER_PATH", tmp_path / "orwell_sync_ledger.json")
+
+
+@pytest.fixture(autouse=True)
 def _reset_cast_authoring_ledger() -> None:
     mod = sys.modules.get("src.orwell_cast_authoring")
     if mod is not None:

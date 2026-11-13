@@ -72,6 +72,7 @@
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
 #   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
 #   ORWELL_HOUSE_LIFE           ORW-315 (ORW-253 slice 3): hour-by-hour house life from goals replaces the 7-stock-scene tick in a PLAYED game. ON 2026-11-13; balance reported, not gated.
+#   ORWELL_GOAL_MOOD            ORW-317 (ORW-253 slice 4): a settled goal moves mood; the cause is told only to the trusted. ON 2026-11-13.
 #   ORWELL_TIE_REVEAL           Pre-show ties overhear scheduler (0095) - ON 2026-11-06 (ORW-16 follow-up; the 'dark for first playtest' direction was replaced by 'built means on').
 #   ORWELL_GOSSIP_CONSEQUENCE   Distorted-gossip consequences for confront (0094) - ON 2026-11-06 (ORW-16 follow-up).
 #   ORWELL_HANGOUT              'Hang out until X' (the safe fast-forward): short 15-30 min engine-timed beats that stop at the FIRST of the scheduled event coming due, the player
@@ -146,6 +147,7 @@ ORWELL_WIPEOUT_REEL=1
 ORWELL_JUROR_PROFILES=1
 ORWELL_NPC_MINDS_ENDGAME=1
 ORWELL_HOUSE_LIFE=1
+ORWELL_GOAL_MOOD=1
 ORWELL_TIE_REVEAL=1
 ORWELL_GOSSIP_CONSEQUENCE=1
 ORWELL_HANGOUT=1
