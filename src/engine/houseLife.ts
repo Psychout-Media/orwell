@@ -170,6 +170,8 @@ export interface HourView {
   hour: number;
   /** True while a competition is running: public reactions only. */
   inCompetition: boolean;
+  /** ORW-329: people they avoid in free time (an ex from before the show). A goal step may still seek them out. */
+  avoid?: readonly EntityId[];
   /** The candor of the holder's speech (from REASONS candor tables, passed by the caller), 0..1. */
   candor: number;
 }
@@ -278,7 +280,8 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:d${v.day}h${v.hour}:${salt}`);
   const pool = others(v);
-  const here = pool.filter((p) => roomOf(v, p) === v.room);
+  const avoid = new Set(v.avoid ?? []);
+  const here = pool.filter((p) => roomOf(v, p) === v.room && !avoid.has(p));
   const finish = (a: Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room }): PlannedAction => {
     const spec = ACTIONS[a.kind];
     const place = a.place ?? (a.with[0] !== undefined ? roomOf(v, a.with[0]) : spec.place ?? v.room);
@@ -311,7 +314,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   if (habit) {
     const k = HABIT_ACTION[habit].action;
     const spot = ACTIONS[k].place;
-    const company = spot ? pool.filter((p) => roomOf(v, p) === spot) : here;
+    const company = spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
     const max = ACTIONS[k].partners.max;
     return finish({ kind: k, with: company.slice(0, max), ...(spot ? { place: spot } : {}) });
   }

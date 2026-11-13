@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  seedAgenda, recheckAgenda, mullAgenda, isAgendaSuperset, evaluateTest, canRunLongCon, stubbornnessOf, seasonLeanOf,
+  seedAgenda, recheckAgenda, mullAgenda, isAgendaSuperset, evaluateTest, canRunLongCon, stubbornnessOf, seasonLeanOf, tieAvoids,
   type Agenda, type AgendaBoard, type AgendaView, type AgendaCharacter, type Goal,
 } from "../../src/engine/agenda";
 import { AGENDA } from "../../src/engine/agendaConstants";
@@ -302,5 +302,48 @@ describe("every success test, both ways (the engine, not the narrator, decides w
   ];
   it.each(cases)("%s", (_name, test, b, vo, want) => {
     expect(evaluateTest(test, HOLDER, { ...v, ...vo }, board(b))).toBe(want);
+  });
+});
+
+describe("ORW-329: pre-show ties behave by their nature (Ryne 2026-11-03: family protects, rivals target, exes are awkward, old friends are loyal until pressured)", () => {
+  const tie = (nature: string, friendly: boolean) => ({ preShowTie: { with: RIVAL, hidden: false, friendly, nature } });
+  it("a rival is a season-long target from day one", () => {
+    const g = active(seedAgenda(view(char("analyst", tie("rival", false))), board(), SEED), "get-them-out", RIVAL)!;
+    expect(g.horizon).toBe("season");
+    expect(g.why[0]).toMatchObject({ kind: "pre-show-tie", ref: "rival" });
+  });
+  it("an ex is neither protected nor targeted, and is avoided in free time", () => {
+    const a = seedAgenda(view(char("analyst", tie("ex", false))), board(), SEED);
+    expect(active(a, "protect-my-person")).toBeUndefined();
+    expect(a.goals.some((g) => g.target === RIVAL && g.horizon === "season")).toBe(false);
+    expect(tieAvoids(char("analyst", tie("ex", false)))).toEqual([RIVAL]);
+    expect(tieAvoids(char("analyst", tie("family", true)))).toEqual([]);
+  });
+  it("family is protected hard and never given up, even by a flexible houseguest with no progress", () => {
+    const v = view(char("floater", tie("family", true)));
+    let a = seedAgenda(v, board(), SEED);
+    expect(active(a, "protect-my-person", RIVAL)!.commitment).toBeGreaterThanOrEqual(0.9);
+    for (let d = 3; d < 15; d++) a = mullAgenda(a, v, board({ day: d }), SEED);
+    expect(active(a, "protect-my-person", RIVAL)).toBeDefined();
+  });
+  it("an old friend is protected until they become a real threat; then the protection gives way", () => {
+    const v = view(char("analyst", tie("old-friend", true)));
+    const a = seedAgenda(v, board(), SEED);
+    expect(active(a, "protect-my-person", RIVAL)).toBeDefined();
+    const pressured = recheckAgenda(a, { ...v, threats: [{ toward: RIVAL, threat: 0.95 }] }, board({ day: 4 }), "comp-result", SEED);
+    expect(active(pressured, "protect-my-person", RIVAL)).toBeUndefined();
+    expect(resolved(pressured, "protect-my-person", RIVAL)).toMatchObject({ status: "replaced", endNote: "pressured: the friend became a threat" });
+    const fam = seedAgenda(view(char("analyst", tie("family", true))), board(), SEED);
+    expect(active(recheckAgenda(fam, { ...view(char("analyst", tie("family", true))), threats: [{ toward: RIVAL, threat: 0.95 }] }, board({ day: 4 }), "comp-result", SEED), "protect-my-person", RIVAL)).toBeDefined();
+  });
+});
+
+describe("ORW-329: the rival pull reaches decisions", () => {
+  it("a rival's season target pulls nominations and votes toward them at full strength; a family tie shields them", async () => {
+    const { goalPull } = await import("../../src/engine/agendaDecisions");
+    const rival = seedAgenda(view(char("analyst", { preShowTie: { with: RIVAL, hidden: false, friendly: false, nature: "rival" } })), board(), SEED);
+    expect(goalPull(rival, RIVAL, board()).value).toBeGreaterThan(0.5);
+    const fam = seedAgenda(view(char("analyst", { preShowTie: { with: RIVAL, hidden: false, friendly: true, nature: "family" } })), board(), SEED);
+    expect(goalPull(fam, RIVAL, board()).value).toBeLessThan(-0.5);
   });
 });

@@ -94,6 +94,8 @@ export const AGENDA = {
   longConChance: 0.5,
   /** A long-con mark is someone the holder rates a threat of at least this AND an ally of at least `allyAffinity` (keep them close, cut them later). */
   longConThreat: 0.45,
+  /** ORW-329: commitment of the season goals a pre-show tie starts with (rival target; family and other friendly ties protected). */
+  tie: { rival: 0.65, family: 0.9, friend: 0.7 },
   /** How much a houseguest's own susceptibility to persuasion (0..1, from their influence aptitudes) lowers stubbornness around 0.5. */
   susceptibilityWeight: 0.3,
   /** A personal, seeded stubbornness offset (+/- this) so no two houseguests of one type hold on the same. */
