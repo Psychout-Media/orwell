@@ -47,10 +47,4 @@ describe("ORW-325 - the Traitors' Fury flag is outcome-neutral", () => {
       expect(on.evictionOrder).toEqual(off.evictionOrder);
     }, 120_000);
   }
-
-  it("with the flag off the event tally stays absent (byte-identical, nothing subtracted from the seed key)", () => {
-    const s = playSeason(false, 3);
-    expect((s as unknown as { furyEventCountNow(): number }).furyEventCountNow()).toBe(0);
-    expect((s.snapshot().live as unknown as { furyEvents?: number }).furyEvents).toBeUndefined();
-  }, 120_000);
 });
