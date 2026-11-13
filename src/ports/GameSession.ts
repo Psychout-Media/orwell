@@ -2134,6 +2134,38 @@ export interface DailyRecapView {
  * off-screen scheming, the confessionals, and the producer's sealed twists. While a season is
  * live this is unreachable — there is a game to spoil; afterwards it is the payoff.
  */
+/**
+ * ORW-313 - the DEBUG producer-vault dump: the retrospective render PLUS every NPC's agenda (goals, reasons, history), name-resolved. The agendas ride ONLY this dump (the owner-ruled DEBUG door 1 of mandate #2):
+ * never the post-season retrospective view, never an advertised tool, never the player channel.
+ */
+export interface AgendaDumpGoal {
+  horizon: "season" | "week";
+  kind: string;
+  /** Who the goal is about (a NAME), when it has a target. */
+  target?: string;
+  /** Why the goal exists: each cause as a readable line (kind, who it is about, how much it counted). */
+  why: string[];
+  /** The closed test the engine evaluates, as a readable sentence. */
+  test: string;
+  /** How committed the holder is, 0..100. */
+  commitment: number;
+  status: string;
+  formed: string;
+  resolved?: string;
+  /** For a replaced / dropped goal: what replaced it or why it was let go. */
+  endNote?: string;
+}
+
+export interface AgendaDumpHouseguest {
+  houseguest: string;
+  goals: AgendaDumpGoal[];
+  history: AgendaDumpGoal[];
+}
+
+export interface ProducerVaultView extends RetrospectiveView {
+  agendas: AgendaDumpHouseguest[];
+}
+
 export interface RetrospectiveView {
   winner: NamedRef | null;
   /**
@@ -2958,7 +2990,7 @@ export interface GameSession {
    * only `readsVault: true` tools) and fired only behind an explicit FE "unseal" action. Returns the
    * same scrubbed, name-resolved `RetrospectiveView` as the retrospective; `null` when no game exists.
    */
-  producerVaultDump(): RetrospectiveView | null;
+  producerVaultDump(): ProducerVaultView | null;
 
   /**
    * The knowledge-bounded voicing projection for ONE active houseguest (B65 / ADR 0003 §8) —

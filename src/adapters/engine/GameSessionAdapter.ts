@@ -5,7 +5,7 @@ import type {
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
-  SeasonRecapView, RetrospectiveView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
+  SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
@@ -88,6 +88,7 @@ import { validateTraits, validateCulture } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
+import { agendaDumpRows } from "../../engine/agendaDump";
 import { memoryLine, fillSubject } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
@@ -3778,9 +3779,10 @@ export class GameSessionAdapter implements GameSession {
    * reuses the retrospective render below, so every row is the same scrubbed, name-resolved plain
    * data (no raw ids/slugs). Returns null only when there is no game at all.
    */
-  producerVaultDump(): RetrospectiveView | null {
+  producerVaultDump(): ProducerVaultView | null {
     if (!this.live) return null;
-    return this.buildVaultUnseal();
+    // ORW-313: the agendas (goals, reasons, history) ride THIS dump only - the owner-ruled DEBUG door - never the post-season retrospective (`seasonRetrospective` reuses `buildVaultUnseal` WITHOUT them).
+    return { ...this.buildVaultUnseal(), agendas: agendaDumpRows(this.live.agendas, (id) => this.nameOf(id), (t) => this.retroScrub(t)) };
   }
 
   /** The shared Vault-unseal render used by BOTH the post-season retrospective and the debug dump. */
