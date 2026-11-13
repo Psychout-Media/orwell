@@ -15,12 +15,13 @@ you never saw" (2026-11-12).
 ## Lane 1: habits and a season aim from the backstory (once per houseguest, at cast creation)
 - **When:** right after the deep backstories (0058) are written; part of the required start-of-season work (no-fallback rule, ORW-260):
   the call is required, but per answer 2 a second failure keeps the engine's `habitsFor` / `seasonLeanOf` and alerts the admin.
-- **Input:** that houseguest's own profile (public facets, biography, vocation, hometown, identity concept, their own hidden elements).
+- **Input:** that houseguest's PUBLIC profile only (name, age, vocation, hometown, demeanor, identity concept, biography, presentation, archetype, style). The front end is outward and never sees hidden elements; a secret worth protecting is the engine's own `keep-my-secret` goal. (Built ORW-319: `frontend/src/orwell_npc_minds_words.py`, `recordNpcTraits`.)
 - **Output (validated JSON):** `{ habits: Habit[2..3] from the closed set, aimHint: SeasonGoalKind, aimWhy: string <= 80 chars }`.
 - **Engine use:** habits replace `habitsFor` for that houseguest (persisted once); `aimHint` ADDS `MODEL_AIM_BONUS` (0.4) to that aim's
   lean in `seasonLeanOf` (it shapes, never forces). `aimWhy` is Vault, kept for the retrospective.
 
 ## Lane 2: house culture (once per season)
+(Built ORW-319: `recordHouseCulture`; stored write-once on the live season. The ritual pull is read by the hourly-life wiring, ORW-315.)
 - **Input:** the cast's PUBLIC facets and the world snapshot (0062). Never anyone's hidden elements.
 - **Output:** `{ spots: up to 3 x { room: Room, nickname }, rituals: up to 3 x { timeOfDay, action: ActionKind (house-life family), name },
   runningJoke: string <= 80 chars }`.
