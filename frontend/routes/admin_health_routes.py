@@ -2441,6 +2441,8 @@ _STATUS_PAGE = """<!doctype html>
     <button type="button" class="btn" id="pv-reseal" title="Hide the unsealed secrets again">Re-seal / hide</button>
   </div>
   <div id="pv-body" style="font-size:13px;line-height:1.5;white-space:pre-wrap"></div>
+  <!-- ORW-313: the NPC agendas, one collapsible block per houseguest. Empty (and so invisible) until the explicit unseal fills it; cleared by Re-seal. -->
+  <div id="pv-agendas" style="margin-top:10px;font-size:13px;line-height:1.5;word-break:break-word"></div>
 </div>
 <div id="update-msg" class="sub" style="margin:-6px 0 8px"></div>
 <!-- BEGIN ops-progress lane: live step-by-step timeline for the running ops action (Update / -->
@@ -2820,6 +2822,35 @@ function renderVault(v) {
   }
   return out.join("\\n");
 }
+// ORW-313: the NPC agendas (goals, reasons, history) from the unsealed dump, one collapsible <details> per houseguest. Built with createElement + textContent only (no markup sink, XSS-safe), and
+// called ONLY from the explicit unseal below - never on page load.
+function renderAgendas(box, list) {
+  box.textContent = "";
+  if (!Array.isArray(list) || !list.length) return;
+  function line(parent, text, style) { var d = document.createElement("div"); d.style.cssText = style || ""; d.textContent = text; parent.appendChild(d); }
+  function goalBlock(parent, g) {
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "margin:6px 0 10px;padding-left:8px;border-left:2px solid #7a3b3b";
+    line(wrap, "[" + (g.horizon || "") + "] " + (g.kind || "") + (g.target ? " -> " + g.target : "") + "  (" + (g.status || "") + ", commitment " + g.commitment + "%)", "font-weight:600");
+    (g.why || []).forEach(function (w) { line(wrap, "because: " + w); });
+    line(wrap, "worked if: " + (g.test || ""));
+    line(wrap, "formed " + (g.formed || "") + (g.resolved ? ", resolved " + g.resolved : ""));
+    if (g.endNote) line(wrap, "ended: " + g.endNote);
+    parent.appendChild(wrap);
+  }
+  line(box, "AGENDAS (" + list.length + " houseguest" + (list.length === 1 ? "" : "s") + ")", "font-weight:700;margin:6px 0");
+  list.forEach(function (a) {
+    var d = document.createElement("details");
+    d.style.cssText = "border:1px solid #4a3030;border-radius:6px;margin:6px 0;padding:0 10px";
+    var sm = document.createElement("summary");
+    sm.style.cssText = "cursor:pointer;padding:12px 0;font-weight:600";
+    sm.textContent = (a.houseguest || "") + " - " + (a.goals || []).length + " active, " + (a.history || []).length + " resolved";
+    d.appendChild(sm);
+    (a.goals || []).forEach(function (g) { goalBlock(d, g); });
+    if ((a.history || []).length) { line(d, "History (resolved, oldest first)", "font-weight:700;margin:8px 0 2px"); a.history.forEach(function (g) { goalBlock(d, g); }); }
+    box.appendChild(d);
+  });
+}
 async function unsealProducerVault() {
   if (!confirm("UNSEAL THE PRODUCER'S VAULT?\\n\\nThis deliberately reveals your LIVE game's SECRETS — off-screen scheming, NPC confessionals, hidden ties, the sealed twists, and the real eviction votes. It overrides the God-Mode Vault wall (mandate #2) for debugging.\\n\\nThis WILL spoil your in-progress game. Continue?")) return;
   var body = document.getElementById("pv-body");
@@ -2831,11 +2862,13 @@ async function unsealProducerVault() {
     const d = await r.json();
     // textContent sink — write the RAW reason (don't esc(); the entity would render verbatim, #851).
     body.textContent = d.ok ? renderVault(d.vault) : ("Could not unseal: " + ((d && d.reason) || "unknown") + ".");
+    renderAgendas(document.getElementById("pv-agendas"), d.ok && d.vault ? d.vault.agendas : null);
   } catch (e) { body.textContent = "Request failed: " + e.message; }
 }
 document.getElementById("producer-vault").addEventListener("click", unsealProducerVault);
 document.getElementById("pv-reseal").addEventListener("click", function () {
   document.getElementById("pv-body").textContent = "";
+  document.getElementById("pv-agendas").textContent = ""; // ORW-313: re-seal hides the agendas too
   document.getElementById("pv-panel").style.display = "none";
 });
 // ── DEBUG · owner override of mandate #2: the SPOILER bundle download ──────────────────────────────
