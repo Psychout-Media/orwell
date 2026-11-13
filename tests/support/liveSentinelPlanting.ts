@@ -77,6 +77,31 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
     asr.items.push({ id: i === 0 ? assuranceTag : `asr:planted-${i}`, from: hg.id, to, kind: "safe", week: live.week, sincerity: 1, source: "npc", status: "open" });
   });
   asr.seq = asr.items.length;
+  // (1c-2) ORW-312 / 0145 - the NPC AGENDA (`live.agendas`, ENGINE-ONLY Vault-class): a resolved goal in a few houseguests' history carries the sentinel in its free-text `endNote` and in a cause `ref`
+  // (the two string fields a leaky projection could echo). A played game keeps the history (append-only), so the sentinel survives the whole sweep.
+  const agendaTag = mk("agenda");
+  const agendas = (live.agendas ??= {});
+  npcs.forEach((hg, i) => {
+    if (i % 2 === 1) return;
+    const target = npcs[(i + 1) % npcs.length]!.id;
+    agendas[hg.id] = {
+      owner: hg.id, goals: [], formedForWeek: 0,
+      history: [{ id: `${hg.id}:week:get-them-out:${target}:d1`, owner: hg.id, horizon: "week", kind: "get-them-out", target, why: [{ kind: "memory", about: target, ref: agendaTag, weight: 1 }],
+        test: { kind: "evicted", who: target }, commitment: 1, status: "failed", formedDay: 1, formedWeek: 1, resolvedDay: 1, endNote: agendaTag }],
+    };
+  });
+  // (1e) ORW-305 - the NPC decision WHY record (`live.decisionWhy`, HIDDEN + ENGINE-ONLY): a unique token rides a breakdown's TERM NAME, its option REF and its tactic/rule, beside the real
+  // records the engine appends every NPC decision. Nothing reads it back, so it persists whole for the season; no player, prompt or admin surface may carry any of the three.
+  const whyTerm = mk("whyterm");
+  const whyRef = mk("whyref");
+  const whyRule = mk("whyrule");
+  (live.decisionWhy ??= []).push({
+    kind: "vote", by: npcs[0]!.id, week: live.week, tactic: whyRule, rule: whyRule,
+    options: [
+      { option: whyRef, role: "chosen", total: 0.5, terms: [[whyTerm, 0.5]], inputs: { [whyTerm]: 1 } },
+      { option: npcs[1]!.id, role: "runner-up", total: 0.25, terms: [[`${whyTerm}-2`, 0.25]] },
+    ],
+  });
   sb.session.restore(core); // also rebuilds the soul recall index from the (now sentinel-bearing) memory
   // (1d) B44 - the B10/B11 co-presence TOLD ledger (engine-private; the fact id is the only free text). Planted AFTER the restore so a restore that rebuilds the ledger from the snapshot cannot wipe it.
   const toldTag = mk("told");
@@ -154,6 +179,9 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     // 0062: the FE zeitgeist write-back — PUBLIC real-world flavor only (no Vault, no game input).
     // The sweep proves the canary never bites its output (an empty subset is a valid capture).
     case "recordWorldSnapshot": return { slices: {} };
+    // ORW-319: the cast-time model-words write-backs (validated closed sets, write-once; bare counts/status out).
+    case "recordNpcTraits": return { traits: [{ id: npc(1), habits: ["gym-rat", "early-riser"], aimHint: "win-by-comps", aimWhy: "a former sprinter" }] };
+    case "recordHouseCulture": return { spots: [{ room: "backyard", nickname: "the Deck" }], runningJoke: "the missing spatula" };
     case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes

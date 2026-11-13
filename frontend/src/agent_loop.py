@@ -1761,6 +1761,142 @@ def _forced_tool_choice_for_whereabouts(turn_tool_names, *, game_mode, premiere_
     return None
 
 
+# ── ORW-310 — the BEDTIME under-call belt (the player clearly turns in; the model must call `turnIn`). ──
+# Live (premiere night, all NPCs asleep, late-night): "I sleep." / "I ... get into my bed, and fall asleep." /
+# "Goodnight everyone ... I turn in and sleep until morning." each produced ZERO tool calls, and the narrator
+# narrated a whole morning while the engine sat on Day 1 late-night (a narrated-but-unrecorded night). The
+# ENGINE owns the night (`turnIn` ends it, folds the rest penalty, rolls the day); the FE only error-corrects
+# the OMISSION: when the player CLEARLY goes to bed and the board allows it, `turnIn` is FORCED on the wire
+# before the model can narrate past it (the #1154 family; rejecter models get the textual twin line). The
+# detection is deliberately CONSERVATIVE: a first-person, present/intent, action-shaped sentence, with no
+# negation / hedge / question / third-person / later-time cue. Talk ABOUT bed or sleep never fires.
+_BED_SPLIT_RE = re.compile(r"[.!?;\n]+|\s[-–—]+\s|—|–")
+_BED_FIRST_PERSON_RE = re.compile(r"\b(?:i|i'm|im|i’m|i'll|i’ll|i'd|let's|let’s|lets|we'll|we’ll|my)\b", re.IGNORECASE)
+_BED_ACTION_RE = re.compile(
+    r"\bgo(?:ing)?\s+to\s+(?:sleep|bed)\b"
+    r"|\bhead(?:ing)?\s+(?:off\s+)?to\s+(?:bed|sleep|bedroom)\b"
+    r"|\bfall(?:ing)?\s+asleep\b"
+    r"|\b(?:get|getting|climb|climbing|crawl|crawling|slip|slipping|slide|sliding|hop|hopping)\s+(?:back\s+)?(?:in|into|in\s+to|under)\s+(?:my\s+|the\s+)?(?:bed|covers|sheets|blankets?)\b"
+    r"|\bturn(?:ing)?\s+in\b(?!\s+(?:the|my|a|an|your|his|her|their)\b)"
+    r"|\bcall(?:ing)?\s+it\s+a\s+(?:night|day)\b"
+    r"|\bsleep\s+(?:until|till)\s+(?:morning|tomorrow)\b"
+    r"|\bsleep\s+(?:through|for)\s+the\s+night\b"
+    r"|\bhit(?:ting)?\s+the\s+(?:hay|sack)\b"
+    r"|\blay(?:ing)?\s+down\s+(?:and|to)\s+(?:sleep|go\s+to\s+sleep)\b",
+    re.IGNORECASE,
+)
+_BED_BARE_SLEEP_RE = re.compile(
+    r"^\s*(?:ok(?:ay)?[,\s]+|alright[,\s]+|so[,\s]+|well[,\s]+)?i(?:'ll|’ll|\s+will)?\s+(?:just\s+)?sleep"
+    r"(?:\s+(?:now|tonight|until\s+\w+|till\s+\w+|through\s+the\s+night|for\s+the\s+night))?\W*$",
+    re.IGNORECASE,
+)
+# Any of these in the SAME sentence means it is not a bedtime declaration: negation, inability, hedge,
+# hypothetical, a later time, someone else's sleep, or a reflexive observation about sleep/bed.
+_BED_REJECT_RE = re.compile(
+    r"\b(?:not|never|no\s+way|can'?t|can’t|cannot|couldn'?t|couldn’t|won'?t|won’t|don'?t|don’t|do\s+not|didn'?t|didn’t|"
+    r"isn'?t|aren'?t|wasn'?t|haven'?t|unable|trouble|hard\s+to|"
+    r"if|when|whenever|whether|should|shall|maybe|perhaps|might|could|would|wish|wonder|wondering|thinking\s+about|considering|"
+    r"want\s+to\s+know|rather|instead|before|after|once|later|soon|until\s+(?:i|she|he|they|we)|while|unless|"
+    r"watch(?:ed|ing)?|see(?:ing)?|saw|hear(?:d|ing)?|help(?:ed|ing)?|let(?:ting)?\s+(?:her|him|them)|make\s+(?:her|him|them)|tell(?:ing)?|ask(?:ed|ing)?|"
+    r"try(?:ing)?\s+to|used\s+to|last\s+night|yesterday|dream\w*|story|stories|joke|she|he|they|her|him|them|"
+    r"sleeps|sleeping\s+(?:late|in|around)|sleepover|sleepwalk\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def _player_means_going_to_bed(text) -> bool:
+    """ORW-310 — True only when the player's message CLEARLY declares THEIR OWN going to bed / sleeping now.
+    Pure, conservative. A sentence counts only if it is first-person, action-shaped (go to bed / turn in /
+    fall asleep / get into my bed / call it a night / sleep until morning / bare "I sleep"), is not a
+    question, and carries no negation / hedge / hypothetical / later-time / third-person cue. OOC `(( ))`
+    asides are ignored. Any single qualifying sentence is enough."""
+    if not text or not isinstance(text, str):
+        return False
+    body = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    # Quoted speech reporting is not the player's own act ("she says 'I go to bed'") - leave to the cue rejects.
+    for raw in re.split(r"(?<=[.!?\n])", body):
+        if "?" in raw:
+            continue
+        for sent in _BED_SPLIT_RE.split(raw):
+            sent = sent.strip(" \t\"'“”")
+            if not sent:
+                continue
+            if _BED_BARE_SLEEP_RE.match(sent):
+                return True
+            if (_BED_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent)
+                    and not _BED_REJECT_RE.search(sent)):
+                return True
+    # Phrase 2 shape: one long sentence whose first clause is first-person and a later comma clause carries
+    # the bed action ("I walk down the hall to bedroom A, get into my bed, and fall asleep.").
+    for raw in re.split(r"(?<=[.!?\n])", body):
+        if "?" in raw or _BED_REJECT_RE.search(raw):
+            continue
+        if _BED_FIRST_PERSON_RE.search(raw) and _BED_ACTION_RE.search(raw) and raw.count(",") >= 1:
+            return True
+    return False
+
+
+# Only the deep-night bands: the engine's bedtime gate also holds the evening in message mode (the FE's
+# mode), so a forced evening turnIn would just be refused. Morning/afternoon are held by the engine.
+_BEDTIME_FORCE_TIMES = frozenset({"night", "late-night"})
+
+
+_BEDTIME_DIRECT_NOTE = (
+    "(Production note, not for the player.) The player went to bed and the game has just ended the night: the turnIn result above is what the game now shows. "
+    "Voice the night passing and the new morning ONLY from that result and the current game context - never invent what it did not hand you, and do not call turnIn again.")
+
+
+def _bedtime_board_allows(status) -> bool:
+    """ORW-310 — the board lets the player turn in: a started game, the clock running and in a deep-night
+    band, and NO open player pending. (After a turnIn the clock reads morning, so 'already asleep' is the
+    morning/afternoon band here, which the engine also holds.)"""
+    if not isinstance(status, dict):
+        return False
+    tod = str(status.get("timeOfDay") or "").strip().lower()
+    if tod not in _BEDTIME_FORCE_TIMES:
+        return False
+    if status.get("started") is False or status.get("finished") or status.get("seasonOver"):
+        return False
+    pend = status.get("pending")
+    if isinstance(pend, dict) and (pend.get("kind") or "").strip():
+        return False
+    return True
+
+
+def _forced_tool_choice_for_bedtime(turn_tool_names, *, player_text, status, tools_sent):
+    """ORW-310 — `tool_choice` forcing `turnIn`, or None. Pure. Forces only when the player CLEARLY went to
+    bed, the board allows it, `turnIn` is on the wire and the model has NOT already called it this turn (a
+    model that calls `turnIn` itself is never forced or nudged again)."""
+    if os.getenv("ORWELL_FORCE_BEDTIME", "1") != "1":
+        return None
+    if "turnIn" in (turn_tool_names or set()):
+        return None
+    if "turnIn" not in set(tools_sent or ()):
+        return None
+    if not _player_means_going_to_bed(player_text):
+        return None
+    if not _bedtime_board_allows(status):
+        return None
+    return {"type": "function", "function": {"name": "turnIn"}}
+
+
+def _turn_in_applied(result) -> bool:
+    """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
+    refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
+    try:
+        if not isinstance(result, dict) or result.get("error"):
+            return False
+        out = result.get("output")
+        data = json.loads(out) if isinstance(out, str) else out
+        if not isinstance(data, dict) or data.get("held") or data.get("error"):
+            return False
+        st = data.get("status") if isinstance(data.get("status"), dict) else data
+        tod = str(st.get("timeOfDay") or data.get("timeOfDay") or "").strip().lower()
+        return bool(tod) and tod not in _BEDTIME_FORCE_TIMES  # the clock moved on out of the night band
+    except Exception:
+        return False
+
+
 def _note_belt(owner, belt: str, n: int = 1) -> None:
     """Gap #3 belt-fire telemetry: count a guardrail-belt firing in the Vault-free sync ledger
     (`orwell_sync_ledger.note_belt` — names + counts only, drained into the next recorded
@@ -1799,6 +1935,46 @@ def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
 # family, so a future honoring model benefits and an admin who swaps to a rejecter is still protected
 # (belt + the runtime kill-switch). Substring match on the resolved model id (provider-prefixed).
 _TOOL_CHOICE_REJECTERS = ("deepseek-v4", "deepseek/deepseek-v4", "deepseek-flash", "deepseek-reasoner", "deepseek-r1")
+
+
+# ORW-296 slice 2 (live A/B 2026-11-12): the provider's prompt prefix cache reuses only the identical PREFIX of consecutive requests. The narrator's system message carries the per-turn game state (the Clock line, location,
+# knowledge blocks, the date paragraph) in the MIDDLE, so every turn the divergence sat at ~73.7k chars and everything after it - the rest of the system message AND the whole chat history (~40k of ~60k tokens by day 6) -
+# was uncached. This reorders the WIRE copy only: the stable part of the system message (instructions, roster, then TOOLS/RULES) stays first and byte-stable, the history follows, and the volatile block rides as one
+# trailing system message (the same slot the Show Brief uses). No wording changes; the lines move. Flag ORWELL_VOLATILE_TAIL (default ON since the 2026-11-12 live A/B: 0=off).
+_VOLATILE_START = "\n- Week: "
+_STABLE_TAIL_START = "TOOLS. You run the game"
+
+
+def _volatile_tail_enabled() -> bool:
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_VOLATILE_TAIL", "")).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _volatile_tail_wire(messages):
+    """The request messages with the per-turn volatile block moved to a trailing system message; `messages` itself is never mutated. Returns the SAME list when the shape is not the game narrator's
+    (no GAME CONTEXT / markers), so a non-game or odd prompt is untouched."""
+    try:
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict) or m.get("role") != "system" or not isinstance(m.get("content"), str):
+                continue
+            c = m["content"]
+            g = c.find("GAME CONTEXT:")
+            if g < 0:
+                continue
+            a = c.find(_VOLATILE_START, g)
+            b = c.find(_STABLE_TAIL_START, a) if a >= 0 else -1
+            if a < 0 or b < 0 or b <= a:
+                return messages
+            volatile = c[a:b].strip()
+            stable = c[:a].rstrip() + "\n\n" + c[b:]
+            out = list(messages)
+            out[i] = {**m, "content": stable}
+            out.append({"role": "system", "content": "GAME CONTEXT - THIS TURN (the live state; the roster above is the cast):\n" + volatile})
+            return out
+        return messages
+    except Exception:
+        return messages
 
 
 def _model_honors_forced_tool_choice(model: str) -> bool:
@@ -3077,16 +3253,16 @@ async def _gather_move_extractions(narration, last_user, house, endpoint_url, mo
 # merged call asks for one JSON object {"scene":…, "npcMoves":…, "playerRoom":…} whose three values are EXACTLY the objects the
 # separate calls return today; each is validated by the SAME belt code (the belts take the section as their `raw`). Any call
 # error or a section that does not parse falls back to that section's own separate call, so behaviour is never worse than
-# today. FE-only flag (the engine's featureFlags registry does not carry it), default OFF until a live check approves it.
+# today. FE-only flag (the engine's featureFlags registry does not carry it), default ON since the 2026-11-12 live check (12 turns, same snapshot: -18% calls per turn, -30% extraction calls, scene recorded 10/10, no failures); ORWELL_MERGED_EXTRACTION=0 turns it off.
 _MERGED_EXTRACTION_FLAG = "ORWELL_MERGED_EXTRACTION"
 
 
 def _merged_extraction_enabled() -> bool:
-    """``ORWELL_MERGED_EXTRACTION=1|true|yes|on`` turns the merged extraction ON. Default OFF (ORW-294: unproven live); the diagnostic
+    """The merged extraction is ON by default (ORW-294, proven live 2026-11-12); ``ORWELL_MERGED_EXTRACTION=0|false|no|off`` turns it off and the diagnostic
     ``ORWELL_FLAGS_OFF=1`` profile forces it off."""
     if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
         return False
-    return str(os.environ.get(_MERGED_EXTRACTION_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
+    return str(os.environ.get(_MERGED_EXTRACTION_FLAG, "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _merged_extract_instructions() -> str:
@@ -5273,7 +5449,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
         if (not chat_helpers._sentence_has_closed_set_claim(text)
                 and not chat_helpers._text_mentions_evicted_houseguest(owner, text)
                 and not chat_helpers._sentence_has_nominee_status(text)
-                and not chat_helpers._sentence_has_met_everyone_claim(text)):
+                and not chat_helpers._sentence_has_met_everyone_claim(text)
+                and not chat_helpers._sentence_has_unbacked_morning_claim(text)):
             return text
     except Exception:
         return text
@@ -5311,6 +5488,11 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # overclaim (the meet-set is engine truth) — DROP it before the player sees it (premiere-only).
             if chat_helpers._sentence_has_met_everyone_claim(part):
                 if not await chat_helpers.screen_streamed_met_everyone(owner, part):
+                    continue
+            # ORW-310: "morning came / you wake up" while the engine clock still reads night - the model skipped
+            # `turnIn`; DROP the phantom morning before emission and re-ground next turn.
+            if chat_helpers._sentence_has_unbacked_morning_claim(part):
+                if not await chat_helpers.screen_streamed_unbacked_morning(owner, part):
                     continue
         except Exception:
             pass  # any screening hiccup falls through to emit (conservatism)
@@ -8019,6 +8201,59 @@ async def _stream_agent_loop_impl(
             except Exception as _wa_err:
                 logger.warning(f"[orwell] BL-007 whereabouts force skipped: {_wa_err}")
 
+        # ── ORW-310: force `turnIn` when the player clearly goes to bed and the board allows it. ──────────
+        # Cheap pure text gate FIRST (an ordinary turn does no engine read). The belt note is DEFERRED to the
+        # applied-result site (success-gated: a held / no-op turnIn never counts).
+        if (_forced_tool_choice is None and _is_live_game and all_tool_schemas
+                and bool(get_setting("force_tool_choice_at_beats", True))):
+            try:
+                _bt_turn_tools = {ev.get("tool") for ev in (tool_events or [])
+                                  if isinstance(ev, dict) and ev.get("tool")}
+                _bt_text = _extract_last_user_message(messages) or ""
+                if ("turnIn" not in _bt_turn_tools and "turnIn" in set(_tool_names_sent)
+                        and _player_means_going_to_bed(_bt_text)):
+                    from src import orwell_engine as _oe_bt
+                    _bt_status = await _oe_bt.game_status(user=_force_owner)
+                    _bt_choice = _forced_tool_choice_for_bedtime(
+                        _bt_turn_tools, player_text=_bt_text, status=_bt_status, tools_sent=_tool_names_sent)
+                    if _bt_choice is not None and _model_honors_forced_tool_choice(model):
+                        _forced_tool_choice = _bt_choice
+                        _forced_belt_tool = "turnIn"
+                        logger.info(f"[orwell] ORW-310 forcing turnIn (player went to bed) round={round_num} user={_force_owner}")
+                    elif _bt_choice is not None and "turnIn" not in _rejecter_fallback_sent:
+                        # ORW-310b (live check 2026-11-12): a model that rejects `tool_choice` (deepseek-flash, the prod narrator) IGNORES the textual twin line - the night never ended.
+                        # The player's OWN, unambiguous act (they went to bed, the board allows it) is run by the FE through the normal dispatcher BEFORE narration, exactly like the
+                        # forced createCharacter finalize: the week-chapter save and day-condense still run, and the narrator is handed the engine's result to voice.
+                        _rejecter_fallback_sent.add("turnIn")
+                        _direct_applied = False
+                        try:
+                            _bt_block = ToolBlock("turnIn", "{}")
+                            yield f'data: {json.dumps({"type": "tool_start", "tool": "turnIn", "command": "{}", "round": round_num})}\n\n'
+                            _bt_desc, _bt_result = await execute_tool_block(
+                                _bt_block, session_id=session_id, disabled_tools=disabled_tools,
+                                tool_policy=tool_policy, owner=owner, workspace=workspace)
+                            _bt_out = (_bt_result.get("output") or _bt_result.get("error") or "") if isinstance(_bt_result, dict) else ""
+                            _bt_out = str(_bt_out)[:4000]
+                            yield f'data: {json.dumps({"type": "tool_output", "tool": "turnIn", "command": "{}", "output": "", "exit_code": _bt_result.get("exit_code") if isinstance(_bt_result, dict) else None})}\n\n'
+                            tool_events.append({"round": round_num, "tool": "turnIn", "command": "{}", "output": "", "exit_code": (_bt_result or {}).get("exit_code")})
+                            _direct_applied = _turn_in_applied(_bt_result)
+                            if _direct_applied:
+                                _bt_call_id = f"call_{round_num}_bedtime"
+                                messages.append({"role": "assistant", "content": None, "tool_calls": [
+                                    {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
+                                messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bt_out}\n```"})
+                                messages.append({"role": "system", "content": _BEDTIME_DIRECT_NOTE})
+                                _note_belt(owner, "bedtime-turn-in")
+                                _note_belt(owner, "bedtime-turn-in-direct")
+                                logger.info(f"[orwell] ORW-310b ran the player's turnIn directly (rejecter model) round={round_num} user={_force_owner}")
+                        except Exception as _bt_dir_err:
+                            logger.warning(f"[orwell] ORW-310b direct turnIn skipped: {_bt_dir_err}")
+                        if not _direct_applied:
+                            messages.append({"role": "system", "content": _rejecter_force_fallback_line("turnIn")})
+                            _note_belt(owner, "forced-tool-fallback-line:turnIn")
+            except Exception as _bt_err:
+                logger.warning(f"[orwell] ORW-310 bedtime force skipped: {_bt_err}")
+
         # Primary target + any configured fallback models. stream_llm_with_fallback
         # only switches on a pre-content failure, so streamed output is never
         # duplicated; the dead-host cooldown keeps repeat primary attempts cheap.
@@ -8030,7 +8265,7 @@ async def _stream_agent_loop_impl(
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
         async for chunk in _narrator_stream_with_outage_pause(
             _candidates,
-            messages,
+            _volatile_tail_wire(messages) if (game_mode == "game" and _volatile_tail_enabled()) else messages,
             owner=_force_owner,
             temperature=temperature,
             max_tokens=_effective_max_tokens,  # ADR 0010 #1: admin-editable per-class output cap
@@ -8845,6 +9080,15 @@ async def _stream_agent_loop_impl(
                     turn_advance_nudges=_turn_advance_nudges, max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN, previewed_uncommitted=_previewed_uncommitted,
                     decision_undelivered=_decision_undelivered, want_drain_eviction=_want_drain_eviction, milestone_due=_milestone_due, progressed=_progressed,
                     runway_holding=_runway_holding, loop_stalled=_loop_stalled, is_lull=_is_lull, stale=_stale)
+                # ORW-321: a recent integrity-checkpoint REFUSAL is not a model stall - the engine would refuse the advance again, so the stall nudge / forced advance / anti-stale ladder stand down
+                # (they only add noise, and climbed to level 40 on the live freeze). The refusal itself is already RED for the operator and voiced to the player via the tool error.
+                try:
+                    from src import orwell_engine as _oe_ir
+                    if _want_advance and _oe_ir.integrity_refusal_recent(owner):
+                        _want_advance = False
+                        logger.info(f"[orwell] ORW-321 advance belts stand down: a recent integrity refusal holds (user={owner})")
+                except Exception:
+                    pass
                 # PO ruling (Ryne 2026-11-04): "if you have a real talk and say 'let's move on' in the same
                 # message, the talk STILL COUNTS" - so a turn that ALSO advanced (the model called
                 # advanceGame/submitDecision) is banked like any other. NOT gated on `_progressed`: the
@@ -10659,7 +10903,11 @@ async def _stream_agent_loop_impl(
             # never an attempt; a provider/stream failure after the wire directive was selected must
             # not drain as a belt fire). Cleared after one note so a repeat call never double-counts.
             if _forced_belt_tool and block.tool_type == _forced_belt_tool:
-                _note_belt(owner, "forced-tool-choice:" + _forced_belt_tool)
+                # ORW-310: a forced turnIn counts ONLY when applied (not a bedtime-gate `held`, a no-op or an error).
+                _forced_applied = _forced_belt_tool != "turnIn" or _turn_in_applied(result)
+                if _forced_applied and _forced_belt_tool == "turnIn":
+                    _note_belt(owner, "bedtime-turn-in")
+                if _forced_applied: _note_belt(owner, "forced-tool-choice:" + _forced_belt_tool)
                 _forced_belt_tool = None
                 _note_forced_choice(owner, block.tool_type, honored=True)  # T0-4 attempt sibling
             if block.tool_type in _VERIFIER_EFFECTFUL_TOOLS:

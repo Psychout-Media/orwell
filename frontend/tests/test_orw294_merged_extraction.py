@@ -1,4 +1,4 @@
-"""ORW-294: the per-turn scene / NPC-move / player-move extractions as ONE structured call (flag ORWELL_MERGED_EXTRACTION, default OFF).
+"""ORW-294: the per-turn scene / NPC-move / player-move extractions as ONE structured call (flag ORWELL_MERGED_EXTRACTION, default ON since the 2026-11-12 live check).
 
 No model is called: llm_call_async and every engine write are fakes. Roles only - the replay fixture is anonymised
 (`Houseguest<N>`), taken from a recorded live rehearsal's llm-io (the recorded SEPARATE replies are what the merged fake reply is
@@ -283,6 +283,7 @@ def _extraction_calls(env):
 
 
 def test_flag_off_is_the_three_separate_calls(monkeypatch):
+    monkeypatch.setenv("ORWELL_MERGED_EXTRACTION", "0")  # the default is ON now; the explicit off keeps the three-call path covered
     env = _drive(monkeypatch, SEPARATE)
     assert sorted(_extraction_calls(env)) == ["npc", "player", "scene"], env.calls
     assert ("move_houseguest", "npc:2", "kitchen") in env.writes
@@ -320,8 +321,12 @@ def test_diagnostic_flags_off_profile_forces_the_flag_off(monkeypatch):
     assert al._merged_extraction_enabled() is False
 
 
-def test_the_flag_defaults_off():
-    assert al._merged_extraction_enabled() is False
+def test_the_flag_defaults_on_and_an_explicit_off_wins(monkeypatch):
+    # deliberate re-pin (2026-11-12 live check proved it: -18% calls/turn, scene recorded 10/10): ON by default, ORWELL_MERGED_EXTRACTION=0 turns it off.
+    assert al._merged_extraction_enabled() is True
+    for off in ("0", "false", "no", "off"):
+        monkeypatch.setenv("ORWELL_MERGED_EXTRACTION", off)
+        assert al._merged_extraction_enabled() is False
 
 
 # ── (d) telemetry stays success-gated ───────────────────────────────────────────────────────────────────────────────────────

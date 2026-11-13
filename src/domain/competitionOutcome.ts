@@ -70,6 +70,15 @@ export class CompetitionIntents {
   }
 }
 
+/**
+ * ORW-322 - the score malus a rest deficit `d` (0..1) costs: `min(cap, scale * d^exponent)` (see `sleepCurve`). d = 0 is EXACTLY 0 (a rested competitor's score is byte-identical to the pre-feature model);
+ * `sleepPenalty` = 0 switches the whole consequence off. Pure, no rng.
+ */
+export function sleepCost(d: number, w: { sleepPenalty: number; sleepCurve: { scale: number; exponent: number; cap: number } }): number {
+  if (!(d > 0) || w.sleepPenalty === 0) return 0;
+  return Math.min(w.sleepCurve.cap, w.sleepCurve.scale * Math.pow(Math.min(d, 1), w.sleepCurve.exponent));
+}
+
 export function resolveCompetition(
   competitors: Competitor[],
   type: CompetitionType,
@@ -133,7 +142,7 @@ export function resolveCompetition(
     // The hidden, bounded sleep cost (ADR 0006). 0 by default ⇒ this term vanishes and the score is
     // byte-identical to the pre-feature model; a tired houseguest competes worse, and the engine
     // never protects them (a tired favorite can lose). No rng here — the deficit was decided already.
-    const rest = -(c.restPenalty ?? 0) * w.sleepPenalty;
+    const rest = -sleepCost(c.restPenalty ?? 0, w);
     scores[c.id] = base + temp + emo + intentAdj + rest;
   }
 

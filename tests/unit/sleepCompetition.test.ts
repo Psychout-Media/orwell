@@ -30,7 +30,8 @@ describe("sleep is a real, bounded competition cost (ADR 0006)", () => {
       { id: TIRED, stats: EVEN, restPenalty: 1 },
     );
     expect(rate).toBeGreaterThan(0.55); // a meaningful tilt, not a coin flip
-    expect(rate).toBeLessThan(0.95);    // but never a lock — temperature still swings it
+    // deliberate re-pin (ORW-322, Ryne 2026-11-12: staying up must cost MORE): a FULL all-nighter (d = 1) now costs the capped 0.6, so the rested one wins ~97% - a very likely loss, never a guaranteed one.
+    expect(rate).toBeLessThan(0.995);
   });
 
   it("is never protective — a TIRED favorite wins strictly less than the same favorite RESTED", () => {
@@ -39,7 +40,10 @@ describe("sleep is a real, bounded competition cost (ADR 0006)", () => {
     const restedFav = firstWinRate(favorite(0), underdog);
     const tiredFav = firstWinRate(favorite(1), underdog);
     expect(tiredFav).toBeLessThan(restedFav);  // staying up costs the favorite real wins
-    expect(tiredFav).toBeGreaterThan(0.5);     // still a favorite — the penalty is bounded, not fatal
+    // deliberate re-pin (ORW-322): a full all-nighter (cap 0.6) outweighs this 0.35 stat edge, so the tired favorite is now the underdog - but the cap keeps it bounded: still some wins.
+    expect(tiredFav).toBeGreaterThan(0.05);
+    // ...while a LATE bed (d = 0.25, 2am) still leaves the favorite a favorite.
+    expect(firstWinRate(favorite(0.25), underdog)).toBeGreaterThan(0.5);
   });
 
   it("is symmetric — applied by the same math regardless of field position (no player special-case)", () => {

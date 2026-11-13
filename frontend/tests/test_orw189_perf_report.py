@@ -34,17 +34,36 @@ def test_table_and_markdown_render_every_measure():
     assert md.count("\n| ") >= 12 and "report-only" in md
 
 
-def test_perf_job_is_report_only_in_ci():
+def test_perf_job_gates_the_request_budgets_in_ci():
+    """ORW-181: the request-count budgets are a real gate - pass 1 enforces, the job is a ci-gate need, and a dead harness fails too."""
     import yaml
     ci = yaml.safe_load(open(os.path.join(os.path.dirname(FRONTEND), ".github", "workflows", "ci.yml"), encoding="utf-8"))
     job = ci["jobs"]["fe-perf-report"]
     assert "fe_render" in job["if"]  # test-only / markdown edits do not spend a runner slot
-    assert "continue-on-error" not in job  # the STEP is report-only, so a dead harness stays visible
+    assert "continue-on-error" not in job
     steps = job["steps"]
     assert any(st.get("uses") == "./.github/actions/setup-playwright" for st in steps)
     perf = next(st for st in steps if st.get("name", "").startswith("perf report"))
-    assert perf.get("continue-on-error") is True and "::warning::" in perf["run"] and "GITHUB_STEP_SUMMARY" in perf["run"]
-    assert "fe-perf-report" not in ci["jobs"]["ci-gate"]["needs"]  # never blocks a merge
+    assert "continue-on-error" not in perf
+    run = perf["run"]
+    assert "PERF_LOW_POWER=0 python3 scripts/perf_report.py --enforce-budget" in run
+    assert "--enforce-budget" not in run.split("PERF_LOW_POWER=1", 1)[1]  # the 10 s low-power pass stays report-only
+    assert "exit 1" in run and "did not run" in run
+    gate = ci["jobs"]["ci-gate"]
+    assert "fe-perf-report" in gate["needs"]
+    env = gate["steps"][0]["env"]["RESULTS"]
+    assert "fe-perf-report=${{ needs.fe-perf-report.result }}" in env
+    assert "fe-perf-report" in gate["steps"][0]["run"].split("applicable()")[1].split("esac")[0]
+
+
+def test_budget_violations_flag_a_request_flood_and_pass_the_measured_baseline():
+    ok = {"idle": {"requests_per_minute": 12.0, "max_burst_per_second": 2}, "load": {"requests": 176}}  # the measured baseline
+    assert perf.budget_violations(ok) == []
+    assert perf.budget_violations({"idle": {"requests_per_minute": 30.0, "max_burst_per_second": 6}, "load": {"requests": 230}}) == []  # the edge passes
+    flood = {"idle": {"requests_per_minute": 47.0, "max_burst_per_second": 9}, "load": {"requests": 300}}  # prod: 660 state GETs in 14 min
+    bad = perf.budget_violations(flood)
+    assert len(bad) == 3 and any("requests/min" in b for b in bad) and any("burst" in b for b in bad) and any("settle" in b for b in bad)
+    assert perf.budget_violations({}) == []  # an absent measure is the harness's job to flag, not a budget breach
 
 
 def test_private_test_symbols_the_harness_imports_still_exist():

@@ -592,9 +592,11 @@ jobs:
       - name: browser smoke — keep-set UI loads, no broken modules (feature 0032)
         run: cd frontend && python3 scripts/browser_smoke.py
 
-  # ORW-189-lite: REPORT-ONLY front-end performance job (4x CPU throttle: long tasks while a ~2,000-char reply streams,
-  # idle requests/min, JS+CSS bytes). Prints a table to the job summary and uploads perf-report.json. NOT in `ci-gate`
-  # needs and `continue-on-error`: it never blocks a merge. Gating comes later, in the ratchet.
+  # ORW-189-lite + ORW-181: front-end performance job (4x CPU throttle: long tasks while a ~2,000-char reply streams,
+  # idle requests/min, JS+CSS bytes). Prints a table to the job summary and uploads perf-report.json. The CPU/frame timings are
+  # report-only (runner noise); the REQUEST-COUNT budgets (idle requests/min, idle burst, requests to settle) are a GATE: pass 1
+  # runs with --enforce-budget, so a request flood fails the job, and the job is in `ci-gate` needs. A harness that cannot boot
+  # fails too (a gate that cannot measure must not pass silently). No pixel gate: owner directive 2026-07-21 decommissioned those.
   fe-perf-report:
     needs: changes
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
@@ -612,17 +614,19 @@ jobs:
       - run: npm ci
       - run: npm run build
       - uses: ./.github/actions/setup-playwright
-      - name: perf report (report-only)
+      - name: perf report + request budget gate
         env:
           PERF_LABEL: ${{ github.sha }}
-        # Report-only: a bad NUMBER never fails the build, and neither does a dead harness - but a dead harness must be visible.
-        continue-on-error: true
         run: |
-          # pass 1: glass pinned (the automation default is glass; this is the long-run baseline). pass 2: low-power pinned, short idle window.
-          if ! (cd frontend && PERF_LOW_POWER=0 python3 scripts/perf_report.py --out "$GITHUB_WORKSPACE/perf-report.json" \
-                && PERF_LOW_POWER=1 python3 scripts/perf_report.py --idle-seconds 10 --out "$GITHUB_WORKSPACE/perf-report-lowpower.json"); then
-            echo "::warning::perf report did not run (the harness could not boot the stack or crashed); see this step's log"
-            echo "### Front-end performance: perf report did not run" >> "$GITHUB_STEP_SUMMARY"
+          # pass 1 (glass pinned, the 60 s baseline) ENFORCES the request-count budgets; pass 2 (low-power, short idle window) stays report-only
+          # because a 10 s window is too short for a requests/min budget. Both write JSON for the artifact even when pass 1 breaches a budget.
+          rc=0
+          (cd frontend && PERF_LOW_POWER=0 python3 scripts/perf_report.py --enforce-budget --out "$GITHUB_WORKSPACE/perf-report.json") || rc=$?
+          (cd frontend && PERF_LOW_POWER=1 python3 scripts/perf_report.py --idle-seconds 10 --out "$GITHUB_WORKSPACE/perf-report-lowpower.json") || echo "::warning::low-power perf pass did not run"
+          if [ "$rc" -eq 3 ]; then echo "::error::a front-end request-count budget was exceeded (see the job summary)"; exit 1; fi
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::perf harness did not run (could not boot the stack or crashed); see this step's log"
+            echo "### Front-end performance: perf harness did not run" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
       - uses: actions/upload-artifact@v4
@@ -885,6 +889,7 @@ jobs:
       - fe-browser-tests
       - fe-browser
       - fe-responsive
+      - fe-perf-report
       - mirror-parity
       - heavy-sims
     if: always()
@@ -905,6 +910,7 @@ jobs:
             fe-browser-tests=${{ needs.fe-browser-tests.result }}
             fe-browser=${{ needs.fe-browser.result }}
             fe-responsive=${{ needs.fe-responsive.result }}
+            fe-perf-report=${{ needs.fe-perf-report.result }}
             mirror-parity=${{ needs.mirror-parity.result }}
             heavy-sims=${{ needs.heavy-sims.result }}
           FULL: ${{ needs.changes.outputs.full }}
@@ -926,7 +932,7 @@ jobs:
               heavy-sims) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
               fe-unit|fe-coverage|fe-browser-tests) echo "$FRONTEND" ;;
-              fe-browser|fe-responsive|mirror-parity) echo "$FE_RENDER" ;;
+              fe-browser|fe-responsive|fe-perf-report|mirror-parity) echo "$FE_RENDER" ;;
               *) echo true ;;
             esac
           }

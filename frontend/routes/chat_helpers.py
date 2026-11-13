@@ -1091,7 +1091,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     )
 
 
-def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
+def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
 
@@ -1136,9 +1136,14 @@ def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
     else:
         roster_line = ("HARD ROSTER (this turn): the player is alone - nobody else is in the room. Nobody else speaks, acts, reacts, overhears or is described as present this turn; "
                        "a name may be MENTIONED in conversation, never seen or heard in the room. ")
+    # ORW-311 (Coordinator ruling 2026-11-12): a houseguest the engine says has TURNED IN for the night is in their bed. The roster only said who is in the player's room; with an empty roster the narrator still
+    # voiced sleeping houseguests in the kitchen at 2:44am. Names only (the same public `asleep` list the HUD and the Show Brief carry); they may be mentioned, never seen or heard awake.
+    sleepers = _names(asleep)
+    asleep_line = (f"\nTURNED IN FOR THE NIGHT (engine truth): {', '.join(sleepers)} - asleep in their beds. They do NOT speak, act, walk, laugh, overhear or appear in any room this turn; "
+                   "they may only be MENTIONED. Do not write a scene, a line of dialogue or a movement for any of them." if sleepers else "")
     return (
         "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
-        f"the player is in the {room}, with: {here}.{nearby_line}\n"
+        f"the player is in the {room}, with: {here}.{nearby_line}{asleep_line}\n"
         + roster_line +
         "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
         "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
@@ -5850,6 +5855,65 @@ async def screen_streamed_met_everyone(user, sentence: str) -> bool:
         return True  # fail-open: never suppress on an error.
 
 
+# ── ORW-310 — the PRE-EMISSION "unbacked morning" guard. ───────────────────────────────────────── #
+# Live: the player went to bed, the model never called `turnIn`, and the narrator narrated a whole morning
+# (a houseguest waking the player) while the engine sat on Day 1 late-night. WHAT TIME IT IS and WHICH DAY is
+# closed-set board truth (the engine clock); a sentence that ASSERTS the morning/next day has arrived while
+# the board still reads evening/night/late-night is a phantom, dropped before the player sees it, with a
+# next-turn re-ground. Deliberately narrow (ADR 0005 #1): only a present/past ASSERTION of the day turning
+# ("the next morning comes", "morning arrives", "it is the next morning", "wakes you the next morning"), never
+# atmosphere ("morning light" - the A95 post-turn nudge owns that), and a future / hypothetical / dream
+# sentence is exempt. Fail-open on any engine hiccup.
+_UNBACKED_MORNING_RE = re.compile(
+    r"\b(?:the\s+)?next\s+(?:morning|day)\s+(?:comes|came|arrives|arrived|dawns|dawned|breaks|broke)\b"
+    r"|\bmorning\s+(?:has\s+|had\s+)?(?:comes?|came|arrives?|arrived|breaks?|broke|dawns?|dawned)\b"
+    r"|\bit(?:'s|\u2019s|\s+is|\s+was)\s+(?:now\s+|already\s+)*(?:the\s+)?(?:next\s+)?(?:morning|day\s+(?:2|two|3|three))\b"
+    r"|\b(?:wak\w+|woke|rous\w+|awaken\w*)\b[^.!?\n]{0,40}\b(?:next\s+morning|morning\s+(?:light|sun|sunlight)|in\s+the\s+morning)\b",
+    re.IGNORECASE,
+)
+_UNBACKED_MORNING_EXEMPT_RE = re.compile(
+    r"\b(?:will|would|could|might|going\s+to|about\s+to|if|imagine|suppose|tomorrow|until|till|before|when|whenever|dream\w*|hope|wish|"
+    r"see\s+you|wake\s+you\s+(?:up\s+)?(?:in|at|early|tomorrow)|'ll|\u2019ll)\b",
+    re.IGNORECASE,
+)
+_UNBACKED_MORNING_BOARD_TIMES = frozenset({"evening", "night", "late-night"})
+
+
+def _sentence_has_unbacked_morning_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter: does `text` assert the morning / next day has arrived (and is not a
+    future / hypothetical / dream sentence)? Keeps the ORW-310 guard off every other sentence."""
+    if not text or not _UNBACKED_MORNING_RE.search(text):
+        return False
+    return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
+
+
+async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
+    """ORW-310 mid-stream screen: HOLD (return False) a sentence asserting the morning/next day arrived while
+    the engine clock still reads evening/night/late-night; else EMIT (True). Stashes a next-turn re-ground when
+    it holds. Fail-open: any hiccup, an absent clock or a non-night band returns True (emit)."""
+    try:
+        if not _sentence_has_unbacked_morning_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        if not isinstance(status, dict):
+            return True
+        tod = str(status.get("timeOfDay") or "").strip().lower()
+        if tod not in _UNBACKED_MORNING_BOARD_TIMES:
+            return True
+        lab = status.get("clockLabel")
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
+            "reads " + (str(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
+            "goes to bed, call the `turnIn` tool FIRST and voice the morning only from what it returns.")
+        logger.warning("[orwell] pre-emission guard HELD an unbacked-morning claim for user=%s - engine clock still %s", user, tod)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission unbacked-morning guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
 def _sentence_has_met_everyone_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the player met the whole house? Keeps the S7
     guard off every sentence that never mentions it (mirrors `_sentence_has_closed_set_claim`)."""
@@ -7704,7 +7768,7 @@ async def apply_game_framing(
         # and the model's grounding + the gadget reflect one snapshot (supports D1). Permits narrated
         # movement (D2 records it); forbids only the impossible. Best-effort / fail-open.
         try:
-            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"))
+            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))
             if _loc:
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).

@@ -71,6 +71,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_FINAL_HOH_THREE_PART',   key: 'finalHohThreePart',      parser: 'defaultOn' },
   { envKey: 'ORWELL_WIPEOUT_REEL',            key: 'wipeoutReel',            parser: 'defaultOn' },
   { envKey: 'ORWELL_JUROR_PROFILES',          key: 'jurorProfiles',          parser: 'defaultOn' },
+  { envKey: 'ORWELL_NPC_MINDS_ENDGAME',       key: 'npcMindsEndgame',        parser: 'defaultOn' },
   { envKey: 'ORWELL_TIE_REVEAL',              key: 'tieReveal',              parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_CONSEQUENCE',      key: 'gossipConsequence',      parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'defaultOn' },

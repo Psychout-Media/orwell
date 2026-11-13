@@ -24,7 +24,7 @@ const VAULT =
   // Vault-side soul vectors — engine-only, exactly like FileSaveStore / InMemoryVectorIndex above.
   "|^src/adapters/sqlite/(SqliteSaveStore|SqliteVectorIndex)\\.ts$" +
   "|^src/adapters/embedding/DeterministicEmbedding\\.ts$" +
-  "|^src/engine/(sessionSnapshot|relationships|confessionals|offscreen|gossip|liveSeason|campaigns)\\.ts$" +
+  "|^src/engine/(sessionSnapshot|relationships|confessionals|offscreen|gossip|liveSeason|campaigns|agenda|agendaConstants|agendaDecisions|houseLife|houseLifeConstants|innerLife|juryMinds|juryMindsConstants)\\.ts$" +
   "|^src/composition/engineRoot\\.ts$";
 
 // Audit E18: the VAULT denylist above enumerates KNOWN hidden modules — every new engine

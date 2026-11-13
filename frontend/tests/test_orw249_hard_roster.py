@@ -45,3 +45,26 @@ def test_adjacent_room_people_are_named_as_staying_in_their_rooms():
     low = ch._whereabouts_barrier_directive(WA).lower()
     assert "backyard" in low and "houseguest three" in low
     assert "stay" in low
+
+
+# ── ORW-311: the houseguests the engine says have TURNED IN are in their beds - never voiced awake ──────────────────────────────────────────────────────
+ASLEEP = [{"id": "npc:1", "name": "Houseguest Four"}, {"id": "npc:2", "name": "Houseguest Five"}]
+
+
+def test_asleep_houseguests_are_named_and_barred_from_the_scene():
+    out = ch._whereabouts_barrier_directive(WA, ASLEEP)
+    assert "TURNED IN FOR THE NIGHT" in out and "Houseguest Four, Houseguest Five" in out
+    low = out.lower()
+    assert "asleep in their beds" in low and "do not write a scene" in low and "only be mentioned" in low
+
+
+def test_no_sleepers_no_line_and_the_directive_is_byte_identical():
+    assert ch._whereabouts_barrier_directive(WA) == ch._whereabouts_barrier_directive(WA, None) == ch._whereabouts_barrier_directive(WA, [])
+    assert "TURNED IN" not in ch._whereabouts_barrier_directive(WA)
+
+
+def test_the_asleep_list_rides_names_only_and_the_call_site_passes_it():
+    out = ch._whereabouts_barrier_directive(WA, [{"id": "npc:1", "name": "Houseguest Four", "secret": "x"}, {"name": ""}, "junk"])
+    assert "npc:1" not in out and "secret" not in out.lower().replace("secrets", "")
+    src = open(ch.__file__, encoding="utf-8").read()
+    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))' in src

@@ -74,6 +74,12 @@ def _user_headers(user: str | None, admin: bool = False) -> dict:
     return headers
 
 
+_TURN_REFUSED_PLAYER_NOTE = (
+    " [PRODUCTION NOTE, not for the player: the game's integrity check REFUSED this beat and changed nothing, so the beat has NOT happened. Do not narrate any result, vote, "
+    "morning or next scene, and do not retry this call. Tell the player in ONE short out-of-character line that the game could not move on from here and that the operator has been told.]"
+)
+
+
 class EngineToolError(RuntimeError):
     """The engine RESPONDED with a structured error — it is reachable and answered. Distinct from a
     transport outage (connection refused / timeout / proxy 5xx), which propagates as httpx's own
@@ -98,6 +104,17 @@ class EngineToolError(RuntimeError):
         self.board = board
 
 
+class EngineTurnRefused(EngineToolError):
+    """ORW-321: the engine's fail-closed INTEGRITY CHECKPOINT refused the turn (HTTP 409 `code: "turn-refused"`): state unchanged, the beat did not happen. Carries the fault KINDS and the NAME of the
+    first failing invariant (field names only, never content). Never a model stall and never a transport outage: it must raise a RED operator signal and give the player an honest line."""
+
+    def __init__(self, message: str, status: int | None = 409, kinds=None, invariant: str | None = None):
+        super().__init__(message + _TURN_REFUSED_PLAYER_NOTE, status=status, code="turn-refused")
+        self.kinds = list(kinds or [])
+        self.invariant = invariant
+
+
+
 # --- last-error tracking: VISIBLE error reporting for "engine up but erroring" -----------------
 # Every failed engine call records here; the next successful call clears it. /api/orwell/health
 # surfaces it (recency-gated), so the front-end banner can report a TECHNICAL problem (a failing
@@ -115,6 +132,55 @@ def _record_error(tool: str, kind: str, message: str) -> None:
 def _clear_error() -> None:
     global _LAST_ERROR
     _LAST_ERROR = None
+
+
+# ORW-321 - integrity-checkpoint refusals are NEVER silent. A refused turn is not a model stall and not an outage: the engine answered "no, that beat would have broken an invariant". It is held
+# per user (persists until a later mutating call SUCCEEDS), reaches the operator as a RED entry on the engine-health detail + the overseer log ring, and flags the current turn so the stall /
+# anti-stale ladders do not climb against it.
+_INTEGRITY_REFUSAL: dict = {}
+_REFUSED_TURN: dict = {}
+_MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "createCharacter", "noteMessage", "runCompetition"})
+
+
+def _refusal_key(user) -> str:
+    return user or "__anon__"
+
+
+def note_integrity_refusal(user, tool: str, kinds, invariant) -> None:
+    """Record (and escalate) one checkpoint refusal. Vault-free: kinds + an invariant NAME only. Never raises."""
+    try:
+        k = _refusal_key(user)
+        prev = _INTEGRITY_REFUSAL.get(k) or {}
+        _INTEGRITY_REFUSAL[k] = {
+            "tool": tool, "kinds": list(kinds or []), "invariant": invariant,
+            "count": int(prev.get("count", 0)) + 1, "first": prev.get("first") or time.time(), "last": time.time(),
+        }
+        _REFUSED_TURN[k] = True
+        from src import log_rings as _rings
+        _rings.record_overseer(
+            "escalation", "integrity-refusal",
+            f"the engine's integrity checkpoint refused {tool} (kinds={','.join(kinds or []) or '?'}, invariant={invariant or '?'}); state unchanged, the beat did not happen",
+            lever="operator-red", ok=False, user=user)
+    except Exception:  # failsoft-ok: recorder-self (the red signal must never hurt the call that raised it)
+        pass
+
+
+def integrity_refusal(user=None) -> dict | None:
+    """The standing checkpoint refusal for `user`, or None. Cleared by the next successful mutating call."""
+    r = _INTEGRITY_REFUSAL.get(_refusal_key(user))
+    return dict(r) if r else None
+
+
+def integrity_refusal_recent(user, ttl_s: float = 600.0) -> bool:
+    """True while a checkpoint refusal for `user` is recent (default 10 min). While it holds, the FE's advance stall / force belts stand down: the engine would refuse again, so a nudge is noise, not a
+    correction. The window expires on its own, so a later attempt (after an operator fix) goes through and a success clears the standing refusal."""
+    r = _INTEGRITY_REFUSAL.get(_refusal_key(user))
+    return bool(r) and (time.time() - float(r.get("last", 0))) <= ttl_s
+
+
+def refused_this_turn(user) -> bool:
+    """True when a checkpoint refusal happened since the last `clear_disclosure_turn` (the per-turn clear)."""
+    return bool(_REFUSED_TURN.get(_refusal_key(user)))
 
 
 def last_engine_error() -> dict | None:
@@ -276,6 +342,9 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
             # the stale-beat reconcile keys off a stable machine code, not the message prose. Absent
             # fields ⇒ None ⇒ the existing message-marker fallback still applies (byte-identical).
             body = body if isinstance(body, dict) else {}
+            if body.get("code") == "turn-refused":
+                raise EngineTurnRefused(err, status=r.status_code, kinds=body.get("kinds"),
+                                        invariant=body.get("invariant") if isinstance(body.get("invariant"), str) else None)
             _bseq = body.get("beatSeq")
             exc = EngineToolError(
                 err, status=r.status_code,
@@ -333,6 +402,8 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
                 continue
             # Out of retries (or a non-transient failure): record the banner error and re-raise.
             if isinstance(e, EngineToolError):
+                if isinstance(e, EngineTurnRefused):
+                    note_integrity_refusal(user, name, e.kinds, e.invariant)
                 if not e.no_game:  # the pre-game refusal is a normal state, not a problem
                     _record_error(name, "tool-error", f"{e} (HTTP {e.status})" if e.status else str(e))
                 raise
@@ -344,6 +415,8 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
         else:
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
+            if name in _MUTATING_OK_CLEARS:
+                _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
     # Unreachable (the loop either returns or raises), but keep the type-checker honest.
     raise last_exc if last_exc else EngineToolError("engine call failed")
@@ -368,6 +441,7 @@ def disclosure_this_turn(user) -> bool:
 def clear_disclosure_turn(user) -> None:
     _DISCLOSURE_TURN.pop(_disclosure_key(user), None)
     _TELLS_TURN.pop(_disclosure_key(user), None)
+    _REFUSED_TURN.pop(_refusal_key(user), None)
 
 
 # A50: the engine's tells per houseguest NAME, captured from this turn's `npcVoice` results (only when the tells layer is on, i.e. the result carries a `tells` key; [] = calm).
@@ -718,6 +792,19 @@ async def record_world_snapshot(snapshot: dict, user: str | None = None) -> dict
     image port); empty slices keep the fallback's value (non-degradation). Returns
     ``{ accepted, source }``. Public flavor only — no Vault, no game input."""
     return await _call("recordWorldSnapshot", snapshot, user=user)
+
+
+async def record_npc_traits(req: dict, user: str | None = None) -> dict:
+    """ORW-319 (spec 0146 lane 1): write each houseguest's model-read habits + season-aim hint BACK to the engine, which validates them
+    against closed sets and keeps each houseguest's first record (write-once). ``req`` is ``{"traits": [{id, habits, aimHint?, aimWhy?}]}``.
+    Returns ``{accepted, rejected}``. Engine-side only (an aim is a motive)."""
+    return await _call("recordNpcTraits", req, user=user)
+
+
+async def record_house_culture(req: dict, user: str | None = None) -> dict:
+    """ORW-319 (spec 0146 lane 2): write the season's house culture (spots, rituals, a running joke) BACK to the engine (validated,
+    write-once). Returns ``{accepted, reason?}``."""
+    return await _call("recordHouseCulture", req, user=user)
 
 
 async def world_snapshot_view(user: str | None = None) -> dict | None:
@@ -1688,6 +1775,12 @@ async def engine_health_detail() -> dict:
             break
     if detail.get("ok"):
         _clear_reconnecting()  # the engine answered — any reconnecting state is over
+    _ir = integrity_refusal(None) or next((integrity_refusal(k if k != "__anon__" else None) for k in list(_INTEGRITY_REFUSAL)), None)
+    if _ir:
+        detail["integrityRefusal"] = {  # ORW-321: RED - the engine's checkpoint is refusing turns (Vault-free: kinds + an invariant name)
+            "red": True, "tool": _ir["tool"], "kinds": _ir["kinds"], "invariant": _ir["invariant"],
+            "count": _ir["count"], "ageSeconds": int(time.time() - _ir["last"]),
+        }
     le = last_engine_error()
     if le:
         detail["lastError"] = {
