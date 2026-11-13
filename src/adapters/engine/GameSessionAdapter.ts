@@ -50,6 +50,10 @@ import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/jur
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
+import { REASONS } from "../../engine/agendaConstants";
+import type { OffscreenScene } from "../../engine/offscreen";
+import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
@@ -89,6 +93,8 @@ import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOpti
 import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
 import { agendaDumpRows } from "../../engine/agendaDump";
+import type { StatedReasonView } from "../../ports/GameSession";
+import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
 import { memoryLine, fillSubject } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
@@ -2931,6 +2937,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memorySpeechFor(id) : {}),
       // ORW-317 (ORW-253 slice 4): what they hold about OTHERS in the room - public-fact memories only (the house saw them), names filled.
       ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memoryAboutOthersFor(id, present.map((p) => p.id)) : {}),
+      // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
+      ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       knows: (this.npcKnowledge?.known(id) ?? [])
         .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
@@ -8316,6 +8324,12 @@ export class GameSessionAdapter implements GameSession {
       ...(this.hcStrategyEnabled && this.live?.playedGame === true ? { hcStrategyFor: (c: EntityId, h: EntityId) => this.hcStrategyFor(c, h) } : {}),
       ...(this.npcMemoryEnabled ? { memoryTiltFor: (subject: EntityId, holder: EntityId) => this.memoryTiltFor(subject, holder) } : {}),
       ...(this.driveDecisionsEnabled && this.campaignsEnabled ? { drivePushFor: (t: EntityId, d: EntityId) => this.drivePushForDecider(t, d) } : {}),
+      // ORW-314 (ORW-253 slice 2): the NPC's AGENDA moves nominations, the replacement, the veto save, the eviction vote and the Final HOH's eviction at full strength, and the reason each NPC gives aloud is
+      // recorded. GATED on a played game that has seeded agendas (`live.playedGame` + `live.agendas`): a headless seeded sim has neither, so the ctx carries no hook and every read adds +0 (byte-identical).
+      ...(this.live?.playedGame === true && this.live.agendas ? {
+        agendaPullFor: (t: EntityId, d: EntityId) => this.agendaPullOf(t, d),
+        statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
+      } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
@@ -9838,6 +9852,88 @@ export class GameSessionAdapter implements GameSession {
   private npcMindsEndgameEnabled = flagDefaultOn("ORWELL_NPC_MINDS_ENDGAME");
   setNpcMindsEndgameEnabled(on: boolean): void { this.npcMindsEndgameEnabled = on; }
 
+  // --- ORW-315 (ORW-253 slice 3, spec 0145): hour-by-hour house life replaces the 7-stock-scene tick for a PLAYED game. ---------------------------------------------
+  /**
+   * ON unless `ORWELL_HOUSE_LIFE=0`. Runs only for a game a person is playing (`playedGame`, the same gate as the agendas): headless calibration
+   * drivers never announce a message, so their seeded spine keeps the old stretch byte-identically. Balance is measured and reported (ORW-306's
+   * report), never a gate (Ryne 2026-11-05/06).
+   */
+  private houseLifeEnabled = flagDefaultOn("ORWELL_HOUSE_LIFE");
+  setHouseLifeEnabled(on: boolean): void { this.houseLifeEnabled = on; }
+  houseLifeActiveNow(): boolean {
+    return this.houseLifeEnabled && this.live?.playedGame === true && !!this.live.agendas && !!this.house && !!this.presence;
+  }
+  /** The active showmance partner of `id` (engine-only seeded relationships), if any. */
+  private showmancePartnerOf(id: EntityId): EntityId | undefined {
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const s = this.seededRels.showmances.find((x) => x.stage !== "resolved" && (x.a === id || x.b === id) && !evicted.has(x.a) && !evicted.has(x.b));
+    return s ? (s.a === id ? s.b : s.a) : undefined;
+  }
+  /**
+   * One stretch of house life: every AWAKE NPC who is not in the player's room (those are in the player's own scene, which the narrator voices)
+   * takes ONE action (`houseLife.chooseHourAction`) from their agenda's next step, habits (model-authored when ORW-319 wrote them), mood and who
+   * is around; they walk to where the action happens (the presence model, both views); `assembleScenes` merges the hour; every action with a
+   * partner records ONE hidden event (witness set = the action's people) that folds through its action's interaction type. A speech action
+   * that was false is marked on the event (`houseLife.truthful = false`). Solo actions record nothing. No shared rng (local hashes only).
+   */
+  houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number): OffscreenScene[] {
+    const s = this.live!, house = this.house!, presence = this.presence!;
+    const playerRoom = presence.get(house.player.id);
+    const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
+    if (actors.length === 0) return [];
+    const where = new Map<EntityId, Room>(actors.map((id) => [id, presence.get(id)!] as const));
+    const seed = this.gameSeed ?? 0;
+    const day = s.dayNumber ?? s.week;
+    const hour = this.inGameHour() ?? stretchIndex;
+    const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
+    const authored = s.npcMindsAuthored?.traits ?? {};
+    const plans: PlannedAction[] = [];
+    for (const id of actors) {
+      const character = this.agendaCharacterOf(id);
+      if (!character) continue;
+      const mates = new Set<EntityId>();
+      for (const a of this.alliances.forMember(id)) for (const m of a.members) if (m !== id) mates.add(m);
+      const others = actors.filter((x) => x !== id);
+      const showmance = this.showmancePartnerOf(id);
+      plans.push(chooseHourAction({
+        owner: id, character, agenda: s.agendas?.[id], habits: authored[id]?.habits ?? habitsFor(character, id, seed),
+        emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: where,
+        affinity: new Map(others.map((o) => [o, this.rel.edge(id, o).affinity] as const)),
+        threat: new Map(others.map((o) => [o, this.rel.edge(id, o).threat] as const)),
+        mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
+        ...(showmance && where.has(showmance) ? { showmance } : {}),
+        timeOfDay: tod, day, hour, inCompetition: false,
+        candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
+      }, seed));
+    }
+    // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
+    for (const p of plans) {
+      if (p.place === "diary-room" || !where.has(p.actor)) continue;
+      presence.set(p.actor, p.place);
+      this.presenceBase?.set(p.actor, p.place);
+    }
+    const gate = this.offscreenShowmanceGate();
+    const out: OffscreenScene[] = [];
+    for (const scene of assembleScenes(plans)) {
+      for (const p of scene.actions) {
+        const partner = p.with[0];
+        let type = HOUSE_LIFE_ACTIONS[p.kind].fold;
+        if (!partner || !type || partner === house.player.id) continue;
+        if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";
+        const people = [...new Set([p.actor, ...p.with])].filter((x) => x !== house.player.id);
+        const content = actionLine(p);
+        const event: GameEvent = {
+          id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
+          ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
+          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), stretch: stretchIndex },
+        };
+        events.record(event);
+        out.push({ event, type, initiator: p.actor, partner });
+      }
+    }
+    return out;
+  }
+
   // --- ORW-312 (ORW-253 slice 1, spec 0145): NPC agendas on the live season. VAULT-CLASS; nothing reads them yet. --------------------------------------------------------------
   /** The public board as the agenda sees it. `ev` is the beat that just resolved (an eviction closes the week). */
   private agendaBoard(ev?: BeatEvent): AgendaBoard {
@@ -9931,6 +10027,39 @@ export class GameSessionAdapter implements GameSession {
     } catch { /* fail-soft */ }
   }
 
+  /** ORW-314: how `decider`'s agenda pulls on `target` (`goalPull`; + = out, - = kept), full strength. The player and a houseguest with no agenda pull 0. */
+  private agendaPullOf(target: EntityId, decider: EntityId): GoalPull {
+    const s = this.live;
+    const agenda = s?.agendas?.[decider];
+    if (!s || !agenda || decider === PLAYER) return { value: 0 };
+    const mates = new Set<EntityId>();
+    for (const a of this.alliances.forMember(decider)) for (const m of a.members) if (m !== decider) mates.add(m);
+    return goalPull(agenda, target, this.agendaBoard(), [...mates].sort());
+  }
+
+  /**
+   * ORW-314: the reasons this houseguest has given aloud for a PUBLIC act that has already landed on the board this week - the stated KIND and SUBJECT only (`voiceableReason`).
+   * Never the candor, the goal or the terms (they stay on `live.statedReasons`). A secret ballot is never voiced. An act the board has not yet carried (a ceremony outcome still staged) is not voiced early.
+   */
+  private statedReasonsFor(id: EntityId): StatedReasonView[] {
+    const s = this.live;
+    if (!s || s.playedGame !== true || !s.statedReasons?.length) return [];
+    const carried = (r: StatedReasonRecord): boolean => {
+      const c = r.real.choice;
+      switch (r.decision) {
+        case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
+        case "replacement": return s.replacement === c;
+        case "veto": return s.saved === c;
+        case "final-hoh-evict": return s.evictee === c;
+        case "vote": return s.evictee === c;
+        default: return false;
+      }
+    };
+    return s.statedReasons
+      .filter((r) => r.week === s.week && r.public && r.decider === id && carried(r))
+      .map((r) => { const v = voiceableReason(r.stated); return { decision: r.decision, kind: v.kind, about: { id: v.about, name: this.nameOf(v.about) } }; });
+  }
+
   /** ORW-253: the agenda's view of a houseguest's own character (NPCs only; the player has none). */
   agendaCharacterOf(id: EntityId): AgendaCharacter | undefined {
     const n = this.house?.npcs.find((x) => x.id === id);
@@ -9953,7 +10082,7 @@ export class GameSessionAdapter implements GameSession {
     const options: FinalHohOption[] = rivals.map((evict) => {
       const keep = rivals.find((r) => r !== evict)!;
       const e = rel.edge(hoh, evict);
-      return { evict, keep, myJuryShareVsKeep: estimateJuryShare(hoh, keep, evict, jury, bond, resume), threatOfEvict: e.threat, bondWithEvict: e.affinity };
+      return { evict, keep, myJuryShareVsKeep: estimateJuryShare(hoh, keep, evict, jury, bond, resume), threatOfEvict: e.threat, bondWithEvict: e.affinity, ...(this.live?.playedGame === true && this.live.agendas ? { agendaPush: this.agendaPullOf(evict, hoh).value } : {}) };
     });
     return finalHohChoice(me, options, why).evict;
   }
@@ -13667,7 +13796,11 @@ export class GameSessionAdapter implements GameSession {
     // under THEIR name — no new reader, no cross-juror bleed, nothing from the live house's private knowledge.
     const juryRoster = this.juryHouseView()?.jurors;
     const juryMode = juryRoster !== undefined;
-    const present: NamedRef[] = juryRoster?.map((j) => ({ id: j.id, name: j.name })) ?? this.whereabouts()?.present ?? [];
+    const present0: NamedRef[] = juryRoster?.map((j) => ({ id: j.id, name: j.name })) ?? this.whereabouts()?.present ?? [];
+    // ORW-314: while a ceremony beat is the live scene the whole house is gathered, so the DECIDER who gave a reason aloud is always in the block (even if the room read lists them elsewhere).
+    const present: NamedRef[] = this.ceremonyBeat && this.live && !juryMode
+      ? [...present0, ...Object.keys(this.live.agendas ?? {}).filter((id) => !present0.some((p) => p.id === id) && this.statedReasonsFor(id).length > 0).map((id) => ({ id, name: this.nameOf(id) }))]
+      : present0;
     return present
       .map((p) => {
         const v = this.npcVoice(p.id);
@@ -13690,13 +13823,14 @@ export class GameSessionAdapter implements GameSession {
           ...(v.mood ? { mood: v.mood } : {}),
           ...(v.currentRead ? { currentRead: v.currentRead } : {}),
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
+          ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
         };
         return e;
       })
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined),
       );
   }
 

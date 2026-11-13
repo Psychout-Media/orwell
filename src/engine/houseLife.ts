@@ -196,6 +196,8 @@ const mannerOf = (emotional: number, kind: ActionKind): Manner => {
   return fam === "house-life" || fam === "romance" || kind === "comfort" ? "warm" : emotional < 0.45 ? "nervous" : "warm";
 };
 
+const MAIN_AIMS: ReadonlySet<GoalKind> = new Set<GoalKind>(["win-by-comps", "win-by-being-liked", "run-the-house", "reach-jury", "last-alliance-standing", "prove-not-a-floater"]);
+
 /** Who is awake and not the holder, by room. */
 function others(v: HourView): EntityId[] {
   return [...v.whereabouts.keys()].filter((p) => p !== v.owner).sort();
@@ -204,7 +206,9 @@ const roomOf = (v: HourView, p: EntityId): Room => v.whereabouts.get(p) ?? v.roo
 const byScore = (xs: EntityId[], f: (p: EntityId) => number): EntityId[] => [...xs].sort((a, b) => f(b) - f(a) || a.localeCompare(b));
 
 /** The next step for one goal: an action, with whom, about whom. Returns undefined when nothing useful can be done this hour. */
-export function nextStepFor(goal: Goal, v: HourView): Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room } | undefined {
+export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room } | undefined {
+  // A season-long aim is lived in many small ways, not one repeated move: `variant` (a 0..1 roll) picks among its fitting actions.
+  const among = <T,>(xs: readonly T[]): T => xs[Math.min(xs.length - 1, Math.floor(variant * xs.length))]!;
   const pool = others(v);
   const t = goal.target;
   const aff = (p: EntityId): number => v.affinity.get(p) ?? 0.4;
@@ -234,9 +238,9 @@ export function nextStepFor(goal: Goal, v: HourView): Omit<PlannedAction, "actor
     case "find-out": return pick(t ? "fish" : "test-a-rumor", byScore(pool.filter((p) => p !== t), aff), t);
     case "win-power": return { kind: "study-for-comps", with: [], goalId: goal.id, goalKind: goal.kind };
     case "keep-my-secret": return undefined; // a secret is kept by what they DON'T do: it shapes speech (themes 2 and 4), not an hourly action
-    case "last-alliance-standing": return v.mates.length ? pick("split-roles", byScore([...v.mates].filter((m) => pool.includes(m)), aff)) : undefined;
-    case "run-the-house": return pick("count-votes", byScore(pool, aff));
-    case "win-by-being-liked": return pick("comfort", byScore(pool, (p) => -Math.abs(aff(p) - 0.5)));
+    case "last-alliance-standing": return v.mates.length ? pick(among(["split-roles", "check-in", "count-votes"] as const), byScore([...v.mates].filter((m) => pool.includes(m)), aff)) : undefined;
+    case "run-the-house": return pick(among(["count-votes", "fish", "check-in", "pitch"] as const), byScore(pool, (p) => aff(p) + (variant > 0.5 ? -aff(p) * 0.5 : 0)));
+    case "win-by-being-liked": return pick(among(["comfort", "tell-stories", "check-in", "cook"] as const), byScore(pool, (p) => -Math.abs(aff(p) - 0.5)));
     default: return undefined;
   }
 }
@@ -268,8 +272,10 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const goals = [...(v.agenda?.goals ?? [])].filter((g) => g.status === "active").sort((a, b) => b.commitment - a.commitment || a.id.localeCompare(b.id));
   const lifePull = HOUSE_LIFE.lifePull[v.timeOfDay] + (v.emotional > 0.6 ? HOUSE_LIFE.contentLifeBonus : 0);
   for (const g of goals) {
-    if (g.commitment * HOUSE_LIFE.goalDrive < lifePull * roll(`life:${g.id}`)) break; // ordinary life wins this hour
-    const step = nextStepFor(g, v);
+    // A season-long MAIN aim is a background pull; week goals and emergent season goals (revenge, a long con, a secret) are the pressing ones.
+    const drive = g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1);
+    if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win
+    const step = nextStepFor(g, v, roll(`variant:${g.id}`));
     if (step) return finish(step);
   }
 
@@ -291,7 +297,8 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [] });
   const friction = (v.affinity.get(partner) ?? 0.4) < 0.3 && roll("friction") < HOUSE_LIFE.frictionChance;
   const pickLife: ActionKind = friction ? "chore-fight"
-    : v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "bed-talk"
+    : v.timeOfDay === "late-night" ? (roll("late") < 0.6 ? "bed-talk" : "homesick-talk")
+    : v.timeOfDay === "night" ? (["bed-talk", "tell-stories", "game-of-cards", "homesick-talk"] as const)[Math.floor(roll("night") * 4)]!
     : roll("prank") < HOUSE_LIFE.prankChance ? "prank" : "tell-stories";
   return finish({ kind: pickLife, with: [partner, ...(pickLife === "tell-stories" ? here.filter((p) => p !== partner).slice(0, 2) : [])] });
 }
@@ -324,4 +331,23 @@ export function assembleScenes(plans: readonly PlannedAction[]): HourScene[] {
     }
   }
   return scenes;
+}
+
+/** ORW-315: the engine's one-line record of an action (ids, never names; hidden content until a pathway carries it). */
+const VERB: Readonly<Record<ActionKind, string>> = {
+  fish: "fished for information from", "test-a-rumor": "tested a rumor on", plant: "planted a story with", confirm: "confirmed a plan with",
+  leak: "leaked something to", "keep-quiet": "kept quiet", pitch: "pitched an alliance to", recruit: "tried to recruit", "check-in": "checked in with",
+  "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
+  "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
+  frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",
+  cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
+  "chore-fight": "fought over chores with", "homesick-talk": "talked about home with", "bed-talk": "talked late in bed with",
+  "game-of-cards": "played cards with", sunbathe: "sunbathed with", "tell-stories": "told stories with", flirt: "flirted with", cuddle: "cuddled with",
+  mull: "mulled things over", "vent-in-diary-room": "vented in the Diary Room", "study-for-comps": "studied for comps", pray: "prayed",
+  "talk-to-cameras": "talked to the cameras", cheer: "cheered on", taunt: "taunted", sulk: "sulked",
+};
+export function actionLine(p: PlannedAction): string {
+  const who = p.with.length ? ` ${p.with.join(", ")}` : "";
+  const about = p.about && !p.with.includes(p.about) ? (p.kind === "lobby-for" ? ` for ${p.about}` : ` about ${p.about}`) : "";
+  return `${p.actor} ${VERB[p.kind]}${who}${about}`;
 }

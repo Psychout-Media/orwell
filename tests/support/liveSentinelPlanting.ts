@@ -90,6 +90,18 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
         test: { kind: "evicted", who: target }, commitment: 1, status: "failed", formedDay: 1, formedWeek: 1, resolvedDay: 1, endNote: agendaTag }],
     };
   });
+  // (1c-3) ORW-314 / 0145 slice 2 - the agenda now DRIVES decisions, so a unique token rides a LIVE goal id (the engine consumes the goal for real in nominations / the veto / votes and copies its id into the
+  // decision's real-reason record) and a planted stated-reason record's goal id + term name. The real reason, the goal, the terms and the candor are Vault-class: only a stated reason's kind + subject may
+  // reach the narrator, so the token must be on NO player, prompt or admin surface.
+  const goalIdTag = mk("agendagoal");
+  const termTag = mk("reasonterm");
+  const holder0 = npcs[0]!.id;
+  agendas[holder0]!.goals.push({ id: goalIdTag, owner: holder0, horizon: "season", kind: "get-them-out", target: npcs[1]!.id, why: [{ kind: "memory", about: npcs[1]!.id, weight: 1 }], test: { kind: "evicted", who: npcs[1]!.id }, commitment: 1, status: "active", formedDay: 1, formedWeek: 1 });
+  (live.statedReasons ??= []).push({
+    week: live.week, day: 1, decider: holder0, decision: "nominate", public: true,
+    real: { decision: "nominate", decider: holder0, choice: npcs[1]!.id, goalKind: "get-them-out", goalId: goalIdTag, terms: [{ name: termTag as never, value: 0.9 }], tactic: "direct" },
+    stated: { kind: "nothing-personal", about: npcs[1]!.id, candor: "cover" },
+  });
   // (1e) ORW-305 - the NPC decision WHY record (`live.decisionWhy`, HIDDEN + ENGINE-ONLY): a unique token rides a breakdown's TERM NAME, its option REF and its tactic/rule, beside the real
   // records the engine appends every NPC decision. Nothing reads it back, so it persists whole for the season; no player, prompt or admin surface may carry any of the three.
   const whyTerm = mk("whyterm");

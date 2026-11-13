@@ -833,9 +833,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "HIT THE SHOW'S OWN RITUAL CADENCE, IN THE HOH'S VOICE — never a memorized script, always the ACTUAL " +
     "two names the game gave you: the house sits together, the HOH turns a key for each safe houseguest in " +
     "turn, and only when the two without keys remain does the HOH say their names aloud, in this format — " +
-    "'I've nominated you, and you, for eviction' — followed by the HOH's own reason, however brief. Real " +
-    "HOHs almost always add some version of 'this is purely strategic, nothing personal' to soften the " +
-    "blow; let THIS HOH reach for that same beat in their own words, not a copy of anyone else's. Close on " +
+    "'I've nominated you, and you, for eviction' — followed by the reason the game gives this HOH to say aloud, " +
+    "voiced in their own words: take it from the HOH's block in the room list (the line that begins 'said aloud'), " +
+    "and give no other reason of your own; with none listed, name the two and let the silence stand. Close on " +
     "the two nominees sitting with the news landing.",
   // ORW-281: the veto DRAW is its own mini ceremony (its own moment, gate and gathering); the competition fragment below keeps only the comp.
   "veto-draw":
@@ -1435,6 +1435,8 @@ export function renderGameContext(view: GameStateView): string {
           // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
+          // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
+          for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
           return lines;
         }),
       ]
@@ -1568,6 +1570,20 @@ export function renderGameContext(view: GameStateView): string {
 }
 
 /** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
+/** ORW-314: how each closed-set STATED reason sounds as a line the houseguest says aloud (the narrator words it in their voice; it is the reason they GIVE, which may or may not be the whole story). */
+export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
+  "biggest-threat": "you are the biggest threat in this house",
+  "came-after-me": "you came after me first",
+  "loyal-to-my-side": "I had to protect my people",
+  "pawn-youll-be-fine": "you are a pawn and you will be fine",
+  "kept-my-word": "I made a promise and I kept it",
+  "didnt-trust-you": "I never knew where you stood",
+  "had-it-planned": "this was always the plan",
+  "nothing-personal": "it is purely strategic, nothing personal",
+  "house-wants-it": "it is what the house wanted",
+};
+const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
+
 function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
   const bits: string[] = [];
   if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
