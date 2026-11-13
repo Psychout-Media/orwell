@@ -73,6 +73,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_JUROR_PROFILES',          key: 'jurorProfiles',          parser: 'defaultOn' },
   { envKey: 'ORWELL_NPC_MINDS_ENDGAME',       key: 'npcMindsEndgame',        parser: 'defaultOn' },
   { envKey: 'ORWELL_HOUSE_LIFE',              key: 'houseLife',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_GOAL_MOOD',               key: 'goalMood',               parser: 'defaultOn' },
   { envKey: 'ORWELL_TIE_REVEAL',              key: 'tieReveal',              parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_CONSEQUENCE',      key: 'gossipConsequence',      parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'defaultOn' },
