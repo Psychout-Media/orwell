@@ -1786,6 +1786,8 @@ export interface GatedLeverFlags {
   npcTells?: boolean;
   /** A54 (ORWELL_NPC_MEMORY_SPEECH): add the instruction to use `rememberedAboutYou` / `bringUp`. Absent/false => byte-identical. */
   npcMemorySpeech?: boolean;
+  /** ORW-317 (ORW_GOAL_MOOD): add the instruction that a voice's `moodCause` is the ONLY reason they may give for their mood. Absent/false => byte-identical. */
+  goalMood?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1798,6 +1800,14 @@ function withMemorySpeechInstruction(base: string): string {
     "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.\n" +
     "    If the voice carries `rememberedAboutOthers`, those are things this houseguest holds about others in the room (all things the whole house saw): they may\n" +
     "    bring one up with that person when it fits the moment, in their own words; never invent another past between them.");
+}
+
+/** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
+function withMoodCauseInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    EXCEPT: if a voice carries `moodCause`, that houseguest has chosen to tell the player why they feel this way - they may say it, in their own\n" +
+    "    words, when it fits; it is the ONLY reason they may give. With no `moodCause`, never state or hint at why a houseguest feels as they do.");
 }
 
 /** A49 - when npcVoice carries `tells`, tell the narrator how to use them (voice the observable facts, never invent a mood). Appended only while the flag is on. */
@@ -1990,6 +2000,7 @@ export function buildSystemPrompt(
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
   if (levers?.npcTells === true) base = withTellsInstruction(base);
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
+  if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [

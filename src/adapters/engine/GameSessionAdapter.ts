@@ -96,7 +96,7 @@ import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import type { StatedReasonView } from "../../ports/GameSession";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
-import { memoryLine, fillSubject } from "../../engine/innerLife";
+import { memoryLine, fillSubject, appraiseGoal, mayShareCause } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -2938,6 +2938,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memorySpeechFor(id) : {}),
       // ORW-317 (ORW-253 slice 4): what they hold about OTHERS in the room - public-fact memories only (the house saw them), names filled.
       ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memoryAboutOthersFor(id, present.map((p) => p.id)) : {}),
+      // ORW-317: why they feel this way this week - only if they would tell the player (trust + candor; revealing causes need more).
+      ...(isActive ? this.moodCauseFor(id) : {}),
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
@@ -9997,6 +9999,30 @@ export class GameSessionAdapter implements GameSession {
       s.agendas = agendas;
     } catch { /* fail-soft: an agenda is hidden enrichment, never a reason to stop the turn */ }
   }
+  /**
+   * ORW-317 (ORW-253 slice 4, Ryne approved 2026-11-12): a settled goal the houseguest cared about moves their mood (`innerLife.appraiseGoal` ->
+   * an existing soul event through `inflect`) and becomes their latest mood CAUSE. ON unless `ORWELL_GOAL_MOOD=0`. Played games only.
+   */
+  private goalMoodEnabled = flagDefaultOn("ORWELL_GOAL_MOOD");
+  setGoalMoodEnabled(on: boolean): void { this.goalMoodEnabled = on; }
+  private appraiseSettled(id: EntityId, before: Agenda | undefined, after: Agenda): void {
+    if (!this.goalMoodEnabled || !this.live || !before) return;
+    for (const g of after.history.slice(before.history.length)) {
+      const a = appraiseGoal(g);
+      if (a.event) this.inflect(id, a.event);
+      if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week };
+    }
+  }
+  /** ORW-317: the mood cause this NPC would TELL the player now (this week's, shared only per `mayShareCause`), names filled in. */
+  private moodCauseFor(id: EntityId): { moodCause?: string } {
+    const c = this.live?.moodCauses?.[id];
+    if (!this.goalMoodEnabled || !c || c.week !== this.live!.week) return {};
+    const character = this.agendaCharacterOf(id);
+    if (!character) return {};
+    const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0)));
+    if (!mayShareCause(c, this.rel.edge(id, PLAYER).affinity, candor)) return {};
+    return { moodCause: c.about ? fillSubject(c.line, this.nameOf(c.about)) : c.line.split("{subject}").join("them") };
+  }
   /** Re-check agendas (every living NPC's, or just `only`) after a real event. Played games only; fail-soft; no rng. */
   private agendaRecheck(trigger: AgendaTrigger, only?: readonly EntityId[], ev?: BeatEvent): void {
     try {
@@ -10008,7 +10034,7 @@ export class GameSessionAdapter implements GameSession {
       const seed = this.gameSeed ?? 0;
       for (const id of (only ?? Object.keys(s.agendas)).filter((x) => s.agendas![x])) {
         const view = this.agendaView(id);
-        if (view) s.agendas[id] = recheckAgenda(s.agendas[id]!, view, board, trigger, seed);
+        if (view) { const before = s.agendas[id]; s.agendas[id] = recheckAgenda(before!, view, board, trigger, seed); this.appraiseSettled(id, before, s.agendas[id]!); }
       }
     } catch { /* fail-soft */ }
   }
@@ -10023,7 +10049,7 @@ export class GameSessionAdapter implements GameSession {
       const seed = this.gameSeed ?? 0;
       for (const id of Object.keys(s.agendas)) {
         const view = this.agendaView(id);
-        if (view) s.agendas[id] = mullAgenda(s.agendas[id]!, view, board, seed);
+        if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed); this.appraiseSettled(id, before, s.agendas[id]!); }
       }
     } catch { /* fail-soft */ }
   }
@@ -13972,7 +13998,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, confrontMisfire: this.gossipConsequenceEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

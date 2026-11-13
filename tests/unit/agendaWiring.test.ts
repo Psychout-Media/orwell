@@ -20,9 +20,10 @@ function withoutAgendas<T>(fn: () => T): T {
 }
 /** ORW-314: agendas present but their pull on decisions zeroed (the season as it was before decisions read goals). */
 function withPullZeroed<T>(fn: () => T): T {
-  const keep = proto.agendaPullOf;
-  proto.agendaPullOf = () => ({ value: 0 });
-  try { return fn(); } finally { proto.agendaPullOf = keep; }
+  // ORW-317: a settled goal also moves mood now (goal mood), so "agendas present but with no effect" zeroes that too.
+  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled };
+  proto.agendaPullOf = () => ({ value: 0 }); proto.appraiseSettled = () => {};
+  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; }
 }
 const outcome = (l: Live) => JSON.stringify({ winner: l.winner, evictionOrder: l.evictionOrder, jury: l.jury, finalTwo: l.finalTwo, voteRecord: l.voteRecord });
 const strip = (l: Live): string => JSON.stringify({ ...l, agendas: undefined });
@@ -50,7 +51,7 @@ describe("ORW-312: NPC agendas on the live season", () => {
       expect(zero.finished).toBe(true);
       // the mutation: agendas present, but pulling nothing, is the season as it was before the decisions read goals (and the hidden reason record is the only difference)
       expect(outcome(liveOf(zero.s))).toBe(outcome(liveOf(off.s)));
-      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined });
+      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined, moodCauses: undefined });
       expect(noReasons(liveOf(zero.s))).toBe(noReasons(liveOf(off.s)));
       expect(liveOf(off.s).agendas).toBeUndefined();
       expect(Object.keys(liveOf(on.s).agendas ?? {})).toHaveLength(15);

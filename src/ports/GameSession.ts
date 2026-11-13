@@ -1928,6 +1928,12 @@ export interface NpcVoiceView {
    * engine's disclosure rules (theme 2). Up to 3. Absent when the memory-speech flag is off or they hold none about anyone present.
    */
   rememberedAboutOthers?: string[];
+  /**
+   * ORW-317 (ORW-253 slice 4): WHY this houseguest feels the way they do this week (a plan that worked or fell apart), in their own first-person
+   * words with public names filled in - present ONLY when they would tell the player (enough trust and candor; a cause that reveals a plan or a
+   * grudge needs more). Their mood is always visible as tells; the cause is theirs to share (Ryne 2026-11-12: no motive hints).
+   */
+  moodCause?: string;
   /** A54: the engine decided this houseguest may raise the past unprompted THIS beat (seeded, salience-barred, at most once per in-game day). The model only words it. */
   bringUp?: true;
   houseguest: NamedRef;
