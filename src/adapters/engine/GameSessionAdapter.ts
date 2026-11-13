@@ -80,6 +80,7 @@ import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOu
 import { SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
+import type { WhySink } from "../../engine/decisionWhy";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -255,7 +256,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  nightBreakPending, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  recordWhy, nightBreakPending, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -8333,7 +8334,7 @@ export class GameSessionAdapter implements GameSession {
       // ORW-318 (ORW-253 slice 6): juror style and the NPC Final HOH's choice from CHARACTER.
       ...(this.npcMindsEndgameEnabled ? {
         jurorArchetypeFor: (juror: EntityId) => { const c = this.agendaCharacterOf(juror); return c ? jurorArchetypeFor(c, juror, this.gameSeed ?? 0) : undefined; },
-        finalHohMind: (hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[]) => this.finalHohMindChoice(hoh, rivals, jury),
+        finalHohMind: (hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[], why?: WhySink) => this.finalHohMindChoice(hoh, rivals, jury, why),
       } : {}),
       // C1 (#1788): the Wipeout Reel presentation layer — present ONLY when enabled (off in the
       // calibration/golden harness ⇒ absent ⇒ no failure-style fact computed ⇒ byte-identical
@@ -9832,7 +9833,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-318: the NPC Final HOH's evictee from character and their OWN jury estimate (`juryMinds`); undefined = the pre-ORW-318 threat read. */
-  private finalHohMindChoice(hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[]): EntityId | undefined {
+  private finalHohMindChoice(hoh: EntityId, rivals: readonly EntityId[], jury: readonly EntityId[], why?: WhySink): EntityId | undefined {
     const me = this.agendaCharacterOf(hoh);
     if (!me || rivals.length !== 2) return undefined;
     const rel = this.rel;
@@ -9843,7 +9844,7 @@ export class GameSessionAdapter implements GameSession {
       const e = rel.edge(hoh, evict);
       return { evict, keep, myJuryShareVsKeep: estimateJuryShare(hoh, keep, evict, jury, bond, resume), threatOfEvict: e.threat, bondWithEvict: e.affinity };
     });
-    return finalHohChoice(me, options).evict;
+    return finalHohChoice(me, options, why).evict;
   }
 
   private archetypeOf(id: EntityId): string {
@@ -11313,7 +11314,7 @@ export class GameSessionAdapter implements GameSession {
       jitter,
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
-    });
+    }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
   }
 

@@ -1,6 +1,7 @@
 import type { DealKind } from "../domain/deal";
 import { DEAL_CONSENT, type DealRefusalReason } from "./dealConsentConstants";
 import { clamp01Raw } from "../domain/num";
+import { sumVals, whyOption, type WhySink } from "./decisionWhy";
 
 /**
  * NPC deal CONSENT (anti-sycophancy; the engine decides outcomes, the narrator only voices them). Before a player-proposed deal is recorded the NPC decides, from
@@ -50,24 +51,48 @@ function drags(i: DealConsentInputs): Record<"distrust" | "threat" | "targeted" 
   };
 }
 
-/** The willingness score (higher = more willing; 0 = a typical newcomer's read). Bounded by construction: every term is a clamped signal times a fixed weight. Excludes the jitter. */
-export function dealWillingness(i: DealConsentInputs): number {
+/** ORW-305: the term names of the willingness score, in the order it adds them. */
+export const DEAL_WILLINGNESS_TERM_NAMES = ["trust", "affinity", "threat", "grudge", "targeted-by-player", "opposed", "favor", "mood"] as const;
+
+/** ORW-305: the named, signed terms of the willingness score, in score order; the score is their left-to-right sum (`a - b` is `a + (-b)` bit for bit). */
+export function dealWillingnessTerms(i: DealConsentInputs): number[] {
   const { weight: w, reference: r } = DEAL_CONSENT;
   const favor = Math.min(DEAL_CONSENT.favorCeiling, w.favor * Math.max(0, num(i.favor)));
-  return w.trust * (clamp01(i.trust) - r.trust) + w.affinity * (clamp01(i.affinity) - r.affinity) - w.threat * (clamp01(i.threat) - r.threat)
-    - w.grudge * Math.max(0, num(i.grudge)) - w.targetsMe * Math.max(0, num(i.targetsMe)) - w.opposed * Math.max(0, num(i.opposed ?? 0)) + favor + num(i.mood ?? 0);
+  return [
+    w.trust * (clamp01(i.trust) - r.trust),
+    w.affinity * (clamp01(i.affinity) - r.affinity),
+    -(w.threat * (clamp01(i.threat) - r.threat)),
+    -(w.grudge * Math.max(0, num(i.grudge))),
+    -(w.targetsMe * Math.max(0, num(i.targetsMe))),
+    -(w.opposed * Math.max(0, num(i.opposed ?? 0))),
+    favor,
+    num(i.mood ?? 0),
+  ];
+}
+
+/** The willingness score (higher = more willing; 0 = a typical newcomer's read). Bounded by construction: every term is a clamped signal times a fixed weight. Excludes the jitter. */
+export function dealWillingness(i: DealConsentInputs): number {
+  return sumVals(dealWillingnessTerms(i));
 }
 
 /**
  * Does the NPC agree? `accept` when `willingness + jitter >= cost(kind)`. On a refusal the reason is the NPC's most salient motive: the largest MATERIAL drag
  * (distrust / threat / targeted / grudge); and `cost` when nothing about the player is what sank it (the ask simply costs too much for where the two stand).
  */
-export function decideDealConsent(i: DealConsentInputs): DealConsentDecision {
+export function decideDealConsent(i: DealConsentInputs, why?: WhySink): DealConsentDecision {
   const active = i.kind === "comp-throw" || i.kind === "veto-save";
   const cost = active && i.direction === "offer" ? DEAL_CONSENT.offerCost : (DEAL_CONSENT.cost[i.kind] ?? DEAL_CONSENT.cost["veto-save"]);
   const jitter = Math.max(-DEAL_CONSENT.jitter, Math.min(DEAL_CONSENT.jitter, num(i.jitter)));
-  const score = dealWillingness(i) + jitter;
-  if (score >= cost) return { accept: true };
+  const tv = [...dealWillingnessTerms(i), jitter]; // ORW-305: + the seeded jitter, last; the score is the sum of these named terms
+  const score = sumVals(tv);
+  const names = [...DEAL_WILLINGNESS_TERM_NAMES, "jitter"];
+  const record = (accept: boolean, reason?: string): void => {
+    if (!why) return;
+    const acc = whyOption("accept", accept ? "chosen" : "runner-up", names, tv, score);
+    const ref = whyOption("refuse", accept ? "runner-up" : "chosen", ["cost-bar"], [cost], cost);
+    why({ kind: "deal-consent", tactic: i.kind, ...(reason ? { rule: `refused-for-${reason}` } : {}), options: accept ? [acc, ref] : [ref, acc] });
+  };
+  if (score >= cost) { record(true); return { accept: true }; }
   const d = drags(i);
   const order: Array<keyof typeof d> = ["opposed", "targeted", "grudge", "threat", "distrust"]; // ties: the more specific / more personal motive first
   let top: keyof typeof d = "distrust";
@@ -76,6 +101,7 @@ export function decideDealConsent(i: DealConsentInputs): DealConsentDecision {
   // Would the NPC have said yes if none of the player's drags applied? If so a drag sank it; if not, the ask is just dear — unless a drag is still material.
   const sum = d.distrust + d.threat + d.targeted + d.grudge + d.opposed;
   const wouldHaveAccepted = score + sum >= cost;
-  if (wouldHaveAccepted || topVal >= DEAL_CONSENT.materialDrag) return { accept: false, reason: top };
-  return { accept: false, reason: "cost" };
+  const reason = wouldHaveAccepted || topVal >= DEAL_CONSENT.materialDrag ? top : "cost";
+  record(false, reason);
+  return { accept: false, reason };
 }

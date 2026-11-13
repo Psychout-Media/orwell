@@ -83,6 +83,6 @@ describe("veto-save wiring (source pin; the bias is inline so the drift gate can
     // ORW-281 4c: the NPC veto-save read lives in the shared npcVetoSave helper now.
     const i = src.indexOf("function npcVetoSave(");
     const slice = src.slice(i, src.indexOf("/** The NPC HOH's replacement read", i));
-    expect(slice).toContain("- (ctx.drivePushFor?.(n, s.vetoHolder!) ?? 0)");
+    expect(slice).toContain("-(ctx.drivePushFor?.(n, holder) ?? 0)") // ORW-305: the bias is built as named parts (the last is the negated drive);
   });
 });
