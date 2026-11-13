@@ -343,7 +343,7 @@ async def default_llm(url: str, model: str, headers: Any, owner: Any) -> Callabl
 
     async def _call(messages, max_tokens, temperature, timeout):
         return await llm_call_async(url=url, model=model, messages=messages, headers=headers, temperature=temperature,
-                                    max_tokens=max_tokens, timeout=timeout, max_retries=0, call_class=PLAN_CALL_CLASS,
+                                    max_tokens=max_tokens, timeout=timeout, max_retries=1, call_class=PLAN_CALL_CLASS,  # max_retries is the number of ATTEMPTS (`while attempt < max_retries`): 0 meant no request at all (live arm 2026-11-13: 12 of 12 plan calls came back empty in 1 ms)
                                     user=owner or "default")
     return _call
 

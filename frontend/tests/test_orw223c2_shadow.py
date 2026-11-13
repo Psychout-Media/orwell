@@ -306,3 +306,24 @@ def test_ring_is_bounded_and_records_the_line(monkeypatch, _env):
     _drive(monkeypatch)
     assert len(sps.ring()) == 1 and sps.ring()[0]["ttfw_ms"] is not None
     assert sps.RING_MAX == 200
+
+
+def test_the_default_llm_makes_at_least_one_attempt():
+    """Live arm 2026-11-13: `max_retries=0` made `llm_call_async` run its `while attempt < max_retries` loop zero times, so every plan call returned empty in about 1 ms. It must ask for exactly one attempt."""
+    import asyncio
+    from src import orwell_scene_plan_shadow as sps
+    from src import llm_core
+    seen = {}
+
+    async def fake(**kw):
+        seen.update(kw)
+        return "{}"
+
+    orig = llm_core.llm_call_async
+    llm_core.llm_call_async = fake
+    try:
+        call = asyncio.get_event_loop().run_until_complete(sps.default_llm("http://x", "m", {}, "u"))
+        asyncio.get_event_loop().run_until_complete(call([{"role": "user", "content": "x"}], 10, 0.2, 5))
+    finally:
+        llm_core.llm_call_async = orig
+    assert seen["max_retries"] == 1
