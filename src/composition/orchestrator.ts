@@ -787,7 +787,12 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // The session assembles both predicates from its Vault-sealed identities + seeded showmances (engine-
   // only — neither is projected); an ineligible draw is demoted to `bonding` inside the stretch.
   const showmanceGate = sandbox.session.offscreenShowmanceGate();
-  const scenes = awakeIds.length >= 2
+  // ORW-315 (ORW-253 slice 3, Ryne approved the NPC minds design 2026-11-12): for a game a person is PLAYING, every awake houseguest acts
+  // once this stretch from their own goals (houseLife), replacing "a pair and 1 of 7 stock scenes". Headless calibration drivers never
+  // play (no announced message), so they keep the old stretch below and their seeded spine is byte-identical.
+  const scenes = sandbox.session.houseLifeActiveNow()
+    ? sandbox.session.houseLifeStretch(sandbox.engine.events, awakeIds, before)
+    : awakeIds.length >= 2
     ? richOffscreenStretch({
         events: sandbox.engine.events, rng, npcs: awakeIds, interactions,
         hiddenElementsOf: (id) => hiddenOf.get(id) ?? [],

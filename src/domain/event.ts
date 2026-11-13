@@ -33,6 +33,12 @@ export interface GameEvent {
    * the production richness gate (B54) counts reveals from the store instead of parsing content.
    */
   reveal?: boolean;
+  /**
+   * ORW-315 (ORW-253 slice 3): an hour-by-hour house-life scene's structured record - the action kind, where, the manner, and whether what
+   * was said was TRUE (false = the speaker said something it knew was untrue: the hook for themes 2 and 4). ENGINE-ONLY (Vault class):
+   * it rides hidden events, never a projection.
+   */
+  houseLife?: { action: string; place: string; manner: string; truthful: boolean; about?: string; /** the stretch (one hour of house life) it belongs to */ stretch: number };
 }
 
 export type Visibility = "VISIBLE" | "HIDDEN";
