@@ -62,7 +62,7 @@ describe("0128 three-part Final HOH - live adapter", () => {
   });
 
   it("flag OFF: no part announcements - the single-comp path", () => {
-    const g = toFinalThree(3, false);
+    const g = toFinalThree(1, false); // seed re-selected 2026-11-12 (ORW-19 comp-win threat 0.3 -> 0.45 moved the seeded trajectories; seed 3 no longer reaches a Final 3)
     expect(g).not.toBeNull();
     const { views } = playOut(g!.s, (v) => v.pending?.kind === "final-eviction" || v.event?.beat === "final-eviction");
     expect(kinds(views).filter((x) => x === "final-hoh-part")).toHaveLength(0);

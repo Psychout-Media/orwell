@@ -94,7 +94,7 @@ interface BlocCoordination {
 // 5-seed assertion is a coin-flip on WHICH seeds: the set below is one where the small alignment effect shows. The strong claim (shielding) and the
 // 100-seed measurement are the real evidence; the retune did not remove the effect.
 // A92: a seed RANGE, not a hand-picked set (the old [11..15] was re-selected after every balance change and went red on any default shift though the mechanism was fine).
-const BL_LIFT_SEEDS = Array.from({ length: 12 }, (_, i) => i + 1);
+const BL_LIFT_SEEDS = Array.from({ length: 40 }, (_, i) => i + 1); // 12 -> 40 seeds on 2026-11-13 (ORW-19 comp-win threat 0.3 -> 0.45): the lift is ~0.02, below the sampling error of a 12-seed pool (~0.03); over 40 seeds: 0.856 vs 0.844 at 0.3, 0.889 vs 0.903 at 0.45; shielding is unchanged (0 vs 19 bloc-mate nominations at both)
 /** The alignment lift is small (+2.6..3.7 pts over seeds 1-100), so the claim is 'not worse than the unbonded baseline beyond sampling error', not a strict inequality on a lucky set. */
 const BL_ALIGN_TOLERANCE = 0.03;
 const BL_LIFT_WEEKS = 10;
