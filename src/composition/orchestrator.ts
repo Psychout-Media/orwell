@@ -757,6 +757,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   const evicted = new Set(core.live?.evictionOrder ?? []);
   const ids = (core.house?.npcs ?? []).filter((n) => !evicted.has(n.id)).map((n) => n.id);
   const before = sandbox.engine.events.count();
+  const furyAtBefore = sandbox.session.furyEventCountNow(); // ORW-325: read at the same instant as `before`, so the two describe the same store (this tick's blame events are recorded later)
 
   // House presence (0049): the tick re-seats the house FIRST (seeded, affinity-clustered, adjacent
   // moves only), so this stretch's scenes happen somewhere and overhears have ground truth.
@@ -930,6 +931,10 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default OFF): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
   // while on (so the OFF path, which never reaches this branch, is byte-identical). Dedicated rng per (holder, listener, tick); hidden layer only; the player is never a node (off-screen scenes exclude them).
   if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
+    // ORW-325 / 0135: each pair's roll is keyed on how many events the store held, so any event a flag adds shifts every later roll. The Traitors' Fury blame diffusion records hidden retelling events (and only
+    // those, all linked to facts carrying the blame lineage); they must not move the seeded season, so the key counts the store WITHOUT them (the adapter tallies them as the blame block records them). Flag off => none => exactly `before`, byte-identical.
+    // (The general fragility, every purpose sharing one count, is its own card: per-purpose rng streams.)
+    const copresenceSeedKey = before - furyAtBefore;
     const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
     const relm = sandbox.engine.relationships;
     const beliefObs = sandbox.session.beliefReceiptObserver();
@@ -938,7 +943,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
       {
         knowledge: sandbox.engine.knowledge,
         told: sandbox.session.copresenceToldLedger(),
-        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${before}`)),
+        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${copresenceSeedKey}`)),
         trust: (a, b) => relm.edge(a, b).trust,
         affinity: (a, b) => relm.edge(a, b).affinity,
         threat: (a, b) => relm.edge(a, b).threat,

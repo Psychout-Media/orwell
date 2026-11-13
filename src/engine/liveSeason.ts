@@ -668,6 +668,8 @@ export interface LiveSeasonState {
    * field itself is absent unless commit 2 stores it).
    */
   deducedCulprits?: Record<EntityId, EntityId[]>;
+  /** ORW-325: how many events the Traitors' Fury blame diffusion has recorded so far. The co-presence spread keys its rolls on the event-store count; subtracting these keeps a flag-on season on the same rolls as a flag-off one. Absent / 0 with the flag off. */
+  furyEvents?: number;
   /** A62 (ORWELL_JUROR_PROFILES + vote deduction, engine-only, never projected): per evictee, the houseguests they WRONGLY blame (believed to have voted against them, but did not). */
   mistakenBlame?: Record<EntityId, EntityId[]>;
   /**
