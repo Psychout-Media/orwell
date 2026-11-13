@@ -1,4 +1,5 @@
 import type { Soul } from "./characterFactory";
+import type { TellKind, TellBand } from "./tellTypes";
 import { composedEmotion } from "./emotionalArc";
 import { clamp01 } from "../domain/num";
 
@@ -9,8 +10,7 @@ import { clamp01 } from "../domain/num";
  * (a tell only changes when the arc crosses a band edge by a margin). No numbers ever leave this module (kind/band/channel are words), no rng, no I/O, no Vault. Wiring (persistence, the narrator,
  * the FE chip, observer reaction) is later slices behind flags; with the layer absent this changes nothing. The top `MAX_TELLS` (ASSUMED 2, pending Ryne) by intensity are returned.
  */
-export type TellKind = "withdrawn" | "tearful" | "snapping" | "brittle-calm" | "giddy" | "warm-open" | "guarded" | "restless";
-export type TellBand = "faint" | "clear" | "strong";
+export type { TellKind, TellBand }; // defined in tellTypes.ts (a leaf module) so characterFactory can name them without importing this file - that import closed a cycle
 export type TellChannel = "body" | "voice" | "behaviour";
 export interface Tell { kind: TellKind; band: TellBand; channel: TellChannel }
 
