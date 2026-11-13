@@ -90,6 +90,18 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
         test: { kind: "evicted", who: target }, commitment: 1, status: "failed", formedDay: 1, formedWeek: 1, resolvedDay: 1, endNote: agendaTag }],
     };
   });
+  // (1e) ORW-305 - the NPC decision WHY record (`live.decisionWhy`, HIDDEN + ENGINE-ONLY): a unique token rides a breakdown's TERM NAME, its option REF and its tactic/rule, beside the real
+  // records the engine appends every NPC decision. Nothing reads it back, so it persists whole for the season; no player, prompt or admin surface may carry any of the three.
+  const whyTerm = mk("whyterm");
+  const whyRef = mk("whyref");
+  const whyRule = mk("whyrule");
+  (live.decisionWhy ??= []).push({
+    kind: "vote", by: npcs[0]!.id, week: live.week, tactic: whyRule, rule: whyRule,
+    options: [
+      { option: whyRef, role: "chosen", total: 0.5, terms: [[whyTerm, 0.5]], inputs: { [whyTerm]: 1 } },
+      { option: npcs[1]!.id, role: "runner-up", total: 0.25, terms: [[`${whyTerm}-2`, 0.25]] },
+    ],
+  });
   sb.session.restore(core); // also rebuilds the soul recall index from the (now sentinel-bearing) memory
   // (1d) B44 - the B10/B11 co-presence TOLD ledger (engine-private; the fact id is the only free text). Planted AFTER the restore so a restore that rebuilds the ledger from the snapshot cannot wipe it.
   const toldTag = mk("told");

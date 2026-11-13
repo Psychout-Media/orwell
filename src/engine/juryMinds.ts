@@ -19,6 +19,7 @@ import type { JurorArchetype } from "./jurorProfile";
 import type { AgendaCharacter } from "./agenda";
 import { agendaRoll } from "./agenda";
 import { JURY_MINDS } from "./juryMindsConstants";
+import { sumVals, whyOption, type WhySink } from "./decisionWhy";
 
 /** The juror archetype from the juror's own character; a tiny seeded jitter breaks near-ties only. */
 export function jurorArchetypeFor(c: AgendaCharacter, juror: EntityId, seed: number): JurorArchetype {
@@ -48,15 +49,22 @@ export interface FinalHohDecision { evict: EntityId; reason: "beatable-in-finale
  * The NPC Final HOH's eviction. Each option scores: juryOdds x (jury share vs the kept one) + threat x (threat of the evicted) - bond x
  * (bond with the evicted), with the three weights set by the HOH's character. Ties go to the higher jury share. Deterministic.
  */
-export function finalHohChoice(hoh: AgendaCharacter, options: readonly FinalHohOption[]): FinalHohDecision {
+export function finalHohChoice(hoh: AgendaCharacter, options: readonly FinalHohOption[], why?: WhySink): FinalHohDecision {
   if (options.length === 0) throw new Error("finalHohChoice: no options");
   const w = { ...JURY_MINDS.finalHoh.base, ...(JURY_MINDS.finalHoh.byArchetype[hoh.archetype] ?? {}) };
-  const score = (o: FinalHohOption): number => w.juryOdds * o.myJuryShareVsKeep + w.threat * o.threatOfEvict - w.bond * o.bondWithEvict;
+  // ORW-305: one pass - the three named terms in the order the score adds them; the score is their sum (`a - b` is `a + (-b)` bit for bit).
+  const vals = (o: FinalHohOption): number[] => [w.juryOdds * o.myJuryShareVsKeep, w.threat * o.threatOfEvict, -(w.bond * o.bondWithEvict)];
+  const score = (o: FinalHohOption): number => sumVals(vals(o));
   const best = [...options].sort((a, b) => score(b) - score(a) || b.myJuryShareVsKeep - a.myJuryShareVsKeep || a.evict.localeCompare(b.evict))[0]!;
   // The real reason: what the chosen option was best at. Best jury odds => "beatable"; else the biggest threat; else they kept their ally.
   const top = (f: (o: FinalHohOption) => number): FinalHohOption => [...options].sort((x, y) => f(y) - f(x) || x.evict.localeCompare(y.evict))[0]!;
   const reason: FinalHohDecision["reason"] = top((o) => o.myJuryShareVsKeep) === best && w.juryOdds >= w.bond ? "beatable-in-finale"
     : top((o) => o.threatOfEvict) === best && w.threat >= w.bond ? "biggest-threat" : "loyal-to-ally";
+  if (why) {
+    const nm = ["jury-odds", "threat", "bond"] as const;
+    const ru = options.find((o) => o !== best);
+    why({ kind: "final-hoh-eviction", rule: reason, options: ru ? [whyOption(best.evict, "chosen", nm, vals(best), score(best)), whyOption(ru.evict, "runner-up", nm, vals(ru), score(ru))] : [whyOption(best.evict, "chosen", nm, vals(best), score(best))] });
+  }
   return { evict: best.evict, reason };
 }
 

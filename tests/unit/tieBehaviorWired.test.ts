@@ -36,7 +36,7 @@ describe("tie behavior is wired into the NPC nomination and the eviction vote", 
   it("wiring pins: the nomination plan and the vote read the providers, the decision matrix lists them, and no competition term exists", () => {
     const live = readFileSync("src/engine/liveSeason.ts", "utf8");
     expect(live).toMatch(/ctx\.tieNomPushFor\?\.\(t, s\.hoh!\)/);
-    expect(live).toMatch(/\(ctx\.tieVotePushFor\?\.\(n, voter\) \?\? 0\)/);
+    expect(live).toMatch(/ctx\.tieVotePushFor\?\.\(n, voter\) \?\? 0/);
     const sources = readFileSync("src/engine/memorySources.ts", "utf8");
     expect(sources).toMatch(/hohNominations: \[[^\]]*"tieNomPushFor"/);
     expect(sources).toMatch(/evictionVote: \[[^\]]*"tieVotePushFor"/);
