@@ -631,7 +631,7 @@ export interface LiveSeasonState {
    * Both persist with the season (0030). Absent unless the `ORWELL_NPC_DEAL_OFFERS` layer is on ⇒
    * byte-identical when off.
    */
-  dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number };
+  dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string };
   lastDealOfferWeek?: number;
   /**
    * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in

@@ -42,6 +42,28 @@ Feature: Deal depth II - counteroffers, owed favors, new deal kinds, weighing a 
     Then the engine decides keep, quietly break or renegotiate from interest, personality and the price of being known as a liar
     And the decision draws no rng from the shared stream in a game nobody is playing
 
+  Scenario: Temptation against the price of being known as a liar
+    Given a played game and an NPC with a get-them-out goal on the player, a low bond and little credibility to lose
+    And a second NPC with a high bond and a high credibility and no pull
+    When each weighs an open safety deal with the player once a week
+    Then the first sometimes breaks it and the second never does
+    And zeroing the temptation stops the breaking, and zeroing the cost makes it more frequent
+
+  Scenario: A deliberate break is quiet
+    Given an NPC that breaks a deal on purpose
+    Then the deal keeps showing as open to the player and no player-witnessed event is recorded
+    And the betrayal, jury and witness fallout is the ordinary break's
+    And the real reason and the temptation terms are Vault-side and never voiced
+
+  Scenario: Tempted but not enough to break, the NPC asks to renegotiate
+    Given an NPC whose temptation is high but whose margin over the price is not positive
+    Then it may float a standing offer to swap the deal for a lighter one, carrying the id of the deal it replaces
+    And the old deal stays binding until the player accepts, and accepting retires it neutrally
+
+  Scenario: Each deal is weighed once a week and never during a ceremony
+    Given an open deal already weighed this week
+    Then it is not rolled again that week, and nothing is weighed while a ceremony step is open
+
   Scenario: Headless seeded runs are unchanged
     Given a seeded game nobody is playing
     Then none of this behavior runs and the seeded trajectory is byte-identical

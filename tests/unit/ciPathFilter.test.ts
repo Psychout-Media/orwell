@@ -86,7 +86,15 @@ describe("the changes job's path filter on big change lists (never a lane skippe
     expect(got.heavy).toBe("false");
   });
 
-  it("an empty diff (the base is HEAD itself) counts as every file changed, and every lane runs: the whole step, end to end", () => {
+  // ORW-326: this case needs a real git checkout with a commit (`git rev-parse HEAD`). The test runners sync the tree as a bare `git init` with no commits (and no history), so `HEAD` does not resolve there, the case
+  // always failed, and it stopped `npm run test:ci` before BDD, which every runner-using agent then silently skipped. Without a resolvable HEAD it now skips (visibly, as "skipped"); in CI (GITHUB_ACTIONS) it is
+  // NEVER skipped, and the next test fails loudly if the checkout has no commit.
+  const hasGit = spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: ROOT, encoding: "utf8" }).status === 0;
+  it("CI always has a git checkout with a commit, so the end-to-end case below really runs there", () => {
+    if (process.env.GITHUB_ACTIONS === "true") expect(hasGit, "the CI checkout must have a resolvable HEAD").toBe(true);
+  });
+
+  it.skipIf(!hasGit && process.env.GITHUB_ACTIONS !== "true")("an empty diff (the base is HEAD itself) counts as every file changed, and every lane runs: the whole step, end to end", () => {
     const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout.trim();
     const got = run(stepScript(), { EVENT_NAME: "push", PUSH_BEFORE: head });
     for (const lane of LANES) expect(got[lane], lane).toBe("true");

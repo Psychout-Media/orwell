@@ -59,6 +59,9 @@ export function breakSeverityScale(deal: Deal, currentWeek?: number): number {
   return 1;
 }
 
+/** What caused a deal to break: a binding action on the board, or (0142 idea 4) the promisor's own deliberate choice to walk it back. */
+export type BreakCause = BindingAction["kind"] | "deliberate";
+
 /** Where reconciliation routes its consequences. All optional so status logic is testable in isolation. */
 export interface ReconcileSink {
   rel?: RelationshipModel;
@@ -77,14 +80,14 @@ export interface ReconcileSink {
    * a break caused by a `vote-evict` must not name the breaker before the same terminal gate the
    * primary eviction reveal (E12) and the 0048 retrospective use, or it deanonymizes a sealed ballot.
    */
-  reveal?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BindingAction["kind"]) => string | undefined;
+  reveal?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BreakCause) => string | undefined;
   /**
    * #1963 — is this break SEALED (a break tied to a secret eviction ballot, E12/A7) AND observable through the wronged
    * party's behaviour? A sealed break must not be attributed to the breaker by ANY hidden fold the wronged party ACTS on
    * (an NPC's noms/votes/deals would otherwise name who voted against them). When the wronged party is the PLAYER nothing
    * acts on their hidden read (they form their own), so the engine keeps the full fold. Absent ⇒ never sealed ⇒ byte-identical.
    */
-  sealed?: (wronged: EntityId, breaker: EntityId, actionKind: BindingAction["kind"]) => boolean;
+  sealed?: (wronged: EntityId, breaker: EntityId, actionKind: BreakCause) => boolean;
   /**
    * #1963 — the houseguests the wronged party can SUSPECT for a sealed break (everyone who voted to evict them), so
    * the betrayal fold is shared across all of them instead of landing wholly on the real breaker. The breaker is always
@@ -92,7 +95,7 @@ export interface ReconcileSink {
    */
   suspects?: (wronged: EntityId, breaker: EntityId) => readonly EntityId[];
   /** Whether the wronged party witnesses/learns this break (default: true for a public ceremony break). */
-  witnessed?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BindingAction["kind"]) => boolean;
+  witnessed?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BreakCause) => boolean;
   /**
    * 0121 — the deal-depth layer (`ORWELL_DEAL_DEPTH`). When true, keeping a deal compounds via the
    * LOYALTY STREAK (consecutive kept deals with the same partner scale the honored fold, bounded) and a
@@ -284,6 +287,21 @@ export class DealLedger {
     return resolved;
   }
 
+  /**
+   * 0142 idea 4 - a QUIET, DELIBERATE break: the promisor `breaker` chose to walk the deal back (`dealTemptation.ts`). Shares `applyBreak` with `reconcile`, so the fallout is the ordinary one
+   * (betrayal-shock, loyalty-streak reset, jury demerit, the reveal and witness sinks). The deal's `sealedBallot` is set so `dealView` keeps showing it OPEN to the wronged party: the player learns
+   * only through the existing witness pathways or the 0048 unseal. The caller supplies a `reveal` sink that keeps the event Vault-side. Returns the wronged party, or undefined when nothing was broken.
+   */
+  breakDeliberately(deal: Deal, breaker: EntityId, sink: ReconcileSink = {}): EntityId | undefined {
+    if (deal.status !== "open" || !deal.condition.promisors.includes(breaker)) return undefined;
+    const wronged = deal.parties.find((p) => p !== breaker);
+    if (!wronged) return undefined;
+    deal.status = "broken";
+    deal.sealedBallot = true;
+    this.applyBreak(deal, wronged, breaker, "deliberate", sink);
+    return wronged;
+  }
+
   /** The kept-promise fold (E43/E54): the protected party registers the demonstrated loyalty. 0121: with
    *  the deal-depth layer on, a LOYALTY STREAK (consecutive kept deals, same pair) compounds the fold
    *  (bounded), and the kept deal seeds a diffusing "reliable" reputation. Off ⇒ the plain honored fold.
@@ -316,7 +334,7 @@ export class DealLedger {
     deal: Deal,
     wronged: EntityId,
     breaker: EntityId,
-    actionKind: BindingAction["kind"],
+    actionKind: BreakCause,
     sink: ReconcileSink,
   ): void {
     // 0026 + 0109: the wronged party's hidden read of the breaker takes the large, slow-decaying

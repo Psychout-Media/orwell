@@ -70,7 +70,7 @@ import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
-import type { BindingAction, Deal } from "../../engine/deals";
+import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
 import { AllianceStore, allianceTieBoost, allianceFavor, willingMembers, pickAllianceName, sameMembers, ALLIANCE } from "../../engine/alliances";
@@ -84,7 +84,8 @@ import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOu
 import { SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
-import type { WhySink } from "../../engine/decisionWhy";
+import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
+import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -10051,6 +10052,7 @@ export class GameSessionAdapter implements GameSession {
         case "replacement": return s.replacement === c;
         case "veto": return s.saved === c;
         case "final-hoh-evict": return s.evictee === c;
+        case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
         case "vote": return s.evictee === c;
         default: return false;
       }
@@ -10672,6 +10674,7 @@ export class GameSessionAdapter implements GameSession {
     // Only an offer that was ALREADY standing before this step may lapse in it — one floated by this same
     // call must reach the player (be voiced) before the week can roll it away (cubic #1911).
     const standingOfferId = this.live!.dealOffer?.id;
+    this.weighDealBreaks(); // 0142 idea 4: a played game only; a houseguest may quietly walk back a deal, or ask to renegotiate it (before the offer pass, so a standing renegotiation holds the one-offer slot)
     this.maybeOfferPlayerDeal();
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
     // open state the narrator voices in-scene; the player answers in chat, or it lapses at week's end.
@@ -11863,7 +11866,7 @@ export class GameSessionAdapter implements GameSession {
    * the final HOH's open personal vote (no secret ballot exists), a stale ballot from a previous week must never attribute a
    * later break, and a PLAYER-wronged break keeps the full fold (nothing acts on the player's hidden read).
    */
-  private sealedBreak(wronged: EntityId, breaker: EntityId, kind: BindingAction["kind"]): boolean {
+  private sealedBreak(wronged: EntityId, breaker: EntityId, kind: BreakCause): boolean {
     return kind === "vote-evict" && breaker !== PLAYER && wronged !== PLAYER && this.live?.eviction?.voteOf?.[breaker] === wronged;
   }
 
@@ -13099,6 +13102,87 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * 0142 idea 4 - NPCs WEIGH BREAKING A DEAL. Once per open player-party deal per week (`Deal.weighedWeek`), in a PLAYED game only (headless seeded sims run none of this and stay byte-identical),
+   * with the deal-depth layer on, never while a ceremony step is open. Each promisor NPC weighs the temptation (their threat read of the player, a low bond, their own plan against the player including
+   * the agenda pull, the endgame) against the price of being known as a liar (house credibility B48, the reliable-reputation belief, their bond, their loyalty) - `dealTemptation.ts`. ONE roll from a
+   * SIDE stream keyed on (seed, deal, week) - never the shared streams - picks keep / quiet break / renegotiate. A quiet break goes through `DealLedger.breakDeliberately` (the ordinary fallout; the deal
+   * keeps projecting OPEN to the player; the event is Vault-held). A renegotiation becomes the standing NPC-initiated offer (the 0123 pattern) carrying `replacesDealId`. The WHY is recorded like every NPC
+   * decision (`decisionWhy` + `statedReasons`); a break's stated reason is never public, a renegotiation's is voiceable only while its (public) offer stands. The engine never narrates the break.
+   */
+  weighDealBreaks(): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || !this.dealDepthEnabled || !this.house || s.finished || s.hoh === undefined) return;
+    if (s.beat === "finale" || s.beat === "complete" || s.pending || ceremonyRef(s)) return;
+    const gone = new Set(s.evictionOrder);
+    if (gone.has(PLAYER)) return;
+    const living = this.house.npcs.map((n) => n.id).filter((id) => !gone.has(id));
+    const seed = this.gameSeed ?? 0;
+    const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
+    const open = this.deals.open().filter((d) => isWeighableKind(d.kind) && !d.packageId && !d.sealedBallot && d.parties.includes(PLAYER) && d.weighedWeek !== s.week);
+    for (const deal of open) {
+      const npc = deal.condition.promisors.find((p) => p !== PLAYER);
+      if (!npc || gone.has(npc) || !living.includes(npc)) continue;
+      if (renegotiatedKind(deal.kind) !== undefined && s.dealOffer) continue; // the one standing offer slot is taken: weigh this deal on a later beat
+      deal.weighedWeek = s.week;
+      const e = this.rel.edge(npc, PLAYER);
+      const others = living.filter((id) => id !== npc);
+      const cred = others.length ? others.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / others.length : 1;
+      const reliableShare = others.length && this.reliabilityReader ? others.filter((id) => this.reliabilityReader!(id).has(npc)).length / others.length : 0;
+      const w = weighDealBreak({
+        kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
+        ownPush: this.ownPushAgainstPlayer(npc), agendaPull: this.agendaPullOf(PLAYER, npc).value,
+        loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
+        credibility: cred, reliableShare, endgame,
+      });
+      const rng = new SeededRandom(hashSeed(`${seed}:deal-weigh:${deal.id}:${s.week}`));
+      const verdict = decideDealBreak(w, rng.next());
+      if (verdict === "keep") continue;
+      if (verdict === "renegotiate" && (renegotiatedKind(deal.kind) === undefined || s.dealOffer)) continue;
+      this.noteDealWeighing(npc, verdict === "break" ? "deal-break" : "deal-renegotiate", w);
+      if (verdict === "break") {
+        this.deals.breakDeliberately(deal, npc, {
+          rel: this.rel, rng, currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+          juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
+          revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+          // Vault-held: no player witness, so the event-visibility invariant keeps it hidden until a pathway or the 0048 unseal.
+          reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)}`, [breaker], "betrayal"),
+        });
+      } else {
+        const kind = renegotiatedKind(deal.kind)!;
+        const terms = "I would rather we swap our deal for a lighter one: I will vote to keep you safe at this week's eviction";
+        s.dealOffer = { id: `offer:${npc}:${s.week}`, from: npc, kind, terms, madeWeek: s.week, replacesDealId: deal.id };
+        s.lastDealOfferWeek = s.week;
+        this.onPlayerEvent?.(`${this.nameOf(npc)} pulls ${this.nameOf(PLAYER)} aside to ask to change their ${deal.kind} deal`, [PLAYER, npc], "conversation");
+      }
+      this.persist(); // deferred into the beat's ONE commit
+    }
+  }
+
+  /** 0142 idea 4: record WHY the NPC broke / asked to renegotiate - the named terms (`decisionWhy`) and the reason they would give aloud (`statedReasons`). A record only: no rng, no choice moves. Vault-class. */
+  private noteDealWeighing(npc: EntityId, kind: "deal-break" | "deal-renegotiate", w: ReturnType<typeof weighDealBreak>): void {
+    const s = this.live;
+    if (!s) return;
+    const t = w.terms;
+    const names = ["threat", "low-bond", "push", "agenda", "endgame", "credibility", "reliable-reputation", "bond", "loyalty"];
+    const vals = [t.threat, t.lowBond, t.push, t.agenda, t.endgame, -t.costCredibility, -t.costReliable, -t.costBond, -t.costLoyalty];
+    recordWhy(s, npc, { kind, options: [whyOption(PLAYER, "chosen", names, vals, sumVals(vals))] });
+    const agenda = s.agendas?.[npc];
+    const character = this.agendaCharacterOf(npc);
+    if (!agenda || !character) return;
+    const pull = this.agendaPullOf(PLAYER, npc);
+    const real: RealReason = {
+      decision: kind, decider: npc, choice: PLAYER,
+      ...(pull.value > 0 && pull.goalKind && pull.goalId ? { goalKind: pull.goalKind, goalId: pull.goalId } : {}),
+      terms: [
+        { name: "threat", value: t.threat }, { name: "goal", value: t.agenda }, { name: "bond", value: t.lowBond - t.costBond },
+        { name: "belief", value: -(t.costCredibility + t.costReliable) }, { name: "style", value: t.push + t.endgame - t.costLoyalty },
+      ].filter((x) => x.value !== 0).sort((a, b) => a.name.localeCompare(b.name)) as RealReason["terms"],
+    };
+    const day = s.dayNumber ?? s.week;
+    (s.statedReasons ??= []).push({ week: s.week, day, decider: npc, decision: kind, public: kind === "deal-renegotiate", real, stated: explainDecision(real, character, this.gameSeed ?? 0, day) });
+  }
+
+  /**
    * 0123 — the NPC->player deal OFFER (the counterpart of `makeDeal`). At a LULL a motivated houseguest
    * pulls the player aside and floats a deal, GROUNDED in their real read (a strong bond ⇒ a final-two ask;
    * otherwise a mutual-safety ask). Bounded: at most one open offer, at most one per in-game week, seeded +
@@ -13169,6 +13253,9 @@ export class GameSessionAdapter implements GameSession {
           [PLAYER, o.from], "deal",
         );
         this.deals.make([PLAYER, o.from], o.kind, o.terms, evId, o.madeWeek);
+        // 0142 idea 4: a renegotiation retires the deal it replaces, neutrally (both sides agreed to swap it; not kept, not broken, no fold).
+        const old = o.replacesDealId ? this.deals.all.find((d) => d.id === o.replacesDealId && d.status === "open") : undefined;
+        if (old) old.status = "lapsed";
       } else {
         this.onPlayerEvent?.(
           `${this.nameOf(PLAYER)} declines ${this.nameOf(o.from)}'s ${o.kind} offer`,
@@ -13230,6 +13317,7 @@ export class GameSessionAdapter implements GameSession {
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
+      ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
