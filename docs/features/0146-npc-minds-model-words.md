@@ -29,7 +29,18 @@ you never saw" (2026-11-12).
   spot nicknames and ritual names are PUBLIC (the narrator may use them once the player has been in the house when one happened).
   The running joke is public once the player has witnessed a scene where it came up.
 
-## Lane 3: the nightly reflection (per houseguest, during the sleep mull)
+## AMENDMENT 2026-11-13 (BDD Auditor): lanes 3 and 4 must not move secret state outward
+The utility model is called by the FRONT END, which is outward of the Vault Wall: any engine tool that hands it a houseguest's agenda,
+real reasons, memories or the truthfulness of what they said is on the player channel, so a client could call it and read motives
+(mandate 2; the 0070 texture lane reads Vault-free SKELETONS only, for exactly this reason). So:
+- **Lane 3 moves to the post-season retrospective** (slice 7, ORW-320), where unsealing is already sanctioned: after the winner is crowned,
+  the FE reads each houseguest's unsealed agenda history and writes their nightly reflections for every night they spent in the house.
+  The in-season "order nudge" is dropped: the engine's own nightly mull stays the only thing that moves commitment (engine decides).
+- **Lane 4 uses Vault-free skeletons only**, like 0070: actions, place, manner and participants' public facets; NEVER the goal, the real
+  reason or whether a line was true. The engine attaches the truth flag to the stored prose itself.
+The text below is kept for history; where it conflicts, this amendment wins.
+
+## Lane 3: the nightly reflection (per houseguest, during the sleep mull) - SUPERSEDED by the amendment above
 - **When:** inside the nightly `mullAgenda` (asleep: inner processing only, never scheming).
 - **Input:** that houseguest's agenda (their own goals and reasons), their memories, and today's events THEY witnessed or were told.
 - **Output:** `{ order: goalId[] (a permutation of their active goal ids), reflection: string <= 60 words, first person }`.
@@ -39,7 +50,7 @@ you never saw" (2026-11-12).
 ## Lane 4: wording for scenes that can reach the player
 - **Which scenes:** only off-screen scenes a pathway can later carry to the player (a participant may gossip about it, it was overheard,
   it feeds the recap of something the player learned, or the retrospective). Reuses the 0070 texture lane.
-- **Input:** the scene's structured record (actions, places, manners, who said what, truthful or not) and the participants' public facets.
+- **Input:** the scene's Vault-free skeleton (actions, places, manners) and the participants' public facets (amended 2026-11-13: never the goal, the real reason or the truth flag).
 - **Output:** 1-3 sentences, stored Vault on the event. It reaches the player only as a participant's retelling through a pathway (theme
   2), never as narration of the hidden scene.
 
@@ -47,7 +58,7 @@ you never saw" (2026-11-12).
 Ryne 2026-11-12: "who are these people really that I didn't see? Basically, I want that limited perspective to be broken in the season
 retrospective." The 0048 retrospective (already a sanctioned unsealing, post-season only) gains, per houseguest: their season aim and
 why, each goal in order (what they wanted, from when, how it ended), their real reasons next to what they SAID for each big decision
-(nominations, veto, votes, final HOH) with the lies marked, their long con if they ran one, and their nightly reflections. Same door, same
+(nominations, veto, votes, final HOH) with the lies marked, their long con if they ran one, and their nightly reflections (written HERE, after the crown, from the unsealed history: amendment 2026-11-13). Same door, same
 limits: only after the winner is crowned; never during play; never admin during play (producerVault excepted, as today).
 
 ## Cost (estimate; measured only with Ryne's OK on a capped run)
