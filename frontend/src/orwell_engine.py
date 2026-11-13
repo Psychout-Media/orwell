@@ -801,6 +801,12 @@ async def record_npc_traits(req: dict, user: str | None = None) -> dict:
     return await _call("recordNpcTraits", req, user=user)
 
 
+async def record_npc_reflections(req: dict, user: str | None = None) -> dict:
+    """ORW-320 (spec 0146 slice 7): write the post-crown nightly reflections BACK to the engine (``{"reflections": [{id, night, reflection}]}``). The engine
+    refuses until the season is finished, validates, and keeps the first record per houseguest-night. Returns ``{accepted, rejected, reason?}``."""
+    return await _call("recordNpcReflections", req, user=user)
+
+
 async def record_house_culture(req: dict, user: str | None = None) -> dict:
     """ORW-319 (spec 0146 lane 2): write the season's house culture (spots, rituals, a running joke) BACK to the engine (validated,
     write-once). Returns ``{accepted, reason?}``."""

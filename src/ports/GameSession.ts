@@ -2188,7 +2188,48 @@ export interface ProducerVaultView extends RetrospectiveView {
   agendas: AgendaDumpHouseguest[];
 }
 
+/**
+ * ORW-320 (ORW-253 slice 7, spec 0146 "the house you never saw"): one houseguest's real story, unsealed ONLY in the post-season retrospective
+ * (`RetrospectiveView.houseYouNeverSaw`, behind the `finished` gate). Plain sentences: names and days only, no weights, no raw ids.
+ */
+export interface HouseStoryGoal { horizon: "season" | "week"; aim: string; from: string; why: string[]; ended: string }
+export interface HouseStoryDecision {
+  week: number; day: number;
+  /** What they did, in words ("nominated <name>"). */
+  act: string;
+  /** The REAL reason: the goal and the strongest inputs. */
+  real: string;
+  /** What they SAID (the stated reason, in quotes). A secret ballot is stored but was never aired (`aired: false`). */
+  said: string;
+  aired: boolean;
+  /** `lie` = the line they gave was a cover story; `part-truth` = a softened version of the real reason. */
+  honesty: "truth" | "part-truth" | "lie";
+}
+export interface HouseStory {
+  houseguest: NamedRef;
+  /** The week they were sent out; absent for a finalist or the winner. */
+  leftWeek?: number;
+  seasonAim?: { aim: string; why: string[] };
+  goals: HouseStoryGoal[];
+  decisions: HouseStoryDecision[];
+  longCon?: { mark: string; from: string; plan: string; ended: string; why: string[] };
+  /** The nights (in-game days) this houseguest's story moved: the nights a reflection may be written for. */
+  reflectionNights: number[];
+  /** Their nightly reflections (first person), written after the crown by the utility model; empty until written (the engine invents none). */
+  reflections: Array<{ night: number; text: string }>;
+}
+
+/** ORW-320: the FE-driven post-crown write-back of nightly reflections (utility model; one houseguest-night each). Refused until the season is finished; write-once per houseguest-night. */
+export interface RecordNpcReflectionsReq { reflections: Array<{ id: EntityId; night: number; reflection: string }> }
+export interface RecordNpcReflectionsResult { accepted: number; rejected: number; reason?: string }
+
 export interface RetrospectiveView {
+  /**
+   * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
+   * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
+   * (`seasonRetrospective()`), never on the debug dump and never before the crown. Complete for an early evictee.
+   */
+  houseYouNeverSaw?: HouseStory[];
   winner: NamedRef | null;
   /**
    * 0115 — the player's OWN Diary-Room confessionals, in the order they recorded them: their side of
@@ -3075,6 +3116,8 @@ export interface GameSession {
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
   /** ORW-319: freeze each houseguest's model-read habits + season-aim hint (validated, write-once). Not a model lever. */
   recordNpcTraits(req: RecordNpcTraitsReq): RecordNpcTraitsResult;
+  /** ORW-320 (spec 0146 slice 7): freeze post-crown nightly reflections (refused until the season is finished; validated; write-once per houseguest-night). */
+  recordNpcReflections(req: RecordNpcReflectionsReq): RecordNpcReflectionsResult;
   /** ORW-319: freeze the season's house culture (validated, write-once). Not a model lever. */
   recordHouseCulture(req: RecordHouseCultureReq): RecordHouseCultureResult;
 

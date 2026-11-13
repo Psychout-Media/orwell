@@ -87,4 +87,13 @@ export function validateCulture(raw: unknown): HouseCulture | undefined {
 export interface NpcMindsAuthored {
   traits?: Record<EntityId, AuthoredTraits>;
   culture?: HouseCulture;
+  /** ORW-320: nightly reflections written AFTER the crown (first person, <= 60 words), write-once per houseguest-night. Vault-class: read only by the post-season retrospective. */
+  reflections?: Record<EntityId, Array<{ night: number; text: string }>>;
+}
+
+/** ORW-320: validate one reflection's text: a clean sentence run, <= 60 words, no engine id, no number-heavy text. Undefined when unusable. */
+export function validateReflection(raw: unknown): string | undefined {
+  const t = cleanText(raw, 480);
+  if (!t) return undefined;
+  return t.split(/\s+/).length > 60 ? undefined : t;
 }

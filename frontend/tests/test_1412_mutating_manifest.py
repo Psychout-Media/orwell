@@ -75,7 +75,7 @@ READ_ONLY_TOOLS = frozenset({
     # which an engine-only PR skips — the lever-drift trap — so it landed latent on main until an
     # FE-touching PR ran fe-unit.)
     "recordCastGenesis",
-    "recordWorldSnapshot", "recordNpcTraits", "recordHouseCulture", "recordDaySummary", "dayLedger", "recordOffscreenSceneTexture", "recordCompetitionFiction",
+    "recordWorldSnapshot", "recordNpcTraits", "recordNpcReflections", "recordHouseCulture", "recordDaySummary", "dayLedger", "recordOffscreenSceneTexture", "recordCompetitionFiction",
     # #1626 (increment 3): `recordProducerProfile` is an FE-driven write-back that DEEPENS the
     # OFF-CAMERA producer persona — it moves only the seeded producer's public voice prose, which
     # the status HUD never renders — NOT a HUD-mutating lever, exactly like its sibling

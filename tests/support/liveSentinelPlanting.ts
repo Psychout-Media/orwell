@@ -102,6 +102,10 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
     real: { decision: "nominate", decider: holder0, choice: npcs[1]!.id, goalKind: "get-them-out", goalId: goalIdTag, terms: [{ name: termTag as never, value: 0.9 }], tactic: "direct" },
     stated: { kind: "nothing-personal", about: npcs[1]!.id, candor: "cover" },
   });
+  // (1c-4) ORW-320 - the post-crown nightly reflections (`live.npcMindsAuthored.reflections`, Vault-class): a planted reflection must reach NO surface before the crown (the retrospective is the only reader, behind `finished`).
+  const reflectionTag = mk("reflection");
+  ((live.npcMindsAuthored ??= {}).reflections ??= {})[npcs[0]!.id] = [{ night: 1, text: reflectionTag }];
+
   // (1c-4) 0142 idea 4 - an NPC that WEIGHED breaking a deal: the temptation terms (a term NAME + a goal id) ride a `deal-break` why/stated record (never public, never voiced) and a `deal-renegotiate`
   // stated record (public while its offer stands: only its kind + subject may be voiced). The real reason, the goal and the terms are Vault-class and must reach no player, prompt or admin surface.
   const breakTerm = mk("dealbreakterm");
@@ -205,6 +209,8 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "recordWorldSnapshot": return { slices: {} };
     // ORW-319: the cast-time model-words write-backs (validated closed sets, write-once; bare counts/status out).
     case "recordNpcTraits": return { traits: [{ id: npc(1), habits: ["gym-rat", "early-riser"], aimHint: "win-by-comps", aimWhy: "a former sprinter" }] };
+    // ORW-320: a post-crown write-back; mid-season the engine refuses it (nothing stored, bare counts out).
+    case "recordNpcReflections": return { reflections: [{ id: npc(1), night: 1, reflection: "I lay awake thinking about the week." }] };
     case "recordHouseCulture": return { spots: [{ room: "backyard", nickname: "the Deck" }], runningJoke: "the missing spatula" };
     case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };

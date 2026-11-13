@@ -5616,6 +5616,9 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
         res = await orwell_engine.season_retrospective(user=owner)
         if res is None:
             return {"output": "The Vault stays sealed: the season is still live. It opens only after a winner is crowned.", "exit_code": 0}
+        # ORW-320: "the house you never saw" is the retrospective WINDOW's per-houseguest story (long); it stays off the host model's context.
+        if isinstance(res, dict):
+            res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

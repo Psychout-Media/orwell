@@ -14,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -89,11 +89,12 @@ import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } fr
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
-import { validateTraits, validateCulture } from "../../engine/npcMindsAuthored";
+import { validateTraits, validateCulture, validateReflection } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
 import { agendaDumpRows } from "../../engine/agendaDump";
+import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
 import { memoryLine, fillSubject, appraiseGoal, mayShareCause } from "../../engine/innerLife";
@@ -3779,7 +3780,22 @@ export class GameSessionAdapter implements GameSession {
    */
   seasonRetrospective(): RetrospectiveView | null {
     if (!this.live?.finished) return null; // the structural gate: no finished season, no unsealing
-    return this.buildVaultUnseal();
+    // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
+    const houseYouNeverSaw = this.houseStories();
+    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}) };
+  }
+
+  /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
+  private houseStories(): HouseStory[] {
+    const live = this.live;
+    if (!live?.finished || !this.house) return [];
+    const leftWeek = new Map<EntityId, number>();
+    for (const r of live.voteRecord ?? []) leftWeek.set(r.evictee, r.week);
+    return buildHouseStories({
+      agendas: live.agendas, statedReasons: live.statedReasons, owners: this.house.npcs.map((n) => n.id).sort(), leftWeek,
+      authored: live.npcMindsAuthored?.traits, reflections: live.npcMindsAuthored?.reflections,
+      nameOf: (id) => this.nameOf(id), scrub: (t) => this.retroScrub(t),
+    });
   }
 
   /**
@@ -3792,7 +3808,7 @@ export class GameSessionAdapter implements GameSession {
    */
   producerVaultDump(): ProducerVaultView | null {
     if (!this.live) return null;
-    // ORW-313: the agendas (goals, reasons, history) ride THIS dump only - the owner-ruled DEBUG door - never the post-season retrospective (`seasonRetrospective` reuses `buildVaultUnseal` WITHOUT them).
+    // ORW-313: the RAW agenda rows ride THIS dump (the owner-ruled DEBUG door). ORW-320: the post-season retrospective now carries its own readable per-houseguest `houseYouNeverSaw` (built by `seasonRetrospective`, behind the `finished` gate; never this dump).
     return { ...this.buildVaultUnseal(), agendas: agendaDumpRows(this.live.agendas, (id) => this.nameOf(id), (t) => this.retroScrub(t)) };
   }
 
@@ -14139,6 +14155,27 @@ export class GameSessionAdapter implements GameSession {
     for (const t of req.traits ?? []) {
       const v = npcIds.has(t?.id) && traits[t.id] === undefined ? validateTraits(t) : undefined;
       if (v) { traits[t.id] = v; accepted++; } else rejected++;
+    }
+    if (accepted > 0) this.backgroundPersist();
+    return { accepted, rejected };
+  }
+
+  /**
+   * ORW-320 (spec 0146 slice 7, amendment 2026-11-13): freeze the nightly reflections the FE wrote AFTER the crown from each houseguest's own unsealed story.
+   * Refused (nothing stored) until the season is finished; only a night in that houseguest's `reflectionNights` is accepted; text validated (first-person prose,
+   * <= 60 words, no engine id); a houseguest-night's FIRST accepted reflection is kept (write-once). Bare counts out, never the stored text.
+   */
+  recordNpcReflections(req: RecordNpcReflectionsReq): RecordNpcReflectionsResult {
+    const n = Array.isArray(req?.reflections) ? req.reflections.length : 0;
+    if (!this.house || !this.live) return { accepted: 0, rejected: n, reason: "no-game" };
+    if (!this.live.finished) return { accepted: 0, rejected: n, reason: "not-finished" };
+    const nights = new Map(this.houseStories().map((h) => [h.houseguest.id, new Set(h.reflectionNights)]));
+    const store = ((this.live.npcMindsAuthored ??= {}).reflections ??= {});
+    let accepted = 0, rejected = 0;
+    for (const r of req.reflections) {
+      const text = validateReflection(r?.reflection);
+      const mine = store[r?.id];
+      if (text && nights.get(r.id)?.has(r.night) && !mine?.some((x) => x.night === r.night)) { (store[r.id] ??= []).push({ night: r.night, text }); accepted++; } else rejected++;
     }
     if (accepted > 0) this.backgroundPersist();
     return { accepted, rejected };
