@@ -3777,6 +3777,12 @@ async def _scene_check_gate(owner, ids, kind, content, consequence, present_ids,
         if present_ids is not None:
             present = {i for i in present_ids if isinstance(i, str)}
         else:  # the presence read failed: fail OPEN on presence (everything the proposal names counts as in the room)
+            try:  # #1599: a fail-open is never silent - it is a RED soft failure
+                from src import log_rings as _lr_sc
+                _lr_sc.record_soft_failure("scene-check:presence-read-failed", RuntimeError("presence read failed"),
+                                           corrected="the gate treats every named id as present (records as today)", user=owner)
+            except Exception:  # failsoft-ok: recorder-self
+                pass
             present = set(ids) | {e.get(f) for k, f in (("edges", "toward"), ("aboutEdges", "holder"))
                                   for e in ((consequence or {}).get(k) or []) if isinstance(e, dict)}
             present = {i for i in present if isinstance(i, str)}
@@ -3784,7 +3790,12 @@ async def _scene_check_gate(owner, ids, kind, content, consequence, present_ids,
                 "known_ids": sorted(i for i in valid if isinstance(i, str)), "asleep": asleep, "pending": pend or None}
         act = "go-to-bed" if _player_means_going_to_bed(last_user) else "talk"
         return _sp.gate_scene_record(ids, kind, content, consequence, view, act)
-    except Exception:
+    except Exception as _sc_err:
+        try:  # #1599: a fail-open is never silent - it is a RED soft failure
+            from src import log_rings as _lr_sc2
+            _lr_sc2.record_soft_failure("scene-check:gate-failed", _sc_err, corrected="the scene is recorded as today (no gate)", user=owner)
+        except Exception:  # failsoft-ok: recorder-self
+            pass
         return None
 
 

@@ -213,6 +213,40 @@ def test_a_state_read_failure_fails_open(monkeypatch):
     assert env.writes[0][1]["with_ids"] == ["npc:1", "npc:2"] and env.belts == []
 
 
+def _soft_failures(monkeypatch):
+    from src import log_rings
+    seen = []
+    monkeypatch.setattr(log_rings, "record_soft_failure", lambda cls, exc, **k: seen.append(cls))
+    return seen
+
+
+def test_a_state_read_failure_is_a_red_soft_failure_not_a_silent_fail_open(monkeypatch):
+    """Coordinator review of #2590 (the #1599 rule): a fail-open is never silent."""
+    seen = _soft_failures(monkeypatch)
+    env = Env(monkeypatch, state_error=True)
+    assert env.record(clean(withIds=["npc:1", "npc:2"])) is True          # still records as today
+    assert "scene-check:gate-failed" in seen
+
+
+def test_a_failed_presence_read_is_a_red_soft_failure(monkeypatch):
+    seen = _soft_failures(monkeypatch)
+    env = Env(monkeypatch)
+
+    async def whereabouts_down(user=None):
+        raise RuntimeError("engine down")
+
+    monkeypatch.setattr(al.__dict__.get("_oe", None) or __import__("src.orwell_engine", fromlist=["x"]), "whereabouts", whereabouts_down)
+    env.record(clean(withIds=["npc:1"]))
+    assert "scene-check:presence-read-failed" in seen
+
+
+def test_a_healthy_gate_records_no_soft_failure(monkeypatch):
+    seen = _soft_failures(monkeypatch)
+    env = Env(monkeypatch)
+    assert env.record(clean(withIds=["npc:1"])) is True
+    assert not [c for c in seen if c.startswith("scene-check")]
+
+
 def test_the_gate_only_trims_never_adds():
     view = {"present": ["npc:1", "npc:2"], "awake": ["npc:1"], "known_ids": ["npc:1", "npc:2", "npc:3"], "asleep": ["npc:2"]}
     g = sp.gate_scene_record(["npc:1", "npc:2", "npc:3"], "bonding", "Fine.", {"edges": [{"toward": "npc:1", "direction": "warmer"}]}, view)
