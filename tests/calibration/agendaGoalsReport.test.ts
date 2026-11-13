@@ -1,6 +1,7 @@
 import { describe, it } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { playSeason } from "../support/agendaSeasonDriver";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { resolvePending } from "../../features/support/answerPending";
 
 /**
  * ORW-314 - REPORT, NOT A GATE (Ryne 2026-11-05/06: "I am not worried about the balance tests. Only CI."). Plays N paired PLAYED seasons (same seeds) with the NPC agendas' pull on decisions
@@ -13,12 +14,27 @@ const N = Number.parseInt(process.env.ORWELL_AGENDA_REPORT_SEEDS ?? "24", 10);
 const START = Number.parseInt(process.env.ORWELL_AGENDA_REPORT_START ?? "1", 10);
 const proto = GameSessionAdapter.prototype as unknown as Record<string, unknown>;
 interface Row { seed: number; winner?: string; order: string[]; finalTwo: string[]; playerOut: number | null; jury: string[]; finished: boolean }
-const rowOf = (seed: number): Row => {
-  const r = playSeason(seed);
-  const l = r.s.snapshot().live as unknown as { winner?: string; evictionOrder: string[]; finalTwo?: string[]; jury?: string[] };
+/** One played season, headless: ceremonies on schedule, the player turning in at night, a pending answered by the standard resolver. (The shared `playSeason` driver stalls at a twist reveal with no day schedule; this one advances there.) */
+function rowOf(seed: number): Row {
+  GameSessionAdapter.setTimeOfDayEnabled(true);
+  const s = new GameSessionRegistry().sandboxFor(`agenda-report-${seed}-${Math.random()}`).session as GameSessionAdapter;
+  s.createCharacter({ playerName: "P", seed });
+  s.setPerConversationClockEnabled(true);
+  type L = { nightDepth?: number; finished?: boolean; timeOfDay?: string; pending?: unknown; winner?: string; evictionOrder: string[]; finalTwo?: string[]; jury?: string[] };
+  const live = (): L => (s as unknown as { live: L }).live;
+  for (let i = 0; i < 80 && live().nightDepth === undefined; i++) s.advanceGame();
+  s.noteMessage({ messageId: "agenda-report-0" });
+  for (let step = 0; step < 40_000 && !live().finished; step++) {
+    const l = live();
+    const d = (s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule;
+    if (d?.due || !d || l.pending) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); }
+    else if (l.timeOfDay === "night" || l.timeOfDay === "late-night") { const r = s.turnIn({}) as { held?: unknown } | undefined; if (!r?.held) s.settleOvernight(1); }
+    else s.advanceClockPerConversation();
+  }
+  const l = live();
   const idx = l.evictionOrder.indexOf("player");
-  return { seed, ...(l.winner ? { winner: l.winner } : {}), order: [...l.evictionOrder], finalTwo: [...(l.finalTwo ?? [])], playerOut: idx >= 0 ? idx + 1 : null, jury: [...(l.jury ?? [])], finished: r.finished };
-};
+  return { seed, ...(l.winner ? { winner: l.winner } : {}), order: [...l.evictionOrder], finalTwo: [...(l.finalTwo ?? [])], playerOut: idx >= 0 ? idx + 1 : null, jury: [...(l.jury ?? [])], finished: l.finished === true };
+}
 const pct = (k: number, n: number): string => `${((100 * k) / n).toFixed(0)}%`;
 function summary(rows: Row[]): string {
   const n = rows.length;
