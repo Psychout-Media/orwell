@@ -86,6 +86,7 @@ import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda } from "../../engine/agenda";
+import { memoryLine, fillSubject } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
 import type { EvictionManner } from "../../engine/jury";
 import type { NarrativePort } from "../../ports/NarrativePort";
@@ -2816,6 +2817,26 @@ export class GameSessionAdapter implements GameSession {
     this.bringUp.set(id, state);
     return { rememberedAboutYou: facts, ...(bring ? { bringUp: true as const } : {}) };
   }
+  /** ORW-317: memory kinds whose underlying fact the WHOLE HOUSE saw (ceremonies), so a houseguest voicing one surfaces nothing hidden. */
+  private static readonly PUBLIC_MEMORY_KINDS: ReadonlySet<MemoryKind> = new Set<MemoryKind>(["nominated-by-friend", "replaced-by-friend", "veto-saved", "veto-withheld", "nominated-by-hoh"]);
+  /**
+   * ORW-317 (ORW-253 slice 4, Ryne approved 2026-11-12): the houseguest's live PUBLIC-FACT memories of the other houseguests present (not the player - that is
+   * `rememberedAboutYou`), as `innerLife.memoryLine` sentences in the first person with the public name filled, strongest first, up to MEMORY_SPEECH.top.
+   */
+  private memoryAboutOthersFor(id: EntityId, presentIds: readonly EntityId[]): { rememberedAboutOthers?: string[] } {
+    const live = this.live;
+    const mine = live?.npcMemory?.[id];
+    if (!live || !mine) return {};
+    const M = GameSessionAdapter.MEMORY_SPEECH;
+    const half = NPC_MEMORY.halfLifeWeeks;
+    const when = (age: number): string => (age <= 0 ? "this week" : age <= 2 ? "recently" : "a while back");
+    const scored = presentIds.filter((o) => o !== PLAYER).flatMap((o) => (mine[o] ?? [])
+      .filter((e) => GameSessionAdapter.PUBLIC_MEMORY_KINDS.has(e.kind))
+      .map((e) => ({ o, e, w: e.severity * Math.pow(0.5, Math.max(0, live.week - e.week) / half) })))
+      .filter((x) => x.w >= M.floor).sort((a, b) => b.w - a.w || a.o.localeCompare(b.o));
+    if (scored.length === 0) return {};
+    return { rememberedAboutOthers: scored.slice(0, M.top).map((x) => `${fillSubject(memoryLine(x.e.kind).aboutThem, this.nameOf(x.o))} (${when(live.week - x.e.week)})`) };
+  }
   setNpcTellsEnabled(on: boolean): void { this.npcTellsEnabled = on; }
   /** Present in the player's room and awake - the only houseguests whose carriage the player can observe. */
   private tellsVisibleFor(id: EntityId): boolean {
@@ -2905,6 +2926,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.npcTellsEnabled && isActive && this.tellsVisibleFor(id) ? this.tellsFor(id) : {}),
       // A54 (ORWELL_NPC_MEMORY_SPEECH + the memory ledger, default OFF): what an ACTIVE houseguest remembers about the player. Flag off => no key.
       ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memorySpeechFor(id) : {}),
+      // ORW-317 (ORW-253 slice 4): what they hold about OTHERS in the room - public-fact memories only (the house saw them), names filled.
+      ...(this.npcMemorySpeechEnabled && this.npcMemoryEnabled && isActive ? this.memoryAboutOthersFor(id, present.map((p) => p.id)) : {}),
       whereabouts: room ? { room, present } : null,
       knows: (this.npcKnowledge?.known(id) ?? [])
         .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
