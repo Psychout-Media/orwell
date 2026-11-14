@@ -15,7 +15,7 @@ import { ALLIANCE } from "../../src/engine/alliances";
 type S = {
   livingIds(): EntityId[];
   live: { week: number; playedGame?: boolean; pitched?: Record<string, number>; agendas?: Record<string, { goals: Goal[]; history: Goal[] }> };
-  alliances: { all(): ReadonlyArray<{ id: string; members: EntityId[]; founder: EntityId }>; add(n: string, f: EntityId, m: EntityId[], b: number): { id: string }; load(rows: readonly never[]): void };
+  alliances: { all(): ReadonlyArray<{ id: string; members: EntityId[]; founder: EntityId }>; add(n: string, f: EntityId, m: EntityId[], b: number): { id: string }; load(rows: readonly never[]): void; removeMember(id: string, who: EntityId): void };
   drives: Map<EntityId, unknown>;
   rel: { edge(a: EntityId, b: EntityId): { trust: number; affinity: number } };
   formNpcAlliances(rng: SeededRandom): void;
@@ -105,5 +105,21 @@ describe("an aim to build alliances founds one (ORW-341)", () => {
     b.give(b.goal("last-alliance-standing", b.holder)); // the aim, but nobody is bonded enough
     b.s.formNpcAlliances(b.rng());
     expect(b.s.alliances.all().length).toBe(0);
+  });
+});
+
+describe("the house has room for only so many alliances (the ORW-341 retune)", () => {
+  it("with the house full of alliances an agenda goal forms no new one; when one dissolves it can", async () => {
+    const { s, holder, target, third, bond, goal, give, rng } = await setup();
+    const others = s.livingIds().filter((i) => i !== PLAYER && i !== holder && i !== target && i !== third);
+    s.alliances.add("Full One", others[0]!, [others[0]!, others[1]!], 1);
+    const second = s.alliances.add("Full Two", others[2]!, [others[2]!, others[3]!], 1);
+    expect(s.alliances.all().length).toBe(ALLIANCE.agendaMaxLive);
+    bond(holder, target, 0.7); give(goal("pull-them-in", holder, target));
+    s.formNpcAlliances(rng());
+    expect(allied(s, holder, target), "no room: the goal does not form one").toBe(false);
+    s.alliances.removeMember(second.id, others[2]!); // a member leaves: that alliance dissolves
+    s.formNpcAlliances(rng());
+    expect(allied(s, holder, target), "room again: it does").toBe(true);
   });
 });
