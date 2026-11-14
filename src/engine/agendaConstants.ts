@@ -78,6 +78,9 @@ export const AGENDA = {
   weekGoalFloor: 0.3,
   /** Week goals held at once (the strongest first). Not a scarcity cap on play: a person pursues a few things a week, not everything. */
   weekGoalSlots: 3,
+  /** ORW-350: of those slots, at most this many may be "get them out". Every houseguest with a few threat reads filled all three with it (26 get-them-out goals among 15 houseguests by week 2), and each of its moves is scheming, so the
+   *  other things a week is for (a bond to build, a friend to protect, power to win) never got a slot. */
+  weekGetThemOutMax: 1,
   /** A threat read at/above this makes "get them out" a candidate goal (same scale as the campaign threshold). */
   targetThreat: 0.55,
   /** An affinity at/above this makes "pull them in" (or "protect them") a candidate. */
