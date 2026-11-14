@@ -6,7 +6,7 @@ import { FakeClock } from "../../src/adapters/time/FakeClock";
 /**
  * ORW-325 / 0135 - the Traitors' Fury flag must not change the season. The same seed played with the flag ON and OFF must crown the same winner with the same finalists and the same jury tally.
  * Two leaks used to break this on about 1 seed in 4 (BDD 0135 lines 13 and 20): the blame beliefs (and their diffused copies) were candidates of the generic co-presence gossip spread, and the blame
- * diffusion's own hidden events shifted the event-count the co-presence rolls are keyed on. Seed 16 diverged before the fix; 1, 2, 3 and 16 are neutral now. NOT neutral yet under this (shipping-like) profile: seeds 7 and 8, which ORW-325 keeps open (the BDD config pins philosophies and calm presence off, which hides seed 7). Roles only.
+ * diffusion's own hidden events shifted the event-count the co-presence rolls are keyed on. Seed 16 diverged before the fix, and 7 and 8 stayed divergent until the per-purpose rng streams (ORW-334, #2607) took the co-presence rolls off the event count: 2026-11-14, seeds 1-30 are all neutral under this (shipping-like) profile, and the BDD profile too. Roles only.
  */
 function playSeason(fury: boolean, seed: number) {
   const reg = new GameSessionRegistry();
@@ -37,7 +37,7 @@ function playSeason(fury: boolean, seed: number) {
 }
 
 describe("ORW-325 - the Traitors' Fury flag is outcome-neutral", () => {
-  for (const seed of [1, 2, 3, 16]) {
+  for (const seed of Array.from({ length: 30 }, (_, i) => i + 1)) {
     it(`seed ${seed}: the same winner, finalists and jury tally with the flag on and off`, () => {
       const on = playSeason(true, seed).snapshot().live!;
       const off = playSeason(false, seed).snapshot().live!;
