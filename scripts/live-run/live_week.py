@@ -49,9 +49,9 @@ class Week(Chat):
         elif "nominat" in title and len(opts) > 1: pick = [0, 1]
         else:
             for i, o in enumerate(opts):
+                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour). Checked FIRST: "Keep watching" used to win and the run sat in Watch mode
                 if re.search(r"(?i)\bcompete\b", o): pick = [i]; break
                 if re.search(r"(?i)do not use|don'?t use|not use|keep", o): pick = [i]; break
-                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour)
         btns = self.page.query_selector_all("#orwell-decision-card .odec-opt")
         for i in pick:
             if i < len(btns): btns[i].click(); self.page.wait_for_timeout(150)
