@@ -1619,6 +1619,20 @@ function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]):
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
+/** ORW-349: the items of one houseguest's knowledge as the TERMINAL restatement shows them: neutralized, exact repeats dropped (first kept, order kept), truncated overhear snatches dropped. */
+export function terminalKnowledgeItems(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    if (/^\(overheard, muffled\)/i.test(raw.trim()) && raw.trim().endsWith("…")) continue;
+    const t = neutralizeForPrompt(raw);
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1658,10 +1672,16 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
         "never a fact nobody here holds):",
     );
     for (const e of pk) {
+      // ORW-349: this terminal block RESTATES what GAME CONTEXT already carries in full ("WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS"), so it is trimmed of what adds nothing: an exact repeat within one houseguest, and the
+      // truncated "(overheard, muffled) <fragment>…" snatches (about a third of this block by Day 6). The full list, and so the ceiling of what each NPC may voice, is unchanged in GAME CONTEXT.
+      const knows = terminalKnowledgeItems(e.knows);
+      const suspects = terminalKnowledgeItems(e.suspects);
       const bits: string[] = [];
-      if (e.knows.length) bits.push(`knows: ${e.knows.map((k) => neutralizeForPrompt(k)).join("; ")}`);
-      if (e.suspects.length) bits.push(`suspects (a hunch): ${e.suspects.map((s) => neutralizeForPrompt(s)).join("; ")}`);
-      if (bits.length) lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
+      if (knows.length) bits.push(`knows: ${knows.join("; ")}`);
+      if (suspects.length) bits.push(`suspects (a hunch): ${suspects.join("; ")}`);
+      // Everything they hold was a muffled snatch: keep their line (an absent line reads as "knows nothing") and point at the full one.
+      if (!bits.length) bits.push("knows only muffled snatches (the full list is in GAME CONTEXT above)");
+      lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }
   // A-15 (rehearsal 2026-11-03): the committed BOARD, last in the terminal block (nearest generation). In the ceremony phases the
