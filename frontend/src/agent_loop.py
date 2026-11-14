@@ -1846,6 +1846,21 @@ _BEDTIME_DIRECT_NOTE = (
     "Voice the night passing and the new morning ONLY from that result and the current game context - never invent what it did not hand you, and do not call turnIn again.")
 
 
+def _bedtime_direct_note(turn_in_output) -> str:
+    """ORW-355 - `_BEDTIME_DIRECT_NOTE` plus the engine's own clock from the turnIn result: an EVENING bed wakes the player at bed+8h (e.g. 4:15am), not at 8am, so the narrator must voice THAT hour, never a
+    morning the clock has not reached. No readable clock => the plain note (byte-identical)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else data
+        lab = st.get("clockLabel") if isinstance(st, dict) else None
+        if isinstance(lab, str) and lab.strip():
+            return (_BEDTIME_DIRECT_NOTE + f" The engine clock now reads {lab.strip()}: if you name a time use exactly that; if it is before 7am it is still the dark small hours with the house asleep - "
+                    "never say morning has come or name any other hour.")
+    except Exception:
+        pass
+    return _BEDTIME_DIRECT_NOTE
+
+
 def _bedtime_board_allows(status) -> bool:
     """ORW-310 — the board lets the player turn in: a started game, the clock running and in a deep-night
     band, and NO open player pending. (After a turnIn the clock reads morning, so 'already asleep' is the
@@ -5540,7 +5555,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._text_mentions_evicted_houseguest(owner, text)
                 and not chat_helpers._sentence_has_nominee_status(text)
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
-                and not chat_helpers._sentence_has_unbacked_morning_claim(text)):
+                and not chat_helpers._sentence_has_unbacked_morning_claim(text)
+                and not chat_helpers._sentence_has_in_the_clock_claim(text)):
             return text
     except Exception:
         return text
@@ -5583,6 +5599,10 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # `turnIn`; DROP the phantom morning before emission and re-ground next turn.
             if chat_helpers._sentence_has_unbacked_morning_claim(part):
                 if not await chat_helpers.screen_streamed_unbacked_morning(owner, part):
+                    continue
+            # ORW-355: "It's 8:15 in the morning" while the engine clock reads 4:15am - DROP the false clock before emission.
+            if chat_helpers._sentence_has_in_the_clock_claim(part):
+                if not await chat_helpers.screen_streamed_clock_time(owner, part):
                     continue
         except Exception:
             pass  # any screening hiccup falls through to emit (conservatism)
@@ -8374,7 +8394,7 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "assistant", "content": None, "tool_calls": [
                                     {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
                                 messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bt_out}\n```"})
-                                messages.append({"role": "system", "content": _BEDTIME_DIRECT_NOTE})
+                                messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out)})
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
                                 logger.info(f"[orwell] ORW-310b ran the player's turnIn directly (rejecter model) round={round_num} user={_force_owner}")
