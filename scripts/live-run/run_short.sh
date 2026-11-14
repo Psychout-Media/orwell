@@ -4,22 +4,23 @@
 #   run_short.sh [--if-new] [REF]      --if-new: do nothing if this exact sha was already run (so a watcher can call it after every dev update)
 # One run at a time (flock on the rig lock). Reads the narrator key only inside the kit's stage script; never prints it. Extra branches: MERGE_BRANCHES / MERGE_PR as the kit.
 set -uo pipefail
-KIT=${ORWELL_KIT:-/home/ryne/orwell-playtest/rehearsal-kit}; HERE=$(cd "$(dirname "$0")" && pwd); STATE=${ORWELL_LIVE_STATE:-/home/ryne/orwell-playtest/live-short}; mkdir -p "$STATE"
+HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"   # RIG_SLOT (default 1) picks the rig: ports, lock, worktree, run pointer
+STATE=$RIG_STATE_DIR; mkdir -p "$STATE"
 IF_NEW=0; [ "${1:-}" = "--if-new" ] && { IF_NEW=1; shift; }; REF=${1:-main}
-exec 9>"$STATE/rig.lock"; flock -n 9 || { echo "LIVE-SHORT BUSY (another live run holds the rig)"; exit 3; }
+exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SHORT BUSY (another live run holds rig slot $RIG_SLOT)"; exit 3; }
 git -C /home/ryne/orwell fetch -q origin "$REF" || { echo "LIVE-SHORT COULD-NOT-RUN fetch failed"; exit 2; }
 SHA=$(git -C /home/ryne/orwell rev-parse --short=8 "origin/$REF")
-[ "$IF_NEW" = 1 ] && [ "$(cat "$STATE/last-sha" 2>/dev/null)" = "$SHA" ] && { echo "LIVE-SHORT SKIPPED $SHA (already run)"; exit 0; }
-if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage.log" 2>&1; then echo "LIVE-SHORT COULD-NOT-RUN $SHA stage failed (see $STATE/stage.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
-RUN=$(cat /tmp/claude-1000/a11_run)
-python3 - <<'P' || { echo "LIVE-SHORT COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
+[ "$IF_NEW" = 1 ] && [ "$(cat "$STATE/last-sha$RIG_SUFFIX" 2>/dev/null)" = "$SHA" ] && { echo "LIVE-SHORT SKIPPED $SHA (already run)"; exit 0; }
+if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then echo "LIVE-SHORT COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
+RUN=$(cat $RIG_RUN_PTR)
+python3 - <<P || { echo "LIVE-SHORT COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
 import json
-f="/home/ryne/orwell-rehearsal/frontend/data/settings.json"; d=json.load(open(f)); d["image_gen_enabled"]=False; json.dump(d,open(f,"w"))
+f="$WT/frontend/data/settings.json"; d=json.load(open(f)); d["image_gen_enabled"]=False; json.dump(d,open(f,"w"))
 P
 TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
 PY=${ORWELL_PY:-/home/ryne/orwell/frontend/.venv/bin/python3}
-"$PY" "$HERE/live_short.py" --run-dir "$RUN" > "$RUN/live_short.out" 2>&1; RC=$?
+"$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" > "$RUN/live_short.out" 2>&1; RC=$?
 "$KIT/stop.sh" >/dev/null 2>&1
-echo "$SHA" > "$STATE/last-sha"; cp "$RUN/report.md" "$STATE/last-report.md" 2>/dev/null
+echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"; cp "$RUN/report.md" "$STATE/last-report$RIG_SUFFIX.md" 2>/dev/null
 case $RC in 0) V=PASS;; 1) V=FAIL;; *) V=COULD-NOT-RUN;; esac
 echo "LIVE-SHORT $V $SHA $RUN/report.md"; exit $RC

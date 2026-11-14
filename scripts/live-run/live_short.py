@@ -5,13 +5,14 @@ Plays a real game through the real chat UI (headless Chromium) and, between play
 calls the player's turn-in / time-passing make) so a few messages reach the veto morning of Week 1. Every turn is compared with ENGINE TRUTH and scored against
 the pass bar in README.md. Writes report.md + report.json into the run dir and exits 0 (PASS) / 1 (FAIL) / 2 (could not run).
 
-  python3 live_short.py --run-dir DIR [--fe http://127.0.0.1:17000] [--engine http://127.0.0.1:18765] [--token rehlocal]
+  python3 live_short.py --run-dir DIR [--fe URL] [--engine URL]   (default: the rig slot's own, RIG_BASE / RIG_ENGINE_URL; slot 1 when unset) [--token rehlocal]
 
 The rig (engine + FE, fresh data, real narrator key, images OFF) is staged by the kit's stage script; this file never reads or prints a key. Roles only, no
 cast names are hard-coded: whatever the cast is, the checks read it from the engine.
 """
 from __future__ import annotations
 
+import os
 import argparse, json, re, sys, time, urllib.request
 
 CAST_LINES = [
@@ -148,8 +149,8 @@ class Chat:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default="http://127.0.0.1:17000")
-    ap.add_argument("--engine", default="http://127.0.0.1:18765"); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
+    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
     a = ap.parse_args()
