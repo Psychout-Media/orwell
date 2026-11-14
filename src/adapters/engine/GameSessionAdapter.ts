@@ -342,7 +342,7 @@ import {
   type ShowrunnerNote, type ThreadSignal,
 } from "../../engine/showrunner";
 import { SHOWRUNNER } from "../../engine/showrunnerConstants";
-import { derivedLoyalty } from "../../engine/blocs";
+import { derivedLoyalty, cohesionOf, mutualBond } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
@@ -9362,6 +9362,7 @@ export class GameSessionAdapter implements GameSession {
     this.drives = nextDrives;
     // 0107 Phase B: NPCs name alliances off-screen + pitch the player (gated by campaignsEnabled ⇒ the
     // passive calibration harness forms none ⇒ the cement provider stays 0 ⇒ juryReach byte-identical).
+    this.fadeAlliances();
     this.formNpcAlliances(rng);
   }
 
@@ -9372,6 +9373,22 @@ export class GameSessionAdapter implements GameSession {
    * can accept via `joinAlliance`). Bounded: at most ONE new alliance per tick, one foundership per NPC,
    * deduped by member set. Uses the dedicated campaign rng (seeded). Gated by `campaignTick`'s flag.
    */
+  /**
+   * ORW-353: an alliance that has not held together fades. Its cohesion is the BLOC measure (`cohesionOf` in blocs.ts: the weakest mutual bond among its members, from the same bond read); sitting under `ALLIANCE.cohesionFloor` for
+   * `fadeDays` in-game days in a row dissolves it, on top of the exits it already had (a betrayal, a member's eviction). The player's own named pact is exempt: it only breaks by betrayal or eviction, never silently.
+   * Once per in-game day per alliance; a no-op outside a played game.
+   */
+  private fadeAlliances(): void {
+    if (!this.live || this.alliances.all().length === 0) return;
+    const day = this.live.dayNumber ?? this.live.week;
+    const gone = this.alliances.fade(
+      day,
+      (a) => cohesionOf(a.members, (x, y) => mutualBond(this.rel, x, y)),
+      (a) => a.members.includes(PLAYER),
+    );
+    if (gone.length) { this.agendaRecheck("alliance-changed"); this.persist(); }
+  }
+
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
     const npcs = this.livingIds().filter((id) => id !== PLAYER);
@@ -9379,8 +9396,8 @@ export class GameSessionAdapter implements GameSession {
     const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a));
     // ORW-341: in a game a person PLAYS an NPC's own agenda also builds alliances (a last-alliance-standing or run-the-house aim founds one; a pull-them-in goal extends or founds one with its target, below).
     const played = this.live?.playedGame === true && this.live.agendas !== undefined;
-    // ORW-341 retune: agenda-driven alliances form only while the house has room (a standing cap on live alliances). Measured on 12 seeds of the chat-paced probe: without it the scene mix drifted from bonding 48 / strategy 29 / gossip 17 / conflict 4 to 28 / 26 / 36 / 7.5; each extra alliance changes how the whole season plays, so the bound is on how many exist, not how often one forms.
-    const agendaOpen = played && this.alliances.all().length < ALLIANCE.agendaMaxLive;
+    // ORW-353: no count cap on agenda-driven alliances (the ORW-341 retune's standing cap of 2 is gone, Ryne 2026-11-14): they form freely, and the ones that do not hold fade (`fadeAlliances`, the bloc cohesion measure).
+    const agendaOpen = played;
     const goalsOf = (id: EntityId): Goal[] => (played ? this.live!.agendas![id]?.goals ?? [] : []).filter((g) => g.status === "active");
     const buildsByAim = (id: EntityId): boolean => goalsOf(id).some((g) => g.kind === "last-alliance-standing" || g.kind === "run-the-house");
     // A founder: a build-drive NPC (or one whose own aim is to build) who hasn't already founded an active alliance.
@@ -9388,6 +9405,7 @@ export class GameSessionAdapter implements GameSession {
       .filter((id) => (this.drives.get(id)?.motivation === "build" || (agendaOpen && buildsByAim(id))) && !this.alliances.all().some((a) => a.founder === id))
       .sort();
     const npcFloor = { ...ALLIANCE, joinBondFloor: ALLIANCE.npcAllyFloor };
+    const holds = (ms: readonly EntityId[]): boolean => cohesionOf([...new Set(ms)], mutual) >= ALLIANCE.cohesionFloor;
     for (const founder of founders) {
       const proposed = npcs
         .filter((m) => m !== founder)
@@ -9395,6 +9413,7 @@ export class GameSessionAdapter implements GameSession {
         .slice(0, ALLIANCE.maxNpcSize - 1);
       const willing = willingMembers(founder, proposed, (m) => mutual(founder, m), npcFloor);
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
+      if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
       if (this.alliances.all().some((a) => sameMembers(a.members, willing))) continue; // dedup
       const name = pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)));
       const a = this.alliances.add(name, founder, willing, beat);
@@ -9419,7 +9438,7 @@ export class GameSessionAdapter implements GameSession {
         else {
           const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
-          if (!willing.includes(target) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
+          if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
           this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
         }
         this.agendaRecheck("alliance-changed");

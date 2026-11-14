@@ -30,6 +30,10 @@ export interface Alliance {
   /** Who is AWARE the alliance exists (symmetric perspective, like a campaign's `knownTo`): the members,
    *  plus anyone who later learns of it through a pathway. Never the whole house by default. */
   knownTo: EntityId[];
+  /** ORW-353: consecutive in-game days the alliance's cohesion (the bloc measure: its weakest mutual bond) has sat under `cohesionFloor`. Absent (an older save) = 0. */
+  lowDays?: number;
+  /** ORW-353: the last in-game day the neglect check ran for this alliance (so a day is counted once). Absent = never checked. */
+  checkedDay?: number;
 }
 
 export interface AllianceConstants {
@@ -46,8 +50,10 @@ export interface AllianceConstants {
   /** Phase B: an NPC names an alliance only over co-members whose mutual bond clears this (higher than the
    *  player floor — an NPC commits to real bonds, not a hopeful pitch). */
   npcAllyFloor: number;
-  /** ORW-341 retune: the house has room for only this many alliances at once before an agenda-driven one (a pull-them-in goal, or a build aim) can form another. A standing cap, not a clock: when one dissolves (a member leaves) a recruiting goal can succeed again. */
-  agendaMaxLive: number;
+  /** ORW-353 (Ryne 2026-11-14: "if alliances are formed they are formed... the weakest wouldn't necessarily last"): there is NO count cap any more; an alliance whose cohesion (the weakest mutual bond among its members, the same measure a bloc uses) stays under this for `fadeDays` in-game days in a row dissolves. */
+  cohesionFloor: number;
+  /** ORW-353: how many in-game days in a row under the floor before an alliance fades. */
+  fadeDays: number;
   /** ORW-341: how much warmer a houseguest who has been pitched this week counts toward the pitcher when deciding to join (a bounded bonus on the mutual bond, not a new magnitude). */
   pitchedWarmth: number;
   /** Phase B: the most houseguests an NPC-named alliance starts with (the founder + up to this−1 allies). */
@@ -66,7 +72,8 @@ export const ALLIANCE: AllianceConstants = {
   betrayalMultiplier: 1.5,
   npcAllyFloor: 0.58,
   pitchedWarmth: 0.05,
-  agendaMaxLive: 2,
+  cohesionFloor: 0.4,
+  fadeDays: 3,
   maxNpcSize: 4,
   pitchPlayerFloor: 0.6,
   betrayalThreatBump: 0.18,
@@ -213,6 +220,25 @@ export class AllianceStore {
   /** Every active alliance the two houseguests SHARE (for the betrayal-stakes fold). */
   shared(a: EntityId, b: EntityId): Alliance[] {
     return this.alliances.filter((al) => al.members.includes(a) && al.members.includes(b));
+  }
+
+  /**
+   * ORW-353: the neglect check, once per in-game day per alliance. `cohesionOf` is the bloc measure for the alliance's members; `skip` marks an alliance that never fades (the player's own named pact, which only breaks by betrayal or eviction).
+   * A day under the floor adds to `lowDays` (a gap of several days counts each), a day at or above it resets it; an alliance reaching `fadeDays` is dissolved. Returns the dissolved alliances.
+   */
+  fade(day: number, cohesionOf: (a: Alliance) => number, skip: (a: Alliance) => boolean, c: AllianceConstants = ALLIANCE): Alliance[] {
+    const gone: Alliance[] = [];
+    for (const a of this.alliances) {
+      if (skip(a)) continue;
+      const since = a.checkedDay ?? day;
+      if (day <= since && a.checkedDay !== undefined) continue;
+      const elapsed = Math.max(1, day - since);
+      a.checkedDay = day;
+      a.lowDays = cohesionOf(a) < c.cohesionFloor ? (a.lowDays ?? 0) + elapsed : 0;
+      if (a.lowDays >= c.fadeDays) gone.push(a);
+    }
+    if (gone.length) this.alliances = this.alliances.filter((a) => !gone.includes(a));
+    return gone;
   }
 
   /** Drop any member who has left the game (evicted); a one-member alliance dissolves. */
