@@ -161,3 +161,11 @@ def test_rig_stats_reports_sent_size_and_the_e22_rate(tmp_path):
     rig_stats.main(str(tmp_path / "llm-io.jsonl"), str(tmp_path))
     txt = (tmp_path / "rig-stats.md").read_text()
     assert "model calls: 2" in txt and "sent size per turn" in txt and "E22 guard firings: 1; per turn: 0.500" in txt
+
+
+def test_spend_guard_reads_the_live_archive_row_shape(tmp_path):
+    """The real llm-io.jsonl nests usage under response.usage; a guard that only read a top-level `usage` counted $0 forever."""
+    f = tmp_path / "llm-io.jsonl"
+    f.write_text(json.dumps({"response": {"usage": {"input_tokens": 1000, "output_tokens": 100, "cached_tokens": 0, "cost": 0.5}}}) + "\n")
+    t = spend_guard.totals(str(f))
+    assert t["calls"] == 1 and t["usd_estimate"] == 0.5

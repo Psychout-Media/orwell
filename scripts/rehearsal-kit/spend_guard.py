@@ -16,6 +16,9 @@ PRICE_OUT = float(os.environ.get("RIG_PRICE_OUT_PER_M", "1.20")) / 1e6
 
 def usage_of(row):
     u = row.get("usage") if isinstance(row, dict) else None
+    if not isinstance(u, dict) and isinstance(row, dict):  # the live archive nests it: {"response": {"usage": {...}}}
+        r = row.get("response")
+        u = r.get("usage") if isinstance(r, dict) else None
     u = u if isinstance(u, dict) else {}
     def i(*ks):
         for k in ks:
