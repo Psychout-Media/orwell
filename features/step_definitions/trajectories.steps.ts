@@ -205,10 +205,10 @@ function n2pGame(): { sb: NonNullable<N2P["n2pSb"]>; npc: EntityId } {
   const s = n2pSess(sb); s.setTrajectoriesEnabled(true); s.live.playedGame = true;
   return { sb, npc: s.livingIds().find((i) => i !== "player")! as EntityId };
 }
-function n2pScenes(sb: NonNullable<N2P["n2pSb"]>, npc: EntityId, o: { direction?: string; emphasis?: string; kind?: string }): void {
+function n2pScenes(sb: NonNullable<N2P["n2pSb"]>, npc: EntityId, o: { direction?: string; emphasis?: string; kind?: string; npcInit?: boolean }): void {
   for (let i = 0; i < TC.recencyWindow; i++) {
     sb.commands.recordInteraction({
-      initiator: "player" as EntityId, witnessSet: ["player" as EntityId, npc], toward: [npc], content: `scene ${i}`,
+      initiator: (o.npcInit ? npc : "player") as EntityId, witnessSet: ["player" as EntityId, npc], toward: [npc], content: `scene ${i}`,
       ...(o.kind ? { kind: o.kind as never } : {}),
       ...(o.direction ? { consequence: { edges: [{ toward: npc, direction: o.direction as never, ...(o.emphasis ? { emphasis: o.emphasis as never } : {}) }] } } : {}),
     });
@@ -256,6 +256,11 @@ Given("a played game where the player records a run of conflict scenes with no c
 });
 Then("the NPC-to-player phase is souring", function (this: BbWorld) {
   assert.equal(n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).phase, "souring");
+});
+
+Given("a played game where an NPC starts a run of conflict scenes the player witnesses", function (this: BbWorld) {
+  const g = n2pGame(); n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
+  n2pScenes(g.sb, g.npc, { kind: "conflict", npcInit: true });
 });
 
 Given("a played game where the player records a run of warmer scenes toward an NPC", function (this: BbWorld) {

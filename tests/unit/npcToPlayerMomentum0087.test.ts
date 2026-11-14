@@ -33,10 +33,10 @@ function started(played = true, enabled = true) {
   return { sb, g, npc };
 }
 type Sb = ReturnType<typeof started>["sb"];
-function scene(sb: Sb, npc: string, n: number, opts: { direction?: ConsequenceDirection; emphasis?: ConsequenceEmphasis; kind?: string }) {
+function scene(sb: Sb, npc: string, n: number, opts: { direction?: ConsequenceDirection; emphasis?: ConsequenceEmphasis; kind?: string; npcInitiated?: boolean }) {
   for (let i = 0; i < n; i++) {
     sb.commands.recordInteraction({
-      initiator: PLAYER, witnessSet: [PLAYER, npc], toward: [npc], content: `scene ${i}`,
+      initiator: opts.npcInitiated ? npc : PLAYER, witnessSet: [PLAYER, npc], toward: [npc], content: `scene ${i}`,
       ...(opts.kind ? { kind: opts.kind as never } : {}),
       ...(opts.direction ? { consequence: { edges: [{ toward: npc, direction: opts.direction, ...(opts.emphasis ? { emphasis: opts.emphasis } : {}) }] } } : {}),
     });
@@ -144,6 +144,23 @@ describe("NPC->player momentum (ORW-336)", () => {
     const c = started();
     scene(c.sb, c.npc, W, { direction: "cooler" });
     expect(c.g.trajectoryOf(c.npc, PLAYER).momentum).toBeGreaterThan(0); // the arc exists, so the identity above is not vacuous
+  });
+
+  it("an NPC-INITIATED scene the player witnesses feeds the witnessing NPC's arc toward the player too (direction from kind, or from the descriptor; emphasis never read)", () => {
+    const k = started();
+    scene(k.sb, k.npc, W, { kind: "conflict", npcInitiated: true });
+    expect(k.g.trajectoryOf(k.npc, PLAYER).phase).toBe("souring");
+    const d = started();
+    scene(d.sb, d.npc, W, { direction: "cooler", kind: "bonding", npcInitiated: true });
+    expect(d.g.trajectoryOf(d.npc, PLAYER).phase).toBe("cooling");
+    const a = started(); const b = started();
+    scene(a.sb, a.npc, W, { direction: "warmer", emphasis: "slight", npcInitiated: true });
+    scene(b.sb, b.npc, W, { direction: "warmer", emphasis: "strong", npcInitiated: true });
+    expect(a.g.trajectoryOf(a.npc, PLAYER)).toEqual(b.g.trajectoryOf(b.npc, PLAYER));
+    expect(a.g.trajectoryOf(a.npc, PLAYER).phase).toBe("warming");
+    const h = started(false, true);
+    scene(h.sb, h.npc, W, { kind: "conflict", npcInitiated: true });
+    expect(h.g.trajectoryOf(h.npc, PLAYER).momentum).toBe(0);
   });
 
   it("(e) persistence round-trip: the NPC->player arc survives snapshot -> restore and keeps folding", () => {

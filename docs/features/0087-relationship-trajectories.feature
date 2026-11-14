@@ -54,6 +54,11 @@ Feature: 0087 — Relationship trajectories (a bond that warms or curdles, with 
       When the engine folds the scenes and updates the NPC-to-player trajectory
       Then the NPC-to-player phase is souring
 
+    Scenario: A scene an NPC starts and the player witnesses feeds the same arc
+      Given a played game where an NPC starts a run of conflict scenes the player witnesses
+      When the engine folds the scenes and updates the NPC-to-player trajectory
+      Then the NPC-to-player phase is souring
+
     Scenario: Momentum toward the player bends the NPC's approach, never shown
       Given a played game where the player records a run of warmer scenes toward an NPC
       Then that NPC's movement pull toward the player is stronger than with the trajectory layer off

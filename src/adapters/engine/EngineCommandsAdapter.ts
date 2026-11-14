@@ -531,11 +531,11 @@ export class EngineCommandsAdapter implements EngineCommands {
         }
       }
     }
-    // ORW-336 (0087 open question 4): a PLAYER scene also feeds each present NPC's hidden momentum TOWARD the player.
+    // ORW-336 (0087 open question 4): a player-WITNESSED scene (player- OR NPC-initiated) also feeds each present NPC's hidden momentum TOWARD the player.
     // DIRECTION only: the model's proposed `consequence.edges[].direction` for that NPC (emphasis is never read), else the
     // scene `kind`'s implied direction; the AMOUNT is the engine's own (`deriveTrajectory` + TRAJECTORY_CONSTANTS). Rides
     // the same witness set as the folds above; the session gates it to played games, so headless sims never reach it.
-    if (this.playerTrajectorySink && req.initiator === PLAYER) {
+    if (this.playerTrajectorySink && witnessSet.includes(PLAYER)) {
       const dirsBy = new Map<EntityId, ConsequenceDirection[]>();
       for (const e of genEdges ?? []) dirsBy.set(e.toward, [...(dirsBy.get(e.toward) ?? []), e.direction]);
       const kindOk = !!req.kind && INTERACTION_KINDS.has(req.kind);

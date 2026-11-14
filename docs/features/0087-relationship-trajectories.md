@@ -20,9 +20,9 @@
 > shown; the player's read of any NPC stays purely human-driven. **BUILT (ORW-336, 2026-11-14)** — until then only the
 > off-screen NPC↔NPC folds fed any arc (the earlier "the directed `recordTrajectoryFold` keys any `a→b` pair, the player
 > included" described the key shape, not a live feed; ORW-335/#2604 corrected the claim). Now `recordInteraction` folds each
-> PLAYER-initiated, player-witnessed scene into every present NPC's `NPC→player` arc: the **direction** is the model's proposed
+> player-witnessed scene (player- OR NPC-initiated) into every present NPC witness's `NPC→player` arc: the **direction** is the model's proposed
 > `consequence.edges[].direction` for that NPC (`directionFoldSignal`, `src/engine/trajectory.ts`; the engine's own UNSCALED
-> `CONSEQUENCE_DIRECTION_IMPACTS` — `emphasis` is never read), else the scene `kind`'s implied direction (`kindFoldSignal`, the
+> `CONSEQUENCE_DIRECTION_IMPACTS` — `emphasis` is never read), else the scene `kind`'s implied direction (an NPC-initiated scene folds into each NPC witness's arc the same way; a descriptor edge counts for the NPC it names via `toward`) (`kindFoldSignal`, the
 > same `IMPACT` shape the off-screen fold uses); the **amount** is `deriveTrajectory` + `TRAJECTORY_CONSTANTS` (momentum builds
 > by `buildRate × consistency`, so no proposed magnitude can move it). **Played games only** (`live.playedGame`) and only with
 > the layer on, so headless seeded sims are byte-identical. The arc feeds the NPC's **movement** toward the player
