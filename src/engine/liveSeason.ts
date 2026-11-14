@@ -5,6 +5,7 @@ import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../domain/competitionOutcome";
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
+import { questionsAfterVote, type VoteQuestion } from "./voteQuestions";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
 import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
@@ -685,6 +686,8 @@ export interface LiveSeasonState {
    * the season lives; the attribution surfaces only through the post-season retrospective.
    */
   voteRecord?: Array<{ week: number; evictee: EntityId; voteOf: Record<EntityId, EntityId> }>;
+  /** ORW-342 (Vault-class, engine-only): the open "who voted against me / who flipped" questions the eviction votes leave NPCs with, each with the holder's OWN deduced suspect (never the sealed ballot). Played games only. */
+  voteQuestions?: VoteQuestion[];
   /**
    * ORW-305 - the WHY of every NPC decision (nominations, replacement, eviction votes, tie-breaks, the veto use/save, the secret-veto
    * replacement, the Final HOH's eviction): the chosen option and the runner-up, each as named terms with the size they contributed.
@@ -2914,6 +2917,8 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // secret votes become tellable only once the season is over.
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
+  // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
+  if (s.playedGame === true) (s.voteQuestions ??= []).push(...questionsAfterVote({ week: s.week, evictee, nominees: s.nominees ?? [], voteOf: e.voteOf, player: ctx.player }, ctx.rel));
   // 0025 reactive: track the lopsided-eviction streak (the secret-veto trigger's "steamroll" signal).
   // A near-unanimous eviction (all-but-≤1 of a meaningful vote) extends the streak; a close vote resets it.
   const totalVoters = Object.keys(e.voteOf).length;

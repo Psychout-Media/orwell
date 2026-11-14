@@ -93,6 +93,7 @@ import { validateTraits, validateCulture, validateReflection } from "../../engin
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids } from "../../engine/agenda";
+import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
@@ -10017,8 +10018,14 @@ export class GameSessionAdapter implements GameSession {
       : character;
     return {
       owner, character: character2, threats, affinity, grudges, emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
-      allianceMates: [...mates].sort(), secretExposed, openQuestions: [], answered: [], powerWins: s.resume?.[owner] ?? 0,
+      allianceMates: [...mates].sort(), secretExposed, ...this.voteQuestionsFor(owner), powerWins: s.resume?.[owner] ?? 0,
     };
+  }
+  /** ORW-342: this houseguest's open "who voted against me / who flipped" questions (live through the week after the vote), and which of them their own deduction has since made confident (answered). */
+  private voteQuestionsFor(owner: EntityId): { openQuestions: Array<{ ref: string; suspect?: EntityId }>; answered: string[] } {
+    const s = this.live;
+    const mine = (s?.voteQuestions ?? []).filter((q) => q.holder === owner && questionLive(q, s!.week));
+    return { openQuestions: mine.map((q) => ({ ref: q.ref, ...(q.suspect !== undefined ? { suspect: q.suspect } : {}) })), answered: mine.filter((q) => questionAnswered(q, this.rel)).map((q) => q.ref) };
   }
   /** Seed every NPC's agenda once, for a played game (idempotent: an existing agenda is never reseeded). Fail-soft. */
   private seedAgendas(): void {
