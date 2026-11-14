@@ -389,7 +389,17 @@ const GRANDPARENT_WORD_RE =
 function grandparentSelfReference(text: string): boolean {
   for (const m of text.matchAll(GRANDPARENT_WORD_RE)) {
     const kind = m[2]!.toLowerCase();
-    if (kind.startsWith("kid") || kind === "children") return true;
+    if (kind === "kid") {
+      // ORW-356: a SINGULAR "grandkid" in the "the only grandkid of a piano teacher" shape names the houseguest as
+      // the GRANDCHILD (the grandparent is the other party), not as a grandparent. The plural ("grandkids" /
+      // "grandchildren") and a bare "has a grandkid" still make the houseguest the grandparent.
+      const at = m.index ?? 0;
+      const after = text.slice(at + m[0].length);
+      const before = text.slice(Math.max(0, at - 40), at + (m[1]?.length ?? 0));
+      if (/^\s+of\b/i.test(after) || /\bthe\s+(?:only|youngest|eldest|oldest|first|favou?rite|last)\s+$/i.test(before)) continue;
+      return true;
+    }
+    if (kind === "kids" || kind === "children") return true;
     if (!m[1]) return true;
   }
   return false;
