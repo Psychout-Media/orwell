@@ -121,6 +121,7 @@ module.exports = {
       "docs/features/0139-the-booth-has-receipts.feature",
       "docs/features/0144-visible-mood-never-opposite.feature",
       "docs/features/0145-npc-agendas.feature",
+      "docs/features/0147-npc-minds-house-life.feature",
       "docs/features/0134-telephone-game-payoffs.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
