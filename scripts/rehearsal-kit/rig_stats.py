@@ -23,7 +23,7 @@ def main(llm, run):
     try: turns = sum(1 for l in open(f"{run}/turns.jsonl") if l.strip())
     except OSError: pass
     e22 = 0
-    try: e22 = len(re.findall(r"E22 guard", open(f"{run}/fe.log", encoding="utf-8", errors="replace").read()))
+    try: e22 = len(re.findall(r"E22 guard: game turn narrated with no engine write", open(f"{run}/fe.log", encoding="utf-8", errors="replace").read()))  # real firings only; "stood down" lines are the guard NOT firing
     except OSError: pass
     ins = sorted(c["in"] for c in calls)
     def pct(p): return ins[min(len(ins) - 1, int(p * len(ins)))] if ins else 0

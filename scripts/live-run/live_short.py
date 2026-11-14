@@ -239,6 +239,7 @@ def clock_hour(label):
 def score(turns, checks, check, turn_limit):
     for t in turns:
         lab = t["label"]
+        if lab.endswith("-card"): continue  # a decision-card click (live_week) is not a chat turn: no bubble, no scene, by design
         check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
         short_ok = lab.startswith("early-ask")  # a one-line deflection of an out-of-schedule request is legitimate; still reported
         shell = SHELL_RE.search(t["text"])
