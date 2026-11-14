@@ -8500,6 +8500,10 @@ export class GameSessionAdapter implements GameSession {
     const said = orientationDisclosureText(orientation);
     this.onConfide?.(npcId, said, 0.9);
     live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
+    // A53 / ORW-24: this is an ENGINE-decided disclosure (`routeDisclosure` said share) delivered with no lever call, so it leaves the same Vault-free delivery marker the 0092 drip does (a counter and the teller's public id)
+    // and the closed-set event. The front end's invented-confession guard (N-17) then treats the turn as engine-backed, and an engine-delivered disclosure is never swapped for a deflection.
+    this.playerSurfaceN += 1; this.playerSurfaceSource = npcId;
+    this.noteDisclosure(npcId, { outcome: "slip", via: "orientation", truthful: true });
     return said;
   }
 
