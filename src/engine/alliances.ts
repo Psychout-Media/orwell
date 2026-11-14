@@ -54,6 +54,8 @@ export interface AllianceConstants {
   cohesionFloor: number;
   /** ORW-353: how many in-game days in a row under the floor before an alliance fades. */
   fadeDays: number;
+  /** ORW-353: the daily chance (seeded per member and alliance) that a member whose own get-them-out / revenge goal is aimed at a fellow member breaks the alliance by betrayal. */
+  goalClashBreak: number;
   /** ORW-341: how much warmer a houseguest who has been pitched this week counts toward the pitcher when deciding to join (a bounded bonus on the mutual bond, not a new magnitude). */
   pitchedWarmth: number;
   /** Phase B: the most houseguests an NPC-named alliance starts with (the founder + up to this−1 allies). */
@@ -74,6 +76,7 @@ export const ALLIANCE: AllianceConstants = {
   pitchedWarmth: 0.05,
   cohesionFloor: 0.4,
   fadeDays: 3,
+  goalClashBreak: 0.12,
   maxNpcSize: 4,
   pitchPlayerFloor: 0.6,
   betrayalThreatBump: 0.18,

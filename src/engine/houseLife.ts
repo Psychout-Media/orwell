@@ -243,7 +243,8 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
       if (!t) return undefined;
       // ORW-324: sharing a room with the person they want gone, a quick-tempered houseguest clashes with them directly (a rattled mood makes it likelier).
       if (roomOf(v, t) === v.room && pool.includes(t)) {
-        const heat = temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1);
+        const hot = HOUSE_LIFE.hotConfront * Math.max(0, Math.min(1, (goal.commitment - HOUSE_LIFE.hotGoal) / (1 - HOUSE_LIFE.hotGoal))); // ORW-353: a hot goal confronts whatever the temper
+        const heat = Math.min(1, temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1) + hot);
         if (variant < heat) return pick("confront", [t]);
       }
       const ears = byScore(voters, aff);

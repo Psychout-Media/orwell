@@ -96,6 +96,7 @@ describe("an aim to build alliances founds one (ORW-341)", () => {
   it("a last-alliance-standing holder over real bonds founds an alliance; without the aim, or without the bonds, none", async () => {
     const a = await setup(11);
     a.bond(a.holder, a.target, 0.75); a.bond(a.holder, a.third, 0.75);
+    a.bond(a.target, a.third, 0.7); // ORW-353: an alliance of people who barely know each other would only fade, so it is not founded: the members must hold together too
     a.s.formNpcAlliances(a.rng());
     expect(a.s.alliances.all().length, "no aim, no old drive: nothing forms").toBe(0);
     a.give(a.goal("last-alliance-standing", a.holder));
@@ -176,5 +177,15 @@ describe("an alliance that does not hold fades (ORW-353; the measure is the bloc
     expect(st2.all()).toHaveLength(1);
     expect(st2.fade(6, () => 0.9, () => false)).toHaveLength(0);
     void a;
+  });
+});
+
+describe("a hollow alliance is not founded (ORW-353)", () => {
+  it("a founder bonded to two people who barely know each other forms no alliance (it would only fade)", async () => {
+    const a = await setup(11);
+    a.bond(a.holder, a.target, 0.75); a.bond(a.holder, a.third, 0.75); // target and third stay at 0.2 with each other
+    a.give(a.goal("last-alliance-standing", a.holder));
+    a.s.formNpcAlliances(a.rng());
+    expect(a.s.alliances.all().some((x) => x.founder === a.holder && x.members.includes(a.target) && x.members.includes(a.third))).toBe(false);
   });
 });

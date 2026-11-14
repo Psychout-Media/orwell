@@ -8,7 +8,9 @@ import { endHeldNight } from "./heldNight";
  */
 export interface MixScene { type: string; action: string; msg: number; week: number; playerOut: boolean }
 
-export async function playMixGame(seed: number, messages: number): Promise<MixScene[]> {
+export interface MixGame { scenes: MixScene[]; /** alliance betrayals recorded (events of type betrayal) */ betrayals: number; /** of those, the ones a goal clash caused (an NPC turning on a fellow member) */ goalClashBreaks: number }
+
+export async function playMixGame(seed: number, messages: number): Promise<MixGame> {
   const user = `mixdrv-${seed}`;
   const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
   const mcp = reg.resolver()("player", user);
@@ -37,12 +39,14 @@ export async function playMixGame(seed: number, messages: number): Promise<MixSc
     while (seen < n) { stamp[seen++] = { msg: i, week, out }; }
   }
   const scenes: MixScene[] = [];
+  let betrayals = 0, goalClashBreaks = 0;
   reg.sandboxFor(user).engine.events.queryAll().forEach((e, idx) => {
+    if (e.type === "betrayal") { betrayals++; if (/turned on the alliance/.test(String(e.content)) && (e.witnessSet ?? []).length === 2) goalClashBreaks++; }
     if (!e.houseLife) return;
     const s = stamp[idx] ?? { msg: messages - 1, week, out: false };
     scenes.push({ type: e.type, action: String((e.houseLife as { action?: string }).action), msg: s.msg, week: s.week, playerOut: s.out });
   });
-  return scenes;
+  return { scenes, betrayals, goalClashBreaks };
 }
 
 export const MIX_KINDS = ["bonding", "strategy", "gossip", "conflict"] as const;

@@ -51,6 +51,7 @@ import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
+import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
@@ -9362,9 +9363,15 @@ export class GameSessionAdapter implements GameSession {
     this.drives = nextDrives;
     // 0107 Phase B: NPCs name alliances off-screen + pitch the player (gated by campaignsEnabled ⇒ the
     // passive calibration harness forms none ⇒ the cement provider stays 0 ⇒ juryReach byte-identical).
-    this.fadeAlliances();
-    this.formNpcAlliances(rng);
+    // ORW-353: a persist inside these commits, and a commit runs the tick again; without a standing cap on alliances each nested tick could found another, so the alliance pass is not re-entered.
+    if (this.inAlliancePass) return;
+    this.inAlliancePass = true;
+    try {
+      this.fadeAlliances();
+      this.formNpcAlliances(rng);
+    } finally { this.inAlliancePass = false; }
   }
+  private inAlliancePass = false;
 
   /**
    * 0107 Phase B — NPCs autonomously NAME alliances off-screen. A `build`-drive (0086) founder over real
@@ -9386,7 +9393,46 @@ export class GameSessionAdapter implements GameSession {
       (a) => cohesionOf(a.members, (x, y) => mutualBond(this.rel, x, y)),
       (a) => a.members.includes(PLAYER),
     );
-    if (gone.length) { this.agendaRecheck("alliance-changed"); this.persist(); }
+    let changed = gone.length > 0;
+    if (this.breakAlliancesOverGoals(day)) changed = true;
+    // No persist() here: this runs INSIDE the off-screen tick, and a persist is a commit, which runs the tick again (a recursion that never ended). The tick's own commit saves the change.
+    if (changed) this.agendaRecheck("alliance-changed");
+  }
+
+  /**
+   * ORW-353: members whose goals clash break the alliance. A member who holds an ACTIVE get-them-out / revenge goal aimed at a FELLOW member is working against their own alliance; once a day (seeded per member, alliance and day, chance
+   * `ALLIANCE.goalClashBreak`) that turns into a betrayal: they leave it, the wronged member's read of them takes the same threat / affinity hit a voted-out ally's does, a jury demerit is recorded, and the hidden scene is recorded
+   * (the player sees it only if they witnessed it). NPC-only: the player's own pact breaks only by the player's own acts. Returns whether anything changed.
+   */
+  private breakingAlliances = false;
+  private breakAlliancesOverGoals(day: number): boolean {
+    const live = this.live;
+    if (this.breakingAlliances || !live || live.playedGame !== true || !live.agendas || this.alliances.all().length === 0) return false;
+    this.breakingAlliances = true;
+    try { return this.breakAlliancesOverGoalsOnce(day, live); } finally { this.breakingAlliances = false; }
+  }
+
+  private breakAlliancesOverGoalsOnce(day: number, live: NonNullable<GameSessionAdapter["live"]>): boolean {
+    let changed = false;
+    for (const al of [...this.alliances.all()]) {
+      if (al.members.includes(PLAYER)) continue;
+      for (const m of [...al.members].sort()) {
+        const goals = (live.agendas?.[m]?.goals ?? []).filter((g) => g.status === "active" && (g.kind === "get-them-out" || g.kind === "revenge") && g.commitment >= HOUSE_LIFE.hotGoal && g.target !== undefined && g.target !== m && al.members.includes(g.target));
+        const goal = goals[0];
+        if (!goal || !this.alliances.byId(al.id)) continue;
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
+        if (roll >= ALLIANCE.goalClashBreak) continue;
+        const target = goal.target!;
+        this.alliances.removeMember(al.id, m); // FIRST: the member is out before any side effect can re-enter the tick (recording the scene commits, and a commit runs the tick again)
+        const e = this.rel.edge(target, m);
+        e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump);
+        e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump);
+        recordDealBetrayal(live, target, m);
+        this.onPlayerEvent?.(`${this.nameOf(m)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)}`, [target, m], "betrayal");
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   private formNpcAlliances(rng: SeededRandom): void {
