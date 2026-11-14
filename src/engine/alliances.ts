@@ -46,6 +46,8 @@ export interface AllianceConstants {
   /** Phase B: an NPC names an alliance only over co-members whose mutual bond clears this (higher than the
    *  player floor — an NPC commits to real bonds, not a hopeful pitch). */
   npcAllyFloor: number;
+  /** ORW-341 retune: the house has room for only this many alliances at once before an agenda-driven one (a pull-them-in goal, or a build aim) can form another. A standing cap, not a clock: when one dissolves (a member leaves) a recruiting goal can succeed again. */
+  agendaMaxLive: number;
   /** ORW-341: how much warmer a houseguest who has been pitched this week counts toward the pitcher when deciding to join (a bounded bonus on the mutual bond, not a new magnitude). */
   pitchedWarmth: number;
   /** Phase B: the most houseguests an NPC-named alliance starts with (the founder + up to this−1 allies). */
@@ -64,6 +66,7 @@ export const ALLIANCE: AllianceConstants = {
   betrayalMultiplier: 1.5,
   npcAllyFloor: 0.58,
   pitchedWarmth: 0.05,
+  agendaMaxLive: 2,
   maxNpcSize: 4,
   pitchPlayerFloor: 0.6,
   betrayalThreatBump: 0.18,
