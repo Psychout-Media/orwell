@@ -96,6 +96,7 @@ def main():
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
     ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
     ap.add_argument("--resume", action="store_true", help="attach to the game already running on the rig (no casting, no Week 1 checks) and play on with --season")
+    ap.add_argument("--stop-after-week", type=int, default=0, help="with --season: stop once this week has ended (0 = play to the finale)")
     ap.add_argument("--max-turns-total", type=int, default=400); ap.add_argument("--max-turns-per-week", type=int, default=90)
     a = ap.parse_args()
     from playwright.sync_api import sync_playwright
@@ -164,6 +165,8 @@ def main():
             facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
             check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")
             if not ok: break
+            if a.stop_after_week and cur >= a.stop_after_week:
+                facts["stopped_after_week"] = cur; return  # ORW-350: a bounded sweep past week 1; the finale checks are for a full season
         fin = eng.call("getGameState"); facts["final"] = {"finished": fin.get("finished"), "winner": fin.get("winner"), "phase": fin.get("phase"), "week": fin.get("week")}
         check("S-finale-reached", over(fin), f"finished={fin.get('finished')} winner={fin.get('winner')} phase={fin.get('phase')} after {len(turns)} turns")
         rec2 = eng.call("seasonRecap") or {}; check("S-evictions-recorded", len(names(rec2.get("evicted"))) >= 1, f"evicted in order: {names(rec2.get('evicted'))}")
