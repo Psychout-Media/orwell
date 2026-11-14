@@ -36,11 +36,17 @@ class _Resume(Exception):
 
 
 class Week(Chat):
+    name_fn = None  # () -> the player's name from the engine (ORW-350): the veto card must save the player when they are the one on the block
+
     def answer_card(self, c):
         """Click the simplest legal option for the card on screen; returns a label for the report."""
         title = (c.get("title") or "").lower(); opts = c["opts"]
         pick = [0]
-        if "nominat" in title and len(opts) > 1: pick = [0, 1]
+        try: me = self.name_fn() if self.name_fn else None
+        except Exception: me = None
+        mine = next((i for i, o in enumerate(opts) if me and re.fullmatch(r"(?i)save\s+" + re.escape(me), o.strip())), None)
+        if "veto" in title and mine is not None: pick = [mine]  # the runner is a player, not a saboteur: a nominee who holds the veto uses it on themselves (two runs lost the player in week 1 to "Don't use the veto")
+        elif "nominat" in title and len(opts) > 1: pick = [0, 1]
         else:
             for i, o in enumerate(opts):
                 if re.search(r"(?i)\bcompete\b", o): pick = [i]; break
@@ -178,6 +184,7 @@ def main():
             page = b.new_context(viewport={"width": 1440, "height": 900}).new_page()
             page.goto(a.fe + "/", wait_until="load", timeout=60000); page.wait_for_timeout(6000)
             week = Week(page, a.fe)
+            week.name_fn = lambda: ((eng.call("getGameState") or {}).get("player") or {}).get("name")
             if a.resume:
                 season_loop(); check("W6-no-stuck-card", page.evaluate(CARD) is None and not (eng.call("getGameState").get("pending")), "no decision card left on screen / pending"); b.close(); raise _Resume()
             for i, line in enumerate(CAST_LINES):
