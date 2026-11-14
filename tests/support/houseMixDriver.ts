@@ -8,7 +8,7 @@ import { endHeldNight } from "./heldNight";
  */
 export interface MixScene { type: string; action: string; msg: number; week: number; playerOut: boolean }
 
-export interface MixGame { scenes: MixScene[]; /** alliance betrayals recorded (events of type betrayal) */ betrayals: number; /** of those, the ones a goal clash caused (an NPC turning on a fellow member) */ goalClashBreaks: number }
+export interface MixGame { scenes: MixScene[]; /** alliance betrayals recorded (events of type betrayal) */ betrayals: number; /** of those, the ones a goal clash caused (an NPC turning on a fellow member) */ goalClashBreaks: number; /** alliance betrayals by game week (the week the event happened in) */ betrayalsByWeek: Record<number, number> }
 
 export async function playMixGame(seed: number, messages: number): Promise<MixGame> {
   const user = `mixdrv-${seed}`;
@@ -39,14 +39,14 @@ export async function playMixGame(seed: number, messages: number): Promise<MixGa
     while (seen < n) { stamp[seen++] = { msg: i, week, out }; }
   }
   const scenes: MixScene[] = [];
-  let betrayals = 0, goalClashBreaks = 0;
+  let betrayals = 0, goalClashBreaks = 0; const betrayalsByWeek: Record<number, number> = {};
   reg.sandboxFor(user).engine.events.queryAll().forEach((e, idx) => {
-    if (e.type === "betrayal") { betrayals++; if (/turned on the alliance/.test(String(e.content)) && (e.witnessSet ?? []).length === 2) goalClashBreaks++; }
+    if (e.type === "betrayal") { betrayals++; const wk = (stamp[idx]?.week ?? week); betrayalsByWeek[wk] = (betrayalsByWeek[wk] ?? 0) + 1; if (/turned on the alliance/.test(String(e.content)) && (e.witnessSet ?? []).length === 2) goalClashBreaks++; }
     if (!e.houseLife) return;
     const s = stamp[idx] ?? { msg: messages - 1, week, out: false };
     scenes.push({ type: e.type, action: String((e.houseLife as { action?: string }).action), msg: s.msg, week: s.week, playerOut: s.out });
   });
-  return { scenes, betrayals, goalClashBreaks };
+  return { scenes, betrayals, goalClashBreaks, betrayalsByWeek };
 }
 
 export const MIX_KINDS = ["bonding", "strategy", "gossip", "conflict"] as const;
