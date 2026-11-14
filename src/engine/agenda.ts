@@ -451,9 +451,11 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
     const heldKeys = new Set(heldWeek.map(goalKey));
     for (const c of candidates) {
       if (c.weight < AGENDA.weekGoalFloor || heldKeys.has(goalKey(c))) continue;
-      if (c.kind === "get-them-out" && week.filter((g) => g.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax) continue; // ORW-350: the same room, held or newly formed
-      if (week.length < AGENDA.weekGoalSlots) { week = [...week, toGoal(c, view.owner, board)]; heldKeys.add(goalKey(c)); continue; }
-      const weakest = [...week].sort((a, b) => a.commitment - b.commitment || a.id.localeCompare(b.id))[0]!;
+      // ORW-350: a get-them-out candidate when the week already holds its share of them can only REPLACE a held get-them-out (the same stubbornness margin), never add one.
+      const gtoFull = c.kind === "get-them-out" && week.filter((g) => g.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax;
+      if (!gtoFull && week.length < AGENDA.weekGoalSlots) { week = [...week, toGoal(c, view.owner, board)]; heldKeys.add(goalKey(c)); continue; }
+      const pool = gtoFull ? week.filter((g) => g.kind === "get-them-out") : week;
+      const weakest = [...pool].sort((a, b) => a.commitment - b.commitment || a.id.localeCompare(b.id))[0]!;
       if (c.weight > weakest.commitment * (1 + stub)) {
         history.push(resolve(weakest, "replaced", board.day, `replaced by ${goalKey(c)}`));
         week = [...week.filter((g) => g !== weakest), toGoal(c, view.owner, board)];
