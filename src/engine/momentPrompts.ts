@@ -1745,6 +1745,16 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     } else {
       // PO ruling 2026-11-04: the whole vote is read in ONE turn — every anonymized ballot, in order, then the result. The narrator gets the full truth.
       lines.push(`    BALLOTS (all ${ballots.length}, in the order read; anonymized — name NO voter): ${ballots.map((b) => `a vote to evict ${b.votedFor.name}`).join("; ")}.`);
+      // ORW-358: the narrator was handed 13 ballots but not their COUNT, and invented one ("nine to four") by counting 13 lines in its head; the FE tally guard then cut the whole scene.
+      // The count is a closed-set fact the engine already holds and the reveal hands over (the same anonymized ballots, summed) - give it as a fact to voice.
+      const byNominee = new Map<string, { name: string; n: number }>();
+      for (const b of ballots) {
+        const cur = byNominee.get(b.votedFor.id) ?? { name: b.votedFor.name, n: 0 };
+        cur.n += 1;
+        byNominee.set(b.votedFor.id, cur);
+      }
+      const tally = [...byNominee.values()].sort((a, b) => b.n - a.n);
+      lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
         : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");

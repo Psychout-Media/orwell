@@ -66,6 +66,21 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     expect(block).toContain(`BALLOTS (all ${after.votesRevealed.length}`);
   });
 
+  it("ORW-358: the committed night hands the narrator the engine's own per-nominee COUNT as a fact to voice (it used to invent 'nine to four' over 11-2)", () => {
+    const s = driveTo((_ss, v) => v.pending?.kind === "eviction-vote");
+    s.submitDecision({ kind: "eviction-vote", vote: s.getGameState().pending!.options[0]!.id });
+    s.advanceGame();
+    const ev = s.getGameState().eviction!;
+    const per = new Map<string, number>();
+    for (const b of ev.votesRevealed) per.set(b.votedFor.name, (per.get(b.votedFor.name) ?? 0) + 1);
+    const block = hc(s);
+    const line = block.split("\n").find((l) => l.includes("TALLY (engine-counted"));
+    expect(line).toBeDefined();
+    for (const [name, n] of per) expect(line).toContain(`${n} to evict ${name}`);
+    expect(line).not.toMatch(/\bvoted\b|\bvoter\b/i); // ballots stay anonymized: counts per nominee only
+    expect(block.indexOf("TALLY (engine-counted")).toBeGreaterThan(block.indexOf("BALLOTS (all"));
+  });
+
   it("the HOH competition itself: no winner is decided yet, and the player is never told they won", () => {
     const s = driveTo((ss) => ss.getGameState().phase === "hoh-competition" && !ss.getGameState().ceremony.hoh);
     const block = hc(s);

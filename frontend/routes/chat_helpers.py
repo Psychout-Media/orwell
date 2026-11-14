@@ -2442,6 +2442,25 @@ def _tally_claims_match_ballots(text: str, counts) -> bool:
     return found
 
 
+def drop_wrong_tally_sentences(text: str, live: dict) -> str:
+    """ORW-358 - the sentence-level remedy for a WRONG vote tally on a night whose evictee the engine has committed. The narrator
+    was handed the ballots (and now their count) but may still state a number the engine's ballots contradict ("Nine to four"
+    over an 11-2 reveal); cutting the whole scene then lost the goodbyes and reactions around it. Drops ONLY the sentence(s)
+    carrying a tally claim that disagrees with `ballotCounts`; every other sentence (goodbyes, reactions, the evictee's lines)
+    is kept byte-identically. Returns `text` unchanged unless the eviction is committed AND the engine's counts are known
+    (`evictionEvictee` + `ballotCounts`) - with no committed result or no counts there is no truth to correct against, so the
+    caller's whole-scene cut stays. Pure."""
+    if not text or not isinstance(live, dict) or not live.get("evictionEvictee") or not live.get("ballotCounts"):
+        return text
+    counts = live.get("ballotCounts")
+    out = []
+    for part in re.split(r"(?<=[.!?\n])", text):
+        if _committed_claim(_CLAIM_TALLY_RE, part) and not _tally_claims_match_ballots(part, counts):
+            continue
+        out.append(part)
+    return "".join(out)
+
+
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
 # A68: the separator stays on ONE line ([ \t], not \s) - "\n- one\n- two" in a markdown list is not a "one - two" vote tally.
 _CLAIM_TALLY_RE = re.compile(
@@ -5405,6 +5424,16 @@ def _log_scene_cut(user, phase, directive, text) -> None:
         pass
 
 
+# ORW-358: the scene breaker's "keep the scene, drop only the wrong tally sentence" result, handed to the caller out-of-band (the return value stays
+# Optional[str] directive so every existing caller/stub is untouched). Set only when the breaker returned None BECAUSE it rewrote; consumed once.
+_SCENE_REWRITE: dict = {}
+
+
+def take_scene_rewrite(user) -> Optional[str]:
+    """The tally-stripped text the last `screen_streamed_scene_break` call for this user produced instead of cutting the scene (consumed once), else None."""
+    return _SCENE_REWRITE.pop(_desync_key(user), None)
+
+
 async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
     """A2 — decide whether the WHOLE scene in `text` must be cut (a phantom/unverifiable board change).
     Returns the re-ground directive (and stashes it as the next-turn backstop) when the scene must be
@@ -5418,6 +5447,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
+        _SCENE_REWRITE.pop(_dkey, None)
         before = _LAST_BEAT_SIG.get(_dkey)
         live = await _capture_beat_signature(user)
         if not live:
@@ -5459,6 +5489,15 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         _roll_cut_streak(_dkey, before)
         directive = _narration_claims_outcome(text, before, live)
+        if directive and "EVICTION VOTE TALLY / RESULT" in directive:
+            # ORW-358: the evictee is committed and only a TALLY sentence is wrong - drop just that sentence and keep the scene (goodbyes, reactions).
+            # Strictness is unchanged for anything else: the remedy applies only if the stripped text then passes the SAME verifier (a wrong evictee, a
+            # phantom result or a second fabrication still cuts the whole scene).
+            _kept = drop_wrong_tally_sentences(text, live)
+            if _kept != text and _kept.strip() and not _narration_claims_outcome(_kept, before, live):
+                _SCENE_REWRITE[_dkey] = _kept
+                logger.warning("[orwell] scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept for user=%s", user)
+                return None
         if directive:
             _cut_text, _cut_phase = text, live.get("phase")
             _streak = _count_cut(_dkey, before, live)
