@@ -174,6 +174,8 @@ export interface HourView {
   avoid?: readonly EntityId[];
   /** The candor of the holder's speech (from REASONS candor tables, passed by the caller), 0..1. */
   candor: number;
+  /** ORW-337: this season's authored house rituals (spec 0146 lane 2); absent when the model wrote none (or the write-back has not landed). */
+  rituals?: ReadonlyArray<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
 }
 
 export interface PlannedAction {
@@ -189,6 +191,8 @@ export interface PlannedAction {
   goalKind?: GoalKind;
   /** Who the action is ABOUT when that is not a partner (the target being campaigned against, the person being framed). */
   about?: EntityId;
+  /** ORW-337: the name of the house ritual this action is (a PUBLIC name: the scene records it so the narrator may use it once the player has seen one). */
+  ritual?: string;
   /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
   fold?: InteractionType;
 }
@@ -310,6 +314,13 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
+  // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
+  const ritual = v.rituals?.find((r) => r.timeOfDay === v.timeOfDay && roll(`ritual:${r.name}`) < HOUSE_LIFE.ritualPull);
+  if (ritual) {
+    const spot = ACTIONS[ritual.action].place;
+    const company = spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
+    return finish({ kind: ritual.action, with: company.slice(0, ACTIONS[ritual.action].partners.max), ritual: ritual.name, ...(spot ? { place: spot } : {}) });
+  }
   const habit = v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);
   if (habit) {
     const k = HABIT_ACTION[habit].action;

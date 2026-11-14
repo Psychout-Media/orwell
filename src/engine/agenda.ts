@@ -19,7 +19,7 @@
 import type { EntityId } from "../domain/ids";
 import { clamp01 } from "../domain/num";
 import type { Archetype, StrategyStyle, HiddenElementKind } from "./characterFactory";
-import { AGENDA, LONG_CON_ARCHETYPES, LONG_CON_STYLES, PHILOSOPHY_LEAN, SEASON_GOAL_LEAN, STUBBORNNESS, STYLE_LEAN, STYLE_STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
+import { AGENDA, AIM_HINT_BONUS, LONG_CON_ARCHETYPES, LONG_CON_STYLES, PHILOSOPHY_LEAN, SEASON_GOAL_LEAN, STUBBORNNESS, STYLE_LEAN, STYLE_STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
 import type { GamePhilosophy } from "./philosophyConstants";
 
 // --- Types -------------------------------------------------------------------------------------------------------------------------
@@ -89,6 +89,8 @@ export interface AgendaCharacter {
   /** How easily THEY are swayed (0..1, `Character.influence.susceptibility`), if known. */
   susceptibility?: number;
   /** A pre-show tie, if any, and whether it is hidden from the house. */
+  /** ORW-337: the houseguest's model-authored season-aim hint from their backstory (0146 lane 1), if the write-back has landed. Adds `AIM_HINT_BONUS` to that aim's lean; shapes, never forces. */
+  aimHint?: SeasonGoalKind;
   preShowTie?: { with: EntityId; hidden: boolean; friendly: boolean; /** ORW-329: the tie's nature (family, ex, old-friend, rival, ...); absent on older callers. */ nature?: string };
 }
 
@@ -169,6 +171,7 @@ export function seasonLeanOf(c: AgendaCharacter): Partial<Record<SeasonGoalKind,
   };
   add(STYLE_LEAN[c.strategyStyle]);
   if (c.philosophy) add(PHILOSOPHY_LEAN[c.philosophy]);
+  if (c.aimHint) out[c.aimHint] = (out[c.aimHint] ?? 0) + AIM_HINT_BONUS; // ORW-337: the backstory nudges the aim
   return out;
 }
 export const canRunLongCon = (c: AgendaCharacter): boolean =>

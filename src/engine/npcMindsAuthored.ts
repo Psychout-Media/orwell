@@ -15,13 +15,14 @@ import type { EntityId } from "../domain/ids";
 import { WALKABLE_ROOMS, type Room } from "../domain/house";
 import type { TimeOfDay } from "./timeOfDay";
 import { HABITS, ACTIONS, type ActionKind, type Habit } from "./houseLife";
-import type { SeasonGoalKind } from "./agendaConstants";
+import { AIM_HINT_BONUS, type SeasonGoalKind } from "./agendaConstants";
+import { HOUSE_LIFE } from "./houseLifeConstants";
 
 export const AUTHORED = {
   /** The bonus a model aim hint adds to that season aim's lean (spec 0146: shapes, never forces). */
-  aimHintBonus: 0.4,
+  aimHintBonus: AIM_HINT_BONUS,
   /** A ritual's pull on its action at its time of day for anyone free (spec 0146; read by the hourly life wiring). */
-  ritualPull: 0.3,
+  ritualPull: HOUSE_LIFE.ritualPull,
   maxWhy: 80, maxName: 40, maxJoke: 80, maxSpots: 3, maxRituals: 3, minHabits: 2, maxHabits: 3,
 } as const;
 

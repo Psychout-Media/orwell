@@ -68,6 +68,9 @@ export const STYLE_STUBBORNNESS: Readonly<Record<StrategyStyle, number>> = {
 export const LONG_CON_ARCHETYPES: readonly Archetype[] = ["mastermind", "villain", "analyst"];
 export const LONG_CON_STYLES: readonly StrategyStyle[] = ["strategic"];
 
+/** ORW-337: what a model-authored aim hint adds to that season aim's lean (spec 0146: shapes, never forces). `npcMindsAuthored.AUTHORED.aimHintBonus` is this value. A leaf constant so `agenda.ts` can read it without an import cycle. */
+export const AIM_HINT_BONUS = 0.4;
+
 export const AGENDA = {
   /** Seeded jitter added to each season-goal lean so two houseguests of one archetype need not want the same thing (0..jitter). */
   seasonJitter: 0.3,
