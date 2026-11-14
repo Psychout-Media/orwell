@@ -24,6 +24,6 @@ describe("ORW-323 - loopFingerprint", () => {
   });
 
   it("the stripped keys are exactly the four chat-side ones (a new key is a deliberate edit, with its own reason)", () => {
-    expect([...CHAT_SIDE_LIVE_KEYS]).toEqual(["nightDepth", "timeOfDay", "interruption", "desireApproachedAt"]);
+    expect([...CHAT_SIDE_LIVE_KEYS]).toEqual(["nightDepth", "timeOfDay", "interruption", "desireApproachedAt", "goalApproaches"]); // ORW-340: a goal-driven approach is raised by the clock alone, so it is side-state like the others
   });
 });

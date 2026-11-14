@@ -82,7 +82,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
-import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, type Candidate } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
@@ -8460,6 +8460,14 @@ export class GameSessionAdapter implements GameSession {
     }
     const until = m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
     const best = mostUrgent(cands, until);
+    // ORW-340: an NPC whose own goal brought them to the player (an hourly plan that named them, still fresh) approaches too, through this same path and its cooldown.
+    const goalCands: Candidate[] = ids.flatMap((id) => {
+      const g = live.goalApproaches?.[id];
+      if (!g || this.absHour() - g.hour > DESIRE.goalFreshHours) return [];
+      return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
+    });
+    const byGoal = goalDriven(goalCands);
+    if (byGoal && (!best || DESIRE.goalUrgency > best.urgency)) return byGoal;
     return best ? { npc: best.npc, desire: best.desire } : null;
   }
 
@@ -8498,6 +8506,7 @@ export class GameSessionAdapter implements GameSession {
   private noteApproach(npc: EntityId): void {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
+    if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
   /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
   inGameAbsHour(): number | undefined { return this.inGameHour() === undefined ? undefined : this.absHour(); }
@@ -9904,6 +9913,8 @@ export class GameSessionAdapter implements GameSession {
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     if (actors.length === 0) return [];
     const where = new Map<EntityId, Room>(actors.map((id) => [id, presence.get(id)!] as const));
+    // ORW-340: the player is where the houseguests can see them: in the hour view (so a goal can aim at them) but never an actor and never moved.
+    const view = playerRoom !== undefined ? new Map<EntityId, Room>([...where, [house.player.id, playerRoom]]) : where;
     const seed = this.gameSeed ?? 0;
     const day = s.dayNumber ?? s.week;
     const hour = this.inGameHour() ?? stretchIndex;
@@ -9920,8 +9931,8 @@ export class GameSessionAdapter implements GameSession {
       const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
       plans.push(chooseHourAction({
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
-        emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: where,
-        affinity: new Map(others.map((o) => [o, this.rel.edge(id, o).affinity] as const)),
+        emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
+        affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
         threat: new Map(others.map((o) => [o, this.rel.edge(id, o).threat] as const)),
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
@@ -9940,6 +9951,10 @@ export class GameSessionAdapter implements GameSession {
     for (const scene of assembleScenes(plans)) {
       for (const p of scene.actions) {
         const partner = p.with[0];
+        // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
+        if (p.goalId && p.with.includes(house.player.id) && this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id)) {
+          (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
+        }
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;
         if (!partner || !type || partner === house.player.id) continue;
         if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";
