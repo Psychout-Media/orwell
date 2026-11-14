@@ -5727,8 +5727,39 @@ def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_activ
     round therefore persists exactly what was emitted. An uncut round is returned unchanged (per-sentence
     drops are already mirrored out of the raw buffer by `_mirror_wall_drop`)."""
     if scene_broken and scrub_active:
-        return (round_emitted or "").strip()
+        _e = (round_emitted or "").strip()
+        return _e + close_open_markup(_e)  # ORW-354: never persist a halt inside an open quote / bold span
     return cleaned_round
+
+
+def close_open_markup(text: str) -> str:
+    """ORW-354 - the suffix that closes any `**` bold span / quotation left OPEN at the end of `text` (only its last paragraph is judged, so one stray
+    inch-mark earlier never matters). The scene circuit-breaker halts at a sentence boundary, which inside a quoted announcement is mid-quote: the
+    player saw `**"Production's voice...` with no close. Returns "" when balanced. Pure."""
+    para = (text or "").rsplit("\n\n", 1)[-1]
+    stack: list = []
+    i = 0
+    while i < len(para):
+        if para.startswith("**", i):
+            if "**" in stack:
+                del stack[stack.index("**"):]
+            else:
+                stack.append("**")
+            i += 2
+            continue
+        ch = para[i]
+        if ch == "\u201c":
+            stack.append("\u201d")
+        elif ch == "\u201d":
+            if "\u201d" in stack:
+                del stack[stack.index("\u201d"):]
+        elif ch == '"':
+            if '"' in stack:
+                del stack[stack.index('"'):]
+            else:
+                stack.append('"')
+        i += 1
+    return "".join(reversed(stack))
 
 
 _REPLAY_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")  # a sentence end OR any newline (the streaming splitter treats a bare newline as a boundary too)
@@ -8773,6 +8804,14 @@ async def _stream_agent_loop_impl(
                         _emitted_visible = True
                         _round_visible_emitted = True
                     yield f'data: {json.dumps({"delta": _guarded_text})}\n\n'
+
+        if _scene_broken and _round_emitted_text:
+            # ORW-354: a halt must never leave the player's bubble inside an open quote / bold span (the sentence splitter cuts mid-quote).
+            _halt_close = close_open_markup(_round_emitted_text)
+            if _halt_close:
+                _round_emitted_text += _halt_close
+                full_response += _halt_close
+                yield f'data: {json.dumps({"delta": _halt_close})}\n\n'
 
         tool_blocks, used_native = _resolve_tool_blocks(round_response, native_tool_calls, round_num)
 

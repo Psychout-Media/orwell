@@ -180,8 +180,12 @@ def name_spans(s: str, names: Iterable[str], player: Optional[str] = None) -> "l
     someone else, which no third-person name check ever sees."""
     taken: "list[tuple[int, int]]" = []
     out: "list[tuple[str, int, int]]" = []
+    named = [(canon, m.start(), m.end()) for canon, pat in _name_patterns(names) for m in pat.finditer(s)]
     if player:
         for m in _SECOND_PERSON_RE.finditer(s):
+            # ORW-354: "Name, you are evicted" / "Name - you ..." - a name opening the clause as a vocative ("Name, ... you") is who "you" addresses, not the player.
+            if any(e <= m.start() and re.fullmatch(r"\s*[,:\u2014\u2013-]+[^.!?]*", s[e:m.start()]) for _c, _a, e in named):
+                continue
             out.append((player, m.start(), m.end()))
             taken.append((m.start(), m.end()))
     for canon, pat in _name_patterns(names):
@@ -307,6 +311,10 @@ def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, ca
     veto_holder, hoh = sig.get("vetoHolderName"), sig.get("hohName")
     noms = list(sig.get("nomNames") or [])
     evicted = list(sig.get("evictedNames") or [])
+    # ORW-354: tonight's COMMITTED evictee. The one-turn reveal pre-resolves the eviction at framing, so on the result / goodbye stages the engine's
+    # `eviction.evictee` is already decided while `evictedNames` has not yet moved; announcing that person is the engine's own result, not a phantom.
+    if sig.get("evictionEvictee"):
+        evicted = evicted + [str(sig["evictionEvictee"])]
     if sig.get("playerStatus") not in (None, "active") and player:
         evicted = evicted + [player]
     by_role: "dict[str, list[str]]" = {}
