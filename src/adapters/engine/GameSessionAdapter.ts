@@ -13958,13 +13958,16 @@ export class GameSessionAdapter implements GameSession {
           ...(v.currentRead ? { currentRead: v.currentRead } : {}),
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
+          // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
+          ...(v.moodCause ? { moodCause: v.moodCause } : {}),
+          ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
         };
         return e;
       })
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined),
       );
   }
 

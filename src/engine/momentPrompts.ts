@@ -1437,6 +1437,9 @@ export function renderGameContext(view: GameStateView): string {
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
+          // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
+          if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
+          if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
         }),
       ]

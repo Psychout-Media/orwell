@@ -2070,6 +2070,10 @@ export interface PresentKnowledgeView {
   rivalry?: { tone: "simmering" | "open" };
   /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
   statedReasons?: StatedReasonView[];
+  /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
+  moodCause?: string;
+  /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
+  rememberedAboutOthers?: string[];
 }
 
 /**
