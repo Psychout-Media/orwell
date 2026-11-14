@@ -248,10 +248,13 @@ def score(turns, checks, check, turn_limit):
         m = LEAK_RE.search(t["text"]); check(f"T3-no-machinery[{lab}]", not m, f"leak: {m.group(0)!r}" if m else "clean")
         check(f"T4-latency[{lab}]", t["secs"] <= turn_limit, f"{t['secs']}s (warn > {turn_limit}s)", "warn")
         check(f"T5-latency-hard[{lab}]", t["secs"] <= 240, f"{t['secs']}s (fail > 240s)")
-        eh = clock_hour(t.get("clock")); cm = re.search(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))", t["text"]) if eh is not None else None
+        # The bubble's own header stamp ("Production 03:57 PM") is the wall clock of the chat row, not a claim about the game: strip it before looking for a clock claim.
+        body = re.sub(r"\b\d{1,2}:\d{2}\s*[AP]M\b", " ", t["text"], flags=re.I)
+        eh = clock_hour(t.get("clock")); cm = re.search(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))", body, flags=re.I) if eh is not None else None
         if cm:
             nh = int(cm.group(1)) + int(cm.group(2)) / 60
-            nh = nh + 12 if nh < 8 and eh >= 12 else nh
+            pm_word = re.search(re.escape(cm.group(0)) + r"\s+(?:at night|in the (?:evening|afternoon)|tonight)", body, flags=re.I)  # "8:10 at night" is 8:10pm
+            nh = nh + 12 if (nh < 12 and eh >= 12 and (nh < 8 or pm_word)) else nh
             check(f"C3-clock-claim[{lab}]", abs(nh - eh) <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
     # NO SKIPPED TIME (Ryne: "It shouldn't ever skip time"): between two consecutive player turns the clock may not move more than ~1 hour unless the
     # player went to bed (a bed message) or the night reached 8am. Jumps the RUNNER made itself (night sleeps, tick-to-due, entrance advances) are tagged
@@ -268,6 +271,9 @@ def score(turns, checks, check, turn_limit):
                 # which also moves the clock by hours spent its hours inside ONE reply.
                 if gap <= 1.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: the crown's share on top of the spread rounds (a competition that spans several messages)", "note")
                 else: check(f"K2-competition-in-one-message[{t['label']}]", False, f"{t.get('phase_before')} was crowned in a single message and the clock jumped +{gap:.1f}h ({t.get('msg')!r})")
+            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 1.5:
+                # ORW-347: a staged eviction night reads its ballots one per engine step (5 minutes each, up to 15 voters ~ 75 min) and a reply may play several steps. Same phase, same evening, never across a night: the scheduled ceremony playing out, not skipped time.
+                check(f"K1-clock-jump-ceremony[{t['label']}]", True, f"+{gap:.1f}h: the eviction night's ballots read inside one reply (5 min per staged step)", "note")
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_
