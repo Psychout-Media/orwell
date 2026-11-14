@@ -3934,6 +3934,12 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             logger.info(f"[orwell] auto-record: rejected malformed withIds entries "
                        f"{_rejected_with_ids!r} (#1734 normalize/validate boundary) user={owner}")
         if not ids:
+            if not _rejected_with_ids:  # ORW-346: an explicit "nobody engaged" (not a malformed answer): tell the E22 guard there is no scene to fold
+                try:
+                    from src import fold_ledger as _fl_nob
+                    _fl_nob.note_scene_nobody(owner)
+                except Exception:
+                    pass
             return False
         # #1730 (B3) — the witness set must be derived from ENGINE whereabouts at scene time, not
         # trusted from the model's withIds guess (which follows the narrated — possibly
@@ -3973,6 +3979,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 if session_id is not None:  # ORW-26: tell the E22 guard this turn's extraction already found nobody present (no second identical LLM call)
                     from src import fold_ledger as _fl_decl
                     _fl_decl.note_belt_declined(owner, session_id)
+                    _fl_decl.note_scene_nobody(owner)  # ORW-346: everyone proposed was off-scene: no scene with anyone to fold
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."

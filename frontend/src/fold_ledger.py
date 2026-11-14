@@ -407,6 +407,20 @@ def consume_belt_declined(owner: Optional[str], session_id: Optional[str]) -> bo
     return hit
 
 
+# ORW-346: the scene extraction answered "nobody engaged" ({"withIds":[]}, or every proposed id was off-scene): no scene with anyone, so nothing for the E22 guard to fold. One flag per owner, consumed once by the guard.
+_SCENE_NOBODY: set = set()
+
+
+def note_scene_nobody(owner: Optional[str]) -> None:
+    _SCENE_NOBODY.add(owner)
+
+
+def consume_scene_nobody(owner: Optional[str]) -> bool:
+    hit = owner in _SCENE_NOBODY
+    _SCENE_NOBODY.discard(owner)
+    return hit
+
+
 # ORW-328: houseguests who WERE in the player's room for this turn's scene and then walked out of it in the same narration (the NPC move belt
 # relocated them before the scene belt's presence check ran). Without this the check read the POST-move board, called them off-scene, dropped
 # the only participant, and the E22 guard recorded a fallback for a perfectly real talk turn. Keyed by owner, short-lived (a turn), consumed once.

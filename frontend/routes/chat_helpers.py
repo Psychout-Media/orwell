@@ -8200,12 +8200,30 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             logger.info("[orwell] E22 guard: stood down — turn wrote %s (beatSeq %s → %s) user=%s",
                         writes, beat_seq_before, beat_now, user)
             return False
-    global _unrecorded_turn_fallbacks
-    _unrecorded_turn_fallbacks += 1
-    logger.warning(
-        "[orwell] E22 guard: game turn narrated with no engine write — recording a fallback "
-        "(process count=%d)", _unrecorded_turn_fallbacks,
-    )
+    # ORW-346 (live week 2026-11-14: all 13 firings in 43 turns were turns where the extractor answered {"withIds":[]} - the player was alone in bed, or a comp/ceremony took the beat before anyone engaged): "nobody engaged" is
+    # NOT the model skipping a recordInteraction - there is no scene with anyone to fold, and the flat floor digest it used to write recorded a phantom, participant-less "scene" and counted as an under-call. An in-loop belt that
+    # already found nobody stands the guard down here; our own extraction below does the same. The WARN + counter now mean what they say: a real under-call.
+    try:
+        from src import fold_ledger as _fl_nobody
+        _nobody = _fl_nobody.consume_scene_nobody(user)
+    except Exception:
+        _nobody = False
+    if _nobody:
+        logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (a solo / board-took-the-beat turn), nothing to fold (ORW-346) user=%s", user)
+        return False
+    _warned = False
+
+    def _count_underwrite():
+        nonlocal _warned
+        global _unrecorded_turn_fallbacks
+        if not _warned:
+            _warned = True
+            _unrecorded_turn_fallbacks += 1
+            logger.warning(
+                "[orwell] E22 guard: game turn narrated with no engine write — recording a fallback "
+                "(process count=%d)", _unrecorded_turn_fallbacks,
+            )
+
     # L18: don't race a fallback already committing for this user (or pile a backlog behind the
     # next live turn). The under-call is recorded above; one in-flight fallback per user is enough.
     if user in _fallback_in_flight:
@@ -8222,9 +8240,19 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         try:
             # ORW-26: the in-loop belt already ran this exact extraction and found every proposed participant off-scene - don't pay (or risk a different roll of) a second identical call; go to the floor digest.
             if not belt_declined and await _e22_rich_extract(user, player_message, text):
+                _count_underwrite()
                 return True
         except Exception as e:  # never let the rich path break the floor fallback
             logger.warning("[orwell] E22 rich extraction errored for user=%s: %s", user, e)
+        try:
+            from src import fold_ledger as _fl_nobody2
+            _nobody = _fl_nobody2.consume_scene_nobody(user)
+        except Exception:
+            _nobody = False
+        if _nobody:  # ORW-346: our own extraction answered "nobody engaged"; not an under-call, no phantom digest
+            logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (ORW-346) user=%s", user)
+            return False
+        _count_underwrite()
         # LAST resort: the bounded `kind`-floor digest (no model, a solo beat, or a hiccup above).
         digest = (
             "Scene (auto-recorded): the player said: "
