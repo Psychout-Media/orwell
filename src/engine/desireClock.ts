@@ -17,6 +17,12 @@ export const DESIRE = {
   /** An approach fires when urgency reaches this. */
   threshold: 0.5,
   weight: { campaign: 1.0, plea: 1.3, probe: 0.7, "check-in": 0 } as const,
+  /** ORW-340: a houseguest whose OWN GOAL brought them to the player (an hourly plan that names the player) approaches at this urgency (over the threshold, under a milestone's peak), once rested. */
+  goalUrgency: 1.0,
+  /** ORW-340: how long a goal-driven plan stays a live reason to approach, in in-game hours (it lapses if no conversation opens the door). */
+  goalFreshHours: 3,
+  /** ORW-340: below this trust in the player an NPC avoids them: their goal does not bring them over. */
+  goalMinTrust: 0.25,
 } as const;
 
 export type Desire = keyof typeof DESIRE.weight;
@@ -73,4 +79,28 @@ const _k = Number(process.env.ORWELL_WANT_MOVEMENT_K);
 export const WANT_MOVEMENT = { k: Number.isFinite(_k) && _k >= 0 && process.env.ORWELL_WANT_MOVEMENT_K !== undefined ? _k : 1 } as { k: number };
 export function wantScale(u: number, k: number = WANT_MOVEMENT.k): number {
   return 1 + k * Math.min(1, Math.max(0, u) / DESIRE.threshold);
+}
+
+/**
+ * ORW-340: the desire an hourly house-life action names when it is aimed at the player. A closed mapping from the action's kind to the nearest EXISTING approach desire, so the narrator
+ * already knows how to voice it: begging and bargaining are a plea; pitching, recruiting and lobbying are a campaign; counting or flipping a vote is a probe; anything else (comfort, checking in)
+ * is a check-in. Only the category crosses to the narrator, never the goal.
+ */
+export function desireForAction(kind: string): Desire {
+  switch (kind) {
+    case "beg": case "bargain": case "call-in-favor": case "make-a-promise": return "plea";
+    case "pitch": case "recruit": case "lobby-for": case "split-roles": return "campaign";
+    case "count-votes": case "flip-a-vote": case "campaign-against": case "confront": return "probe";
+    default: return "check-in";
+  }
+}
+
+/** ORW-340: the goal-driven approacher: among rested candidates the one with the strongest tie to the player (ties break on the lower id; no rng), or `null`. */
+export function goalDriven(cands: readonly Candidate[]): { npc: EntityId; desire: Desire } | null {
+  let best: Candidate | null = null;
+  for (const c of cands) {
+    if (c.hoursSinceApproach !== undefined && c.hoursSinceApproach < DESIRE.cooldownHours) continue; // the cooldown still holds
+    if (!best || c.drive > best.drive + 1e-12 || (Math.abs(c.drive - best.drive) <= 1e-12 && c.npc < best.npc)) best = c;
+  }
+  return best ? { npc: best.npc, desire: best.desire } : null;
 }
