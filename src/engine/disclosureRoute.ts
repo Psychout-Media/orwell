@@ -16,7 +16,7 @@ export type DisclosureOutcome = "confirm" | "slip" | "deflect";
 export interface DisclosureEvent {
   outcome: DisclosureOutcome;
   /** Which engine path produced it. */
-  via: "confide" | "drip";
+  via: "confide" | "drip" | "orientation";
   /** The tier a confirmed confidence reached (absent for slip / deflect). */
   tier?: DisclosureTier;
   /** false => the engine knows it was a lie (never shown to the player). */
