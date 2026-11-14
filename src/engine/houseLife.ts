@@ -250,7 +250,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
       // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
       if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
       if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
-      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor"] as const));
+      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor", "count-votes", "count-votes"] as const));
       return pick(k, ears, t);
     }
     case "stay-safe": {
@@ -304,7 +304,12 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
 
   const goals = [...(v.agenda?.goals ?? [])].filter((g) => g.status === "active").sort((a, b) => b.commitment - a.commitment || a.id.localeCompare(b.id));
   const lifePull = HOUSE_LIFE.lifePull[v.timeOfDay] + (v.emotional > 0.6 ? HOUSE_LIFE.contentLifeBonus : 0);
-  for (const g of goals) {
+  // ORW-350: ordinary life keeps its share however pressing the goals get. Each goal beats ordinary life this hour with chance drive / lifePull (capped at 1), so SOME goal does with 1 minus the product of the misses: it
+  // climbs toward 1 as commitments rise and goals pile up (week 2: get-them-out about 0.85 each), and the house stopped living. Above the ceiling, ONE seeded roll sends the hour back to ordinary life, so the hours spent on goals
+  // top out at the ceiling; below it (the early game) nothing changes, byte for byte.
+  const reach = 1 - goals.reduce((miss, g) => miss * (1 - Math.min(1, (g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1)) / Math.max(1e-9, lifePull))), 1);
+  const lifeHour = reach > HOUSE_LIFE.goalHourCeiling && roll("goalhour") >= HOUSE_LIFE.goalHourCeiling / reach;
+  for (const g of lifeHour ? [] : goals) {
     // A season-long MAIN aim is a background pull; week goals and emergent season goals (revenge, a long con, a secret) are the pressing ones.
     const drive = g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1);
     if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win

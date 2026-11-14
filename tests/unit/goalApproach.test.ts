@@ -62,10 +62,19 @@ async function setup(seed: number) {
   return { s, sb, holder, bystander, goal, stretch, awake };
 }
 
+/** ORW-350: a pressing goal now takes at most its ceiling of the hours (ordinary life keeps the rest), so whether the FIRST few hours of one pinned seed bring the approach is chance; the repo's seed-search pattern (#1954): the first of a few seeds whose day raises it. */
+async function setupRaising(): Promise<Awaited<ReturnType<typeof setup>>> {
+  for (const seed of [11, 12, 13, 14, 15, 16, 17, 18]) {
+    const w = await setup(seed);
+    w.stretch();
+    if (w.s.live.goalApproaches?.[w.holder]) return w;
+  }
+  throw new Error("no seed in 11..18 raised a goal approach within the day");
+}
+
 describe("a goal brings an NPC to the player (live)", () => {
   it("a nominated houseguest with a stay-safe goal raises a PLEA approach to the player within the day, through the desire clock", async () => {
-    const { s, holder, goal, stretch } = await setup(11);
-    stretch();
+    const { s, holder, goal } = await setupRaising();
     expect(s.live.goalApproaches![holder]).toMatchObject({ desire: "plea", goalId: goal.id });
     expect(s.desireApproach([holder])).toEqual({ npc: holder, desire: "plea" });
   });
@@ -84,8 +93,7 @@ describe("a goal brings an NPC to the player (live)", () => {
   });
 
   it("the guards hold: the cooldown blocks it, a sleeper never comes, and acting on it clears the reason", async () => {
-    const { s, holder, stretch } = await setup(11);
-    stretch();
+    const { s, holder } = await setupRaising();
     expect(s.live.goalApproaches![holder]).toBeDefined();
     expect(s.desireApproach([])?.npc, "asleep (not among the awake ids) = never").toBeUndefined();
     s.live.desireApproachedAt = { [holder]: s.absHour() };
@@ -96,15 +104,13 @@ describe("a goal brings an NPC to the player (live)", () => {
   });
 
   it("a stale reason lapses: after goalFreshHours it no longer brings anyone", async () => {
-    const { s, holder, stretch } = await setup(11);
-    stretch();
+    const { s, holder } = await setupRaising();
     s.live.goalApproaches![holder]!.hour = s.absHour() - DESIRE.goalFreshHours - 1;
     expect(s.desireApproach([holder])?.npc).not.toBe(holder);
   });
 
   it("the goal never reaches a player surface (Vault sentinel): only the NPC and the coarse desire do", async () => {
-    const { s, holder, goal, stretch } = await setup(11);
-    stretch();
+    const { s, holder, goal } = await setupRaising();
     const surfaces = JSON.stringify([s.getGameState(), s.getMomentPrompt({}), s.npcVoice(holder)]);
     expect(surfaces).not.toContain(goal.id);
     expect(surfaces).not.toContain("goalApproaches");

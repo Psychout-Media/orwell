@@ -10,6 +10,9 @@ export type Habit = "early-riser" | "night-owl" | "gym-rat" | "house-cook" | "ne
 export const HOUSE_LIFE = {
   /** How strongly a goal pulls its holder into acting on it this hour (x commitment), against the pull of ordinary life. */
   goalDrive: 1.0,
+  /** ORW-350: the most hours (share) a houseguest spends on their goals; the rest are ordinary life whatever their goals are. A pressing goal's commitment climbs toward 0.85+ as the weeks go (get-them-out 0.54 in the first days, 0.85-0.88 by
+   *  week 2), and past the pull of ordinary life (0.5-0.9 by time of day) it won every hour, so the house turned into scheming: bonding 55% to 18%, gossip 13% to 69% across 800 chat-paced messages. */
+  goalHourCeiling: 0.7,
   /** A season-long MAIN aim (run the house, be liked...) pulls at this share of a pressing goal's drive (ORW-315 tuning: it dominated hours). */
   mainAimDrive: 0.35,
   /** The pull of ordinary house life by time of day (a goal must beat this x a seeded roll to be pursued this hour). Mornings and late nights are for living. */
@@ -23,7 +26,7 @@ export const HOUSE_LIFE = {
   /** Chance a showmance pair spends a free hour together when both are around. */
   romanceChance: 0.5,
   /** Base chance a free hour with someone they don't warm to turns into a chore fight (scaled by dislike, temper and mood; ORW-324). */
-  frictionChance: 0.55,
+  frictionChance: 0.33,
   /** ORW-324: affinity below this counts as dislike for friction (was 0.3: friction only between enemies made the house 99% friendly). */
   frictionAffinity: 0.45,
   /** ORW-324: how quick each archetype is to direct friction (confronting a target, a chore fight). */
