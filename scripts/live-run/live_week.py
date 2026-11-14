@@ -65,7 +65,19 @@ class Week(Chat):
             prev = sig
             if stable >= 3: break
         bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
-        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": "\n".join(x["txt"] for x in new), "settled": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit}
+        # ORW-348: a reply read as unsettled (no footer yet) gets a GRACE window, polled once a second, before it is called stuck. Recorded: did the footer appear late (and when), did the text keep growing (the wait loop quit between
+        # rounds), or is the bubble still without a footer after the grace (a reply the player would see hang). Tells a runner that gave up too early from a real stuck reply.
+        late = {}
+        if new and not new[-1]["done"]:
+            g0 = time.time(); txt0 = "\n".join(x["txt"] for x in new)
+            while time.time() - g0 < 45:
+                self.page.wait_for_timeout(1000)
+                bs2 = self.page.evaluate(BUB); new2 = bs2[before:] if len(bs2) >= before else bs2
+                if new2 and new2[-1]["done"]:
+                    late = {"late_done_s": round(time.time() - g0), "late_grew_chars": len("\n".join(x["txt"] for x in new2)) - len(txt0), "late_busy": bool(self.page.evaluate(BUSY_JS))}; new = new2; break
+            else:
+                late = {"late_done_s": None, "late_grew_chars": len("\n".join(x["txt"] for x in new2)) - len(txt0), "late_busy": bool(self.page.evaluate(BUSY_JS))}; new = new2
+        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": "\n".join(x["txt"] for x in new), "settled": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit, **late}
 
     def card_turn(self):
         c = self.page.evaluate(CARD)
@@ -97,7 +109,7 @@ def main():
     def snap(label, text, r, extra=""):
         st = eng.call("getGameState"); cer = st.get("ceremony") or {}
         t = {"label": label, "msg": (text or extra)[:80], "secs": r["secs"], "phase": st.get("phase"), "week": st.get("week"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"],
-             "settled": r["settled"], "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
+             "settled": r["settled"], "timed_out": r["timed_out"], **{k: v for k, v in r.items() if k.startswith("late_")}, "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
              "nominees": names(cer.get("nominees") or st.get("nominees")), "veto_holder": ((cer.get("veto") or {}).get("holder") or {}).get("name") if isinstance((cer.get("veto") or {}).get("holder"), dict) else None,
              "hoh": (cer.get("hoh") or {}).get("name") if isinstance(cer.get("hoh"), dict) else None}
         t["harness_jump"] = eng.jumps; eng.jumps = 0; t["phase_before"] = facts.get("_last_phase"); facts["_last_phase"] = st.get("phase")
