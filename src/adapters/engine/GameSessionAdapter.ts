@@ -91,7 +91,7 @@ import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionCo
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { validateTraits, validateCulture, validateReflection } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
-import type { Agenda, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
+import type { Agenda, Goal, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids } from "../../engine/agenda";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { buildHouseStories } from "../../engine/houseStory";
@@ -9316,9 +9316,13 @@ export class GameSessionAdapter implements GameSession {
     const npcs = this.livingIds().filter((id) => id !== PLAYER);
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a));
-    // A founder: a build-drive NPC who hasn't already founded an active alliance.
+    // ORW-341: in a game a person PLAYS an NPC's own agenda also builds alliances (a last-alliance-standing or run-the-house aim founds one; a pull-them-in goal extends or founds one with its target, below).
+    const played = this.live?.playedGame === true && this.live.agendas !== undefined;
+    const goalsOf = (id: EntityId): Goal[] => (played ? this.live!.agendas![id]?.goals ?? [] : []).filter((g) => g.status === "active");
+    const buildsByAim = (id: EntityId): boolean => goalsOf(id).some((g) => g.kind === "last-alliance-standing" || g.kind === "run-the-house");
+    // A founder: a build-drive NPC (or one whose own aim is to build) who hasn't already founded an active alliance.
     const founders = npcs
-      .filter((id) => this.drives.get(id)?.motivation === "build" && !this.alliances.all().some((a) => a.founder === id))
+      .filter((id) => (this.drives.get(id)?.motivation === "build" || buildsByAim(id)) && !this.alliances.all().some((a) => a.founder === id))
       .sort();
     const npcFloor = { ...ALLIANCE, joinBondFloor: ALLIANCE.npcAllyFloor };
     for (const founder of founders) {
@@ -9336,6 +9340,29 @@ export class GameSessionAdapter implements GameSession {
       this.agendaRecheck("alliance-changed"); // ORW-312
       this.persist();
       return; // one new alliance per tick (bounded)
+    }
+    // ORW-341: a "pull them in" goal turns the hours spent pitching into an alliance with its TARGET, through the same consent: the target must be willing (mutual bond at the floor, a little warmer if pitched this week).
+    if (!played) return;
+    const week = this.live!.week;
+    for (const holder of npcs) {
+      for (const goal of goalsOf(holder).filter((g) => g.kind === "pull-them-in" && g.target !== undefined && g.target !== PLAYER)) {
+        const target = goal.target!;
+        if (!npcs.includes(target) || this.alliances.shared(holder, target).length > 0) continue;
+        const warm = this.live!.pitched?.[`${holder}>${target}`] === week ? ALLIANCE.pitchedWarmth : 0;
+        const bond = (m: EntityId): number => mutual(holder, m) + (m === target ? warm : 0);
+        if (bond(target) < npcFloor.joinBondFloor) continue; // the target declines: an unwilling target never joins
+        const mine = this.alliances.forMember(holder).find((a) => a.members.length < ALLIANCE.maxNpcSize);
+        if (mine) { this.alliances.join(mine.id, target); }
+        else {
+          const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
+          const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
+          if (!willing.includes(target) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
+          this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
+        }
+        this.agendaRecheck("alliance-changed");
+        this.persist();
+        return; // one change per tick (bounded)
+      }
     }
   }
 
@@ -9941,6 +9968,7 @@ export class GameSessionAdapter implements GameSession {
     for (const scene of assembleScenes(plans)) {
       for (const p of scene.actions) {
         const partner = p.with[0];
+        if (p.goalKind === "pull-them-in" && partner) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;
         if (!partner || !type || partner === house.player.id) continue;
         if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";
