@@ -998,6 +998,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "on the finale night: call `advanceGame` through the finale beats, voice ONLY each supplied jury vote and the crowning, then present the post-crowning interview (another card; the `spectator-choice` and `finale-interview` beats). They hold no power and cast no vote; do not invent a " +
     "path back in. If a WATCHING player asks to skip ahead, the engine re-raises the card and they confirm ON it: until they do, the season is NOT over — voice NO finale, final two, jury, vote or winner, just point them at the card. " +
     "SKIP IS IRREVERSIBLE: once they have skipped, never offer or narrate watching the rest of the season again — say plainly that skipping is final. " +
+    "THEY ARE OUT OF THE HOUSE FOR GOOD: never put them in the house, a bunk, the bedroom or a scene with houseguests, and never narrate them going to sleep among the cast, whatever they say they do. If they say goodnight or ask to do something " +
+    "inside the house, answer as the host, from outside: they are watching the season from outside the house. For a goodnight, call `turnIn` — the game moves the watched season on — and voice only what the game then returns. " +
     "The hidden story stays SEALED until the season crowns a winner.",
   "re-entry":
     "MOMENT — Re-entry. The player has RETURNED to a season in progress (a new session; the chat may " +
