@@ -35,4 +35,27 @@ describe("the HUD day number", () => {
     sb.session.createCharacter({ playerName: "P", seed: 3 });
     expect(sb.session.gameStatus().dayNumber).toBeUndefined();
   });
+
+  // ORW-345: the FE stamps `metadata.game_day` on every saved row from `getGameState().dayNumber`; without it on that view no row was ever stamped live and the closed-day prompt condensing (ORW-271) never ran.
+  it("getGameState carries the same day number as its clock label and as the status, while the clock runs", () => {
+    const s = started(3);
+    let seen = 0;
+    for (let i = 0; i < 60; i++) {
+      s.advanceGame();
+      const v = s.getGameState() as { clockLabel?: string; dayNumber?: number };
+      if (v.clockLabel) {
+        seen++;
+        expect(v.dayNumber, v.clockLabel).toBe(Number(/Day (\d+)$/.exec(v.clockLabel)![1]));
+        expect(v.dayNumber).toBe(s.gameStatus().dayNumber);
+      } else expect(v.dayNumber).toBeUndefined();
+    }
+    expect(seen).toBeGreaterThan(5);
+  });
+
+  it("is absent from getGameState when the clock is off", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(false);
+    const sb = new GameSessionRegistry().sandboxFor("hud-day-view-off");
+    sb.session.createCharacter({ playerName: "P", seed: 3 });
+    expect((sb.session.getGameState() as { dayNumber?: number }).dayNumber).toBeUndefined();
+  });
 });

@@ -448,6 +448,11 @@ export interface GameStateView {
    */
   clockLabel?: string;
   /**
+   * ORW-345: the in-game DAY number behind `clockLabel` ("..., Day 4" -> 4), public and Vault-free, present under the same gate as `clockLabel`. The front end stamps it onto every saved chat row (`metadata.game_day`) so the
+   * closed-day condensing of the narrator's prompt (ORW-271) can tell which rows belong to a closed day. It was only on `gameStatus`, never on this view, so on the live path no row was ever stamped and nothing condensed.
+   */
+  dayNumber?: number;
+  /**
    * ADR 0006 — the houseguests who've TURNED IN for the night (the complement of the awake set). Names
    * only; Vault-free and OBSERVABLE (the bedtime derivation stays hidden). Present only when the clock is
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).
