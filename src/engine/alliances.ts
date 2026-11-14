@@ -46,6 +46,8 @@ export interface AllianceConstants {
   /** Phase B: an NPC names an alliance only over co-members whose mutual bond clears this (higher than the
    *  player floor — an NPC commits to real bonds, not a hopeful pitch). */
   npcAllyFloor: number;
+  /** ORW-341: how much warmer a houseguest who has been pitched this week counts toward the pitcher when deciding to join (a bounded bonus on the mutual bond, not a new magnitude). */
+  pitchedWarmth: number;
   /** Phase B: the most houseguests an NPC-named alliance starts with (the founder + up to this−1 allies). */
   maxNpcSize: number;
   /** Phase B: an NPC founder pitches the PLAYER into their alliance only when their mutual bond clears this. */
@@ -61,6 +63,7 @@ export const ALLIANCE: AllianceConstants = {
   joinBondFloor: 0.45,
   betrayalMultiplier: 1.5,
   npcAllyFloor: 0.58,
+  pitchedWarmth: 0.05,
   maxNpcSize: 4,
   pitchPlayerFloor: 0.6,
   betrayalThreatBump: 0.18,
