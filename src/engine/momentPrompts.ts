@@ -1619,6 +1619,18 @@ function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]):
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
+/** Exact repeats dropped, the NEWEST occurrence kept (lists run oldest to newest), order kept. Lossless for what is known: the same distinct facts. (ORW-349) */
+export function dedupeKeepNewest(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let k = items.length - 1; k >= 0; k--) {
+    if (seen.has(items[k]!)) continue;
+    seen.add(items[k]!);
+    out.push(items[k]!);
+  }
+  return out.reverse();
+}
+
 /** ORW-349: the items of one houseguest's knowledge as the TERMINAL restatement shows them: neutralized, exact repeats dropped (first kept, order kept), truncated overhear snatches dropped. */
 export function terminalKnowledgeItems(items: readonly string[]): string[] {
   const seen = new Set<string>();

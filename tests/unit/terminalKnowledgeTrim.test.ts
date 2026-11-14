@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { renderGameContext, renderHardConstraints, terminalKnowledgeItems } from "../../src/engine/momentPrompts";
+import { renderGameContext, renderHardConstraints, terminalKnowledgeItems, dedupeKeepNewest } from "../../src/engine/momentPrompts";
 import type { GameStateView, PresentKnowledgeView } from "../../src/ports/GameSession";
 import type { EntityId } from "../../src/domain/ids";
 
@@ -51,5 +51,13 @@ describe("the terminal block trims; GAME CONTEXT keeps everything", () => {
   it("a block with nothing to trim is byte-identical to the old rendering", () => {
     const hc = renderHardConstraints(pk([{ id: "npc:1", name: "Houseguest A", knows: ["a", "b"], suspects: ["c"] }]))!;
     expect(hc).toContain("    · Houseguest A — knows: a; b; suspects (a hunch): c");
+  });
+});
+
+describe("dedupeKeepNewest (ORW-349: a fact held twice is listed once at the source)", () => {
+  it("keeps the newest copy and the order, and loses no distinct fact", () => {
+    expect(dedupeKeepNewest(["a", "b", "a", "c", "b"])).toEqual(["a", "c", "b"]);
+    expect(dedupeKeepNewest([])).toEqual([]);
+    expect(dedupeKeepNewest(["x", "y"])).toEqual(["x", "y"]);
   });
 });
