@@ -245,7 +245,7 @@ import {
   type Trajectory, type FoldSignal,
 } from "../../engine/trajectory";
 import { TRAJECTORY_CONSTANTS } from "../../engine/trajectoryConstants";
-import { buildSystemPrompt, momentForPhase, requiredLeverForPhase, renderStoryFacts, renderSurfacedFacts, renderHardConstraints } from "../../engine/momentPrompts";
+import { buildSystemPrompt, momentForPhase, requiredLeverForPhase, renderStoryFacts, renderSurfacedFacts, renderHardConstraints, dedupeKeepNewest } from "../../engine/momentPrompts";
 import {
   producerForSeed, renderProducerVoice, mergeProducer, validateProducerProfile,
   type Producer, type ProducerProfileOverlay,
@@ -2987,9 +2987,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
-      knows: this.voiceKnownFacts(id)
-        .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
-        .map((f) => this.humanize(f.content)),
+      // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Slice first so humanize runs on a bounded tail.
+      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanize(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {

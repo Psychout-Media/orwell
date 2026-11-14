@@ -1619,18 +1619,30 @@ function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]):
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
-/** ORW-349: the items of one houseguest's knowledge as the TERMINAL restatement shows them: neutralized, exact repeats dropped (first kept, order kept), truncated overhear snatches dropped. */
-export function terminalKnowledgeItems(items: readonly string[]): string[] {
+/** Exact repeats dropped, the NEWEST occurrence kept (lists run oldest to newest), order kept. Lossless for what is known: the same distinct facts. */
+export function dedupeKeepNewest(items: readonly string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of items) {
-    if (/^\(overheard, muffled\)/i.test(raw.trim()) && raw.trim().endsWith("…")) continue;
-    const t = neutralizeForPrompt(raw);
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
+  for (let k = items.length - 1; k >= 0; k--) {
+    if (seen.has(items[k]!)) continue;
+    seen.add(items[k]!);
+    out.push(items[k]!);
   }
-  return out;
+  return out.reverse();
+}
+
+/** ORW-349 step 2: how many of a houseguest's items the TERMINAL restatement lists (the newest). GAME CONTEXT keeps the full list, so the ceiling of what they may voice never changes. */
+export const TERMINAL_KNOWLEDGE_NEWEST = 5;
+
+/**
+ * ORW-349: one houseguest's items as the TERMINAL restatement shows them: truncated "(overheard, muffled) <fragment>..." snatches dropped, neutralized, exact repeats dropped (newest kept), then only the newest `newest`.
+ * `older` counts what the full list in GAME CONTEXT still holds beyond them, so the line can say so (an unlisted item must never read as unknown).
+ */
+export function terminalKnowledgeItems(items: readonly string[], newest: number = TERMINAL_KNOWLEDGE_NEWEST): { shown: string[]; older: number } {
+  const kept = dedupeKeepNewest(
+    items.filter((raw) => !(/^\(overheard, muffled\)/i.test(raw.trim()) && raw.trim().endsWith("…"))).map((raw) => neutralizeForPrompt(raw)),
+  );
+  return { shown: kept.length > newest ? kept.slice(-newest) : kept, older: Math.max(0, kept.length - newest) };
 }
 
 export function renderHardConstraints(view: GameStateView): string | undefined {
@@ -1677,8 +1689,8 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       const knows = terminalKnowledgeItems(e.knows);
       const suspects = terminalKnowledgeItems(e.suspects);
       const bits: string[] = [];
-      if (knows.length) bits.push(`knows: ${knows.join("; ")}`);
-      if (suspects.length) bits.push(`suspects (a hunch): ${suspects.join("; ")}`);
+      if (knows.shown.length) bits.push(`knows: ${knows.shown.join("; ")}${knows.older ? ` (+${knows.older} older in GAME CONTEXT above)` : ""}`);
+      if (suspects.shown.length) bits.push(`suspects (a hunch): ${suspects.shown.join("; ")}${suspects.older ? ` (+${suspects.older} older in GAME CONTEXT above)` : ""}`);
       // Everything they hold was a muffled snatch: keep their line (an absent line reads as "knows nothing") and point at the full one.
       if (!bits.length) bits.push("knows only muffled snatches (the full list is in GAME CONTEXT above)");
       lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
