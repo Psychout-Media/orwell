@@ -438,12 +438,20 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
   const others = goals.filter((g) => g.horizon !== "week");
   let week = heldWeek;
   if (agenda.formedForWeek !== weekNow || heldWeek.length === 0) {
-    week = candidates.filter((c) => c.weight >= AGENDA.weekGoalFloor).slice(0, AGENDA.weekGoalSlots).map((c) => toGoal(c, view.owner, formingBoard));
+    const picked: Candidate[] = [];
+    for (const c of candidates) {
+      if (picked.length >= AGENDA.weekGoalSlots) break;
+      if (c.weight < AGENDA.weekGoalFloor) continue;
+      if (c.kind === "get-them-out" && picked.filter((p) => p.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax) continue; // ORW-350: room for the rest of a week
+      picked.push(c);
+    }
+    week = picked.map((c) => toGoal(c, view.owner, formingBoard));
   } else {
     // A held week goal is replaced only by a candidate that beats the weakest held one by the stubbornness margin.
     const heldKeys = new Set(heldWeek.map(goalKey));
     for (const c of candidates) {
       if (c.weight < AGENDA.weekGoalFloor || heldKeys.has(goalKey(c))) continue;
+      if (c.kind === "get-them-out" && week.filter((g) => g.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax) continue; // ORW-350: the same room, held or newly formed
       if (week.length < AGENDA.weekGoalSlots) { week = [...week, toGoal(c, view.owner, board)]; heldKeys.add(goalKey(c)); continue; }
       const weakest = [...week].sort((a, b) => a.commitment - b.commitment || a.id.localeCompare(b.id))[0]!;
       if (c.weight > weakest.commitment * (1 + stub)) {

@@ -309,7 +309,11 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   // top out at the ceiling; below it (the early game) nothing changes, byte for byte.
   const reach = 1 - goals.reduce((miss, g) => miss * (1 - Math.min(1, (g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1)) / Math.max(1e-9, lifePull))), 1);
   const lifeHour = reach > HOUSE_LIFE.goalHourCeiling && roll("goalhour") >= HOUSE_LIFE.goalHourCeiling / reach;
-  for (const g of lifeHour ? [] : goals) {
+  // ORW-350 step 2: WHICH goal gets the hour is a seeded, drive-weighted draw, not "the strongest first": strongest-first handed every goal hour to the single most committed goal (get-them-out, about 0.85 by week 2, which is almost all
+  // gossip), so a houseguest's bonds, friends and power-seeking never had an hour. A weighted shuffle (seeded per goal and hour) spreads the goal hours over what they hold, in proportion to how hard each pulls.
+  const driveOf = (g: Goal): number => Math.max(1e-6, g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1));
+  const ordered = [...goals].sort((a, b) => Math.pow(roll(`pick:${b.id}`), 1 / driveOf(b)) - Math.pow(roll(`pick:${a.id}`), 1 / driveOf(a)) || a.id.localeCompare(b.id));
+  for (const g of lifeHour ? [] : ordered) {
     // A season-long MAIN aim is a background pull; week goals and emergent season goals (revenge, a long con, a secret) are the pressing ones.
     const drive = g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1);
     if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win

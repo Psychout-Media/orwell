@@ -10,7 +10,7 @@ import { endHeldNight } from "../../tests/support/heldNight";
 const MESSAGES = Number(process.argv[2] ?? 1100), SEEDS = Number(process.argv[3] ?? 12);
 const KINDS = ["bonding", "strategy", "gossip", "conflict"] as const;
 type Row = Record<(typeof KINDS)[number], number> & { n: number };
-const win = new Map<number, Row>(); const WIN = 200; const pooled = new Map<number, Row>(); const pooledActs = new Map<number, Map<string, number>>();
+const winActs = new Map<number, Map<string, number>>(); const win = new Map<number, Row>(); const WIN = 200; const pooled = new Map<number, Row>(); const pooledActs = new Map<number, Map<string, number>>();
 const blank = (): Row => ({ bonding: 0, strategy: 0, gossip: 0, conflict: 0, n: 0 });
 
 async function main() {
@@ -45,7 +45,7 @@ async function main() {
       if (!e.houseLife) return;
       if (outAtEvent[idx]) return; // player out: not a played week
       const w = weekAtEvent[idx] ?? week;
-      { const k = Math.floor((msgAtEvent[idx] ?? 0) / WIN); const r2 = win.get(k) ?? blank(); if ((KINDS as readonly string[]).includes(e.type)) { (r2 as never as Record<string, number>)[e.type]++; r2.n++; } win.set(k, r2); }
+      { const k = Math.floor((msgAtEvent[idx] ?? 0) / WIN); { const m = winActs.get(k) ?? new Map<string, number>(); const a = String((e.houseLife as { action?: string }).action); m.set(a, (m.get(a) ?? 0) + 1); winActs.set(k, m); } const r2 = win.get(k) ?? blank(); if ((KINDS as readonly string[]).includes(e.type)) { (r2 as never as Record<string, number>)[e.type]++; r2.n++; } win.set(k, r2); }
       const r = by.get(w) ?? blank(), p = pooled.get(w) ?? blank();
       if ((KINDS as readonly string[]).includes(e.type)) { (r as never as Record<string, number>)[e.type]++; (p as never as Record<string, number>)[e.type]++; r.n++; p.n++; }
       by.set(w, r); pooled.set(w, p);
@@ -58,4 +58,4 @@ async function main() {
     console.log(`  week ${w}: scenes ${r.n}  ${KINDS.map((k) => ((100 * r[k]) / Math.max(1, r.n)).toFixed(1)).join(" / ")}   gossip actions: ${[...(pooledActs.get(w) ?? new Map()).entries()].map(([a, c]) => `${a} ${c}`).join(", ")}`);
   }
 }
-main().then(() => { console.log(`BY MESSAGE WINDOW (${WIN} messages, played scenes only):`); for (const [k, r] of [...win.entries()].sort((a, b) => a[0] - b[0])) console.log(`  msgs ${k * WIN}-${k * WIN + WIN - 1}: scenes ${r.n}  ${KINDS.map((q) => ((100 * r[q]) / Math.max(1, r.n)).toFixed(1)).join(" / ")}`); }).catch((e) => { console.error(e); process.exit(1); });
+main().then(() => { for (const [k, m] of [...winActs.entries()].sort((a, b) => a[0] - b[0])) console.log(`  actions msgs ${k * WIN}-${k * WIN + WIN - 1}: ` + [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([a, c]) => `${a} ${c}`).join(", ")); console.log(`BY MESSAGE WINDOW (${WIN} messages, played scenes only):`); for (const [k, r] of [...win.entries()].sort((a, b) => a[0] - b[0])) console.log(`  msgs ${k * WIN}-${k * WIN + WIN - 1}: scenes ${r.n}  ${KINDS.map((q) => ((100 * r[q]) / Math.max(1, r.n)).toFixed(1)).join(" / ")}`); }).catch((e) => { console.error(e); process.exit(1); });
