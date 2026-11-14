@@ -97,6 +97,8 @@ export interface PlayerCard {
 export interface HouseguestCard {
   id: EntityId;
   name: string;
+  /** ORW-343 (ORWELL_MOOD_CUE): the mood WORD as the player last saw this (active) houseguest while sharing a room with them, e.g. "tense" or "at ease but tired". A memory of what was seen, not a live read; absent until seen together. Never a number, never a cause. */
+  lastSeenMood?: string;
   /** active | jury (evicted into the last-9) | evicted (pre-jury). Public ceremony fact. */
   status: string;
   archetype?: string;

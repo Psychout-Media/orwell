@@ -208,5 +208,6 @@ def test_render_only_touches_roster_fields_the_route_returns():
     start = js.index("function cardKey(")
     end = js.index("async function refreshRoster")
     fields = set(re.findall(r"\bhg\.([A-Za-z_$][\w$]*)", js[start:end]))
-    assert fields <= {"id", "name", "status", "isPlayer", "portrait"}, \
+    # ORW-343: `lastSeenMood` is a public roster card field too (a short mood WORD the roster route carries through only when it is a short string; never a number or a cause).
+    assert fields <= {"id", "name", "status", "isPlayer", "portrait", "lastSeenMood"}, \
         f"render must only read public roster card fields, found {sorted(fields)}"

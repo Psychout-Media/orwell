@@ -1993,6 +1993,7 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
+    this.captureSeenMoods(); // ORW-343: the mood word of each houseguest the player is sharing a room with, remembered as last seen
     this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
     this.onPersist?.();
   }
@@ -2766,6 +2767,30 @@ export class GameSessionAdapter implements GameSession {
   private npcTellsEnabled = flagDefaultOn("ORWELL_NPC_TELLS");
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
   private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
+  /**
+   * ORW-343 (ORWELL_MOOD_CUE, default ON; Ryne audit card 17, 2026-11-04: "a qualitative cue on the roster card, no numbers, no hidden cause"): each ACTIVE houseguest's cast card carries the mood word as the PLAYER LAST SAW
+   * it: captured whenever the player shares a room with them while they are awake, and kept (not read live) until the player is with them again. A memory of what the player saw, never a live feed through walls (ADR 0003:
+   * people must make sense). Never seen together yet, or no longer in the house => absent. A word only: no number, no cause, no trend.
+   */
+  private moodCueEnabled = flagDefaultOn("ORWELL_MOOD_CUE");
+  /** The mood word the player last saw on each houseguest (ORW-343). Persisted BESIDE presence (like the tracked sightings), deliberately not on the live season: a persist that writes a new word must not read as the game loop moving. Memory the player holds, a word only. */
+  private seenMoods: Map<EntityId, string> | null = null;
+  setMoodCueEnabled(on: boolean): void { this.moodCueEnabled = on; }
+  /** Remember the mood word of every awake houseguest in the player's room (the card shows it later, as last seen). Writes only when the word changed. No rng; the soul is read, never changed. */
+  private captureSeenMoods(): void {
+    if (!this.moodCueEnabled || !this.live || !this.house || !this.presence) return;
+    // (a gone houseguest keeps no cue: the projection only reads active seats)
+    const here = this.presence.get(this.house.player.id);
+    if (here === undefined) return;
+    const awake = this.awakeNow();
+    for (const n of this.house.npcs) {
+      if (this.seatOf(n.id) !== "active" || this.presence.get(n.id) !== here || (awake !== null && !awake.has(n.id))) continue;
+      const soul = this.soulObj(n.id);
+      if (!soul) continue;
+      const word = moodWord(soul.emotionalState, soul.volatility, soul.emotionalHistory);
+      if (this.seenMoods?.get(n.id) !== word) (this.seenMoods ??= new Map()).set(n.id, word);
+    }
+  }
   /**
    * A52 (ORWELL_DISCLOSURE_ENGINE, default ON; ORW-23; Ryne card 19: he does not want the narrator improvising disclosures): in a PLAYED game `npcVoice.knows` hands the narrator only the SHARED GROUND - facts the player also
    * holds (witnessed together, or already delivered to them by an engine disclosure: a confirmed confidence, a slip, a drip) - and never what the houseguest holds about third parties that no engine decision has
@@ -4196,6 +4221,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.trackedSightings && this.trackedSightings.size > 0
          ? { trackedSightings: Object.fromEntries(this.trackedSightings) as Record<EntityId, TrackedSighting> }
          : {}),
+       // ORW-343: the mood words the player last saw (absent/empty => omitted, byte-identical to a pre-feature save).
+       ...(this.seenMoods && this.seenMoods.size > 0 ? { lastSeenMood: Object.fromEntries(this.seenMoods) as Record<EntityId, string> } : {}),
        // 0088: persist per-NPC current-read anchor bonds so drift reads warming/cooling/steady across
        // a restart. Vault-only (derived convenience — never a label, never crossed). Absent ⇒ steady.
        ...(this.readAnchors.size > 0 ? { readAnchors: Object.fromEntries(this.readAnchors) as Record<EntityId, number> } : {}),
@@ -4521,6 +4548,8 @@ export class GameSessionAdapter implements GameSession {
     this.trackedSightings = core.trackedSightings
       ? new Map(Object.entries(core.trackedSightings) as [EntityId, TrackedSighting][])
       : null;
+    // ORW-343: restore the mood words the player last saw (absent on older saves => none yet).
+    this.seenMoods = core.lastSeenMood ? new Map(Object.entries(core.lastSeenMood) as [EntityId, string][]) : null;
     // 0088: restore per-NPC current-read anchor bonds (absent on pre-0088 saves ⇒ empty ⇒ drift "steady").
     this.readAnchors = core.readAnchors ? new Map(Object.entries(core.readAnchors) as [EntityId, number][]) : new Map();
     // #1322: restore the approach-rotation cooldown bookkeeping (absent on a pre-feature save ⇒ every
@@ -14848,6 +14877,8 @@ export class GameSessionAdapter implements GameSession {
         // raw VoiceProfile object (whose free-text signature/lexicon can carry "threat"/"100%" and would
         // trip the Vault-Wall player-surface scan). Public, Vault-free; absent only on a pre-0084 save.
         ...(n.character.voice !== undefined ? { voice: voiceFingerprint(n.character.voice) } : {}),
+        // ORW-343: the mood word as the player last saw it (an ACTIVE houseguest only; absent until the player has shared a room with them, and for the departed). A word, never a number or a cause.
+        ...(this.moodCueEnabled && this.seatOf(n.id) === "active" && this.seenMoods?.get(n.id) ? { lastSeenMood: this.seenMoods.get(n.id) } : {}),
       })),
       // Deals the player is party to (0039) — fact + status only; NPC↔NPC deals never appear here.
       deals: this.deals.forParty(PLAYER).map((d) => this.dealView(d)),
