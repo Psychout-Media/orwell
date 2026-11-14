@@ -18,6 +18,8 @@ export const HOUSE_LIFE = {
   contentLifeBonus: 0.15,
   /** Chance a habit that fits the time of day is followed when no goal is pursued. */
   habitChance: 0.6,
+  /** ORW-337 (spec 0146 lane 2): a house ritual's chance to pull anyone free into its action at its time of day. `npcMindsAuthored.AUTHORED.ritualPull` is this value. */
+  ritualPull: 0.3,
   /** Chance a showmance pair spends a free hour together when both are around. */
   romanceChance: 0.5,
   /** Base chance a free hour with someone they don't warm to turns into a chore fight (scaled by dislike, temper and mood; ORW-324). */

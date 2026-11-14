@@ -9926,6 +9926,7 @@ export class GameSessionAdapter implements GameSession {
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
         timeOfDay: tod, day, hour, inCompetition: false,
+        ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
@@ -9948,7 +9949,7 @@ export class GameSessionAdapter implements GameSession {
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), stretch: stretchIndex },
+          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex },
         };
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
@@ -10117,6 +10118,7 @@ export class GameSessionAdapter implements GameSession {
       archetype: c.archetype, strategyStyle: c.strategyStyle, secretKinds: (c.hiddenElements ?? []).map((e) => e.kind),
       ...(this.philosophiesEnabled ? { philosophy: this.philosophyOf(id) } : {}),
       ...(c.influence ? { susceptibility: c.influence.susceptibility } : {}),
+      ...(this.live?.npcMindsAuthored?.traits?.[id]?.aimHint ? { aimHint: this.live.npcMindsAuthored.traits[id]!.aimHint } : {}), // ORW-337: read at call time, so a write-back that lands AFTER seeding applies from the next season-goal re-pick on
     };
   }
 
