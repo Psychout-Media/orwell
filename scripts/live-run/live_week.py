@@ -58,6 +58,14 @@ class Week(Chat):
         if c.get("hasText"):
             ta = self.page.query_selector("#orwell-decision-card textarea")
             if ta: ta.fill(GOODBYE)
+        # A card whose chosen option leaves Confirm disabled (a pick the card refuses, or one that needs a second pick): try the other options in turn until it enables, rather than hang on a click that can never land.
+        conf = "#orwell-decision-card .odec-confirm"
+        if self.page.query_selector(conf) and self.page.evaluate("(sel) => { const b = document.querySelector(sel); return !!b && b.disabled; }", conf):
+            for i in range(len(btns)):
+                if i in pick: continue
+                try: btns[i].click(); self.page.wait_for_timeout(150)
+                except Exception: continue
+                if not self.page.evaluate("(sel) => { const b = document.querySelector(sel); return !!b && b.disabled; }", conf): break
         if self.page.query_selector("#orwell-decision-card .odec-confirm"):
             try: self.page.click("#orwell-decision-card .odec-confirm", timeout=8000)
             except Exception as e:  # a card whose Confirm never enables: say WHICH card and what it still wants (a free diagnostic; a bare click timeout told us nothing)
