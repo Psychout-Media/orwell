@@ -5899,9 +5899,11 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         if not isinstance(status, dict):
             return True
         tod = str(status.get("timeOfDay") or "").strip().lower()
-        if tod not in _UNBACKED_MORNING_BOARD_TIMES:
-            return True
         lab = status.get("clockLabel")
+        # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
+        # pre-dawn small hours, so "morning comes in bright and early" is just as unbacked as it is at night.
+        if tod not in _UNBACKED_MORNING_BOARD_TIMES and not _clock_is_predawn(lab):
+            return True
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
@@ -5911,6 +5913,56 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         return False
     except Exception as e:
         logger.warning("[orwell] pre-emission unbacked-morning guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
+_PREDAWN_BEFORE_MIN = 7 * 60
+
+
+def _clock_is_predawn(lab) -> bool:
+    """ORW-355: does the engine clock label ("4:15am, Day 4") read before 7am (the small hours, never morning)?"""
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    return bool(mm) and _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3)) < _PREDAWN_BEFORE_MIN
+
+
+# ORW-355 (Ryne 2026-11-14: one rule for every night): the narrator said "It's 8:15 in the morning" while the engine clock read 4:15am. `_clock_misstated` (post-turn, next-turn re-ground) only matches "it's H:MM am/pm", never
+# "H:MM in the morning/afternoon/evening", and never ran BEFORE the player saw it. A present-tense stated clock time is a closed-set fact: this is its pre-emission sentence screen.
+_CLOCK_IN_THE_RE = re.compile(
+    r"\bit(?:'s|\u2019s|\s+is)\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s+in\s+the\s+(morning|afternoon|evening)\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_has_in_the_clock_claim(text: str) -> bool:
+    return bool(text and _CLOCK_IN_THE_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+
+
+async def screen_streamed_clock_time(user, sentence: str) -> bool:
+    """ORW-355 mid-stream screen: HOLD (return False) a sentence stating "It's H:MM in the morning/afternoon/evening" that disagrees with the engine clock by more than the tolerance; else EMIT. Stashes a next-turn
+    re-ground quoting the engine's label. Fail-open: any hiccup, an absent / unparseable clock returns True."""
+    try:
+        m = _CLOCK_IN_THE_RE.search(sentence or "")
+        if not m or not _sentence_has_in_the_clock_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        lab = status.get("clockLabel") if isinstance(status, dict) else None
+        mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+        if not mm:
+            return True
+        eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+        said = _clock_minutes(int(m.group(1)), int(m.group(2) or 0), "am" if m.group(3).lower() == "morning" else "pm")
+        diff = abs(said - eng)
+        diff = min(diff, 1440 - diff)
+        if diff <= _CLOCK_TOLERANCE_MIN:
+            return True
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + lab + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
+        logger.warning("[orwell] pre-emission guard HELD a misstated clock time for user=%s - engine clock %s", user, lab)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission clock-time guard skipped for user=%s: %s", user, _exc_detail(e))
         return True
 
 
