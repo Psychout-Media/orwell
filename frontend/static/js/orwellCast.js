@@ -233,6 +233,8 @@
         #orwell-cast .oc-status {
           margin-top: .15rem; font-size: var(--fs-2xs); letter-spacing: .04em; opacity: .65; text-transform: uppercase;
         }
+        /* ORW-343: the mood word as the player LAST SAW it - small, plain, never a number or a cause. */
+        #orwell-cast .oc-mood { margin-top: .1rem; font-size: var(--fs-2xs); font-style: italic; opacity: .75; }
         #orwell-cast .oc-hg.oc-out { opacity: .5; }
         /* L16: the ONLY monochrome state is EVICTION. An active OR jury houseguest
            keeps full-color portrait; an evicted one renders grayscale/monotone.
@@ -551,6 +553,14 @@
     }
   }
 
+  /** ORW-343: show the last-seen mood word, or hide the row. A word only (the engine never sends a number or a cause); anything else is ignored, never rendered. */
+  function setMood(row, word) {
+    const w = typeof word === "string" ? word.trim() : "";
+    row.textContent = w && w.length <= 40 ? w : "";
+    row.hidden = !row.textContent;
+    row.title = row.textContent ? "Last seen: " + row.textContent : "";
+  }
+
   function makeCard(hg) {
     const out = hg.status && hg.status !== "active";
     const evicted = hg.status === "evicted"; // L16: grayscale only on eviction
@@ -571,11 +581,16 @@
     statusEl.className = "oc-status";
     statusEl.textContent = statusLabel(hg.status);
     statusEl.hidden = !statusEl.textContent; // M2-2: no empty caption row
+    // ORW-343: the mood word as the player last saw it (the engine sends it only for an active houseguest the player has shared a room with); nothing renders without it.
+    const moodEl = document.createElement("div");
+    moodEl.className = "oc-mood";
+    setMood(moodEl, hg.lastSeenMood);
     card.appendChild(holder);
     card.appendChild(nameEl);
     card.appendChild(statusEl);
+    card.appendChild(moodEl);
     const entry = {
-      el: card, holder, nameB, statusEl,
+      el: card, holder, nameB, statusEl, moodEl,
       id: cardKey(hg),
       name: hg.name == null ? "" : String(hg.name),
       status: hg.status || "active",
@@ -612,6 +627,7 @@
       entry.statusEl.textContent = statusLabel(hg.status);
       entry.statusEl.hidden = !entry.statusEl.textContent; // M2-2
     }
+    if (entry.moodEl) setMood(entry.moodEl, hg.lastSeenMood);
     const name = hg.name == null ? "" : String(hg.name);
     if (name !== entry.name) {
       entry.name = name; entry.nameB.textContent = name;
