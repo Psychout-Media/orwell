@@ -577,6 +577,10 @@
         const r = await fetch("/api/orwell/ceremony-continue", { method: "POST", credentials: "same-origin" });
         if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
         const res = await r.json().catch(() => ({}));
+        // ORW-293: this step is DONE - record it like a submitted decision, so a status read that started before the press (rearm / backstop) and lands after it can
+        // never mount it again (the stranded "2 of 2 - Continue" flake: the engine was already past it). The NEXT step has its own signature and arms normally.
+        _userDismissed = true;
+        _dismissedSig = _sig(pending);
         removeCard();
         if (window.orwellGameChanged) window.orwellGameChanged("ceremony-step", res && res.beatSeq);
         // The next step (or the next binding decision) arrives on the same view: mount it now.
@@ -1260,8 +1264,11 @@
   // (or the status re-poll) re-arms a genuinely NEW decision but NEVER re-shoves the SAME card
   // the player just waved away to decide in conversation.
   let _dismissedSig = null;
+  // ORW-293: a ceremony WATCH step has no options and often no prompt, so every step used to share ONE signature; it now carries its ceremony kind and step
+  // number, so "this step is done" never hides the NEXT step.
   const _sig = (p) => (p && p.kind)
     ? p.kind + "|" + ((p.options || []).map((o) => o && o.id).join(",")) + "|" + (p.prompt || "")
+      + (p.ceremony ? "|" + String(p.ceremony.kind || "") + ":" + String(p.ceremony.step || "") : "")
     : "";
   // ORW-298: a mounted ceremony WATCH card must follow the engine's pending. A typed progress message
   // ("next") advances the step with no button press, so the card's own Continue handler never runs and the
