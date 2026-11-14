@@ -58,7 +58,12 @@ class Week(Chat):
         if c.get("hasText"):
             ta = self.page.query_selector("#orwell-decision-card textarea")
             if ta: ta.fill(GOODBYE)
-        if self.page.query_selector("#orwell-decision-card .odec-confirm"): self.page.click("#orwell-decision-card .odec-confirm")
+        if self.page.query_selector("#orwell-decision-card .odec-confirm"):
+            try: self.page.click("#orwell-decision-card .odec-confirm", timeout=8000)
+            except Exception as e:  # a card whose Confirm never enables: say WHICH card and what it still wants (a free diagnostic; a bare click timeout told us nothing)
+                info = self.page.evaluate("""() => { const d = document.querySelector('#orwell-decision-card'); const h = document.querySelector('#orwell-decision-card-hint');
+                  return {title: (d && (d.querySelector('.odec-title, h2, h3') || {}).innerText) || null, hint: h ? h.innerText : null, opts: [...document.querySelectorAll('#orwell-decision-card .odec-opt')].map(o => ({t: o.innerText, p: o.getAttribute('aria-pressed'), d: o.disabled})), text: d ? d.innerText.slice(0, 600) : null}; }""")
+                raise RuntimeError(f"decision card never enabled Confirm: clicked {pick} of {opts!r}; card {info!r}") from e
         return f"card[{(c.get('title') or '')[:40]}] -> {[opts[i] for i in pick if i < len(opts)]}"
 
     def wait_new(self, before, t0, limit=240):
