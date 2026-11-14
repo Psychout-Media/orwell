@@ -10,6 +10,7 @@ for the schedule, and answers decision cards in the UI with the simplest legal o
 """
 from __future__ import annotations
 
+import os
 import argparse, json, re, sys, time
 
 from live_short import clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
@@ -78,8 +79,8 @@ def names(lst): return [x.get("name") for x in (lst or []) if isinstance(x, dict
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default="http://127.0.0.1:17000")
-    ap.add_argument("--engine", default="http://127.0.0.1:18765"); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
+    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
     ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
     ap.add_argument("--resume", action="store_true", help="attach to the game already running on the rig (no casting, no Week 1 checks) and play on with --season")
