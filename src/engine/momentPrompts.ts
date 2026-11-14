@@ -1791,6 +1791,8 @@ export interface GatedLeverFlags {
   npcMemorySpeech?: boolean;
   /** ORW-317 (ORW_GOAL_MOOD): add the instruction that a voice's `moodCause` is the ONLY reason they may give for their mood. Absent/false => byte-identical. */
   goalMood?: boolean;
+  /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
+  disclosureEngine?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1803,6 +1805,14 @@ function withMemorySpeechInstruction(base: string): string {
     "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.\n" +
     "    If the voice carries `rememberedAboutOthers`, those are things this houseguest holds about others in the room (all things the whole house saw): they may\n" +
     "    bring one up with that person when it fits the moment, in their own words; never invent another past between them.");
+}
+
+/** A52 - in a played game `knows` is shared ground only; the narrator does not improvise what else a houseguest holds, and a `deflect` is a press the engine declined. Appended only while the flag is on. */
+function withDisclosureInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
+    "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
 }
 
 /** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
@@ -2004,6 +2014,7 @@ export function buildSystemPrompt(
   if (levers?.npcTells === true) base = withTellsInstruction(base);
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
+  if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [

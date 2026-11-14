@@ -2766,6 +2766,23 @@ export class GameSessionAdapter implements GameSession {
   private npcTellsEnabled = flagDefaultOn("ORWELL_NPC_TELLS");
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
   private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
+  /**
+   * A52 (ORWELL_DISCLOSURE_ENGINE, default ON; ORW-23; Ryne card 19: he does not want the narrator improvising disclosures): in a PLAYED game `npcVoice.knows` hands the narrator only the SHARED GROUND - facts the player also
+   * holds (witnessed together, or already delivered to them by an engine disclosure: a confirmed confidence, a slip, a drip) - and never what the houseguest holds about third parties that no engine decision has
+   * delivered. Without it `knows` was everything held (capped), so whether a secret spilled was the narrator's call, not an engine roll. A live press the engine declined carries `deflect: true`. Off, or a headless game => byte-identical.
+   */
+  private disclosureEngineEnabled = flagDefaultOn("ORWELL_DISCLOSURE_ENGINE");
+  setDisclosureEngineEnabled(on: boolean): void { this.disclosureEngineEnabled = on; }
+  private disclosureEngineOn(): boolean { return this.disclosureEngineEnabled && this.live?.playedGame === true; }
+  /** The facts `holder` knows, cut to what the player also holds when the disclosure engine is on (by lineage when both copies carry one, else by identical content). */
+  private voiceKnownFacts(holder: EntityId): ReadonlyArray<{ content: string; factId?: string }> {
+    const mine = this.npcKnowledge?.known(holder) ?? [];
+    if (!this.disclosureEngineOn()) return mine;
+    const theirs = this.npcKnowledge?.known(this.house!.player.id) ?? [];
+    const lineages = new Set(theirs.flatMap((f) => (f.factId !== undefined ? [f.factId] : [])));
+    const contents = new Set(theirs.map((f) => f.content));
+    return mine.filter((f) => (f.factId !== undefined && lineages.has(f.factId)) || contents.has(f.content));
+  }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
   /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
   private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
@@ -2945,9 +2962,11 @@ export class GameSessionAdapter implements GameSession {
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
-      knows: (this.npcKnowledge?.known(id) ?? [])
+      knows: this.voiceKnownFacts(id)
         .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
         .map((f) => this.humanize(f.content)),
+      // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
+      ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {
         const base = (this.npcKnowledge?.suspicions(id) ?? [])
           .slice(-GameSessionAdapter.VOICE_SUSPECTS_CAP)
@@ -14075,7 +14094,7 @@ export class GameSessionAdapter implements GameSession {
         moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
