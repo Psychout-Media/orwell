@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 BELT_STATE_PATH = Path(DATA_DIR) / "orwell_belt_state.json"
 _DEBOUNCE_SECONDS = 1.0
 _LOCK = threading.Lock()
+_SEQ_LOCK = threading.Lock()
+_SEQ = 0  # snapshot sequence; a write of an older snapshot never lands over a newer one
+_WRITTEN_SEQ = 0
 _TIMER: "threading.Timer | None" = None
 
 # The agent_loop int-valued stores, by attribute name.
@@ -84,8 +87,8 @@ def _snapshot_folds() -> list:
     Vault-free (roster-checked ids, closed-enum kind, truncated content) and carry their idempotency key,
     so a settle after a restart is the same single settle the engine already dedups."""
     from src import fold_ledger
-    return [{"owner": k[0], "session_id": k[1], "entries": [dict(e) for e in q]}
-            for k, q in dict(fold_ledger._PENDING).items() if q]
+    return [{"owner": k[0], "session_id": k[1], "entries": [dict(e) for e in list(q)]}  # list(q) / dict(...) are single C-level copies: no half-mutated queue
+            for k, q in list(dict(fold_ledger._PENDING).items()) if q]
 
 
 def snapshot() -> dict:
@@ -99,11 +102,27 @@ def snapshot() -> dict:
     }
 
 
-def save_now() -> None:
-    """Write the current stores to disk. Never raises."""
+def prepare_save() -> tuple:
+    """Take a snapshot NOW, on the caller's thread, and return it for `save_now(prepared)`. The fold ledger's
+    mutators run on the event loop under no lock, so a caller that offloads the fsync'd write to a worker
+    thread (the truncate route) snapshots here, on the loop, where the ledger cannot change mid-copy (review of #2751)."""
+    global _SEQ
+    with _SEQ_LOCK:
+        _SEQ += 1
+        return (_SEQ, snapshot())
+
+
+def save_now(prepared: "tuple | None" = None) -> None:
+    """Write the current stores to disk (or the snapshot from `prepare_save`, skipped if a newer one was
+    already written). Never raises."""
+    global _WRITTEN_SEQ
     try:
         with _LOCK:
-            atomic_write_json(str(BELT_STATE_PATH), snapshot(), indent=2)
+            seq, snap = prepared if prepared is not None else prepare_save()
+            if seq < _WRITTEN_SEQ:
+                return
+            atomic_write_json(str(BELT_STATE_PATH), snap, indent=2)
+            _WRITTEN_SEQ = seq
     except Exception:  # failsoft-ok: best-effort durability; a failed save must never break a turn (the in-memory state still stands)
         logger.warning("[orwell] belt-state save failed", exc_info=True)
 

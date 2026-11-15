@@ -116,6 +116,43 @@ def test_truncate_discard_then_restart_does_not_resurrect_the_fold(monkeypatch):
     assert fl.pending_fold_count(_P, _SID) == 0
 
 
+def test_truncate_snapshots_the_ledger_on_the_event_loop_not_in_the_write_thread(monkeypatch):
+    """Review of #2751 (P1): the fold ledger has no lock and its mutators run on the event loop, so the route
+    must copy the ledger THERE and hand only the fsync'd write to the worker thread."""
+    import threading
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes import history_routes
+
+    class _Mgr:
+        def truncate_messages(self, sid, keep):
+            return True
+
+    monkeypatch.setattr(history_routes, "_verify_session_owner", lambda *a, **k: None)
+    monkeypatch.setattr("src.auth_helpers.effective_user", lambda request: _P)
+    monkeypatch.setattr(fl, "_resolve_positions_for_ids", lambda sid, ids: {i: 5 for i in ids})
+    _stage()
+    seen = {}
+    real_snapshot, real_write = bsp.snapshot, bsp.atomic_write_json
+    monkeypatch.setattr(bsp, "snapshot", lambda: seen.setdefault("snap", threading.get_ident()) and real_snapshot())
+    monkeypatch.setattr(bsp, "atomic_write_json", lambda *a, **k: (seen.setdefault("write", threading.get_ident()), real_write(*a, **k))[1])
+    app = FastAPI()
+    app.include_router(history_routes.setup_history_routes(_Mgr()))
+    r = TestClient(app).post(f"/api/session/{_SID}/truncate", json={"keep_count": 2})
+    assert r.status_code == 200
+    assert seen["snap"] != seen["write"], "the snapshot ran in the write thread, racing the ledger's mutators"
+
+
+def test_an_older_prepared_snapshot_never_overwrites_a_newer_write():
+    _stage()
+    older = bsp.prepare_save()
+    fl.clear_all()
+    bsp.save_now()  # a newer save (the timer's) lands first: no folds on disk
+    bsp.save_now(older)  # the offloaded write of the older snapshot arrives late and is dropped
+    _wipe()
+    assert bsp.restore() == 0 and fl.pending_fold_count(_P, _SID) == 0
+
+
 def test_the_pacing_stores_survive_a_restart():
     dicts, started = _pacing()
     dicts["_PRODUCTION_HOLD"][_P] = ("3:hoh", 17)
