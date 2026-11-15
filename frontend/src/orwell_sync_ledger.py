@@ -182,6 +182,14 @@ NON_BUMPING_WRITES = frozenset({
 _UNKNOWN_LOGGED: dict[str, float] = {}
 _UNKNOWN_LOG_EVERY_S = 300.0
 
+# ── ORW-439: which engine tools did this FE dispatch BETWEEN turns (counted or not)? ──
+# Used only to explain a beatSeq gap: a bump caused by a tool the FE itself dispatched in the window is a COUNTING miss (a wrong list,
+# a tool that bumps twice, a commit that lands after the call returned), not an unrecorded state change. Per user, tool NAME -> calls;
+# drained at `record_turn` with the other between-turn buffers. Names only; bounded.
+_WINDOW_DISPATCHED: dict[str, dict[str, int]] = {}
+_OUTSIDE_A_TOOL_CALL = "outside-a-tool-call"  # the engine's cause label for a commit made with no tool call running
+_MAX_GAP_BUMPS = 16
+
 # ── ORW-186: belt telemetry from turns that are never ledgered (casting) ──
 # Belt / forced-choice counts buffer per user and drain at the next `record_turn`. Casting turns are never
 # ledgered, so their counts (a casting-record belt, a voiced re-ground) landed on the FIRST GAME turn's row and
@@ -497,6 +505,17 @@ def _note_unclassified(name: str) -> None:
         pass
 
 
+def _note_window_dispatch(user_key: str, name: str) -> None:
+    """ORW-439: remember that this FE dispatched `name` between turns (name only; bounded)."""
+    nm = _clean_names([name])
+    if not nm:
+        return
+    with _LOCK:
+        bucket = _WINDOW_DISPATCHED.setdefault(user_key, {})
+        if nm[0] in bucket or len(bucket) < _MAX_NAMES:
+            bucket[nm[0]] = bucket.get(nm[0], 0) + 1
+
+
 def note_engine_write(user: str | None, name: str, result: Any = None) -> None:
     """ORW-435 - called from the ONE engine dispatch seam after a non-read engine call LANDED. Counts it as an FE-owned beatSeq
     write unless it is known not to bump (NON_BUMPING_WRITES), the engine reported it a no-op/refusal, or it ran inside a
@@ -507,6 +526,7 @@ def note_engine_write(user: str | None, name: str, result: Any = None) -> None:
             if _IN_TURN.get(k):
                 return
         _note_unclassified(str(name))
+        _note_window_dispatch(k, str(name))
         if _wrote(str(name), result):
             note_fe_write(user)
     except Exception:  # pragma: no cover - defence in depth
@@ -648,6 +668,88 @@ def get_belt_totals(user: str | None) -> dict[str, int]:
     return totals
 
 
+def _unexplained_gap(last_after: Any, before: int, desync: bool, stale: int, fe_writes: int) -> int:
+    """The beatSeq gap between turns that nothing counted explains (0 when there is none). ONE rule, shared by `record_turn`'s
+    alarm and by `peek_unexplained_gap`, so the async caller asks about exactly the gap the alarm would report."""
+    if not (isinstance(last_after, int) and last_after > 0 and before > 0) or desync:
+        return 0
+    gap = before - last_after
+    return gap if gap > stale + fe_writes else 0  # ORW-150: FE-owned writes (noteMessage, E22 fallback) explain part of the gap
+
+
+def peek_unexplained_gap(user: str | None, *, beat_seq_before: Any, stale_rejections: Any = 0,
+                         desync_detected: Any = False) -> dict | None:
+    """ORW-439 - would `record_turn` raise the dropped-fold alarm for this turn? Pure peek: drains nothing, records nothing.
+
+    The ledger is synchronous, but asking the engine WHY the counter moved is an async network call, so the turn path asks here first
+    and does the call itself. Returns ``{since, before, gap, dispatched}`` (``dispatched``: tool name -> calls this FE made between
+    turns) when the alarm would fire, else None."""
+    try:
+        k = _key(user)
+        before = _clean_int(beat_seq_before)
+        with _LOCK:
+            last_after = _LAST_BEAT_AFTER.get(k)
+            stale = _clean_int(stale_rejections) + (_PENDING_STALE.get(k, 0) or 0)
+            fe = _PENDING_FE_WRITES.get(k, 0) or 0
+            dispatched = dict(_WINDOW_DISPATCHED.get(k, {}))
+        gap = _unexplained_gap(last_after, before, bool(desync_detected), stale, fe)
+        if not gap:
+            return None
+        return {"since": last_after, "before": before, "gap": before - last_after, "dispatched": dispatched}
+    except Exception:  # failsoft-ok: observability-only peek; None leaves the alarm exactly as it was
+        return None
+
+
+def classify_gap(info: dict, beat_log: Any) -> dict | None:
+    """ORW-439 - name the cause of each bump in the gap, from the engine's `beatLog` answer. Pure; Vault-free (tool names + counters).
+
+    ``counting-miss``: the log is complete and EVERY bump in the gap was caused by a tool this FE dispatched in the window (it was not
+    counted, or it bumps more than once, or it committed after its call returned) - a bookkeeping miss, not a lost change.
+    ``unexplained``: anything else (an "outside-a-tool-call" bump, a tool this FE did not dispatch, a truncated or incomplete log).
+    Returns None when `beat_log` is not a usable answer (the caller then leaves the alarm exactly as before)."""
+    if not isinstance(beat_log, dict) or not isinstance(beat_log.get("bumps"), list):
+        return None
+    since, before = _clean_int(info.get("since")), _clean_int(info.get("before"))
+    bumps: list[dict] = []
+    for b in beat_log["bumps"]:
+        if not isinstance(b, dict) or isinstance(b.get("seq"), bool) or not isinstance(b.get("seq"), int):
+            continue
+        if since < b["seq"] <= before:
+            names = _clean_names([b.get("tool")])
+            bumps.append({"seq": b["seq"], "tool": names[0] if names else "?"})
+    tools: dict[str, int] = {}
+    for b in bumps:
+        tools[b["tool"]] = tools.get(b["tool"], 0) + 1
+    dispatched = info.get("dispatched") if isinstance(info.get("dispatched"), dict) else {}
+    complete = beat_log.get("truncated") is False and len(bumps) == before - since
+    foreign = sorted(t for t in tools if t == _OUTSIDE_A_TOOL_CALL or t not in dispatched)
+    if complete and bumps and not foreign:
+        kind, note = "counting-miss", ""
+    else:
+        kind = "unexplained"
+        note = ("the engine's log does not reach back that far" if beat_log.get("truncated") is not False
+                else "the engine's log is missing bumps in the gap" if not complete
+                else "bump(s) not caused by a tool this FE dispatched in the window: " + ", ".join(foreign))
+    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools, "note": note}
+
+
+def _describe_causes(expl: dict) -> str:
+    parts = [f"seq {b['seq']} {b['tool']}" for b in expl.get("bumps", [])]
+    return "; ".join(parts) + ("; ..." if len(parts) >= _MAX_GAP_BUMPS else "")
+
+
+def _clean_gap_explanation(v: Any) -> dict | None:
+    """Coerce a gap explanation to its bounded stored shape (kind + names + ints only), or None."""
+    if not isinstance(v, dict) or v.get("kind") not in ("counting-miss", "unexplained"):
+        return None
+    bumps = []
+    for b in (v.get("bumps") or [])[:_MAX_GAP_BUMPS]:
+        if isinstance(b, dict):
+            names = _clean_names([b.get("tool")])
+            bumps.append({"seq": _clean_int(b.get("seq")), "tool": names[0] if names else "?"})
+    return {"kind": v["kind"], "bumps": bumps, "tools": _clean_belt_map(v.get("tools"))}
+
+
 def record_turn(
     user: str | None,
     *,
@@ -664,6 +766,7 @@ def record_turn(
     belts_fired: Any = None,
     forced_choice: Any = None,
     turn_token: int | None = None,
+    gap_explanation: Any = None,
 ) -> None:
     """Append one Vault-free per-turn sync record for ``user`` (``_current_user``-scoped),
     bounded by a per-user ring, and emit one structured ``[orwell]`` log line.
@@ -687,6 +790,9 @@ def record_turn(
         drained_stale = _drain_pending_stale(k)
         drained_forced = _drain_pending_forced(k)
         drained_fe_writes = _drain_pending_fe_writes(k)
+        with _LOCK:
+            _WINDOW_DISPATCHED.pop(k, None)  # ORW-439: the between-turn dispatch record is consumed with the other between-turn buffers
+        expl = _clean_gap_explanation(gap_explanation)
         merged_belts = _clean_belt_map(belts_fired)
         for name, count in drained_belts.items():
             merged_belts[name] = merged_belts.get(name, 0) + count
@@ -734,13 +840,25 @@ def record_turn(
         # on `desyncDetected` removes the cross-window false positive while still catching the genuine
         # A-S3 latent (an invisible drop leaves no stale count AND no desync signal). A real fold-bearing
         # drop still surfaces RED directly via `note_stale_rejection(dropped_fold=True)` at the drop site.
-        if (isinstance(last_after, int) and last_after > 0 and entry["beatSeqBefore"] > 0
-                and not entry["desyncDetected"]):
+        gap = _unexplained_gap(last_after, entry["beatSeqBefore"], entry["desyncDetected"],
+                               entry["staleRejections"], drained_fe_writes)
+        if gap:
             gap = entry["beatSeqBefore"] - last_after
-            if gap > entry["staleRejections"] + drained_fe_writes:  # ORW-150: FE-owned writes (noteMessage, E22 fallback) explain part of the gap
-                _emit_dropped_fold(user, "an unaccounted beatSeq gap between turns — the board moved "
-                                   "without this FE recording the write or reconciling a cross-window "
-                                   "advance", beat_gap=gap, stale=entry["staleRejections"])
+            reason = ("an unaccounted beatSeq gap between turns — the board moved "
+                      "without this FE recording the write or reconciling a cross-window "
+                      "advance")
+            if expl is not None and expl["kind"] == "counting-miss":
+                # ORW-439: the engine says every bump in the gap came from a tool this FE dispatched in the window - a counting miss
+                # (a wrong list, a tool that bumps more than once, a commit after the call returned), not a lost change. Not RED;
+                # one WARNING names the tool(s) and how many bumps each, and the entry carries it so a developer sees which list to fix.
+                entry["gapExplanation"] = expl
+                logger.warning("[orwell] sync-ledger: counting miss - beatSeq moved %d between turns, all from tools this FE dispatched "
+                               "but did not count: %s", gap, ", ".join(f"{t} x{n}" for t, n in sorted(expl["tools"].items())))
+            else:
+                if expl is not None:
+                    entry["gapExplanation"] = expl
+                    reason += f" [engine bump causes: {_describe_causes(expl)}]"
+                _emit_dropped_fold(user, reason, beat_gap=gap, stale=entry["staleRejections"])
         try:
             with _LOCK:
                 data = _load()

@@ -120,7 +120,7 @@ async function playSeed(seed: number) {
 
     // Every READ projection the player (or admin) can pull; mutating levers are swept by liveSentinel.property.test.ts.
     const PLAYER_READS = [
-      "gameStatus", "getGameState", "stateDelta", "getMomentPrompt", "recallSceneMemories", "getVisibleStateFor", "renderScene", "socialRead", "socialInitiatives",
+      "gameStatus", "getGameState", "stateDelta", "beatLog", "getMomentPrompt", "recallSceneMemories", "getVisibleStateFor", "renderScene", "socialRead", "socialInitiatives",
       "whereabouts", "premiereIntros", "seasonRecap", "dailyRecap", "dayLedger", "npcVoice", "playerTagline", "finaleView", "playerDossier", "playerReceipts",
       "worldSnapshotView", "competitionStagingView", "endOfSessionSummary", "getPortraitPrompt", "getOffscreenSceneSkeletons", "sealedFromHouse", "knowledgeScopeManifest", "openLedgerHere",
     ];

@@ -899,9 +899,12 @@ export class GameSessionRegistry {
   restore(user: string, snap: SessionSnapshot): UserSandbox {
     // G12: the rolled-back graph's queued soul-index work dies with it — the clean rebuild
     // below re-floods the shared lane from the snapshot, breathing (one embed per macrotask).
-    this.sandboxes.get(user)?.engine.soul.discardPending();
+    const priorSession = this.sandboxes.get(user);
+    priorSession?.engine.soul.discardPending();
     const sb = buildUserSandbox(user);
     importSnapshot(sb, snap);
+    // ORW-439 - the diagnostic bump log survives the rebuild, minus any bump above the restored counter (a refused commit's bump was rolled back).
+    if (priorSession) sb.session.adoptBeatLog(priorSession.session.beatLogEntries());
     this.wireHooks(user, sb);
     this.sandboxes.set(user, sb);
     this.bumpRev(user); // R3 — the sandbox object graph was replaced; any cached export is stale

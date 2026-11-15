@@ -1,5 +1,6 @@
 import { toolsFor, DEBUG_VAULT_TOOL_NAMES } from "../../surfaces/tools/registry";
 import { EngineRefusal } from "../../domain/errors";
+import { runInToolCall } from "../../ports/BeatCause";
 import type { OutwardChannel, ToolDescriptor } from "../../surfaces/tools/registry";
 import type { PlayerSurface } from "../../surfaces/player/PlayerSurface";
 import type { AdminPort } from "../../surfaces/admin/AdminPort";
@@ -17,7 +18,7 @@ import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq,
  * not debug Vault readers.
  * @see registry.ts INFRA_LEVERS — the same tools are excluded from `PLAYER_AGENT_LEVERS`.
  */
-export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest"]);
+export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest", "beatLog"]);
 /**
  * The engine's permissioned outward MCP API (0009). It mounts ONLY the
  * allowlisted tools for its channel, sources read/narrate tools from the visible
@@ -130,6 +131,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         }
         if (cons["rationale"] !== undefined && typeof cons["rationale"] !== "string") refuse("consequence.rationale", "a string when present");
       }
+      return;
+    case "beatLog":
+      // ORW-439: the caller's last-seen counter, required: a missing/non-numeric token would silently read as 0 and hide a gap.
+      if (typeof args["sinceBeatSeq"] !== "number" || !Number.isFinite(args["sinceBeatSeq"])) refuse("sinceBeatSeq", "a finite number");
       return;
     case "whereabouts":
       // ORW-386: the optional house-search switch must be a boolean when present.
@@ -528,7 +533,8 @@ export class McpServer {
   async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     const seq = this.deps.beatSeqNow;
     const before = seq ? seq() : undefined;
-    const result = await this.dispatchTool(name, args);
+    // ORW-439 - the commit funnel reads this to name the tool behind each beat bump (diagnostic only; it changes no behaviour).
+    const result = await runInToolCall(name, () => this.dispatchTool(name, args));
     if (seq && before !== undefined && result !== null && typeof result === "object" && !Array.isArray(result) && Object.getPrototypeOf(result) === Object.prototype && !("beatSeq" in (result as Record<string, unknown>))) {
       const after = seq();
       if (after !== before) return { ...(result as Record<string, unknown>), beatSeq: after };
@@ -624,6 +630,9 @@ export class McpServer {
         return this.deps.session.stateDelta(
           typeof args["sinceBeatSeq"] === "number" ? args["sinceBeatSeq"] : 0,
         );
+      case "beatLog":
+        // ORW-439: which tool caused each beat bump after the caller's token (diagnostic read; tool names + counters + timestamps only).
+        return this.deps.session.beatLog(args["sinceBeatSeq"] as number);
       case "playerTagline":
         return this.deps.session.playerTagline();
       case "finaleView":

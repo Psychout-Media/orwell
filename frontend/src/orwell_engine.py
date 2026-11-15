@@ -1078,6 +1078,15 @@ async def state_delta(since_beat_seq: int | None = None, user: str | None = None
     return await _call("stateDelta", args, user=user)
 
 
+async def beat_log(since_beat_seq: int, user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-439 - which engine tool caused each beatSeq bump after `since_beat_seq`.
+
+    Returns ``{ beatSeq, bumps:[{seq, tool, at}], truncated }``: tool NAMES, counter values and timestamps only (the engine's diagnostic
+    ring; in memory there, never saved). A pure read: it commits and bumps nothing. An engine without the tool raises
+    :class:`EngineToolError`; the caller decides what that means (the sync ledger leaves its alarm as it was)."""
+    return await _call("beatLog", {"sinceBeatSeq": int(since_beat_seq)}, user=user, timeout=timeout)
+
+
 async def get_visible_state(user: str | None = None) -> dict:
     """The player's own visible projection: witnessed events + things they know for certain."""
     return await _call("getVisibleStateFor", {}, user=user)

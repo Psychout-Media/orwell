@@ -1392,6 +1392,11 @@ export interface DeltaEventView {
  *  - an EMPTY delta (`events: []`, `changes` absent, `finishedChanged` false) — `sinceBeatSeq` equals
  *    the current `beatSeq`: nothing has committed since ("since last turn: nothing committed").
  */
+/** ORW-439 - one beat-counter bump and the tool that caused it ("outside-a-tool-call" when no tool call was running). */
+export interface BeatBumpEntry { seq: number; tool: string; at: number }
+/** ORW-439 - the `beatLog` read: the current counter, the bumps after the caller's token, and whether the ring still reaches back that far. */
+export interface BeatLogView { beatSeq: number; bumps: BeatBumpEntry[]; truncated: boolean }
+
 export interface StateDeltaView {
   /** The current committed beat counter (what the caller should re-ground its last-seen token to). */
   beatSeq: number;
@@ -2951,6 +2956,11 @@ export interface GameSession {
    * delta. A pure READ (never mutates / commits); safe to poll.
    */
   stateDelta(sinceBeatSeq: number): StateDeltaView;
+  /**
+   * ORW-439 - which tool caused each beat-counter bump after `sinceBeatSeq` (diagnostic; in memory only, never saved). A pure READ:
+   * it never commits, bumps or saves. Carries tool names, counter values and timestamps only - no arguments, no game state.
+   */
+  beatLog(sinceBeatSeq: number): BeatLogView;
   /** The managed system prompt to inject for the current (or requested) moment. */
   getMomentPrompt(req: MomentPromptReq): MomentPromptView;
   /**
