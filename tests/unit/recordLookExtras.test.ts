@@ -33,11 +33,11 @@ describe("recordLookExtras", () => {
 
   it("the accepted write reaches the DURABLE save (the latest file on disk carries wardrobe and onCamera), not only memory", () => {
     const { sb, id, store } = setup();
-    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan"], onCamera: "Laughs easily in the kitchen." }).accepted).toBe(true);
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], onCamera: "Laughs easily in the kitchen." }).accepted).toBe(true);
     const durable = store.loadLatest("u");
     expect(durable, "a save exists for the user").not.toBeNull();
     const saved = durable!.house!.npcs.find((n) => n.id === id)!.character.physicalCharacteristics!;
-    expect(saved.wardrobe).toEqual(["a grey cardigan"]);
+    expect(saved.wardrobe).toEqual(["a grey cardigan", "dark jeans"]);
     expect(saved.onCamera).toBe("Laughs easily in the kitchen.");
   });
 
