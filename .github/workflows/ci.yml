@@ -130,6 +130,10 @@ jobs:
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
+          # ORW-416 (root cause of the #2681 main break): front-end tests also READ repo files outside frontend/ and src/ (deploy scripts, systemd units, ci/ and harness
+          # scripts, a few design docs and fixtures). #2681 changed only deploy/, fe-unit was skipped, and test_orw174 (which reads deploy/orwell-backup.sh) broke every later PR.
+          # frontend/tests/test_ci_fe_reads_repo_filter.py proves this list covers EVERY such path the front-end tests read.
+          FE_READS_REPO_RE='^(deploy/|ci/|\.github/workflows/|scripts/(live-run|rehearsal-kit)/|scripts/stage-finale-snapshot\.ts$|docs/audits/playtest-harness/|docs/design/(liquid-glass/|frontend-single-worker-ceiling\.md$)|docs/legacy/meta-feedback/|docs/mocks/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
           DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
@@ -156,7 +160,7 @@ jobs:
               # ORW-218 (root cause of the #2457 main break): front-end tests READ engine source (the tool registry, the GameSession port, the MCP server, the prompt text...), so an
               # engine-only PR that changes one of those files must still run fe-unit; before this, FRONTEND_RE matched only frontend/ and test_1412/1414 were skipped while ci-gate passed.
               # frontend/tests/test_ci_fe_reads_engine_filter.py proves this list covers EVERY engine .ts file the front-end tests read.
-              frontend)  re="$FRONTEND_RE|$FE_READS_ENGINE_RE" ;;
+              frontend)  re="$FRONTEND_RE|$FE_READS_ENGINE_RE|$FE_READS_REPO_RE" ;;
               # ORW-218: the F5 mirror-parity gate script lives under docs/audits/playtest-harness/, outside frontend/, so a change to ONLY the gate used to skip every render lane.
               fe_render) re="$FRONTEND_RE|^docs/audits/playtest-harness/"; subject="$fe_changed" ;;
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;

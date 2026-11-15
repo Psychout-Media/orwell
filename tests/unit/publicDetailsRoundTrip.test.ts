@@ -19,7 +19,7 @@ class MemoryStore implements UserSaveStore {
   loadLatest(user: string): SessionSnapshot | null { const l = this.saved.get(user); return l?.length ? l[l.length - 1]! : null; }
 }
 
-const PUBLIC_FIELDS = ["age", "appearance", "presentation", "identityConcept", "vocation", "hometown", "biography", "physicalCharacteristics", "ethnicity", "genderPresentation", "outOrientation", "background"] as const;
+const PUBLIC_FIELDS = ["age", "appearance", "presentation", "identityConcept", "vocation", "hometown", "biography", "physicalCharacteristics", "ethnicity", "genderPresentation", "outOrientation", "background", "castingType"] as const;
 
 function boot(store: MemoryStore, user: string, seed: number) {
   const reg = new GameSessionRegistry(store);

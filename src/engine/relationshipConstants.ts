@@ -158,6 +158,13 @@ export const RELATIONSHIP_CONSTANTS: RelationshipConstants = {
 // signal) would otherwise clamp to NaN and get written into the PERMANENT relationship/soul layer,
 // corrupting non-degradation (I5) forever. Guard NaN → 0 (a neutral-safe default); every finite input
 // (in range or out) clamps EXACTLY as before — only the NaN path changes.
+/**
+ * ORW-401 follow-up - overnight drift (played games only). Relationships must not polarise: each night a feeling the
+ * PLAYER is on either end of eases toward the model's neutral point by `RATE` of its remaining distance, unless it moved
+ * during the day just closed. Proportional, so it can approach the middle but never cross it. No rng.
+ */
+export const OVERNIGHT_DRIFT = { RATE: 0.06 } as const;
+
 export { clamp01 }; // B47: the one implementation (NaN-guarded, above) now lives in src/domain/num.ts; re-exported so every existing import keeps working
 
 /** Scale every component of a named impact (manner-scaled folds E48, confidence-scaled gossip E44). */

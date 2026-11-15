@@ -161,6 +161,11 @@ export interface HouseguestCard {
    */
   authored?: boolean;
   /**
+   * ORW-381: how this houseguest is cast and reads on camera, `{ label, read }` ("the charmer"). PUBLIC,
+   * Vault-free, presentation only (no mechanic reads it). Absent on a save from before ORW-381.
+   */
+  castingType?: { label: string; read: string };
+  /**
    * I6 distinct-voices fix (NARR-15/PROMPT-2, 2026-07-05): a COMPACT, PLAYER-SURFACE-SAFE text clause
    * for HOW this houseguest talks (feature 0084) — the narrator reads it EVERY turn so the cast sounds
    * like sixteen people, not one, WITHOUT depending on the per-NPC `npcVoice` call it reliably under-calls.
