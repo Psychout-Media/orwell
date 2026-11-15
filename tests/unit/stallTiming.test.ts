@@ -17,12 +17,14 @@ function steppedTimer(stepMs: number, lines: string[], threshold = 500): StallTi
 }
 
 describe("ORW-404 stall timing", () => {
+  describe.each(["sync", "background"] as const)("save persist (%s mode)", (mode) => {
+  const store = (dir: string) => new FileSaveStore(dir, { fsyncMode: mode, syncFile: async () => {}, syncDir: async () => {} });
   it("logs exactly one line with fields when a save persist is slow, and counts it", () => {
     const dir = mkdtempSync(join(tmpdir(), "stall-"));
     try {
       const lines: string[] = [];
       setStallTimerForTests(steppedTimer(300, lines));
-      new FileSaveStore(dir, { fsyncMode: "sync" }).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
+      store(dir).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
       expect(lines).toHaveLength(1);
       expect(lines[0]).toMatch(/step=save\.persist ms=\d+ serializeMs=300 writeMs=300 fsyncMs=300 renameMs=300 chars=\d+/);
       expect(stallTimer.snapshot()["save.persist"]).toMatchObject({ count: 1, slow: 1 });
@@ -34,10 +36,11 @@ describe("ORW-404 stall timing", () => {
     try {
       const lines: string[] = [];
       setStallTimerForTests(steppedTimer(1, lines));
-      new FileSaveStore(dir, { fsyncMode: "sync" }).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
+      store(dir).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
       expect(lines).toEqual([]);
       expect(stallTimer.snapshot()["save.persist"]).toMatchObject({ count: 1, slow: 0 });
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   });
 
   function fakeEmbedder(): FastembedEmbedding {

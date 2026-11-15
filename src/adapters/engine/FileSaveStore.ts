@@ -48,11 +48,20 @@ export interface FileSaveStoreOptions {
 /** Per-user-dir durability bookkeeping (in memory only; derived, never persisted). */
 interface DirState {
   latest: number;
-  /** Newest version whose fsync completed (or that pre-dated this process). */
+  /** Newest version whose fsync completed AND whose file still exists (0 = none known yet). */
   durable: number;
   /** Newest version waiting for a sync (coalesced: only the newest is ever synced). */
   pending: number | null;
-  inFlight: boolean;
+  /** The version whose fsync is running right now (never pruned while it runs). */
+  inFlight: number | null;
+  /** Waiting in the module-level sync queue. */
+  queued: boolean;
+  /**
+   * Versions that were already on disk when this process first touched the dir. They are NOT known
+   * durable (a kill, a crash or a timed-out flush can leave an unsynced tail), so none of them is
+   * pruned until one fsync has completed; then this is cleared and the normal rule applies.
+   */
+  bootVersions: Set<number> | null;
   /** Save times of versions newer than `durable`, oldest first (backlog age). */
   unsynced: { v: number; t: number }[];
   /** A checkpoint rename happened since the last directory fsync. */
@@ -63,6 +72,31 @@ async function defaultSyncFile(path: string): Promise<void> {
   const fh = await openAsync(path, "r");
   try { await fh.sync(); } finally { await fh.close(); }
 }
+/**
+ * Module-level cap on concurrent BACKGROUND fsyncs across every store and user: each one occupies a
+ * libuv pool thread (4 by default), and a stalled disk must not starve DNS and outbound calls. Waiting
+ * users sit in one FIFO, each at most once (the newest pending version per user wins).
+ */
+const MAX_CONCURRENT_SYNCS = 2;
+interface SyncJob { st: DirState; run: (epoch: number) => void }
+const limiter = { epoch: 0, active: 0, queue: [] as SyncJob[] };
+
+function drainSyncQueue(): void {
+  while (limiter.active < MAX_CONCURRENT_SYNCS && limiter.queue.length > 0) {
+    const job = limiter.queue.shift()!;
+    job.st.queued = false;
+    limiter.active++;
+    job.run(limiter.epoch);
+  }
+}
+
+/** Test hook: forget every running/queued sync slot (a test that stalls a sync on purpose). */
+export function resetSaveSyncLimiterForTests(): void {
+  limiter.epoch++;
+  limiter.active = 0;
+  limiter.queue.length = 0;
+}
+
 function defaultSyncFileSync(path: string): void {
   const fd = openSync(path, "r");
   try { fsyncSync(fd); } finally { closeSync(fd); }
@@ -146,7 +180,8 @@ export class FileSaveStore implements UserSaveStore {
   saveFor(user: string, snapshot: SessionSnapshot): void {
     const dir = this.userDir(user);
     mkdirSync(dir, { recursive: true });
-    const version = this.latestVersion(dir) + 1;
+    const existing = this.versionsDescending(dir);
+    const version = (existing[0] ?? 0) + 1;
     const file = this.fileFor(dir, version);
     // Atomic + DURABLE write (audit E2 + E8): a crash mid-write must never leave a truncated file as
     // the "latest" version — write a temp, fsync the temp's CONTENT, then rename (atomic on the same
@@ -178,7 +213,7 @@ export class FileSaveStore implements UserSaveStore {
     stallTimer.record("save.persist", t4 - t0, { chars: json.length }, {
       serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, rename: t4 - t3,
     });
-    const st = this.stateFor(dir, version);
+    const st = this.stateFor(dir, existing, background);
     st.latest = version;
     const isCheckpoint = version % FileSaveStore.CHECKPOINT_EVERY === 0;
     if (background) {
@@ -200,64 +235,105 @@ export class FileSaveStore implements UserSaveStore {
       }
       st.durable = version;
       st.unsynced = [];
+      st.bootVersions = null;
     }
-    // `version` IS the newest on disk after the rename (single-threaded write), so `prune` needs no
-    // second readdir to rediscover the latest. The newest DURABLE version is never pruned.
-    this.prune(dir, version, st.durable);
+    // `version` IS the newest on disk after the rename (single-threaded write). Prune never deletes a
+    // version whose fsync is in flight, the highest existing version <= durable, or (until one fsync
+    // has completed since boot) anything that was on disk at boot.
+    this.prune(dir, version, st);
   }
 
-  private stateFor(dir: string, version: number): DirState {
+  private stateFor(dir: string, existing: number[], background: boolean): DirState {
     let st = this.states.get(dir);
     if (!st) {
-      // Versions already on disk when this process first touches the dir pre-date it (a prior process
-      // synced them, or flushed at shutdown): treat them as the durable baseline.
-      st = { latest: version - 1, durable: version - 1, pending: null, inFlight: false, unsynced: [], dirDirty: false };
+      st = {
+        latest: existing[0] ?? 0, durable: 0, pending: null, inFlight: null, queued: false,
+        unsynced: [], dirDirty: false, bootVersions: null,
+      };
       this.states.set(dir, st);
+      if (existing.length > 0 && background) {
+        // Versions on disk at first use are NOT assumed durable: harden the newest one now and keep
+        // everything that existed at boot until one fsync has completed.
+        st.bootVersions = new Set(existing);
+        st.unsynced.push({ v: existing[0]!, t: this.nowMs() });
+        st.pending = existing[0]!;
+        this.kick(dir, st);
+      }
     }
     return st;
   }
 
-  /** Start a background sync of the newest pending version unless one is already in flight. */
+  /** Queue a background sync of the newest pending version (global cap, fair per-user FIFO). */
   private kick(dir: string, st: DirState): void {
-    if (st.inFlight || st.pending === null) return;
-    const v = st.pending;
-    st.pending = null;
-    st.inFlight = true;
-    const file = this.fileFor(dir, v);
-    const dirToo = st.dirDirty;
-    st.dirDirty = false;
-    const t0 = stallTimer.now();
-    let p: Promise<void>;
-    try {
-      p = this.syncFile(file).then(() => (dirToo ? this.syncDir(dir) : undefined));
-    } catch (e) {
-      p = Promise.reject(e);
-    }
-    p.then(
-      () => {
-        stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
-        this.markDurable(st, v);
-      },
-      (e: unknown) => {
-        const code = (e as { code?: string } | null)?.code;
-        if (code === "ENOENT") {
-          // The file was pruned/rotated while syncing: a newer version supersedes it. Not an error.
-          return;
-        }
-        if (dirToo) st.dirDirty = true;
-        stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v, failed: 1 });
-        try {
-          this.onError(`[orwell] save.fsync failed version=${v} code=${code ?? "unknown"} (retried with the next save)`);
-        } catch { /* logging must never break the game */ }
-      },
-    ).finally(() => {
-      st.inFlight = false;
-      this.kick(dir, st); // the newest save that landed meanwhile (never one per intermediate save)
-    });
+    if (st.inFlight !== null || st.queued || st.pending === null) return;
+    st.queued = true;
+    limiter.queue.push({ st, run: (epoch) => this.runSync(dir, st, epoch) });
+    drainSyncQueue();
   }
 
-  private markDurable(st: DirState, v: number): void {
+  private runSync(dir: string, st: DirState, epoch: number): void {
+    const v = st.pending;
+    if (v === null) {
+      if (epoch === limiter.epoch) limiter.active--;
+      return;
+    }
+    st.pending = null;
+    st.inFlight = v;
+    const dirToo = st.dirDirty;
+    st.dirDirty = false;
+    this.syncOne(dir, st, v, dirToo)
+      .catch((e: unknown) => this.reportFailure(v, e))
+      .finally(() => {
+        st.inFlight = null;
+        if (epoch === limiter.epoch) limiter.active--;
+        this.kick(dir, st); // the newest save that landed meanwhile, behind other waiting users
+        drainSyncQueue();
+      })
+      .catch(() => { /* terminal: nothing here may become an unhandled rejection */ });
+  }
+
+  private async syncOne(dir: string, st: DirState, v: number, dirToo: boolean): Promise<void> {
+    const t0 = stallTimer.now();
+    try {
+      await this.syncFile(this.fileFor(dir, v));
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code;
+      if (code === "ENOENT") return; // the file is gone (rotated/quarantined): not an error
+      if (dirToo) st.dirDirty = true;
+      try { stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v, failed: 1 }); } catch { /* ignore */ }
+      try {
+        this.onError(`[orwell] save.fsync failed version=${v} code=${code ?? "unknown"} (retried with the next save)`);
+      } catch { /* logging must never break the game */ }
+      return;
+    }
+    // The FILE is durable now; the directory entry is tracked separately and retried with the next save.
+    this.markDurable(dir, st, v);
+    stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
+    if (dirToo) {
+      try {
+        await this.syncDir(dir);
+      } catch (e) {
+        st.dirDirty = true;
+        try {
+          this.onError(`[orwell] save.dirsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
+  /** Last-resort recorder for a failure inside the sync handlers themselves. Never throws. */
+  private reportFailure(v: number, e: unknown): void {
+    try { stallTimer.record("save.fsync", 0, { version: v, failed: 1, handler: 1 }); } catch { /* ignore */ }
+    try {
+      this.onError(`[orwell] save.fsync handler failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"}`);
+    } catch { /* ignore */ }
+  }
+
+  /** Advance the durable marker ONLY onto a file that still exists (a pruned file is not a save). */
+  private markDurable(dir: string, st: DirState, v: number): void {
+    if (!existsSync(this.fileFor(dir, v))) return;
     if (v > st.durable) st.durable = v;
+    st.bootVersions = null; // one fsync has completed since boot: the normal rule applies
     st.unsynced = st.unsynced.filter((u) => u.v > st.durable);
   }
 
@@ -299,7 +375,7 @@ export class FileSaveStore implements UserSaveStore {
       try {
         this.syncFileSync(this.fileFor(dir, st.latest));
         if (st.dirDirty) { try { this.syncDirSync(dir); } catch { /* best-effort */ } st.dirDirty = false; }
-        this.markDurable(st, st.latest);
+        this.markDurable(dir, st, st.latest);
         st.pending = null;
       } catch (e) {
         try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
@@ -308,10 +384,16 @@ export class FileSaveStore implements UserSaveStore {
   }
 
   /** Bounded retention (B58/audit E4): keep the recent window + the newest periodic checkpoints. */
-  private prune(dir: string, latest: number, durable = latest): void {
+  private prune(dir: string, latest: number, st: DirState): void {
     const keep = new Set<number>();
-    // ORW-404: never delete the newest version whose fsync completed until a newer one is durable.
-    if (durable > 0) keep.add(durable);
+    const existing = this.versionsDescending(dir);
+    // ORW-404: always keep the highest EXISTING version <= durable (the newest fully synced save),
+    // never delete a version whose fsync is in flight, and keep everything that was on disk at boot
+    // until one fsync has completed.
+    const synced = existing.find((v) => v <= st.durable);
+    if (synced !== undefined && st.durable > 0) keep.add(synced);
+    if (st.inFlight !== null) keep.add(st.inFlight);
+    if (st.bootVersions) for (const v of st.bootVersions) keep.add(v);
     for (let v = latest; v > latest - FileSaveStore.RETAIN_RECENT && v > 0; v--) keep.add(v);
     // PERSIST-11: whenever `latest % CHECKPOINT_EVERY` is small, the FIRST checkpoint candidate
     // (`latest - (latest % CHECKPOINT_EVERY)`) can land INSIDE the recent-retention window already
@@ -326,7 +408,7 @@ export class FileSaveStore implements UserSaveStore {
       keep.add(v);
       checkpoints++;
     }
-    for (const v of this.versionsDescending(dir)) {
+    for (const v of existing) {
       if (!keep.has(v)) {
         try { unlinkSync(this.fileFor(dir, v)); } catch { /* best-effort: already pruned */ }
       }
