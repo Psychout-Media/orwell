@@ -132,3 +132,7 @@ module.exports = {
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
 };
+
+// ORW-413: `ci/bdd-shard.mjs` and `ci/fast-checks.sh` run a SLICE of the executable features by setting ORWELL_BDD_FEATURES (newline-separated paths). Positional paths on the
+// cucumber command line are ADDED to the `paths` above (every feature would still run), so the slice has to replace the list here. Unset, the full list above runs.
+if (process.env.ORWELL_BDD_FEATURES) module.exports.default.paths = process.env.ORWELL_BDD_FEATURES.split("\n").filter(Boolean);
