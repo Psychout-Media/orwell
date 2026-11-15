@@ -6464,6 +6464,81 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
         return True
 
 
+# ORW-479 (live sweep: production announced "Houseguests. Head of Household competition. Backyard. Now." at 11:55am with the comp five minutes from due; the phase flipped at 12:00): an
+# announcement that the scheduled EVENT is starting NOW, while the engine's day schedule says it is not due yet, is a time fact ahead of the engine. Pre-emission screen like the clock claims:
+# the announcement block is dropped before the player sees it (the event itself still fires at its time, with its own chyron). Closed set: only the engine's NEXT event, only today, only when not due.
+_EVENT_ANNOUNCE_NAMES = {
+    "hoh-competition": r"(?:hoh|head\s+of\s+household)\s+(?:comp(?:etition)?|challenge)",
+    "veto-competition": r"(?:power\s+of\s+)?veto\s+(?:comp(?:etition)?|challenge)",
+    "nominations": r"nominations?(?:\s+ceremony)?",
+    "veto-ceremony": r"(?:power\s+of\s+)?veto\s+ceremony",
+    "eviction": r"(?:the\s+)?(?:live\s+)?eviction(?:\s+(?:vote|night|ceremony))?",
+}
+_ANY_EVENT_ANNOUNCE_RE = re.compile("(?:" + "|".join(_EVENT_ANNOUNCE_NAMES.values()) + r")\b", re.IGNORECASE)
+
+
+def _event_start_spans(text: str, event: str) -> "list[tuple[int, int]]":
+    """Character spans of `text` that ANNOUNCE `event` as starting now: a short announcement block ("[Houseguests.] <Event>. [Backyard.] Now."), or "<the event> begins/starts now". Pure."""
+    name = _EVENT_ANNOUNCE_NAMES.get(event)
+    if not text or not name:
+        return []
+    spans: "list[tuple[int, int]]" = []
+    # a block of short fragments that names the event and ends "Now." (production's call to the house)
+    block = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?" + name + r"[.!,]?\s*(?:[A-Za-z' -]{1,24}[.!]\s*){0,2}?now[.!]?", re.IGNORECASE)
+    for m in block.finditer(text):
+        spans.append((m.start(), m.end()))
+    # "the competition begins / starts / is starting now" in one sentence
+    one = re.compile(r"[^.!?\n]*\b(?:the\s+)?" + name + r"\s+(?:begins?|starts?|is\s+(?:starting|beginning)|kicks?\s+off)\s+now\b[^.!?\n]*[.!?]?", re.IGNORECASE)
+    for m in one.finditer(text):
+        spans.append((m.start(), m.end()))
+    # the bare announcement alone as a sentence ("Head of Household competition."), which the house reads as the call itself
+    bare = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?" + name + r"[.!]?[ \t]*(?=\n|$)", re.IGNORECASE)
+    for m in bare.finditer(text):
+        spans.append((m.start(), m.end()))
+    spans.sort()
+    merged: "list[tuple[int, int]]" = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+_BARE_ANNOUNCE_RE = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?(?:" + "|".join(_EVENT_ANNOUNCE_NAMES.values()) + r")[.!]?[ \t]*(?=\n|$)", re.IGNORECASE)
+
+
+def _text_may_announce_an_event_start(text: str) -> bool:
+    """Cheap pre-filter (no engine call): the text names a scheduled event AND either says it starts/begins/now, or IS the bare announcement sentence (the stream hands the guard one sentence at a time)."""
+    if not text or not _ANY_EVENT_ANNOUNCE_RE.search(text):
+        return False
+    return bool(re.search(r"\bnow\b|\bbegins?\b|\bstarts?\b|\bstarting\b|\bkicks?\s+off\b", text, re.IGNORECASE) or _BARE_ANNOUNCE_RE.search(text))
+
+
+async def screen_event_start_announcements(user, text: str) -> "list[tuple[int, int]]":
+    """ORW-479: the spans of `text` to HOLD: announcements that the engine's next event (today, with minutes still to go) is starting now. Fail-open: any hiccup, no schedule, the event
+    due, tomorrow's event, or nothing announced returns []."""
+    try:
+        if not _text_may_announce_an_event_start(text):
+            return []
+        from src import orwell_engine
+        gs = await orwell_engine.get_game_state(user=user)
+        ds = gs.get("daySchedule") if isinstance(gs, dict) else None
+        if not isinstance(ds, dict) or ds.get("tomorrow") or ds.get("due") is not False:
+            return []
+        mins = ds.get("minutesUntil")
+        if not (isinstance(mins, (int, float)) and not isinstance(mins, bool) and mins > 0):
+            return []
+        nxt = ds.get("next")
+        spans = _event_start_spans(text, nxt) if isinstance(nxt, str) else []
+        if spans:
+            logger.warning("[orwell] pre-emission guard HELD an early %s announcement for user=%s - the engine says it is %s minute(s) away", nxt, user, int(mins))
+        return spans
+    except Exception as e:
+        logger.warning("[orwell] pre-emission event-start guard skipped for user=%s: %s", user, _exc_detail(e))
+        return []
+
+
 def _clock_is_predawn(lab) -> bool:
     """ORW-355: does the engine clock label ("4:15am, Day 4") read before 7am (the small hours, never morning)?"""
     mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
@@ -7801,7 +7876,12 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()
     if tod:
-        parts.append(_MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
+        # ORW-479 (ORW-392/441 gap): past 2am and before the house's wake-up call the status carries `earlyMorning`, which turns "Late night" / "Morning" into "Early morning" everywhere else
+        # (the HUD, the status panel); the per-bubble header said "Morning" at 4am.
+        if tod in ("late-night", "morning") and game_state.get("earlyMorning") is True:
+            parts.append("Early morning")
+        else:
+            parts.append(_MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
     return " · ".join(parts) if parts else None
 
 

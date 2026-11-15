@@ -5884,6 +5884,17 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
     )
 
 
+# ORW-479: the stream hands the pre-emission guard one sentence at a time, so after an early event announcement was held the REST of the call ("Backyard." "Now.") arrives in the next
+# chunk(s): while the held announcement is recent, a bare 1-2 word fragment is held with it (any real sentence ends that).
+_ANN_HELD: dict = {}
+_ANN_FRAGMENT_WINDOW_S = 8.0
+
+
+def _is_call_fragment(part: str) -> bool:
+    t = part.strip()
+    return 0 < len(t) <= 24 and len(t.split()) <= 2 and t[-1] in ".!?" and not re.search(r"[,;:\"]", t)
+
+
 def _split_sentences_keep_dotted_times(text: str) -> list:
     """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
     zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
@@ -5923,10 +5934,22 @@ def _strip_orphan_closer(part: str, dropped: str) -> str:
     return m.group(1) + part[m.end():]
 
 
+def _opens_unclosed_quote(text: str) -> bool:
+    """ORW-479: does `text` leave a double quote OPEN (an unmatched straight quote, or more curly openers than closers)? The sentence that opens a quote and is dropped orphans its closer."""
+    return (text.count('"') % 2 == 1) or (text.count("\u201c") > text.count("\u201d"))
+
+
 def _lead_closer_stripped(before_part: str, after_part: str) -> bool:
-    """True when `after_part` is `before_part` with only a leading closing quote/bracket removed (the ORW-455 edit)."""
+    """True when `after_part` is `before_part` with only edge edits applied: a leading closing quote/bracket removed (the ORW-455 edit) and/or leading blanks trimmed (ORW-479: the blank a
+    dropped sentence leaves at a line start). The stored-text mirror reads the same edits."""
+    base = before_part.lstrip(" \t")
+    if after_part == base and before_part != after_part:
+        return True
     m = _LEAD_CLOSER_RE.match(before_part)
-    return bool(m) and m.group(1) + before_part[m.end():] == after_part
+    if not m:
+        return False
+    stripped = m.group(1) + before_part[m.end():]
+    return after_part in (stripped, stripped.lstrip(" \t"))
 
 
 async def _pre_emission_outcome_guard(text: str, owner) -> str:
@@ -5967,6 +5990,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
                 and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
                 and not chat_helpers.sentence_states_zero_clock_time(text)
+                and not chat_helpers._text_may_announce_an_event_start(text)  # ORW-479
+                and not (time.monotonic() - _ANN_HELD.get(owner, -1e9) < _ANN_FRAGMENT_WINDOW_S)  # ORW-479: just held an early announcement: its tail fragments must reach the loop
                 # review of #2751: these predicates carry a whole-text "exempt" word list ("not", "quiet", "asleep"), so a negative word in a
                 # NEIGHBOURING sentence hid a positive claim here; ask each sentence on its own before declaring the chunk claim-free
                 and not any(chat_helpers._sentence_has_house_awake_claim(_p) or chat_helpers._sentence_has_unbacked_morning_claim(_p)
@@ -5981,11 +6006,41 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     # byte-identically.
     parts = _split_sentences_keep_dotted_times(text)  # review of #2657: "3 a.m." / "9 p.m." must not be cut into "3 a." + "m."
     out = []
+    # ORW-479: announcements that the next event is starting NOW while the engine says it is minutes away: whole parts inside such a span are held before emission
+    try:
+        _ann_spans = await chat_helpers.screen_event_start_announcements(owner, text)
+    except Exception:
+        _ann_spans = []
+    _ann_held = False
+    _ann_active = (time.monotonic() - _ANN_HELD.get(owner, -1e9)) < _ANN_FRAGMENT_WINDOW_S
+    _starts, _o = [], 0
+    for _pp in parts:
+        _starts.append(_o)
+        _o += len(_pp)
     _last_part, _last_n = None, 0
-    for part in parts:
-        if _last_part is not None and len(out) == _last_n:
+    _debt = ""  # ORW-479: the dropped text that left a quote open; its closer may lead a LATER kept part (the sentences between survived), and goes with it
+    for _pi, part in enumerate(parts):
+        _p_start, _p_end = _starts[_pi], _starts[_pi] + len(part)
+        _prev_dropped = _last_part is not None and len(out) == _last_n
+        if _prev_dropped:
+            if _opens_unclosed_quote(_last_part):
+                _debt += _last_part
             part = _strip_orphan_closer(part, _last_part)  # ORW-455: the previous part was dropped and opened a quote/bracket: its closer leads this part and goes with it
+        if _debt and _LEAD_CLOSER_RE.match(part) and all(_has_opener_for(c, _debt) for c in set(_LEAD_CLOSER_RE.match(part).group(2))):
+            _m = _LEAD_CLOSER_RE.match(part)
+            part = _m.group(1) + part[_m.end():]
+            _debt = ""
+        if _prev_dropped and out and out[-1].endswith("\n"):
+            part = part.lstrip(" \t")  # ORW-479: a dropped sentence at a line start left its blank behind: the line starts at its first word
         _last_part, _last_n = part, len(out)
+        if _ann_spans and any(a < _p_end and b > _p_start for a, b in _ann_spans) and part.strip():
+            _ann_held = True
+            continue  # ORW-479: an announcement that the next event starts now, while the engine says it is minutes away
+        if part.strip() and _ann_active and _is_call_fragment(part):
+            continue  # ORW-479: the rest of the call ("Backyard." "Now.") arriving in the next chunk of the same announcement
+        if part.strip():
+            _ann_active = False
+            _ANN_HELD.pop(owner, None)
         try:
             # T0-3 (issue #1778, D1 2026-07-21) — the HARD-DROP rail: a weekly-loop closed-set claim
             # (HOH/noms/veto/eviction — the kinds an engine `BeatAnnouncement` chyron now carries
@@ -6035,6 +6090,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
         except Exception:
             pass  # any screening hiccup falls through to emit (conservatism)
         out.append(part)
+    if _ann_held:
+        _ANN_HELD[owner] = time.monotonic()
     return "".join(out)
 
 
