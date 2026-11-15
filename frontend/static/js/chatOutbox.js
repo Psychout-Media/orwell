@@ -595,9 +595,9 @@ export function _setOutboxDeps(deps) {
         tag.className = 'queued-tag';
         role.appendChild(tag);
       }
-      if (tag) tag.textContent = mode === 'offline' ? 'queued — offline' : (mode === 'sending' ? 'sending…' : 'queued'); // ORW-406: 'sending' = quiet wait out of a release-sized reconnect gap
+      if (tag) tag.textContent = mode === 'offline' ? 'queued — offline' : (mode === 'sending' ? 'sending…' : (mode === 'held' ? 'one moment…' : 'queued')); // ORW-461: 'held' = the game is restarting for an update, the turn goes through right after; ORW-406: 'sending' = quiet wait out of a release-sized reconnect gap
       bubbleEl.classList.toggle('msg-queued-offline', mode === 'offline');
-      if (mode === 'sending' && bubbleEl.dataset) bubbleEl.dataset.deliveryState = 'sending'; // keep dataset.deliveryState in lockstep with the visible tag (review of #2719)
+      if ((mode === 'sending' || mode === 'held') && bubbleEl.dataset) bubbleEl.dataset.deliveryState = 'sending'; // keep dataset.deliveryState in lockstep with the visible tag (review of #2719)
     } catch (_) {}
   }
 

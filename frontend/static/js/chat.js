@@ -1745,6 +1745,10 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
             clientMsgId: _clientMsgId,
             mode: isAgentMode ? 'agent' : 'chat',
             expectedBeatSeq: (window.OrwellWs.lastBeatSeq && window.OrwellWs.lastBeatSeq()) || undefined
+          }, undefined, {
+            // ORW-461: an update is restarting the game and holds new turns for a few seconds: the bubble says "one moment…" and the same turn goes through right after
+            onHold: function () { if (_userMsgEl) { try { _setQueuedTag(_userMsgEl, 'held'); } catch (_) {} } },
+            onRelease: function () { if (_userMsgEl) { try { _setQueuedTag(_userMsgEl, null); } catch (_) {} } }
           });
           // Accepted: the persistent consumer renders the reply frames and runs the
           // settle on `done` (it releases _streamSessionId + reconciles). Keep the
