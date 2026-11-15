@@ -296,18 +296,29 @@ export class FileSaveStore implements UserSaveStore {
       // truncated file can NEVER win. Owner-sanctioned in #1562.
       // ORW-404 follow-up: a brand-new user directory also syncs its own entry and the data dir's entry
       // for it, synchronously (this mode's contract), so a new game's folder survives a power cut.
+      // Review of #2744: the same predicates as the background branch: the first save this process writes in an
+      // existing directory (a restart) also owes its entries.
       const dirsToSync: string[] = [];
-      if (isCheckpoint || dirIsNew) dirsToSync.push(dir);
-      if (dirIsNew) dirsToSync.push(this.dataDir);
+      if (isCheckpoint || dirIsNew || firstSaveSinceBoot) dirsToSync.push(dir);
+      if (dirIsNew || firstSaveSinceBoot) dirsToSync.push(this.dataDir);
+      let entriesOk = true;
       if (dirsToSync.length > 0) {
         const td = stallTimer.now();
         for (const d of dirsToSync) {
-          try { this.syncDirSync(d); } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+          // Review of #2747: a failed directory fsync is not swallowed into "durable": the entry stays flagged
+          // (retried by the next save's flush or the shutdown flush) and the marker stays where it was.
+          try { this.syncDirSync(d); } catch (e) {
+            entriesOk = false;
+            if (d === this.dataDir) this.markParentDirty(st); else this.markDirDirty(st);
+            this.reportFlushFailure(e);
+          }
         }
         stallTimer.record("save.dirsync", stallTimer.now() - td, { version }); // review of #2691: the directory flush is its own phase
       }
-      st.durable = version;
-      st.unsynced = [];
+      if (entriesOk) {
+        st.durable = version;
+        st.unsynced = [];
+      }
       st.bootVersions = null;
     }
     // `version` IS the newest on disk after the rename (single-threaded write). Prune never deletes a
@@ -467,7 +478,9 @@ export class FileSaveStore implements UserSaveStore {
 
   /** Unsynced backlog size: versions behind the marker, or the saves awaiting their first fsync. */
   private backlogOf(st: DirState): number {
-    return st.durable > 0 ? st.latest - st.durable : st.unsynced.length;
+    if (st.durable > 0) return st.latest - st.durable;
+    const oldest = st.unsynced[0]; // the cap overwrites only the NEWEST slot, so this is the true oldest
+    return oldest ? st.latest - oldest.v + 1 : 0;
   }
 
   /**
@@ -483,7 +496,7 @@ export class FileSaveStore implements UserSaveStore {
     if (st.lastAlarmAt !== null && now - st.lastAlarmAt < this.backlogAlarmMs) return;
     st.lastAlarmAt = now;
     try {
-      this.onError(`[orwell] save.durability behind: oldest unsynced save is ${Math.round(age / 1000)}s old, ${st.unsynced.length} unsynced version(s)`);
+      this.onError(`[orwell] save.durability behind: oldest unsynced save is ${Math.round(age / 1000)}s old, ${this.backlogOf(st)} unsynced version(s)`);
     } catch { /* logging must never break the game */ }
   }
 
