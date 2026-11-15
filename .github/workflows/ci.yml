@@ -159,7 +159,7 @@ jobs:
           # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
           # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
           # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
+          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
