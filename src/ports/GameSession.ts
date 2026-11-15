@@ -467,6 +467,8 @@ export interface GameStateView {
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).
    */
   asleep?: NamedRef[];
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  awake?: NamedRef[];
   /**
    * The season is OVER — a winner is crowned (audit B6-01). Vault-free (whether the game ended is
    * public). Lets the FE gate the season lifecycle (0057 next-season) and fill the progress bar to
@@ -1261,6 +1263,8 @@ export interface PublicGameStatus {
    * Vault-free; present only when the clock is running.
    */
   asleep?: NamedRef[];
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  awake?: NamedRef[];
   /**
    * The in-game DAY within the current HOH week (E58): hoh=1, nominations=2, veto=3,
    * veto-ceremony=4, eviction=5 — the canonical `dayOfWeek(phase)` mapping that already feeds the

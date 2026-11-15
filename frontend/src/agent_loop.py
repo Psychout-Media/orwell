@@ -1900,15 +1900,20 @@ def _bedtime_direct_note(turn_in_output) -> str:
     return _bedtime_clock_note(turn_in_output) + _bedtime_recap_directive(turn_in_output)
 
 
-def _post_turn_in_asleep_block(turn_in_output) -> str:
-    """ORW-405 - the morning-state lines for the narrator after the FE ran the player's turnIn: the part of the day and who is still asleep (names only, from the turnIn result's public status). '' if unreadable."""
+def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = "") -> str:
+    """ORW-405 / ORW-409 - the morning-state lines for the narrator after the FE ran the player's turnIn: the night is over and who is still asleep (names only). The facts come from the post-turnIn briefing
+    (one board read); only without one do they come from the turnIn result's public status. The part of the day is NOT restated when the fresh context in `volatile` already states it. '' if unreadable."""
     try:
-        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
-        st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else (data if isinstance(data, dict) else {})
-        tod = str(st.get("timeOfDay") or "").strip()
-        names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
+        if briefing is not None:
+            tod, names = briefing.part_of_day, list(briefing.asleep)
+        else:
+            data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+            st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else (data if isinstance(data, dict) else {})
+            tod = str(st.get("timeOfDay") or "").strip()
+            names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
+        stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
-        if tod:
+        if tod and not stated:
             lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
         if names:
             lines.append(f"- Still asleep ({len(names)}): {', '.join(names)}. They are NOT awake in this scene: do not write them up, talking or moving about; only the houseguests not listed are awake.")
@@ -1934,7 +1939,16 @@ async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> boo
         i = txt.find("\n- Week: ") if isinstance(txt, str) else -1
         if i < 0:
             return False
-        new_vol = txt[i:].rstrip("\n") + _post_turn_in_asleep_block(turn_in_output)
+        briefing = None
+        try:  # ORW-409: ONE read of the post-turnIn board is the briefing; fail-open to the turnIn result's own status
+            from routes.briefing import build_briefing, unify_part_of_day_lines
+            board = await _oe.get_game_state(user=owner)
+            if isinstance(board, dict) and board.get("started"):
+                briefing = build_briefing(board)
+                txt = txt[:i] + unify_part_of_day_lines(txt[i:], briefing)
+        except Exception as _be:
+            _ch.record_soft_failure("briefing:post-turnin-board-read-failed", _be, corrected="turnin-status", user=owner)
+        new_vol = txt[i:].rstrip("\n") + _post_turn_in_asleep_block(turn_in_output, briefing, txt[i:])
         for m in messages:
             if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str) and old_vol in m["content"]:
                 m["content"] = m["content"].replace(old_vol, new_vol, 1)
