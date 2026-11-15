@@ -197,6 +197,9 @@ class SeasonGate:
         ident_open = " ".join(_norm(card.get("identityConcept")).split()[:2])
         oncam_end = " ".join(_norm(phys.get("onCamera")).split()[-3:])
         out = {}
+        first = str(card.get("name") or "").split(" ")[0]
+        if first and re.search(r"\b%s\b" % re.escape(first), str(card.get("identityConcept") or "")):
+            out["identity-name"] = first  # the identity line names the person: it is read beside the card, never needs the name
         if ident_open and any(r.get("ident_open") == ident_open for o, r in self.registry.items() if o != hid):
             out["identity"] = ident_open
         if oncam_end and any(r.get("oncam_end") == oncam_end for o, r in self.registry.items() if o != hid):
@@ -235,11 +238,14 @@ def repetition_message(repeats: dict, taken: dict) -> str:
         used = "; ".join(f'"{x}"' for x in (taken.get("identity_openers") or [])[:8])
         parts.append(f'the identityConcept opens with "{repeats["identity"]}", which another card in this cast already opens with'
                      f" (openings taken: {used}); open it a different way")
+    if "identity-name" in repeats:
+        parts.append("the identityConcept uses the person's name; write it again without the name, as one complete phrase that reads "
+                     "as a sentence")
     if "oncamera" in repeats:
         used = "; ".join(f'"{x}"' for x in (taken.get("oncamera_endings") or [])[:8])
         parts.append(f'the physicalCharacteristics.onCamera line ends "{repeats["oncamera"]}", which another card already ends with'
                      f" (endings taken: {used}); end it a different way")
-    return ("Only this repeats across the cast: " + " and ".join(parts) + ". Write the COMPLETE JSON object again with the same "
+    return ("Only this needs fixing: " + " and ".join(parts) + ". Write the COMPLETE JSON object again with the same "
             "person: same name, pronouns, age, voice, biography and look; change nothing except the wording named above.")
 
 
@@ -293,11 +299,14 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     new_cam = new_phys.get("onCamera") if isinstance(new_phys, dict) else None
     # each repeated field is judged on its own: kept only when the new text passes the whole gate and no longer repeats
     for key, ok in (("identity", isinstance(new_ident, str) and new_ident.strip()),
+                    ("identity-name", isinstance(new_ident, str) and new_ident.strip()),
                     ("oncamera", isinstance(new_cam, str) and new_cam.strip())):
         if key not in rep or not ok:
             continue
         cand = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
-        if key == "identity":
+        if key in ("identity", "identity-name"):
+            if key == "identity-name" and "identity" in rep:
+                continue  # one identity rewrite answers both asks
             cand["identityConcept"] = new_ident
         else:
             base = cand.get("physicalCharacteristics")
@@ -307,12 +316,14 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         mend(cand, npc, cast)
         if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):
             continue
-        if key == "identity" and not _identity_ok(cand.get("identityConcept")):
+        if key in ("identity", "identity-name") and not _identity_ok(cand.get("identityConcept")):
             continue
         if key == "oncamera" and not _oncamera_ok(cand, npc, cast):
             continue
-        if key in gate.repeats(hid, cand, npc, cast):
-            continue  # it still repeats: that field ships as it is (fail open, the code is counted as before)
+        still = gate.repeats(hid, cand, npc, cast)
+        asked = [k for k in rep if k.startswith("identity")] if key.startswith("identity") else [key]
+        if any(k in still for k in asked):
+            continue  # it still repeats (or still names the person): that field ships as it is (fail open, the code is counted as before)
         profile.clear()
         profile.update(cand)
         gate.rep_fixed += 1

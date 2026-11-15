@@ -74,14 +74,14 @@ def test_a_repeated_oncamera_ending_is_rewritten_and_only_that_line_changes():
     a, b = _npc(1, "Namea"), _npc(2, "Nameb")
     cast = [a, b]
     _go(gate.run_gate(g, _profile("Namea", "A welder who fixes boats and hums.", cam), a, cast, None))
-    pb = _profile("Nameb", "Nameb is a welder who keeps the lights on.", cam)
+    pb = _profile("Nameb", "Keeps the lights on for a living.", cam)
 
     async def rw(npc, codes, message=None):
         assert "onCamera" in message and "identityConcept" not in message
         return fix(copy.deepcopy(pb))
     got, _ = _go(gate.run_gate(g, pb, b, cast, rw))
     assert got["physicalCharacteristics"]["onCamera"].startswith("He leans")
-    assert got["identityConcept"] == "Nameb is a welder who keeps the lights on."
+    assert got["identityConcept"] == "Keeps the lights on for a living."
     assert g.rep_fixed == 1
 
 
@@ -144,7 +144,7 @@ def _woman_pair(cam_fix=None, ident_fix=None):
     pa = _profile("Namea", "A welder who fixes boats and hums.", cam)
     pa["biography"] = pa["biography"].replace("He ", "She ")
     _go(gate.run_gate(g, pa, a, cast, None))
-    pb = _profile("Nameb", "Nameb is a welder who keeps the lights on.", cam)
+    pb = _profile("Nameb", "Keeps the lights on for a living.", cam)
     pb["biography"] = pb["biography"].replace("He ", "She ")
     pb["physicalCharacteristics"]["hair"] = "espresso brown hair"
     pb["physicalCharacteristics"]["photoHair"] = "espresso brown hair brushed back"
@@ -181,3 +181,31 @@ def test_a_good_rewritten_oncamera_line_is_stored():
 def test_a_rewritten_identity_over_the_first_pass_length_is_not_stored():
     got, before, g = _woman_pair(ident_fix="Nameb " + "keeps the lights on and " * 30 + "reads a room.")
     assert got["identityConcept"] == before["identityConcept"]
+
+
+# ---- review: an identity line that names the person is rewritten once, fail open ------------------------------
+def _named_ident(fix):
+    g = gate.SeasonGate("t")
+    a = _npc(1, "Namea")
+    b = _npc(2, "Nameb")
+    calls = []
+
+    async def rw(npc, codes, message=None):
+        calls.append(message)
+        return fix(copy.deepcopy(pb)) if fix else None
+    pb = _profile("Nameb", "Nameb underestimated is a favorite data set.")
+    got, _ = _go(gate.run_gate(g, pb, b, [a, b], rw))
+    return got, calls
+
+
+def test_an_identity_line_that_uses_the_name_is_rewritten_once_without_it():
+    got, calls = _named_ident(lambda p: {**p, "identityConcept": "A welder who treats every alliance like a weld seam to inspect."})
+    assert len(calls) == 1 and "without the name" in calls[0]
+    assert got["identityConcept"].startswith("A welder who treats")
+
+
+def test_a_rewrite_that_still_names_the_person_ships_the_original():
+    got, calls = _named_ident(lambda p: {**p, "identityConcept": "Nameb is still the one who welds."})
+    assert len(calls) == 1 and got["identityConcept"].startswith("Nameb underestimated")
+    got, calls = _named_ident(None)
+    assert len(calls) == 1 and got["identityConcept"].startswith("Nameb underestimated")
