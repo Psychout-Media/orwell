@@ -5291,6 +5291,12 @@ export class GameSessionAdapter implements GameSession {
    * reads no soul/Vault number.
    */
   /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
+  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
+  foldWindowKey(): string | null {
+    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
+    return `d${this.live.dayNumber ?? 1}:${this.live.timeOfDay}`;
+  }
+
   awakeIds(): ReadonlySet<EntityId> | null {
     return this.awakeNow();
   }
