@@ -91,34 +91,37 @@ describe("ORW-404 — background fsync", () => {
     expect(existsSync(vfile(dir, 3)), "an ordinary old version is still pruned").toBe(false);
   });
 
-  it("shutdown flush fsyncs the newest version synchronously, bounded by the deadline", () => {
+  it("shutdown flush (async) fsyncs the newest version of every user and marks it durable", async () => {
     const dir = tmp();
     const s = controllableSync();
-    const synced: string[] = [];
-    let clock = 0;
     const store = new FileSaveStore(dir, {
-      fsyncMode: "background", syncFile: s.syncFile, syncDir: async () => {},
-      syncFileSync: (p) => { synced.push(p); clock += 6_000; }, nowMs: () => clock,
-      onError: () => {},
+      fsyncMode: "background", syncFile: s.syncFile, syncDir: async () => {}, onError: () => {},
     });
     store.saveFor("u", snap(1));
-    store.saveFor("u", snap(2));
-    store.flushDurable(10_000);
-    expect(synced).toEqual([vfile(dir, 2)]);
-    expect(store.durability()).toMatchObject({ saveLatestVersion: 2, saveDurableVersion: 2, saveUnsyncedUsers: 0 });
-
-    // Bounded: with two users and each sync costing 6 s, the 10 s budget stops the second.
+    store.saveFor("u", snap(2)); // v1's sync is in flight, v2 is pending behind it
     store.saveFor("a", snap(1));
     store.saveFor("b", snap(1));
-    synced.length = 0;
-    store.flushDurable(10_000);
-    expect(synced).toHaveLength(2); // first at t=0 (->6s), second at 6s (<10s) runs; budget then spent
-    store.saveFor("c", snap(1));
-    store.saveFor("d", snap(1));
-    store.saveFor("e", snap(1));
-    synced.length = 0;
-    store.flushDurable(10_000);
-    expect(synced.length).toBeLessThan(3);
+    s.calls.length = 0;
+    const flushed = store.flushDurableAsync(10_000);
+    await tick();
+    // The flush asks for the NEWEST version of each user with a backlog, never an older one.
+    expect(s.calls).toContain(vfile(dir, 2));
+    expect(s.calls).not.toContain(vfile(dir, 1));
+    for (let i = 0; i < 20; i++) { while (s.waiters.length) s.waiters.shift()!.resolve(); await tick(); }
+    await flushed;
+    expect(store.durability()).toMatchObject({ saveLatestVersion: 2, saveDurableVersion: 2, saveUnsyncedUsers: 0 });
+  });
+
+  it("shutdown flush is bounded: it resolves by its deadline even when no sync settles", async () => {
+    const dir = tmp();
+    const errors: string[] = [];
+    const s = controllableSync(); // never settles
+    const store = new FileSaveStore(dir, { fsyncMode: "background", syncFile: s.syncFile, syncDir: async () => {}, onError: (l) => errors.push(l) });
+    store.saveFor("u", snap(1));
+    const t0 = performance.now();
+    await store.flushDurableAsync(60);
+    expect(performance.now() - t0).toBeLessThan(1_000);
+    expect(errors.some((l) => l.includes("deadline"))).toBe(true);
   });
 
   it("a failing sync is logged once, never throws into save(), and the next save retries", async () => {
@@ -348,12 +351,14 @@ describe("ORW-404 — failures inside the sync handlers", () => {
     const dir = tmp();
     const errors: string[] = [];
     const dirCalls: string[] = [];
-    let failDir = true;
+    let failDir = false; // the new-directory syncs of the first save are not under test here
     const store = new FileSaveStore(dir, {
       fsyncMode: "background", syncFile: async () => {}, onError: (l) => errors.push(l),
       syncDir: async (p) => { dirCalls.push(p); if (failDir) { failDir = false; throw Object.assign(new Error("EIO"), { code: "EIO" }); } },
     });
     for (let i = 1; i <= 49; i++) { store.saveFor("u", snap(i)); await settle(); }
+    dirCalls.length = 0;
+    failDir = true;
     store.saveFor("u", snap(50)); // checkpoint: file sync then directory sync
     await settle();
     expect(dirCalls).toHaveLength(1);

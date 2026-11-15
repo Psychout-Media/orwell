@@ -107,7 +107,9 @@ function seat(w: W, opts: { n?: number; orchestrated?: boolean } = {}): void {
 /** Set how a juror regards the player by rewriting the RECORDED eviction manner (the bearing is derived from it). */
 function setManner(sb: UserSandbox, jurorId: EntityId, m: Record<string, boolean>): void {
   const core = sb.session.snapshot();
-  core.live!.mannerByEvictee = { ...(core.live!.mannerByEvictee ?? {}), [jurorId]: { [PLAYER]: m } } as never;
+  // Replace ONLY the juror's [PLAYER] entry; the juror's recorded manner toward everyone else is jury-management history and stays.
+  const prior = (core.live!.mannerByEvictee ?? {}) as Record<string, Record<string, unknown>>;
+  core.live!.mannerByEvictee = { ...prior, [jurorId]: { ...(prior[jurorId] ?? {}), [PLAYER]: m } } as never;
   sb.session.restore(core);
 }
 
@@ -444,7 +446,6 @@ When("a seeded season is played to its finale with and without the player using 
     for (let i = 0; i < 9000; i++) {
       if (useJury) {
         for (const j of sb.session.getGameState().juryHouse?.jurors ?? []) { if (sb.session.askJuror(j.id)) asked++; }
-        sb.session.getMomentPrompt({});
       }
       const v = sb.session.advanceGame();
       if (v.pending) answer(sb, v.pending);
