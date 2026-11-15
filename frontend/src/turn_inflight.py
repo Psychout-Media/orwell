@@ -4,6 +4,7 @@ The updater (root) reads <data>/turns-in-flight just before it restarts the serv
 until it says 0. The file holds one integer: the number of chat streams currently registered. It carries no
 game or chat content. Best-effort: a write failure never affects a turn.
 """
+import logging
 import math
 import os
 import threading
@@ -16,6 +17,7 @@ SIGNAL_NAME = "turns-in-flight"
 HOLD_NAME = "turns-hold"            # ORW-461: written by the updater (root) to say "hold new turns": `until=<epoch seconds>`
 HOLD_RETRY_AFTER_MS = 2000
 _HOLD_MAX_AHEAD_S = 3600            # a hold stamped further ahead than this is not believed (a corrupt or hostile file must not wedge the game)
+_warned_unreadable = False
 _ADMIT_TTL_S = 15.0                 # an admitted turn that never registers (it failed first) stops counting after this long
 
 
@@ -35,7 +37,14 @@ def hold_until(now: Optional[float] = None) -> Optional[float]:
     try:
         with open(hold_path(), "r", encoding="utf-8") as fh:
             text = fh.read(256)
-    except OSError:
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        # The hold exists but this process cannot read it (a permissions slip): say so once, because the alternative is a hold that silently never takes effect.
+        global _warned_unreadable
+        if not _warned_unreadable:
+            _warned_unreadable = True
+            logging.getLogger(__name__).warning("[orwell] the update hold %s exists but cannot be read (%s): new turns are NOT being held", hold_path(), exc)
         return None
     for line in text.splitlines():
         if line.startswith("until="):

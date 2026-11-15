@@ -44,8 +44,12 @@ def test_a_symlink_planted_at_the_hold_path_or_as_the_run_dir_is_never_followed(
     # the run dir itself a symlink: nothing is written anywhere
     real = tmp_path / "real"; real.mkdir(); link = tmp_path / "linkdir"; link.symlink_to(real)
     assert _hb(link, "240").returncode == 0 and not list(real.iterdir()), "a symlinked run dir is skipped"
-    # the temp file is created by mktemp in the run dir: a plain stat of its mode is not widened by a chmod on a name
-    assert "chmod" not in LIB.read_text()[LIB.read_text().index("update_turn_hold_begin() {"):LIB.read_text().index("update_turn_hold_end() {")]
+    # the only chmod is on the private temp file (before it is moved into place), never on the final name a link could stand in for
+    body = LIB.read_text()[LIB.read_text().index("update_turn_hold_begin() {"):LIB.read_text().index("update_turn_hold_end() {")]
+    code = [l.strip() for l in body.splitlines() if not l.strip().startswith("#")]
+    chmods = [l for l in code if l.startswith("chmod")]
+    assert len(chmods) == 1 and chmods[0].startswith('chmod 644 "$tmp"'), chmods
+    assert body.index('chmod 644 "$tmp"') < body.index("mv -fT")
 
 
 @needs_bash
@@ -137,3 +141,14 @@ def test_the_updater_uses_the_run_dir_and_the_validated_wait_for_the_hold():
     i = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
     assert "__tw" in blk[i - 600:i] and "10#$__tw" in blk[i - 600:i], "the hold length comes from the validated, clamped value"
     assert "$(( ${ORWELL_UPDATE_TURN_WAIT_SECONDS" not in UPDATE
+
+
+@needs_bash
+def test_the_hold_and_its_dir_are_readable_by_the_front_end_user_whatever_the_umask(tmp_path):
+    # mktemp makes 0600 and a root shell with umask 077 makes a 0700 dir: the front end (another user) could then not open the hold and nothing would be held
+    run = tmp_path / "newrun"                                    # does not exist yet: created by the helper
+    r = _bash(f'umask 077; . "{LIB}"; _update_defer_now() {{ echo 5000; }}; _update_defer_sleep() {{ :; }}; export ORWELL_RUN_DIR="{run}"; update_turn_hold_begin 240')
+    assert r.returncode == 0, r.stderr
+    assert oct(run.stat().st_mode & 0o777) == "0o755", "the run dir must be traversable by other users"
+    assert oct((run / "turns-hold").stat().st_mode & 0o777) == "0o644", "the hold must be world-readable"
+    assert not list(run.glob(".turns-hold.*"))

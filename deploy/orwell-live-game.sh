@@ -395,10 +395,12 @@ update_turn_hold_begin() {
   local secs="${1:-240}" dir="$ORWELL_RUN_DIR" tmp
   [[ "$secs" =~ ^[0-9]{1,5}$ ]] || secs=240
   [[ -L "$dir" ]] && return 0
-  mkdir -p "$dir" 2>/dev/null || return 0
+  mkdir -p -m 755 "$dir" 2>/dev/null || return 0   # 755 whatever the caller's umask: the front end (another user) must be able to traverse it
   if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi   # only ever write inside a dir WE own
   tmp="$(umask 022; mktemp "${dir}/.turns-hold.XXXXXX" 2>/dev/null)" || return 0
   printf 'until=%s\n' "$(( $(_update_defer_now) + 10#$secs ))" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  # mktemp creates 0600 whatever the umask, and the front end reads this as another user: make it world-readable. Safe: the temp file sits in a root-owned dir nobody else can write.
+  chmod 644 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || { rm -f "$tmp"; return 0; }
   echo "==> holding new turns (the game restarts in a moment; players see 'one moment')"
   # A turn admitted in the same instant as the hold may not be in the in-flight count yet: give it a moment to register before the first count is read.

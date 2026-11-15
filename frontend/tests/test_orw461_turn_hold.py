@@ -164,3 +164,19 @@ def test_the_sse_route_refuses_during_the_hold_too():
     blk = src[i:i + 2500]
     assert "check_and_admit" in blk and "update-holding" in blk and blk.index("check_and_admit") < blk.index("_prepare_chat_stream(request)")
     assert "_turn_inflight.admit_end(client_msg_id)" in src, "the admission hands over to the registry when the stream registers"
+
+
+def test_an_unreadable_hold_is_reported_not_silently_ignored(tmp_path, caplog):
+    import logging
+    if os.geteuid() == 0:
+        pytest.skip("root can read a 0000 file")
+    (tmp_path / "turns-hold").write_text(f"until={int(time.time()) + 60}\n")
+    os.chmod(tmp_path / "turns-hold", 0)
+    ti._warned_unreadable = False
+    with caplog.at_level(logging.WARNING):
+        assert ti.hold_until() is None
+        assert ti.hold_until() is None
+    msgs = [r.getMessage() for r in caplog.records if "cannot be read" in r.getMessage()]
+    assert len(msgs) == 1 and "NOT being held" in msgs[0], "one warning, naming the consequence"
+    os.chmod(tmp_path / "turns-hold", 0o644)
+    assert ti.hold_until() is not None
