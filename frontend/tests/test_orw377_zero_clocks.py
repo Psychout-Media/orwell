@@ -233,12 +233,35 @@ def test_orw437_a_dotted_numeric_time_is_one_sentence_part_and_stored_text_agree
 
 
 def test_orw437_a_vote_tally_is_not_a_clock_reading(setting):
-    """review of #2751: "five to two" matched the to-form ("ten to eight"). A tally word before it makes it a count, so the sentence stays; a real time with the word after it is still dropped."""
+    """review of #2751/#2767: "five to two" matched the to-form ("ten to eight"). Only the TALLY shape is exempt (a number pair that follows "a vote of" / "voted", or precedes "vote"); a real time in a vote-themed sentence is still dropped."""
     from src.zero_clocks import sentence_states_zero_clock_time_raw as raw
-    for tally in ("By a vote of five to two, the group picked pizza.", "The panel scored it ten to eight, and nobody argued.", "On the ballot it went five to two."):
+    for tally in ("By a vote of five to two, the group picked pizza.", "They voted five to two for pizza.", "A five to two vote picked pizza."):
         assert not raw(tally), tally
-    for clock in ("Ten to eight, by the light.", "It was ten to eight when the vote began.", "At five to two the hallway was empty."):
+    for clock in ("Ten to eight, by the light.", "It was ten to eight when the vote began.", "Voting opens at five to nine.", "She voted at ten to eight.",
+                  "The vote is at ten to eight tonight.", "He reached the kitchen at ten to eight."):
         assert raw(clock), clock
-    from routes import chat_helpers as ch  # the predicate the pre-emission guard asks (the full guard also screens vote sentences against the live board, which is not under test here)
+    from routes import chat_helpers as ch
     assert not ch.sentence_states_zero_clock_time("By a vote of five to two, the group picked pizza.")
-    assert ch.sentence_states_zero_clock_time("Ten to eight, by the light.")
+    for clock in ("Voting opens at five to nine.", "She voted at ten to eight.", "The vote is at ten to eight tonight.", "He reached the kitchen at ten to eight."):
+        out = _guard(f"The kettle ticked. {clock} Rain tapped the glass.")
+        assert out == "The kettle ticked. Rain tapped the glass.", (clock, out)
+
+
+@pytest.mark.parametrize("stem", ["3 a.m", "9 p.m"])
+def test_orw437_a_dotted_time_split_across_chunks_takes_its_terminator_with_it(setting, stem):
+    """review of #2767: chunks ending at "3 a.m" with the "." in the next one left "settles.. Then he left." shown AND stored. Real `_guard_stream_chunk` + `_apply_mirror_ops`, chunk by chunk, plus the round's flush."""
+    from src import agent_loop as al
+    run = asyncio.get_event_loop().run_until_complete
+    shown, stored, pending = "", "", ""
+    for c in (f"The house settles. It was {stem}", ". Then he left. The door clicks. Rain falls. "):
+        g, pending = run(al._guard_stream_chunk(c, "u", ooc_open=pending, scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+        shown += g.text
+        stored = al._apply_mirror_ops(stored + c, g.mirror_ops)
+    assert pending == ""
+    assert shown == "The house settles. Then he left. The door clicks. Rain falls. ", shown
+    assert stored == shown, (stored, shown)
+    # nothing follows the stem: the flush resolves it (the clock sentence is dropped, not lost into the pending buffer)
+    g, pending = run(al._guard_stream_chunk(f"The house settles. It was {stem}", "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    assert g.text.strip() == "The house settles." and pending.endswith(stem)
+    g2, pending = run(al._guard_stream_chunk("", "u", ooc_open=pending, scene_broken=False, emitted_visible=True, cutaway_emitted=False, flush=True))
+    assert g2.text == "" and pending == ""

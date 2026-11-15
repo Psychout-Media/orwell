@@ -6271,7 +6271,7 @@ _HOUSE_AWAKE_RE = re.compile(
     r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
     r"|\bthe\s+house\s+(?:wakes|woke|stirs|stirred)\b"
     r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
-    r"|[\"\u201c']\s*(?:good\s+)?morning\b[,.!]?"
+    r"|(?<!\w)[\"\u201c']\s*(?:good\s+)?morning\b[,.!]?"  # an OPENING quote: never an apostrophe that follows a letter ("the twins' morning routine"; review of #2767)
     r"|\bI\s+know\s+it(?:'s|\u2019s)\s+early\b"
     r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
     re.IGNORECASE,

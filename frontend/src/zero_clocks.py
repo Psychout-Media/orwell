@@ -104,7 +104,8 @@ def scrub_tool_output(text: Any) -> Any:
 # DELIBERATELY ALLOWED: plain "noon"/"midnight" (bands people say naturally), durations ("for two hours", "an hour later"), counts and days ("three of us", "7 days", "Day 4"), a bare "at eight" / "at nine".
 _HW = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})"
 _TO_FORM_RE = re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:to|till|until)\s+" + _HW + r"\b(?!\s+(?:minutes?|hours?|days?|weeks?|people|of|more|times|seconds?|years?))", re.IGNORECASE)
-_VOTE_BEFORE_RE = re.compile(r"\b(?:vot(?:e|es|ed|ing)|tallies|tally|ballots?|margin|score[ds]?|unanimous(?:ly)?)\b", re.IGNORECASE)  # review of #2751: a tally word BEFORE "five to two" makes it a count, not a time
+_TALLY_BEFORE_RE = re.compile(r"\b(?:votes?\s+of|voted|vote\s+was|vote\s+came\s+to|score\s+of)\s*$", re.IGNORECASE)  # review of #2767: the pair directly follows a tally phrase ("a vote of five to two", "voted five to two") - NOT "voted at ten to eight"
+_TALLY_AFTER_RE = re.compile(r"\s*(?:votes?|majority|split)\b", re.IGNORECASE)  # "five to two vote"
 _CLOCK_TIME_RES = (
     re.compile(r"(?<![\d:.])\d{1,2}:[0-5]\d(?![\d:])"),
     re.compile(r"(?<![\w.])\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![\w])", re.IGNORECASE),
@@ -126,7 +127,7 @@ def sentence_states_zero_clock_time_raw(text: Any) -> bool:
         return False
     for r in _CLOCK_TIME_RES:
         for m in r.finditer(text):
-            if r is _TO_FORM_RE and _VOTE_BEFORE_RE.search(text[:m.start()]):
+            if r is _TO_FORM_RE and (_TALLY_BEFORE_RE.search(text[:m.start()]) or _TALLY_AFTER_RE.match(text[m.end():])):
                 continue  # "By a vote of five to two, ...": a tally, so the eviction sentence must not be dropped as a clock reading
             return True
     return False

@@ -157,9 +157,10 @@ def test_redo_sentence_that_still_conflicts_is_dropped_whole(monkeypatch):
     assert stored[0] == emitted.strip() and "  " not in stored[0]
 
 
-@pytest.mark.xfail(strict=True, reason="KNOWN BUG (review of #2751, reported on ORW-437): when the tool-call opener halts the visible stream, the buffered pre-opener sentence tail is discarded from the live stream "
-                   "(agent_loop `if _visible_halted: _game_buf = \"\"`, and the halt branch assigns `_game_buf = _flush[_visible_emitted_len:]` over a tail held from an earlier chunk) but stays in the raw round text, so the "
-                   "stored message keeps a sentence the player never saw. Remove this marker when the persistence path mirrors the discarded tail.")
+@pytest.mark.xfail(strict=True, reason="KNOWN BUG (review of #2751, reported on ORW-437): it needs NO conflicting sentence. With a text-protocol tool-call opener, chunks "
+                   "[\"The kitchen is quiet. The kettle clicks off, and steam rises\", \"<tool_call>...\"] show only \"The kitchen is quiet.\" but store the second sentence too: when the opener halts the visible "
+                   "stream the buffered pre-opener tail is discarded from the live stream (agent_loop `if _visible_halted: _game_buf = \"\"`; the halt branch also assigns `_game_buf = _flush[_visible_emitted_len:]` over a "
+                   "tail held from an earlier chunk) but stays in the raw round text. Remove this marker when the persistence path mirrors the discarded tail.")
 def test_round_with_tool_markup_in_the_stream_is_skipped_safely(monkeypatch):
     # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold and no continuation call is made
     emitted, cont, stored, _ = _drive(

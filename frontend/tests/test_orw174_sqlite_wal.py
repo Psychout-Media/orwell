@@ -53,6 +53,6 @@ def test_the_backup_script_snapshots_the_db_before_tar():
     for live in ("frontend/data/app.db", "frontend/data/app.db-wal", "frontend/data/app.db-shm", "frontend/data/app.db-journal"):
         assert f"--exclude='{live}'" in src, live
     assert '--transform "s,^$(basename "$SNAP")\\$,frontend/data/app.db,"' in src
-    # the copy is created with the caller's umask and tar records that mode: it must be owner-only BEFORE the tar runs (review of #2751)
+    # pins the SNAPSHOT copy only: sqlite creates it with the caller's umask and tar records that member mode, so it must be chmod 600 BEFORE the tar runs. The tarball file's own mode is not pinned here (review of #2751, #2767)
     assert src.index('chmod 600 "$SNAP"') < src.index('\ntar "${TAR_ARGS[@]}"')
     assert subprocess.run(["bash", "-n", str(REPO / "deploy" / "orwell-backup.sh")]).returncode == 0

@@ -141,3 +141,26 @@ def test_orw437_a_negative_word_in_a_neighbouring_sentence_does_not_hide_a_house
         for kept in ("No one had stirred yet.", "The kettle ticked.", "Rain tapped the glass."):
             assert kept in text
     assert stored == g.text
+
+
+def test_orw437_a_plural_possessive_apostrophe_is_not_an_opening_quote(monkeypatch):
+    """review of #2767: `["\u201c']\s*morning` matched "twins' morning", so a TRUE pre-8am sentence was screened (and dropped on a 5:30am board). Real `_guard_stream_chunk` + `_apply_mirror_ops`; a real quoted claim is still screened."""
+    from src import agent_loop as al
+    from routes import chat_helpers as ch
+    seen = []
+
+    async def held(user, sentence):
+        seen.append(sentence)
+        return False
+
+    monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
+    run = asyncio.get_event_loop().run_until_complete
+    true_chunk = "The twins' morning routine is a mystery to you. The girls' room is dark. Ana's morning coffee sits cold. "
+    g, _ = run(al._guard_stream_chunk(true_chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    assert g.text == true_chunk and al._apply_mirror_ops(true_chunk, g.mirror_ops) == true_chunk and seen == []
+    for opener in ("'Good morning,' she says. ", "\u201cMorning!\u201d he says. "):
+        chunk = "The kettle ticked. " + opener + "Rain falls. "
+        g, _ = run(al._guard_stream_chunk(chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+        assert "orning" not in g.text and "The kettle ticked." in g.text and "Rain falls." in g.text
+        assert al._apply_mirror_ops(chunk, g.mirror_ops) == g.text
+    assert len(seen) == 2

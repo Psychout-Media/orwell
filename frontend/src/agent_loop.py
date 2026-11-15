@@ -6503,6 +6503,9 @@ def _scene_ops(raw: str, g) -> tuple:
 _GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed", "mirror_ops"])
 
 
+_DOTTED_STEM_TAIL_RE = re.compile(r"[^.!?\n]*\b\d\s?[ap]\.m$", re.IGNORECASE)  # the unfinished last sentence of a chunk when it stops at "3 a.m" (no closing period yet)
+
+
 def _apply_mirror_ops(round_response: str, ops) -> str:
     """Mirror a guarded chunk's EXACT drops back into the raw round buffer: each op is a (raw_before, after) pair for ONE
     segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
@@ -6546,11 +6549,18 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
     text = pending + (clean or "")
     segs, still_open = _ooc_segments(text, False)
     if not any(is_aside for _t, is_aside in segs):
+        held = ""
+        if not flush:
+            # review of #2767: a chunk that ends inside a dotted time ("It was 3 a.m" with the "." in the NEXT chunk) is held until that chunk arrives, so a dropped clock sentence
+            # takes its terminator with it instead of leaving a bare "." behind ("settles.. Then"). The round's flush resolves it if nothing follows.
+            _stem = _DOTTED_STEM_TAIL_RE.search(text)
+            if _stem:
+                held, text = _stem.group(0), text[:_stem.start()]
         outside = _strip_stray_closers(text)
         if not outside.strip():
-            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), ""
+            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), held
         g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), ""
+        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), held
     out: "list[str]" = []
     consumed: "list[str]" = []
     ops: "list[tuple[str, str]]" = []
