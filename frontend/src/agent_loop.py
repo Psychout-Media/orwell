@@ -1921,7 +1921,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
                 names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
-        if tod and not stated:
+        try:  # ORW-474 (the clock wins): a wake before the house wake-up is the dark small hours, whatever band name the status carries ("morning")
+            from routes.chat_helpers import _clock_is_before_house_wake
+            _d = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+            _s = _d.get("status") if isinstance(_d, dict) and isinstance(_d.get("status"), dict) else (_d if isinstance(_d, dict) else {})
+            _early = _s.get("earlyMorning") is True or _clock_is_before_house_wake(_s.get("clockLabel"))
+        except Exception:
+            _early = False
+        if _early:
+            lines.append("- It is still the dark small hours, before the house's 8am wake-up (engine truth): the house is quiet and asleep. Write NO morning light, daylight, dawn, sunrise or sun; morning comes at the wake-up call.")
+        elif tod and not stated:
             lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
         if names:
             lines.append(f"- Still asleep ({len(names)}): {', '.join(names)}. They are NOT awake in this scene: do not write them up, talking or moving about; only the houseguests not listed are awake.")
