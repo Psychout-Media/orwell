@@ -9,7 +9,7 @@ import type { EntityId } from "../../src/domain/ids";
 
 // Feature 0049 (ORW-462 amendment) — the house search never sees through a closed door. HARD rule: roles only.
 type Hack = { presence: Map<EntityId, string>; ceremony: { hoh?: EntityId } };
-interface Bag { s: GameSessionAdapter; behind: EntityId; inHoh: EntityId; inDiary: EntityId; speaker: EntityId; result?: ReturnType<GameSessionAdapter["whereabouts"]> }
+interface Bag { s: GameSessionAdapter; behind: EntityId; inHoh: EntityId; inDiary: EntityId; speaker: EntityId; result?: ReturnType<GameSessionAdapter["whereabouts"]>; sweep?: Array<{ id: EntityId; entry: { status: string; room?: string } }> }
 const bags = new WeakMap<object, Bag>();
 let n = 0;
 const bag = (w: object): Bag => bags.get(w)!;
@@ -35,16 +35,21 @@ When("the player searches the house without naming anyone", function (this: BbWo
   const b = bag(this); b.result = b.s.whereabouts({ search: true });
 });
 
-When("the player searches the house looking for the houseguest behind the unlocked door", function (this: BbWorld) {
-  const b = bag(this); b.result = b.s.whereabouts({ search: true, lookingFor: b.s.getGameState().house.find((x) => x.id === b.behind)!.name });
+const asked = (b: Bag, id: EntityId) => b.s.whereabouts({ search: true, lookingFor: id });
+
+When("the player asks for each houseguest by name in turn, knowing nothing about where anyone is", function (this: BbWorld) {
+  const b = bag(this);
+  (b.s as unknown as { trackedSightings: unknown; lastSeenAt: unknown }).trackedSightings = null;
+  (b.s as unknown as { trackedSightings: unknown; lastSeenAt: unknown }).lastSeenAt = null;
+  b.sweep = [b.behind, b.inHoh, b.inDiary, b.speaker].map((id) => ({ id, entry: asked(b, id)!.search!.houseguests.find((e) => e.id === id)! }));
 });
 
-When("the player searches the house looking for the houseguest in the HOH room", function (this: BbWorld) {
-  const b = bag(this); b.result = b.s.whereabouts({ search: true, lookingFor: b.inHoh });
-});
-
-When("the player searches the house looking for the houseguest in the diary room", function (this: BbWorld) {
-  const b = bag(this); b.result = b.s.whereabouts({ search: true, lookingFor: b.inDiary });
+When("the player has watched a houseguest head into a closed room and asks for them", function (this: BbWorld) {
+  const b = bag(this);
+  const p = b.s as unknown as { trackedSightings: Map<EntityId, unknown> | null; lastSeenAt: unknown; presenceTickCount: number };
+  p.lastSeenAt = null;
+  p.trackedSightings = new Map([[b.behind, { room: "bedroom-a", tick: p.presenceTickCount, pathway: "tracked:bdd", confidence: 0.5 }]]);
+  b.result = asked(b, b.behind);
 });
 
 const entry = (w: object, id: EntityId) => bag(w).result!.search!.houseguests.find((e) => e.id === id)!;
@@ -61,18 +66,16 @@ Then("the houseguests the player can see are still named in their rooms", functi
   assert.equal(e.status, "awake"); assert.equal(e.room, "kitchen");
 });
 
-Then("the answer names the door to open and says the player will see who is inside", function (this: BbWorld) {
-  const e = entry(this, bag(this).behind);
-  assert.equal(e.status, "behind-door"); assert.equal(e.room, "bedroom-a"); assert.match(e.action ?? "", /open the door/);
+Then("only the houseguest in view is placed in a room", function (this: BbWorld) {
+  const b = bag(this);
+  for (const { id, entry: e } of b.sweep!) {
+    if (id === b.speaker) { assert.equal(e.room, "kitchen"); continue; }
+    assert.equal(e.status, "unknown", `${id} is not known`);
+    assert.equal(e.room, undefined, `${id} is not placed`);
+  }
 });
 
-Then("the answer is that a houseguest who knows says the houseguest is there, while the door stays closed to the player", function (this: BbWorld) {
-  const b = bag(this);
-  for (const [id, room] of [[b.inHoh, "hoh-room"], [b.inDiary, "diary-room"]] as const) {
-    const e = b.result!.search!.houseguests.find((x) => x.id === id);
-    if (e?.status !== "told") continue;
-    assert.equal(e.room, room); assert.equal(e.access, "closed"); assert.ok(e.toldBy, "a houseguest in the player's room says so");
-    return;
-  }
-  assert.fail("the houseguest looked for was not resolved");
+Then("the answer is a lead that names the room as last seen, not confirmed", function (this: BbWorld) {
+  const e = entry(this, bag(this).behind);
+  assert.equal(e.status, "lead"); assert.equal(e.room, "bedroom-a"); assert.match(e.fact, /last seen heading into/); assert.match(e.fact, /not confirmed/);
 });
