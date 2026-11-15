@@ -121,6 +121,21 @@ _SYSTEM = (
 # ignores it is harmless: the prompt reinforcement above + the one-shot retry below still apply.
 _RESPONSE_FORMAT = {"type": "json_object"}
 
+
+def _response_format_for(messages) -> Optional[dict]:
+    """ORW-391: JSON mode only for a prompt that asks for JSON. DeepSeek (the OOB utility model) answers 400 "Prompt must contain the word 'json'" to a json_object request whose prompt does not, and the shared utility fn
+    is also used for PROSE calls (the ORW-271 day condense): that call failed after every bedtime and the day was never condensed. Any message mentioning "json" (any case) keeps the format exactly as before."""
+    try:
+        for m in messages or []:
+            c = m.get("content") if isinstance(m, dict) else None
+            if isinstance(c, str) and "json" in c.lower():
+                return _RESPONSE_FORMAT
+            if isinstance(c, list) and any(isinstance(b, dict) and "json" in str(b.get("text", "")).lower() for b in c):
+                return _RESPONSE_FORMAT
+    except Exception:
+        return _RESPONSE_FORMAT
+    return None
+
 # #1044: the SHARED background-utility sampling temperature. This module's `_resolve_llm_fn` is the
 # common resolver for several background lanes (zeitgeist / off-screen texture / identity / the gateway
 # narrator fallback), and THOSE calls keep this moderate value — a high temperature measurably hurt
@@ -2108,7 +2123,7 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         # `_AUTHORING_STREAM_WALL_CLOCK_S` (e.g. a test, or a future admin knob) actually takes effect.
         async for chunk in _bounded_stream(stream_llm_with_fallback(
             candidates, messages, temperature=_temperature, policy=_policy,
-            max_tokens=cap, response_format=_RESPONSE_FORMAT), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
+            max_tokens=cap, response_format=_response_format_for(messages)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
             # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
             piece = _delta_text(chunk)
             if piece:

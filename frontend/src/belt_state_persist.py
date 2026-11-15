@@ -34,6 +34,15 @@ _INT_STORES = (
 )
 _REGROUND_STORE = "_DESYNC_REGROUND"
 
+# ORW-399: the chat_helpers pacing stores, by attribute name -> value kind. Keys are runway keys (str).
+#   "hold"  = (sig:str, n:int)   "int" = int   "bool" = bool   "str" = str   "strlist" = list[str]
+_PACING_DICTS = {
+    "_PRODUCTION_HOLD": "hold", "_PREMIERE_MSGS": "int", "_PREMIERE_CLOCK_HOLD": "bool",
+    "_PREMIERE_TOAST_SPEAKERS": "strlist", "_PREMIERE_ENTRANCE_STAGE": "str", "_COMP_PAUSED": "str",
+}
+_PACING_SET = "_PREMIERE_CLOCK_STARTED"  # a set of runway keys
+_FOLD_REQUIRED = ("content", "with_ids", "kind", "idempotency_key")
+
 
 def _stores():
     """(agent_loop int stores by name, the re-ground dict). Imported lazily: both modules import heavily."""
@@ -42,12 +51,51 @@ def _stores():
     return {n: getattr(agent_loop, n) for n in _INT_STORES}, getattr(chat_helpers, _REGROUND_STORE)
 
 
+def _pacing_stores():
+    """(chat_helpers pacing dicts by name, the premiere-clock-started set)."""
+    from routes import chat_helpers
+    return {n: getattr(chat_helpers, n) for n in _PACING_DICTS}, getattr(chat_helpers, _PACING_SET)
+
+
+def _snapshot_pacing() -> dict:
+    dicts, started = _pacing_stores()
+    out: dict = {}
+    for name, store in dicts.items():
+        kind = _PACING_DICTS[name]
+        saved: dict = {}
+        for k, v in dict(store).items():
+            if kind == "hold":
+                saved[str(k)] = [str(v[0]), int(v[1])]
+            elif kind == "int":
+                saved[str(k)] = int(v)
+            elif kind == "bool":
+                saved[str(k)] = bool(v)
+            elif kind == "strlist":
+                saved[str(k)] = [str(x) for x in v]
+            else:
+                saved[str(k)] = str(v)
+        out[name] = saved
+    out[_PACING_SET] = sorted(str(k) for k in set(started))
+    return out
+
+
+def _snapshot_folds() -> list:
+    """The fold ledger's pending queues as [{owner, session_id, entries}]: the staged payloads are
+    Vault-free (roster-checked ids, closed-enum kind, truncated content) and carry their idempotency key,
+    so a settle after a restart is the same single settle the engine already dedups."""
+    from src import fold_ledger
+    return [{"owner": k[0], "session_id": k[1], "entries": [dict(e) for e in q]}
+            for k, q in dict(fold_ledger._PENDING).items() if q]
+
+
 def snapshot() -> dict:
     ints, reground = _stores()
     return {
         "v": 1,
         "ints": {n: {str(k): int(v) for k, v in dict(s).items()} for n, s in ints.items()},
         "reground": {str(k): str(v) for k, v in dict(reground).items() if v},
+        "pacing": _snapshot_pacing(),
+        "folds": _snapshot_folds(),
     }
 
 
@@ -108,6 +156,74 @@ def restore() -> int:
                 if isinstance(k, str) and isinstance(v, str) and v:
                     reground[k] = v
                     n += 1
+        n += _restore_pacing(data.get("pacing"))
+        n += _restore_folds(data.get("folds"))
     except Exception:  # failsoft-ok: restore is best-effort; whatever was applied stands, startup continues
         logger.warning("[orwell] belt-state restore failed part-way", exc_info=True)
+    return n
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _pacing_value(kind: str, v):
+    """The validated value for one saved pacing entry, or None when malformed."""
+    if kind == "hold":
+        return (v[0], v[1]) if isinstance(v, list) and len(v) == 2 and isinstance(v[0], str) and _is_int(v[1]) else None
+    if kind == "int":
+        return v if _is_int(v) else None
+    if kind == "bool":
+        return v if isinstance(v, bool) else None
+    if kind == "strlist":
+        return list(v) if isinstance(v, list) and all(isinstance(x, str) for x in v) else None
+    return v if isinstance(v, str) else None
+
+
+def _restore_pacing(saved) -> int:
+    if not isinstance(saved, dict):
+        return 0
+    dicts, started = _pacing_stores()
+    n = 0
+    for name, store in dicts.items():
+        entries = saved.get(name)
+        if store or not isinstance(entries, dict):
+            continue
+        for k, v in entries.items():
+            val = _pacing_value(_PACING_DICTS[name], v)
+            if isinstance(k, str) and val is not None:
+                store[k] = val
+                n += 1
+    keys = saved.get(_PACING_SET)
+    if not started and isinstance(keys, list):
+        for k in keys:
+            if isinstance(k, str):
+                started.add(k)
+                n += 1
+    return n
+
+
+def _valid_fold_entry(e) -> bool:
+    return (isinstance(e, dict) and all(k in e for k in _FOLD_REQUIRED)
+            and isinstance(e["content"], str) and isinstance(e["kind"], str)
+            and isinstance(e["idempotency_key"], str) and e["idempotency_key"]
+            and isinstance(e["with_ids"], list) and all(isinstance(x, str) for x in e["with_ids"]))
+
+
+def _restore_folds(saved) -> int:
+    """Reload staged folds into an EMPTY ledger (never overwrites live state). A malformed entry is skipped."""
+    from src import fold_ledger
+    if fold_ledger._PENDING or not isinstance(saved, list):
+        return 0
+    n = 0
+    for item in saved:
+        if not isinstance(item, dict) or not isinstance(item.get("entries"), list):
+            continue
+        owner, sid = item.get("owner"), item.get("session_id")
+        if not (owner is None or isinstance(owner, str)) or not (sid is None or isinstance(sid, str)):
+            continue
+        good = [e for e in item["entries"] if _valid_fold_entry(e)]
+        if good:
+            fold_ledger._PENDING[(owner, sid)] = good[-fold_ledger._MAX_QUEUE_LEN:]
+            n += len(good)
     return n
