@@ -1294,7 +1294,7 @@ export interface PublicGameStatus {
    * the time-of-day HUD renders; Vault-free; absent pre-game / when the clock isn't running.
    */
   timeOfDay?: string;
-  /** ORW-392: present (true) while `timeOfDay` is "late-night" but the clock is past 2am, before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
+  /** ORW-392: present (true) while `timeOfDay` is "late-night" or "morning" but the clock is between 2am and the 8am wake-up call (a late-night player, or one woken early after an early bed), before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
   earlyMorning?: true;
   /** ORW-115 (Ryne: "Time of day only"): the in-game DAY number the HUD shows beside the time of day ("Morning, Day 1") - the same day as `GameStateView.clockLabel`. Public; present only while the clock runs. */
   dayNumber?: number;
