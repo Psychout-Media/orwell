@@ -63,26 +63,28 @@ const INSIDE_WORDS = new Set(["inside", "in", "indoors", "back inside", "back in
 const OUTSIDE_WORDS = new Set(["outside", "out", "outdoors", "out back", "outside the house", "out of the house"]);
 
 function clean(clause: string): string {
-  let s = clause.toLowerCase().replace(/[*_`~]+/g, " ").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim();
+  let s = clause.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[*_`~]+/g, " ").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(?:i'?d|i would) like to\b/g, "i want to").replace(/\bwould like to\b/g, "want to");
   s = s.replace(LEAD_IN, "").trim();
   return s;
 }
 
 /** A destination phrase -> a canonical room, or null when unsure/ambiguous. Strict about loose matches. */
-function roomFromPhrase(phrase: string, current: Room | null): Room | null {
+type Themed = ReadonlyArray<readonly [alias: string, room: Room]> | undefined;
+
+function roomFromPhrase(phrase: string, current: Room | null, themed?: Themed): Room | null {
   let p = phrase.trim();
   if (p === "") return null;
   p = p.replace(PHRASE_END, "").trim().replace(ARTICLE, "").trim();
   if (p === "" || /^(?:bed|beds|room|sleep)$/.test(p)) return null; // "go to bed" is sleep; a bare "room" is no place
-  const res = resolveRoom(p, current);
+  const res = resolveRoom(p, current, themed); // ORW-466: the season's themed room names resolve too
   if (res.kind !== "ok") return null;
   // resolveRoom is deliberately loose ("kit" -> kitchen); for a stated move require a real word, not a stub.
   if (p.replace(/[\s-]/g, "").length < 3) return null;
   return res.room;
 }
 
-function parseClause(raw: string, current: Room | null): Room | null {
+function parseClause(raw: string, current: Room | null, themed?: Themed): Room | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
   if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(s)) return null;
@@ -94,7 +96,7 @@ function parseClause(raw: string, current: Room | null): Room | null {
   if (m) {
     const rest = s.slice(m[0].length).replace(PHRASE_END, "").trim().replace(ARTICLE, "").trim();
     if (rest === "" || /^(?:here|room|the room|this room)$/.test(rest)) return exitRoomFrom(current);
-    const named = roomFromPhrase(rest, current);
+    const named = roomFromPhrase(rest, current, themed);
     // Only "leave the room you are in" is a clear exit; leaving a room you are not in is unsure.
     return named !== null && named === current ? exitRoomFrom(current) : null;
   }
@@ -103,7 +105,7 @@ function parseClause(raw: string, current: Room | null): Room | null {
   m = TAKE_VERB.exec(s);
   if (m) {
     const rest = s.slice(m[0].length).replace(PREP, "");
-    return roomFromPhrase(rest, current);
+    return roomFromPhrase(rest, current, themed);
   }
 
   // 3. "go / head / walk ... [to] X", "go inside / outside".
@@ -114,7 +116,7 @@ function parseClause(raw: string, current: Room | null): Room | null {
     if (INSIDE_WORDS.has(bare)) return current === "backyard" ? exitRoomFrom(current) : null;
     if (OUTSIDE_WORDS.has(bare)) return current === "backyard" ? null : "backyard";
     const rest = afterVerb.replace(PREP, "");
-    return roomFromPhrase(rest, current);
+    return roomFromPhrase(rest, current, themed);
   }
   return null;
 }
@@ -124,7 +126,7 @@ function parseClause(raw: string, current: Room | null): Room | null {
  * when there is no clear move (unsure parses never guess). When several clauses move, the LAST one wins
  * (it is where the player ends up). Quoted speech is ignored.
  */
-export function parsePlayerMoveIntent(text: string, current: Room | null): Room | null {
+export function parsePlayerMoveIntent(text: string, current: Room | null, themed?: Themed): Room | null {
   if (typeof text !== "string" || text.trim() === "") return null;
   const unquoted = text.replace(/"[^"]*"/g, " ").replace(/“[^”]*”/g, " ");
   const clauses = unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? [];
@@ -132,7 +134,7 @@ export function parsePlayerMoveIntent(text: string, current: Room | null): Room 
   let at = current;
   for (const c of clauses) {
     if (c.trim() === "") continue;
-    const room = parseClause(c, at);
+    const room = parseClause(c, at, themed);
     if (room !== null) { dest = room; at = room; }
   }
   return dest;

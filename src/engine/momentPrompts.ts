@@ -758,7 +758,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "finished — do NOT re-run the gathered-circle introductions or the toast; go straight to the bedroom " +
     "pick and move only to the room the player selects. " +
     "(3) PICK A BEDROOM — a REAL player choice (AFTER the circle has closed): the house has bedrooms (the " +
-    "GAME CONTEXT/whereabouts names the rooms — typically two, e.g. \"bedroom a\" and \"bedroom b\"). " +
+    "GAME CONTEXT/whereabouts names the rooms — the three bedrooms, by this season's names). " +
     "Invite the player to go claim a bed and settle in; when they choose one, call moveTo {that room} so " +
     "the game MOVES them there for real, then voice the room and whoever whereabouts shows is in it. Let " +
     "it be their call — never pick for them and never narrate them into a room the game has not moved " +
@@ -1268,7 +1268,9 @@ export function renderGameContext(view: GameStateView): string {
   // positions or "still to arrive" houseguests (the whole cast is seated at premiere). Scoped to the
   // player's room + adjacent rooms only; tenure grounds continuity (who has lingered vs. just arrived).
   const wa = view.whereabouts ?? null;
-  const roomLabel = (r: string): string => r.replace(/-/g, " ");
+  // ORW-466: this season's themed room names when the house has a theme (the whereabouts carry them), else the plain label.
+  const roomLabel = (r: string): string => wa?.roomNames?.[r] ?? r.replace(/-/g, " ");
+  const roomRefHere = (r: string): string => wa?.roomNames?.[r] ?? `the ${r.replace(/-/g, " ")}`;
   const tenureWord = (t: number): string => (t <= 0 ? "just arrived" : t === 1 ? "a moment" : `${t} turns`);
   const whereaboutsLines: string[] = !wa ? [] : (() => {
     const here = wa.present.length
@@ -1292,7 +1294,8 @@ export function renderGameContext(view: GameStateView): string {
     return [
       "- WHERE YOU ARE (engine truth — voice THIS room and THESE people EXACTLY; NEVER invent positions,",
       "  room changes, or \"still to arrive\" houseguests — the whole cast is already in the house):",
-      `    Your room: the ${roomLabel(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
+      `    Your room: ${roomRefHere(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
+      ...(wa.roomLook ? [`    It looks like this this season (dress the scene with it; never read it out as a list): ${wa.roomLook}`] : []),
       `    With you: ${here}.`,
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
@@ -1305,7 +1308,8 @@ export function renderGameContext(view: GameStateView): string {
       // retries. Hand it the EXACT walkable rooms so it always names a real one (moveTo is forgiving,
       // but this removes the guessing entirely). These are the WHOLE house — only the player's room +
       // the adjacent rooms above are VISIBLE; the others exist and can be walked to, just not seen yet.
-      `    ROOMS YOU CAN WALK THE PLAYER TO (the whole house; pass any of these to moveTo): ${WALKABLE_ROOM_NAMES}.`,
+      `    ROOMS YOU CAN WALK THE PLAYER TO (the whole house; pass any of these to moveTo): ${wa.roomNames ? WALKABLE_ROOMS.map((r) => wa.roomNames![r] ?? roomDisplayName(r)).join(", ") : WALKABLE_ROOM_NAMES}.`,
+      ...(wa.roomNames ? ["    The rooms have THEMED names this season: always call a room by its name above, never by a letter or a number."] : []),
       "    THIS IS THE WHOLE OF WHAT THE PLAYER CAN SEE OR HEAR: your room and the rooms next to it. Whether",
       "    a room is full or empty is the GAME's to say, never yours — voice EXACTLY the people listed for a",
       "    room, and call a room empty ONLY when it is listed empty above. If the player checks, glances into,",
@@ -1661,7 +1665,7 @@ export function terminalKnowledgeItems(items: readonly string[]): string[] {
  * ORW-376 - the engine's headcounts as plain sentences the narrator can quote (the player always counted). The engine hands the
  * model only the OTHER people's names, and a model counting that list is one short of "us". Empty when the view carries no counts.
  */
-export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number; asleep?: number }; nearby?: Array<{ room: string; present: Array<{ name: string }> }> } | null | undefined): string[] {
+export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number; asleep?: number }; nearby?: Array<{ room: string; present: Array<{ name: string }> }>; roomNames?: Partial<Record<string, string>> } | null | undefined): string[] {
   const c = wa?.counts;
   if (!c) return [];
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -1675,7 +1679,7 @@ export function headcountLines(wa: { counts?: { room: number; others: number; ho
   // ORW-386: the narrator said "twelve asleep" with eleven turned in, and called the living room empty with a houseguest in it. The sleepers' count and every visible room's roster are engine facts too.
   if (c.asleep !== undefined) lines.push(`Asleep right now: ${c.asleep} ${c.asleep === 1 ? "houseguest has" : "houseguests have"} turned in (the game's asleep list).`);
   if (wa?.nearby?.length) {
-    lines.push("Rooms in view right now: " + wa.nearby.map((n) => `${n.room.replace(/-/g, " ")}: ${n.present.length ? n.present.map((p) => p.name).join(", ") : "empty"}`).join("; ") + ". Call a room empty ONLY when it is listed empty here.");
+    lines.push("Rooms in view right now: " + wa.nearby.map((n) => `${wa.roomNames?.[n.room] ?? n.room.replace(/-/g, " ")}: ${n.present.length ? n.present.map((p) => p.name).join(", ") : "empty"}`).join("; ") + ". Call a room empty ONLY when it is listed empty here.");
   }
   lines.push("QUOTE these numbers exactly or use no number at all; NEVER count the room yourself, and never leave the player out of \"us\".");
   return lines;

@@ -309,11 +309,17 @@ export type RoomResolution =
  * `currentRoom` (where the player stands) only sharpens the bedroom/loose disambiguation; omit it
  * and a bare "bedroom" simply reports both bedrooms as candidates.
  */
-export function resolveRoom(name: string, currentRoom?: Room | null): RoomResolution {
+export function resolveRoom(name: string, currentRoom?: Room | null, themed?: ReadonlyArray<readonly [alias: string, room: Room]>): RoomResolution {
   // Strip a leading article/possessive the narrator may write ("the kitchen", "my bedroom") before
   // keying — a robustness nicety so "the Living Room" resolves like "living room".
   const key = normalizeRoomName(name).replace(/^(the|a|an|my|our|your|to|into|go-to|head-to|over-to)-/, "");
   if (key === "") return { kind: "unknown" };
+  // 0. ORW-466: this season's themed names first ("the coral reef", "captain's quarters"); accents never matter ("seance room").
+  if (themed && themed.length) {
+    const flat = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const k = flat(key);
+    for (const [alias, room] of themed) if (flat(normalizeRoomName(alias).replace(/^the-/, "")) === k) return { kind: "ok", room };
+  }
   // 1. exact alias / room id.
   const alias = ROOM_ALIASES.get(key);
   if (alias) return { kind: "ok", room: alias };

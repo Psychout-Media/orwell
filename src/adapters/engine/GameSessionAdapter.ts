@@ -264,7 +264,9 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
-import { roomLabel, themedRoomAliases } from "../../engine/roomLabels";
+import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme } from "../../engine/roomLabels";
+/** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
+const MAX_PRIOR_HOUSE_THEMES = 6;
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
@@ -1170,6 +1172,9 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
+    // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
+    // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
+    if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
@@ -5308,7 +5313,7 @@ export class GameSessionAdapter implements GameSession {
     // Forgiving resolution (Vault-free, deterministic): natural names → a canonical room id; the
     // player's current room sharpens an ambiguous "bedroom". An ambiguous result still moves (we take
     // the best-guess first candidate) rather than no-op — never a silent failure into a retry loop.
-    const resolved = resolveRoom(room, here);
+    const resolved = resolveRoom(room, here, this.themedAliases());
     const dest =
       resolved.kind === "ok" ? resolved.room
       : resolved.kind === "ambiguous" ? resolved.candidates[0]!
@@ -5340,7 +5345,7 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here);
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases());
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     let result: ResolvePlayerMoveResult;
@@ -5391,7 +5396,7 @@ export class GameSessionAdapter implements GameSession {
     if (here === undefined) return { status: "illegal", whereabouts: this.whereabouts() };
     // Forgiving resolution, then reject the unknown AND the non-walkable so the open occupancy stays
     // coherent (no one "hangs out" in the diary room — assignRooms/WALKABLE_ROOMS exclude it).
-    const resolved = resolveRoom(room, here);
+    const resolved = resolveRoom(room, here, this.themedAliases());
     const dest =
       resolved.kind === "ok" ? resolved.room
       : resolved.kind === "ambiguous" ? resolved.candidates[0]!
@@ -5645,6 +5650,10 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-466 themes: what a room is called this season (its themed name), or the plain label without a theme. */
   private roomName(room: Room): string { return roomLabel(room, this.live?.houseTheme); }
+  /** ORW-466: the room mid-sentence ("the Coral Reef Room", or "the kitchen" without a theme) - never "the the ...". */
+  private roomRefOf(room: Room, article = true): string { return roomRef(room, this.live?.houseTheme, article); }
+  /** ORW-466: this season's themed room phrases for the forgiving resolvers (moves, the nap's "bedroom"). */
+  private themedAliases(): ReadonlyArray<readonly [string, Room]> { return themedRoomAliases(this.live?.houseTheme); }
 
   /** ORW-466: who chose to room with whom is PUBLIC - a player-witnessed house fact (the bags on the beds are there for anyone to see), never the Vault. */
   private noteBedChoice(beds: BedsState, who: EntityId, room: Room, living: ReadonlySet<EntityId>, verb = "claims a bed in"): void {
@@ -6015,15 +6024,15 @@ export class GameSessionAdapter implements GameSession {
       const where = gathered ? myRoom : this.presence!.get(id);
       if (awake && !awake.has(id)) {
         houseguests.push(where && (where.startsWith("bedroom-") || where === "hoh-room")
-          ? { id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` }
+          ? { id, name, status: "asleep", room: where, fact: `asleep in ${this.roomRefOf(where, false)}` }
           : { id, name, status: "asleep", fact: "asleep, in bed" });
         continue;
       }
       if (!where) continue; // never expected (every active houseguest is seated); the invariant test pins it
       const access = this.roomAccessFor(where, me);
-      const label = roomDisplayName(where);
+      const label = this.roomName(where);
       houseguests.push(where === myRoom
-        ? { id, name, status: "here", room: where, access, fact: `here with you in the ${label}` }
+        ? { id, name, status: "here", room: where, access, fact: `here with you in ${this.roomRefOf(where)}` }
         : { id, name, status: "awake", room: where, access, fact: access === "closed" ? `${label}, door closed` : `${label}, open - the player can walk in` });
       (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
     }
@@ -6081,6 +6090,7 @@ export class GameSessionAdapter implements GameSession {
         ...(notHere?.has(me) ? {} : { counts: this.headCounts(others.length) }),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
+        ...this.themedRoomsView(room as Room),
       };
     }
     // ADR 0006: as the night thins, houseguests who have turned in are no longer "around" — the house
@@ -6134,7 +6144,17 @@ export class GameSessionAdapter implements GameSession {
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
+      ...this.themedRoomsView(room),
     };
+  }
+
+  /** ORW-466: this season's room names (every room) and the look of the player's room, for the narrator and the front end. Empty without a theme (today's labels stand). */
+  private themedRoomsView(room: Room): { roomNames?: Partial<Record<Room, string>>; roomLook?: string } {
+    const theme = this.live?.houseTheme;
+    const names = roomNamesFor(theme);
+    if (!names) return {};
+    const look = roomLook(room, theme);
+    return { roomNames: names, ...(look ? { roomLook: look } : {}) };
   }
 
   /**
@@ -6240,7 +6260,7 @@ export class GameSessionAdapter implements GameSession {
     for (const [room, who] of byRoom) {
       if (who.length !== PRIVACY.conspicuousPairSize) continue;
       const names = who.map((id) => this.nameOf(id));
-      reads.push(`(You saw ${names.join(" and ")} slip into the ${roomDisplayName(room)} a while ago and haven't seen them come out.)`);
+      reads.push(`(You saw ${names.join(" and ")} slip into ${this.roomRefOf(room)} a while ago and haven't seen them come out.)`);
     }
     return reads;
   }
@@ -6275,6 +6295,7 @@ export class GameSessionAdapter implements GameSession {
       player,
       affinity: (a, b) => this.rel.edge(a, b).affinity,
       nameOf: (id) => this.nameOf(id),
+      roomRef: (r) => this.roomRefOf(r), // ORW-466: the season's room name
       knowledge,
       rng,
       ...(this.napAsleep ? { playerAsleep: true } : {}),
@@ -6870,11 +6891,16 @@ export class GameSessionAdapter implements GameSession {
     const priorCastNames = (this.house && req.confirmRestart)
       ? this.priorSeasonNames(req.priorCastNames)
       : req.priorCastNames;
+    // ORW-466: this season's house theme joins the player's recent themes, so the next season draws a different one (bounded; most recent first).
+    const priorHouseThemes = (this.house && req.confirmRestart)
+      ? [...new Set([...(this.live?.houseTheme ? [this.live.houseTheme] : []), ...(req.priorHouseThemes ?? [])])].slice(0, MAX_PRIOR_HOUSE_THEMES)
+      : req.priorHouseThemes;
     const effReq: CreateCharacterReq = {
       ...(carried ?? {}),
       ...req,
       ...(carried ? { keepCharacter: false } : {}),
       ...(priorCastNames && priorCastNames.length ? { priorCastNames } : {}),
+      ...(priorHouseThemes && priorHouseThemes.length ? { priorHouseThemes } : {}),
       // 0104 (R4) — signal a SAME-CHARACTER return so the registry folds this user's notoriety into the
       // new cast's day-one reads. Derived from `keepCharacter` here because the line above strips it to
       // false (the fresh session has no prior house to carry from, so the flag would otherwise be lost).
@@ -7034,6 +7060,7 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = false;
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
+    if (effReq.priorHouseThemes?.length) this.live.priorHouseThemes = [...effReq.priorHouseThemes]; // ORW-466: no repeat of a recent season's house theme
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
     // engine-recorded, Vault-free and seed-neutral (projection sets only; no rng, no fold). The premiere's
     // introductions auto-happen at the champagne toast (the first thing that happens), NOT via a manual
@@ -12335,7 +12362,7 @@ export class GameSessionAdapter implements GameSession {
     const came = now.filter((id) => !before.has(id)).map((id) => this.nameOf(id));
     const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
     const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
-    const parts = [`You just woke from a nap in the ${here.replace(/-/g, " ")}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
+    const parts = [`You just woke from a nap in ${this.roomRefOf(here as Room)}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
     parts.push(now.length ? `In the room now: ${now.map((id) => this.nameOf(id)).join(", ")}.` : "Nobody else is in the room.");
     if (came.length) parts.push(`Came in while you slept: ${came.join(", ")}.`);
     if (went.length) parts.push(`Left while you slept: ${went.join(", ")}.`);
