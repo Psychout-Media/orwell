@@ -238,6 +238,7 @@ export function installLiveGuard(getCurrentSessionId) {
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (n && n.nodeType === 1 && n.classList && n.classList.contains('msg') && !(n.dataset && n.dataset.fromHistory)) {
+          try { window.__guardTrigger = (n.outerHTML || '').slice(0, 300) + ' | box.children=' + box.children.length; } catch (_) {}
           setView(sid, 'current');
           return;
         }
