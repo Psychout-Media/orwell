@@ -881,7 +881,7 @@ revert_failed_update() {
 on_update_exit() {
   local rc=$? rrc=0
   trap - EXIT
-  [[ -z "${__HOLD_DIR:-}" ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end "$__HOLD_DIR"; }   # ORW-461: never leave new turns held when the update fails or is killed
+  [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: never leave new turns held when the update fails or is killed
   [[ "$rc" -ne 0 ]] || return 0
   if [[ "$UPDATE_ARMED" -eq 1 ]]; then
     revert_failed_update "$rc" || rrc=$?
@@ -1668,9 +1668,13 @@ else
       # ORW-461: hold new turns FIRST, then wait for the ones already running. Without the hold a turn could start between the wait's "0 in flight" and the restart and be cut.
       # The hold is lifted after the restart and warm-up (or by the exit trap on any failure) and expires by itself if this script is killed. The helper may be the older installed
       # copy (a host-pushed first update), which has no hold: then the update runs as before.
-      __HOLD_DIR="${INFLIGHT_DIR:-${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}}"
+      __HOLD_ON=0
       if [[ $FORCE_NOW -ne 1 ]] && declare -F update_turn_hold_begin >/dev/null; then
-        update_turn_hold_begin "$__HOLD_DIR" "$(( ${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120} + 150 ))" || true
+        # the same validated, clamped bound update_wait_for_no_turn uses (1..300 s; "08", "0090" or "1x" never reach the arithmetic as written), plus time for the restart and warm-up
+        __tw="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}"; [[ "$__tw" =~ ^[0-9]{1,6}$ ]] || __tw=120
+        __tw=$(( 10#$__tw )); (( __tw < 1 )) && __tw=1; (( __tw > 300 )) && __tw=300
+        __HOLD_ON=1
+        update_turn_hold_begin "$(( __tw + 150 ))" || true
       fi
       if [[ $FORCE_NOW -eq 1 ]]; then
         echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
@@ -1697,7 +1701,7 @@ else
         "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" \
         "$(! declare -F update_probe_host >/dev/null || update_probe_host "${ALLOWED_HOSTS:-$(sed -n 's/^ALLOWED_HOSTS=//p' "$ENV_FILE" 2>/dev/null | tail -n1 || true)}")" || true
     fi
-    [[ -z "${__HOLD_DIR:-}" ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end "$__HOLD_DIR"; }   # ORW-461: the new build is warm: let the held turns through
+    [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: the new build is warm: let the held turns through
     trap - EXIT
     ops_progress_done "updated — services restarting"
   fi

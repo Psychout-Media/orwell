@@ -387,24 +387,26 @@ update_turn_in_flight() {
 }
 
 # ORW-461: hold NEW turns while the update waits for the in-flight ones and restarts. The front end (frontend/src/turn_inflight.py) refuses a new turn at admission, with a retryable
-# `update-holding`, while <dir>/turns-hold says `until=<epoch>` in the future; the player's page waits ("one moment...") and re-sends the same turn after the restart. The hold is
-# bounded by its own `until`, so an updater that dies never leaves the game held for more than that. The directory is the same one as turns-in-flight; it is never created here.
-# $1 dir  $2 seconds the hold may last (default 240)
+# `update-holding`, while ${ORWELL_RUN_DIR}/turns-hold says `until=<epoch>` in the future; the player's page waits ("one moment...") and re-sends the same turn after the restart.
+# The file lives in the ROOT-owned run dir, like every other file this updater writes as root: the service user can read it (the front end does) but can never write, swap or
+# symlink it, so root never follows a path the service user controls. The hold is bounded by its own `until`, so an updater that dies never leaves the game held for more than that.
+# $1 seconds the hold may last (default 240)
 update_turn_hold_begin() {
-  local dir="$1" secs="${2:-240}" tmp
+  local secs="${1:-240}" dir="$ORWELL_RUN_DIR" tmp
   [[ "$secs" =~ ^[0-9]{1,5}$ ]] || secs=240
-  [[ -d "$dir" && ! -L "$dir" ]] || return 0
+  [[ -L "$dir" ]] && return 0
+  mkdir -p "$dir" 2>/dev/null || return 0
+  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi   # only ever write inside a dir WE own
   tmp="$(umask 022; mktemp "${dir}/.turns-hold.XXXXXX" 2>/dev/null)" || return 0
   printf 'until=%s\n' "$(( $(_update_defer_now) + 10#$secs ))" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
-  chmod 644 "$tmp" 2>/dev/null || true   # the front end runs as another user and must be able to read it
-  mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || rm -f "$tmp"
+  mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || { rm -f "$tmp"; return 0; }
   echo "==> holding new turns (the game restarts in a moment; players see 'one moment')"
+  # A turn admitted in the same instant as the hold may not be in the in-flight count yet: give it a moment to register before the first count is read.
+  _update_defer_sleep "${ORWELL_UPDATE_HOLD_SETTLE_SECONDS:-2}"
   return 0
 }
 update_turn_hold_end() {
-  local dir="$1"
-  [[ -n "$dir" ]] || return 0
-  rm -f "${dir}/turns-hold" 2>/dev/null || true
+  rm -f "${ORWELL_RUN_DIR}/turns-hold" 2>/dev/null || true
   return 0
 }
 

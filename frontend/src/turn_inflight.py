@@ -4,6 +4,7 @@ The updater (root) reads <data>/turns-in-flight just before it restarts the serv
 until it says 0. The file holds one integer: the number of chat streams currently registered. It carries no
 game or chat content. Best-effort: a write failure never affects a turn.
 """
+import math
 import os
 import threading
 import time
@@ -23,7 +24,9 @@ def signal_path() -> str:
 
 
 def hold_path() -> str:
-    return os.path.join(os.environ.get("ORWELL_INFLIGHT_DIR") or DATA_DIR, HOLD_NAME)
+    # The ROOT-owned run dir (the updater's own, like deploy/orwell-live-game.sh ORWELL_RUN_DIR), never the data dir: the service user may read the hold but can never write or
+    # swap it, so root never writes through a path that user controls.
+    return os.path.join(os.environ.get("ORWELL_RUN_DIR") or "/run/orwell", HOLD_NAME)
 
 
 def hold_until(now: Optional[float] = None) -> Optional[float]:
@@ -40,7 +43,7 @@ def hold_until(now: Optional[float] = None) -> Optional[float]:
                 until = float(line[6:].strip())
             except ValueError:
                 return None
-            if until <= now or until - now > _HOLD_MAX_AHEAD_S:
+            if not math.isfinite(until) or until <= now or until - now > _HOLD_MAX_AHEAD_S:
                 return None
             return until
     return None

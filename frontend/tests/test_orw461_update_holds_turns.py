@@ -18,23 +18,40 @@ def _bash(script, env=None):
     return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env={**os.environ, **(env or {})})
 
 
+def _hb(tmp_path, args, extra="true"):
+    return _bash(f'. "{LIB}"; _update_defer_now() {{ echo 5000; }}; _update_defer_sleep() {{ echo "SETTLE $1"; }}; export ORWELL_RUN_DIR="{tmp_path}"; {extra}; update_turn_hold_begin {args}')
+
+
 @needs_bash
-def test_hold_begin_writes_a_future_stamp_the_front_end_user_can_read_and_end_removes_it(tmp_path):
-    r = _bash(f'. "{LIB}"; _update_defer_now() {{ echo 5000; }}; update_turn_hold_begin "{tmp_path}" 240; cat "{tmp_path}/turns-hold"; stat -c %a "{tmp_path}/turns-hold"; '
-              f'update_turn_hold_end "{tmp_path}"; ls -A "{tmp_path}"')
+def test_hold_begin_writes_a_future_stamp_in_the_run_dir_and_end_removes_it(tmp_path):
+    r = _hb(tmp_path, "240", f'true')
     assert r.returncode == 0, r.stderr
-    lines = r.stdout.splitlines()
-    assert "until=5240" in lines and "644" in lines
-    assert lines[-1] != "turns-hold" and not (tmp_path / "turns-hold").exists()
+    assert (tmp_path / "turns-hold").read_text() == "until=5240\n"
     assert not list(tmp_path.glob(".turns-hold.*")), "no temp file left behind"
+    assert "SETTLE 2" in r.stdout, "a moment is given for a turn admitted in the same instant to register before the first count is read"
+    assert _bash(f'. "{LIB}"; export ORWELL_RUN_DIR="{tmp_path}"; update_turn_hold_end').returncode == 0
+    assert not (tmp_path / "turns-hold").exists()
 
 
 @needs_bash
-def test_hold_begin_never_creates_the_directory_and_ignores_a_bad_length(tmp_path):
-    missing = tmp_path / "nope"
-    assert _bash(f'. "{LIB}"; update_turn_hold_begin "{missing}" 240').returncode == 0 and not missing.exists()
-    r = _bash(f'. "{LIB}"; _update_defer_now() {{ echo 100; }}; update_turn_hold_begin "{tmp_path}" abc; cat "{tmp_path}/turns-hold"')
-    assert "until=340" in r.stdout, "a non-numeric length falls back to 240 s"
+def test_a_symlink_planted_at_the_hold_path_or_as_the_run_dir_is_never_followed(tmp_path):
+    victim = tmp_path / "victim.txt"; victim.write_text("keep")
+    run = tmp_path / "run"; run.mkdir()
+    (run / "turns-hold").symlink_to(victim)                      # the name swapped for a link to a file root must not touch
+    r = _hb(run, "240")
+    assert r.returncode == 0 and victim.read_text() == "keep", "the link's target was written through"
+    assert not (run / "turns-hold").is_symlink() and (run / "turns-hold").read_text() == "until=5240\n"
+    # the run dir itself a symlink: nothing is written anywhere
+    real = tmp_path / "real"; real.mkdir(); link = tmp_path / "linkdir"; link.symlink_to(real)
+    assert _hb(link, "240").returncode == 0 and not list(real.iterdir()), "a symlinked run dir is skipped"
+    # the temp file is created by mktemp in the run dir: a plain stat of its mode is not widened by a chmod on a name
+    assert "chmod" not in LIB.read_text()[LIB.read_text().index("update_turn_hold_begin() {"):LIB.read_text().index("update_turn_hold_end() {")]
+
+
+@needs_bash
+def test_hold_begin_ignores_a_bad_length(tmp_path):
+    _hb(tmp_path, "abc")
+    assert (tmp_path / "turns-hold").read_text() == "until=5240\n", "a non-numeric length falls back to 240 s"
 
 
 def _wait_block():
@@ -42,15 +59,15 @@ def _wait_block():
     return UPDATE[i:UPDATE.index('ops_progress_step 4 "restarting services"', i)]
 
 
-def _run_block(tmp_path, helper_prelude, force_now=0):
+def _run_block(tmp_path, helper_prelude, force_now=0, env=None):
     (tmp_path / "turns-in-flight").write_text("1\n")
     script = f"""set -euo pipefail
 {helper_prelude}
-FORCE_NOW={force_now}; ENV_FILE=/dev/null; APP_DIR='{tmp_path}'; export ORWELL_INFLIGHT_DIR='{tmp_path}'
+FORCE_NOW={force_now}; ENV_FILE=/dev/null; APP_DIR='{tmp_path}'; export ORWELL_INFLIGHT_DIR='{tmp_path}' ORWELL_RUN_DIR='{tmp_path}'
 {_wait_block()}
 echo "AFTER-WAIT hold=$([ -f '{tmp_path}/turns-hold' ] && echo present || echo absent)"
 """
-    return _bash(script, {"ORWELL_INFLIGHT_DIR": str(tmp_path)})
+    return _bash(script, {"ORWELL_INFLIGHT_DIR": str(tmp_path), **(env or {})})
 
 
 @needs_bash
@@ -59,7 +76,7 @@ def test_new_turns_are_held_while_the_updater_waits_for_the_one_in_flight(tmp_pa
     prelude = f""". "{LIB}"
 NOW=1000; N=0
 _update_defer_now() {{ echo $NOW; }}
-_update_defer_sleep() {{ N=$((N+1)); NOW=$((NOW+$1)); [ -f '{tmp_path}/turns-hold' ] && echo "NAP$N hold=present" || echo "NAP$N hold=ABSENT"; [ $N -ge 2 ] && echo 0 > '{tmp_path}/turns-in-flight' || true; }}
+_update_defer_sleep() {{ [ -f '{tmp_path}/turns-hold' ] || echo "NAP-before-hold-ABSENT"; N=$((N+1)); NOW=$((NOW+$1)); [ -f '{tmp_path}/turns-hold' ] && echo "NAP$N hold=present" || echo "NAP$N hold=ABSENT"; [ $N -ge 2 ] && echo 0 > '{tmp_path}/turns-in-flight' || true; }}
 """
     r = _run_block(tmp_path, prelude)
     assert r.returncode == 0, r.stderr
@@ -88,13 +105,35 @@ _update_defer_now() {{ echo 1000; }}
 def test_the_hold_wraps_the_wait_the_restart_and_the_warm_up_and_every_exit_lifts_it():
     base = UPDATE.index("RESTART_SCOPE=both")
     blk = UPDATE[base:UPDATE.index("update complete (", base)]
-    begin = blk.index('update_turn_hold_begin "$__HOLD_DIR"')
+    begin = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
     wait = blk.index('update_wait_for_no_turn "${INFLIGHT_DIR:-')
     restart = blk.index('systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"')
     warm = blk.index("update_wait_for_warm ", restart)
-    end = blk.index('update_turn_hold_end "$__HOLD_DIR"', warm)
+    end = blk.index('update_turn_hold_end', warm)
     assert begin < wait < restart < warm < end
     i = UPDATE.index("on_update_exit() {")
     assert "update_turn_hold_end" in UPDATE[i:i + 700], "a failed or killed update never leaves new turns held"
-    assert "$FORCE_NOW -ne 1" in blk[begin - 200:begin]
-    assert re.search(r"declare -F update_turn_hold_begin", blk[begin - 200:begin]), "the older installed helper has no hold: carry on without it"
+    assert "$FORCE_NOW -ne 1" in blk[begin - 700:begin]
+    assert re.search(r"declare -F update_turn_hold_begin", blk[begin - 700:begin]), "the older installed helper has no hold: carry on without it"
+
+
+@needs_bash
+@pytest.mark.parametrize("value", ["08", "0090", "1x", "", "999999999999", "-5", "0"])
+def test_an_odd_turn_wait_value_never_aborts_the_updater_after_the_commit_point(tmp_path, value):
+    # "08" is an invalid octal constant, "0090" likewise, "1x" a syntax error: each used to abort `$(( ... + 150 ))` and the whole update after the new code was installed
+    prelude = f""". "{LIB}"
+_update_defer_now() {{ echo 1000; }}; _update_defer_sleep() {{ echo 0 > '{tmp_path}/turns-in-flight'; }}
+"""
+    r = _run_block(tmp_path, prelude, env={"ORWELL_UPDATE_TURN_WAIT_SECONDS": value})
+    assert r.returncode == 0, (value, r.stdout, r.stderr)
+    assert "AFTER-WAIT hold=present" in r.stdout
+    stamp = int((tmp_path / "turns-hold").read_text().split("=")[1])
+    assert 1000 + 151 <= stamp <= 1000 + 300 + 150, f"the hold lasts the clamped wait (1..300 s) plus 150 s: {stamp - 1000}"
+
+
+def test_the_updater_uses_the_run_dir_and_the_validated_wait_for_the_hold():
+    base = UPDATE.index("RESTART_SCOPE=both")
+    blk = UPDATE[base:UPDATE.index("update complete (", base)]
+    i = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
+    assert "__tw" in blk[i - 600:i] and "10#$__tw" in blk[i - 600:i], "the hold length comes from the validated, clamped value"
+    assert "$(( ${ORWELL_UPDATE_TURN_WAIT_SECONDS" not in UPDATE

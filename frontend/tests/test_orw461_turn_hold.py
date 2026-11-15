@@ -19,6 +19,7 @@ ti = importlib.import_module("src.turn_inflight")
 def _env(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTH_ENABLED", "false")
     monkeypatch.setenv("ORWELL_INFLIGHT_DIR", str(tmp_path))
+    monkeypatch.setenv("ORWELL_RUN_DIR", str(tmp_path))   # the hold lives in the root-owned run dir; the in-flight count in the data dir (one temp dir stands in for both)
     monkeypatch.setattr(ogs, "GAME_SESSION_PATH", tmp_path / "orwell_game_session.json")
     monkeypatch.setattr(ws_routes, "_is_live", lambda sid: True)
     ti._admitting.clear()
@@ -51,6 +52,21 @@ def test_the_hold_is_in_force_only_for_a_valid_future_stamp(tmp_path):
     assert ti.hold_until() is None                                   # absurdly far ahead is not believed
     (tmp_path / "turns-hold").write_text("garbage")
     assert ti.hold_until() is None
+    for bad in ("nan", "inf", "-inf", "NaN"):
+        (tmp_path / "turns-hold").write_text(f"until={bad}\n")
+        assert ti.hold_until() is None, bad                           # a non-finite stamp is no hold (and int(nan * 1000) would raise in the socket handler)
+
+
+def test_the_hold_is_read_from_the_root_owned_run_dir_not_the_data_dir(tmp_path, monkeypatch):
+    run_dir, data_dir = tmp_path / "run", tmp_path / "data"
+    run_dir.mkdir(); data_dir.mkdir()
+    monkeypatch.setenv("ORWELL_RUN_DIR", str(run_dir)); monkeypatch.setenv("ORWELL_INFLIGHT_DIR", str(data_dir))
+    (data_dir / "turns-hold").write_text(f"until={int(time.time()) + 60}\n")   # a file the service user could plant in its own data dir
+    assert ti.hold_until() is None, "the data dir is not trusted for the hold"
+    (run_dir / "turns-hold").write_text(f"until={int(time.time()) + 60}\n")
+    assert ti.hold_until() is not None
+    monkeypatch.delenv("ORWELL_RUN_DIR")
+    assert ti.hold_path() == "/run/orwell/turns-hold"
 
 
 # ── the admission count ───────────────────────────────────────────────────────────────────────────────────────────────
