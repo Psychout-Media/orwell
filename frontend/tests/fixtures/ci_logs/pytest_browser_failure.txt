@@ -1,0 +1,14 @@
+2026-11-15T07:24:51.9244977Z 
+2026-11-15T07:24:51.9245261Z =================================== FAILURES ===================================
+2026-11-15T07:24:51.9245963Z _______ test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays _______
+2026-11-15T07:24:51.9246317Z 
+2026-11-15T07:24:51.9247485Z _stack = {'endpoint_id': '27cc58f9', 'engine': 'http://127.0.0.1:37609', 'fe': 'http://127.0.0.1:54029', 'prior': {'act_commit_...ceremony': False, 'agent_input_token_budget': 6000, 'agent_input_token_hard_max': 0, 'agent_max_rounds': 20, ...}, ...}
+2026-11-15T07:24:51.9248380Z 
+2026-11-15T07:24:51.9248513Z     @pytest.mark.browser
+2026-11-15T07:24:51.9279222Z         self._api_zone.set(parsed_st)
+2026-11-15T07:24:51.9279540Z         try:
+2026-11-15T07:24:51.9279924Z             return await cb()
+2026-11-15T07:24:51.9280269Z         except Exception as error:
+2026-11-15T07:24:51.9280815Z >           raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+2026-11-15T07:24:51.9281619Z E           playwright._impl._errors.TimeoutError: Page.wait_for_function: Timeout 15000ms exceeded.
+2026-11-15T07:24:51.9282048Z 

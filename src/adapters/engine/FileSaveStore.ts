@@ -5,6 +5,7 @@ import {
 import { join, resolve, sep } from "node:path";
 import type { UserSaveStore } from "../../ports/UserSaveStore";
 import type { SessionSnapshot } from "../../engine/sessionSnapshot";
+import { stallTimer } from "../stallTiming";
 
 /**
  * Disk-backed, per-user durable `UserSaveStore` (feature 0030). Each save is a NEW
@@ -93,14 +94,25 @@ export class FileSaveStore implements UserSaveStore {
     // or keeps it (the content was already flushed to disk) — never a truncated winner. That is what
     // protects non-degradation (feature 0007/0030) against a mid-write crash.
     const tmp = `${file}.tmp`;
+    const t0 = stallTimer.now();
+    const json = JSON.stringify(snapshot);
+    const t1 = stallTimer.now();
     const fd = openSync(tmp, "w");
+    let t2 = t1;
+    let t3 = t1;
     try {
-      writeSync(fd, JSON.stringify(snapshot), null, "utf8");
+      writeSync(fd, json, null, "utf8");
+      t2 = stallTimer.now();
       fsyncSync(fd);
+      t3 = stallTimer.now();
     } finally {
       closeSync(fd);
     }
     renameSync(tmp, file);
+    const t4 = stallTimer.now();
+    stallTimer.record("save.persist", t4 - t0, { chars: json.length }, {
+      serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, rename: t4 - t3,
+    });
     // F-EN-1 (#1562): the DIRECTORY fsync ONLY hardens the rename's directory ENTRY against a sudden
     // power loss (the OS's own dirty-page writeback makes that entry durable within a few seconds
     // regardless). It is a SECOND blocking `fsyncSync` on the single Node thread, sitting on the hot

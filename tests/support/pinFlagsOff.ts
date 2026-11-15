@@ -5,6 +5,7 @@
  */
 for (const f of ["ADVANCE_GATE" /* ORW-97: a played game with the clock OFF (the flags-off baseline) would be held forever by the schedule gate - the gate only makes sense beside the in-game clock */, "ASSURANCES", "VOTE_COUNT", "VETO_MEMORY", "DEAL_NOMS", "CAMPAIGN_MEMORY", "APPROACH_MEMORY", "HC_MEMORY", "MEMORY_PROMISES", "FORGIVENESS", "LOBBYING", "DESIRE_CLOCK", "WANT_MOVEMENT",
   "MULTI_NIGHT_FATIGUE", "MORNING_APPROACH", "NPC_TELLS", "TELL_REACTIONS", "MOOD_VETO", "MOOD_APPROACH", "MOOD_DEAL", "MOOD_CAMPAIGN", "DRIFT_FIX", "NPC_MEMORY_SPEECH", "DRIVE_DECISIONS",
-  "LIES_CAUGHT", "HEARD_ABOUT_ME", "NO_HARD_CAPS", "GOSSIP_COPRESENCE", "CREDIBILITY", "JURY_MEMORY", "MEMORY_FRIENDS", "ACCUSE_COST", "WIPEOUT_REEL", "JUROR_PROFILES", "PHILOSOPHIES", "CALM_PRESENCE"]) {
+  "LIES_CAUGHT", "HEARD_ABOUT_ME", "NO_HARD_CAPS", "GOSSIP_COPRESENCE", "CREDIBILITY", "JURY_MEMORY", "MEMORY_FRIENDS", "ACCUSE_COST", "WIPEOUT_REEL", "JUROR_PROFILES", "PHILOSOPHIES", "CALM_PRESENCE",
+  "SHOWRUNNER_REWEIGHT" /* ORW-270: default ON since 2026-11-15; a flags-off baseline (e.g. the Phase-1 showrunner neutrality proof) still runs without it */]) {
   process.env[`ORWELL_${f}`] = "0";
 }

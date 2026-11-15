@@ -81,7 +81,7 @@ def test_prefix_is_append_only_as_days_close():
     l1 = [_day_entry(1, "one"), _day_entry(2, "two")]
     s1 = dc.build_story_so_far(l1, 2)
     s2 = dc.build_story_so_far(l1 + [_day_entry(3, "three")], 3)
-    assert s2.startswith(s1)
+    assert s2.startswith(s1.split(dc.YESTERDAY_HEADER)[0])   # day lines are the append-only prefix; the yesterday record trails
 
 
 def test_author_input_excludes_tool_rows_and_reasoning():
@@ -170,3 +170,176 @@ def test_save_stamps_game_day_only_when_given():
     ch.save_assistant_response(s, None, "sid", "reply2", None, incognito=True)
     assert s.history[0].metadata["game_day"] == 4
     assert "game_day" not in s.history[1].metadata
+
+
+# ── ORW-387: a provider error must never become the narrator's memory of a day ──────────────────────────
+
+_ERR = ('event: error data: {"status": 400, "text": "DeepSeek returned HTTP 400: Prompt must contain the word '
+        "'json' in some form to use 'response_format' of type 'json_object'.\"}")
+
+
+def test_orw387_error_frame_is_never_visible_text():
+    from src import orwell_cast_authoring as ca
+    frame = 'event: error\ndata: {"status": 400, "text": "provider said no"}\n\n'
+    assert ca._delta_text(frame) == ""
+    assert ca._delta_text('data: {"delta": "hello"}') == "hello"      # the control: content still reads
+
+
+def test_orw387_prose_callers_send_no_response_format(monkeypatch):
+    """The day summary is plain prose: forcing json_object makes a strict provider answer 400."""
+    from src import orwell_cast_authoring as ca, endpoint_resolver, llm_core
+    seen = []
+
+    async def fake_stream(candidates, messages, **kw):
+        seen.append(kw.get("response_format"))
+        yield 'data: {"delta": "a quiet day"}'
+
+    monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", lambda *a, **k: ("http://x/v1", "m", {}))
+    monkeypatch.setattr(endpoint_resolver, "resolve_utility_fallback_candidates", lambda **k: [])
+    monkeypatch.setattr(llm_core, "stream_llm_with_fallback", fake_stream)
+    msgs = [{"role": "user", "content": "x"}]
+    prose = _run(ca._resolve_llm_fn("u", json_mode=False))
+    assert _run(prose(msgs)) == "a quiet day"
+    structured = _run(ca._resolve_llm_fn("u"))
+    _run(structured([{"role": "user", "content": "Reply with one JSON object."}]))
+    assert seen == [None, {"type": "json_object"}]                    # a JSON prompt stays structured
+
+
+def test_orw387_condense_resolves_a_prose_fn(monkeypatch):
+    from src import orwell_cast_authoring as ca
+    asked = {}
+
+    async def fake_resolve(owner, **kw):
+        asked.update(kw)
+        return None
+
+    monkeypatch.setattr(ca, "_resolve_llm_fn", fake_resolve)
+    _run(dc.run_condense("u", 1))
+    assert asked.get("json_mode") is False
+
+
+def test_orw387_error_text_is_not_written_and_not_shown():
+    ledger = [_day_entry(1)]
+    writes = []
+
+    async def ledger_fn():
+        return ledger
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        writes.append((day, text))
+        return {"accepted": True}
+
+    async def bad(messages):
+        return _ERR
+
+    hist = [_row("user", "hi", 1), _row("assistant", "there", 1)]
+    r = _run(dc.condense_day("u", 1, llm_fn=bad, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert not r["accepted"] and writes == []
+    poisoned = [_day_entry(1, _ERR)]
+    story = dc.build_story_so_far(poisoned, 1)
+    assert "HTTP 400" not in story and "event 1a" in story            # falls back to the engine's own lines
+
+
+def test_orw387_poisoned_and_missing_days_are_reauthored():
+    ledger = [_day_entry(1, _ERR), _day_entry(2), _day_entry(3)]
+    writes = []
+
+    async def ledger_fn():
+        return ledger
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        writes.append((day, text))
+        for e in ledger:
+            if e["day"] == day:
+                e["text"] = text
+        return {"accepted": True}
+
+    async def llm(messages):
+        return "a real summary"
+
+    hist = [_row("user", "hi", d) for d in (1, 2, 3)] + [_row("assistant", "there", d) for d in (1, 2, 3)]
+    _run(dc.condense_day("u", 3, llm_fn=llm, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert sorted(d for d, _ in writes) == [1, 2, 3]
+    assert dc.days_needing_summary(ledger) == []
+    assert dc.days_needing_summary([_day_entry(1, _ERR), _day_entry(2, "fine")]) == [1]
+
+
+# ── ORW-402: three-layer day memory (layers 1 and 2) ──────────────────────────────
+
+def _long_day(day=1, rows=60, fact_row=2):
+    out = []
+    for i in range(rows):
+        body = ("filler talk about the house and chores " * 12).strip()
+        if i == fact_row:
+            body = "FACT-EARLY the roleA promised roleB a private alliance. " + body
+        out.append(_row("user", f"p{i}", day))
+        out.append(_row("assistant", f"n{i} {body}", day))
+    return out
+
+
+def test_orw402_visible_day_text_keeps_the_whole_day():
+    text = dc.visible_day_text(_long_day(), 1)
+    assert len(text) > dc._MAX_INPUT_CHARS               # the old tail clip would have cut the start
+    assert "FACT-EARLY" in text
+
+
+def test_orw402_word_budget_scales_with_day_length():
+    assert dc.day_word_budget(500) == dc.DAY_WORDS
+    assert dc.day_word_budget(8000) > dc.DAY_WORDS
+    assert dc.day_word_budget(10 ** 7) == dc.DAY_WORDS_MAX
+    assert dc.day_word_budget(8000) <= dc.day_word_budget(16000)
+
+
+def test_orw402_early_fact_reaches_summary_input_and_stored_path():
+    ledger = [_day_entry(1)]
+    writes, calls = [], []
+
+    async def ledger_fn():
+        return copy.deepcopy(ledger)
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        writes.append(text)
+        return {"accepted": True}
+
+    async def llm(messages):  # echoes the key lines it was shown
+        calls.append(messages)
+        body = messages[-1]["content"]
+        return " ".join(ln.split("FACT-EARLY", 1)[1][:40] and "FACT-EARLY" + ln.split("FACT-EARLY", 1)[1][:40]
+                        for ln in body.splitlines() if "FACT-EARLY" in ln) or "nothing"
+
+    r = _run(dc.condense_day("u", 1, llm_fn=llm, history=_long_day(), ledger_fn=ledger_fn, write_fn=write_fn))
+    assert r["accepted"]
+    assert len(calls) > 2                                  # chunked: several chunk calls plus a merge call
+    assert any("FACT-EARLY" in c[-1]["content"] for c in calls[:-1])
+    assert "FACT-EARLY" in writes[0]
+
+
+def test_orw402_key_list_survives_the_word_clip():
+    ledger = [_day_entry(1)]
+    writes = []
+
+    async def ledger_fn():
+        return copy.deepcopy(ledger)
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        writes.append(text)
+        return {"accepted": True}
+
+    async def llm(messages):
+        return "word " * 900 + "\nKey list: promise to roleB; nickname Sunshine"
+
+    _run(dc.condense_day("u", 1, llm_fn=llm, history=_long_day(), ledger_fn=ledger_fn, write_fn=write_fn))
+    assert "nickname Sunshine" in writes[0]
+    assert len(writes[0].split("Key list:")[0].split()) <= dc.DAY_WORDS_MAX
+
+
+def test_orw402_prompt_view_shows_full_engine_record_for_yesterday():
+    events = [f"event number {i}" for i in range(12)]
+    e1 = {"day": 1, "tier": "day", "events": ["old1"], "themes": ["deal"], "text": "day one summary"}
+    e2 = {"day": 2, "tier": "day", "events": events, "themes": ["rift"], "text": "day two summary"}
+    out = dc.apply_prompt_view(_history(), [e1, e2])
+    story = next(m["content"] for m in out if m["content"].startswith(dc.STORY_HEADER))
+    assert "day two summary" in story
+    assert all(ev in story for ev in events)             # the whole record, not the first 6
+    assert "old1" not in story                           # older days stay compact (summary only)
+    assert story.rstrip().endswith("; ".join(events))    # the record trails the day lines

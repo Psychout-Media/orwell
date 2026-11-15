@@ -457,7 +457,8 @@ import { onNarrowChange } from './platform.js';
     "morning": "🌅 Morning", "afternoon": "🌞 Afternoon", "evening": "🌆 Evening",
     "night": "🌙 Night", "late-night": "🌌 Late night",
   };
-  const todLabel = (t) => TOD_LABELS[t] || "";
+  // ORW-392: past 2am, before the house's wake-up call, the engine's `earlyMorning` flag turns "Late night" into "Early morning" (the mirror of it).
+  const todLabel = (t, early) => (t === "late-night" && early === true) ? "\u{1F305} Early morning" : (TOD_LABELS[t] || "");
 
   // A3: announce only what CHANGED, in show terms — never a full re-read per poll.
   let _last = { phase: null, hoh: null, noms: null, veto: null, tod: null };
@@ -498,7 +499,7 @@ import { onNarrowChange } from './platform.js';
     const cur = {
       phase: phaseLabel(st.phase),
       hoh: names.hoh, noms: names.noms, veto: names.veto,
-      tod: TOD_SPOKEN[st.timeOfDay] || null,
+      tod: (st.timeOfDay === "late-night" && st.earlyMorning === true ? "Early morning" : TOD_SPOKEN[st.timeOfDay]) || null,
     };
     if (_last.phase !== null) {
       if (cur.tod && _last.tod && cur.tod !== _last.tod) { msgs.push(cur.tod + "."); flashRow(el, "#os-tod"); }
@@ -569,7 +570,7 @@ import { onNarrowChange } from './platform.js';
     setText(el.querySelector("#os-week"), "Week " + st.week);
     setText(el.querySelector("#os-phase"), phaseLabel(st.phase));
     // ADR 0006: the in-game clock (ORWELL_TIME_OF_DAY is default-ON engine side and the FE setting time_of_day_enabled is True; absent timeOfDay ⇒ the chip simply stays hidden).
-    { const todEl = el.querySelector("#os-tod"); const tod = todLabel(st.timeOfDay) + (todLabel(st.timeOfDay) && Number.isInteger(st.dayNumber) && st.dayNumber > 0 ? ", Day " + st.dayNumber : ""); // ORW-115: "Morning, Day 1" (time of day only, not minutes)
+    { const todEl = el.querySelector("#os-tod"); const tod = todLabel(st.timeOfDay, st.earlyMorning) + (todLabel(st.timeOfDay, st.earlyMorning) && Number.isInteger(st.dayNumber) && st.dayNumber > 0 ? ", Day " + st.dayNumber : ""); // ORW-115: "Morning, Day 1" (time of day only, not minutes)
       if (todEl) { if (tod) { setText(todEl, tod); todEl.hidden = false; } else todEl.hidden = true; } }
     setText(el.querySelector("#os-hoh"), name(st.hoh));
     const idOf = (c) => (c && typeof c === "object" ? c.id : c);
