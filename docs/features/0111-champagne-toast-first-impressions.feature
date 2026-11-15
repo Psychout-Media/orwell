@@ -1,12 +1,7 @@
-# spec-only: BUILT (ORW-194, #2227) and covered by unit tests; this .feature is still spec-only (NOT wired into the BDD gate: absent from cucumber.cjs paths, no step definitions yet). The facts it describes are pinned in
-# tests/unit/premiereToastBasics.test.ts: every met houseguest card carries a public age (Character.age), job and hometown, and the gathered-toast prompt lists each houseguest's age, job and hometown and asks for a woven-in
-# first impression, never a data dump. When the steps are written, list the file in cucumber.cjs and mutation-check each scenario. Written by the BDD Auditor 2026-11-06 from Ryne's request.
-# Ryne (2026-11-06 04:38 UTC): "I also want to make a slight adjustment to how the champagne toast [works]. Should include some more basic info since this is my first impressions of people. We have the
-# photo but that's about it. Give us more to work off of."
-# HARD rule: roles only (player, houseguest, host). Default content until Ryne changes it: each houseguest's toast gives the PUBLIC basics a viewer of a real show would get: name, age, hometown, job and
-# ONE line of personality. Public information only. The engine hands the narrator the facts; the narrator only voices them (ADR 0003, mandate 3).
-# Public age: the stored public facets include `age` (ORW-194 added it at character generation, byte-stable); the narrator never invents one.
-
+# Status: BUILT (ORW-194, #2227; ORW-286) and WIRED into the BDD gate (ORW-368): steps in features/step_definitions/champagne_toast.steps.ts, listed in cucumber.cjs; every Then reads the narrator's moment prompt captured at each toast batch.
+# Ryne (2026-11-06 04:38 UTC): "I also want to make a slight adjustment to how the champagne toast [works]. Should include some more basic info since this is my first impressions of people. We have the photo but that's about it. Give us more to work off of."
+# Ryne (2026-11-15, prod playtest): "Only two people went. Every house guest should introduce themselves." and "it seems to want me to go every time... after a few people, it comes back to me as if I need to go again."
+# HARD rule: roles only (player, houseguest, host). Each houseguest's toast gives the PUBLIC basics a viewer of a real show would get: name, age, hometown, job and ONE line of personality. Public information only. The engine hands the narrator the facts; the narrator only voices them (ADR 0003, mandate 3).
 Feature: The champagne toast gives the player first impressions of every houseguest
   At the premiere's champagne toast the player meets each houseguest for the first time. The photo is not enough to form a first impression, so each houseguest's toast also carries their public basics:
   name, age, hometown, job and one line of personality. Nothing secret appears. It is narrated in the houseguest's own toast, never read out as a data dump. It ships ON with the premiere entrances.
@@ -53,3 +48,11 @@ Feature: The champagne toast gives the player first impressions of every housegu
       Then the player's own toast slot is still authored by the player in chat
       And everyone is still met by the end of the toast and the first power still waits for the Day-1 morning
       And with the premiere entrances OFF the season is byte-identical to today
+
+  Rule: Everyone goes, and the circle never returns to the player (ORW-368)
+
+    Scenario: The player's slot is invited once and the circle moves on
+      When the entrances and the toast are played through
+      Then the player's own toast slot is still authored by the player in chat
+      And every houseguest except the player gave a toast that states their name, age, hometown and job
+
