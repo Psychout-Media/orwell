@@ -2625,7 +2625,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return 0
             # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
             # ORW-388: the biography's own story checks (pronoun, age, look feature, show name) ride the same single strict retry.
-            _no_bio = lambda p: [] if _biography_meets_floor(str((p or {}).get("biography") or "").strip()) else ["story-no-biography"]
+            _no_bio = lambda p: [] if _biography_meets_floor(str((p or {}).get("biography") or (npc or {}).get("biography") or "").strip()) else ["story-no-biography"]  # the card's own floor biography counts: only a card with NO biography anywhere is empty
             problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
@@ -2670,7 +2670,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             if not _gate_on:  # the gate below includes this check (ORW-431); kept for the flag-off path
                 # ORW-430: the final check, after every repair. A card with no usable biography is NEVER written as authored:
                 # it stays on the floor (unauthored_ids picks it up again, bounded by the attempt ledger) and the fault is RED.
-                final = card_consistency(profile, npc, cast)
+                final = card_consistency({**profile, "biography": profile.get("biography") or (npc or {}).get("biography")}, npc, cast)
                 if final:
                     logger.warning(f"[cast-authoring] final consistency check for {hid}: {', '.join(final)}")
                 if "story-no-biography" in final:

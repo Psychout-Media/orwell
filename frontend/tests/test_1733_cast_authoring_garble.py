@@ -114,7 +114,7 @@ def test_gendered_descriptor_end_to_end_dropped_and_red_recorded(_clean_ledger):
         written_profiles.append(profile)
         return {"accepted": True}
 
-    cast = [{"id": "npc:1", "genderPresentation": "woman", "age": 32}]
+    cast = [{"id": "npc:1", "genderPresentation": "woman", "age": 32, "biography": "Grew up near the river and learned to fix engines from a parent. Runs a small shop now and likes it that way."}]
     written = _run(ca.author_cast(cast, _llm, _write, user="probe-user"))
 
     assert written == 1, "the coherent physical facet still commits"
