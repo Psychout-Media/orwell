@@ -887,8 +887,8 @@ import { onNarrowChange } from './platform.js';
       if (window.OrwellReport) window.OrwellReport.fail("status-panel", "status-poll", _); // G11: fail open, never silent
       _failures += 1;
       if (!_failSince) _failSince = Date.now();
-      // ORW-406: the amber "feed offline" dot waits out a release-sized gap (10 s); the last-known readout stays up either way.
-      if (_shown && ((typeof navigator !== 'undefined' && navigator.onLine === false) || Date.now() - _failSince >= 10000)) markStale(true); // review of #2719: no link at all is not a release gap
+      // ORW-406: the amber "feed offline" dot waits out a release-sized gap (10 s), unless navigator.onLine is false (#2719); the last-known readout stays up either way.
+      if (_shown && ((typeof navigator !== 'undefined' && navigator.onLine === false) || Date.now() - _failSince >= 10000)) markStale(true);
       else if (_shown) _scheduleStaleCheck();
       else hidePanel();
       return;
