@@ -349,7 +349,7 @@ async def condense_day(owner, closed_day: int, *, llm_fn: Optional[LlmFn], histo
         logger.warning("[day-condense] day condense failed: %s", e)
         try:
             from src import log_rings
-            log_rings.record_soft_failure("day-condense:condense-failed", e, corrected="raw history stays in the prompt")
+            log_rings.record_soft_failure("day-condense:condense-failed", e, corrected="raw history stays in the prompt", user=owner)
         except Exception:  # failsoft-ok: recorder-self
             pass
         return {"accepted": False, "reason": "error"}
@@ -464,7 +464,7 @@ def kickoff_after_turn_in(owner, result) -> None:
                 logger.warning("[day-condense] background task failed: %s", e)
                 try:
                     from src import log_rings
-                    log_rings.record_soft_failure("day-condense:background-failed", e, corrected="raw history stays in the prompt")
+                    log_rings.record_soft_failure("day-condense:background-failed", e, corrected="raw history stays in the prompt", user=owner)
                 except Exception:  # failsoft-ok: recorder-self
                     pass
             finally:
@@ -487,12 +487,21 @@ def kickoff_heal(owner, ledger: list) -> None:
         need = days_needing_summary(ledger)
         if not need:
             return
-        day = need[-1]
         sid = _game_sid(owner)
-        k = f"{_key(owner)}:{sid}:{day}"  # keyed by game too: the retry counter of the old season never mutes the new one
-        if k in _IN_FLIGHT or _HEAL_TRIES.get(k, 0) >= _HEAL_TRIES_MAX:
+
+        def _kk(d):
+            return f"{_key(owner)}:{sid}:{d}"  # keyed by game too: the retry counter of the old season never mutes the new one
+        # review of #2668: the OLDEST day that still has tries left (a newest day that exhausted its tries must not starve the older ones),
+        # and every day one run will attempt (this one plus up to HEAL_DAYS_PER_RUN - 1 later ones, see `condense_day`) is charged a try.
+        open_days = [d for d in need if _HEAL_TRIES.get(_kk(d), 0) < _HEAL_TRIES_MAX]
+        if not open_days:
             return
-        _HEAL_TRIES[k] = _HEAL_TRIES.get(k, 0) + 1
+        day = open_days[0]
+        k = _kk(day)
+        if k in _IN_FLIGHT:
+            return
+        for d in open_days[:HEAL_DAYS_PER_RUN]:
+            _HEAL_TRIES[_kk(d)] = _HEAL_TRIES.get(_kk(d), 0) + 1
         _IN_FLIGHT.add(k)
 
         async def _runner():
@@ -502,7 +511,7 @@ def kickoff_heal(owner, ledger: list) -> None:
                 logger.warning("[day-condense] heal task failed: %s", e)
                 try:
                     from src import log_rings
-                    log_rings.record_soft_failure("day-condense:heal-task-failed", e, corrected="raw history stays in the prompt")
+                    log_rings.record_soft_failure("day-condense:heal-task-failed", e, corrected="raw history stays in the prompt", user=owner)
                 except Exception:  # failsoft-ok: recorder-self
                     pass
             finally:
@@ -516,6 +525,6 @@ def kickoff_heal(owner, ledger: list) -> None:
         logger.debug("[day-condense] heal kickoff skipped: %s", e)
         try:
             from src import log_rings
-            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="raw history stays in the prompt")
+            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="raw history stays in the prompt", user=owner)
         except Exception:  # failsoft-ok: recorder-self
             pass

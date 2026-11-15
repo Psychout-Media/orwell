@@ -39,7 +39,7 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
     if flag is not None:
         monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", flag)
     monkeypatch.setattr(ti, "get_tool_index", lambda: None)
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: state)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: state)
     monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     async def fake_status(user=None):
@@ -158,10 +158,11 @@ def test_redo_sentence_that_still_conflicts_is_dropped_whole(monkeypatch):
 
 
 def test_round_with_tool_markup_in_the_stream_is_skipped_safely(monkeypatch):
-    # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold, no continuation (today's behaviour)
+    # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold and no continuation call is made
     emitted, cont, stored, _ = _drive(
         monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A + BAD + '<tool_call>{"name": "advanceGame", "arguments": {}}</tool_call>']}], redo=REDO)
     assert cont == []
+    # NOTE (review of #2723): in this shape the stored text keeps the conflicting sentence that the live stream did not show; not asserted equal, see ORW-437 report.
 
 
 def test_native_tool_call_after_a_withheld_sentence_runs_and_no_continuation_is_made(monkeypatch):
@@ -172,7 +173,7 @@ def test_native_tool_call_after_a_withheld_sentence_runs_and_no_continuation_is_
     assert cont == [], "a round with a tool call is never continued: the call would be dropped or the scene narrated twice"
     assert "Sleeper Role says" not in emitted and TAIL.strip() not in emitted
     assert emitted.startswith(CLEAN_A.strip()) and REDO.strip() not in emitted
-    assert n_rounds >= 2 and extra["runs"], "the round's native tool call still ran and the loop went on to the next round"
+    assert n_rounds >= 2 and extra["runs"] == ["advanceGame"], "the round's native tool call ran exactly once and the loop went on to the next round"
     assert stored[0] == CLEAN_A.strip()
 
 
@@ -262,7 +263,7 @@ def test_failed_continuation_ends_at_the_last_whole_sentence(monkeypatch):
 def test_split_names_the_fact_and_keeps_whole_sentences(monkeypatch):
     from src import predisplay_check as pc
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: STATE)
     monkeypatch.setattr("src.zero_clocks.zero_clocks_on", lambda: True)
     sp = pc.split_at_first_conflict(CLEAN_A + "The nominations are tonight. " + TAIL, "u")
     assert sp.keep == CLEAN_A and sp.withheld.startswith("The nominations are tonight.")
@@ -276,7 +277,7 @@ def test_split_names_the_fact_and_keeps_whole_sentences(monkeypatch):
 def test_split_is_none_without_fresh_state_and_never_raises(monkeypatch):
     from src import predisplay_check as pc
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: None)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: None)
     assert pc.split_at_first_conflict(BAD, "u") is None
     monkeypatch.setattr(erc, "peek", lambda *a, **k: 1 / 0)
     assert pc.split_at_first_conflict(BAD, "u") is None
@@ -309,7 +310,7 @@ def test_quote_state_carries_across_chunks():
 def test_the_check_and_the_rewrite_both_honour_a_carried_quote(monkeypatch):
     from src import predisplay_check as pc
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: STATE)
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
     pc.PREDISPLAY_COUNTS.clear()
     text = "The nominations are tonight, I'm telling you.\" "
@@ -370,3 +371,19 @@ def test_leading_sentences_that_repeat_the_shown_tail_are_dropped():
     assert pc.drop_repeated_prefix("A door closes. The kitchen is quiet.", shown) == "A door closes. The kitchen is quiet.", "only LEADING repeats are dropped"
     assert pc.drop_repeated_prefix("The kitchen is quiet.", shown) == ""
     assert pc.drop_repeated_prefix("New line.", "") == "New line."
+
+
+def test_orw437_an_unterminated_final_sentence_that_conflicts_is_dropped_at_the_flush(monkeypatch):
+    """review of #2723: `_split_complete_sentences` leaves a final sentence with no terminator in the buffer; the end-of-stream flush used to emit it unchecked."""
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, "Sleeper Role walks into the kitchen"]}], redo="X")
+    assert "Sleeper Role" not in emitted, emitted
+    assert emitted.strip() == CLEAN_A.strip() and stored[0] == emitted.strip()
+
+
+def test_orw437_the_final_buffered_sentence_is_counted_and_a_wall_dropped_sentence_is_not(monkeypatch):
+    """review of #2682: the counter sees what the player is shown, including the last (unterminated) sentence."""
+    from src import predisplay_check as pc
+    pc.PREDISPLAY_COUNTS.clear()
+    emitted, _cont, _stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, "Sleeper Role walks into the kitchen"]}], redo="X", flag="0", owner="orw437-count")
+    assert "Sleeper Role walks" in emitted, "rewrite off: shown as today"
+    assert pc.PREDISPLAY_COUNTS.get(pc.FACT_ASLEEP) == 1, pc.PREDISPLAY_COUNTS

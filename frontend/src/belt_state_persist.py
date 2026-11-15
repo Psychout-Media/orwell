@@ -41,7 +41,7 @@ _PACING_DICTS = {
     "_PREMIERE_TOAST_SPEAKERS": "strlist", "_PREMIERE_ENTRANCE_STAGE": "str", "_COMP_PAUSED": "str",
 }
 _PACING_SET = "_PREMIERE_CLOCK_STARTED"  # a set of runway keys
-_FOLD_REQUIRED = ("content", "with_ids", "kind", "idempotency_key")
+_FOLD_REQUIRED = ("content", "with_ids", "kind", "idempotency_key", "consequence", "felt_minutes", "row_anchor")  # every key `fold_ledger._make_entry` writes; settle and truncate read them unconditionally
 
 
 def _stores():

@@ -51,7 +51,7 @@ def test_no_real_wall_time_on_bubbles_with_zero_clocks():
         from playwright.sync_api import sync_playwright
     except Exception:
         pytest.skip("playwright not installed")
-    env = dict(os.environ); env.setdefault("AUTH_ENABLED", "false"); env.setdefault("ORWELL_GAME_BUILD", "1")
+    env = dict(os.environ); env["AUTH_ENABLED"] = "false"; env["ORWELL_GAME_BUILD"] = "1"  # forced, not setdefault: an inherited value must not stop the game page loading (review of #2662)
     port = _free_port(); proc = None
     try:
         proc, base = _boot(env, port)
@@ -70,6 +70,7 @@ def test_no_real_wall_time_on_bubbles_with_zero_clocks():
     assert not res.get("error"), res.get("error")
     assert res["zero"], "the page must carry data-zero-clocks when the setting is on (default)"
     clock = re.compile(r"\d{1,2}:\d{2}")
+    assert len(res["rows"]) >= 2 and sum(1 for r in res["rows"] if r["moment"]) == 1, res["rows"]  # review of #2662: the rows the test promises are really there
     for r in res["rows"]:
         if r["shown"]:
             assert not clock.search(r["text"]), f"a visible stamp shows a real time: {r}"

@@ -18,7 +18,8 @@ def _engine_rooms():
 
 
 def test_the_belt_list_is_the_engines_list():
-    assert list(al._HOUSE_ROOMS) == _engine_rooms()
+    if os.path.exists(ENGINE_TS):  # a frontend-only checkout has no engine source (house_rooms.py carries a _FALLBACK for that layout)
+        assert list(al._HOUSE_ROOMS) == _engine_rooms()
     assert len(al._HOUSE_ROOMS) == 13
 
 

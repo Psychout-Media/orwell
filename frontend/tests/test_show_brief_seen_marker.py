@@ -288,3 +288,12 @@ def test_the_restart_adoption_runs_before_the_framing_reads_the_marker():
     adopt = src.index("_show_brief.adopt_history_seen(user, getattr(sess, \"history\", None))")
     framing = src.index("apply_game_framing(")
     assert adopt < framing
+
+
+def test_orw437_with_zero_clocks_on_the_marker_stores_the_band_not_the_raw_label(flag_on, monkeypatch):
+    """review of #2657: the ON path of note_tool_result stores the band the narrator was shown."""
+    import src.settings as st
+    real = st.get_setting
+    monkeypatch.setattr(st, "get_setting", lambda k, d=None: True if k == "zero_clocks" else real(k, d))
+    sb.note_tool_result("owner-zc", {"started": True, "beatSeq": 3, "clockLabel": "4:15am, Day 5", "whereabouts": WA_KITCHEN})
+    assert sb._SEEN["owner-zc"]["clock"] == "early morning, Day 5"

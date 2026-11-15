@@ -1782,10 +1782,12 @@ def format_tool_result(description: str, result: Dict) -> str:
     parts = [f"### {description}"]
 
     if "stdout" in result:
+        # review of #2657: MCP and shell results use `stdout`; the zero-clocks scrub (no clock time / minutes reach the model) must cover this branch too.
+        from src.zero_clocks import scrub_tool_output as _zc_scrub_so
         if result["stdout"]:
-            parts.append(f"**stdout:**\n```\n{result['stdout']}\n```")
+            parts.append(f"**stdout:**\n```\n{_zc_scrub_so(result['stdout'])}\n```")
         if result["stderr"]:
-            parts.append(f"**stderr:**\n```\n{result['stderr']}\n```")
+            parts.append(f"**stderr:**\n```\n{_zc_scrub_so(result['stderr'])}\n```")
         parts.append(f"**exit_code:** {result.get('exit_code', 'unknown')}")
     elif "output" in result:
         # bash / python canonical result shape: {"output": ..., "exit_code": ...}. When the output is a
@@ -1797,7 +1799,8 @@ def format_tool_result(description: str, result: Dict) -> str:
         if result.get("exit_code") not in (0, None):
             parts.append(f"**exit_code:** {result['exit_code']}")
     elif "content" in result:
-        parts.append(f"**content ({result.get('size', '?')} chars):**\n```\n{result['content']}\n```")
+        from src.zero_clocks import scrub_tool_output as _zc_scrub_c  # review of #2657: same scrub on every model-facing text branch
+        parts.append(f"**content ({result.get('size', '?')} chars):**\n```\n{_zc_scrub_c(result['content'])}\n```")
     elif "response" in result:
         model = result.get("model", result.get("session_name", ""))
         if model:
@@ -1805,7 +1808,8 @@ def format_tool_result(description: str, result: Dict) -> str:
         else:
             parts.append(result["response"])
     elif "results" in result:
-        parts.append(result["results"])
+        from src.zero_clocks import scrub_tool_output as _zc_scrub_r  # review of #2657
+        parts.append(_zc_scrub_r(result["results"]))
     elif "session_id" in result and "name" in result:
         parts.append(f"Session created: **{result['name']}** (id: `{result['session_id']}`, model: {result.get('model', 'unknown')})")
     elif "success" in result:

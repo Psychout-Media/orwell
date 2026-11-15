@@ -5517,8 +5517,9 @@ async def do_nap(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
         args = _parse_tool_args(content)
-    except ValueError:
-        args = {}
+    except ValueError as _e:
+        # review of #2737: unparseable arguments are a failed tool call, never a silent one-hour nap that advances the game
+        return {"error": f"nap arguments are not valid JSON: {_e}", "exit_code": 1}
     hours = args.get("hours") if isinstance(args, dict) else None
     if not isinstance(hours, (int, float)) or isinstance(hours, bool):
         hours = None

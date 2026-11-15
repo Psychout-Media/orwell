@@ -54,12 +54,13 @@ def family_by_id(fid: str) -> dict | None:
 
 
 def _kw_re(kw: str) -> re.Pattern:
-    return re.compile(r"(?<![a-z])" + re.escape(kw), re.I)
+    # word-start AND word-end: "surf" must not match inside "surface"; a plain inflection (surfs, surfing, scrubs, carpenters) still does
+    return re.compile(r"(?<![a-z])" + re.escape(kw) + r"(?:e?s|ed|ers?|ing)?(?![a-z])", re.I)
 
 
 _KW_RES = {f["id"]: [_kw_re(k) for k in f["keywords"]] for f in STYLE_FAMILIES}
 
 
 def families_mentioned(text: str) -> list[str]:
-    """Ids of every family whose keywords appear in ``text`` (word-start match, case-insensitive)."""
+    """Ids of every family whose keywords appear in ``text`` (word-start and word-end match, case-insensitive)."""
     return [fid for fid, res in _KW_RES.items() if any(r.search(text or "") for r in res)]

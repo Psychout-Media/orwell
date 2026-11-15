@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Awaitable, Callable, Optional
 
@@ -30,6 +31,7 @@ MAX_ENTRIES_PER_TURN = 3
 MAX_RESOLUTIONS_PER_TURN = 2
 _RESOLUTIONS = ("kept", "broken", "withdrawn")
 _MIN_NARRATION_CHARS = 80
+NARRATION_MAX_CHARS = 3600  # review of #2692: 1800 skipped anything promised late in a long turn
 
 LlmFn = Callable[[list], Awaitable[str]]
 WriteFn = Callable[[dict], Awaitable[dict]]
@@ -44,7 +46,8 @@ _SYSTEM = (
     '"parties":["<every id party to a group pact>"],"about":"<who or what a claim concerns: an id from the list, else a few words>"}],'
     '"resolutions":[{"entryId":"<id from the OPEN list>","status":"kept|broken|withdrawn","note":"<why, one short sentence>"}]} . '
     "parties and about are optional: leave them out when they do not apply. Only people from the PRESENT list may speak, be "
-    "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty. "
+    "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
+    "(use parties for a larger group pact). "
     "Copy what was said; invent nothing. Skip small talk and anything already finished in the scene. "
     "A formal agreement between the player and one houseguest (a mutual deal to protect, vote, or go to the end together) is "
     "recorded elsewhere as a deal: leave it out, do not extract it as a pact or a promise. "
@@ -69,6 +72,64 @@ def _record_full(user: Optional[str]) -> None:
                                   corrected="the entry was not kept; resolve or withdraw old ones", user=user)
 
 
+# ── grounding: is an extracted entry really in the narration? ────────────────────────────────────────────────────────────
+# The extraction is a second model. "Copy what was said; invent nothing" is an instruction, not a guarantee, and an entry the
+# narration never contained would be remembered by the engine as something that was said. Each entry is therefore compared
+# with the narration the extractor was given. What to DO with a weak one is the owners' call (a strict rule also drops
+# faithful entries when the narration reports speech indirectly and the extractor turns it into a quote), so the default
+# only measures: mode `report` keeps every entry and records how many were weak; `strict` drops them; `off` skips the check.
+GROUNDING_MIN = 0.6
+_GROUND_WORD = re.compile(r"[^\W_]{3,}")
+
+
+def _plain(t: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[\"'\u2018\u2019\u201c\u201d`*_]+", "", (t or "").lower())).strip()
+
+
+def grounding(text: str, narration: str) -> float:
+    """How much of an entry's wording is in the narration it came from, 0.0 to 1.0: 1.0 when the sentence appears there as
+    written (case, quote marks, spacing and a closing full stop aside); otherwise the share of its words of three letters or
+    more that occur anywhere in the narration. Says nothing about meaning: a faithful paraphrase scores low. In a script
+    written without spaces a sentence is one run of letters, so anything not as written scores about 0: `strict` would drop
+    nearly every such entry."""
+    a, b = _plain(text), _plain(narration)
+    if not a:
+        return 0.0
+    core = a.rstrip(".!?").strip()
+    # as written, on whole words: a short entry ("ok") must not count as present because it sits inside another word ("broke")
+    if core and re.search(r"(?<![^\W_])" + re.escape(core) + r"(?![^\W_])", b):
+        return 1.0
+    words = _GROUND_WORD.findall(a)
+    if not words:
+        return 0.0
+    have = set(_GROUND_WORD.findall(b))
+    return sum(1 for w in words if w in have) / len(words)
+
+
+def grounding_mode() -> str:
+    """`ORWELL_OPEN_LEDGER_GROUNDING`: `report` (default: keep every entry, record the weak ones), `strict` (drop the weak
+    ones), `off` (no check)."""
+    v = str(os.environ.get("ORWELL_OPEN_LEDGER_GROUNDING", "")).strip().lower()
+    return v if v in ("strict", "off") else "report"
+
+
+def _record_weak_grounding(user: Optional[str], weak: int, total: int, lowest: float, dropped: bool) -> None:
+    """One admin-visible observation per turn that had a weakly grounded entry: counts and the lowest score only, never the
+    entry's text. Not a failure (nothing went wrong in the pipeline), so it is not RED."""
+    try:
+        what = "dropped" if dropped else "kept (report mode)"
+        logger.info(f"[open-ledger] grounding: {weak} of {total} extracted entr{'y' if total == 1 else 'ies'} under {GROUNDING_MIN:.0%} "
+                    f"word overlap with the narration (lowest {lowest:.0%}); {what}")
+        from src import log_rings
+        log_rings.record_overseer(
+            "observation", "open-ledger:weak-grounding",
+            f"{weak} of {total} extracted entries share under {GROUNDING_MIN:.0%} of their words with the narration "
+            f"(lowest {lowest:.0%}); {what}",
+            lever=("drop" if dropped else None), ok=True, user=user)
+    except Exception:  # failsoft-ok: recorder-self
+        pass
+
+
 def _norm(v: str, limit: int) -> str:
     return re.sub(r"\s+", " ", v).strip()[:limit].strip()
 
@@ -81,7 +142,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
     ok_ids = set(allowed_ids) | {"player"}
     by_name = {str(n).strip().lower(): i for i, n in (known or {}).items() if str(n).strip()}
     out: list[dict] = []
-    seen: set[str] = set()
+    seen: set = set()  # (speaker, normalized text): the engine keeps identical words from different speakers as distinct entries
     for it in items if isinstance(items, list) else []:
         if not isinstance(it, dict):
             continue
@@ -89,7 +150,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         if not (isinstance(text, str) and isinstance(speaker, str) and isinstance(to, list) and isinstance(kind, str)):
             continue
         t = re.sub(r"\s+", " ", text).strip().strip('"').strip()
-        if not t or len(t) > TEXT_MAX_CHARS or t.lower() in seen:
+        if not t or len(t) > TEXT_MAX_CHARS or (speaker if isinstance(speaker, str) else "", t.lower()) in seen:
             continue
         if speaker not in ok_ids or any(not isinstance(a, str) or a not in ok_ids or a == speaker for a in to):
             continue
@@ -100,6 +161,8 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         about = it.get("about")
         if about is not None and not isinstance(about, str):
             continue
+        if not ({speaker, *to, *(parties or [])} - {"player"}):
+            continue  # review of #2692: an entry involving no houseguest would never reach the brief and would only use a ledger slot
         k = _norm(kind, KIND_MAX_CHARS) or "claim"
         entry: dict = {"text": t, "speaker": speaker, "addressedTo": list(dict.fromkeys(to)), "kind": k}
         group = list(dict.fromkeys(parties or []))
@@ -108,7 +171,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         ab = _norm(about, ABOUT_MAX_CHARS) if isinstance(about, str) else ""
         if ab:
             entry["about"] = ab if ab in (known or {}) else by_name.get(ab.lower(), ab)
-        seen.add(t.lower())
+        seen.add((speaker, t.lower()))
         out.append(entry)
         if len(out) >= MAX_ENTRIES_PER_TURN:
             break
@@ -172,23 +235,47 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
             user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]}" for o in opens[:5]) + "\n"
         reply = await llm([
             {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:1800]}\n\nJSON:"},
+            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:NARRATION_MAX_CHARS]}\n\nJSON:"},
         ])
         parsed = _parse(reply or "")
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
         refused_full = False
-        for entry in clean_entries(parsed, {p["id"] for p in people}, known):
-            res = await write(entry)
+        mode = grounding_mode()
+        entries = clean_entries(parsed, {p["id"] for p in people}, known)
+        weak, lowest = 0, 1.0
+        for entry in entries:
+            if mode != "off":
+                score = grounding(entry["text"], narration[:NARRATION_MAX_CHARS])  # against exactly what the extractor was shown
+                if score < GROUNDING_MIN:
+                    weak += 1
+                    lowest = min(lowest, score)
+                    if mode == "strict":
+                        continue
+            try:  # review of #2721: one failing write must not discard the rest or misreport the count
+                res = await write(entry)
+            except Exception as e:
+                logger.debug(f"[open-ledger] write skipped: {e}")
+                from src import log_rings
+                log_rings.record_soft_failure("open-ledger:write-failed", e)
+                continue
             if isinstance(res, dict) and res.get("accepted") is True:
                 accepted += 1
             elif isinstance(res, dict) and res.get("reason") == "full":
                 refused_full = True
         if refused_full:
             _record_full(owner)  # once per turn, however many writes were refused
+        if weak:
+            _record_weak_grounding(owner, weak, len(entries), lowest, dropped=(mode == "strict"))
         if resolve is not None and opens:
             for r in clean_resolutions(parsed, {o["id"] for o in opens}):
-                res = await resolve(r)
+                try:
+                    res = await resolve(r)
+                except Exception as e:
+                    logger.debug(f"[open-ledger] resolve skipped: {e}")
+                    from src import log_rings
+                    log_rings.record_soft_failure("open-ledger:resolve-failed", e)
+                    continue
                 if isinstance(res, dict) and res.get("accepted") is True:
                     accepted += 1
         return accepted

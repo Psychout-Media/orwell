@@ -623,6 +623,9 @@ def hang_out_intent(player_msg) -> bool:
     return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
 
 
+# review of #2688: the ENGINE's own player-facing stop line for `event-due` (src/engine/hangOut.ts hangOutStopLine) is appended to the steer too; it must be reconciled with the FE template.
+_ENGINE_EVENT_DUE_STOP_LINE = "Production is calling everyone: the scheduled event is on now."
+_ENGINE_EVENT_NOT_DUE_STOP_LINE = "Production has not called the scheduled event yet: nobody is gathered and nothing has started."
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
@@ -633,7 +636,7 @@ def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
         from routes.briefing import build_briefing
         briefing = build_briefing(game_state)
     if steer and briefing.due is False:  # ORW-409: due-ness is the briefing's fact
-        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE)
+        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE).replace(_ENGINE_EVENT_DUE_STOP_LINE, _ENGINE_EVENT_NOT_DUE_STOP_LINE)
     return steer
 
 
@@ -2592,6 +2595,8 @@ def _dropped_unit_residue(unit: str):
     None when the imbalance sits mid-sentence and cannot be repaired."""
     body = unit.rstrip()
     closers = opener = ""
+    if body.count("\u2018") > body.count("\u2019"):
+        return None  # an opened curly single-quote span (U+2019 doubles as the apostrophe, so only an unmatched OPENER is certain): not repairable here, the whole-scene cut stays
     diff = body.count("\u201c") - body.count("\u201d")
     if diff > 0:
         opener += "\u201c" * diff
@@ -2893,7 +2898,8 @@ def _rule_subject(text: str, sent: str) -> bool:
     if not _RULE_SUBJECT_ANY_RE.search(sent):
         return False
     pos = (text or "").find(sent)
-    head = (text or "")[:max(pos, 0)]
+    # the sentence's own leading quote opens the speech too: `"The last houseguest standing is ..."` has no quote in the text before it
+    head = (text or "")[:max(pos, 0)] + re.match(r"^\W*", sent).group(0)
     return (head.count('"') % 2 == 1) or (head.count("\u201c") > head.count("\u201d"))
 
 
@@ -5490,8 +5496,8 @@ def _sentence_has_chyron_covered_claim(text: str) -> bool:
     # hypothetical (`_committed_claim`); a committed claim still hard-drops exactly as before.
     return bool(
         _committed_claim(_CLAIM_EVICTED_RE, text)
-        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
-        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text, cue_re=_CLAIM_RULE_CUE_RE)  # ORW-374: a host's RULES speech is not a crowning, on this rail too (found by the stream-level test)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, cue_re=_CLAIM_RULE_CUE_RE)
         or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)
         or _committed_claim(_CLAIM_TALLY_RE, text)
         or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)
@@ -6206,6 +6212,21 @@ def _sentence_has_unbacked_morning_claim(text: str) -> bool:
     return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
 
 
+async def _status_with_clock_label(user, status: dict) -> dict:
+    """`status` with the engine's `clockLabel` (and nothing else changed). `gameStatus` carries no `clockLabel` - only the `getGameState` projection does (review of #2735) - so when it is
+    missing the clock-bearing projection is read FRESH (`get_game_state`: test_orw166 forbids poll-cache reads in this module, which also serves the framing path). Fail-open: any hiccup returns `status` as it was."""
+    if not isinstance(status, dict) or status.get("clockLabel"):
+        return status
+    try:
+        from src import orwell_engine
+        gs = await orwell_engine.get_game_state(user=user)
+        if isinstance(gs, dict) and gs.get("clockLabel"):
+            return {**status, **{k: gs[k] for k in ("clockLabel", "asleep") if k in gs and (k not in status or k == "clockLabel")}}
+    except Exception as e:
+        logger.debug("[orwell] clock projection unavailable for user=%s: %s", user, _exc_detail(e))
+    return status
+
+
 async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
     """ORW-310 mid-stream screen: HOLD (return False) a sentence asserting the morning/next day arrived while
     the engine clock still reads evening/night/late-night; else EMIT (True). Stashes a next-turn re-ground when
@@ -6274,6 +6295,7 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
+        status = await _status_with_clock_label(user, status)
         lab = status.get("clockLabel")
         if not (_clock_is_before_house_wake(lab) or status.get("earlyMorning") is True):
             return True
@@ -6601,7 +6623,7 @@ _EC_ROOM_ANCHOR = (r"(?:\s+(?:are\s+)?(?:right\s+now\s+)?(?:in\s+here|here|in\s+
                    r"bathroom|hoh\s*room|storage\s*room|room)|together\s+in\s+(?:here|this\s+room)))")
 _EC_ROOM_US_RE = re.compile(r"\b(?:(there\s+(?:are|were|'s)\s+)|(?:the|all|just|only)\s+)" + _EC_NUM_RE + r"\s+of\s+us\b(" + _EC_ROOM_ANCHOR + r")?", re.IGNORECASE)
 _EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|need|needs|have\s+to|gotta|must|better|ought|going\s+to|gonna|might|may|'ll|’ll|against|vs|versus|\bto\b)\b", re.IGNORECASE)
-_EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
+_EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:are\s+)?(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
 _EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
 _EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
 _EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], defaults=((),))
@@ -6609,8 +6631,12 @@ _EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], de
 _EC_ASLEEP_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:of\s+(?:them|us|you|the\s+(?:other\s+)?(?:houseguests|others|people))\s+)?(?:\w+\s+){0,2}?(?:asleep|sleeping|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", re.IGNORECASE)
 _EC_EMPTY_WORD_RE = re.compile(r"\b(?:empty|deserted|vacant)\b(?!\s*-?\s*(?:handed|of)\b)|\b(?:nobody|no\s+one)(?:'s|’s|\s+is|\s+was)?\s+(?:in|there)\b", re.IGNORECASE)
 _EC_EMPTY_CUT_RE = re.compile(r"\bbut\b|\bwhile\b|\bwhereas\b|\bthough\b|\bexcept\b|\bonly\b|;", re.IGNORECASE)
+_EC_NEG_TAIL_RE = re.compile(r"(?:\bnot|n['’]t|\bno\s+longer|\bnever)\s+(?:\w+\s+)?$", re.IGNORECASE)  # "isn't empty", "not completely empty": not an empty claim
+_EC_CLAUSE_CUT_RE = re.compile(r",\s*(?:and\s+)?|\band\s+", re.IGNORECASE)
+_EC_COPULA_RE = re.compile(r"\b(?:is|are|was|were|sits|stands|sit|stand|waits|wait)\b", re.IGNORECASE)
 _EC_ROOM_WORDS = (("kitchen", "kitchen"), ("living room", "living-room"), ("great room", "living-room"), ("dining room", "dining-room"), ("back yard", "backyard"), ("backyard", "backyard"),
-                  ("yard", "backyard"), ("hallway", "hallway"))
+                  ("yard", "backyard"), ("hallway", "hallway"), ("lounge", "lounge"), ("bathroom", "bathroom"), ("hoh room", "hoh-room"),
+                  ("storage room", "storage-room"), ("diary room", "diary-room"))
 
 
 def _ec_rooms_named(segment: str) -> list:
@@ -6631,8 +6657,15 @@ def _empty_room_claims(text: str) -> list:
     for sentence in re.split(r"(?<=[.!?\n])", clean):
         for m in _EC_EMPTY_WORD_RE.finditer(sentence):
             lead = sentence[:m.start()]
+            if _EC_NEG_TAIL_RE.search(lead):
+                continue  # "the kitchen is not empty"
             cuts = list(_EC_EMPTY_CUT_RE.finditer(lead))
             seg = lead[cuts[-1].end():] if cuts else lead
+            # "Sam is in the kitchen, and the living room is empty": a comma/"and" that follows a clause with its own verb starts a new clause
+            for cm in reversed(list(_EC_CLAUSE_CUT_RE.finditer(seg))):
+                if _EC_COPULA_RE.search(seg[:cm.start()]):
+                    seg = seg[cm.end():]
+                    break
             rooms = _ec_rooms_named(seg)
             if not rooms:  # "an empty kitchen": the room right after the word
                 rooms = _ec_rooms_named(re.match(r"\s*(?:\w+\s+)?\w+(?:\s+room)?", sentence[m.end():]).group(0)) if re.match(r"\s*(?:\w+\s+)?\w+", sentence[m.end():]) else []
@@ -6657,7 +6690,13 @@ def _engine_count_claims(text: str) -> list:
         return out
     for m in _EC_ASLEEP_RE.finditer(text):
         n = _ec_num(m.group(1))
-        if n is not None and n >= 2:
+        if n is not None and n >= 1:  # "one houseguest is asleep" is a count too (checked as n <= the engine's asleep list)
+            if n == 1:
+                # a lone "one" is a count only as a whole number word naming sleepers: never "no one", "not one", "any/every/each one", "one by one", nor "one sleeping bag"
+                if re.search(r"\b(?:no|not|any|every|each|some|by)\s+$", text[:m.start(1)], re.IGNORECASE) or re.match(r"\s*by\s+one\b", text[m.end(1):], re.IGNORECASE):
+                    continue
+                if not re.search(r"\b(?:asleep|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", m.group(0), re.IGNORECASE):
+                    continue
             out.append(_EcClaim("asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
@@ -6678,7 +6717,7 @@ def _engine_count_claims(text: str) -> list:
         if n is None or n < 2:
             continue
         who = re.sub(r"\s+", " ", m.group("who").lower())
-        out.append(_EcClaim("house" if who == "of us" else "house-loose", n, m.group(0).strip()))
+        out.append(_EcClaim("house" if who in ("of us", "of you") else "house-loose", n, m.group(0).strip()))  # "of you" says the player is in the count too
     for m in _EC_VOTES_RE.finditer(text):
         nums = [x for x in (_ec_num(g) for g in m.groups() if g) if x is not None]
         if nums:
@@ -6703,7 +6742,7 @@ def _engine_counts_of(whereabouts) -> Optional[dict]:
             if isinstance(nb, dict) and nb.get("room"):
                 rooms[str(nb["room"])] = len(nb.get("present") or [])
         return {"room": c["room"], "others": c["others"], "house": c["house"],
-                "voters": v if isinstance(v, int) and not isinstance(v, bool) else None,
+                "voters": v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None,
                 "asleep": a if isinstance(a, int) and not isinstance(a, bool) and a >= 0 else None,
                 "rooms": rooms}
     except Exception:
