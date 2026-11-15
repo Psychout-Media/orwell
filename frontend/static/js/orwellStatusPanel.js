@@ -140,6 +140,18 @@ import { onNarrowChange } from './platform.js';
     return !!(st && !st.hoh && st.week === 1 && !st.finished);
   }
 
+  // ORW-363 (Ryne, playtest 11-15: "One of the wigits says the first HOH is tonight. But it's day 1. Isn't the first HOH comp on day 2?"): the pre-HOH line
+  // follows the engine's schedule instead of a fixed "tonight". Day 1 is the premiere, so the first HOH comp is TOMORROW; from Day 2 it is today. The time of day
+  // is the schedule's own phase for the HOH comp (`daySchedule.phase`, from the game state) when the engine reports it, else the ruled comp slot, the afternoon.
+  // Pure + Vault-free (public day number + public schedule), node-testable.
+  function preHohLabel(st) {
+    const gs = (st && st._state) || {};
+    const ds = gs.daySchedule;
+    const phase = (ds && ds.next === "hoh-competition" && typeof ds.phase === "string" && ds.phase) || "afternoon";
+    const day = Number.isInteger(st && st.dayNumber) ? st.dayNumber : (Number.isInteger(gs.dayNumber) ? gs.dayNumber : null);
+    return "First HOH: " + (day !== null && day >= 2 ? "this " : "tomorrow ") + phase;
+  }
+
   // M2-3: the premiere's NOT-yet-met ids (the unlit tiles). ORW-196: during the staged ENTRANCES the engine's `remaining` lists the not-yet-arrived houseguests as ANONYMOUS ordinal
   // placeholders (`unarrived:N`, no name), so they can't be matched to roster tiles by id. When the caller passes the roster (`rosterKeys`: [{id,name}]) and the projection carries `met`,
   // the unmet set is the roster minus the met houseguests (by id or name); otherwise (older payloads / no roster) it falls back to the `remaining` ids. Pure + node-testable; reads ONLY the
@@ -370,7 +382,7 @@ import { onNarrowChange } from './platform.js';
         <div class="os-ceremony" id="os-ceremony">
           <div class="os-you" id="os-you">You<span class="os-badge" id="os-you-badge" hidden></span><span class="os-rest" id="os-you-rest" hidden title="How rested you are — your own read"></span><span class="os-hint" id="os-you-hint" hidden></span></div>
           <button type="button" class="os-skip" id="os-skip" hidden title="Re-open the skip-or-keep-watching card. Skipping is one-way: you confirm it on the card.">Skip ahead to the finale</button>
-          <div class="os-prehoh" id="os-prehoh" hidden>First HOH tonight</div>
+          <div class="os-prehoh" id="os-prehoh" hidden>First HOH</div>
           <div id="os-board">
             <div class="os-row"><span class="os-k">HOH</span><span class="os-v" id="os-hoh">—</span></div>
             <div class="os-row"><span class="os-k">Noms</span><span class="os-v os-noms" id="os-noms">—</span></div>
@@ -568,13 +580,13 @@ import { onNarrowChange } from './platform.js';
         ? "used" + (veto.holder ? " · " + veto.holder.name : "")
         : (veto.holder ? veto.holder.name : "—");
     setText(el.querySelector("#os-veto"), vetoText);
-    // M2-3: pre-HOH board reframe — swap the three dead em-dash rows for a single "First HOH tonight"
+    // M2-3: pre-HOH board reframe — swap the three dead em-dash rows for a single "First HOH: tomorrow afternoon" (ORW-363: from the schedule)
     // line until the first HOH is crowned (the rows still exist + update underneath, just hidden).
     { const preHoh = isPreHoh(st);
       const boardEl = el.querySelector("#os-board");
       const preHohEl = el.querySelector("#os-prehoh");
       if (boardEl) boardEl.hidden = preHoh;
-      if (preHohEl) preHohEl.hidden = !preHoh; }
+      if (preHohEl) { preHohEl.hidden = !preHoh; if (preHoh) setText(preHohEl, preHohLabel(st)); } }
     announceDeltas(el, st, {
       hoh: name(st.hoh),
       noms: noms.length ? noms.join(", ") : "—",

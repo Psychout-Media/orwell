@@ -135,7 +135,8 @@ def test_tile_click_focuses_chat_never_replaces():
 
 def test_prehoh_reframe_copy_and_markup():
     src = _read(PANEL)
-    assert "First HOH tonight" in src
+    assert "First HOH tonight" not in src  # ORW-363: the line follows the schedule (Day 1 premiere -> the first HOH comp is tomorrow afternoon)
+    assert "preHohLabel(st)" in src
     assert 'id="os-prehoh"' in src
     assert 'id="os-board"' in src
     # the three em-dash rows still exist (they update underneath) — just hidden pre-HOH.
@@ -294,3 +295,24 @@ def test_the_strip_passes_the_roster_so_unarrived_tiles_dim():
     src = _read(PANEL)
     assert "premiereUnmetIds(prem, cards.filter((c) => !c.isPlayer)" in src
     assert "ALWAYS" not in _fn_body(src, "premiereUnmetIds")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_orw363_prehoh_line_follows_the_schedule_never_tonight_on_day_one():
+    """ORW-363 (Ryne, playtest 11-15: "it's day 1. Isn't the first HOH comp on day 2?"). Day 1 is the premiere: the first HOH comp is TOMORROW afternoon.
+    From Day 2 it is THIS afternoon. The time of day comes from the engine's own schedule when it reports one."""
+    src = _read(PANEL)
+    fn = _fn_body(src, "preHohLabel")
+    day1 = _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 1})')
+    assert day1 == "First HOH: tomorrow afternoon"
+    assert "tonight" not in day1
+    # The premiere often has no engine clock (no day number yet): still tomorrow.
+    assert _node_eval(fn, 'preHohLabel({"week": 1})') == "First HOH: tomorrow afternoon"
+    # Day 2 before the comp: today, at the schedule's phase.
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "hoh-competition", "phase": "afternoon", "due": false}}})') == "First HOH: this afternoon"
+    # The day number may only be on the game state.
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "_state": {"dayNumber": 2}})') == "First HOH: this afternoon"
+    # The phase is the engine's, never a fixed word (a schedule that set the comp for the evening would read "evening").
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "hoh-competition", "phase": "evening"}}})') == "First HOH: this evening"
+    # Another milestone's phase is never borrowed for the HOH line.
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "nominations", "phase": "evening"}}})') == "First HOH: this afternoon"
