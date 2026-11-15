@@ -8527,8 +8527,9 @@ async def note_player_message(client_msg_id, user) -> None:
         logger.info("noteMessage id=%s accepted=%s beatSeq=%s", _mid, _r.get("accepted"), _r.get("beatSeq"))  # ids only, no content
         _refresh_beat_seq(user, res if isinstance(res, dict) else {})
         # ORW-435: the ledger counts this write at the engine dispatch seam (orwell_engine._call), not here.
-    except Exception:
-        logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
+    except Exception as _e:
+        # A failed announce means the engine clock never hears this message (the premiere clock never starts, the in-game part of day never shows): visible at WARNING with the error class and text (no message content), still fail-soft.
+        logger.warning("[orwell] noteMessage failed (the engine clock did not hear this message): %s: %s", type(_e).__name__, _exc_detail(_e))
 
 
 async def apply_game_framing(
