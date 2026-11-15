@@ -190,6 +190,7 @@ def test_whole_stream_chunk_by_chunk_keeps_the_scene_and_balanced_quotes(_state)
             assert gsub not in raw, name  # persisted text equals what was shown
         for k in kept_bits:
             assert k in shown, (name, k)
+        assert raw == shown, name  # review of #2652: the persisted text equals the displayed text exactly, not only the dropped bits
         assert agent_loop.close_open_markup(shown) == ""
         assert shown.count('"') % 2 == 0, name
 

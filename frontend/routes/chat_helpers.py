@@ -5492,8 +5492,8 @@ def _sentence_has_chyron_covered_claim(text: str) -> bool:
     # hypothetical (`_committed_claim`); a committed claim still hard-drops exactly as before.
     return bool(
         _committed_claim(_CLAIM_EVICTED_RE, text)
-        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
-        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text, cue_re=_CLAIM_RULE_CUE_RE)  # ORW-374: a host's RULES speech is not a crowning, on this rail too (found by the stream-level test)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, cue_re=_CLAIM_RULE_CUE_RE)
         or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)
         or _committed_claim(_CLAIM_TALLY_RE, text)
         or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)
