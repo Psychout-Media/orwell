@@ -248,13 +248,13 @@ def test_real_roster_card_with_blank_biography_is_picked_up_by_backfill():
 # ---- ORW-437 review of #2729 ---------------------------------------------------------------------------------
 
 def test_possessive_openers_are_not_subjects_and_may_is_not_a_name():
-    npc = {"id": "n", "name": "Samir Nesbitt", "genderPresentation": "man"}
-    assert ca.story_name_codes("Nia's bakery closed. Nia's mother cried.", npc) == []
+    npc = {"id": "n", "name": "Nameb Surnamea", "genderPresentation": "man"}
+    assert ca.story_name_codes("Namea's bakery closed. Namea's mother cried.", npc) == []
     assert ca.story_name_codes("May be the quiet one. May be not.", npc) == []
 
 
 def test_a_wrong_full_name_subject_is_found_and_swapped_whole():
-    npc = {"id": "n", "name": "Samir Nesbitt", "genderPresentation": "man"}
-    bio = "Nia Smith grew up in Macon. Nia Smith fixes boats."
+    npc = {"id": "n", "name": "Nameb Surnamea", "genderPresentation": "man"}
+    bio = "Namea Smith grew up in Macon. Namea Smith fixes boats."
     assert "story-name" in ca.story_name_codes(bio, npc)
-    assert ca.repair_story_name(bio, npc) == "Samir grew up in Macon. Samir fixes boats."
+    assert ca.repair_story_name(bio, npc) == "Nameb grew up in Macon. Nameb fixes boats."
