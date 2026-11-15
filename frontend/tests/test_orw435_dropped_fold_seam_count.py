@@ -83,6 +83,17 @@ def test_a_refused_or_noop_answer_committed_nothing(_led, monkeypatch, reply):
     assert ledger._PENDING_FE_WRITES.get("player", 0) == 0
 
 
+@pytest.mark.parametrize("reply", [{"accepted": True, "duplicate": True}, {"beatSeq": 7, "replay": True},
+                                   {"beatSeq": 7, "replayed": True}])
+def test_a_duplicate_or_replayed_answer_of_an_idempotent_writer_is_not_counted_again(_led, monkeypatch, reply):
+    _seam(monkeypatch, {"ok": True, "beatSeq": 7})
+    _call("recordInteraction")
+    assert ledger._PENDING_FE_WRITES.get("player") == 1
+    _seam(monkeypatch, reply)
+    _call("recordInteraction")
+    assert ledger._PENDING_FE_WRITES.get("player") == 1  # unchanged by the repeat
+
+
 def test_a_failed_write_is_not_counted(_led, monkeypatch):
     async def boom(name, args=None, user=None, timeout=None):
         raise oe.EngineToolError("refused", status=409)
@@ -227,13 +238,17 @@ def test_a_gap_with_no_fe_write_at_all_still_fires(_led):
     assert len(_fires()) == 1
 
 
+# Methods that commit (this.persist) only in the pre-game prewarm lifecycle and backgroundPersist in a running season.
+MIXED_BY_LIFECYCLE = frozenset({"recordCastIdentity"})
+
+
 # Drift guard: every engine `record*` write that persists only via backgroundPersist (no beatSeq bump) must be listed.
 def test_non_bumping_list_matches_the_engine_source():
     ts = Path(__file__).resolve().parents[2] / "src" / "adapters" / "engine" / "GameSessionAdapter.ts"
     if not ts.exists():
         pytest.skip("engine source not present")
     lines = ts.read_text().split("\n")
-    found = {}
+    found, texts = {}, {}
     for i, l in enumerate(lines):
         m = re.match(r"  (record[A-Za-z]+)\(", l)
         if not m:
@@ -246,8 +261,18 @@ def test_non_bumping_list_matches_the_engine_source():
             if started and depth <= 0:
                 break
         text = "\n".join(body)
+        texts[m[1]] = text
         found[m[1]] = ("backgroundPersist" in text, bool(re.search(r"this\.(persist|onPersist)", text)))
     for name, (bg, committing) in found.items():
+        if bg and committing:
+            # A method that commits on one path and background-persists on another is mixed. It may only stay in
+            # NON_BUMPING_WRITES when its commit is the pre-game prewarm lifecycle (no turn-time beat to count) and the
+            # running-season path is the background one; an unknown mixed method fails here (review of #2743).
+            assert name in MIXED_BY_LIFECYCLE, f"{name} both commits and backgroundPersists: classify it by lifecycle in MIXED_BY_LIFECYCLE"
+            assert re.search(r"if \(ctx\.prewarm\) this\.persist\(\);\s*else this\.backgroundPersist\(\);", texts[name]), \
+                f"{name} is no longer 'prewarm commits, running season backgroundPersists'"
+            assert name in ledger.NON_BUMPING_WRITES, f"{name}'s running-season path never bumps, so it belongs in NON_BUMPING_WRITES"
+            continue
         if bg and not committing:
             assert name in ledger.NON_BUMPING_WRITES, f"{name} only backgroundPersists (no beatSeq bump) - add it to NON_BUMPING_WRITES"
         if committing and not bg:
