@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
           # Full history: the diff base (ci/resolve-base.sh) is the PR base sha, the merge_group base_sha or the push `before`, all of which must be local.
           fetch-depth: 0
-      - name: CI tier (ORW-413: always the full suite, drafts included)
+      - name: CI tier (ORW-413, always the full suite, drafts included)
         id: tier
         run: echo "full=true" >> "$GITHUB_OUTPUT"
       - name: detect changed paths

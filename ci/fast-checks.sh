@@ -4,6 +4,7 @@
 # Run it before you push: every failure it can report would otherwise cost a full CI round.
 #
 # What is in it (all pure source checks, no browser, no game simulation; each also runs again in its full lane, nothing is removed from there):
+#   0. every workflow and composite-action file parses as YAML (ORW-413: a colon in a step name made ci.yml unparseable and the PR got no checks)
 #   1. typecheck (tsc --noEmit)
 #   2. the engine guard tests: the CI wiring pins (gate logic, path filter, shard tables, flaky rule), the Vault-Wall dependency test, the
 #      BDD word-scan helpers and the player-projection ratchet
@@ -22,6 +23,12 @@ run() { "$@" || { echo "::error::ci:fast step failed: $*"; fail=1; }; }
 
 PY="$PWD/frontend/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
+
+step "workflow and action files parse as YAML (a workflow that does not parse runs NO job, so the PR shows no checks at all)"
+run node -e '
+const Y = require("yaml"); const fs = require("fs"); let bad = 0;
+for (const f of process.argv.slice(1)) { try { Y.parse(fs.readFileSync(f, "utf8"), { strict: true }); if (Y.parseDocument(fs.readFileSync(f, "utf8")).errors.length) throw new Error("yaml errors"); } catch (e) { console.error("::error file=" + f + "::" + String(e.message).split("\n")[0]); bad = 1; } }
+process.exit(bad);' $(git ls-files '.github/workflows/*.yml' '.github/actions/*/action.yml')
 
 step "typecheck"
 run npx tsc --noEmit
