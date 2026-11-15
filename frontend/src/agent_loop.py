@@ -5680,11 +5680,12 @@ _GAME_LEAK_START_RE = re.compile(
 )
 
 
-def _split_complete_sentences(buf: str):
+def _split_complete_sentences(buf: str, release_number_dot: bool = False):
     """Split a streaming buffer into (complete_prefix, remainder) at the LAST sentence boundary —
     so we only ever judge whole sentences, never a half-streamed one. A newline also ends a unit."""
     last = -1
-    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE) or re.search(r"(?<![\d.])\d{1,2}\.$", buf))  # ORW-455: also a bare "9." (the "15am" of "9.15am" is in the next chunk)
+    # ORW-455: also a bare "9." (the "15am" of "9.15am" is in the next chunk) - unless `release_number_dot`: the stream is being cut at a tool-call opener, so nothing more can follow and "He was 9." is a finished sentence
+    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE) or (not release_number_dot and re.search(r"(?<![\d.])\d{1,2}\.$", buf)))
     for m in re.finditer(r"[.!?](?=\s|$)|\n", buf):
         # ORW-437: a buffer that ENDS at "3 a." / "9 p." is mid-time (the "m." is in the next chunk): that dot is not a boundary yet, or the two halves were judged as separate sentences
         # (the clock check never saw "3 a.m." and the stored-text mirror cut between them). The round's flush resolves it if nothing follows.
@@ -5904,13 +5905,20 @@ _CLOSER_OPENERS = {"'": "'\u2018", "\u2019": "'\u2018", '"': '"\u201c', "\u201d"
 _LEAD_CLOSER_RE = re.compile(r"^(\s*)(['\"\u2019\u201d)\]]+)(?=\s)")
 
 
+def _has_opener_for(closer: str, dropped: str) -> bool:
+    """Does `dropped` contain an OPENING quote/bracket for `closer`? A single quote counts only when it is not inside a word ("It's" is a contraction, not an opener)."""
+    if closer in ("'", "\u2019"):
+        return re.search(r"(?<!\w)['\u2018]", dropped) is not None
+    return any(o in dropped for o in _CLOSER_OPENERS.get(closer, ""))
+
+
 def _strip_orphan_closer(part: str, dropped: str) -> str:
     """ORW-455: `dropped` (the part before this one) was removed. If it OPENED a quote or bracket that this part starts by closing ("'It was 3 a.m." | "' You nod."), the leading closer is an orphan: remove it
     (`_mirror_wall_drop` reads the same edit, see `_lead_closer_stripped`). Otherwise the part is returned unchanged."""
     m = _LEAD_CLOSER_RE.match(part)
     if not m:
         return part
-    if not all(any(o in dropped for o in _CLOSER_OPENERS.get(c, "")) for c in set(m.group(2))):
+    if not all(_has_opener_for(c, dropped) for c in set(m.group(2))):
         return part
     return m.group(1) + part[m.end():]
 
@@ -9294,7 +9302,7 @@ async def _stream_agent_loop_impl(
                             if not _visible_halted:
                                 _game_buf += data["delta"]
                                 _visible_emitted_len = len(round_response)
-                            _complete, _game_buf = _split_complete_sentences(_game_buf)
+                            _complete, _game_buf = _split_complete_sentences(_game_buf, release_number_dot=_opener_halt)
                             if _complete:
                                 _clean = _scrub_game_leak(_complete)
                                 # T0-5: the inline-planning/debugger-monologue scrub, gated on this

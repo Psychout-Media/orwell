@@ -103,3 +103,30 @@ def test_only_the_plural_closers_are_cut_never_an_opener_or_a_singular_closer():
     assert cut(raw, raw) == (raw, raw)
     rr, before = cut("Role A nods. </tool_calls> Role B waits.", "Role A nods. </tool_calls> Role B waits.")
     assert rr == before == "Role A nods. Role B waits."
+
+
+TOOL = '<tool_call><invoke name="bash"><parameter name="command">echo hi</parameter></invoke></tool_call>'
+
+
+@pytest.mark.parametrize("last", ["He was 9.", "It is Day 2."])
+@pytest.mark.parametrize("split", ["chunks", "one"])
+def test_a_held_number_dot_sentence_is_shown_and_stored_when_a_tool_call_follows(monkeypatch, last, split):
+    """review of #2810: the bare "9." hold must not cut a COMPLETE sentence at an opener halt (main kept it). The round's tool call still runs once."""
+    deltas = [T3 + "The house settles. " + last, TOOL] if split == "chunks" else [T3 + "The house settles. " + last + TOOL]
+    extra = {}
+    emitted, _c, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": deltas}, {"deltas": ["The morning moves on."]}], redo="X", flag="0", extra=extra)
+    expected = T3S + " The house settles. " + last
+    assert emitted.split("The morning moves on.")[0].strip() == stored[0] == expected, (emitted, stored)
+    assert extra["runs"] == ["bash"]
+
+
+def test_an_unfinished_dotted_time_stem_before_a_tool_call_is_still_not_shown_or_stored(monkeypatch):
+    emitted, _c, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [T3 + "He woke at 3 a.", TOOL]}, {"deltas": ["The morning moves on."]}], redo="X", flag="0")
+    assert emitted.split("The morning moves on.")[0].strip() == stored[0] == T3S
+
+
+def test_a_contraction_in_the_dropped_sentence_is_not_a_quote_opener(monkeypatch):
+    """review of #2810: "It's" is not an opening quote, so the real closing quote after the dropped sentence stays (main kept `'Hold on.' You nod.`)."""
+    shown, stored = _round(monkeypatch, ["Sam whispers, 'Hold on. It's 3 a.m.' You nod. " + T3])
+    expected = "Sam whispers, 'Hold on.' You nod. " + T3S
+    assert shown == stored == expected, (shown, stored)
