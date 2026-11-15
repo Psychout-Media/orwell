@@ -1261,6 +1261,9 @@ export function generateCastDeepLayer(seed: number, npcs: readonly Houseguest[])
   // ORW-381: one casting type per houseguest off its OWN side stream (no existing stream moves), by age only.
   const castingTypes = dealCastingTypes(
     new SeededRandom(hashSeed(`${seed}:casting-type`)), npcs.length, npcs.map((n) => n.character.age),
+    // ORW-432: the type is dealt AFTER archetype, strategy style and demeanor exist (the factory sets them first),
+    // from the types compatible with them. All three are public card fields; no stat is read here.
+    npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
   );
   let ix = 0;
   for (const hg of npcs) {

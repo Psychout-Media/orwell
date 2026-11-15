@@ -1,9 +1,12 @@
 /**
  * ORW-381: the casting TYPE list. Each houseguest is cast as one type at character creation: how they read
  * on camera. PRESENTATION ONLY: no mechanic, outcome, stat or hidden field reads it, and it is dealt without
- * looking at any of them. `label` is gender-neutral; `read` is five to ten camera-visible words (never a
+ * looking at any stat or hidden field (ORW-432: it is dealt from the types compatible with the houseguest's
+ * public archetype, demeanor and strategy style, see traitConsistency.ts). `label` is gender-neutral; `read` is five to ten camera-visible words (never a
  * motive, secret or number). `minAge` / `maxAge` bound who may be cast as the type. Public and Vault-free.
  */
+import { castingCompatible, castingConflict, type FitTraits } from "./traitConsistency";
+
 export interface CastingType {
   readonly id: string;
   readonly label: string;
@@ -47,27 +50,47 @@ export function castingTypeCard(t: { label: string; read: string }): CastingType
   return { label: t.label, read: t.read };
 }
 
+/** Counts a deal reports (ORW-432): how many slots found no unused compatible type and took the least-conflicting one. */
+export interface CastingDealReport { fallbacks: number }
+
 /**
- * Deal one type per houseguest: exactly ONE `rng.int` each, no rejection loop. Each draw maps onto the types
- * still unused and allowed for that age; if none is left for that age it takes from all unused; past the
- * list size it reuses (unreachable in a 15-cast). Pure of every stat, secret and Vault field: only the age
- * band and the rng stream choose.
+ * Deal one type per houseguest: exactly ONE `rng.int` each, no rejection loop, drawn up front in slot order
+ * (the stream advances exactly as before). Each draw maps onto the types still unused, allowed for that age
+ * and (ORW-432) COMPATIBLE with that houseguest's archetype, demeanor and strategy style by the table in
+ * `traitConsistency.ts`. Slots with the fewest compatible types choose first, so a hard-to-suit houseguest is
+ * not left with what the others did not want. When no unused compatible type is left the slot takes the unused
+ * type with the fewest conflicts (counted in `report.fallbacks`); past the list size it reuses (unreachable in
+ * a 15-cast). Without `traits` every type is compatible and this is the ORW-381 deal. Pure of every stat,
+ * secret and Vault field: only age, the three public traits and the rng stream choose.
  */
 export function dealCastingTypes(
   rng: { int(maxExclusive: number): number }, count: number, ages?: readonly number[],
+  traits?: readonly FitTraits[], report?: CastingDealReport,
 ): CastingType[] {
+  const draws = Array.from({ length: count }, () => rng.int(1_000_000));
+  const ageOk = (t: CastingType, age: number | undefined): boolean =>
+    age === undefined || ((t.minAge === undefined || age >= t.minAge) && (t.maxAge === undefined || age <= t.maxAge));
+  const fits = (t: CastingType, i: number): boolean => traits?.[i] === undefined || castingCompatible(t.id, traits[i]!);
+  const room = (i: number): number => CASTING_TYPES.filter((t) => ageOk(t, ages?.[i]) && fits(t, i)).length;
+  const order = Array.from({ length: count }, (_, i) => i);
+  if (traits) order.sort((a, b) => room(a) - room(b) || a - b);
   const used = new Set<string>();
-  const out: CastingType[] = [];
-  for (let i = 0; i < count; i++) {
-    const r = rng.int(1_000_000);
-    const age = ages?.[i];
+  const out: CastingType[] = new Array<CastingType>(count);
+  for (const i of order) {
     const unused = CASTING_TYPES.filter((t) => !used.has(t.id));
     const pool = unused.length ? unused : CASTING_TYPES;
-    const allowed = pool.filter((t) => age === undefined || ((t.minAge === undefined || age >= t.minAge) && (t.maxAge === undefined || age <= t.maxAge)));
-    const from = allowed.length ? allowed : pool;
-    const t = from[Math.floor((r / 1_000_000) * from.length) % from.length]!;
+    const allowed = pool.filter((t) => ageOk(t, ages?.[i]));
+    const base = allowed.length ? allowed : pool;
+    let from = base.filter((t) => fits(t, i));
+    if (!from.length) {
+      const conflict = (t: CastingType): number => castingConflict(t.id, traits![i]!);
+      const least = Math.min(...base.map(conflict));
+      from = base.filter((t) => conflict(t) === least);
+      if (report) report.fallbacks++;
+    }
+    const t = from[Math.floor((draws[i]! / 1_000_000) * from.length) % from.length]!;
     used.add(t.id);
-    out.push(t);
+    out[i] = t;
   }
   return out;
 }

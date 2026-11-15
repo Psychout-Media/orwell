@@ -18,6 +18,7 @@
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { VoiceProfile } from "../domain/voiceProfile";
 import { clamp01Raw as clamp01 } from "../domain/num";
+import { VOICE_CONFLICTS, VOICE_TEMPER_CONFLICTS, VOICE_LINE_TEMPLATES, tempersOf } from "../domain/traitConsistency";
 
 export type { VoiceProfile } from "../domain/voiceProfile";
 
@@ -118,19 +119,77 @@ function pickDial(rng: RandomnessSource, dial: Dial, lean?: string): string {
   return pick(rng, VOICE_DIALS[dial]);
 }
 
+/** ORW-432: no stress tell may sit on more than this many cards of one cast (five tells, so 15 cards fill exactly). */
+export const MAX_PER_STRESS_TELL = 3;
+
+/** Cast-wide context for a voice deal (ORW-432). Every field optional: a lone call behaves as before. */
+export interface VoiceDealContext {
+  /** A SEPARATE side stream used only to re-pick a dial the table forbids; the main voice stream never moves. */
+  fixRng: RandomnessSource;
+  /** Stress tells already dealt this cast (mutated): the tell is dealt without replacement past the cap. */
+  tellCounts: Map<string, number>;
+  /** This houseguest's demeanor, so the voice never contradicts how they come across. */
+  demeanor?: string;
+}
+
+type Dials = Record<Dial, string>;
+
+/** The first rule the dials break: the dial to re-pick, and the other side to re-pick instead if the first cannot move. */
+function brokenDial(d: Dials, demeanor?: string): { dial: Dial; other?: Dial } | undefined {
+  for (const r of VOICE_CONFLICTS) {
+    if (d[r.a.dial as Dial] === r.a.value && d[r.b.dial as Dial] === r.b.value) {
+      const [first, second] = r.change === "a" ? [r.a.dial, r.b.dial] : [r.b.dial, r.a.dial];
+      return { dial: first as Dial, other: second as Dial };
+    }
+  }
+  const tempers = tempersOf(demeanor);
+  if (!tempers.includes("loud")) {
+    for (const r of VOICE_TEMPER_CONFLICTS) if (tempers.includes(r.temper) && d[r.side.dial as Dial] === r.side.value) return { dial: r.side.dial as Dial };
+  }
+  return undefined;
+}
+
+/**
+ * ORW-432: make the dealt dials coexist and spread the stress tell. Draws NOTHING from the main voice stream
+ * (the lexicon, signature and every other houseguest's dials stay exactly as dealt); re-picks come off `fixRng`.
+ */
+function reconcileDials(d: Dials, ctx: VoiceDealContext): void {
+  const tellOk = (t: string): boolean => (ctx.tellCounts.get(t) ?? 0) < MAX_PER_STRESS_TELL;
+  const allowed = (dial: Dial, v: string): boolean => dial !== "stressTell" || tellOk(v);
+  const repick = (dial: Dial): boolean => {
+    const options = VOICE_DIALS[dial].filter((v) => v !== d[dial] && allowed(dial, v) && brokenDial({ ...d, [dial]: v }, ctx.demeanor)?.dial !== dial);
+    if (!options.length) return false;
+    d[dial] = pick(ctx.fixRng, options);
+    return true;
+  };
+  if (!tellOk(d.stressTell)) {
+    const open = VOICE_DIALS.stressTell.filter((t) => tellOk(t) && brokenDial({ ...d, stressTell: t }, ctx.demeanor) === undefined);
+    d.stressTell = pick(ctx.fixRng, open.length ? open : VOICE_DIALS.stressTell.filter(tellOk));
+  }
+  for (let guard = 0; guard < 8; guard++) {
+    const broken = brokenDial(d, ctx.demeanor);
+    if (broken === undefined) break;
+    if (!repick(broken.dial) && !(broken.other !== undefined && repick(broken.other))) break;
+  }
+  ctx.tellCounts.set(d.stressTell, (ctx.tellCounts.get(d.stressTell) ?? 0) + 1);
+}
+
 /**
  * Generate a houseguest's voice fingerprint — seeded + archetype-biased, independently varied. The
  * draw count is FIXED (one roll per dial + signature + two lexicon picks) regardless of archetype, so
- * a caller's seeded stream advances identically for every houseguest.
+ * a caller's seeded stream advances identically for every houseguest. With a `ctx` (ORW-432) the dials are
+ * then made to coexist and the stress tell spread across the cast, off the context's own side stream.
  */
-export function generateVoice(rng: RandomnessSource, archetype: string): VoiceProfile {
+export function generateVoice(rng: RandomnessSource, archetype: string, ctx?: VoiceDealContext): VoiceProfile {
   const lean = VOICE_ARCHETYPE_BIAS[archetype] ?? {};
-  const register = pickDial(rng, "register", lean.register);
-  const rhythm = pickDial(rng, "rhythm", lean.rhythm);
-  const energy = pickDial(rng, "energy", lean.energy);
-  const directness = pickDial(rng, "directness", lean.directness);
-  const humor = pickDial(rng, "humor", lean.humor);
-  const stressTell = pickDial(rng, "stressTell", lean.stressTell);
+  const dials: Dials = {
+    register: pickDial(rng, "register", lean.register),
+    rhythm: pickDial(rng, "rhythm", lean.rhythm),
+    energy: pickDial(rng, "energy", lean.energy),
+    directness: pickDial(rng, "directness", lean.directness),
+    humor: pickDial(rng, "humor", lean.humor),
+    stressTell: pickDial(rng, "stressTell", lean.stressTell),
+  };
   // 0090: draw the signature + fillers from the archetype's OWN pool when it has one (fallback = the flat
   // pool, byte-identical for an un-pooled archetype). Same fixed draw count — one signature + two fillers.
   const signature = pick(rng, VOICE_ARCHETYPE_SIGNATURES[archetype] ?? VOICE_SIGNATURES);
@@ -138,7 +197,8 @@ export function generateVoice(rng: RandomnessSource, archetype: string): VoicePr
   const a = pick(rng, lexPool);
   const b = pick(rng, lexPool);
   const lexicon = a === b ? [a] : [a, b];
-  return { register, rhythm, energy, directness, humor, stressTell, signature, lexicon };
+  if (ctx) reconcileDials(dials, ctx);
+  return { ...dials, signature, lexicon };
 }
 
 /**
@@ -166,7 +226,16 @@ export const HUMOR_WORDS: Readonly<Record<string, string>> = { none: "no" };
  */
 export function voiceFingerprint(voice: VoiceProfile): string {
   const humor = Object.hasOwn(HUMOR_WORDS, voice.humor) ? HUMOR_WORDS[voice.humor] : voice.humor;
-  return `talks in a ${voice.register}, ${voice.rhythm}, ${voice.directness} voice — ${voice.energy}, ${humor} humor; under pressure ${voice.stressTell}`;
+  const slots: Record<string, string> = {
+    register: voice.register, rhythm: voice.rhythm, energy: voice.energy, directness: voice.directness,
+    humor: humor ?? voice.humor, stressTell: voice.stressTell,
+  };
+  // ORW-432: one of several sentence shapes, chosen by a stable hash of the dials (voice never drifts, so
+  // neither does its shape), so a cast of fifteen does not read as one form.
+  let h = 0;
+  for (const ch of `${voice.register}|${voice.rhythm}|${voice.energy}|${voice.directness}|${voice.humor}|${voice.stressTell}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const template = VOICE_LINE_TEMPLATES[h % VOICE_LINE_TEMPLATES.length]!;
+  return template.replace(/\{(\w+)\}/g, (_m, key: string) => slots[key] ?? "");
 }
 
 const mean = (xs: readonly number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0.5);
