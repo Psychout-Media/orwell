@@ -23,6 +23,7 @@ def test_the_belt_list_is_the_engines_list():
     assert len(al._HOUSE_ROOMS) == 13
 
 
+@pytest.mark.skipif(not os.path.exists(ENGINE_TS), reason="a frontend-only checkout has no engine source to compare the fallback with")  # review of #2751; CI checks out the whole repo and runs it
 def test_the_vendored_fallback_has_not_drifted_from_the_engine():
     assert list(hr._FALLBACK) == _engine_rooms()
 
