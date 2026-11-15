@@ -713,6 +713,20 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
     return ""
 
 
+def _player_own_words(messages) -> str:
+    """ORW-476: the player's own typed words across the conversation (user turns that are not hidden production cues)."""
+    parts = []
+    for msg in messages or []:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+        if isinstance(content, str) and content.strip() and not _is_production_cue(content):
+            parts.append(content)
+    return "\n".join(parts)[-20000:]
+
+
 def _recent_context_for_retrieval(messages: List[Dict], max_user: int = 3, max_chars: int = 600) -> str:
     """Build the tool-retrieval query from the last few USER turns, not just
     the latest one.
@@ -7874,6 +7888,12 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _ptt.set(_extract_last_user_message(_msgs or []) or "")
     except Exception:
         _ptt = None
+    _pow = None
+    try:  # ORW-476: every word the player typed this conversation (no production cues), for the player-gender check
+        from src.tool_implementations import PLAYER_OWN_WORDS as _pow
+        _pow.set(_player_own_words(_msgs))
+    except Exception:
+        _pow = None
     _mut0 = None
     try:
         from src import orwell_engine as _oe_mut
@@ -7904,6 +7924,8 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
             _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
             _ptt.set("")
+        if _pow is not None:
+            _pow.set("")
         try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
             from src import belt_state_persist
             belt_state_persist.save_soon()

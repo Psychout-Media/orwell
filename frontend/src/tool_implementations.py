@@ -4832,7 +4832,7 @@ async def do_create_character(
             motivation=args.get("motivation"),
             private_strategy=args.get("privateStrategy"),
             interview_notes=args.get("interviewNotes"),
-            gender_presentation=args.get("genderPresentation"),
+            gender_presentation=gate_player_gender(args).get("genderPresentation"),
             seed=args.get("seed"),
             # The ONE sanctioned player-channel restart door (D1/R1): a confirmed play-again over a
             # finished/abandoned season delegates through the engine's registry.resetUser hinge.
@@ -5241,7 +5241,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
-        res = await orwell_engine.update_casting(args, user=owner)
+        res = await orwell_engine.update_casting(gate_player_gender(args), user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
@@ -5825,6 +5825,61 @@ def _parse_secret_lever(raw) -> Optional[Dict]:
 import contextvars as _cv
 
 PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_text", default="")
+
+# ORW-476: ALL of the player's own typed words this conversation (not production cues), so a gender the model
+# files with updateCasting / createCharacter can be checked against what the player actually said.
+PLAYER_OWN_WORDS: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_own_words", default="")
+
+_GENDER_KEYS = ("genderpresentation", "gender_presentation", "gender", "pronouns")
+_GENDER_PAIR_RE = re.compile(r"\b(he|she|they)\s*(?:/|\bor\b|\band\b)\s*(him|her|them)\b", re.I)
+_GENDER_SELF_RE = re.compile(
+    r"\b(?:i\s*(?:am|'m|\u2019m)|im|as\s+an?|identify\s+as|i\s+was\s+born\s+an?)\s+(?:an?\s+)?(?:[\w-]+\s+){0,2}?"
+    r"(man|male|guy|dude|boy|gentleman|woman|female|girl|lady|gal|non-?\s?binary|enby|genderqueer)\b", re.I)
+_GENDER_PRONOUN_STMT_RE = re.compile(r"\b(?:my\s+pronouns?\s+(?:are|is)|pronouns?\s*[:=]|use\s+(he|she|they)\b)", re.I)
+
+
+def player_stated_genders(words: str) -> set:
+    """ORW-476: the genders the player STATED in their own words ("I'm a woman", "he/him", "my pronouns are they/them").
+    Never inferred from a name. Empty set = the player has stated none."""
+    out: set = set()
+    text = words or ""
+    for m in _GENDER_PAIR_RE.finditer(text):
+        out.add({"he": "man", "she": "woman", "they": "nonbinary"}[m.group(1).lower()])
+    for m in _GENDER_SELF_RE.finditer(text):
+        t = re.sub(r"[\s-]+", "", m.group(1).lower())
+        if t in ("man", "male", "guy", "dude", "boy", "gentleman"):
+            out.add("man")
+        elif t in ("woman", "female", "girl", "lady", "gal"):
+            out.add("woman")
+        else:
+            out.add("nonbinary")
+    for m in _GENDER_PRONOUN_STMT_RE.finditer(text):
+        if m.group(1):
+            out.add({"he": "man", "she": "woman", "they": "nonbinary"}[m.group(1).lower()])
+    if re.search(r"\bmy\s+pronouns?\s+(?:are|is)\s+(?:he|him)\b", text, re.I):
+        out.add("man")
+    if re.search(r"\bmy\s+pronouns?\s+(?:are|is)\s+(?:she|her)\b", text, re.I):
+        out.add("woman")
+    if re.search(r"\bmy\s+pronouns?\s+(?:are|is)\s+(?:they|them)\b", text, re.I):
+        out.add("nonbinary")
+    return out
+
+
+def gate_player_gender(args: dict) -> dict:
+    """ORW-476: a model-filed player gender (genderPresentation, or its aliases gender / pronouns) is kept ONLY when the
+    player's own words state that gender. Anything else (a guess from the name, a default) is dropped here, before it
+    reaches the engine, so the player stays unset and the narrator keeps ORW-444's "unstated" line. Returns a new dict."""
+    out = dict(args or {})
+    stated = player_stated_genders(PLAYER_OWN_WORDS.get() or PLAYER_TURN_TEXT.get())
+    for k in list(out):
+        if str(k).lower() not in _GENDER_KEYS:
+            continue
+        v = str(out[k] or "").strip().lower().replace(" ", "")
+        v = {"nonbinary": "nonbinary", "non-binary": "nonbinary"}.get(v, v)
+        if v not in stated:
+            logger.info("[orwell] ORW-476: dropped a player genderPresentation the player never stated")
+            del out[k]
+    return out
 
 _DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"
 _DEAL_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
