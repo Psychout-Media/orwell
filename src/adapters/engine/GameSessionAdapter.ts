@@ -223,6 +223,7 @@ import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physi
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
+import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
@@ -261,6 +262,7 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { recohereCastingTypes } from "../../domain/castingTypes";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
@@ -3580,6 +3582,7 @@ export class GameSessionAdapter implements GameSession {
     // #1067/R-BND discipline) is the correct one here too. Non-degradation is intact: once the season
     // starts, every commit checkpoints against the authored baseline as before. On a STANDALONE adapter
     // (tests, the 0065 next-season scratch) `backgroundPersist` falls back to `onPersist` — byte-identical.
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, this.prewarm!.seed); // ORW-432: no-op unless a trait changed
     this.backgroundPersist();
 
     return { accepted: true, publicFields: [...publicFields], hiddenFields: [...hiddenFields], reason: "authored profile sealed (live)" };
@@ -3707,6 +3710,7 @@ export class GameSessionAdapter implements GameSession {
     // must persist DURABLY without a beatSeq bump or the integrity checkpoint — route it through
     // `backgroundPersist` (which re-seeds the non-degradation baseline) just like the profile write-back,
     // rather than relying on an unrelated later commit (which would refuse the skinTone change as degradation).
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, ctx.seed); // ORW-432: no-op unless a trait changed
     if (ctx.prewarm) this.persist();
     else this.backgroundPersist();
 
@@ -3794,6 +3798,7 @@ export class GameSessionAdapter implements GameSession {
     // converges; a name that already coheres — every UNISEX name (coherent with any presentation) and every
     // nonbinary pin — is left untouched, so the deterministic floor cast is a byte-identical no-op.
     this.cohereGenesisNames(cast);
+    this.recohereCastingTypes(cast.npcs, cast.seed); // ORW-432: genesis may have replaced archetype/demeanor
 
     // The validated tie graph → stored for `seedSeededRelationships` to prefer over the floor draw at
     // createCharacter (where the move-in edges exist, so TIE_AFFINITY_BIAS folds + the ties seal). The
@@ -6641,6 +6646,7 @@ export class GameSessionAdapter implements GameSession {
     // `startNewGame` just regenerated PLUS the authoring, so the seeded competition/vote calibration is
     // unchanged; only the authored prose/secrets differ. The cast is consumed — clear the holding store.
     if (adopt) this.house = { player: this.house.player, npcs: adopt.npcs };
+    if (adopt) this.recohereCastingTypes(this.house.npcs, seed); // ORW-432: the final pass, before the cast can be shown
     this.intake = emptyIntake(); // the interview is over — its material lives on the player now
     this.week = 1;
     this.phase = "premiere";
@@ -7372,6 +7378,25 @@ export class GameSessionAdapter implements GameSession {
       const v = c[k];
       if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
+  }
+
+  /**
+   * ORW-432: after genesis, identity or authoring changed a houseguest's archetype, demeanor or strategy style, re-check
+   * each casting type against the final traits and re-pick the ones that no longer fit (unused compatible types, else
+   * least conflict) off the seeded `${seed}:casting-type` stream. Pre-game only (the type is first shown once the
+   * season exists, so no visible re-pick); a no-op for a cast that already fits. Public traits only.
+   */
+  private recohereCastingTypes(npcs: Houseguest[], seed: number): void {
+    const { types } = recohereCastingTypes(
+      new SeededRandom(hashSeed(`${seed}:casting-type`)),
+      npcs.map((n) => n.character.castingType),
+      npcs.map((n) => n.character.age),
+      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+    );
+    npcs.forEach((n, i) => {
+      const t = types[i]!;
+      if (n.character.castingType?.id !== t.id) n.character.castingType = { id: t.id, label: t.label, read: t.read };
+    });
   }
 
   private seedDeepProfiles(seed: number): void {

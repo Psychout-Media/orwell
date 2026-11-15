@@ -94,3 +94,72 @@ export function dealCastingTypes(
   }
   return out;
 }
+
+/**
+ * ORW-432: re-check a cast's casting types after a later step (genesis, identity, authoring) changed a houseguest's
+ * archetype, demeanor or strategy style. Houseguests whose type still fits keep it. The rest are re-picked from the
+ * unused compatible types (else the least-conflicting unused one), using the SAME `${seed}:casting-type` draws as the
+ * original deal (one `rng.int` per slot, in slot order), so the same final traits and seed give the same result on
+ * replay. Idempotent: a cast that already fits comes back unchanged. Returns the new type per slot (the old one
+ * where it was kept) and how many slots changed.
+ */
+export function recohereCastingTypes(
+  rng: { int(maxExclusive: number): number }, current: readonly (CastingType | undefined)[],
+  ages: readonly number[] | undefined, traits: readonly FitTraits[], report?: CastingDealReport,
+): { types: CastingType[]; changed: number } {
+  const count = current.length;
+  const draws = Array.from({ length: count }, () => rng.int(1_000_000));
+  const ageOk = (t: CastingType, age: number | undefined): boolean =>
+    age === undefined || ((t.minAge === undefined || age >= t.minAge) && (t.maxAge === undefined || age <= t.maxAge));
+  const out: CastingType[] = new Array<CastingType>(count);
+  const used = new Set<string>();
+  const redo: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const c = current[i];
+    const full = c === undefined ? undefined : CASTING_TYPES.find((t) => t.id === c.id);
+    if (full && castingCompatible(full.id, traits[i]!) && ageOk(full, ages?.[i]) && !used.has(full.id)) { out[i] = full; used.add(full.id); }
+    else redo.push(i);
+  }
+  const fitsSlot = (t: CastingType, i: number): boolean => ageOk(t, ages?.[i]) && castingCompatible(t.id, traits[i]!);
+  // Who holds each type now. A slot that needs a type tries unused compatible types first (rotated by its draw); if
+  // none is free it may take a type from a holder who can move to another compatible one (an augmenting path), so a
+  // houseguest who fits nothing unused is not left with a wrong type while others hold types they could swap out of.
+  // Everything is before the cast is shown, and a function of the final traits and the seed only.
+  const owner = new Map<string, number>();
+  out.forEach((t, i) => { if (t) owner.set(t.id, i); });
+  const candidates = (i: number): CastingType[] => {
+    const fit = CASTING_TYPES.filter((t) => fitsSlot(t, i));
+    if (!fit.length) return [];
+    const start = Math.floor((draws[i]! / 1_000_000) * fit.length) % fit.length;
+    const rotated = [...fit.slice(start), ...fit.slice(0, start)];
+    return [...rotated.filter((t) => !owner.has(t.id)), ...rotated.filter((t) => owner.has(t.id))];
+  };
+  const place = (i: number, seen: Set<string>): boolean => {
+    for (const t of candidates(i)) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      const holder = owner.get(t.id);
+      if (holder === undefined || (holder !== i && place(holder, seen))) { owner.set(t.id, i); out[i] = t; return true; }
+    }
+    return false;
+  };
+  const room = (i: number): number => CASTING_TYPES.filter((t) => !owner.has(t.id) && fitsSlot(t, i)).length;
+  redo.sort((a, b) => room(a) - room(b) || a - b);
+  const stuck: number[] = [];
+  for (const i of redo) if (!place(i, new Set())) stuck.push(i);
+  for (const i of stuck) {
+    const free = CASTING_TYPES.filter((t) => !owner.has(t.id));
+    const pool = free.length ? free : CASTING_TYPES;
+    const allowed = pool.filter((t) => ageOk(t, ages?.[i]));
+    const base = allowed.length ? allowed : pool;
+    const conflict = (t: CastingType): number => castingConflict(t.id, traits[i]!);
+    const least = Math.min(...base.map(conflict));
+    const from = base.filter((t) => conflict(t) === least);
+    if (report) report.fallbacks++;
+    const t = from[Math.floor((draws[i]! / 1_000_000) * from.length) % from.length]!;
+    owner.set(t.id, i);
+    out[i] = t;
+  }
+  const changed = out.filter((t, i) => t.id !== current[i]?.id).length;
+  return { types: out, changed };
+}

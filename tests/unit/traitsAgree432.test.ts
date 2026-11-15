@@ -5,7 +5,7 @@ import { hashSeed } from "../../src/engine/characterFactory";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer, BUILD_WORDS } from "../../src/engine/deepProfile";
 import { voiceFingerprint } from "../../src/engine/voice";
-import { CASTING_TYPES, dealCastingTypes, type CastingDealReport } from "../../src/domain/castingTypes";
+import { CASTING_TYPES, dealCastingTypes, recohereCastingTypes, type CastingDealReport } from "../../src/domain/castingTypes";
 import {
   CASTING_TYPE_FIT, castingCompatible, heightWordsIn, traitContradictions, voiceLineConflict, VOICE_LINE_TEMPLATES,
 } from "../../src/domain/traitConsistency";
@@ -157,5 +157,49 @@ describe("ORW-432 what moved and what did not", () => {
       all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
     }
     expect(createHash("sha256").update(all).digest("hex")).toBe("3e72645352a5aa5f0e24114eaf5f36a5d4e15a250dde74602d32f7cc73f3180a");
+  });
+});
+
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+
+describe("ORW-432 the card agrees at the END, after genesis rewrites archetype and demeanor", () => {
+  const FORBID_DEMEANOR: Record<string, string> = {
+    loud: "loud, explosive and theatrical", quiet: "quiet, cool and unbothered", warm: "warm, sweet and gentle", hard: "abrasive, blunt and combative",
+  };
+  const run = (seed: number) => {
+    const s = new GameSessionAdapter();
+    const warm = s.preSeedCast({ seed });
+    // A stub genesis: for 5 of 15 houseguests, propose a demeanor (else an archetype) the dealt type contradicts.
+    const proposals: { id: string; demeanor?: string; archetype?: string }[] = [];
+    for (const c of warm.house.slice(0, 5)) {
+      const fit = CASTING_TYPE_FIT[(c as unknown as { castingType?: { id: string } }).castingType?.id ?? ""];
+      proposals.push({ id: c.id, demeanor: FORBID_DEMEANOR[fit?.forbidTempers[0] ?? "loud"] ?? FORBID_DEMEANOR.loud! });
+    }
+    expect(s.recordCastGenesis({ npcs: proposals }).accepted).toBe(true);
+    s.createCharacter({ playerName: "The Player", seed });
+    return s.getGameState().house.filter((h) => h.status === "active");
+  };
+  it("ends with zero trait-casting-type codes, one of each type, and the same types on replay", () => {
+    for (const seed of [11, 987654, 2026, 4242, 31337]) {
+      const a = run(seed);
+      expect(a.length).toBe(15);
+      for (const h of a) {
+        expect(traitContradictions({ archetype: h.archetype, strategyStyle: h.strategyStyle, demeanor: h.demeanor, castingType: h.castingType }), `${seed} ${h.name} ${h.castingType?.label} | ${h.demeanor}`).not.toContain("trait-casting-type");
+      }
+      expect(new Set(a.map((h) => h.castingType?.label)).size).toBe(15);
+      expect(run(seed).map((h) => h.castingType?.label)).toEqual(a.map((h) => h.castingType?.label));
+    }
+  });
+});
+
+describe("ORW-432 recohereCastingTypes", () => {
+  it("is a no-op on a cast that already fits, and a function of traits and seed only", () => {
+    for (const seed of SEEDS.slice(0, 10)) {
+      const { npcs, layer } = cast(seed);
+      const cur = npcs.map((n) => layer.public[n.id]!.castingType);
+      const traits = npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor }));
+      const r = recohereCastingTypes(new SeededRandom(hashSeed(`${seed}:casting-type`)), cur, npcs.map((n) => n.character.age), traits);
+      expect(r.changed).toBe(0);
+    }
   });
 });
