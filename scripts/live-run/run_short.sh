@@ -24,7 +24,7 @@ LLMIO="$WT/frontend/data/llm-io.jsonl"
 python3 - "$RUN" "$SHA" "$REF" "$CAP" "$WT/frontend/data/settings.json" <<'P'
 import json, sys
 run, sha, ref, cap, settings = sys.argv[1:6]
-try: model = json.load(open(settings)).get("default_model") or "?"
+try: model = json.load(open(f"{run}/default-chat.json")).get("model") or json.load(open(settings)).get("default_model") or "?"
 except Exception: model = "?"
 json.dump({"sha": sha, "ref": ref, "cap": cap, "model": model}, open(f"{run}/meta.json", "w"))
 P
