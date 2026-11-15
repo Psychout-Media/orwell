@@ -128,7 +128,7 @@ def test_a_bad_env_override_entry_fails_loudly():
     assert _sh(f'. "{KIT}/env_override.sh"; rig_validate_env_override "ORWELL_A=a,b ORWELL_B=0"').returncode == 0, "a comma that is not followed by another ORWELL_ assignment is a value"
     src = (KIT / "stage2.sh").read_text()
     # the validation runs before anything is checked out or built
-    assert src.index('rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1') < src.index("git -C /home/ryne/orwell fetch") < src.index("npm run build")
+    assert src.index('rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1') < src.index('git -C "$RIG_HOME/orwell" fetch') < src.index("npm run build")
     assert 'rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1' in src
 
 
