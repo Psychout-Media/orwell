@@ -132,7 +132,7 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
     # ORW-281: the veto chip draw is a mini ceremony (about 1h of felt time), so its reply may move the clock about an hour on the veto morning.
     turns = [_turn("veto-morning-1", "x", phase="veto-competition", phase_before="veto-competition", clock="8:00am, Day 4"),
              # the sanctioned hour needs a reply that actually voices the draw (review of #2777); a quiet reply with the same jump still fails (tests/test_live_run_tooling.py)
-             _turn("veto-morning-2", "The veto chips are drawn and Dana pulls hers: everyone is playing for the veto.", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
+             _turn("veto-morning-2", "The veto chips are drawn and the nominee pulls theirs: everyone is playing for the veto.", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
     got = _score(turns)
     assert "K1-no-skipped-time[veto-morning-2]" not in got and got["K1-clock-jump-veto-draw[veto-morning-2]"]["ok"]
 
