@@ -482,3 +482,46 @@ def test_orw454_a_greeting_by_a_named_awake_houseguest_is_kept_and_the_house_up_
         assert true in emitted and true in stored[0]
     assert (line.strip() in emitted) is kept, (line, emitted)
     assert stored[0] == emitted.strip(), (stored, emitted)
+
+
+@pytest.mark.parametrize("line,kept", [
+    ("'Good morning,' Ana whispers, already dressed. ", True),                 # first name only, unique in the roster
+    ("'Good morning,' Sam whispers, already dressed. ", False),                # a sleeper, first name only
+    ("'Good morning, Sam,' Ana Role whispers. ", False),                        # an awake speaker greeting a sleeper by first name
+    ("'Good morning, Sam,' Ana whispers. ", False),
+])
+def test_orw454_first_names_are_recognised(monkeypatch, line, kept):
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=EARLY_STATUS)
+    for true in ("The kitchen is quiet.", "Rain taps the glass.", "A cup is set down.", "The kettle ticks."):
+        assert true in emitted and true in stored[0]
+    assert (line.strip() in emitted) is kept, (line, emitted)
+    assert stored[0] == emitted.strip(), (stored, emitted)
+
+
+def test_orw454_a_first_name_shared_by_two_houseguests_stays_dropped(monkeypatch):
+    status = dict(EARLY_STATUS, awake=["Ana Role"], asleep=["Ana Other"])
+    line = "'Good morning,' Ana whispers, already dressed. "
+    emitted, _c, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=status)
+    assert line.strip() not in emitted and "The kitchen is quiet." in emitted and "The kettle ticks." in emitted
+    assert stored[0] == emitted.strip()
+
+
+@pytest.mark.parametrize("split", ["<", "<tool", "<tool_ca", "<tool_call>"])
+def test_orw453_an_opener_split_across_chunks_stores_what_was_shown(monkeypatch, split):
+    """the opener's first characters arrive in the chunk that also carries the unfinished sentence; the cut must still leave stored == shown."""
+    rest = TOOL[len(split):] if TOOL.startswith(split) else TOOL
+    extra = {}
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3 + "The kettle clicks off, and steam rises" + split, rest]}, {"deltas": ["The morning moves on."]}], redo="X", extra=extra)
+    first = emitted.split("The morning moves on.")[0].strip()
+    assert "steam rises" not in emitted and "<" not in first
+    assert first == "The kitchen is quiet. Rain taps the glass. A cup is set down." == stored[0], (first, stored)
+    assert cont == [] and extra["runs"] == ["bash"]
+
+
+def test_orw453_prose_after_the_tool_call_is_not_stored_and_does_not_weld(monkeypatch):
+    """text AFTER the call in the same round was never shown: not stored either, and the join before the call stays clean."""
+    extra = {}
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, TOOL + " Trailing words the player never saw."]}, {"deltas": ["The morning moves on."]}], redo="X", extra=extra)
+    assert "Trailing" not in emitted and "Trailing" not in stored[0]
+    assert stored[0] == "The kitchen is quiet. Rain taps the glass. A cup is set down." == emitted.split("The morning moves on.")[0].strip()
+    assert cont == [] and extra["runs"] == ["bash"]

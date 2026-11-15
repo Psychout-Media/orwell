@@ -6347,8 +6347,13 @@ def _greeted_by_an_awake_houseguest(sentence: str, status: dict) -> bool:
     """True when `sentence` is a greeting (not a whole-house claim) that names a houseguest the engine's own status lists as awake and names nobody it lists as asleep. Reads only the status the screen already holds."""
     if _HOUSE_WHOLE_RE.search(sentence or "") or not isinstance(status, dict) or not isinstance(status.get("awake"), list):
         return False
-    named = lambda names: any(re.search(r"(?<!\w)" + re.escape(n) + r"(?!\w)", sentence) for n in names)
-    return named(_status_names(status.get("awake"))) and not named(_status_names(status.get("asleep")))
+    awake, asleep = _status_names(status.get("awake")), _status_names(status.get("asleep"))
+    firsts = [n.split()[0] for n in awake + asleep]
+    word = lambda w: re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", sentence) is not None
+    # the narrator says first names: a first name counts for an AWAKE houseguest only when it is unique in the whole roster (two Anas: stay on the safe side and drop), while ANY first name of a sleeper marks a sleeper
+    awake_hit = any(word(n) for n in awake) or any(word(n.split()[0]) and firsts.count(n.split()[0]) == 1 for n in awake)
+    asleep_hit = any(word(n) or word(n.split()[0]) for n in asleep)
+    return awake_hit and not asleep_hit
 
 
 _HOUSE_AWAKE_EXEMPT_RE = re.compile(
