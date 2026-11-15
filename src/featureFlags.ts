@@ -98,6 +98,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B2 follow-on: write the memories a season actually produces (remembered nominations, withheld vetoes, kept deals). Default-ON with the standalone read.
   { envKey: 'ORWELL_NPC_MEMORY_WRITERS', key: 'npcMemoryWriters', parser: 'defaultOn' },
   { envKey: 'ORWELL_HANGOUT',               key: 'hangOut',                parser: 'defaultOn' },
+  // 0148 / ORW-417 (Ryne 2026-11-15): the player's daytime nap (`nap` lever). ON by default; `=0` makes the lever refuse 'not available' (byte-identical).
+  { envKey: 'ORWELL_NAP', key: 'nap', parser: 'defaultOn' },
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
   // B3 / #2017 (+B3b vote term): the HOH nominates / the house votes from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). Default-ON with it (PO 2026-11-04).
   { envKey: 'ORWELL_NPC_BELIEF_NOMS', key: 'npcBeliefNoms', parser: 'defaultOn' },

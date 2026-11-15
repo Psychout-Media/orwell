@@ -185,6 +185,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "turnIn":
       guardSyncFields(true); // 0065 Parts A+B — optional expectedBeatSeq + idempotencyKey (a mutating progression tool)
       return;
+    case "nap":
+      guardSyncFields(true); // 0148 - optional expectedBeatSeq + idempotencyKey (a mutating lever, like turnIn)
+      if (args["hours"] !== undefined && (typeof args["hours"] !== "number" || !Number.isFinite(args["hours"]))) refuse("hours", "a number of hours (0.5-3) when present");
+      return;
     case "hangOut":
       guardSyncFields(false); // optional expectedBeatSeq
       if (args["maxBeats"] !== undefined && (typeof args["maxBeats"] !== "number" || !Number.isInteger(args["maxBeats"]) || args["maxBeats"] < 1)) {
@@ -624,6 +628,8 @@ export class McpServer {
         // 0065 — optional expectedBeatSeq (CAS) + idempotencyKey (at-most-once) ride the args, so a
         // retried/duplicate turnIn replays verbatim instead of re-stamping the rest penalty.
         return this.deps.session.turnIn(args as { expectedBeatSeq?: number; idempotencyKey?: string });
+      case "nap":
+        return this.deps.session.nap(args as { hours?: number; expectedBeatSeq?: number; idempotencyKey?: string });
       case "hangOut":
         return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number });
       case "noteMessage":

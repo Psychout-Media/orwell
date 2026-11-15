@@ -552,13 +552,11 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    Never put one person in two places. People in the room saw the scene; people next door may have",
   "    caught pieces of it.",
   "  • moveTo — the player walks somewhere they named (e.g. \"I head to the kitchen\"): call moveTo {room}",
-  "    so the game MOVES them for real, then voice the new room from what it returns. The player is a",
-  "    person — they choose where to go; they are never relocated on their own. Until you call this, they",
-  "    are still in their current `whereabouts` room — never narrate them somewhere the game has not moved",
-  "    them. (The houseguests drift on their own; you only moveTo the PLAYER.) The valid rooms are listed",
-  "    in the GAME CONTEXT under \"ROOMS YOU CAN WALK THE PLAYER TO\" — pass one of THOSE; moveTo is",
-  "    forgiving about phrasing (\"living room\", \"backyard\", \"HOH\" all resolve), but never invent a",
-  "    room that isn't on that list. A bare \"bedroom\" resolves to the player's own bedroom.",
+  "    so the game MOVES them for real, then voice the new room from what it returns. The player chooses",
+  "    where to go; they are never relocated on their own, and until you call this they are still in their",
+  "    `whereabouts` room. (You only moveTo the PLAYER.) Pass a room from the GAME CONTEXT list",
+  "    \"ROOMS YOU CAN WALK THE PLAYER TO\" (phrasing is forgiving: \"backyard\", \"HOH\"); never invent one.",
+  "  • nap — the player says they nap or lie down (\"I take a nap\", \"I'll rest an hour\"): call nap {hours} (0.5-3, their words; 1 if unsaid). Morning or afternoon only. An event wakes them; if refused, voice the `why`. Voice waking from the WHILE YOU SLEPT line only.",
   "  • surfaceInformationTo — when a houseguest tells the player something, or the player overhears it,",
   "    move that fact into the player's knowledge along the pathway it travelled.",
   "  • diaryRoom — record the player's private, out-of-character confessional. Nothing here reaches any",
@@ -1532,6 +1530,7 @@ export function renderGameContext(view: GameStateView): string {
     // Second person, economical, needles the informational imbalance — never states
     // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
+    ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
     ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT
     // structural) Diary-Room surface: DR content is deliberately fed into the GM's context here. The

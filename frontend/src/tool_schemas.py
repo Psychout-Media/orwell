@@ -1486,6 +1486,14 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "nap",
+            "description": "The player's daytime nap (0148). Call it when the player says they nap / lie down / rest for a while (\"I take a nap\", \"I'll rest an hour\"): pass `hours` as THEIR words (0.5-3, half-hour steps; omit for one hour). The game moves the clock by the slept span (an event always wakes them, and the evening cuts it), lives the house while they sleep, and eases their sleep debt. Morning or afternoon only. If it is refused the result carries an in-fiction `why` - voice that; never narrate a nap the game did not run. A nap is not a bed: it never ends the night.",
+            "parameters": {"type": "object", "properties": {"hours": {"type": "number", "description": "How long the player sleeps, in hours (0.5-3). Omit for one hour."}}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "worldSnapshotView",
             "description": "The move-in zeitgeist snapshot (0062): public flavor from the real world on the approximate move-in date — what's trending in screen/music/sports/news/internet, plus a mood. Vault-free flavor only, never a game input. Returns {screen: [str], music: [str], sports: [str], news: [str], internet: [str], mood: str, offscreenPrompt: str} or {}. Call to enrich the off-screen texture when writing social-scene prose so the zeitgeist flavor colors the narration.",
             "parameters": {"type": "object", "properties": {}},
@@ -2110,6 +2118,7 @@ ORWELL_GAME_TOOLS = frozenset({
     # ADR 0006 (#1385): the player's bedtime lever — ends their night, rolls the house to morning,
     # folds the hidden rest penalty in the ENGINE, and delivers the dailyRecap (0102) inline on its result.
     "turnIn",
+    "nap",
     # B65: the knowledge-bounded per-NPC voicing projection.
     "npcVoice",
 })

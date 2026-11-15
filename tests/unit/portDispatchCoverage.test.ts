@@ -39,7 +39,7 @@ const GAME_SESSION_METHODS: Record<keyof GameSession, true> = {
   playerReceipts: true,
   recordOffscreenSceneTexture: true, recordWorldSnapshot: true, recordNpcTraits: true, recordNpcReflections: true, recordHouseCulture: true, recordRoomCanon: true, recordProducerProfile: true, requestSelfEviction: true,
   runCompetition: true, sealedFromHouse: true, knowledgeScopeManifest: true, seasonRecap: true, seasonRetrospective: true,
-  socialInitiatives: true, stateDelta: true, submitDecision: true, tradeSecret: true, turnIn: true, hangOut: true,
+  socialInitiatives: true, stateDelta: true, submitDecision: true, tradeSecret: true, turnIn: true, hangOut: true, nap: true,
   updateCasting: true, whereabouts: true, worldSnapshotView: true,
 };
 
