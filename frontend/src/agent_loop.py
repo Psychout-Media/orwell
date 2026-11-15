@@ -5724,6 +5724,20 @@ _TOOL_MARKUP_TAG_RE = re.compile(
 )
 
 
+# ORW-472: the SAFE subset of the ORW-440 tags for the raw-text mirror cut: result / use wrappers only (open or close). `tool_calls?`, `function_calls?` and `antml:*` are deliberately NOT here: they can carry a call the parser
+# needs, so they are never cut out of the raw round text (independently checked: `parse_tool_blocks` returned the same blocks for a `<tool_call>` and a `<function_calls>` call wrapped in every combination of these tags, with and without them).
+_TOOL_MARKUP_SAFE_TAG_RE = re.compile(
+    r"[ \t]*</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>[ \t]*",
+    re.IGNORECASE,
+)
+
+
+def _cut_markup_keeping_one_space(rx, text: str) -> str:
+    """Remove every `rx` match (each already swallows the spaces around it). One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a
+    word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.")."""
+    return rx.sub(lambda m: " " if (not (m.start() > 0 and text[m.start() - 1].isspace()) and m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'") else "", text)
+
+
 def _scrub_game_leak(text: str) -> str:
     """Drop whole sentences that are operator asides / tool-process narration; keep the rest
     verbatim (delimiters preserved). Used both on the live stream and on the saved message.
@@ -5735,10 +5749,9 @@ def _scrub_game_leak(text: str) -> str:
     if not text:
         return text
     # ORW-442: an echoed harness placeholder ("<tool result has been redacted>") has no sentence punctuation, so it would take the NEXT sentence with it; cut just the placeholder first.
-    text = _TOOL_RESULT_PLACEHOLDER_RE.sub("", text)
-    # ORW-440: a tag between two words leaves one space (never "quiet.The"); at an edge or beside whitespace it just goes.
-    # One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.").
-    text = _TOOL_MARKUP_TAG_RE.sub(lambda m: " " if (not (m.start() > 0 and text[m.start() - 1].isspace()) and m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'") else "", text)
+    # ORW-440 / ORW-442: a tag between two words leaves one space (never "quiet.The"); at an edge or beside whitespace it just goes.
+    text = _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text)
+    text = _cut_markup_keeping_one_space(_TOOL_MARKUP_TAG_RE, text)
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
@@ -6061,6 +6074,19 @@ async def _headcount_wall_guard(text: str, owner) -> str:
         return await chat_helpers.screen_headcount_wall(owner, text)
     except Exception:
         return text
+
+
+def _mirror_placeholder_cut(round_response: str, text: str):
+    """ORW-442 / ORW-472: `_scrub_game_leak` cuts an echoed "<tool result ...>" placeholder, and a stray result/use tag (`_TOOL_MARKUP_SAFE_TAG_RE`), out of the MIDDLE of a sentence part, which the sentence-level
+    mirror (`_mirror_wall_drop`) reads as that whole part being dropped and erases from the stored text with its narration. Apply the same cuts (one-space rule included) to `text` inside `round_response` first, and
+    return the cut `text` as the mirror's `before`: only real drops are left for the sentence-level walk. Returns (round_response, text); both unchanged when there is nothing to cut."""
+    cut = _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text))
+    if cut == text:
+        return round_response, text
+    idx = round_response.rfind(text)
+    if idx >= 0:
+        round_response = round_response[:idx] + cut + round_response[idx + len(text):]
+    return round_response, cut
 
 
 def _mirror_wall_drop(round_response: str, before: str, after: str,
@@ -9255,6 +9281,7 @@ async def _stream_agent_loop_impl(
                                 # semicolon-clause fix), so the mirror MUST use the SAME boundary — the
                                 # default `[.!?\n]`-only split would coarsen a clause-level drop to a
                                 # whole-"sentence" drop and delete a surviving clause too.
+                                round_response, _complete = _mirror_placeholder_cut(round_response, _complete)  # ORW-442: the placeholder was CUT, not a dropped sentence: edit the raw text the same way first
                                 round_response = _mirror_wall_drop(
                                     round_response, _complete, _clean, split_pattern=r"(?<=[.!?\n;])")
                                 _orphan, _clean = _orphan_continuation_split(_clean, _prev_chunk_dropped)  # ORW-437
@@ -9494,6 +9521,7 @@ async def _stream_agent_loop_impl(
             # (possibly unterminated) flush must ALSO propagate its scrub drop into round_response
             # before `cleaned_round` derives from it a few lines down. Same semicolon-aware
             # split_pattern as the mid-loop call — `_scrub_game_leak` clause-drops on `;` too.
+            round_response, _pre_scrub_tail = _mirror_placeholder_cut(round_response, _pre_scrub_tail)  # ORW-442 (same as the mid-loop site)
             round_response = _mirror_wall_drop(
                 round_response, _pre_scrub_tail, _clean, split_pattern=r"(?<=[.!?\n;])")
             _game_buf = ""
