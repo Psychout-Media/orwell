@@ -14,6 +14,17 @@ describe("flaky-test rule wiring", () => {
     expect(ci).toContain('npm run "test:heavy:$s" || {');
     expect(ci).not.toMatch(/test:heavy:\$s" -- --retry/);
   });
+  it("the unit leg excludes exactly the heavy sims `npm run test:unit:fast` excludes (tests/uat/** and the juryReach and calibration property files), so none runs twice or is dropped", () => {
+    const excludes = (text: string): string[] => [...text.matchAll(/--exclude '([^']+)'/g)].map((m) => m[1]!).sort();
+    const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+    const fast = excludes(pkg.scripts["test:unit:fast"]!);
+    const shardLine = ci.split("\n").find((l) => l.includes("--exclude 'tests/uat/**'") && !l.includes("test:heavy"))!;
+    expect(shardLine, "the engine unit shard command has its --exclude list").toBeDefined();
+    expect(fast).toContain("tests/uat/**");
+    expect(fast).toContain("tests/calibration/**");
+    expect(fast.filter((x) => x.startsWith("tests/property/")).length).toBeGreaterThanOrEqual(6);
+    expect(excludes(shardLine)).toEqual(fast);
+  });
   it("a retried property test replays the same fast-check seed (review MEDIUM, tests/unit/fastCheckSeedReplay.test.ts)", () => {
     expect(read("vitest.config.ts")).toMatch(/setupFiles: \[[^\]]*"tests\/support\/fastCheckSeed\.ts"[^\]]*\]/);
   });
