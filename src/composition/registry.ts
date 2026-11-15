@@ -98,8 +98,6 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
   commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
-  // ORW-336 (0087): a recorded player scene feeds each present NPC's hidden momentum toward the player (played games only; engine-only state).
-  commands.setPlayerTrajectorySink((npc, signal) => session.recordPlayerSceneTrajectory(npc, signal));
   // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default OFF).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
   // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default OFF).

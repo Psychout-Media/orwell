@@ -19,7 +19,7 @@
  * stream's draw count/order is unchanged and the seeded competition/vote spine reading that same stream
  * stays in phase (the calibration-neutrality constraint; `tests/unit/trajectoryOutcomeNeutral.test.ts`).
  */
-import { RELATIONSHIP_CONSTANTS, CONSEQUENCE_DIRECTION_IMPACTS, type InteractionType, type ConsequenceDirection } from "./relationshipConstants";
+import type { InteractionType } from "./relationshipConstants";
 import { clamp01 } from "../domain/num";
 import {
   TRAJECTORY_CONSTANTS,
@@ -52,35 +52,6 @@ export interface FoldSignal {
   bondDelta: number;
   threatDelta: number;
   betrayal: boolean;
-}
-
-/**
- * The Vault-free FOLD signal of an interaction KIND (0087): the signed bond/threat delta from the SAME
- * `RELATIONSHIP_CONSTANTS.IMPACT` shape the relationship fold applies, + the betrayal flag. Pure, static,
- * carries no raw edge state. Shared by the off-screen fold (the scene's nature) and the ORW-336 player-scene
- * fold (the scene `kind` floor when the model proposed no descriptor).
- */
-export function kindFoldSignal(type: InteractionType): FoldSignal {
-  const imp = RELATIONSHIP_CONSTANTS.IMPACT[type];
-  const bondDelta = ((imp.affinity ?? 0) + (imp.trust ?? 0)) / 2;
-  return { bondDelta, threatDelta: imp.threat ?? 0, betrayal: type === "betrayal" };
-}
-
-/**
- * ORW-336 (0087, ADR 0005): the fold signal of the model's PROPOSED consequence directions toward one NPC.
- * DIRECTION ONLY: the signal comes from the engine's own UNSCALED `CONSEQUENCE_DIRECTION_IMPACTS` base - the
- * proposal's `emphasis` is deliberately not an input (the type cannot carry it), so no proposed weight can set
- * how far momentum moves. Several edges naming the same NPC sum their base deltas.
- */
-export function directionFoldSignal(directions: readonly ConsequenceDirection[]): FoldSignal {
-  let bond = 0;
-  let threat = 0;
-  for (const d of directions) {
-    const imp = CONSEQUENCE_DIRECTION_IMPACTS[d];
-    bond += ((imp.affinity ?? 0) + (imp.trust ?? 0)) / 2;
-    threat += imp.threat ?? 0;
-  }
-  return { bondDelta: bond, threatDelta: threat, betrayal: false };
 }
 
 // PERSIST-2/BE-101: guard NaN → 0 — this clamp gates the persisted `Trajectory.momentum` (kept beside

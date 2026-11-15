@@ -94,10 +94,3 @@ export const TRAJECTORY_CONSTANTS: TrajectoryConstants = {
     steady: {},
   },
 };
-
-/**
- * ORW-336 (0087, NPC->player momentum): how far the hidden arc toward the PLAYER bends an NPC's movement. `gain` scales
- * the pull weight by `1 + gain x momentum` (momentum <= 1, so at most x1.6 - a tilt, never a railroad); below
- * `minMomentum` the arc is noise and nothing changes. Sits beside the 0078 `MOVEMENT_MEMORY` memory tilt it mirrors.
- */
-export const TRAJECTORY_PLAYER_APPROACH = { minMomentum: 0.15, gain: 0.6 } as const;
