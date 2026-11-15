@@ -321,6 +321,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       // a blank value (the seeded `vocation` stands) and keeps it in lockstep with the biography, so a
       // malformed value never fails the whole call.
       if (args["vocation"] !== undefined && typeof args["vocation"] !== "string") refuse("vocation", "a string when present");
+      // ORW-388: the optional REPAIRED identity concept — a string when present; the adapter folds it only onto an existing one.
+      if (args["identityConcept"] !== undefined && typeof args["identityConcept"] !== "string") refuse("identityConcept", "a string when present");
       // The optional LLM-authored VOICE fingerprint (0084 / the expressive-e2e authoring widening) — an
       // object when present (a string/array where an object is expected is the R6 class that dies deep in
       // the fold). Its field-level shape (whole-or-nothing, bounded strings) is validated inside the
