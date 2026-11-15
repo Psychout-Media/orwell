@@ -2028,8 +2028,17 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
-    this.captureSeenMoods(); // ORW-343: the mood word of each houseguest the player is sharing a room with, remembered as last seen
-    this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
+    this.runPersistSequence();
+  }
+
+  /**
+   * The ONE pre-save sequence (review of #2778: it was copied in `persist()` and the `inOneCommit` tail, and the copies drifted): the mood each houseguest
+   * the player shares a room with is remembered as last seen (ORW-343), one recap is made per crossed day with its day-roll reset (ORW-282/400), then the
+   * state is saved. `onPersist` may throw (a refused or failed commit) - after all state mutation (E3).
+   */
+  private runPersistSequence(): void {
+    this.captureSeenMoods();
+    this.catchUpDailyRecaps();
     this.onPersist?.();
   }
 
@@ -2046,9 +2055,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
-      this.captureSeenMoods(); // ORW-437: the deferred tail is the only persist a one-commit turn gets, so the moods seen in it are captured here too, before the state is saved
-      this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
-      this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
+      this.runPersistSequence(); // the deferred tail is the only persist a one-commit turn gets: moods, recap and day-roll reset run here too (ORW-437, review of #2680)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)
       // BEFORE the deferred `onPersist` above ran, so `out.beatSeq` was captured PRE-commit-funnel:
       // stale by the ONE bump this very mutation just earned, and it would stay stale by any FURTHER
@@ -3516,7 +3523,7 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.identityConcept === "string") {
       const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
       if (repaired.length > 0) {
-        target.character.identityConcept = renamedFrom !== undefined ? renameGivenNameInProse(repaired, renamedFrom, target.name) : repaired;
+        target.character.identityConcept = renamedFrom !== undefined ? clipCodePoints(renameGivenNameInProse(repaired, renamedFrom, target.name), 300) : repaired; // the rename can lengthen it: clip again (review of #2775)
         publicFields.push("identityConcept");
       }
     }
