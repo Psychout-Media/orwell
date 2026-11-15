@@ -259,6 +259,7 @@ describe("ORW-381 build leans to the physical stat", () => {
     const prompts = JSON.stringify(warm.portraitPrompts ?? []);  // ORW-437: the prompts too, not only the house
     expect(prompts.length).toBeGreaterThan(2);
     expect(prompts).not.toMatch(/\b(physical|mental|social)\\?"\s*:\s*[0-9.]+/);
+    expect(prompts).not.toMatch(/\d\.\d/);  // no float of any kind (a 0.4 stat leak would pass the key regexes)
     expect(prompts).not.toMatch(/"(stats|band|buildBand|fitness)"/i);
     const view = new GameSessionAdapter().createCharacter({ playerName: "The Player", seed: 8123 });
     const hv = JSON.stringify(view.house);

@@ -116,7 +116,7 @@ const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|s
 const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
 const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
 const WORN_WORD_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/gi;
-const HAIR_WORD_RE = /\b(?:hair|curls?|curly|waves?|wavy|braids?|braided|bun|ponytail|fade|crop|cropped|locs|afro|bob|buzz\w*|bald|mohawk|pixie|lob|bangs?|fringe)\b/i;
+const HAIR_WORD_RE = /\b(?:hair(?:cut|style|do)?|curls?|curly|waves?|wavy|braids?|braided|bun|ponytail|fade|crop|cropped|locs|afro|bob|buzz\w*|bald|mohawk|pixie|lob|bangs?|fringe)\b/i;
 const HAIR_CUT_MARKERS = [", usually", " usually", " that ", " by ", " until "] as const;
 
 const PRONOUNS: Record<Gender | "none", { subj: string; obj: string; plural: boolean }> = {
@@ -159,7 +159,8 @@ export function stripWornWords(t: string): string {
     .replace(/^[\s,;]+|[\s,;]+$/g, "").trim();
   if (had) {
     // ORW-437: removing "rugged" from "rugged and tall" must not leave "and tall"; drop the orphaned joiner at either end.
-    out = out.replace(/^(?:and|or)\s+/i, "").replace(/[\s,]+(?:and|or)$/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").trim();
+    out = out.replace(/^(?:and|or)\s+/i, "").replace(/[\s,]+(?:and|or)$/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1")
+      .replace(/\s+(?:and|or)\s*(?=[,;])/gi, "").replace(/,\s+(and|or)\b/gi, " $1").replace(/^[\s,;]+|[\s,;]+$/g, "").trim();
   }
   return out;
 }
@@ -177,7 +178,9 @@ export function signatureMarkClause(mark: string | undefined): string {
   if (!isRealMark(mark)) return "";
   // ORW-437: also split a compound joined by ", and a ..." / " and a ...", so a signature part survives next to an excluded one.
   const parts = mark.split(/;|,\s*plus\b|,?\s+and\s+(?=(?:an?|the)\s)/i).map((p) => p.replace(/^[\s,]*(?:and\s+)?/i, "").trim()).filter((p) => p !== "");
-  const kept = parts.filter((p) => SIGNATURE_MARK_RE.test(p) && !NOT_SENT_MARK_RE.test(p));
+  // "a tattoo and chipped teeth": an unarticled "and" inside a part that carries an excluded detail splits it too
+  const split = parts.flatMap((p) => (NOT_SENT_MARK_RE.test(p) ? p.split(/\s+and\s+/i).map((x) => x.trim()).filter((x) => x !== "") : [p]));
+  const kept = split.filter((p) => SIGNATURE_MARK_RE.test(p) && !NOT_SENT_MARK_RE.test(p));
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }
 
