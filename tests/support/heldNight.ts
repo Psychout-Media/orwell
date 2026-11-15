@@ -9,11 +9,13 @@ export async function endHeldNight(
   call: (name: string, args: Record<string, unknown>) => Promise<unknown>,
   tag: string,
   tick?: () => void,
-  opts: { direct?: boolean } = {},
+  opts: { direct?: boolean; stopWhenDue?: boolean } = {},
 ): Promise<void> {
   // `direct`: a driver whose engine runs with the narrator-facing bedtime gate off (the HTTP UAT) turns in the moment the night is held - a real `turnIn`, no clock stepping
   // (stepping 5-minute messages over HTTP, ~50 per held night, would blow the heavy lane's time budget).
   if (opts.direct) { await call("turnIn", {}); return; }
+  // ORW-445 `stopWhenDue`: for a driver that calls `advanceGame` in a loop with NO messages between holds. A scheduled event due the moment the clock crosses into the evening (nominations, 4pm) must be let to fire, not
+  // turned in on: bed at 4pm wakes at 4am (bed + 8h), the clock ticks back to the same 4pm edge, and the driver would sleep the same due event away forever. Opt-in so every other driver's seeded trajectory is untouched.
   let scheduleHold = false;
   for (let i = 0; i < 800; i++) {
     const st = (await call("gameStatus", {})) as { timeOfDay?: string } | null;
@@ -22,6 +24,10 @@ export async function endHeldNight(
     // the hold means "not due yet", NOT "go to bed", which burned a whole in-game day per event). Polling status + turnIn + state after every 5-minute tick made a long driver (the jury scenario) take minutes.
     let ticks = 1;
     if (tod === "evening" || tod === "night" || tod === "late-night") {
+      if (opts.stopWhenDue && scheduleHold) {
+        const gs = (await call("getGameState", {})) as { daySchedule?: { due?: boolean } } | null;
+        if (gs?.daySchedule?.due) return;
+      }
       const r = (await call("turnIn", {})) as { held?: { minutesUntil?: number } } | null;
       if (!r?.held) return; // ORW-258: a person playing may not go to bed before the night period (the gate answers `held`): keep letting time pass
       ticks = Math.max(1, Math.ceil((r.held.minutesUntil ?? 0) / 5));

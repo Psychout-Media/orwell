@@ -1,13 +1,31 @@
 import { describe, it, expect } from "vitest";
 import { phaseForHour, formatClockLabel } from "../../src/engine/timeOfDay";
+import { milestoneDue } from "../../src/engine/daySchedule";
 import { advanceClockPerMessage } from "../../src/engine/liveSeason";
 
 describe("ORW-445: the public phase agrees with the clock label across float drift", () => {
-  it("a clock that prints as an edge reads as that phase", () => {
-    expect(phaseForHour(12 - 1e-9)).toBe("afternoon");
-    expect(phaseForHour(16 - 1e-9)).toBe("evening");
-    expect(phaseForHour(20 - 1e-9)).toBe("night");
-    expect(phaseForHour(11.99)).toBe("morning");
+  // An explicit expected-phase map (NOT phaseForHour as its own oracle): the edges and the float neighbourhood on each side.
+  // Within 1e-6h BELOW an edge the clock has reached it (float drift); beyond 1e-6h it has not.
+  const EDGES: Array<[number, string]> = [
+    [8, "morning"], [8 + 1e-3, "morning"],
+    [12 - 1e-3, "morning"], [12 - 2e-6, "morning"], [12 - 0.75e-6, "afternoon"], [12 - 1e-9, "afternoon"], [12, "afternoon"],
+    [16 - 1e-3, "afternoon"], [16 - 2e-6, "afternoon"], [16 - 0.75e-6, "evening"], [16 - 1e-9, "evening"], [16, "evening"],
+    [20 - 1e-3, "evening"], [20 - 2e-6, "evening"], [20 - 0.75e-6, "night"], [20 - 1e-9, "night"], [20, "night"],
+    [24 - 1e-3, "night"], [24 - 2e-6, "night"], [24 - 0.75e-6, "late-night"], [24 - 1e-9, "late-night"], [24, "late-night"],
+    [31.9999, "late-night"], [32, "late-night"],
+  ];
+  it.each(EDGES)("the explicit edge map: hour %s reads as %s", (hour, phase) => {
+    expect(phaseForHour(hour)).toBe(phase);
+  });
+  it("phase and milestoneDue agree at every edge: due exactly when the phase has reached the milestone's phase", () => {
+    const ORDER = ["morning", "afternoon", "evening", "night", "late-night"];
+    const MILESTONES: Array<[string, string]> = [["hoh-competition", "afternoon"], ["nominations", "evening"]];
+    for (const [beat, target] of MILESTONES) {
+      for (const [hour] of EDGES) {
+        const live: any = { beat, timeOfDay: phaseForHour(hour), nightDepth: hour, dayNumber: 3, week: 2, firstNightPassed: true, preHohNightPassed: true, preNomsNightPassed: true };
+        expect(milestoneDue(live), `${beat} at ${hour}`).toBe(ORDER.indexOf(phaseForHour(hour)) >= ORDER.indexOf(target));
+      }
+    }
   });
   it("per-message 5-minute accrual never lands the label on an edge with the phase a band behind", () => {
     for (const startMin of [8 * 60, 8 * 60 + 2, 9 * 60 + 7]) {
