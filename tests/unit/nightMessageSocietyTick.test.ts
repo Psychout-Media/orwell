@@ -36,6 +36,7 @@ function setup(seed: number) {
     const a = s.advanceGame();
     if (a.pending) resolveLegally(s, a.pending);
   }
+  expect(s.snapshot().live?.hoh, "the HOH was seated before the test runs").toBeDefined();
   return { s, orch };
 }
 

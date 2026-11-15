@@ -229,6 +229,11 @@ export class Orchestrator {
     this.baselines.set(user, this.registry.snapshot(user));
   }
 
+  /** Seed the baseline only when none exists (a sandbox just resumed from disk by whichever path got there first). */
+  seedBaselineIfAbsent(user: string): void {
+    if (!this.baselines.has(user)) this.seedBaseline(user);
+  }
+
   /** Per-user deterministic RNG stream (seed + user), created once and advanced across ticks. */
   private rngFor(user: string): SeededRandom {
     let r = this.rngs.get(user);

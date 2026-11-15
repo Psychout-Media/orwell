@@ -31,6 +31,7 @@ export function setup(seed = 3, until: (s: S) => boolean = quiet) {
     if (a.pending) resolvePending(a.pending, (req) => void s.submitDecision(req));
     if (s.getGameState().started && priv(s).live.timeOfDay !== undefined && until(s) && !(s.getGameState() as { pending?: unknown }).pending) break;
   }
+  if (!(s.getGameState().started && priv(s).live.timeOfDay !== undefined && until(s))) throw new Error("napWorld.setup: the requested world was not reached in 300 advances"); // fail fast, never run a test on the wrong state
   s.noteMessage({ messageId: "warm" }); // a person is playing (live.playedGame)
   return { s, sb, orch, reg };
 }
