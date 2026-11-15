@@ -5724,6 +5724,14 @@ _TOOL_MARKUP_TAG_RE = re.compile(
 )
 
 
+# ORW-472: the SAFE subset of the ORW-440 tags for the raw-text mirror cut: result / use wrappers only (open or close). `tool_calls?`, `function_calls?` and `antml:*` are deliberately NOT here: they can carry a call the parser
+# needs, so they are never cut out of the raw round text (independently checked: `parse_tool_blocks` returned the same blocks for a `<tool_call>` and a `<function_calls>` call wrapped in every combination of these tags, with and without them).
+_TOOL_MARKUP_SAFE_TAG_RE = re.compile(
+    r"[ \t]*</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>[ \t]*",
+    re.IGNORECASE,
+)
+
+
 def _cut_markup_keeping_one_space(rx, text: str) -> str:
     """Remove every `rx` match (each already swallows the spaces around it). One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a
     word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.")."""
@@ -6069,10 +6077,10 @@ async def _headcount_wall_guard(text: str, owner) -> str:
 
 
 def _mirror_placeholder_cut(round_response: str, text: str):
-    """ORW-442: `_scrub_game_leak` cuts an echoed "<tool result ...>" placeholder out of the MIDDLE of a sentence part, which the sentence-level mirror (`_mirror_wall_drop`) reads as that whole part being dropped
-    and erases it from the stored text with its narration. Apply the same cut (one-space rule included) to `text` inside `round_response` first, and return the cut `text` as the mirror's `before`: only real drops
-    are left for the sentence-level walk. Returns (round_response, text); both unchanged when no placeholder is present."""
-    cut = _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text)
+    """ORW-442 / ORW-472: `_scrub_game_leak` cuts an echoed "<tool result ...>" placeholder, and a stray result/use tag (`_TOOL_MARKUP_SAFE_TAG_RE`), out of the MIDDLE of a sentence part, which the sentence-level
+    mirror (`_mirror_wall_drop`) reads as that whole part being dropped and erases from the stored text with its narration. Apply the same cuts (one-space rule included) to `text` inside `round_response` first, and
+    return the cut `text` as the mirror's `before`: only real drops are left for the sentence-level walk. Returns (round_response, text); both unchanged when there is nothing to cut."""
+    cut = _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text))
     if cut == text:
         return round_response, text
     idx = round_response.rfind(text)
