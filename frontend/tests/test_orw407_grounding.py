@@ -50,6 +50,13 @@ def test_the_score_is_one_for_the_words_as_written_and_low_for_words_that_are_no
     assert ol.grounding("", NARR) == 0.0 and ol.grounding("x", "") == 0.0 and ol.grounding("!!", NARR) == 0.0
 
 
+def test_a_short_entry_counts_as_written_only_on_whole_words():
+    assert ol.grounding("ok", "She shrugs. Ok, she says, and walks out.") == 1.0
+    assert ol.grounding("ok", "The vase broke when the door slammed, and nobody spoke.") == 0.0     # inside "broke"/"spoke": not said
+    assert ol.grounding("your name", "I will keep your name out of it") == 1.0
+    assert ol.grounding("our name", "I will keep your name out of it") < 1.0                       # a fragment of "your name"
+
+
 def test_by_default_a_weak_entry_is_still_kept_and_counted_without_its_text(monkeypatch):
     n, sent, seen = _capture(monkeypatch, [VERBATIM, INVENTED])
     assert n == 2 and [p["text"] for p in sent] == [VERBATIM["text"], INVENTED["text"]]      # report mode changes nothing stored

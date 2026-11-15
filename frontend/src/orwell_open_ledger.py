@@ -87,12 +87,15 @@ def _plain(t: str) -> str:
 def grounding(text: str, narration: str) -> float:
     """How much of an entry's wording is in the narration it came from, 0.0 to 1.0: 1.0 when the sentence appears there as
     written (case, quote marks, spacing and a closing full stop aside); otherwise the share of its words of three letters or
-    more that occur anywhere in the narration. Says nothing about meaning: a faithful paraphrase scores low."""
+    more that occur anywhere in the narration. Says nothing about meaning: a faithful paraphrase scores low. In a script
+    written without spaces a sentence is one run of letters, so anything not as written scores about 0: `strict` would drop
+    nearly every such entry."""
     a, b = _plain(text), _plain(narration)
     if not a:
         return 0.0
     core = a.rstrip(".!?").strip()
-    if core and core in b:
+    # as written, on whole words: a short entry ("ok") must not count as present because it sits inside another word ("broke")
+    if core and re.search(r"(?<![^\W_])" + re.escape(core) + r"(?![^\W_])", b):
         return 1.0
     words = _GROUND_WORD.findall(a)
     if not words:
@@ -111,10 +114,10 @@ def grounding_mode() -> str:
 def _record_weak_grounding(user: Optional[str], weak: int, total: int, lowest: float, dropped: bool) -> None:
     """One admin-visible observation per turn that had a weakly grounded entry: counts and the lowest score only, never the
     entry's text. Not a failure (nothing went wrong in the pipeline), so it is not RED."""
-    what = "dropped" if dropped else "kept (report mode)"
-    logger.info(f"[open-ledger] grounding: {weak} of {total} extracted entr{'y' if total == 1 else 'ies'} under {GROUNDING_MIN:.0%} "
-                f"word overlap with the narration (lowest {lowest:.0%}); {what}")
     try:
+        what = "dropped" if dropped else "kept (report mode)"
+        logger.info(f"[open-ledger] grounding: {weak} of {total} extracted entr{'y' if total == 1 else 'ies'} under {GROUNDING_MIN:.0%} "
+                    f"word overlap with the narration (lowest {lowest:.0%}); {what}")
         from src import log_rings
         log_rings.record_overseer(
             "observation", "open-ledger:weak-grounding",
