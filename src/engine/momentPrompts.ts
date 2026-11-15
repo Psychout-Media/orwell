@@ -5,7 +5,7 @@ import { neutralizeForPrompt } from "./castingIntake";
 import { CURIOSITY_NEEDLE_INSTRUCTION } from "./curiosityNeedle";
 import { dayOfWeek } from "./houseEvents";
 import { physicalFacetToAppearance } from "./portraitPrompts";
-import { MILESTONE_LABEL } from "./daySchedule";
+import { MILESTONE_LABEL, milestoneLabel } from "./daySchedule";
 import { genderPresentationPhrase, pronounsFor, genderGuidanceClause } from "../domain/gender";
 import { provenanceWord } from "../domain/humanize";
 
@@ -1569,11 +1569,11 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.daySchedule
       ? [
           view.daySchedule.due
-            ? `- IT IS TIME: the ${MILESTONE_LABEL[view.daySchedule.next]} is starting NOW — production calls the whole house to the living room; the scheming pauses and everyone gathers for the ceremony.`
+            ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to the living room; the scheming pauses and everyone gathers for the ceremony.`
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
-              ? `- COMING UP: the ${MILESTONE_LABEL[view.daySchedule.next]} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over, schemes, and winds down for the night; do not stage the ${MILESTONE_LABEL[view.daySchedule.next]} today.`
-              : `- COMING UP: the ${MILESTONE_LABEL[view.daySchedule.next]} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it (pitches, last-minute deals); nobody is surprised when production calls them in.`,
+              ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over, schemes, and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it (pitches, last-minute deals); nobody is surprised when production calls them in.`,
         ]
       : []),
   ].join("\n");
