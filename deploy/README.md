@@ -184,7 +184,7 @@ layer) **and** the whole front-end store (accounts, chats/sessions, memory, MCP 
 **every cast portrait / avatar / headshot**, presets, and every other user setting) — while
 **keeping your LLM credentials**: the **API keys** + the **provider endpoint**. The **selected
 models reset to the OOB defaults** (narrator and utility `deepseek-flash` on DeepSeek's own API, portrait `openai/gpt-image-2.6-sunburst` on OpenRouter; ADR 0016 as amended, and `frontend/scripts/oobe_reset.py` is the source of truth) — a stale/placeholder pick
-never rides across a reset (issue #860).
+never rides across a reset (issue #860). Exception: a box that keeps endpoints but none on DeepSeek gets its prior pair (`z-ai/glm-4.7` + `qwen/qwen3.6-27b`) back at the next start (`pin_legacy_model_defaults`; ADR 0016), so it does not flip onto a model its provider may not serve.
 Run it either **on the Proxmox host** (it bridges into the LXC, like `orwell-update.sh`) or
 **inside the container as root**:
 

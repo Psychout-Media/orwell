@@ -7,7 +7,7 @@
  * (`desireApproachedAt`, the standing `interruption`: a houseguest steps in, the cooldown starts, it clears). None of that is the loop progressing, so it is stripped from the comparison.
  * `nightTurns` (ORW-393) is the per-message night-lingering counter the clock bumps on every night message. Leaving the desire-clock keys in made ~35 of ~36 chat commits a game day read as beat commits (the BDD Auditor's ORW-306 baseline: ~109 scenes a game day in chat play against ~17 advance-only).
  */
-export const CHAT_SIDE_LIVE_KEYS = ["nightDepth", "timeOfDay", "interruption", "desireApproachedAt", "approachStreak", "goalApproaches", "pitched", "nightTurns", "napHoursToday", "napWake"] as const; // ORW-393: nightTurns counts every night message (the player lingering), so it is chat-side too
+export const CHAT_SIDE_LIVE_KEYS = ["nightDepth", "timeOfDay", "interruption", "approachHeld", "desireApproachedAt", "approachStreak", "goalApproaches", "pitched", "nightTurns", "napHoursToday", "napWake"] as const; // ORW-393: nightTurns counts every night message (the player lingering), so it is chat-side too
 // 0148: a nap moves the clock + the nap credit (`napHoursToday`/`napWake`), none of which is the live loop progressing; the orchestrator lives the slept hours through `consumeNapHours`.
 
 /** A stable string for the live-loop state; in message mode the chat-side keys are left out. */

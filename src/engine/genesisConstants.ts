@@ -311,7 +311,7 @@ export const GENESIS_CASTING_ROLES: readonly GenesisCastingRole[] = [
   { role: "loyalist", archetype: "loyalist", cerebral: false, physical: false,
     note: "rides for their ride-or-die to a fault, loyalty over logic" },
   { role: "superfan gamebot", archetype: "analyst", cerebral: true, physical: false,
-    note: "an over-studied superfan who quotes past seasons and over-plays their BB knowledge" },
+    note: "an over-studied superfan who quotes past seasons and over-plays their show knowledge" },
 ];
 
 /** Cap for ANY single casting role across the cast (owner: cap any archetype at 2). */

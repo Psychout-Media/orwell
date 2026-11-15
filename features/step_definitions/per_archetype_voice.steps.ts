@@ -141,7 +141,10 @@ Then("neither falls back to the single shared templated line", function (this: B
   const off = (k: "blunt" | "warm", t: "bluntT" | "warmT"): number => rows.filter((r) => r[k].content !== r[t].content).length / rows.length;
   assert.ok(off("blunt", "bluntT") >= 0.9, `the blunt voice matched the templated line on ${Math.round(100 * (1 - off("blunt", "bluntT")))}% of seeds`);
   assert.ok(off("warm", "warmT") >= 0.9, `the warm voice matched the templated line on ${Math.round(100 * (1 - off("warm", "warmT")))}% of seeds`);
-  for (const r of rows) assert.match(r.bluntT.content, TEMPLATED, "the un-voiced twin is the templated phrasing (the comparison is meaningful)");
+  for (const r of rows) {
+    assert.match(r.bluntT.content, TEMPLATED, "the un-voiced twin is the templated phrasing (the comparison is meaningful)");
+    assert.match(r.warmT.content, TEMPLATED, "the warm un-voiced twin is the templated phrasing too"); // ORW-437
+  }
 });
 
 Then("both still name the same engine-grounded target and ally", function (this: BbWorld) {

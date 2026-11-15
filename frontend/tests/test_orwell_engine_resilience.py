@@ -718,3 +718,61 @@ def test_a_structured_httpx_timeout_does_not_raise_type_error(monkeypatch):
     assert orwell_engine._restart_budget_s(httpx.Timeout(30.0)) == orwell_engine._RESTART_WAIT_BUDGET_S
     assert orwell_engine._restart_budget_s(None) == orwell_engine._RESTART_WAIT_BUDGET_S
     assert orwell_engine._restart_budget_s(3) == 3
+
+
+# --- ORW-439: the quiet diagnostic read (beatLog) -----------------------------------------------
+
+@pytest.mark.parametrize("script", [
+    [_resp(400, payload={"error": 'tool "beatLog" is not available on channel "player"'})] * 4,
+    [httpx.ConnectError("refused")] * 4,
+    [httpx.ReadTimeout("slow", request=httpx.Request("POST", "http://x/player/call"))] * 4,
+    [_resp(503, payload={"error": "restarting", "code": "engine-restarting"})] * 4,  # the real restarting payload (review of #2757): a bare {"error": ...} is an ordinary EngineToolError
+    [_resp(502, text="bad gateway")] * 4,
+], ids=["tool-error", "refused", "timeout", "restarting-503", "gateway-502"])
+def test_a_failing_beat_log_is_one_attempt_and_leaves_no_banner_error_or_reconnecting_state(monkeypatch, script):
+    client = _patch_seq(monkeypatch, script)
+    with pytest.raises(Exception):
+        _run(orwell_engine.beat_log(10, user="x", timeout=2.0))
+    assert client.calls == 1
+    assert orwell_engine.last_engine_error() is None
+    assert orwell_engine.reconnecting() is False
+    assert orwell_engine._ENGINE_UNREACHABLE_SINCE is None  # ORW-404: a diagnostic read never starts (or ends) the outage clock
+
+
+def test_a_successful_beat_log_does_not_clear_an_error_another_tool_recorded(monkeypatch):
+    orwell_engine._record_error("moveTo", "unreachable", "ConnectError: boom")
+    client = _patch_seq(monkeypatch, [_resp(200, payload={"result": {"beatSeq": 1, "bumps": [], "truncated": False}})])
+    _run(orwell_engine.beat_log(0, user="x", timeout=2.0))
+    assert client.calls == 1
+    err = orwell_engine.last_engine_error()
+    assert err is not None and err["tool"] == "moveTo"
+
+
+def test_the_default_path_still_retries_and_records(monkeypatch):
+    # an error after the request was sent keeps the short retry (a refused connection now gets the ORW-404 restart wait instead)
+    client = _patch_seq(monkeypatch, [httpx.ReadError("reset")] * 4)
+    with pytest.raises(httpx.ReadError):
+        _run(orwell_engine._call("gameStatus", {}, user="x"))
+    assert client.calls == 1 + orwell_engine._RETRY_ATTEMPTS
+    assert orwell_engine.last_engine_error() is not None
+
+
+def test_a_generic_gateway_5xx_does_not_end_an_established_outage(monkeypatch):
+    """review of #2744: a bare 502/503/504 proves only that a proxy answered. During an established outage it must not clear the outage clock (a later refused connection would then restart the 20 s wait)."""
+    clock = _Clock(monkeypatch)
+    monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_SINCE", 0.0)
+    monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_LAST", 24.0)
+    clock.now = 25.0
+    assert orwell_engine._engine_down()
+    for status in (502, 503, 504):
+        _patch_seq(monkeypatch, [_resp(status, text="bad gateway")] * 8)
+        with pytest.raises(httpx.HTTPStatusError):
+            _run(orwell_engine._call("advanceGame", {}, user="x"))
+        assert orwell_engine._engine_down(), status
+    # the recognized restarting 503 and a non-gateway status ARE answers from a listening engine
+    for resp in (_resp(503, payload={"error": "restarting", "code": "engine-restarting"}), _resp(500, text="boom")):
+        monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_SINCE", 0.0)
+        _patch_seq(monkeypatch, [resp] * 8)
+        with pytest.raises(Exception):
+            _run(orwell_engine._call("advanceGame", {}, user="x"))
+        assert orwell_engine._ENGINE_UNREACHABLE_SINCE is None

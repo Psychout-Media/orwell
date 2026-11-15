@@ -204,6 +204,12 @@ export interface Character {
    */
   deepProfileAuthored?: boolean;
   /**
+   * ORW-438: PUBLIC, Vault-free provenance. `true` while the stored `biography` is genesis's first, nameless draft (set
+   * when genesis commits one, cleared the moment the authoring writer's biography lands or the floor replaces it).
+   * Absent on every older save, so older seasons are untouched. Lets the player-facing card hide the draft.
+   */
+  biographyDraft?: boolean;
+  /**
    * PUBLIC diversity-identity facets (feature 0063) — the cast's engine-guaranteed authentic diversity.
    * `ethnicity` is a FIRST-CLASS heritage/cultural-identity facet (an authentic facet of a full
    * character, never a stereotype kit) that GROUNDS `physicalCharacteristics.skinTone` so text and

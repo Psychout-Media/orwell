@@ -49,3 +49,21 @@ def test_script_exits_zero_when_nothing_is_pruned(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     assert len(list(dest.glob("orwell-backup-*.tar.gz"))) == 1
+
+
+def test_orphan_snapshot_dirs_are_swept_even_without_a_database(tmp_path):
+    # An interrupted run leaves .app.db.snapshot.* behind; the sweep must not depend on app.db existing.
+    app = tmp_path / "app"
+    (app / "data").mkdir(parents=True)
+    (app / "data" / "marker").write_text("x")
+    dest = tmp_path / "dest"
+    old, fresh = dest / ".app.db.snapshot.OLD123", dest / ".app.db.snapshot.NEW123"
+    for d in (old, fresh):
+        d.mkdir(parents=True)
+        (d / "app.db").write_text("copy")
+    t = 1_000_000_000
+    os.utime(old, (t, t))
+    r = subprocess.run(["bash", os.path.join(DEPLOY, "orwell-backup.sh"), str(dest)],
+                       env={**os.environ, "APP_DIR": str(app)}, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert not old.exists() and fresh.exists()

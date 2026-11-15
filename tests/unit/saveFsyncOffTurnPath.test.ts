@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync, truncateSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,17 @@ import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
  * ORW-404 — the save's fsync runs off the request path. The sync function is injected, so no real
  * slow disk is needed. Roles only.
  */
+/** Real `node:fs` calls, recorded in order (as tests/unit/saveDurability.test.ts does): the kill-switch test below needs the blocking fsyncSync and the rename, which `syncFile` never sees in sync mode. */
+const fsCalls = vi.hoisted(() => [] as string[]);
+vi.mock("node:fs", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...real,
+    fsyncSync: (fd: number) => { fsCalls.push("fsync"); return real.fsyncSync(fd); },
+    renameSync: (...args: Parameters<typeof real.renameSync>) => { fsCalls.push(`rename:${String(args[1])}`); return real.renameSync(...args); },
+  };
+});
+
 const snap = (n: number): SessionSnapshot => ({ started: true, week: n, events: [] }) as unknown as SessionSnapshot;
 const dirs: string[] = [];
 const tmp = () => { const d = mkdtempSync(join(tmpdir(), "orw404-")); dirs.push(d); return d; };
@@ -163,8 +174,15 @@ describe("ORW-404 — background fsync", () => {
     try {
       const s = controllableSync();
       const store = new FileSaveStore(dir, { syncFile: s.syncFile });
+      fsCalls.length = 0;
       store.saveFor("u", snap(1));
       expect(s.calls).toHaveLength(0);
+      // the blocking fsync really ran, on the temp file, BEFORE the rename that publishes v000001.json
+      const firstFsync = fsCalls.indexOf("fsync");
+      const rename = fsCalls.findIndex((c) => c.startsWith("rename:") && c.endsWith("v000001.json"));
+      expect(firstFsync, "a blocking fsyncSync ran").toBeGreaterThanOrEqual(0);
+      expect(rename, "the version file was renamed into place").toBeGreaterThanOrEqual(0);
+      expect(firstFsync, "fsync comes before the rename").toBeLessThan(rename);
       expect(store.durability()).toMatchObject({ saveLatestVersion: 1, saveDurableVersion: 1 });
     } finally {
       if (prev === undefined) delete process.env.ORWELL_SAVE_FSYNC; else process.env.ORWELL_SAVE_FSYNC = prev;
@@ -329,7 +347,7 @@ describe("ORW-404 — failures inside the sync handlers", () => {
     } finally { process.off("unhandledRejection", onRej); }
   });
 
-  it("a directory fsync failure still marks the file durable and the directory sync is retried with the next save", async () => {
+  it("a directory fsync failure leaves the marker on the previous save (review of #2747) and the directory sync is retried with the next save", async () => {
     const dir = tmp();
     const errors: string[] = [];
     const dirCalls: string[] = [];
@@ -344,11 +362,12 @@ describe("ORW-404 — failures inside the sync handlers", () => {
     store.saveFor("u", snap(50)); // checkpoint: file sync then directory sync
     await settle();
     expect(dirCalls).toHaveLength(1);
-    expect(store.durability().saveDurableVersion, "the file is durable even though the directory sync failed").toBe(50);
+    expect(store.durability().saveDurableVersion, "not durable while its directory entry failed to sync").toBe(49);
     expect(errors.some((l) => l.includes("save.dirsync"))).toBe(true);
     store.saveFor("u", snap(51));
     await settle();
     expect(dirCalls, "retried with the next save").toHaveLength(2);
+    expect(store.durability().saveDurableVersion, "durable once the retried directory sync succeeded").toBe(51);
   });
 });
 

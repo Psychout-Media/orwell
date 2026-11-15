@@ -66,6 +66,34 @@ describe("ORW-423 live", () => {
     }
     expect(checked).toBeGreaterThan(0);
   });
+  it("controlled: with the cap reached the same pick comes back marked capped (desire and cooldown untouched), and a quiet gap releases it", () => {
+    type P = { desireApproach(ids: string[]): { npc: string; desire: string; capped?: true } | null; awakeNow(): Set<string> | null; absHour(): number };
+    let exercised = 0;
+    for (const seed of [3, 5, 8, 11, 13]) {
+      const s = parked(seed, `ctl${seed}`); if (!s) continue;
+      const p = s as unknown as P; const l = liveRef(s);
+      l.playedGame = true;
+      const idsNow = () => [...(p.awakeNow() ?? [])].filter((id) => id !== (s.getGameState() as unknown as { player?: { id: string } }).player?.id);
+      l.approachStreak = undefined;
+      let free: ReturnType<P["desireApproach"]> = null;
+      for (let i = 0; i < 120 && !free && !(s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due; i++) {
+        free = p.desireApproach(idsNow());
+        if (!free) { l.approachStreak = undefined; s.advanceClockPerConversation(); }
+      }
+      if (!free) continue;
+      const ids = idsNow();
+      expect(free.capped, "no streak: not capped").toBeUndefined();
+      const cooldownBefore = JSON.stringify(l.desireApproachedAt ?? {});
+      l.approachStreak = { desire: free.desire, count: DESIRE.streakCap, lastHour: p.absHour() };
+      const held = p.desireApproach(ids);
+      expect(held, "the cap marks the SAME pick capped").toEqual({ ...free, capped: true });
+      expect(JSON.stringify(l.desireApproachedAt ?? {}), "deciding a capped pick spends no cooldown by itself").toBe(cooldownBefore);
+      l.approachStreak = { desire: free.desire, count: DESIRE.streakCap, lastHour: p.absHour() - DESIRE.streakQuietHours };
+      expect(p.desireApproach(ids)?.capped, "a quiet gap releases the cap").toBeUndefined();
+      exercised++;
+    }
+    expect(exercised, "at least one seed produced an approach to cap").toBeGreaterThan(0);
+  });
   it("headless (not played): the cap never applies and no streak is written", () => {
     let sawMore = false;
     for (const seed of [3, 5, 8, 11, 13]) {
@@ -88,5 +116,30 @@ describe("ORW-423 live", () => {
       }
     }
     throw new Error("no interruption surfaced");
+  });
+});
+
+describe("ORW-443 approachHeld", () => {
+  it("true exactly on a turn the cap withheld an approach; absent otherwise and for headless games", () => {
+    let held = 0;
+    for (const seed of [3, 5, 8, 11, 13]) {
+      const s = parked(seed, `ah${seed}`); if (!s) continue;
+      liveRef(s).playedGame = true;
+      for (let i = 0; i < 120; i++) {
+        const before = JSON.stringify(live(s).desireApproachedAt ?? {});
+        s.advanceClockPerConversation();
+        const l = live(s); const v = s.getGameState() as { approachHeld?: boolean; interruption?: unknown; daySchedule?: { due: boolean } };
+        const stamped = JSON.stringify(l.desireApproachedAt ?? {}) !== before;
+        if (v.approachHeld) { held++; expect(v.interruption).toBeUndefined(); expect(stamped).toBe(true); }
+        else if (stamped) expect(v.interruption).toBeDefined(); // an approach ran and was not withheld
+        else expect("approachHeld" in v).toBe(false); // clears the next turn
+        if (v.daySchedule?.due) break;
+      }
+    }
+    expect(held).toBeGreaterThan(0);
+    for (const seed of [3, 5, 8]) {
+      const s = parked(seed, `ahh${seed}`); if (!s) continue;
+      for (let i = 0; i < 120; i++) { s.advanceClockPerConversation(); expect("approachHeld" in (s.getGameState() as object)).toBe(false); }
+    }
   });
 });

@@ -66,3 +66,10 @@ def test_inline_name_links_are_exempt_from_the_44px_touch_floor():
     assert all("tap-exempt" in ln for ln in made), made
     matrix = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "responsive_matrix.py").read_text(encoding="utf-8")
     assert "e.classList.contains('tap-exempt')" in matrix and "[role=button]" in matrix
+
+
+def test_cast_expand_unhide_is_tied_to_the_img_now_in_the_holder():
+    # ORW-437 (review of #2748): a stale <img> whose url matches the current one again (A to B to A) must not unhide the expand button.
+    s = _r("orwellCast.js")
+    assert "entry.portraitImg = img;" in s
+    assert "entry.portrait === url && entry.portraitImg === img) entry.expandBtn.hidden = false" in s

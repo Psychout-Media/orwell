@@ -80,13 +80,14 @@ describe("ORW-404 follow-up: new-directory durability (background mode)", () => 
     await settle();
     expect(errors.some((l) => l.includes("save.dirsync"))).toBe(true);
     expect(errors.every((l) => !l.includes(data))).toBe(true);
-    expect(store.durability().saveDurableVersion, "the file itself is durable").toBe(1);
+    expect(store.durability().saveDurableVersion, "not durable while its directory entry failed to sync (review of #2747)").toBe(0);
     // Only the user dir was attempted (it failed); the data dir stays owed.
     fail = false;
     dirCalls.length = 0;
     store.saveFor("a", snap(2));
     await settle();
     expect(dirCalls).toEqual([join(data, hex("a")), data]);
+    expect(store.durability().saveDurableVersion).toBe(2); // the retry succeeded: now durable
   });
 
   it("a failed data-dir sync is logged separately and retried with the next save", async () => {
@@ -139,11 +140,14 @@ describe("ORW-404 follow-up: new-directory durability (ORWELL_SAVE_FSYNC=sync mo
   it("still syncs the directory at the every-50th-version checkpoint, and a failure never throws", () => {
     const data = tmp();
     const synced: string[] = [];
-    const store = new FileSaveStore(data, { fsyncMode: "sync", syncDirSync: (p) => { synced.push(p); if (synced.length > 2) throw new Error("EIO"); } });
+    let failing = false;
+    const store = new FileSaveStore(data, { fsyncMode: "sync", onError: () => {}, syncDirSync: (p) => { synced.push(p); if (failing) throw new Error("EIO"); } });
     for (let i = 1; i <= 49; i++) store.saveFor("a", snap(i));
     synced.length = 0;
+    failing = true; // the checkpoint's directory fsync now FAILS
     expect(() => store.saveFor("a", snap(50))).not.toThrow();
     expect(synced).toEqual([join(data, hex("a"))]);
+    expect(store.durability().saveDurableVersion, "a failed directory fsync leaves the checkpoint un-durable").toBe(49);
   });
 });
 

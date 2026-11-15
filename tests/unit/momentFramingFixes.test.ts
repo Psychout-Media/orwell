@@ -129,7 +129,7 @@ describe("#1107 — eviction reveal forbids a fabricated full numeric vote tally
     expect(frag.toLowerCase()).toContain("more votes than there are legal voters");
     // and it spells out WHY (ORW-376: no fixed "16" - the engine states the live voter count in the hard constraints)
     expect(frag.toLowerCase()).toContain("the hoh and the nominees do not vote");
-    expect(frag).not.toMatch(/house is 16/);
+    expect(frag, "no hard-coded 16 (any wording) in the eviction fragment").not.toMatch(/\b16\b/);
     expect(frag.toLowerCase()).toContain("never state a number of votes that could not");
   });
 });
@@ -209,5 +209,14 @@ describe("#1127 — the assembled prompt surfaces the in-game time of day for th
       house: [{ id: "npc:1", name: "A", status: "active", archetype: "x", strategyStyle: "y" }],
     } as unknown as GameStateView;
     expect(buildSystemPrompt("social", view)).not.toMatch(/Time of day:/);
+  });
+});
+
+// ── review of #2664: the dailyRecap tool paragraph must whitelist every field the recap can carry ──
+describe("the dailyRecap tool paragraph names yourDay", () => {
+  it("lists yourDay beside highlights and surfaced, in the 'never beyond' whitelist", () => {
+    const para = BASE_GAME_MASTER_PROMPT.slice(BASE_GAME_MASTER_PROMPT.indexOf("dailyRecap — when the player heads to bed"));
+    expect(para.length).toBeGreaterThan(0);
+    expect(para).toContain("anything beyond what `highlights`/`yourDay`/`surfaced`/`hook` contain");
   });
 });

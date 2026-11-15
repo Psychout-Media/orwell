@@ -924,8 +924,13 @@ def _html_template(file_path: str) -> str:
     from src.orwell_version import get_build as _fe_build
     from src.settings import dropped_script_srcs, game_build_enabled, ws_transport_enabled
     st = os.stat(file_path)
+    try:  # review of #2662: the shell bakes `data-zero-clocks` in, so the setting is part of the cache key
+        from src.zero_clocks import zero_clocks_on
+        _zc = bool(zero_clocks_on())
+    except Exception:  # failsoft-ok: presentation-only flag
+        _zc = False
     key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
-           tuple(dropped_script_srcs()))
+           tuple(dropped_script_srcs()), _zc)
     cached = _HTML_TEMPLATE_CACHE.get(key)
     if cached is not None:
         return cached
@@ -1159,19 +1164,9 @@ async def _startup_event():
 
     _startup_tasks.append(asyncio.create_task(_startup_mcp_connections()))
 
-    # ORW-406: prime the engine-state read cache once at boot (cheap; the engine is warming its own
-    # save in the background, so this also confirms the pair is live) -- bounded, never blocks startup.
-    async def _prime_engine_state():
-        try:
-            from src import orwell_engine
-            await asyncio.wait_for(orwell_engine.get_game_state_polled(), timeout=30)
-        except BaseException as e:
-            if isinstance(e, asyncio.CancelledError):
-                raise
-            from src import log_rings
-            log_rings.record_soft_failure("startup:engine-state-prime-failed", e)
-
-    _startup_tasks.append(asyncio.create_task(_prime_engine_state()))
+    # ORW-406 primed the engine-state read cache here. Removed (review of #2720): the read carried no
+    # user, so it hit the anonymous cache bucket nobody reads, expired in 400 ms anyway, and failed with
+    # "missing user identity" on every restart. The first real poll warms its own per-user entry.
 
     # Pre-warm the RAG tool index off the request path. Loading the local
     # embedding model + opening ChromaDB + indexing the built-in tools is a

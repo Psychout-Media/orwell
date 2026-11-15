@@ -83,7 +83,7 @@ These four priorities are non-negotiable and override convenience:
 | Goal | What it means |
 |---|---|
 | **Behavioral fidelity first** | Reproduce the full social texture of the house, including off-screen NPC-to-NPC life. Tests assert *richness*, not just mechanics. |
-| **The Vault Wall** | Secret state can never reach the player — enforced in code, and the admin/God Mode is walled from it too. |
+| **The Vault Wall** | Secret state does not reach the player — enforced in code, and the admin/God Mode is walled from it too — except the four sanctioned exceptions listed in mandate #2 of `CLAUDE.md` (and no others). |
 | **Anti-sycophancy** | The deterministic core + seeded randomness decide outcomes; the LLM only narrates. Ground truth is queried, never "remembered" to appease. |
 | **Non-degradation** | Persisted detail never regresses across saves and should deepen over time. |
 

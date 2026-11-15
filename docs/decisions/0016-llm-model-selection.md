@@ -202,6 +202,6 @@ which is the `image_quality` default. `DEFAULT_SETTINGS.image_model` now carries
 - **Spend:** `usage.cost` goes to the token ledger (call class `portrait`, provider `openrouter`); missing usage counts as 0.
 - **Fallback:** a non-200, empty data, missing/undecodable b64 or an exception (timeout included) records
   `gpt-image-failed` with the reason (it shows red as before), then that one portrait is made with the first
-  resolvable `IMAGE_AUTODETECT_CANDIDATES` entry (Gemini) on the chat route. One best-effort fallback attempt, no loop: it can still return nothing (the chat route may answer without an image, or fail), in which case the houseguest keeps the failed marker.
+  resolvable `IMAGE_AUTODETECT_CANDIDATES` entry (Gemini) on the chat route. A billing or auth refusal (HTTP 401/402/403, ORW-397) skips the fallback entirely: the chat route would fail the same way, so the real status is recorded and the portrait returns nothing. One best-effort fallback attempt, no loop: it can still return nothing (the chat route may answer without an image, or fail), in which case the houseguest keeps the failed marker.
 - **Rollout / rollback:** the prompt is unchanged, so existing portraits are not re-shot. Roll back by setting
   `image_model` to `google/gemini-3.1-flash-image`. Live behaviour is verified by the first real portraits after deploy.

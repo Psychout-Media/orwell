@@ -175,8 +175,13 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   [[ $FORCE_NOW -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force-now"
   # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
   FWD_LG=""
-  for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS; do
-    [[ "${!__k:-}" =~ ^[0-9]+$ ]] && FWD_LG="${FWD_LG} ${__k}='${!__k}'"
+  for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS ORWELL_UPDATE_TURN_WAIT_SECONDS ORWELL_UPDATE_WARM_WAIT_SECONDS ORWELL_UPDATE_LOCK_WAIT; do
+    [[ "${!__k:-}" =~ ^[0-9]+$ ]] || continue
+    # The wait bounds are capped (24 h): a huge value would make flock fail and be reported as "another update is running".
+    case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT)
+      __v="${!__k}"; if (( ${#__v} > 6 )) || (( 10#$__v > 86400 )); then echo "==> ${__k}=${__v} ignored (more than 86400); the default applies"; continue; fi ;;
+    esac
+    FWD_LG="${FWD_LG} ${__k}='${!__k}'"
   done
   FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
   if [[ -n "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]:-}" ]]; then
@@ -279,7 +284,8 @@ acquire_update_lock() {
   local _flock_args=(-n)
   if [[ "${__UD_SUPERSEDED:-0}" == 1 ]]; then
     local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
-    [[ "$_w" =~ ^[0-9]+$ ]] || _w=3600
+    if ! [[ "$_w" =~ ^[0-9]{1,6}$ ]] || (( 10#$_w > 86400 )); then echo "==> ORWELL_UPDATE_LOCK_WAIT=${ORWELL_UPDATE_LOCK_WAIT:-} ignored (not 0 to 86400); using 3600"; _w=3600; fi
+    _w=$((10#$_w))
     _flock_args=(-w "$_w")
     echo "==> waiting (up to ${_w}s) for the run that holds the update lock, then re-checking whether it finished this update"
   fi
@@ -1646,8 +1652,23 @@ else
     # ORW-406: --force still waits for the turn (bounded); only --force-now skips it.
     if type update_wait_for_no_turn >/dev/null 2>&1; then
       # The same directory the front end publishes to (frontend/src/turn_inflight.py: ORWELL_INFLIGHT_DIR, else its data dir); the service's .env is read when the updater's own environment lacks it.
-      INFLIGHT_DIR="${ORWELL_INFLIGHT_DIR:-$(sed -n 's/^ORWELL_INFLIGHT_DIR=//p' "$ENV_FILE" 2>/dev/null | tail -n1 | tr -d '"'"'"' ')}"
-      update_wait_for_no_turn "${INFLIGHT_DIR:-${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}}/turns-in-flight" "$FORCE_NOW"
+      # Mirrors the front end's order: ORWELL_INFLIGHT_DIR, else ORWELL_DATA_DIR_FE (frontend/src/constants.py DATA_DIR), else its data dir.
+      # Only the surrounding blanks and quotes come off the .env value: a path with a space inside stays whole.
+      __envval() {
+        local v="${!1:-}"
+        [[ -n "$v" ]] || v="$(sed -n "s/^$1=[[:space:]]*//p" "$ENV_FILE" 2>/dev/null | tail -n1 || true)"
+        v="${v%"${v##*[![:space:]]}"}"; v="${v#[\"\']}"; v="${v%[\"\']}"
+        printf '%s' "$v"
+      }
+      INFLIGHT_DIR="$(__envval ORWELL_INFLIGHT_DIR)"
+      [[ -n "$INFLIGHT_DIR" ]] || INFLIGHT_DIR="$(__envval ORWELL_DATA_DIR_FE)"
+      # The helper sourced at the top may be the OLDER installed copy (a host-pushed first update runs the new script
+      # against the pre-update /opt/orwell helper), whose one-argument form ignores $2. So --force-now is decided HERE, never left to the helper.
+      if [[ $FORCE_NOW -eq 1 ]]; then
+        echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
+      else
+        update_wait_for_no_turn "${INFLIGHT_DIR:-${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}}/turns-in-flight" "$FORCE_NOW"
+      fi
     fi
     ops_progress_step 4 "restarting services"
     if [[ "$RESTART_SCOPE" == frontend ]]; then
@@ -1665,7 +1686,8 @@ else
       [[ "$WARM_ENG_PORT" =~ ^[0-9]+$ ]] || WARM_ENG_PORT=8765
       ops_progress_step 4 "warming the new build" 2>/dev/null || true
       update_wait_for_warm "http://127.0.0.1:${WARM_ENG_PORT}/health" \
-        "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" || true
+        "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" \
+        "$(! declare -F update_probe_host >/dev/null || update_probe_host "${ALLOWED_HOSTS:-$(sed -n 's/^ALLOWED_HOSTS=//p' "$ENV_FILE" 2>/dev/null | tail -n1 || true)}")" || true
     fi
     trap - EXIT
     ops_progress_done "updated — services restarting"

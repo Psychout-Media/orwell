@@ -51,6 +51,7 @@ from routes.chat_helpers import (
     unmark_session_framed,
     _last_message_ts,
     current_game_moment,
+    refresh_framed_game_stamps,
     current_game_week,
     current_game_day,
 )
@@ -1700,6 +1701,8 @@ def setup_chat_routes(
                             if full_response:
                                 # M2-6: the beat's IN-WORLD moment (from this turn's framing state)
                                 # stamps the transcript timestamp; None pre-game (casting) ⇒ neutral.
+                                if ctx.game_active:
+                                    await refresh_framed_game_stamps(ctx.user)  # ORW-445: post-tool state
                                 _game_moment = current_game_moment(ctx.user) if ctx.game_active else None
                                 _saved_id = save_assistant_response(
                                     sess, session_manager, session, full_response, last_metrics,
@@ -1758,6 +1761,8 @@ def setup_chat_routes(
                         # exact bug M2-6 removes). Same source + casting gate as the [DONE] save above.
                         # ORW-230: a game turn cut off inside an open <think> saves its reasoning to
                         # metadata.thinking, never as the reply (the one shared disconnect save).
+                        if ctx.game_active:
+                            await refresh_framed_game_stamps(ctx.user)  # ORW-445
                         _stopped_moment = current_game_moment(ctx.user) if ctx.game_active else None
                         save_stopped_partial(
                             sess, session_manager, full_response,
@@ -1983,6 +1988,8 @@ def setup_chat_routes(
                             if full_response:
                                 # M2-6: the beat's IN-WORLD moment (from this turn's framing state)
                                 # stamps the transcript timestamp; None pre-game (casting) ⇒ neutral.
+                                if ctx.game_active:
+                                    await refresh_framed_game_stamps(ctx.user)  # ORW-445: post-tool state
                                 _game_moment = current_game_moment(ctx.user) if ctx.game_active else None
                                 if _owed_anns:
                                     last_metrics = {**(last_metrics or {}), "announcements": _owed_anns}
@@ -2056,6 +2063,8 @@ def setup_chat_routes(
                             # moment instead of the wall clock. The cards the player was shown survive a
                             # cut-short turn. ORW-230: a game turn cut off inside an open <think> saves its
                             # reasoning to metadata.thinking, never as the reply (the one shared save).
+                            if ctx.game_active:
+                                await refresh_framed_game_stamps(ctx.user)  # ORW-445
                             _stopped_moment2 = current_game_moment(ctx.user) if ctx.game_active else None
                             save_stopped_partial(
                                 sess, session_manager, full_response,

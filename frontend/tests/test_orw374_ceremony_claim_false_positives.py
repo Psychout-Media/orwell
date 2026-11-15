@@ -72,3 +72,31 @@ def test_article_form_is_a_rule_only_inside_a_quoted_speech():
     assert ch._narration_claims_outcome(recap, HOH_COMP, HOH_COMP)  # the narrator's own recap voice stays a claim (test_orw273)
     quoted = 'The host reads the rules. "No second chances. The last houseguest standing is the new Head of Household."'
     assert ch._narration_claims_outcome(quoted, HOH_COMP, HOH_COMP) is None
+
+
+@pytest.mark.parametrize("text, sig", [(RULES, HOH_COMP)])
+def test_the_real_rules_speech_passes_through_the_stream_guard_untouched(text, sig):
+    """ORW-437 (review of #2658): the stream-level check that the ORW-373 file's fixture swap dropped. It found that the pre-emission HARD-DROP rail
+    (`_sentence_has_chyron_covered_claim`) still dropped the rules speech: fixed. (The vocative fixture is still hard-dropped there by design, the chyron carries the crown.) The
+    real `screen_streamed_scene_break` / `_emit_guarded_scene` path and stay byte-identical: no rewrite, no cut."""
+    import asyncio
+    agent_loop = importlib.import_module("src.agent_loop")
+    user = "u-orw374-stream"
+
+    async def cap(user=None):
+        return dict(sig)
+
+    orig = ch._capture_beat_signature
+    ch._capture_beat_signature = cap
+    try:
+        ch._LAST_BEAT_SIG[user] = dict(sig)
+        loop = asyncio.new_event_loop()
+        assert loop.run_until_complete(ch.screen_streamed_scene_break(user, text)) is None
+        assert ch.take_scene_rewrite(user) is None
+        g = loop.run_until_complete(agent_loop._emit_guarded_scene(text, user, scene_broken=False, emitted_visible=False, cutaway_emitted=False))
+        loop.close()
+    finally:
+        ch._capture_beat_signature = orig
+        ch._LAST_BEAT_SIG.pop(user, None)
+        ch._DESYNC_REGROUND.pop(user, None)
+    assert g.scene_broken is False and g.text == text

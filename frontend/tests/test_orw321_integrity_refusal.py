@@ -110,3 +110,19 @@ def test_the_advance_belts_stand_down_and_the_surfaces_render_it():
     assert 'frontend["integrityRefusal"]' in admin and "integrity checkpoint is REFUSING turns" in admin
     banner = open(os.path.join(base, "static", "js", "orwellEngineStatus.js"), encoding="utf-8").read()
     assert "d.integrityRefusal" in banner
+
+
+def test_a_refused_nap_is_not_a_mutation_and_does_not_clear_the_standing_red(monkeypatch):
+    # ORW-437 (review of #2737): the engine answers a refused nap {"ok": false}: nothing changed
+    _patch_seq(monkeypatch, [_resp(409, payload=REFUSAL)])
+    with pytest.raises(orwell_engine.EngineTurnRefused):
+        _run(orwell_engine.advance_game(user="u"))
+    before = orwell_engine.mutation_count("u")
+    _patch_seq(monkeypatch, [_resp(200, payload={"result": {"ok": False, "reason": "not-now", "why": "it is evening"}})])
+    _run(orwell_engine.nap(user="u"))
+    assert orwell_engine.mutation_count("u") == before
+    assert orwell_engine.integrity_refusal("u") is not None
+    _patch_seq(monkeypatch, [_resp(200, payload={"result": {"ok": True, "slept": 1}})])
+    _run(orwell_engine.nap(user="u"))
+    assert orwell_engine.mutation_count("u") == before + 1
+    assert orwell_engine.integrity_refusal("u") is None

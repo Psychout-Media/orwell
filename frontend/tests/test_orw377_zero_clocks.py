@@ -81,6 +81,30 @@ def test_format_tool_result_applies_the_scrub(setting):
     assert "9:40am, Day 1" in format_tool_result("status", res)
 
 
+def test_format_tool_result_scrubs_stdout_content_and_results_shapes_too(setting):
+    """review of #2657: MCP and shell tool results use `stdout` (not `output`); no branch may carry a clock label to the model."""
+    from src.tool_execution import format_tool_result
+    raw = json.dumps({"clockLabel": "9:40am, Day 1"})
+    for res in ({"stdout": raw, "stderr": "", "exit_code": 0}, {"stdout": "", "stderr": "now 9:40am, Day 1", "exit_code": 1},
+                {"content": raw, "size": 10}, {"results": "the clock reads 9:40am, Day 1"}):
+        out = format_tool_result("status", res)
+        assert "9:40" not in out and "morning, Day 1" in out, (res, out)
+    setting["v"] = False
+    assert "9:40am, Day 1" in format_tool_result("status", {"stdout": raw, "stderr": "", "exit_code": 0})
+
+
+def test_orw437_format_tool_result_scrubs_the_response_branch_and_the_extra_payload(setting):
+    """review of #2751: `response` text and the serialized `extra` payload (clockLabel, minutesUntil) still reached the model."""
+    from src.tool_execution import format_tool_result
+    raw = json.dumps({"clockLabel": "9:40am, Day 1"})
+    for res in ({"response": raw}, {"response": raw, "model": "m"}, {"response": "ok", "daySchedule": {"clockLabel": "9:40am, Day 1", "minutesUntil": 25, "next": "nominations"}}):
+        out = format_tool_result("status", res)
+        assert "9:40" not in out and "minutesUntil" not in out and "morning, Day 1" in out, (res, out)
+    setting["v"] = False
+    assert "9:40am, Day 1" in format_tool_result("status", {"response": raw})
+    assert "minutesUntil" in format_tool_result("status", {"response": "ok", "daySchedule": {"minutesUntil": 25}})
+
+
 @pytest.mark.parametrize("label,band", [("4:15am, Day 4", "early morning"), ("1:00am, Day 2", "late night"), ("1:59am, Day 2", "late night"), ("2:00am, Day 2", "early morning"), ("6:30am, Day 2", "early morning"), ("7:59am, Day 2", "early morning"), ("8:00am, Day 2", "morning"), ("3:20pm, Day 3", "afternoon"),
                                         ("9:10pm, Day 3", "night"), ("5:00pm, Day 1", "evening"), ("12:15pm, Day 1", "midday"), ("9:40am, Day 1", "morning")])
 def test_band_label_mirrors_the_engine_bands(label, band):
@@ -139,3 +163,105 @@ def test_settings_toggle_exists():
     root = Path(__file__).resolve().parent.parent
     assert 'id="set-zeroClocksToggle"' in (root / "static" / "index.html").read_text()
     assert "zero_clocks" in (root / "static" / "js" / "settings.js").read_text()
+
+
+def test_orw437_a_dotted_time_and_a_semicolon_clause_are_handled_per_sentence(setting):
+    """review of #2657: "3 a.m." must not be split into "3 a." + "m." (so it escaped the check); a semicolon compound loses only its clock clause."""
+    out = _guard("The kettle clicks off. The hall is dark at 3 a.m. The player stays put.")
+    assert "3 a.m" not in out and "The kettle clicks off." in out and "The player stays put." in out
+    out = _guard("The kettle clicks off; it is 9 p.m. by the light; the player stays put.")
+    assert "p.m" not in out and "by the light" not in out  # the WHOLE sentence goes (the dotted time does not end it): a clause cut left dangling "; and ..." text and the stored-text mirror could not follow it
+
+
+def _stream(chunk, stored_before):
+    """Run a chunk through the REAL `_guard_stream_chunk` + `_apply_mirror_ops`: (shown text, stored text)."""
+    from src import agent_loop as al
+    g, _ = asyncio.get_event_loop().run_until_complete(al._guard_stream_chunk(chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    return g.text, al._apply_mirror_ops(stored_before + chunk, g.mirror_ops)
+
+
+@pytest.mark.parametrize("chunk,shown,stored_tail", [
+    ("The house settles. It was 3 a.m. Then he left with them. ", "The house settles. Then he left with them. ", "The house settles. Then he left with them. "),
+    ("She waited in the kitchen; it was 9 p.m. and Sam yawned. Then everyone left. ", " Then everyone left. ", " Then everyone left. "),
+    ("The house settles. Then he left with them. ", "The house settles. Then he left with them. ", "The house settles. Then he left with them. "),
+])
+def test_orw437_shown_and_stored_text_agree_for_dotted_times_compounds_and_plain_sentences(setting, chunk, shown, stored_tail):
+    """review of #2754: the stored text used to be corrupted ("settles.m. Then he left with the ") because the mirror re-split "3 a." / "m."."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + stored_tail
+
+
+@pytest.mark.parametrize("clocky", ["Ten to eight, by the light.", "It is twenty to nine.", "The clock says 9.15am.", "At 4.30pm the doors open."])
+def test_orw437_dotted_and_to_form_times_are_dropped(setting, clocky):
+    out = _guard(f"The kettle clicks off. {clocky} The player stays put.")
+    assert clocky not in out and "The kettle clicks off." in out
+    assert out == "The kettle clicks off. The player stays put.", out  # review of #2751: the whole clock sentence goes and nothing else (no leftover fragment, the trailing sentence stays)
+
+
+@pytest.mark.parametrize("fine", ["It takes five to ten minutes.", "Ten to twelve of them nod.", "Version 2.5pm is not a time."])
+def test_orw437_the_new_forms_leave_durations_alone(fine):
+    from src.zero_clocks import sentence_states_zero_clock_time_raw as raw  # the detector itself (the loop's other closed-set screens read "five to ten" as a vote tally)
+    assert not raw(fine)
+
+
+@pytest.mark.parametrize("chunk,shown", [
+    ("The kettle ticked. At 9 p.m., Sam yawned. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+    ("The kettle ticked. It was 9 p.m; Sam yawned. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+    ("The kettle ticked. Around 3 a.m and later, Sam yawned. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+])
+def test_orw437_punctuation_after_a_dotted_time_goes_with_it_and_stored_text_agrees(setting, chunk, shown):
+    """review of #2751: ", Sam yawned." was left behind as an orphan part when "At 9 p.m." was dropped, and "3 a.m and" (no closing period) was split inside the time. Three true sentences stay,
+    in the shown text AND the stored text (real `_guard_stream_chunk` + `_apply_mirror_ops`)."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + shown
+
+
+@pytest.mark.parametrize("chunk,shown", [
+    ("The kettle ticked. The clock says 9.15am. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+    ("The kettle ticked. At 4.30pm the doors open. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+])
+def test_orw437_a_dotted_numeric_time_is_one_sentence_part_and_stored_text_agrees(setting, chunk, shown):
+    """review of #2751: the splitter cut "9.15am" at the dot, so dropping the clock part left "The clock says 9." on screen. The whole sentence goes, shown and stored (real `_guard_stream_chunk` + `_apply_mirror_ops`); three true sentences stay."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + shown
+
+
+def test_orw437_a_vote_tally_is_not_a_clock_reading(setting):
+    """review of #2751/#2767: "five to two" matched the to-form ("ten to eight"). Only the TALLY shape is exempt (a number pair that follows "a vote of" / "voted", or precedes "vote"); a real time in a vote-themed sentence is still dropped."""
+    from src.zero_clocks import sentence_states_zero_clock_time_raw as raw
+    for tally in ("By a vote of five to two, the group picked pizza.", "They voted five to two for pizza.", "A five to two vote picked pizza."):
+        assert not raw(tally), tally
+    for clock in ("Ten to eight, by the light.", "It was ten to eight when the vote began.", "Voting opens at five to nine.", "She voted at ten to eight.",
+                  "The vote is at ten to eight tonight.", "He reached the kitchen at ten to eight."):
+        assert raw(clock), clock
+    from routes import chat_helpers as ch
+    assert not ch.sentence_states_zero_clock_time("By a vote of five to two, the group picked pizza.")
+    for clock in ("Voting opens at five to nine.", "She voted at ten to eight.", "The vote is at ten to eight tonight.", "He reached the kitchen at ten to eight."):
+        out = _guard(f"The kettle ticked. {clock} Rain tapped the glass.")
+        assert out == "The kettle ticked. Rain tapped the glass.", (clock, out)
+
+
+@pytest.mark.parametrize("stem", ["3 a.m", "9 p.m"])
+def test_orw437_a_dotted_time_split_across_chunks_takes_its_terminator_with_it(setting, stem):
+    """review of #2767: chunks ending at "3 a.m" with the "." in the next one left "settles.. Then he left." shown AND stored. Real `_guard_stream_chunk` + `_apply_mirror_ops`, chunk by chunk, plus the round's flush."""
+    from src import agent_loop as al
+    run = asyncio.get_event_loop().run_until_complete
+    shown, stored, pending = "", "", ""
+    for c in (f"The house settles. It was {stem}", ". Then he left. The door clicks. Rain falls. "):
+        g, pending = run(al._guard_stream_chunk(c, "u", ooc_open=pending, scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+        shown += g.text
+        stored = al._apply_mirror_ops(stored + c, g.mirror_ops)
+    assert pending == ""
+    assert shown == "The house settles. Then he left. The door clicks. Rain falls. ", shown
+    assert stored == shown, (stored, shown)
+    # nothing follows the stem: the flush resolves it (the clock sentence is dropped, not lost into the pending buffer)
+    g, pending = run(al._guard_stream_chunk(f"The house settles. It was {stem}", "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    assert g.text.strip() == "The house settles." and pending.endswith(stem)
+    g2, pending = run(al._guard_stream_chunk("", "u", ooc_open=pending, scene_broken=False, emitted_visible=True, cutaway_emitted=False, flush=True))
+    assert g2.text == "" and pending == ""

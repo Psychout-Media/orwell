@@ -298,3 +298,43 @@ def test_a_guard_down_turn_that_advanced_time_defers_without_the_time_block(monk
     assert len(entries) == 2
     assert "time" not in entries[0]["projection"] and entries[0]["projection"]["board"] == {"week": 1}
     assert entries[1]["projection"]["time"]["partOfDay"] == "morning"
+
+
+def test_a_board_without_a_sleep_fact_publishes_no_asleep_field(monkeypatch):
+    """review of #2741: `asleep: []` for a board that says nothing about sleep read as proof that everyone is awake."""
+    _zero_clocks(monkeypatch, True)
+    _patch_reads(monkeypatch, gs={"week": 1, "phase": "hoh", "timeOfDay": "night", "whereabouts": {"room": "kitchen"}})
+    assert "asleep" not in _run(_faith_build_projection("u1"))["time"]
+    _patch_reads(monkeypatch, gs={"week": 1, "phase": "hoh", "timeOfDay": "night", "whereabouts": {"room": "kitchen"}, "asleep": []})
+    assert _run(_faith_build_projection("u1"))["time"]["asleep"] == []
+
+
+def test_a_held_or_failed_time_write_does_not_switch_the_time_dimension_off():
+    """review of #2741: any event named turnIn / nap / ... counted as a clock write, even a refused one."""
+    from src.agent_loop import _faith_turn_advanced_time
+    assert not _faith_turn_advanced_time([{"tool": "turnIn", "output": '{"held": true, "reason": "bedtime"}', "exit_code": 0}])
+    assert not _faith_turn_advanced_time([{"tool": "nap", "output": "engine refused", "exit_code": 1}])
+    assert not _faith_turn_advanced_time([{"tool": "advanceGame", "output": '{"error": "no such beat"}', "exit_code": 0}])
+    assert _faith_turn_advanced_time([{"tool": "turnIn", "output": '{"status": {"timeOfDay": "morning"}}', "exit_code": 0}])
+    assert _faith_turn_advanced_time([{"tool": "nap", "output": "", "exit_code": 0}])
+
+
+def test_the_prompt_does_not_offer_the_time_dimension_without_a_time_block():
+    """review of #2741: a skipped time-advancing turn or a failed board read leaves the projection without `time`; the judge must not be asked to check time claims against nothing."""
+    j = FaithfulnessJudge(lambda p: "")
+    offered = lambda p: p.split("Decide three things:")[1].split("classification:")[0]
+    assert "'time'" not in offered(j.build_prompt("narr", {"board": {"week": 1}}))
+    assert "'time'" in offered(j.build_prompt("narr", {"board": {"week": 1}, "time": {"partOfDay": "night"}}))
+    assert "'time'" in offered(j.build_prompt("narr"))  # no projection given: the in-game list as before
+
+
+def test_a_non_finite_float_in_the_projection_serializes_as_null_not_nan():
+    """review of #2741: `json.dumps` emitted the non-standard `NaN` / `Infinity` tokens, so the judge's PROJECTION block did not parse as JSON."""
+    def strict(tok):
+        raise ValueError(f"non-standard JSON token {tok}")
+    proj = {"board": {"week": 1, "ratio": float("nan"), "edge": [float("inf"), float("-inf"), 2.5]}}
+    for cap in (6000, 40):  # also through the over-cap fallback
+        out = serialize_projection(proj, cap)
+        json.loads(out, parse_constant=strict)
+    assert json.loads(serialize_projection(proj, 6000)) == {"board": {"week": 1, "ratio": None, "edge": [None, None, 2.5]}}
+    assert proj["board"]["ratio"] != proj["board"]["ratio"], "the caller's dict is untouched"

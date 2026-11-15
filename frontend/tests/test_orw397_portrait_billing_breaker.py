@@ -27,6 +27,11 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "PORTRAITS_DIR", tmp_path / "portraits")
     monkeypatch.setattr(P, "image_generation_available", lambda user: True)
     monkeypatch.setattr(P, "image_gen_disabled", lambda: False)
+
+    async def _host(user):  # ORW-437: the breaker is per host; pin this user's host to the fake provider's
+        return "api.provider.test"
+
+    monkeypatch.setattr(P, "image_provider_host", _host)
     P.reset_billing_breaker()
     U._STATE.clear()
     U._BUSY.clear()

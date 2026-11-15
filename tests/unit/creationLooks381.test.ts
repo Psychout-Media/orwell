@@ -119,7 +119,7 @@ describe("ORW-381 side stream draws", () => {
 });
 
 describe("ORW-381 no main-stream draw moved", () => {
-  it("the cast (names, ages, stats), hidden profiles and threads are byte-identical to before ORW-381 (hash taken on origin/main 0697c631)", () => {
+  it("the cast (names, ages, stats), hidden profiles and threads are unchanged by the look deal (a pinned hash, re-pinned on purpose by the PR that says why: see the comment)", () => {
     // Everything except the seven physical look fields, over six seeds. The look deal runs on its own side
     // stream, so this hash was identical before and after the change.
     let all = "";
@@ -139,9 +139,9 @@ describe("ORW-381 casting type", () => {
     expect(new Set(CASTING_TYPES.map((t) => t.id)).size).toBe(CASTING_TYPES.length);
     for (const t of CASTING_TYPES) {
       const words = t.read.split(/\s+/).length;
-      expect(words, t.id).toBeGreaterThanOrEqual(3);
+      expect(words, t.id).toBeGreaterThanOrEqual(5); // the file's contract: five to ten words
       expect(words, t.id).toBeLessThanOrEqual(10);
-      expect(`${t.label} ${t.read}`, t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|girl|boy|handsome|beautiful)\b/i);
+      expect(`${t.label} ${t.read}`, t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|girl|boy|handsome|beautiful|fox|diva|queen|king|lady|gentleman)\b/i);
     }
     expect(CASTING_TYPES.find((t) => t.id === "silver-fox")!.minAge).toBe(45);
     expect(CASTING_TYPES.find((t) => t.id === "parent-of-the-house")!.minAge).toBe(36);
@@ -256,6 +256,11 @@ describe("ORW-381 build leans to the physical stat", () => {
     expect(json).not.toMatch(/\b(physical|mental|social)"\s*:\s*[0-9.]+/);
     expect(json).not.toMatch(/\d\.\d/);
     expect(json).not.toMatch(/"(stats|band|buildBand|fitness)"/i);
+    const prompts = JSON.stringify(warm.portraitPrompts ?? []);  // ORW-437: the prompts too, not only the house
+    expect(prompts.length).toBeGreaterThan(2);
+    expect(prompts).not.toMatch(/\b(physical|mental|social)\\?"\s*:\s*[0-9.]+/);
+    expect(prompts).not.toMatch(/\d\.\d/);  // no float of any kind (a 0.4 stat leak would pass the key regexes)
+    expect(prompts).not.toMatch(/"(stats|band|buildBand|fitness)"/i);
     const view = new GameSessionAdapter().createCharacter({ playerName: "The Player", seed: 8123 });
     const hv = JSON.stringify(view.house);
     expect(hv).not.toMatch(/"(stats|buildBand|fitnessBand|band)"/i);

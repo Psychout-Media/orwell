@@ -148,7 +148,7 @@ _LAST_CHUNKS: list = []  # ORW-395: the raw SSE chunks of the last _drive run
 
 
 def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="orw310", turn_in_result=None,
-           force_setting=True, max_rounds=3):
+           force_setting=True, max_rounds=3, system="narrator"):
     """Run stream_agent_loop with a scripted model. `scripts` = list of per-round dicts
     {"deltas": [...], "calls": [{"name","arguments"}]}. Returns (captures, belts, forced_outcomes, executed)."""
     from src import agent_loop as al
@@ -177,7 +177,8 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
     async def fake_stream(candidates, messages, **kwargs):
         rounds.append({"tool_choice": kwargs.get("tool_choice"),
                        "tools": [t["function"]["name"] for t in (kwargs.get("tools") or [])],
-                       "n_system": sum(1 for m in messages if m.get("role") == "system")})
+                       "n_system": sum(1 for m in messages if m.get("role") == "system"),
+                       "msgs": [dict(m) for m in messages]})
         sc = scripts.pop(0) if scripts else {"deltas": ["done"]}
         for d in sc.get("deltas", []):
             yield f'data: {json.dumps({"delta": d})}\n\n'
@@ -210,7 +211,7 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
         out = []
         async for chunk in al.stream_agent_loop(
             OR_URL, model,
-            [{"role": "system", "content": "narrator"}, {"role": "user", "content": text}],
+            [{"role": "system", "content": system}, {"role": "user", "content": text}],
             max_rounds=max_rounds, game_mode="game", owner=owner,
             pinned_tools={"turnIn", "advanceGame"},
         ):
@@ -283,7 +284,7 @@ def test_loop_never_forces_on_talk_about_bed(monkeypatch, text):
 @pytest.mark.parametrize("tod", ["morning", "afternoon", "evening"])
 def test_loop_never_forces_where_the_engine_would_hold(monkeypatch, tod):
     rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", status={**_NIGHT, "timeOfDay": tod})
-    assert rounds[0]["tool_choice"] is None and set(belts) <= {"bedtime-held-note"}  # ORW-421: only the held note may fire
+    assert rounds[0]["tool_choice"] is None and belts == {"bedtime-held-note": 1}  # ORW-421: exactly the held note fires, once
 
 
 def test_loop_never_forces_with_a_pending_decision(monkeypatch):
@@ -539,12 +540,44 @@ def test_board_gate_unchanged_for_the_evening():
 def test_loop_adds_the_held_note_once_for_an_evening_goodnight(monkeypatch):
     rounds, belts, _, executed = _drive(
         monkeypatch, text="Goodnight everyone. I'm going to bed.", status={**_NIGHT, "timeOfDay": "evening"},
-        scripts=[{"deltas": ["Too wired to sleep."]}])
-    assert rounds[0]["tool_choice"] is None and executed == []
+        scripts=[{"deltas": ["Too wired to sleep."], "calls": [{"name": "advanceGame", "arguments": "{}"}]}, {"deltas": ["Still awake."]}])
+    assert rounds[0]["tool_choice"] is None and executed == ["advanceGame"]
+    assert len(rounds) == 2  # a SECOND model round ran (review of #2730), so "once per turn" is really tested
     assert rounds[0]["n_system"] == 2  # narrator + the ORW-421 note
+    assert rounds[1]["n_system"] == 2  # still the one note: not added again
     assert belts == {"bedtime-held-note": 1}
 
 
 def test_loop_no_held_note_at_night(monkeypatch):
     rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", scripts=[{"deltas": ["ok"]}])
     assert "bedtime-held-note" not in belts
+    assert rounds[0]["n_system"] == 1  # the narrator context is unchanged: no held note was injected (review of #2730)
+
+
+# ── ORW-437 (reviews of #2683 and #2664): the rejecter-model direct turnIn, driven through the loop, hands the NARRATOR the morning board and the recap ──
+def test_direct_turn_in_narrator_gets_the_recap_first_and_the_morning_context(monkeypatch):
+    from src import orwell_engine as oe
+    from routes import chat_helpers as ch
+    owner = "orw437"
+    old_vol = "\n- Week: 1 (Day 1)\n- Time of day: night\n- House: everyone is up"
+    new_vol = "\n- Week: 1 (Day 2)\n- Time of day: morning\n- House: waking"
+
+    async def fake_mp(moment=None, user=None, timeout=None, brief=None):
+        return {"systemPrompt": "GAME CONTEXT:\n- roster" + new_vol}
+
+    monkeypatch.setattr(oe, "get_moment_prompt", fake_mp)
+    ch._LAST_FRAMED_MOMENT_VOLATILE[owner] = old_vol
+    out = {"output": json.dumps({"started": True, "status": {"timeOfDay": "morning", "asleep": [{"id": "n1", "name": "Sleeper One"}]},
+                                  "dailyRecap": {"day": 1, "highlights": [], "surfaced": [], "yourDay": ["a toast"]}}), "exit_code": 0}
+    try:
+        rounds, belts, _, executed = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, turn_in_result=out, owner=owner,
+                                            system="GAME CONTEXT:\n- roster" + old_vol + "\nTOOLS.", scripts=[{"deltas": ["The house stirs."]}])
+    finally:
+        ch._LAST_FRAMED_MOMENT_VOLATILE.pop(owner, None)
+    assert executed == ["turnIn"]
+    first = rounds[0]["msgs"]
+    tool_msg = next(m for m in first if m.get("role") == "tool")
+    assert tool_msg["content"].startswith('### turnIn\n```\n{"dailyRecap"')  # the recap leads the tool message (#2664)
+    blob = "\n".join(str(m.get("content")) for m in first if m.get("role") == "system")
+    assert "Time of day: night" not in blob and "Time of day: morning" in blob and "Still asleep (1): Sleeper One" in blob  # (#2683)
+    assert belts.get("bedtime-context-rebuilt") == 1

@@ -49,6 +49,9 @@ export interface FileSaveStoreOptions {
 
 /** Per-user-dir durability bookkeeping (in memory only; derived, never persisted). */
 interface DirState {
+  /** Rate limit for the directory-sync failure line: when it last logged (null = not failing) and how many were held back since. */
+  dirFailLogAt: number | null;
+  dirFailHeld: number;
   latest: number;
   /** Newest version whose fsync completed AND whose file still exists (0 = none known yet). */
   durable: number;
@@ -296,18 +299,32 @@ export class FileSaveStore implements UserSaveStore {
       // truncated file can NEVER win. Owner-sanctioned in #1562.
       // ORW-404 follow-up: a brand-new user directory also syncs its own entry and the data dir's entry
       // for it, synchronously (this mode's contract), so a new game's folder survives a power cut.
+      // Review of #2744: the same predicates as the background branch: the first save this process writes in an
+      // existing directory (a restart) also owes its entries.
+      // Review of #2768 (M2): an owed directory or parent (dirty flag still set from an earlier failure) is retried on
+      // EVERY save, one attempt each, and the marker advances only when none is still owed.
       const dirsToSync: string[] = [];
-      if (isCheckpoint || dirIsNew) dirsToSync.push(dir);
-      if (dirIsNew) dirsToSync.push(this.dataDir);
+      if (isCheckpoint || dirIsNew || firstSaveSinceBoot || st.dirDirty) dirsToSync.push(dir);
+      if (dirIsNew || firstSaveSinceBoot || st.parentDirty) dirsToSync.push(this.dataDir);
       if (dirsToSync.length > 0) {
         const td = stallTimer.now();
         for (const d of dirsToSync) {
-          try { this.syncDirSync(d); } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+          const isParent = d === this.dataDir;
+          try {
+            this.syncDirSync(d);
+            if (isParent) st.parentDirty = false; else st.dirDirty = false;
+          } catch (e) {
+            if (isParent) this.markParentDirty(st); else this.markDirDirty(st);
+            this.logDirSyncFailure(st, isParent ? "parentsync" : "dirsync", version, e);
+          }
         }
         stallTimer.record("save.dirsync", stallTimer.now() - td, { version }); // review of #2691: the directory flush is its own phase
       }
-      st.durable = version;
-      st.unsynced = [];
+      if (!st.dirDirty && !st.parentDirty) {
+        st.durable = version;
+        st.unsynced = [];
+        st.dirFailLogAt = null; st.dirFailHeld = 0;
+      }
       st.bootVersions = null;
     }
     // `version` IS the newest on disk after the rename (single-threaded write). Prune never deletes a
@@ -343,7 +360,7 @@ export class FileSaveStore implements UserSaveStore {
     if (!st) {
       st = {
         latest: existing[0] ?? 0, durable: 0, pending: null, inFlight: null, queued: false,
-        unsynced: [], dirDirty: false, parentDirty: false, dirSeq: 0, parentSeq: 0, syncing: null, bootVersions: null, lastAlarmAt: null, capWarned: false,
+        dirFailLogAt: null, dirFailHeld: 0, unsynced: [], dirDirty: false, parentDirty: false, dirSeq: 0, parentSeq: 0, syncing: null, bootVersions: null, lastAlarmAt: null, capWarned: false,
       };
       this.states.set(dir, st);
       if (existing.length > 0 && background) {
@@ -417,17 +434,17 @@ export class FileSaveStore implements UserSaveStore {
       } catch { /* logging must never break the game */ }
       return;
     }
-    // The FILE is durable now; the directory entry is tracked separately and retried with the next save.
-    this.markDurable(dir, st, v);
-    stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
+    // The FILE is synced; the save is NOT durable until the directory entries owed to it are too (review of
+    // #2747): the marker moves only after they succeed. A failed one stays flagged and is retried with the
+    // next save or the shutdown flush; the marker then stays put (prune keeps the older files meanwhile).
+    let entriesOk = true;
     if (dirToo) {
       try {
         await this.syncDir(dir);
         if (st.dirSeq === dirSeq) st.dirDirty = false;
       } catch (e) {
-        try {
-          this.onError(`[orwell] save.dirsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
-        } catch { /* ignore */ }
+        entriesOk = false;
+        this.logDirSyncFailure(st, "dirsync", v, e);
       }
     }
     // The new directory's own entry lives in the data dir: sync that after the directory itself.
@@ -436,11 +453,27 @@ export class FileSaveStore implements UserSaveStore {
         await this.syncDir(this.dataDir);
         if (st.parentSeq === parentSeq) st.parentDirty = false;
       } catch (e) {
-        try {
-          this.onError(`[orwell] save.parentsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
-        } catch { /* ignore */ }
+        entriesOk = false;
+        this.logDirSyncFailure(st, "parentsync", v, e);
       }
     }
+    if (entriesOk) { this.markDurable(dir, st, v); st.dirFailLogAt = null; st.dirFailHeld = 0; }
+    // After the marker: a throwing timing sink is reported by the caller's handler but never decides durability.
+    stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
+  }
+
+  /**
+   * The directory/parent sync failure line, rate limited (review of #2768, M1): a permanently failing directory
+   * would otherwise log once per save forever. The first failure logs; then at most one line per minute, with the count held back.
+   */
+  private logDirSyncFailure(st: DirState, what: "dirsync" | "parentsync", v: number, e: unknown): void {
+    const now = this.nowMs();
+    if (st.dirFailLogAt !== null && now - st.dirFailLogAt < 60_000) { st.dirFailHeld++; return; }
+    const held = st.dirFailHeld;
+    st.dirFailLogAt = now; st.dirFailHeld = 0;
+    try {
+      this.onError(`[orwell] save.${what} failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)${held > 0 ? `; ${held} more since the last line` : ""}`);
+    } catch { /* ignore */ }
   }
 
   /** Last-resort recorder for a failure inside the sync handlers themselves. Never throws. */
@@ -461,7 +494,9 @@ export class FileSaveStore implements UserSaveStore {
 
   /** Unsynced backlog size: versions behind the marker, or the saves awaiting their first fsync. */
   private backlogOf(st: DirState): number {
-    return st.durable > 0 ? st.latest - st.durable : st.unsynced.length;
+    if (st.durable > 0) return st.latest - st.durable;
+    const oldest = st.unsynced[0]; // the cap overwrites only the NEWEST slot, so this is the true oldest
+    return oldest ? st.latest - oldest.v + 1 : 0;
   }
 
   /**
@@ -477,7 +512,7 @@ export class FileSaveStore implements UserSaveStore {
     if (st.lastAlarmAt !== null && now - st.lastAlarmAt < this.backlogAlarmMs) return;
     st.lastAlarmAt = now;
     try {
-      this.onError(`[orwell] save.durability behind: oldest unsynced save is ${Math.round(age / 1000)}s old, ${st.unsynced.length} unsynced version(s)`);
+      this.onError(`[orwell] save.durability behind: oldest unsynced save is ${Math.round(age / 1000)}s old, ${this.backlogOf(st)} unsynced version(s)`);
     } catch { /* logging must never break the game */ }
   }
 

@@ -52,5 +52,5 @@ def test_an_upgrader_retry_makes_no_in_pass_reshoot(monkeypatch):
 
 def test_the_check_is_given_every_stated_visible_feature():
     f = C.facts_from_prompt(PROMPT + " A nose stud and a short beard.")
-    assert {"glasses", "nose stud or ring", "beard"} <= set(f["features"]) and "long auburn hair" in f["features"] or "long auburn hair" in " ".join(f["features"])
+    assert set(f["features"]) == {"glasses", "nose stud or ring", "beard", "auburn hair", "long auburn hair"}  # ORW-437: the whole list, exactly
     assert "missing-feature" in C.KNOWN_CODES and "glasses" in C.facts_block(f)

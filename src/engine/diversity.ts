@@ -538,5 +538,7 @@ export function renameGivenNameInProse(text: string, priorName: string, nextName
   const newGiven = nextName.trim().split(/\s+/)[0] ?? "";
   if (!oldGiven || !newGiven || oldGiven === newGiven) return text;
   const esc = oldGiven.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.replace(new RegExp(`\\b${esc}\\b`, "g"), newGiven);
+  // ORW-437: a hyphen or an apostrophe-prefix keeps a longer name whole ("Nia-Lee", "D'Nia" are other people); the card
+  // name's own possessive ("Nia's") is still swapped because only a following word character or hyphen blocks a match.
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), newGiven);
 }

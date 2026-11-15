@@ -20,6 +20,7 @@ def _run(coro):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setattr(op, "PORTRAITS_DIR", tmp_path / "portraits")
+    monkeypatch.setattr(op, "PORTRAIT_LOG_PATH", tmp_path / "log.jsonl")  # ORW-437: every generation writes the attempt log
     monkeypatch.setattr(op, "image_generation_available", lambda user: True)
     monkeypatch.setattr(op, "image_gen_disabled", lambda: False)
     monkeypatch.setattr(op, "portrait_parallel", lambda user=None: 3)
@@ -108,6 +109,7 @@ def test_429_runs_the_rest_strictly_one_at_a_time(env, monkeypatch):
         return b"x"
 
     monkeypatch.setattr(op, "_generate_one", fake)
+    _no_check(monkeypatch)  # ORW-437: fake images must never reach the real vision-provider path
     out = _run(op.generate_and_store(_prompts(9), "u", record_beats=False))
     assert out["generated"] == 8
     after = [s for s in started if s[2]]
