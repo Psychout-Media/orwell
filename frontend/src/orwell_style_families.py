@@ -16,7 +16,7 @@ STYLE_FAMILIES: tuple[dict, ...] = (
     {"id": "southern", "label": "southern Sunday best", "sample": "a pressed seersucker blazer or crisp light-blue shirt, loafers, a pocket square", "keywords": ["southern", "sunday best", "pearls", "loafers", "seersucker"]},
     {"id": "country-club", "label": "country-club sporty", "sample": "a polo, tennis or golf layers, a visor", "keywords": ["country club", "polo", "tennis", "golf", "visor"]},
     {"id": "quiet-luxury", "label": "quiet luxury", "sample": "cashmere, soft neutrals, one fine watch", "keywords": ["quiet luxury", "cashmere", "neutrals", "fine watch", "merino"]},
-    {"id": "corporate", "label": "corporate business casual", "sample": "a blazer, button-down, slacks, a lanyard on show", "keywords": ["business casual", "button-down", "slacks", "lanyard", "dress shirt"]},
+    {"id": "corporate", "label": "corporate business casual", "sample": "a blazer, button-down, slacks, polished shoes", "keywords": ["business casual", "button-down", "slacks", "lanyard", "dress shirt"]},
     {"id": "minimalist", "label": "minimalist monochrome", "sample": "one tone head to toe, clean lines, no accessories", "keywords": ["minimalist", "monochrome", "clean lines", "capsule wardrobe", "one tone"]},
     {"id": "streetwear", "label": "streetwear", "sample": "oversized hoodies, statement sneakers, a snapback", "keywords": ["streetwear", "sneakerhead", "snapback", "statement sneakers", "bucket hat"]},
     {"id": "luxury-streetwear", "label": "high-end street style", "sample": "a designer track set, a chunky chain, fresh sneakers", "keywords": ["designer", "track set", "chunky chain", "high-end street", "fresh kicks"]},

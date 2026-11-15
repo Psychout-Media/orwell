@@ -131,3 +131,30 @@ def unreal_clothes(text: str) -> list:
 def is_garment(item: str) -> bool:
     """True when the piece names at least one garment or accessory noun a shop sells."""
     return any(re.search(r"\b" + re.escape(n) + r"s?\b", item or "", re.I) for n in table()["garment-nouns"])
+
+
+_JOB_KINDS = ("sector", "role")
+
+
+def job_offenders(job: str, taken_jobs: list, n: int) -> dict:
+    """{kind: [value]} when adding `job` to a cast that already holds `taken_jobs` would put its job sector over the cap or repeat
+    a job head noun (two office managers, two coaches). Used at the genesis deal: an offending job is dropped so the engine floors
+    that slot's job."""
+    tag = tag_card({"vocation": job})
+    earlier = [tag_card({"vocation": j}) for j in taken_jobs]
+    found = offenders_for({k: v for k, v in tag.items() if k in _JOB_KINDS}, earlier, n)
+    return found
+
+
+def job_taken_hint(taken_jobs: list, n: int) -> str:
+    """One prompt sentence naming the job sectors already at their cap and the job words already used, or "" when none."""
+    tags = [tag_card({"vocation": j}) for j in taken_jobs]
+    counts = count_values(tags)
+    full = sorted(v for v, c in counts.get("sector", {}).items() if v != "other" and c >= cap_for("sector", v, n))
+    roles = sorted(counts.get("role", {}))
+    parts = []
+    if full:
+        parts.append("job sectors already FULL in this cast (pick a job in a different sector): " + ", ".join(full))
+    if roles:
+        parts.append("job words already used (do not end your job title with any of them): " + ", ".join(roles))
+    return "; ".join(parts)

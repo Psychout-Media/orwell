@@ -60,7 +60,7 @@ PHOTO_SHEET_RULES = (
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
     "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
-    "visible words, logos, band names or brand names. The FIRST piece is the MAIN piece (the jacket, "
+    "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). The FIRST piece is the MAIN piece (the jacket, "
     "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
     "the garment, for example \"leather jacket\" or \"flannel shirt\"). "
     "(2) photoHair: at most 90 characters: the SAME cut, length and colour as their written hair, "
@@ -131,9 +131,11 @@ _SYSTEM = (
     "the casting office already decided who. A distinguishingMark is usually minor or absent: freckles, "
     "glasses, jewelry, dimples (no scars, birthmarks or tooth gaps: the portrait cannot hold them) — or plain \"none notable\"; never "
     "default to a tattoo, "
-    "STYLE: the skeleton's presentation is this person's style FAMILY. Write \"style\" INSIDE that "
-    "family, as THIS person would wear it given their age, job and hometown; never blend in another "
-    "family (no rocker edge layered over bohemian). "
+    "STYLE: the skeleton's presentation is a LEAN, not a costume: let it colour a piece or two, and write \"style\" as the "
+    "clothes THIS person would really own and wear, given their age, job, hometown, money and personality; never blend in another "
+    "family (no rocker edge layered over bohemian). Every piece is a garment or accessory a shop sells (a shirt, a jacket, jeans, "
+    "boots, a watch): no uniform worn as a style (never \"worn like a uniform\"), no costume, no work badge, name tag or lanyard, no "
+    "bare skin under a blazer, no hand-sewn or DIY decoration. "
     + PHOTO_SHEET_RULES + " "
     "STORY MATCHES THE CARD (HARD): the biography is read beside the card, so it must agree with it. "
     "Use ONLY the houseguest's pinned pronouns for the houseguest (other people keep their own, named by role); "
@@ -1147,6 +1149,8 @@ _LOOK_PROBLEM_TEXT = {
     "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
     "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
     "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
+    "wardrobe-unreal": "a wardrobe piece or the style line is not a real garment (a work badge, lanyard or name tag, a costume, a uniform worn as a style, bare skin under a blazer, hand-sewn decoration); use ordinary pieces a shop sells",
+    "wardrobe-not-garment": "a wardrobe piece names no garment or accessory a shop sells (it is hair, a person or a vibe); every piece must be a real garment",
     "wardrobe-taken": "the MAIN (first) wardrobe piece repeats one already taken in this cast; choose a different garment",
 }
 
@@ -1202,6 +1206,12 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             not isinstance(wardrobe, list) or not 2 <= len(items) <= 3
             or any(len(i) > 60 or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
         out.append("wardrobe-shape")
+    if items or pc.get("style"):
+        from src import orwell_cast_realism as _R
+        if any(_R.unreal_clothes(x) for x in items) or _R.unreal_clothes(str(pc.get("style") or "")):
+            out.append("wardrobe-unreal")
+        elif any(not _R.is_garment(x) for x in items):
+            out.append("wardrobe-not-garment")
     if "onCamera" in pc:
         oc = str(pc.get("onCamera") or "")
         if oncamera_is_scene(oc):
@@ -1253,6 +1263,13 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             pc.pop("wardrobe", None)
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
+        elif code in ("wardrobe-unreal", "wardrobe-not-garment"):
+            # ORW-480: clothes a shop does not sell never reach the photo: the wardrobe is omitted and an unreal style line falls back to the family sample
+            pc.pop("wardrobe", None)
+            from src import orwell_cast_realism as _R
+            if _R.unreal_clothes(str(pc.get("style") or "")):
+                fam = family_for_label(str((npc or {}).get("presentation") or ""))
+                pc["style"] = fam["sample"] if fam is not None else "plain everyday clothes"
         elif code in ("oncamera-shape", "oncamera-scene", "oncamera-taken"):
             pc.pop("onCamera", None)
         elif code == "pronoun-mismatch":

@@ -688,6 +688,22 @@ _STRICT_RETRY = (
 )
 
 
+def _job_over_cap(job: str, used_jobs: list, n: int) -> bool:
+    try:
+        from src import orwell_cast_realism as _R
+        return bool(_R.job_offenders(job, used_jobs, n))
+    except Exception:  # failsoft-ok: the realism table never breaks genesis
+        return False
+
+
+def _job_hint(jobs: list, n: int) -> str:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.job_taken_hint(jobs, n)
+    except Exception:  # failsoft-ok: a prompt hint only
+        return ""
+
+
 def build_genesis_messages(roster: list, brief: dict,
                            violation_feedback: Optional[str] = None,
                            directives: Optional[dict] = None,
@@ -732,6 +748,9 @@ def build_genesis_messages(roster: list, brief: dict,
             lines.append(
                 "Vocations ALREADY used in THIS cast — do NOT repeat any of these jobs: "
                 + ", ".join(jobs) + ".")
+            hint = _job_hint(jobs, int(used_facets.get("castSize") or 15))
+            if hint:
+                lines.append("A real cast does not cluster by sector: " + hint + ".")
     if directives:
         cards = [render_slot_directive(hid, directives[hid]) for hid in ids if hid in directives]
         if cards:
@@ -1133,7 +1152,7 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
         # The ledger is FROZEN for the whole wave (concurrent calls can't see each other's names); the
         # seeded pre-assignment + the engine dedupe backstop cover any within-wave collision.
         ledger_snapshot = list(used_display)
-        facets_snapshot = {"hometowns": list(used_towns), "vocations": list(used_jobs)}
+        facets_snapshot = {"hometowns": list(used_towns), "vocations": list(used_jobs), "castSize": len(entries)}
         results = await asyncio.gather(*[_author_one(e, ledger_snapshot, facets_snapshot) for e in wave])
         for prop in results:
             if not prop:
@@ -1157,6 +1176,8 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
                     j = job.strip()
                     if j.lower() in {x.lower() for x in used_jobs}:
                         npc.pop("vocation", None)  # collision — the engine floors this slot's job
+                    elif _job_over_cap(j, used_jobs, len(entries)):
+                        npc.pop("vocation", None)  # ORW-480: a job sector already full, or a job word already used: the engine floors the slot
                     else:
                         used_jobs.append(j)
                 name = npc.get("name")
