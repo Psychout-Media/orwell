@@ -4591,6 +4591,10 @@ async def _faith_drain_retro(owner, llm) -> None:
                 _proj = entry.get("projection")
                 if _proj is None:
                     _proj = await _faith_build_projection(owner)
+                    # ORW-434: a projection rebuilt now describes a LATER moment than the narration being judged. Its board
+                    # fields are still a fair reference; its `time` block (part of day, who is asleep) is not, so withhold it.
+                    if isinstance(_proj, dict) and "time" in _proj:
+                        _proj = {k: v for k, v in _proj.items() if k != "time"}
                 _t0 = time.monotonic()
                 try:
                     _raw = llm(judge.build_prompt(_narr, _proj, _ctx))

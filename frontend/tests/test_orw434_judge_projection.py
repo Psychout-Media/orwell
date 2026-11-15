@@ -210,3 +210,35 @@ def test_casting_context_has_no_time_dimension():
     v = j.verdict_from_reply(reply, "narr", {}, "casting")
     assert v is None or not (v.dimension == "time" or v.is_slip)
     assert j.verdict_from_reply(reply, "narr", {}).lever == "reground"   # in-game unchanged
+
+
+def test_a_deferred_check_that_rebuilds_its_projection_carries_no_time_block(monkeypatch, tmp_path):
+    """ORW-434: a turn judged LATER (the retro queue) with no stored projection gets a projection built at the later moment.
+    Its board fields are still a fair reference, but its `time` block describes a different moment than the narration,
+    so it is withheld (a stored projection, taken at the turn's own moment, keeps its time block)."""
+    import tests.test_1659_r5_guard_down as r5
+    from src import agent_loop
+    r5._set_mode(monkeypatch, tmp_path, "shadow")
+    r5._patch_engine_reads(monkeypatch)
+    q = r5._isolate_queue(monkeypatch)
+    r5._capture_llmio(monkeypatch)
+    r5._capture_overseer(monkeypatch)
+
+    async def later_projection(owner):
+        return {"board": {"week": 1}, "time": {"partOfDay": "morning", "asleep": ["Sleeper"]}}
+
+    monkeypatch.setattr(agent_loop, "_faith_build_projection", later_projection)
+    prompts = []
+    clean = json.dumps({"dimension": "none", "classification": "none", "lever": "none", "rationale": ""})
+
+    def llm(prompt):
+        prompts.append(str(prompt))
+        return clean
+
+    q["u1"] = [{"narration": "an old night scene", "projection": None, "beat_before": 3, "context": "in-game"},
+               {"narration": "a turn with its own projection", "projection": {"board": {"week": 1}, "time": {"partOfDay": "night"}},
+                "beat_before": 4, "context": "in-game"}]
+    r5._run(agent_loop._faith_drain_retro("u1", llm))
+    assert len(prompts) == 2
+    assert '"partOfDay"' not in prompts[0] and "Sleeper" not in prompts[0]      # rebuilt later: no time block
+    assert '"partOfDay": "night"' in prompts[1]                                   # stored at its own moment: kept
