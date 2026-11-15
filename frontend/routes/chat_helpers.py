@@ -9519,6 +9519,12 @@ async def build_chat_context(
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
     if not incognito:
         await note_player_message(client_msg_id, user)
+        # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
+        # prompt is built below, so the briefing already shows the new room + `playerMove`. Fail-soft; unsure parses move nothing.
+        from src.settings import game_build_enabled as _gbe_pm
+        if _gbe_pm():
+            from src.orwell_player_move import resolve_player_move_before_narrator
+            await resolve_player_move_before_narrator(message, user, client_msg_id)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no

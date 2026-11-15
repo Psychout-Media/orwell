@@ -194,6 +194,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "moveTo":
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       return;
+    case "resolvePlayerMove":
+      if (!isStr(args["text"])) refuse("text", "a non-empty string (the player's own message)");
+      guardSyncFields(true); // optional expectedBeatSeq + idempotencyKey
+      return;
     case "noteMessage":
       if (!isStr(args["messageId"])) refuse("messageId", "a non-empty string (the player message's stable id)");
       return;
@@ -693,6 +697,13 @@ export class McpServer {
           String(args["room"] ?? ""),
           typeof args["expectedBeatSeq"] === "number" ? args["expectedBeatSeq"] : undefined,
         );
+      case "resolvePlayerMove":
+        // ORW-419 - the FE-driven intent-first move (infra lever; the engine resolves the player's own words before the narrator).
+        return this.deps.session.resolvePlayerMove({
+          text: String(args["text"]),
+          ...(typeof args["expectedBeatSeq"] === "number" ? { expectedBeatSeq: args["expectedBeatSeq"] } : {}),
+          ...(typeof args["idempotencyKey"] === "string" && args["idempotencyKey"] !== "" ? { idempotencyKey: args["idempotencyKey"] } : {}),
+        });
       case "moveHouseguest":
         // ADR 0009 — record a narrated NPC relocation (open-set; legal-only). Vault-free result.
         return this.deps.session.recordHouseguestMove(String(args["id"] ?? ""), String(args["room"] ?? ""));
