@@ -161,3 +161,52 @@ def test_shadow_time_verdict_only_logs(monkeypatch, tmp_path):
     _run(_check())
     assert store == {}
     assert any(a[1] == "faith:time" for a, _k in logged)
+
+
+# ---- review fixes: a turn that crosses a time change; the both-set slip rule; no time dimension in casting ----
+
+def test_prompt_says_the_time_block_is_end_of_turn_and_narration_may_cover_earlier_moments():
+    p = FaithfulnessJudge(lambda p: "").build_prompt("narr", {"time": {"partOfDay": "late night"}})
+    assert "END of the turn" in p and "EARLIER moments" in p and "ANY point of the turn" in p
+    assert "partOfDayAtStart" in p
+
+
+def test_time_advancing_tool_events_are_recognised():
+    from src.agent_loop import _faith_turn_advanced_time
+    assert _faith_turn_advanced_time([{"tool": "recordInteraction"}, {"tool": "turnIn"}])
+    assert _faith_turn_advanced_time([{"tool": "nap"}])
+    assert not _faith_turn_advanced_time([{"tool": "recordInteraction"}, {"tool": "moveTo"}])
+    assert not _faith_turn_advanced_time(None)
+
+
+def test_a_turn_that_advanced_time_skips_the_time_dimension(monkeypatch, tmp_path):
+    logged, store = _setup_check(monkeypatch, tmp_path, "active", _TIME_REPLY)
+    prompts = []
+
+    async def _resolve(owner=None, **kw):
+        return lambda prompt: (prompts.append(prompt), _TIME_REPLY)[1]
+    monkeypatch.setattr("src.orwell_cast_authoring._resolve_llm_fn", _resolve)
+    _run(_faith_check("the sun is up", claim_bearing=True, engaged_scene=False, owner="u1", endpoint_url="http://x",
+                      model="m", headers={}, last_user="hi", time_advanced=True))
+    assert prompts and '"time"' not in prompts[0].split("PROJECTION:\n", 1)[1]   # the end-of-turn block is withheld
+    assert store == {}                                                              # a time verdict cannot reground it
+    assert not any(a[1] == "faith:time" for a, _k in logged)
+
+
+@pytest.mark.parametrize("reply", [
+    {"dimension": "time", "classification": "none", "lever": "reground", "rationale": "x"},
+    {"dimension": "time", "classification": "closed", "lever": "none", "rationale": "x"},
+])
+def test_a_self_contradictory_time_reply_is_not_a_slip(reply):
+    v = FaithfulnessJudge(lambda p: "").verdict_from_reply(json.dumps(reply))
+    assert v is not None and not v.is_slip
+
+
+def test_casting_context_has_no_time_dimension():
+    j = FaithfulnessJudge(lambda p: "")
+    p = j.build_prompt("narr", {}, "casting")
+    assert "'time'" not in p.split("Decide three things:")[1].split("classification:")[0]
+    reply = json.dumps({"dimension": "time", "classification": "closed", "lever": "reground", "rationale": "x"})
+    v = j.verdict_from_reply(reply, "narr", {}, "casting")
+    assert v is None or not (v.dimension == "time" or v.is_slip)
+    assert j.verdict_from_reply(reply, "narr", {}).lever == "reground"   # in-game unchanged

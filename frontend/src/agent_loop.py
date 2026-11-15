@@ -4611,7 +4611,7 @@ async def _faith_drain_retro(owner, llm) -> None:
                         lever=None, beat_before=_bb, ok=False, user=owner)
                     requeue.append(entry)
                 else:
-                    _verdict = judge.verdict_from_reply(_raw, _narr, _proj)
+                    _verdict = judge.verdict_from_reply(_raw, _narr, _proj, _ctx)
                     if _verdict is None:
                         # #1695: the retro CALL landed but the REPLY was unparseable / out-of-contract.
                         # verdict_from_reply returns None ONLY for an UNDECIDABLE reply (a legit no-slip
@@ -4666,9 +4666,18 @@ async def _faith_drain_retro(owner, llm) -> None:
             _DEFERRED_FAITH.pop(key, None)
 
 
+# ORW-434: engine writes that move the clock / day. A turn that ran one can span a time change, but the judge's `time` block is the END-of-turn board.
+_FAITH_TIME_ADVANCING_TOOLS = frozenset({"turnIn", "advanceGame", "nap", "hangOut", "advanceToFinale", "setTimeOfDay", "submitDecision"})
+
+
+def _faith_turn_advanced_time(tool_events) -> bool:
+    """True when the turn's own tool events include a time-advancing engine write (the loop holds no start-of-turn board to diff)."""
+    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS for ev in (tool_events or []))
+
+
 async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_before=None,
                        endpoint_url=None, model=None, headers=None, last_user=None,
-                       projection=None, context="in-game") -> None:
+                       projection=None, context="in-game", time_advanced=False) -> None:
     """Feature 0081 — the live faithfulness check (P2 shadow detection + P3 active 'adopt').
 
     On a claim-bearing or engaged turn, judge the finalized narration against the player's Vault-free
@@ -4747,6 +4756,12 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
             return
         # the junction may pass its own Vault-free projection (e.g. casting); else build the in-game one.
         _proj = projection if projection is not None else await _faith_build_projection(owner)
+        # ORW-434: the `time` block is the END-of-turn board; a turn that advanced the clock can correctly narrate the earlier part
+        # of day. No cheap start-of-turn board is held, so skip the time dimension for this turn (and say so).
+        _time_skipped = bool(time_advanced) and isinstance(_proj, dict) and "time" in _proj
+        if _time_skipped:
+            _proj = {k: v for k, v in _proj.items() if k != "time"}
+            logger.info("[orwell] faithfulness: time dimension skipped this turn (a time-advancing engine write ran; the board is end-of-turn)")
         judge = FaithfulnessJudge(_llm)
         import inspect as _faith_insp
         _faith_t0 = time.monotonic()
@@ -4781,9 +4796,11 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
             # set outcome draft must fail CLOSED here, never soft-pass on the bare `return` (finding 5).
             await _faith_guard_down_p0(owner, narration)
             return
-        verdict = judge.verdict_from_reply(_raw, narration or "", _proj)
+        verdict = judge.verdict_from_reply(_raw, narration or "", _proj, context)
         if verdict is None or not verdict.is_slip:
             return
+        if _time_skipped and verdict.dimension == "time":
+            return  # the time block was withheld for this turn: a time verdict has nothing to stand on
 
         from src import log_rings as _lr
         # 1) ALWAYS surface the detection (shadow + active both log).
@@ -12089,7 +12106,8 @@ async def _stream_agent_loop_impl(
                 engaged_scene=bool(_want_record and not _progressed and not _is_lull), owner=owner,
                 beat_before=_ledger_beat_seq_before,
                 endpoint_url=_belt_endpoint, model=_belt_model, headers=_belt_headers,
-                last_user=_extract_last_user_message(messages))
+                last_user=_extract_last_user_message(messages),
+                time_advanced=_faith_turn_advanced_time(tool_events))
         except Exception as _faith_err:  # fail-soft: the faithfulness gate must never hurt a turn
             # #1599: the in-game faithfulness gate raising BEFORE its own record is a guard-down —
             # RED + WARN, not a bare debug. (_faith_check's own internal failures already record.)

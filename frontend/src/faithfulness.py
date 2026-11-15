@@ -228,6 +228,12 @@ FAITH_CLASSES = ("open", "closed", "none")
 FAITH_LEVERS = ("none", "adopt", "reframe", "reground")
 
 
+def dimensions_for(context: str = "in-game") -> tuple:
+    """The dimensions a junction may use. ORW-434: `time` is judged only in-game (the casting interview has no time block, and its
+    prompt does not define the dimension), so it is never offered or accepted there."""
+    return tuple(d for d in FAITH_DIMENSIONS if d != "time") if context == "casting" else FAITH_DIMENSIONS
+
+
 @dataclass(frozen=True)
 class FaithfulnessVerdict:
     """The judge's conclusion on ONE narration turn: which dimension is unfaithful (if any), the
@@ -400,7 +406,11 @@ class FaithfulnessJudge:
             "with no in-fiction pathway to the player; omission=a pending beat was narrated around but "
             "not advanced; time=the narration states a part of day or a today/tomorrow schedule placement that "
             "contradicts the projection's `time` block (partOfDay, nextEvent), or has a houseguest listed in "
-            "`time.asleep` speaking, moving or acting as awake."),
+            "`time.asleep` speaking, moving or acting as awake. The `time` block is the state at the END of the "
+            "turn, and one narration may cover EARLIER moments of the same turn (an earlier part of the day, a "
+            "houseguest speaking just before going to sleep, a day that advanced): flag a time claim only when it "
+            "cannot be true at ANY point of the turn. If `time.partOfDayAtStart` is present, the turn crossed a time "
+            "change: a part of day between that start and the end is also valid."),
         "casting": (
             "board=contradicts a casting fact the player gave (their name, stated background, strategy "
             "or preferences); persona=the producer breaks the casting-interview producer voice; "
@@ -427,7 +437,7 @@ class FaithfulnessJudge:
             "faithful to that projection. You never receive hidden/secret state, so treat any "
             "assertion that goes BEYOND the projection as a potential leak, never as fact.\n"
             "Decide three things:\n"
-            f"  dimension: one of {list(FAITH_DIMENSIONS)} or \"none\" — {dim_help}\n"
+            f"  dimension: one of {list(dimensions_for(context))} or \"none\" — {dim_help}\n"
             f"  classification: one of {list(FAITH_CLASSES)} — open=texture the engine never decided "
             "(a detail/flavor/minor social beat); closed=an actual outcome or state the engine owns.\n"
             f"  lever: one of {list(FAITH_LEVERS)} — none=faithful; adopt=an OPEN-set slip, make the "
@@ -470,7 +480,7 @@ class FaithfulnessJudge:
         return None
 
     def verdict_from_reply(
-        self, raw, narration: str = "", projection: Any = None
+        self, raw, narration: str = "", projection: Any = None, context: str = "in-game"
     ) -> Optional["FaithfulnessVerdict"]:
         """Turn a model reply into a :class:`FaithfulnessVerdict`, STRICTLY. An unparseable reply or
         any out-of-contract token routes to the fallback. THE WALL: an ``adopt`` lever paired with any
@@ -488,7 +498,7 @@ class FaithfulnessJudge:
             rationale = parsed.get("rationale", "")
 
             # Strict contract: every token must be in-set (dimension may also be the inert "none").
-            if dimension != "none" and dimension not in FAITH_DIMENSIONS:
+            if dimension != "none" and dimension not in dimensions_for(context):
                 return self._fallback.assess(narration, projection)
             if classification not in FAITH_CLASSES:
                 return self._fallback.assess(narration, projection)
@@ -506,7 +516,9 @@ class FaithfulnessJudge:
             # ORW-434: a time slip (part of day, schedule placement, a sleeper acting) is an engine-owned
             # CLOSED fact: it is never adopted as canon. A non-clean time verdict uses the SAME lever a board
             # contradiction that needs the narrator re-grounded uses (reground); never a new lever.
-            if dimension == "time" and (lever != "none" or classification != "none"):
+            # A self-contradictory reply (lever without a classification, or the reverse) is not a slip - the same both-set
+            # rule as every other dimension (`FaithfulnessVerdict.is_slip`).
+            if dimension == "time" and lever != "none" and classification != "none":
                 classification, lever = "closed", "reground"
 
             return FaithfulnessVerdict(
@@ -554,7 +566,7 @@ class FaithfulnessJudge:
                         "this turn.")
                     return self._fallback.assess(narration, projection)
                 raw = asyncio.run(raw)
-            return self.verdict_from_reply(raw, narration, projection)
+            return self.verdict_from_reply(raw, narration, projection, context)
         except Exception as _err:
             # #1599: a genuine judge-call error is the grounding guard going down — be LOUD, never a
             # silent swallow. Still fail-soft to the deterministic floor for the turn. (A merely
