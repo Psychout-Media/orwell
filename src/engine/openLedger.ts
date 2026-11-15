@@ -153,6 +153,26 @@ export function resolveOpenEntry(
   return { ledger: { ...ledger, entries }, outcome: "resolved" };
 }
 
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+const STATUSES: readonly string[] = ["open", ...OPEN_LEDGER_RESOLUTIONS];
+
+/**
+ * A saved entry is accepted only when every field it carries has its declared type (a `parties: {}` or a
+ * non-string `about` used to pass and then threw inside `partiesOf` on the next brief). Fields a slice-1 save
+ * never had (parties, about, note, resolvedTurn, and a missing status) stay optional, so an old save loads.
+ */
+function validEntry(e: unknown): e is OpenLedgerEntry {
+  if (!e || typeof e !== "object" || Array.isArray(e)) return false;
+  const x = e as Record<string, unknown>;
+  const opt = (k: string, t: "string" | "number"): boolean => x[k] === undefined || typeof x[k] === t;
+  return typeof x.id === "string" && typeof x.text === "string" && typeof x.speaker === "string" && isStrings(x.addressedTo)
+    && typeof x.quoteHash === "string" && isStrings(x.witnesses)
+    && (x.parties === undefined || isStrings(x.parties))
+    && opt("about", "string") && opt("note", "string") && opt("resolvedTurn", "number")
+    && opt("kind", "string") && opt("room", "string") && opt("turn", "number") && opt("beatSeq", "number")
+    && (x.status === undefined || (typeof x.status === "string" && STATUSES.includes(x.status)));
+}
+
 /** Read a saved ledger; anything unreadable yields the empty ledger plus a problem count (the caller keeps the raw copy). */
 export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems: number } {
   if (raw === undefined) return { ledger: emptyOpenLedger(), problems: 0 };
@@ -160,16 +180,27 @@ export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems:
   if (!o || typeof o !== "object" || !Array.isArray(o.entries) || typeof o.nextId !== "number") return { ledger: emptyOpenLedger(), problems: 1 };
   const entries: OpenLedgerEntry[] = [];
   let problems = 0;
-  for (const e of o.entries as OpenLedgerEntry[]) {
-    if (e && typeof e.id === "string" && typeof e.text === "string" && typeof e.speaker === "string" && Array.isArray(e.addressedTo)
-      && typeof e.quoteHash === "string" && Array.isArray(e.witnesses)) entries.push(e);
+  for (const e of o.entries as unknown[]) {
+    if (validEntry(e)) entries.push(e.status === undefined ? ({ ...e, status: "open" } as OpenLedgerEntry) : e);
     else problems++;
   }
   return { ledger: { nextId: o.nextId, entries }, problems };
 }
 
-/** True when `later` still holds every earlier entry's words (append-only; never thinned). */
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const IMMUTABLE_FIELDS = ["text", "speaker", "addressedTo", "kind", "turn", "beatSeq", "room", "witnesses", "quoteHash", "parties", "about"] as const;
+
+/**
+ * True when `later` still holds every earlier entry unchanged (append-only; never thinned or rewritten): every
+ * identity, participant and provenance field is identical, and the only change allowed is open to resolved
+ * (kept, broken or withdrawn, with its note and turn). A resolved entry stays exactly as it was resolved.
+ */
 export function openLedgerSuperset(earlier: OpenLedger, later: OpenLedger): boolean {
   const byId = new Map(later.entries.map((e) => [e.id, e] as const));
-  return later.nextId >= earlier.nextId && earlier.entries.every((e) => byId.get(e.id)?.text === e.text);
+  return later.nextId >= earlier.nextId && earlier.entries.every((e) => {
+    const l = byId.get(e.id);
+    if (!l || !IMMUTABLE_FIELDS.every((k) => same(e[k], l[k]))) return false;
+    if (e.status !== "open") return l.status === e.status && same(e.note, l.note) && same(e.resolvedTurn, l.resolvedTurn);
+    return true;
+  });
 }
