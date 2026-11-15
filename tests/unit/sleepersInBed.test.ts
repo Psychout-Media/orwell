@@ -56,8 +56,7 @@ describe("sleepers belong in bedrooms; the state names who is awake", () => {
     const a = new Set((st.awake ?? []).map((x) => x.id)), z = new Set((st.asleep ?? []).map((x) => x.id));
     for (const id of a) expect(z.has(id)).toBe(false);
     const npcCount = s.getGameState().house.filter((h) => h.id !== (s.getGameState() as unknown as { player?: { id: string } }).player?.id).length;
-    expect(a.size + z.size, "awake and asleep together cover every arrived houseguest").toBeLessThanOrEqual(npcCount);
-    expect(a.size + z.size).toBeGreaterThan(0);
+    expect(a.size + z.size, "awake and asleep together cover every arrived houseguest").toBe(npcCount);
     expect(a.has("player")).toBe(false);
   });
 });

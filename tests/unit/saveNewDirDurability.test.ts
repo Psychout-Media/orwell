@@ -140,11 +140,14 @@ describe("ORW-404 follow-up: new-directory durability (ORWELL_SAVE_FSYNC=sync mo
   it("still syncs the directory at the every-50th-version checkpoint, and a failure never throws", () => {
     const data = tmp();
     const synced: string[] = [];
-    const store = new FileSaveStore(data, { fsyncMode: "sync", syncDirSync: (p) => { synced.push(p); if (synced.length > 2) throw new Error("EIO"); } });
+    let failing = false;
+    const store = new FileSaveStore(data, { fsyncMode: "sync", onError: () => {}, syncDirSync: (p) => { synced.push(p); if (failing) throw new Error("EIO"); } });
     for (let i = 1; i <= 49; i++) store.saveFor("a", snap(i));
     synced.length = 0;
+    failing = true; // the checkpoint's directory fsync now FAILS
     expect(() => store.saveFor("a", snap(50))).not.toThrow();
     expect(synced).toEqual([join(data, hex("a"))]);
+    expect(store.durability().saveDurableVersion, "a failed directory fsync leaves the checkpoint un-durable").toBe(49);
   });
 });
 

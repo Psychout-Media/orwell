@@ -210,3 +210,21 @@ describe("shutdown drains JOBS, not only responses (review of #2747)", () => {
     }
   });
 });
+
+describe("createShutdown exits exactly once (review of #2744)", () => {
+  it("the hard timer exits first, the flush returns later: exit is called once", async () => {
+    let calls = 0;
+    let finishFlush!: () => void;
+    const shutdown = createShutdown({
+      flush: () => new Promise<void>((r) => { finishFlush = r; }),
+      exit: () => { calls++; },
+      hardExitMs: 30,
+    });
+    const done = shutdown();
+    await new Promise((r) => setTimeout(r, 80)); // the hard timer has fired
+    expect(calls).toBe(1);
+    finishFlush(); // the flush returns after the hard exit
+    await done;
+    expect(calls).toBe(1);
+  });
+});
