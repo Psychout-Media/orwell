@@ -9119,7 +9119,7 @@ async def _stream_agent_loop_impl(
                                         from src.predisplay_check import check_and_count as _pd_check
                                         from src.predisplay_check import quote_open_after as _pd_qopen
                                         _pd_inq = _pd_qopen(_round_emitted_text)  # a quote opened by an earlier chunk of this round is still open
-                                        await _pd_check(_guarded.text, owner, in_quote=_pd_inq)
+                                        await _pd_check(_guarded_text or "", owner, in_quote=_pd_inq)  # review of #2682: count what the player is shown (post-wall), not the pre-wall text
                                     except Exception:  # failsoft-ok: counter only
                                         pass
                                     if (not _pd_rewrite_used and _guarded_text and not _scene_broken and not _visible_halted
@@ -9347,6 +9347,12 @@ async def _stream_agent_loop_impl(
                 # very text the guard cut (a reload or second window would show the invented outcome).
                 if not _scene_broken:
                     round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
+                try:  # review of #2682: the final buffered sentence is counted too (the mid-stream hook never sees it)
+                    from src.predisplay_check import check_and_count as _pd_check_f
+                    from src.predisplay_check import quote_open_after as _pd_qopen_f
+                    await _pd_check_f(_guarded_text or "", owner, in_quote=_pd_qopen_f(_round_emitted_text))
+                except Exception:  # failsoft-ok: counter only
+                    pass
                 if _pd_rw_cont or (not _pd_rewrite_used and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
                     try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn

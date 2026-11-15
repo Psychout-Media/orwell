@@ -378,3 +378,12 @@ def test_orw437_an_unterminated_final_sentence_that_conflicts_is_dropped_at_the_
     emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, "Sleeper Role walks into the kitchen"]}], redo="X")
     assert "Sleeper Role" not in emitted, emitted
     assert emitted.strip() == CLEAN_A.strip() and stored[0] == emitted.strip()
+
+
+def test_orw437_the_final_buffered_sentence_is_counted_and_a_wall_dropped_sentence_is_not(monkeypatch):
+    """review of #2682: the counter sees what the player is shown, including the last (unterminated) sentence."""
+    from src import predisplay_check as pc
+    pc.PREDISPLAY_COUNTS.clear()
+    emitted, _cont, _stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, "Sleeper Role walks into the kitchen"]}], redo="X", flag="0", owner="orw437-count")
+    assert "Sleeper Role walks" in emitted, "rewrite off: shown as today"
+    assert pc.PREDISPLAY_COUNTS.get(pc.FACT_ASLEEP) == 1, pc.PREDISPLAY_COUNTS
