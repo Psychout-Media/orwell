@@ -6358,6 +6358,34 @@ _HOUSE_AWAKE_RE = re.compile(
     r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
     re.IGNORECASE,
 )
+# ORW-454 (Kevin: "allow it if the engine says she's awake"): only the WHOLE-HOUSE claims are screened outright. A quoted morning greeting (or "I know it's early") attributed to a NAMED houseguest the engine reports awake is a
+# person greeting, not the house waking, and is kept; the same greeting by a sleeper, or one that names nobody the engine lists as awake, is still dropped.
+_HOUSE_WHOLE_RE = re.compile(
+    r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
+    r"|\bthe\s+house\s+(?:wakes|woke|stirs|stirred)\b"
+    r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
+    r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
+    re.IGNORECASE,
+)
+
+
+def _status_names(v) -> list:
+    return [n.strip() for n in ((x.get("name") if isinstance(x, dict) else x) for x in (v or [])) if isinstance(n, str) and n.strip()]
+
+
+def _greeted_by_an_awake_houseguest(sentence: str, status: dict) -> bool:
+    """True when `sentence` is a greeting (not a whole-house claim) that names a houseguest the engine's own status lists as awake and names nobody it lists as asleep. Reads only the status the screen already holds."""
+    if _HOUSE_WHOLE_RE.search(sentence or "") or not isinstance(status, dict) or not isinstance(status.get("awake"), list):
+        return False
+    awake, asleep = _status_names(status.get("awake")), _status_names(status.get("asleep"))
+    firsts = [n.split()[0] for n in awake + asleep]
+    word = lambda w: re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", sentence) is not None
+    # the narrator says first names: a first name counts for an AWAKE houseguest only when it is unique in the whole roster (two Anas: stay on the safe side and drop), while ANY first name of a sleeper marks a sleeper
+    awake_hit = any(word(n) for n in awake) or any(word(n.split()[0]) and firsts.count(n.split()[0]) == 1 for n in awake)
+    asleep_hit = any(word(n) or word(n.split()[0]) for n in asleep)
+    return awake_hit and not asleep_hit
+
+
 _HOUSE_AWAKE_EXEMPT_RE = re.compile(
     r"\b(?:not|never|nobody|no\s+one|yet|asleep|sleeping|dark|silent|quiet)\b|n't|n\u2019t", re.IGNORECASE)
 
@@ -6383,6 +6411,8 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
             return True
         if status.get("asleep") == []:
             return True
+        if _greeted_by_an_awake_houseguest(sentence, status):
+            return True  # ORW-454: a named houseguest the engine says is awake may greet the player
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the house awake / people greeting the player, but the engine says it is still the early-morning dark (" + (_zc_narrator_clock(lab) if lab else "early morning")
