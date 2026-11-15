@@ -1,10 +1,46 @@
 """ORW-442: the model once echoed the harness placeholder "<tool result has been redacted>" as visible narration (slot-1 sweep, Day 3, a recordInteraction round: content was exactly that 31-char string).
-`_scrub_game_leak` (the live stream and the saved message) now cuts just that placeholder first (it has no sentence punctuation, so it would otherwise swallow the next sentence); the scene stays."""
-def test_the_redaction_placeholder_is_dropped_but_the_scene_stays():
+`_scrub_game_leak` (the live stream and the saved message) cuts just that placeholder (it has no sentence punctuation, so it would otherwise swallow the next sentence); the scene stays, and one space is kept
+only where two words would otherwise join (the same rule as ORW-440's tool-markup tags). Tests are exact strings, through the real stream loop (the ORW-408 `_drive` harness): shown AND stored. Roles only."""
+import pytest
+
+from tests.test_orw408_sentence_rewrite import _drive
+
+pytestmark = [pytest.mark.usefixtures("non_game_text_routing"), pytest.mark.usefixtures("zero_clocks_off")]
+
+PH = "<tool result has been redacted>"
+T3 = "Rain taps the glass. A cup is set down. The kettle ticks. "
+
+
+@pytest.fixture(autouse=True)
+def _rewrite_off(monkeypatch):
+    monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "0")
+
+
+@pytest.mark.parametrize("deltas,expected", [
+    # the reported input: one chunk, spaces both sides
+    ([f"The kitchen goes quiet. {PH} Role A sets her mug down. " + T3], "The kitchen goes quiet. Role A sets her mug down. " + T3.strip()),
+    # placeholder at a chunk start (previous chunk ended after the space) and at a chunk end
+    (["The kitchen goes quiet. ", f"{PH} Role A sets her mug down. " + T3], "The kitchen goes quiet. Role A sets her mug down. " + T3.strip()),
+    ([f"The kitchen goes quiet. {PH}", " Role A sets her mug down. " + T3], "The kitchen goes quiet. Role A sets her mug down. " + T3.strip()),
+    # between two sentences, with and without spaces
+    ([f"The kitchen goes quiet.{PH}Role A sets her mug down. " + T3], "The kitchen goes quiet. Role A sets her mug down. " + T3.strip()),
+    ([f"The kitchen goes quiet.  {PH}  Role A sets her mug down. " + T3], "The kitchen goes quiet. Role A sets her mug down. " + T3.strip()),
+    # before punctuation: no space is added in front of it
+    ([f"Role A waits {PH}. Then Role B leaves. " + T3], "Role A waits. Then Role B leaves. " + T3.strip()),
+    # inside a quoted line
+    ([f'Role A says, "hello {PH} there." ' + T3], 'Role A says, "hello there." ' + T3.strip()),
+])
+def test_the_placeholder_is_cut_and_shown_equals_stored_as_whole_strings(monkeypatch, deltas, expected):
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": deltas}], redo="X", flag="0")
+    first_round_shown = emitted.split("done.")[0].strip()
+    assert "redacted" not in first_round_shown and "<" not in first_round_shown
+    assert first_round_shown == expected, first_round_shown
+    assert stored[0] == expected, stored
+
+
+def test_the_placeholder_alone_is_dropped():
     from src.agent_loop import _scrub_game_leak
-    assert _scrub_game_leak("<tool result has been redacted>").strip() == ""
-    kept = _scrub_game_leak("The kitchen goes quiet. <tool result has been redacted> Kayla sets her mug down.")
-    assert "redacted" not in kept and "The kitchen goes quiet." in kept and "Kayla sets her mug down." in kept
+    assert _scrub_game_leak(PH).strip() == ""
 
 
 def test_ordinary_prose_about_results_is_untouched():
