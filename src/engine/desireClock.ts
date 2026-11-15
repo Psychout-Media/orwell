@@ -23,7 +23,27 @@ export const DESIRE = {
   goalFreshHours: 3,
   /** ORW-340: below this trust in the player an NPC avoids them: their goal does not bring them over. */
   goalMinTrust: 0.25,
+  /** ORW-423 (played games only): at most this many CONSECUTIVE approaches of the same purpose (desire) reach the player in one stretch; the next ones wait (they keep their desire, nothing is forgotten). */
+  streakCap: 2,
+  /** ORW-423: in-game hours without any approach that end a stretch (the cap releases). */
+  streakQuietHours: 2,
 } as const;
+
+/** ORW-423: the running run of same-purpose approaches (Vault-free: a coarse desire, a count, an hour). */
+export interface ApproachStreak { desire: string; count: number; lastHour: number }
+
+/** ORW-423: does the cap hold for an approach of `desire` at `hour`? Pure, no rng. A different purpose or a quiet stretch releases it. */
+export function streakHolds(streak: ApproachStreak | undefined, desire: string, hour: number): boolean {
+  if (!streak || streak.desire !== desire) return false;
+  if (hour - streak.lastHour >= DESIRE.streakQuietHours) return false;
+  return streak.count >= DESIRE.streakCap;
+}
+
+/** ORW-423: the streak after an approach of `desire` at `hour`. */
+export function nextStreak(streak: ApproachStreak | undefined, desire: string, hour: number): ApproachStreak {
+  const same = streak && streak.desire === desire && hour - streak.lastHour < DESIRE.streakQuietHours;
+  return { desire, count: same ? streak!.count + 1 : 1, lastHour: hour };
+}
 
 export type Desire = keyof typeof DESIRE.weight;
 
