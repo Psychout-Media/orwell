@@ -8,7 +8,7 @@
  * - Doubles (Ryne: "there could definitely be doubles in the mix"; the layout and spot ids are the Auditor's, `beds.ts`): everyone claims ONE SPOT; for half of a double the bedmate counts far more
  *   than the room - a strong pull toward someone they like, a stronger aversion to someone they don't (`BED_RULES.bedmatePull` / `bedmateAversion`), and sharing a bed at all has a bar to clear.
  * - A taken bed: the player may ask the owner to swap; the owner decides from how they feel about the player and how much they cared about their spot (`decideSwap`). Half of a double: only the
- *   spot's owner decides; the other half's sleeper has no veto (`BED_RULES.halfDoublePartnerVeto`).
+ *   spot's owner decides, and the other half's sleeper has a say too (`BED_RULES.halfDoublePartnerVeto`, Ryne 2026-11-15).
  * - A player who never picks gets the bed left over at their first bedtime (`BED_RULES.leftoverAtFirstBedtime`, applied in the adapter's `bedThePlayer`).
  *
  * Every rule Ryne has not answered yet (Q3 6/5/5 singles lives in `BEDROOM_LAYOUT`; Q4 leftover; Q5 swaps / when a free bed may be taken) is DATA in `BED_RULES`, so an answer is a one-line change.
@@ -34,8 +34,9 @@ export const BED_RULES = {
   bedmatePull: 3,
   /** ...and times this for a bedmate they are cold to (aversion is stronger than pull, so that half ranks below a single and an empty double). */
   bedmateAversion: 6,
-  /** Q5 (doubles): swapping into or out of half of a double needs only the spot owner's yes. true: the other half's sleeper must also be warm to the player. */
-  halfDoublePartnerVeto: false,
+  /** Q5 answered (Ryne 2026-11-15: "Yeah I think they should get a say. It's like basic logic and human decency. Swapping should be a shared trade. You can't steal."): swapping into
+   *  half of a double needs the spot owner's yes AND the other half's sleeper's (they get a say). A spot freed by an eviction needs nobody's ("You don't need permission if they are no longer present"). */
+  halfDoublePartnerVeto: true,
   /** How much an NPC's warmth to a room's sleepers counts (per sleeper, on affinity above a stranger's); a strategic nature (mental over social) multiplies it up to 2x. */
   tieWeight: 1,
 } as const;
