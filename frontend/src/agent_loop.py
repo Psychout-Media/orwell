@@ -5689,6 +5689,9 @@ def _split_complete_sentences(buf: str):
     return (buf[:last], buf[last:]) if last >= 0 else ("", buf)
 
 
+_TOOL_RESULT_PLACEHOLDER_RE = re.compile(r"[ \t]*<\s*tool[ _]results?\b[^<>\n]{0,80}>[ \t]*", re.IGNORECASE)
+
+
 def _scrub_game_leak(text: str) -> str:
     """Drop whole sentences that are operator asides / tool-process narration; keep the rest
     verbatim (delimiters preserved). Used both on the live stream and on the saved message.
@@ -5699,6 +5702,8 @@ def _scrub_game_leak(text: str) -> str:
     the surviving clause, so a sentence with no machinery clause re-joins byte-identically."""
     if not text:
         return text
+    # ORW-442: an echoed harness placeholder ("<tool result has been redacted>") has no sentence punctuation, so it would take the NEXT sentence with it; cut just the placeholder first.
+    text = _TOOL_RESULT_PLACEHOLDER_RE.sub("", text)
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
