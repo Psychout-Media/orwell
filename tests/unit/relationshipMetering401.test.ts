@@ -71,3 +71,17 @@ describe("ORW-401 relationship metering (played game)", () => {
     expect(edge()).toBe(after3);
   });
 });
+
+describe("review of #2687: the window key of a legacy save without dayNumber follows the week", () => {
+  it("falls back to the live week, not day 1", async () => {
+    const { GameSessionAdapter } = await import("../../src/adapters/engine/GameSessionAdapter");
+    const g = new GameSessionAdapter();
+    g.createCharacter({ playerName: "P", seed: 3 });
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    g.noteMessage({ messageId: "m1" });
+    const p = g as unknown as { messageMode: boolean; live: { playedGame?: boolean; timeOfDay?: string; dayNumber?: number; week: number } };
+    p.messageMode = true; p.live.playedGame = true; p.live.timeOfDay = "morning";
+    delete p.live.dayNumber; p.live.week = 4;
+    try { expect(g.foldWindowKey()).toBe("d4:morning"); } finally { GameSessionAdapter.setTimeOfDayEnabled(null); }
+  });
+});

@@ -126,3 +126,17 @@ describe("a live game with the ledger on is never refused by the non-degradation
     expect(openLedgerSuperset(a, withParties)).toBe(false);
   });
 });
+
+describe("humanizeTidy strips pathway slugs before names go in (review of #2680: already handled, guard test)", () => {
+  it("a told-by slug naming a houseguest never leaves the name behind", async () => {
+    const { GameSessionAdapter } = await import("../../src/adapters/engine/GameSessionAdapter");
+    const g = new GameSessionAdapter();
+    g.createCharacter({ playerName: "The Player", seed: 11 });
+    const npc = g.getGameState().house.find((h) => h.id !== g.getGameState().player?.id)!;
+    (g as unknown as { house: { npcs: { id: string; name: string }[] } }).house.npcs.find((n) => n.id === npc.id)!.name = "Garner Reyes";
+    const out = (g as unknown as { humanizeTidy(s: string): string }).humanizeTidy(`a secret told-by:${npc.id} at dinner`);
+    expect(out).not.toContain("told-by");
+    expect(out).not.toMatch(/Garner|Reyes/);
+    expect(out).toContain("something they half-overheard");
+  });
+});

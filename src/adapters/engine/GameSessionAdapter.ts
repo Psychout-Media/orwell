@@ -5378,7 +5378,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
   foldWindowKey(): string | null {
     if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
-    return `d${this.live.dayNumber ?? 1}:${this.live.timeOfDay}`;
+    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
   }
 
   awakeIds(): ReadonlySet<EntityId> | null {
