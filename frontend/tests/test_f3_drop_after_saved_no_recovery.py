@@ -11,7 +11,6 @@ import contextlib
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -27,12 +26,7 @@ FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.dirname(FRONTEND)
 
 
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 # ── scripted OpenAI-compatible stub that COUNTS streaming completions ─────────────────
@@ -132,15 +126,6 @@ def _stop_proc(p) -> None:
             p.wait(timeout=10)
 
 
-def _restore_settings(path, existed, original) -> None:
-    if existed:
-        with open(path, "wb") as fh:
-            fh.write(original or b"")
-    else:
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(path)
-
-
 @pytest.fixture(scope="module")
 def _stack():
     try:
@@ -151,28 +136,17 @@ def _stack():
     if not os.path.isfile(dist):
         pytest.skip("engine bundle missing — run `npm run build` at the repo root")
 
-    for stale in ("orwell_game_session.json", "orwell_layout.json"):
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(os.path.join(FRONTEND, "data", stale))
-
     with contextlib.ExitStack() as stack:
-        sfile = os.path.join(FRONTEND, "data", "settings.json")
-        _existed = os.path.exists(sfile)
-        _orig = None
-        if _existed:
-            with open(sfile, "rb") as fh:
-                _orig = fh.read()
-        stack.callback(_restore_settings, sfile, _existed, _orig)
-
         engine_data = tempfile.mkdtemp(prefix="orwell-f3-engine-")
         stack.callback(shutil.rmtree, engine_data, ignore_errors=True)
         fe_db_dir = tempfile.mkdtemp(prefix="orwell-f3-fe-")
         stack.callback(shutil.rmtree, fe_db_dir, ignore_errors=True)
         fe_data = tempfile.mkdtemp(prefix="orwell-f3-data-")
         stack.callback(shutil.rmtree, fe_data, ignore_errors=True)
+        sfile = os.path.join(fe_data, "settings.json")  # ORW-414: this stack's OWN data dir (ORWELL_DATA_DIR_FE below), not the shared frontend/data
 
-        eng_log = open("/tmp/f3-engine.log", "w"); stack.callback(eng_log.close)
-        fe_log = open("/tmp/f3-fe.log", "w"); stack.callback(fe_log.close)
+        eng_log = open(os.path.join(engine_data, "engine.log"), "w"); stack.callback(eng_log.close)
+        fe_log = open(os.path.join(fe_db_dir, "fe.log"), "w"); stack.callback(fe_log.close)
 
         stub_port = _free_port()
         stub = ThreadingHTTPServer(("127.0.0.1", stub_port), _StubHandler)

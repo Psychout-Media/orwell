@@ -148,6 +148,33 @@ def pytest_collection_modifyitems(config, items):
     items[:] = [i for i in items if str(i.fspath) in keep_files]
 
 
+# ── ORW-414: every browser test module gets its OWN front-end data directory ───────────
+#
+# The real-stack browser tests boot `uvicorn app:app` subprocesses. The app keeps settings.json, the game-session binding, the layout file and
+# sessions under one data dir, which used to be the shared <checkout>/frontend/data, so two stacks at once overwrote each other's settings
+# (the reason the browser lane had to be serial). `src/constants.py` honours the opt-in ORWELL_DATA_DIR_FE; this hook points it at a fresh
+# temp dir per browser module (per xdist worker, so `-n 2` shares nothing) BEFORE any fixture boots a stack, and removes it for every
+# other test so an in-process test never sees it. A stack that sets its own ORWELL_DATA_DIR_FE in the env it builds (m0_3, f3, h2b, h2h3) wins.
+_FE_DATA_DIRS: dict[str, str] = {}
+
+
+def _fe_data_dir_for(path: str) -> str:
+    d = _FE_DATA_DIRS.get(path)
+    if d is None:
+        d = tempfile.mkdtemp(prefix="orwell-fe-data-")
+        _FE_DATA_DIRS[path] = d
+        _atexit.register(_shutil.rmtree, d, ignore_errors=True)
+    return d
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    if item.get_closest_marker("browser") is not None:
+        os.environ["ORWELL_DATA_DIR_FE"] = _fe_data_dir_for(str(item.fspath))
+    else:
+        os.environ.pop("ORWELL_DATA_DIR_FE", None)
+
+
 # ── cross-file isolation: the M1-10 cast-authoring ledger is process-global ──────────
 #
 # `orwell_cast_authoring` keeps the per-season attempt/give-up ledger in module globals

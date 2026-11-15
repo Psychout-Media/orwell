@@ -7,7 +7,6 @@ Vault Wall: the panel renders only what the unsealed payload carries, as text, b
 """
 import json
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -29,12 +28,7 @@ _RETRO = {
 }
 
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 @pytest.fixture(scope="module")
@@ -53,14 +47,14 @@ def _app():
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=FRONTEND, env=env, stdout=open(f"/tmp/fe-retro98-{port}.log", "w"), stderr=subprocess.STDOUT)
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             pytest.skip(f"uvicorn exited early; see /tmp/fe-retro98-{port}.log")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             break
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     else:
         proc.terminate()
         pytest.skip("server never became ready")

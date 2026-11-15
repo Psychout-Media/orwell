@@ -31,6 +31,8 @@ import threading
 
 import pytest
 
+from _ports import free_port
+
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(FRONTEND, "static")
 
@@ -122,7 +124,7 @@ def test_user_bar_carries_no_other_hardcoded_background():
 
 # ── browser gate: rendered polarity is correct on BOTH themes ─────────────────────────────
 
-_PORT = int(os.environ.get("ORWELL_USERBAR_PORT", "8799"))
+_PORT = free_port()  # ORW-414: a kernel-assigned free port per process (was a fixed default), so two browser tests can run at once
 
 #: Token sets copied from static/js/theme.js's THEMES map (same deliberate copy-as-trip-wire
 #: rationale scripts/theme_consistency.py documents for its BASE_THEME_COLORS).
