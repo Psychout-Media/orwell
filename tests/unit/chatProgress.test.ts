@@ -24,7 +24,7 @@ describe("ORW-323 - loopFingerprint", () => {
   });
 
   it("the stripped keys are exactly the chat-side ones (a new key is a deliberate edit, with its own reason)", () => {
-    expect([...CHAT_SIDE_LIVE_KEYS]).toEqual(["nightDepth", "timeOfDay", "interruption", "desireApproachedAt", "goalApproaches", "pitched", "nightTurns"]); // ORW-393: nightTurns is bumped on every night message // ORW-341: the pitch ledger is written by house life alone // ORW-340: a goal-driven approach is raised by the clock alone, so it is side-state like the others
+    expect([...CHAT_SIDE_LIVE_KEYS]).toEqual(["nightDepth", "timeOfDay", "interruption", "desireApproachedAt", "goalApproaches", "pitched", "nightTurns", "napHoursToday", "napWake"]); // 0148: a nap moves the clock and the nap credit, never the loop (the orchestrator lives the slept hours via consumeNapHours) // ORW-393: nightTurns is bumped on every night message // ORW-341: the pitch ledger is written by house life alone // ORW-340: a goal-driven approach is raised by the clock alone, so it is side-state like the others
   });
 
   it("ORW-393: a plain night message (nightTurns bumped alongside the clock) does not change the fingerprint", () => {

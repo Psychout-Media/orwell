@@ -88,6 +88,8 @@ TOOL_TAGS = {"bash", "python", "web_search", "web_fetch", "read_file", "write_fi
              # ADR 0006 (#1385): the player's bedtime lever — the engine ends their night, folds the
              # hidden rest penalty, rolls the house to morning, and delivers the 0102 dailyRecap inline.
              "turnIn",
+             # 0148: the player's daytime nap (the engine moves the clock, lives the house, eases the deficit).
+             "nap",
              # Generic loopback to any UI-button endpoint (cookbook,
              # gallery, email folders, etc.) — agent uses this when
              # there's no named tool wrapper for the action.
@@ -149,6 +151,8 @@ GAME_TOOL_KEEP = frozenset({
     "requestSelfEviction",
     # ADR 0006 (#1385): the player's bedtime lever (the engine folds the hidden rest penalty; delivers the 0102 recap).
     "turnIn",
+    # 0148: the player's daytime nap.
+    "nap",
     # God Mode (0016): admin-gated non-Vault levers.
     "inspectNonVaultState", "overrideMechanic", "configureGame", "manageSandbox", "sandboxHealth",
     # In-fiction real-world lookups (C32, amends 0032): the model quietly searches when the

@@ -11,7 +11,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 CI = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-_TOPS = sorted(p.name for p in REPO.iterdir() if p.is_dir() and p.name not in ("frontend", "src", ".git", "node_modules"))
+# Build output and scratch dirs are not repo files (dist/ exists only after `npm run build`, e.g. on the runners, never in the fe-unit CI job).
+_TOPS = sorted(p.name for p in REPO.iterdir() if p.is_dir() and p.name not in ("frontend", "src", ".git", "node_modules", "dist", "coverage", "tmp", ".orwell-data"))
 _PART = r"[\"']([A-Za-z0-9_.-]+)[\"']"
 
 
