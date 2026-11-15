@@ -292,6 +292,7 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
     if st["started_at"] is None:
         st["started_at"] = int(time.time() * 1000)
     gap = GAP_S if (live or st["rate_limited"]) else 0.0  # ORW-437: a 429 keeps the breathing gap (the pre-ORW-378 15 s)
+    st["tick_t0"] = time.monotonic()  # a failure's waits count from when it happened, not from the tick's start
     _BUSY.add(safe)
     try:
         # ORW-380: the photo sheets are written ONE houseguest at a time (each one's `taken` lists need the
@@ -340,7 +341,9 @@ def _note_failure(user, safe: str, sid: str, st: dict, now: float, gap: float, e
     st["next_ok_at"] = now + gap
     if P.is_rate_limited(reason):  # ORW-378: the rest of this season's upgrade goes one at a time
         st["rate_limited"] = True
-        st["next_ok_at"] = now + max(gap, GAP_S)  # ORW-437: ...and the provider gets the full gap before the next attempt
+        t0 = st.get("tick_t0")  # the gap counts from when the 429 arrived, not from the tick's start (review of #2748)
+        failed_at = now + (max(0.0, time.monotonic() - t0) if t0 is not None else 0.0)
+        st["next_ok_at"] = failed_at + max(gap, GAP_S)  # ORW-437: ...and the provider gets the full gap before the next attempt
     P._note_gen_error("portrait-upgrade-failed", reason)
     if not isinstance(e, _PipelineFailure):  # the pipeline already recorded its own failure RED
         P._note_generation_failure(user, sid, f"portrait-upgrade-failed: {reason}")

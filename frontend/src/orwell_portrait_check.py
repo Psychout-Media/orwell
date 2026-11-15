@@ -70,6 +70,9 @@ _HAIR_COLOUR_RE = re.compile(
 _HAIR_LENGTH_RE = re.compile(r"\b(?:buzzed|shaved|cropped|close-cropped|short|chin-length|shoulder-length|long|waist-length)\b", re.I)
 
 
+_HAIR_ACCESSORY_RE = re.compile(r"\b(?:with|tied|held|pinned|secured|clipped|topped|wrapped|tucked|under|beneath)\b", re.I)
+
+
 def visible_features(prompt: str) -> list:
     """The visible features the brief states (glasses, piercings, facial hair, hair colour and length), as phrases.
     The hair colour and length are read from the brief's own `Hair: ...` clause in any word order (ORW-437: "tight black
@@ -83,7 +86,8 @@ def visible_features(prompt: str) -> list:
         if m:
             out.append(m.group(0).lower() if label.startswith("hair") else label)
     if hm:
-        clause = hm.group(1)
+        # Only the hair itself: what follows an accessory word ("tied with a red ribbon") is not the hair colour.
+        clause = _HAIR_ACCESSORY_RE.split(hm.group(1), maxsplit=1)[0]
         c, ln = _HAIR_COLOUR_RE.search(clause), _HAIR_LENGTH_RE.search(clause)
         if c:
             out.append(f"{c.group(0).lower()} hair")
@@ -136,7 +140,8 @@ def facts_block(facts: dict) -> str:
     if facts.get("age"):
         lines.append(f"Stated age: {int(facts['age'])}")
     if facts.get("gender"):
-        lines.append(f"Stated gender presentation: {facts['gender']}")
+        note = " (any clothing fits; never report wrong-presentation)" if facts["gender"] == "nonbinary" else ""
+        lines.append(f"Stated gender presentation: {facts['gender']}{note}")
     if facts.get("clothing"):
         lines.append(f"Main clothing piece: {facts['clothing']}")
     if facts.get("spot"):
@@ -238,6 +243,8 @@ def _record_spend(user, data: dict) -> None:
             cost = _deepseek_cost_estimate(str(data.get("model") or _check_model_id(user)), usage.get("prompt_tokens") or 0,
                                            cached or 0, usage.get("completion_tokens") or 0)
             estimated = cost is not None
+            if not estimated:
+                return  # an unpriced model has no honest dollar figure: never ledger a 0.0 cost as if it were measured
         extra = {"cost_estimated": True} if estimated else {}
         orwell_token_ledger.record_turn(
             user, call_class=CHECK_CALL_CLASS,
@@ -294,6 +301,9 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
         return None
     _record_spend(user, data)
     problems = _parse_problems(data)
+    if problems and facts.get("gender") == "nonbinary":
+        # no clothing contradicts a nonbinary presentation: the rule has no meaning there (review of #2748)
+        problems = [p for p in problems if p != "wrong-presentation"]
     if problems is None:
         return None
     return {"ok": not problems, "problems": problems}

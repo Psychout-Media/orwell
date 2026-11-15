@@ -139,9 +139,9 @@ describe("ORW-381 casting type", () => {
     expect(new Set(CASTING_TYPES.map((t) => t.id)).size).toBe(CASTING_TYPES.length);
     for (const t of CASTING_TYPES) {
       const words = t.read.split(/\s+/).length;
-      expect(words, t.id).toBeGreaterThanOrEqual(3);
+      expect(words, t.id).toBeGreaterThanOrEqual(5); // the file's contract: five to ten words
       expect(words, t.id).toBeLessThanOrEqual(10);
-      expect(`${t.label} ${t.read}`, t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|girl|boy|handsome|beautiful)\b/i);
+      expect(`${t.label} ${t.read}`, t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|girl|boy|handsome|beautiful|fox|diva|queen|king|lady|gentleman)\b/i);
     }
     expect(CASTING_TYPES.find((t) => t.id === "silver-fox")!.minAge).toBe(45);
     expect(CASTING_TYPES.find((t) => t.id === "parent-of-the-house")!.minAge).toBe(36);
@@ -259,6 +259,7 @@ describe("ORW-381 build leans to the physical stat", () => {
     const prompts = JSON.stringify(warm.portraitPrompts ?? []);  // ORW-437: the prompts too, not only the house
     expect(prompts.length).toBeGreaterThan(2);
     expect(prompts).not.toMatch(/\b(physical|mental|social)\\?"\s*:\s*[0-9.]+/);
+    expect(prompts).not.toMatch(/\d\.\d/);  // no float of any kind (a 0.4 stat leak would pass the key regexes)
     expect(prompts).not.toMatch(/"(stats|band|buildBand|fitness)"/i);
     const view = new GameSessionAdapter().createCharacter({ playerName: "The Player", seed: 8123 });
     const hv = JSON.stringify(view.house);

@@ -1357,6 +1357,8 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
             continue
         if ctx is not None:
             ctx["host"] = _provider_host(fb_url)  # ORW-437: a billing answer here belongs to the FALLBACK's host breaker
+            if not _breaker_allows(ctx["host"]):
+                return None  # the fallback host's billing breaker is open: no paid call (the GPT reason stays the failure)
         png = await _generate_via_chat_completions(client, fb_url, fb_model, prompt, fb_headers,
                                                    reference_png=reference_png)
         if png:
@@ -1512,8 +1514,12 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
                     return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
                 gpt_err = _peek_gen_error()  # ORW-437: the GPT class and detail are the primary cause
                 fb_png = await _gpt_image_fallback(client, user, prompt, reference_png, ctx=_ctx)
-                if not fb_png and gpt_err[0] and not is_billing_error(*_peek_gen_error()):
-                    _note_gen_error(gpt_err[0], gpt_err[1])  # the fallback's own failure must not replace the GPT reason
+                fb_err = _peek_gen_error()
+                if (not fb_png and gpt_err[0] and not is_billing_error(*fb_err)
+                        and not _is_transient_gen_error(fb_err[0])):
+                    # the fallback's own PERMANENT failure must not replace the GPT reason; a transient one (429, 5xx,
+                    # a timeout) stays, so the retry reconciler sees an outage and spares the houseguest's budget
+                    _note_gen_error(gpt_err[0], gpt_err[1])
                 return fb_png
             if is_openrouter:
                 # OpenRouter does image-to-image natively via the chat image part (G26).
@@ -1643,13 +1649,21 @@ def _stamp_version_one(user: Optional[str], sid: str) -> None:
 PHOTO_CHECK_RETRY_BOUND = 2
 
 
+def _check_retries(entry) -> int:
+    """The upgrader passes already spent on a photo: 0 when the counter is missing, the whole bound when it is present
+    but malformed (a corrupt "2.5" must never grant two more paid attempts; review of #2748)."""
+    if not isinstance(entry, dict) or entry.get("checkRetries") is None:
+        return 0
+    return _safe_int(entry.get("checkRetries"), PHOTO_CHECK_RETRY_BOUND)
+
+
 def check_retry_ids(manifest: dict) -> list:
     """Houseguest ids whose stored photo failed the automatic check and still have an upgrader retry left."""
     out = []
     for k, e in (manifest or {}).items():
         c = e.get("check") if isinstance(e, dict) else None
         if (isinstance(c, dict) and c.get("ok") is False and e.get("source") != "upload"
-                and _safe_int(e.get("checkRetries"), 0) < PHOTO_CHECK_RETRY_BOUND):
+                and _check_retries(e) < PHOTO_CHECK_RETRY_BOUND):
             out.append(str(k))
     return sorted(out)
 
@@ -2397,7 +2411,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                                        and _prior["check"].get("ok") is False) else None
                 png, check_meta = await _portrait_check_pass(png, str(prompt), user, ref, retry_of=_retry_of, upgrade=_upgrade_ref)
                 if check_meta is not None and _retry_of is not None:
-                    check_meta["retry"] = _safe_int(_retry_of.get("checkRetries"), 0) + 1
+                    check_meta["retry"] = _check_retries(_retry_of) + 1
                 duration_ms = int((time.monotonic() - t0) * 1000)  # ORW-437: the log's duration includes the check and any re-shoot
             try:
                 async with manifest_lock:

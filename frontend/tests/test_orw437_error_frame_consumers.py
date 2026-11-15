@@ -123,9 +123,9 @@ def test_cast_authoring_writes_nothing_and_makes_no_strict_reparse(failing_fn):
     async def write(p):
         wrote.append(p)
         return {"accepted": True}
-    n = _run(A.author_cast([{"id": "npc:1", "name": "Ann Lee", "age": 30, "genderPresentation": "woman"}], failing_fn, write, user="u"))
+    n = _run(A.author_cast([{"id": "npc:1", "name": "Npc One", "age": 30, "genderPresentation": "woman"}], failing_fn, write, user="u"))
     assert n == 0 and wrote == []
-    assert len(failing_fn.calls) <= 2  # no strict-JSON reparse ladder rode over the failure
+    assert len(failing_fn.calls) == 1  # one call, no strict-JSON reparse or retry ladder rode over the error frame
 
 
 def test_a_length_cut_reply_whose_doubled_cap_retry_ends_in_an_error_frame_raises(monkeypatch):

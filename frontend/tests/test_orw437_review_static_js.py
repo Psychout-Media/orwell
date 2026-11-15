@@ -24,7 +24,9 @@ def test_zero_clock_bubble_clears_a_stale_in_world_moment():
     fn = src[src.index("function _applyServerTimestamp"):]
     fn = fn[: fn.index("Sources box builder")]
     zero = fn[fn.index("if (_zeroClocks()) {"):]
-    assert "span.textContent = ''" in zero and "role-timestamp-moment" in zero and "return;" in zero
+    zero = zero[: zero.index("if (!haveWall) return;")]  # the branch's own body: the next return after it must not count
+    assert "span.textContent = ''" in zero and "role-timestamp-moment" in zero
+    assert zero.rstrip().endswith("return;\n      }") or re.search(r"return;\s*\}\s*$", zero)
 
 
 def test_resolved_speaker_chip_is_keyboard_operable():
