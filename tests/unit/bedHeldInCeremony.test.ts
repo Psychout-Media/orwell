@@ -40,10 +40,10 @@ describe("ORW-446 - a goodnight is held while a ceremony is open", () => {
     expect(ok.held).toBeUndefined();
     expect(live.dayNumber, "the bed rolled the day once the ceremony closed").toBe(3);
   });
-  it("an open player decision holds the bed too", () => {
+  it("scope: an unresolved comp or the premiere toast does not hold the bed (the player owns their bedtime)", () => {
     const { s, live } = night(true);
-    live.pending = { kind: "ceremony-step" };
-    expect(s.turnIn().held?.reason).toBe("ceremony");
+    live.competition = { comp: "hoh-competition", field: [] };
+    expect(s.turnIn().held).toBeUndefined();
   });
   it("a headless (not played) game is never held: byte-identical", () => {
     const { s, live } = night(false);

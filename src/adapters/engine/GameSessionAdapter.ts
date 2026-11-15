@@ -11721,10 +11721,11 @@ export class GameSessionAdapter implements GameSession {
       const hour = this.live.nightDepth ?? WAKE_HOUR;
       return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) } });
     }
-    // ORW-446 (BDD Auditor, ORW-433 probe): a goodnight while a ceremony is open (the staged eviction reveal, one ballot per advance; a comp; the toast) went through, the day rolled and the reveal resumed the next evening
+    // ORW-446 (BDD Auditor, ORW-433 probe): a goodnight while a staged ceremony is open (the eviction reveal, one ballot per advance) went through, the day rolled and the reveal resumed the next evening
     // (one eviction stretched Day 7 to Day 11). Like moves and naps, the bed is HELD until the event finishes: typed `held`, nothing commits, the clock and sleep state do not move. A game a person is playing only
     // (headless drivers never ask), and it follows the bedtime-gate switch the harnesses already flip.
-    if (this.bedtimeGateEnabled && this.live.playedGame === true && (this.live.pending || liveHouseEvent(this.live))) {
+    // Scope: a STAGED CEREMONY only (the evidence is the eviction reveal). An unresolved comp or the premiere toast are not held here: the player owns their bedtime (ADR 0006) and the bedtime-gate tests turn in with one open.
+    if (this.bedtimeGateEnabled && this.live.playedGame === true && this.live.ceremony) {
       return remember({ ...this.advanceView(null), held: { next: "ceremony", minutesUntil: 0, reason: "ceremony" } });
     }
     return remember(this.inOneCommit(() => {
