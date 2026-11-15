@@ -2780,14 +2780,65 @@ _CLAIM_HYPOTHETICAL_RE = re.compile(
 _CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
 
 
-def _committed_claim(regex, text: str) -> bool:
+# ORW-374: a RULES SPEECH ("Last person standing on the platform is the new Head of Household.") and future/conditional talk ("the winner will be the new
+# HOH") describe how the crown is decided, not a crowning. Judged on the WHOLE sentence before the match (a comma in a rules speech must not hide the
+# cue), and ONLY for the two HOH-crown detectors (`_CLAIM_NEW_HOH_RE`, `_CLAIM_SELF_HOH_WIN_RE`). A sentence-initial "Last/First <..> standing/to <..> <is|becomes|wins>"
+# is the rule form; a bare "last one standing" mid-sentence is a RESULT phrase ("Hoh Person, last one standing, is the new HOH") and is NOT a cue.
+_CLAIM_RULE_CUE_RE = re.compile(
+    r"\b(?:will\s+(?:be|become|win|take|earn|get)|would|shall|going\s+to|gonna|to\s+become|stands?\s+to|the\s+rules?|whoever|whichever)\b"
+    r"|(?:'|\u2019)ll\s+be\b",
+    re.IGNORECASE,
+)
+_RULE_SUBJECT_ANY_RE = re.compile(   # with-article form ("The last one standing is ...")
+    r"^\W*(?:the\s+)?(?:last|first)\s+(?:\w+\s+){0,3}?(?:standing|remaining|left|to\s+\w+)\b[^.:;\u2014\u2013]*\b(?:is|becomes|wins|gets|earns)\b",
+    re.IGNORECASE,
+)
+_RULE_SUBJECT_RE = re.compile(   # article-less rule form, judged on the WHOLE sentence (the cue sits AFTER the "last one standing" match)
+    r"^\W*(?:last|first)\s+(?:\w+\s+){0,3}?(?:standing|remaining|left|to\s+\w+)\b[^.:;\u2014\u2013]*\b(?:is|becomes|wins|gets|earns)\b",
+    re.IGNORECASE,
+)
+
+
+def _rule_subject(text: str, sent: str) -> bool:
+    """ORW-374: `sent` (a sentence of `text`) is the RULE form "Last person standing ... is the new HOH". The bare form always counts; the article form
+    ("The last houseguest standing is ...") is the narrator's recap voice and counts only INSIDE a double-quoted speech (the host reading the rules)."""
+    if _RULE_SUBJECT_RE.search(sent):
+        return True
+    if not _RULE_SUBJECT_ANY_RE.search(sent):
+        return False
+    pos = (text or "").find(sent)
+    head = (text or "")[:max(pos, 0)]
+    return (head.count('"') % 2 == 1) or (head.count("\u201c") > head.count("\u201d"))
+
+
+_VOCATIVE_PREFIX_RE = re.compile(
+    r"^[\s\"\u201c\u2018'*_\[(@]*([A-Z][\w.'\u2019-]*(?:\s+[A-Z][\w.'\u2019-]*){0,2})\]?[\s\"\u201d*_,:\u2014\u2013-]*$")
+
+
+def _self_crown_is_vocative(sentence, m, after) -> bool:
+    return _vocative_to_real_hoh(sentence, m.start(), after)
+
+
+def _vocative_to_real_hoh(sentence: str, start: int, after) -> bool:
+    """ORW-374: True when the text before a self-crown match ("<Name> - you are the new Head of Household") is a bare vocative naming the engine's REAL
+    HOH: the engine's own truth voiced to the crowned houseguest, not a claim about the player. A different name (or none) is not."""
+    hoh = str((after or {}).get("hohName") or "").strip()
+    if not hoh:
+        return False
+    m = _VOCATIVE_PREFIX_RE.match(sentence[:start])
+    return bool(m and _name_matches(m.group(1), hoh))
+
+
+def _committed_claim(regex, text: str, cue_re=None, skip=None, after=None) -> bool:
     """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose OWN clause
     (the text after the last comma, semicolon, colon or dash before it) carries a conditional lead-in
     (`_CLAIM_HYPOTHETICAL_RE`) is talk about what might happen, not a claim that it did. A lead-in in an earlier
     clause does not cover a later claim ("Wondering if it was fair, you watch as the houseguest wins the veto"),
     and a committed claim in another sentence, or with the conditional after it ("she wins the veto, if you can
     believe it"), still counts. The match's own first word is checked too: a name-capturing pattern reads
-    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match."""
+    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match.
+    ORW-374: `cue_re` (e.g. `_CLAIM_RULE_CUE_RE`) is also tested against the WHOLE sentence prefix; `skip=(sentence, match, after)->bool`
+    exempts a match the caller can show is not a claim (a vocative to the engine's real HOH)."""
     if not text:
         return False
     for sentence in re.split(r"(?<=[.!?\n])", text):
@@ -2795,8 +2846,13 @@ def _committed_claim(regex, text: str) -> bool:
             words = m.group(0).split(None, 1)
             clause = _CLAIM_CLAUSE_SPLIT_RE.split(sentence[:m.start()])[-1]
             lead = re.sub(r"\s+", " ", clause + (words[0] if words else ""))   # one space, so the as/even look-behinds hold
-            if not _CLAIM_HYPOTHETICAL_RE.search(lead):
-                return True
+            if _CLAIM_HYPOTHETICAL_RE.search(lead):
+                continue
+            if cue_re is not None and (cue_re.search(sentence[:m.start()] + (words[0] if words else "")) or _rule_subject(text, sentence)):
+                continue
+            if skip is not None and skip(sentence, m, after):
+                continue
+            return True
     return False
 
 
@@ -3269,7 +3325,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      (the exact live-red-team failure: "you won HOH" narrated with zero tool calls, an NPC actually
     #      won). Fires only when the board KNOWS the player is not HOH (`playerIsHoh is False`, never on
     #      the unknown/None case — an old-style signature without the field can't trip it).
-    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text) and after.get("playerIsHoh") is False:
+    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, _CLAIM_RULE_CUE_RE, _self_crown_is_vocative, after) and after.get("playerIsHoh") is False:
         desync = "a phantom HEAD OF HOUSEHOLD win (the engine shows you are NOT the Head of Household)"
     # (4b) A2: the model crowns a NAMED houseguest HOH who is NOT the one the engine crowned → the wrong
     #      identity on the throne. Scoped to the HOH beat AND a crown that really committed THIS turn
@@ -3287,7 +3343,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to HOH phases (like the tally branch): outside the HOH beat, "the new HOH…" /
     #     "wins HOH" reads as reflection or flavor, not a committed crown — policing it elsewhere
     #     would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text)
+    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text, _CLAIM_RULE_CUE_RE)
           and str(after.get("phase") or "").lower().startswith(_HOH_PHASES)
           and after.get("hoh") == before.get("hoh")
           and not (before.get("hoh") is None and after.get("hoh") is not None)):
@@ -4844,6 +4900,8 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
                 continue
+            if _CLAIM_RULE_CUE_RE.search(clause) or _rule_subject(text, sent):  # ORW-374: a rules speech is not a result
+                continue
             if walked:  # ORW-273: round-level cues (a crowd reaction, who dropped) are the rounds the engine walked; only a WINNER / crown / title claim is ahead of the engine
                 _hit = any(not _COMP_ROUND_CUE_RE.fullmatch(m.group(0)) for m in _CLAIM_COMP_RESULT_RE.finditer(clause))
             else:
@@ -5273,8 +5331,8 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
     return bool(
         _committed_claim(_CLAIM_EVICTED_RE, text)
         or _committed_claim(_CLAIM_WINNER_RE, text)
-        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
-        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)   # A2: "you won HOH" — a self-crown the board can deny
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text, _CLAIM_RULE_CUE_RE)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, _CLAIM_RULE_CUE_RE)   # A2: "you won HOH" — a self-crown the board can deny
         or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)  # A2: "you won the veto" — same
         or _committed_claim(_CLAIM_TALLY_RE, text)
         or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)  # LIVE-7 (#540): self-counted majority/short

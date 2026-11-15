@@ -18,7 +18,7 @@ HOH_COMP_RULES = '''The living room has been transformed. On a stand at the fron
 
 The voice comes down from everywhere at once.
 
-"Houseguests — welcome to your first Head of Household competition. **Hold the Line.** Each of you takes a lane on the platform. The panels beneath you go dark in sequence, on a rhythm, and when yours goes dark you move — or you're out. The rhythm tightens every round. There is no sitting this one out and there is no second chance. Last person standing on the platform is the new Head of Household."
+"Houseguests — welcome to your first Head of Household competition. **Hold the Line.** Each of you takes a lane on the platform. The panels beneath you go dark in sequence, on a rhythm, and when yours goes dark you move — or you're out. The rhythm tightens every round. There is no sitting this one out and there is no second chance. Hoh Person is crowned the new Head of Household."
 
 "Sixteen of you. Step onto your lanes."
 
@@ -33,7 +33,7 @@ The rhythm goes. She doesn't blink. The grid stutters — a half-beat out of now
 
 Hoh Person catches it.
 
-"**Hoh Person — you are the new Head of Household.**"
+"**Hoh Person wins the Head of Household competition.**"
 
 The yard comes apart. Houseguest B is hollering, and Hoh Person steps off the platform and puts her hands on her hips and just breathes for a second.
 
@@ -86,11 +86,14 @@ def _sig(**over):
     return base
 
 
-# fixture, board the engine held, the sentence(s) that must go, and sentences that must survive
+# ORW-374: the rules-speech and vocative fixtures are no longer claims at all (see test_orw374_ceremony_claim_false_positives.py).
+# fixture, board the engine held, the sentence(s) that must go, and sentences that must survive.
+# ORW-374: the two real HOH fixtures (rules speech / vocative to the real HOH) are now TRUE lines, not claims, so their claim sentence is swapped here
+# for a genuine early crowning; the real sentences live in test_orw374_ceremony_claim_false_positives.py.
 CASES = {
-    "hoh-rules-quote": (HOH_COMP_RULES, _sig(phase="hoh-competition", pending="comp-round", hoh=None, hohName=None), ["Last person standing"],
+    "hoh-rules-quote": (HOH_COMP_RULES, _sig(phase="hoh-competition", pending="comp-round", hoh=None, hohName=None), ["is crowned the new Head of Household"],
                         ["no second chance.", '"Sixteen of you. Step onto your lanes."', "The first panel goes dark.", "How are you playing this one"]),
-    "hoh-crown": (HOH_CROWN, _sig(phase="nominations"), ["you are the new Head of Household"],
+    "hoh-crown": (HOH_CROWN, _sig(phase="hoh-competition", pending="comp-round", hoh=None, hohName=None), ["Hoh Person wins the Head of Household competition"],
                   ["Hoh Person catches it.", "The yard comes apart.", "That was *close.*"]),
     "key-ritual": (KEY_RITUAL, _sig(phase="nominations"), ["turn the first key now"],
                    ["I'm going to skip that", "She steps to the box and turns it.", "I want to hear the room first."]),
@@ -160,7 +163,7 @@ def test_paragraph_break_of_a_dropped_last_sentence_survives():
 def test_a_chunk_that_is_only_the_claim_rewrites_to_nothing_but_its_closer(_state):
     text, sig, _g, _k = CASES["hoh-rules-quote"]
     _state.arm(sig)
-    chunk = ' Last person standing on the platform is the new Head of Household."\n'
+    chunk = ' Hoh Person is crowned the new Head of Household."\n'
     assert _run(ch.screen_streamed_scene_break(_USER, chunk)) is None
     assert ch.take_scene_rewrite(_USER) == '"\n'
 
