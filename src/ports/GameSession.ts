@@ -1890,13 +1890,18 @@ export interface MarkHouseguestMetOpts {
 export interface HouseSearchEntry {
   id: EntityId;
   name: string;
-  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "unknown";
+  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "told" | "unknown";
   /**
    * The room id. ORW-462 (Kevin, 2026-11-15: the game must not confirm where someone is if the player does not know): named only where the player can SEE now (their own room and the rooms in sightline), or, for the
    * houseguest they are LOOKING FOR, as a `lead` from the player's own record (a witnessed "walked into X", or the last-known sighting in view): never confirmed. Absent for everyone else ("unseen"), for a houseguest nobody here
    * can place (`unknown`), for a sleeper not being looked for, and for one who has not walked in yet at the premiere entrances.
    */
   room?: string;
+  /**
+   * ORW-475: a `told` answer comes from a houseguest the player can see, out of THEIR OWN record of who they saw go where (it can be out of date): who says it. Set on `told`, and on an `unknown` where the asked houseguest
+   * would not give a straight answer. Never a houseguest who had no way to know.
+   */
+  toldBy?: NamedRef;
   /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Present only for a houseguest in view. */
   access?: "open" | "closed";
   /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
