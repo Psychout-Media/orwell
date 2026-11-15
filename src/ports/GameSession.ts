@@ -2648,11 +2648,11 @@ export interface RecordCastProfileReq {
   /** A real multi-sentence backstory (the presentable parts). */
   biography?: string;
   /**
-   * ORW-388: a REPAIRED freeform identity concept. Genesis writes `identityConcept` once, before the card's gender,
-   * exact age and look are final; the authoring accept path mends a contradiction in it (a wrong pronoun, a wrong
-   * age, a look feature the look lacks, "Big Brother") and sends the mended text here. Folded ONLY onto a houseguest
-   * that already has an identityConcept (a repair, never an invention), capped at 300 characters, and refused when it
-   * names the player. Absent ⇒ the stored identity concept stands.
+   * ORW-388 / ORW-431b: the authoring writer's identity concept, the card's one-line identity. Genesis writes `identityConcept` once, before
+   * the card's gender, exact age and look are final (and drops it when it repeats a hidden element); the writer, which runs after every pin,
+   * owns the line and sends it here. It REPLACES a stored identity and FILLS a card that has none, as one line capped at 300 characters, and
+   * is refused (the whole call) when it names the player. `publicFields` lists "identityConcept" whenever the card now holds the sent text, so
+   * the caller can verify it was stored. Absent ⇒ the stored identity concept stands.
    */
   identityConcept?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
