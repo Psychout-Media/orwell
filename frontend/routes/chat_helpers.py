@@ -621,6 +621,18 @@ def hang_out_intent(player_msg) -> bool:
     return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
 
 
+_HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
+
+
+def _reconcile_hang_out_steer(steer: str, game_state) -> str:
+    """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
+    owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
+    ds = game_state.get("daySchedule") if isinstance(game_state, dict) else None
+    if steer and isinstance(ds, dict) and "due" in ds and not ds.get("due"):
+        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE)
+    return steer
+
+
 def _hang_out_steer(res: dict) -> str:
     """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them)."""
     reason = str(res.get("stopReason") or "max-beats")
@@ -663,11 +675,21 @@ _PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
-def _premiere_not_yet_steer() -> str:
-    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call, this afternoon - never on demand."""
-    return ("PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for this afternoon and it is not that time yet. The player cannot start, skip to or "
-            "move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
-            "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
+def _schedule_when(scheduled_phase: str, tomorrow: bool, default: str) -> str:
+    """ORW-394: the in-fiction "when" for an event not yet called: "tomorrow <part of day>" when the engine's schedule says tomorrow, "this <part of day>" when it is today."""
+    if tomorrow:
+        return f"tomorrow {scheduled_phase}" if scheduled_phase else "tomorrow"
+    return f"this {scheduled_phase}" if scheduled_phase else default
+
+
+def _premiere_not_yet_steer(ds: Optional[dict] = None) -> str:
+    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call - never on demand.
+    ORW-394: with the engine clock live (`ds` = the board's daySchedule) the when comes from the schedule (never "this afternoon" when it is not today); without it, the premiere morning's "this afternoon"."""
+    ds = ds if isinstance(ds, dict) else {}
+    when = _schedule_when(str(ds.get("phase") or ""), bool(ds.get("tomorrow")), "this afternoon") if ds else "this afternoon"
+    return (f"PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for {when} and it is not that time yet. The player cannot start, skip to or "
+            f"move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
+            f"hasn't called it yet - it will be {when}; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
 _PREMIERE_CLOCK_STARTED: set = set()  # runway keys whose first day-schedule board (the premiere's day-break) already armed its narration steer
@@ -778,7 +800,7 @@ def note_premiere_turn(user, game_state) -> None:
         if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
             _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
             if _PREMIERE_CLOCK_HOLD[key]:
-                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds)
             return
         _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
@@ -1754,6 +1776,8 @@ def pop_framed_hard_constraints(session_id) -> Optional[str]:
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent ⇒ no forcing ⇒ byte-identical (the field is
 # derived purely from the engine `phase`, exactly the retired `_FORCE_COMP_PHASES ∪ _FORCE_ADVANCE_PHASES`).
 _LAST_FRAMED_REQUIRED_LEVER: dict = {}
+# ORW-405: the per-turn volatile slice ("\n- Week: ..." to the end) of the engine moment prompt this turn was framed on, keyed like the stores above, so a mid-turn rebuild (the direct turnIn) can swap it for a fresh one.
+_LAST_FRAMED_MOMENT_VOLATILE: dict = {}
 
 # 0118 (in-game-time pivot, Phase 2) — whether the engine reports the scheduled ceremony time has ARRIVED
 # (the Vault-free day-schedule `due` flag), cached at framing so the agent loop's advance-nudge can fire the
@@ -3973,7 +3997,7 @@ async def record_post_turn_presence_check(user, narration: str) -> None:
         logger.warning("[orwell] post-turn presence check skipped for user=%s: %s", user, e)
 
 
-async def screen_presence_wall(user, text: str) -> str:
+async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
     (delimiters preserved for the rest) — the empirically load-bearing half: the terminal whereabouts
@@ -3983,7 +4007,11 @@ async def screen_presence_wall(user, text: str) -> str:
     ever splitting it; a proven phantom placement is DROPPED and never re-admitted by any fallback.
     Fail-soft: a read/scan hiccup falls through to emit the text unchanged (a false hold on creative
     prose is worse than a missed phantom — ADR 0005 #1) — except for a sentence already proven to
-    stage a non-present houseguest, which is never restored."""
+    stage a non-present houseguest, which is never restored.
+
+    ORW-395: `alt_state` is the board snapshot taken BEFORE the FE ran the player's own `turnIn` this
+    turn. The reply voices the goodnight in the evening room, but live presence is already the morning
+    board; a sentence is a phantom only if it is absent under BOTH boards."""
     if not text or not text.strip():
         return text
     try:
@@ -3997,12 +4025,18 @@ async def screen_presence_wall(user, text: str) -> str:
         return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
     roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
     first_counts = _first_name_counts(roster)
+    alt_facts = _presence_facts(alt_state) if isinstance(alt_state, dict) else None
+    if alt_facts:
+        _alt_roster = roster | set(alt_facts["in_view"]) | set(alt_facts["active_offscene"]) | set(alt_facts["evicted"])
+        _alt_counts = _first_name_counts(_alt_roster)
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
     for part in parts:
         try:
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
+            if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
+                hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
                 dropped.add(hit)
                 continue  # DROP — a non-present houseguest is never staged as present
@@ -7265,16 +7299,31 @@ async def _maybe_delta_line(user, last_seen_beat_seq) -> Optional[str]:
         return None
 
 
+def _audit_framed_briefing(user, messages) -> None:
+    """ORW-409: debug-log + soft-fail counter for any contradiction between the blocks of the final briefing. Report-only, fail-open; ORWELL_BRIEFING_AUDIT=0 turns it off."""
+    if os.getenv("ORWELL_BRIEFING_AUDIT", "1") == "0":
+        return
+    try:
+        from routes.briefing_audit import audit_briefing
+        for c in audit_briefing(messages):
+            logger.debug("[orwell] briefing conflict (%s): %s", c["fact"], c["detail"])
+            record_soft_failure(f"briefing-conflict:{c['fact']}", ValueError(c["detail"]), corrected="none:report-only", user=user)
+    except Exception as e:
+        logger.debug("[orwell] briefing audit skipped: %s", e)
+
+
 def _runway_sig(game_state: dict) -> str:
     """The `(week:phase)` signature of the beat the player is currently sitting in. A change in this
     signature means a ceremony resolved and we entered a new beat — the cue to arm a fresh runway."""
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
-def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
-    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only."""
-    label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
-    when = f"this {scheduled_phase}" if scheduled_phase else "later today"
+def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False) -> str:
+    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only.
+    ORW-394: the event is labelled from the engine's schedule (`daySchedule.next`) when given - not the game phase, which can still be the previous event's - and says "tomorrow" when the schedule does."""
+    event = next_beat or phase
+    label = _MOMENT_PHASE_LABELS.get(event) or event.replace("-", " ")
+    when = _schedule_when(scheduled_phase, tomorrow, "later today")
     return (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {when} and it is not that time yet. The player cannot start, skip to or move it. "
             f"Keep this scene social. If they ask for it, let a houseguest or the house itself say production hasn't called it yet (it is {when}); "
             "do NOT narrate the event starting, a result, or anyone being called to it.")
@@ -7733,7 +7782,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if not _ds.get("due"):
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
-                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""))
+                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")))
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
                         _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
@@ -8264,6 +8313,15 @@ async def apply_game_framing(
             else:
                 mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
+            try:  # ORW-405: remember this turn's volatile slice (fail-open)
+                _mp_txt = (mp or {}).get("systemPrompt")
+                _vi = _mp_txt.find("\n- Week: ") if isinstance(_mp_txt, str) else -1
+                if _vi >= 0:
+                    _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
+                else:
+                    _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
+            except Exception:
+                pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
             if _brief_on:
@@ -8424,7 +8482,7 @@ async def apply_game_framing(
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:
-                gm_prompt = gm_prompt + "\n\n" + _ho_steer
+                gm_prompt = gm_prompt + "\n\n" + _reconcile_hang_out_steer(_ho_steer, game_state)
         except Exception as e:
             logger.warning("[orwell] hang-out steer framing skipped for user=%s: %s", _gkey, e)
         try:
@@ -8469,6 +8527,7 @@ async def apply_game_framing(
             preface[0]["content"] = gm_prompt + "\n\n" + preface[0]["content"]
         else:
             preface.insert(0, {"role": "system", "content": gm_prompt})
+        _audit_framed_briefing(user, preface)
     else:
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again
