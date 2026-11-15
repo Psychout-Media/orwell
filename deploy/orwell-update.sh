@@ -250,7 +250,7 @@ fi
 # lock across BOTH its phases and runs this script as a child — hands the open fd down via
 # ORWELL_UPDATE_LOCK_FD, and an inherited fd is honoured only when it really is this lock file (a stale
 # exported variable cannot bypass the lock). Non-blocking by design: a second run refuses (75) rather
-# than queueing a redundant build; it never touches the running run's ops status. Released when the
+# than queueing a redundant build (except a deferred run that woke after a later run went ahead: it waits, bounded); it never touches the running run's ops status. Released when the
 # process exits (the fd dies with it). orwell-update-reset.sh takes the same file — keep them in sync.
 UPDATE_LOCK="${ORWELL_UPDATE_LOCK:-/run/orwell-update.lock}"
 acquire_update_lock() {
@@ -265,7 +265,17 @@ acquire_update_lock() {
   command -v flock >/dev/null 2>&1 || { echo "ERROR: flock (util-linux) is required to serialize updates." >&2; exit 1; }
   exec {ORWELL_UPDATE_LOCK_FD}>>"$UPDATE_LOCK" \
     || { echo "ERROR: cannot open the update lock ${UPDATE_LOCK}." >&2; exit 1; }
-  if ! flock -n "$ORWELL_UPDATE_LOCK_FD"; then
+  # A deferred run that was told a later run went ahead (__UD_WAITED=1) must WAIT for that run to finish: the under-lock check below then decides whether
+  # the later run really did this update. Failing fast here (75) would drop the update if the later run failed and reverted (review of #2702).
+  # Every other run stays non-blocking. The wait is bounded (ORWELL_UPDATE_LOCK_WAIT seconds, default 3600).
+  local _flock_args=(-n)
+  if [[ "${__UD_WAITED:-0}" == 1 ]]; then
+    local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
+    [[ "$_w" =~ ^[0-9]+$ ]] || _w=3600
+    _flock_args=(-w "$_w")
+    echo "==> waiting (up to ${_w}s) for the run that holds the update lock, then re-checking whether it finished this update"
+  fi
+  if ! flock "${_flock_args[@]}" "$ORWELL_UPDATE_LOCK_FD"; then
     echo "ERROR: another orwell update / rollback / Update + Reset is already running in this tree (lock ${UPDATE_LOCK})." >&2
     echo "       Refusing to run two at once. Watch it with: tail -f ${APP_DIR}/data/ops-update.log — then retry." >&2
     exit 75
