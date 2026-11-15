@@ -369,6 +369,7 @@ def test_orw402_a_failed_chunk_writes_nothing_so_the_day_is_retried():
         hist.append(_row("assistant", f"narration {i} " + "y" * 400, 1))
     assert len(dc._chunks(dc.visible_day_text(hist, 1))) >= 3          # the control: this day really is chunked
     r = _run(dc.condense_day("u", 1, llm_fn=flaky, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert calls["n"] >= 2, "review of #2725: the injected failure (the second chunk call) was really reached"
     assert not r["accepted"] and writes == []
 
 
