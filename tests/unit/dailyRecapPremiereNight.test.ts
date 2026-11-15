@@ -23,5 +23,6 @@ describe("ORW-382 - every bedtime has a day in review, the premiere night includ
     expect(v.dailyRecap?.highlights).toEqual([]); // no ceremony or deal on the premiere
     expect((v.dailyRecap?.yourDay ?? []).length, "the review has the player's own witnessed scenes").toBeGreaterThan(0);
     expect(v.dailyRecap!.yourDay!.length).toBeLessThanOrEqual(5);
+    for (const line of v.dailyRecap!.yourDay!) expect(line, "no provenance bookkeeping reaches the review").not.toMatch(/^surfaced to player via|overheard:|told-by:/);
   });
 });

@@ -144,6 +144,9 @@ def test_turn_in_applied_only_when_the_clock_left_the_night():
 
 
 # ── the loop, driven for real with a stubbed model ───────────────────────────────────────────────
+_LAST_CHUNKS: list = []  # ORW-395: the raw SSE chunks of the last _drive run
+
+
 def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="orw310", turn_in_result=None,
            force_setting=True, max_rounds=3):
     """Run stream_agent_loop with a scripted model. `scripts` = list of per-round dicts
@@ -212,6 +215,7 @@ def _drive(monkeypatch, *, text, model=GLM, status=None, scripts=None, owner="or
             pinned_tools={"turnIn", "advanceGame"},
         ):
             out.append(chunk)
+        _LAST_CHUNKS[:] = out
         return out
 
     try:
@@ -458,3 +462,27 @@ def test_post_turn_in_context_kill_switch(monkeypatch):
     monkeypatch.setenv("ORWELL_POST_TURNIN_CONTEXT", "0")
     ok, msgs, _ = _drive_405(monkeypatch)
     assert ok is False and "Time of day: night" in msgs[0]["content"]
+
+# ── ORW-395 (1): the belt's chip is its OWN round, above the morning narration ───────────────────
+def _sse(chunks):
+    out = []
+    for c in chunks:
+        if c.startswith("data: ") and not c.startswith("data: [DONE]"):
+            try:
+                out.append(json.loads(c[6:]))
+            except ValueError:
+                pass
+    return out
+
+
+def test_direct_turn_in_chip_is_its_own_round_before_the_narration(monkeypatch):
+    # The renderer draws a round's text bubble first, then that round's tool rail: a chip sharing round 1 with the morning scene rendered BELOW it.
+    _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, turn_in_result=_res("morning"),
+           scripts=[{"deltas": ["The house stirs."]}])
+    evs = _sse(_LAST_CHUNKS)
+    kinds = [e.get("type") or ("delta" if "delta" in e else "?") for e in evs]
+    start = next(i for i, e in enumerate(evs) if e.get("type") == "tool_start" and e.get("tool") == "turnIn")
+    step = next(i for i, e in enumerate(evs) if e.get("type") == "agent_step")
+    first_text = next(i for i, e in enumerate(evs) if "delta" in e and e.get("type") is None)
+    assert start < step < first_text, kinds                     # chip, then the round closes, then the narration
+    assert evs[start]["round"] == 1 and evs[step]["round"] == 2
