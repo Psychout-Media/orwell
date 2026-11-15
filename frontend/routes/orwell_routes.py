@@ -2149,9 +2149,18 @@ def setup_orwell_routes() -> APIRouter:
     @router.post("/fe-report")
     async def orwell_fe_report(request: Request):
         # Manual parse: sendBeacon may land as text/plain — content-type is no gate.
-        raw = await request.body()
-        if len(raw) > 16384:  # ORW-396: size cap now that the beacon is reachable logged-out (three short strings never need more)
+        # ORW-396: size cap now that the beacon is reachable logged-out (three short strings never need more). Decide on the Content-Length header BEFORE reading: a missing or oversize length is dropped unread.
+        try:
+            declared = int(request.headers.get("content-length", ""))
+        except ValueError:
+            declared = -1
+        if declared < 0 or declared > 16384:
             return Response(status_code=204)
+        raw = b""
+        async for part in request.stream():  # cap the read too: a lying header cannot make us buffer more than the cap
+            raw += part
+            if len(raw) > 16384:
+                return Response(status_code=204)
         try:
             data = json.loads(raw.decode("utf-8", "replace") or "{}")
         except Exception:
@@ -2176,7 +2185,8 @@ def setup_orwell_routes() -> APIRouter:
         # (post-connect) failure is untagged and still logs at INFO, staying observable.
         # A42 (#1599, no silent fail-soft): an ALLOWLISTED client fail-soft site (a real anomaly the client auto-corrected, or a subscribe refusal) raises the same RED-eligible health event the
         # server-side swallows do. Allowlist only - a player-context beacon must never be able to light the God-Mode alarm with an arbitrary surface name.
-        if data.get("red") is True and fields["surface"] in _FE_RED_SURFACES:
+        # ORW-396: the beacon is reachable logged-out, so only a logged-in user may raise RED; an anonymous `red` is just logged below.
+        if data.get("red") is True and fields["surface"] in _FE_RED_SURFACES and _current_user(request):
             try:
                 from src import log_rings as _lr
                 corrected = data.get("corrected")

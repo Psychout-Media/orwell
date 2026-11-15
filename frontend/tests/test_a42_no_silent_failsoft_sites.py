@@ -7,6 +7,7 @@
 Fault injection per site (the server one drives the real path; the client sites are pinned at the call site and exercised through the real beacon route). Roles only."""
 import asyncio
 import importlib
+import json
 import os
 
 import pytest
@@ -74,7 +75,8 @@ CLIENT_SITES = [
 
 
 @pytest.mark.parametrize("surface,detail,corrected", CLIENT_SITES)
-def test_each_client_site_raises_a_red_event_through_the_beacon(client, surface, detail, corrected):
+def test_each_client_site_raises_a_red_event_through_the_beacon(client, monkeypatch, surface, detail, corrected):
+    monkeypatch.setattr(orwell_routes, "_current_user", lambda request: "role-user")  # ORW-396: RED needs a logged-in user
     _clear()
     body = {"surface": surface, "errorClass": "A42Probe", "detail": detail, "red": True}
     if corrected:
@@ -88,11 +90,33 @@ def test_each_client_site_raises_a_red_event_through_the_beacon(client, surface,
         assert log_rings.SOFT_FAIL_UNCORRECTED in red[0]["diagnosis"]
 
 
-def test_a_non_allowlisted_surface_or_a_missing_red_flag_never_raises_red(client):
+def test_a_non_allowlisted_surface_or_a_missing_red_flag_never_raises_red(client, monkeypatch):
+    monkeypatch.setattr(orwell_routes, "_current_user", lambda request: "role-user")
     _clear()
     client.post("/api/orwell/fe-report", json={"surface": "made-up-surface", "errorClass": "x", "detail": "y", "red": True})
     client.post("/api/orwell/fe-report", json={"surface": "ws:beat-backwards", "errorClass": "x", "detail": "y"})  # allowlisted but no red flag
     assert _overseer() == [], "a player-context beacon must not be able to light the God-Mode alarm with an arbitrary surface or without asking"
+
+
+def test_an_anonymous_red_report_never_raises_red(client):
+    _clear()
+    body = {"surface": "ws:beat-backwards", "errorClass": "x", "detail": "y", "red": True}
+    assert client.post("/api/orwell/fe-report", json=body).status_code == 204
+    assert _overseer() == [], "a logged-out beacon must not be able to light the God-Mode alarm"
+
+
+def test_fe_report_rejects_on_content_length_without_reading(client, monkeypatch):
+    monkeypatch.setattr(orwell_routes, "_current_user", lambda request: "role-user")
+    _clear()
+    ok = {"surface": "ws:beat-backwards", "errorClass": "x", "detail": "y", "red": True}
+    big = dict(ok, detail="z" * 20000)
+    assert client.post("/api/orwell/fe-report", json=big).status_code == 204
+    # no Content-Length (chunked) -> dropped unread, even though the body is a valid RED report
+    assert client.post("/api/orwell/fe-report", content=iter([json.dumps(ok).encode()])).status_code == 204
+    assert _overseer() == []
+    # a lying small header with a big body is also capped
+    r = client.post("/api/orwell/fe-report", content=b"{" + b" " * 20000 + b"}", headers={"content-length": "10"})
+    assert r.status_code == 204 and _overseer() == []
 
 
 # ── the call sites really report red, and the TODOs are gone ────────────────────────────────────
