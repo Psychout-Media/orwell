@@ -73,6 +73,11 @@ jobs:
       heavy: ${{ steps.filter.outputs.heavy }}
       fe_render: ${{ steps.filter.outputs.fe_render }}
       full: ${{ steps.tier.outputs.full }}
+      reuse: ${{ steps.verdict.outputs.reuse }}
+      proved_by: ${{ steps.verdict.outputs.proved_by }}
+      proof_key: ${{ steps.reuse.outputs.key }}
+      tree: ${{ steps.reuse.outputs.tree }}
+      wf: ${{ steps.reuse.outputs.wf }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,6 +88,44 @@ jobs:
       - name: CI tier (ORW-413, always the full suite, drafts included)
         id: tier
         run: echo "full=true" >> "$GITHUB_OUTPUT"
+      # ── RESULT REUSE (ORW-413 PR 2) ─────────────────────────────────────────────────
+      # A green `ci-gate` on a pull request leaves a small marker in the Actions cache, keyed by the hash of the TESTED TREE (`git rev-parse HEAD^{tree}` of the merge ref: exactly
+      # the code the jobs ran, so a no-op rebase or a re-run of the same commit has the same key) and by the hash of this workflow file (the tree already contains the file; the
+      # explicit hash makes a workflow edit visibly a new key). A run whose marker exists skips every other job and `ci-gate` passes with a line naming the run that proved the
+      # tree. It can never pass an untested tree: the key is the tree, the marker is written only by `record-proof`, which runs only when `ci-gate` succeeded in a run that reused
+      # nothing (so every applicable job really ran), and reuse is read only on pull requests (a push to main and the merge queue always run everything). A cache entry is scoped to
+      # the PR's own ref, so the reuse is for re-runs and no-op rebases of the same PR.
+      - name: tested-tree key
+        id: reuse
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          wf="$(git hash-object .github/workflows/ci.yml)"
+          { echo "tree=$tree"; echo "wf=$wf"; echo "key=ci-proof-v1-$tree-$wf"; } >> "$GITHUB_OUTPUT"
+      - name: restore the proof marker (pull requests only)
+        id: proof
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-proof
+          key: ${{ steps.reuse.outputs.key }}
+      - name: reuse verdict
+        id: verdict
+        env:
+          HIT: ${{ steps.proof.outputs.cache-hit }}
+          TREE: ${{ steps.reuse.outputs.tree }}
+          WF: ${{ steps.reuse.outputs.wf }}
+        run: |
+          reuse=false; proved_by=""
+          # Trust nothing in the restored file but an exact match: line 1 a run URL of this repo, line 2 this tree, line 3 this workflow hash.
+          if [ "$HIT" = "true" ] && [ -f .ci-proof/run ] && [ "$(wc -l < .ci-proof/run)" -eq 3 ]; then
+            l1="$(sed -n 1p .ci-proof/run)"; l2="$(sed -n 2p .ci-proof/run)"; l3="$(sed -n 3p .ci-proof/run)"
+            if [[ "$l1" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/runs/[0-9]+$ ]] && [ "$l2" = "$TREE" ] && [ "$l3" = "$WF" ]; then
+              reuse=true; proved_by="$l1"
+              echo "::notice title=Result reused::this exact tree ($TREE) already passed the full suite in $proved_by; every job is skipped and ci-gate passes on that proof"
+            fi
+          fi
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+          echo "proved_by=$proved_by" >> "$GITHUB_OUTPUT"
       - name: detect changed paths
         id: filter
         env:
@@ -119,7 +162,7 @@ jobs:
           ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
-          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
+          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
           # ORW-416 (root cause of the #2681 main break): front-end tests also READ repo files outside frontend/ and src/ (deploy scripts, systemd units, ci/ and harness
           # scripts, a few design docs and fixtures). #2681 changed only deploy/, fe-unit was skipped, and test_orw174 (which reads deploy/orwell-backup.sh) broke every later PR.
           # frontend/tests/test_ci_fe_reads_repo_filter.py proves this list covers EVERY such path the front-end tests read.
@@ -173,7 +216,7 @@ jobs:
   # Needs only the path filter (so a docs-only PR skips it); `ci-gate` requires it.
   fast-checks:
     needs: changes
-    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.reuse != 'true' && (needs.changes.outputs.engine == 'true' || needs.changes.outputs.frontend == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -203,7 +246,7 @@ jobs:
   # reports green for the skip).
   test:
     needs: changes
-    if: needs.changes.outputs.engine == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -232,7 +275,7 @@ jobs:
   # job of an engine round; every feature still runs in exactly one leg (tests/unit/ciBddShard.test.ts), and each leg prints its features' seconds so the table can be refreshed.
   bdd:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -259,7 +302,7 @@ jobs:
   # The build runs first because some unit tests exercise dist/. `ci-gate` needs this job, so a failed leg fails the gate.
   test-unit:
     needs: changes
-    if: needs.changes.outputs.engine == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -279,7 +322,32 @@ jobs:
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm run build
       # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
-      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/8 --retry=1
+      # ORW-413 PR 2: coverage is collected HERE, in the one run of the unit suite (the separate `coverage-shard` legs, which ran every test a second time under v8, are gone).
+      # Same flags as `npm run test:cov` on a slice: the shard config zeroes the per-shard floors (a slice cannot meet them), the blob carries the coverage to the `coverage` job,
+      # which merges all eight and is still the ONLY place the floors are enforced. The default and flaky reporters stay on next to the blob so the log and the flake summary are as before.
+      - name: unit suite leg with coverage (duration-balanced slice; writes its file manifest for the union check in `coverage`)
+        env:
+          ORWELL_SHARD_MANIFEST_DIR: .shard-manifests
+        run: >-
+          npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
+          --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
+          --coverage.reporter=json --shard=${{ matrix.shard }}/8 --reporter=default --reporter=./tests/support/flakyReporter.ts --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-blob-${{ matrix.shard }}
+          path: .vitest-reports/
+          # the folder is hidden (leading dot): upload-artifact@v4 skips hidden files unless told otherwise ("Found 0 artifact(s)")
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      # Kept out of .vitest-reports: `vitest --merge-reports` parses every file in that folder as a blob.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shard-manifest-${{ matrix.shard }}
+          path: .shard-manifests/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
   # ── Heavy simulation lane (ONE job — consolidated for the single self-hosted runner) ──────────
   #
@@ -296,7 +364,7 @@ jobs:
   # doesn't run — `ci-gate` reports the required green status so a docs/frontend-only PR never deadlocks.
   heavy-sims:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     # The code defaults ARE the deployed profile now (the 2026-11 default flip): the heavy lane plays what ships. `ORWELL_FLAGS_OFF=1` is the
     # diagnostic legacy profile and is NOT run here. UAT_TIMEOUT_SCALE widens the one UAT test whose per-test timeout actually fires (the
@@ -326,9 +394,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # ORW-413 PR 2: a heavy leg plays FIXED seeds through src/ and its own test files, so its verdict is a function of those inputs. A green leg leaves a marker keyed by the hash of
+      # everything it reads (src/, the uat/property/calibration/support tests, the package files, the vitest config, tsconfig, the env-defaults script) plus the leg name (a changed leg script list or UAT_TIMEOUT_SCALE needs a bumped `heavy-proof-v1`);
+      # a run whose inputs hash the same (a tests/unit-only change on main, a re-run, a CI-only change) skips the sims. The marker is saved by this step's post action only when the
+      # whole job succeeded (never for a failed leg); a changed hash, or a bumped `heavy-proof-v1`, replays them. Entries from main are visible to every PR.
+      - name: heavy-sim proof (a hit means the same inputs already passed)
+        id: heavyproof
+        uses: actions/cache@v4
+        with:
+          path: .heavy-proof
+          key: heavy-proof-v1-${{ matrix.leg }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
+      - if: steps.heavyproof.outputs.cache-hit != 'true'
+        run: npm ci
       # ORW-229: NO automatic retry here. The heavy sims play fixed seeds, so a retry could only hide a real failure, never fix a flake (docs/CI.md).
       - name: heavy sims (${{ matrix.scripts }})
+        if: steps.heavyproof.outputs.cache-hit != 'true'
         env:
           UAT_TIMEOUT_SCALE: "10"
           SCRIPTS: ${{ matrix.scripts }}
@@ -340,6 +420,9 @@ jobs:
             echo "::endgroup::"
           done
           exit $rc
+      - name: record the proof (saved by the cache action's post step, only if every step above passed)
+        if: steps.heavyproof.outputs.cache-hit != 'true'
+        run: mkdir -p .heavy-proof && echo "${{ github.run_id }} ${{ matrix.scripts }}" > .heavy-proof/ok
 
   # ── Coverage gate ──────────────────────────────────────────────────────────────
   # Per-directory branch thresholds in vitest.config.ts — coverage can no longer silently regress
@@ -347,8 +430,8 @@ jobs:
   # instrumentation they re-run the whole live loop a second, slower time yet add no BRANCH coverage in
   # the gated dirs the rest of the live-loop suite doesn't already cover). PATH-GATED (`changes.engine`).
   coverage:
-    needs: [changes, coverage-shard]
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
+    needs: [changes, test-unit]
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -383,59 +466,12 @@ jobs:
           npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --coverage
 
-  # ── Coverage gate, SHARDED (ORW-39) ─────────────────────────────────────────────
-  # Six legs (ORW-229 re-shard; four until 2026-11-07) each run a disjoint slice of the coverage suite under v8 and upload a blob (vitest.shard.config.ts zeroes the floors for the legs only);
-  # the `coverage` job below merges the blobs and enforces the ORIGINAL thresholds once on the merged measurement.
-  # ORW-229: one automatic retry per test (`--retry=1`); the blobs keep each test's retry count, so the `coverage` job's summary lists every flake.
-  coverage-shard:
-    needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    name: coverage-shard (${{ matrix.shard }}/8)
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: coverage leg (duration-balanced slice; writes its file manifest for the union check in `coverage`)
-        env:
-          ORWELL_SHARD_MANIFEST_DIR: .shard-manifests
-        run: >-
-          npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
-          --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-          --coverage.reporter=json --shard=${{ matrix.shard }}/8 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-blob-${{ matrix.shard }}
-          path: .vitest-reports/
-          # the folder is hidden (leading dot): upload-artifact@v4 skips hidden files unless told otherwise ("Found 0 artifact(s)")
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 1
-      # Kept out of .vitest-reports: `vitest --merge-reports` parses every file in that folder as a blob.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: shard-manifest-${{ matrix.shard }}
-          path: .shard-manifests/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 1
-
   # ── Deploy smoke ────────────────────────────────────────────────────────────────
   # Build + start the engine, probe the HTTP MCP surface, boot the real front-end against a
   # token-enforcing engine, drive a full turn. PATH-GATED (`changes.deploy` — engine/FE/deploy scripts).
   smoke:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.deploy == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -474,7 +510,7 @@ jobs:
   # `-n 4`. The serial pytest step was 5.5 min of the ~6 min job. The py_compile and JS syntax checks are cheap and run in both shards.
   fe-unit:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -516,7 +552,7 @@ jobs:
   # prints "ratchet up: raise ..." when a directory is 2+ points above its floor (raise the floor in the same PR; floors only go up).
   fe-coverage:
     needs: [changes, fe-unit]
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -549,7 +585,7 @@ jobs:
   # by the shared `setup-playwright` composite action (cache + bounded `--with-deps` + fallback).
   fe-browser-tests:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     # ORW-390: 15 -> 20 min. Shard 5/5 ran 12-14 min on main (0697c631 13, d581fcbf 14, 08734b14 13, 5953710f 12) against 4-9 for shards 1-4, so PR #2647 was
     # cancelled at the limit twice and #2659 once (its tests had passed in 856 s). A job is ~1-2 min of setup (checkout, python, playwright, npm ci, build) PLUS the tests.
@@ -593,7 +629,7 @@ jobs:
 
   fe-browser:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -615,7 +651,7 @@ jobs:
   # fails too (a gate that cannot measure must not pass silently). No pixel gate: owner directive 2026-07-21 decommissioned those.
   fe-perf-report:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -657,7 +693,7 @@ jobs:
 
   fe-responsive:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     # 25 min: the engine-staged run adds npm ci + build (~2 min) and the ORWELL_MATRIX_FINISH
     # season fast-forward (~2 min of Echo-narrator advance calls) to the ~2-min sweep itself.
@@ -725,7 +761,7 @@ jobs:
   # (a self-hosted-runner boot blip), not the mechanism the gate relies on to be green.
   mirror-parity:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20  # one group of gate legs, each with bounded retries (was 40 for all six in one job)
     # ORW-193: the six gate legs ran back to back in ONE ~9.5 min job (the second-longest FE lane), then in two parallel jobs (live, rest; about
@@ -838,7 +874,7 @@ jobs:
   # so it never gates a merge. Fold it into ci-gate to flip it blocking once the ratchet is trusted.
   a11y-matrix:
     needs: changes
-    if: needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.fe_render == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -898,7 +934,6 @@ jobs:
       - test
       - bdd
       - test-unit
-      - coverage-shard
       - coverage
       - smoke
       - fe-unit
@@ -920,7 +955,6 @@ jobs:
             test=${{ needs.test.result }}
             bdd=${{ needs.bdd.result }}
             test-unit=${{ needs.test-unit.result }}
-            coverage-shard=${{ needs.coverage-shard.result }}
             coverage=${{ needs.coverage.result }}
             smoke=${{ needs.smoke.result }}
             fe-unit=${{ needs.fe-unit.result }}
@@ -937,6 +971,8 @@ jobs:
           DEPLOY: ${{ needs.changes.outputs.deploy }}
           FRONTEND: ${{ needs.changes.outputs.frontend }}
           FE_RENDER: ${{ needs.changes.outputs.fe_render }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
+          PROVED_BY: ${{ needs.changes.outputs.proved_by }}
         run: |
           set -euo pipefail
           echo "Needed job results: $RESULTS"
@@ -947,7 +983,7 @@ jobs:
             case "$1" in
               changes) echo true ;;
               fast-checks) if [ "$ENGINE" = true ] || [ "$FRONTEND" = true ]; then echo true; else echo false; fi ;;
-              test|bdd|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;
+              test|bdd|test-unit|coverage) echo "$ENGINE" ;;
               heavy-sims) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
               fe-unit|fe-coverage|fe-browser-tests) echo "$FRONTEND" ;;
@@ -960,7 +996,7 @@ jobs:
           fail=0
           # The tier and filter outputs decide which skips are acceptable, so each must be exactly `true` or `false` (ORW-218 review). An empty or
           # garbled value (e.g. a broken `changes` job) fails the gate instead of silently accepting every skip.
-          for kv in "full=$FULL" "engine=$ENGINE" "heavy=$HEAVY" "deploy=$DEPLOY" "frontend=$FRONTEND" "fe_render=$FE_RENDER"; do
+          for kv in "reuse=$REUSE" "full=$FULL" "engine=$ENGINE" "heavy=$HEAVY" "deploy=$DEPLOY" "frontend=$FRONTEND" "fe_render=$FE_RENDER"; do
             case "${kv#*=}" in
               true|false) ;;
               *)
@@ -975,8 +1011,11 @@ jobs:
             case "$result" in
               success) ;;
               skipped)
-                # Skipped is fine only if the path filter said the job does not apply, or the run is not the full suite (reported below).
-                if [ "$(applicable "$name")" = "true" ] && { [ "$FULL" = "true" ] || is_fast "$name"; }; then
+                # Skipped is fine only if the path filter said the job does not apply, or the run is not the full suite (reported below), or (ORW-413 PR 2) the whole run
+                # reuses the proof of an identical tree: then every job except `changes` was skipped ON PURPOSE, and `changes` itself must have succeeded to say so.
+                if [ "$REUSE" = "true" ] && [ "$name" != "changes" ] && [ -n "$PROVED_BY" ]; then
+                  :
+                elif [ "$(applicable "$name")" = "true" ] && { [ "$FULL" = "true" ] || is_fast "$name"; }; then
                   echo "::error::needed job '$name' was SKIPPED although it applies to this change (a skipped required check must not count as a pass)"
                   fail=1
                 fi
@@ -996,4 +1035,31 @@ jobs:
             echo "ci-gate: FAIL (not the full suite)"
             exit 1
           fi
+          if [ "$REUSE" = "true" ]; then
+            echo "ci-gate: PASS (reused: this exact tree already passed the full suite in $PROVED_BY)"
+            exit 0
+          fi
           echo "ci-gate: PASS (all needed jobs succeeded, or were skipped because their path filter does not apply)"
+
+  # ── Proof marker (ORW-413 PR 2) ──────────────────────────────────────────────────
+  # Writes the marker `changes` looks for, only when `ci-gate` PASSED in a run that reused nothing (so every applicable job really ran on this tree) and only on a pull request.
+  # Never writes from a run that reused a proof, a failed or cancelled run, a push to main or the merge queue. The marker names this run, the tree and the workflow hash.
+  record-proof:
+    needs: [changes, ci-gate]
+    if: needs.ci-gate.result == 'success' && needs.changes.outputs.reuse != 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: write the marker
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TREE: ${{ needs.changes.outputs.tree }}
+          WF: ${{ needs.changes.outputs.wf }}
+        run: |
+          mkdir -p .ci-proof
+          printf '%s\n%s\n%s\n' "$RUN_URL" "$TREE" "$WF" > .ci-proof/run
+          cat .ci-proof/run
+      - uses: actions/cache/save@v4
+        with:
+          path: .ci-proof
+          key: ${{ needs.changes.outputs.proof_key }}

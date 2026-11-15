@@ -1159,6 +1159,20 @@ async def _startup_event():
 
     _startup_tasks.append(asyncio.create_task(_startup_mcp_connections()))
 
+    # ORW-406: prime the engine-state read cache once at boot (cheap; the engine is warming its own
+    # save in the background, so this also confirms the pair is live) -- bounded, never blocks startup.
+    async def _prime_engine_state():
+        try:
+            from src import orwell_engine
+            await asyncio.wait_for(orwell_engine.get_game_state_polled(), timeout=30)
+        except BaseException as e:
+            if isinstance(e, asyncio.CancelledError):
+                raise
+            from src import log_rings
+            log_rings.record_soft_failure("startup:engine-state-prime-failed", e)
+
+    _startup_tasks.append(asyncio.create_task(_prime_engine_state()))
+
     # Pre-warm the RAG tool index off the request path. Loading the local
     # embedding model + opening ChromaDB + indexing the built-in tools is a
     # one-time ~1-3s cost that otherwise lands on the user's FIRST message

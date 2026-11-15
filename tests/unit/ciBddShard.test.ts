@@ -22,9 +22,10 @@ describe("BDD shard assignment (ORW-413)", () => {
 
   it("is deterministic", () => expect(assignBddShards([...files].reverse(), durations, 3)).toEqual(assignBddShards(files, durations, 3)));
 
-  it("the table is fresh: at most 5% of the executable features lack a measured entry (refresh from the `[bdd-shard] <feature> <seconds>` lines of a green run)", () => {
+  it("a feature with no measured entry only warns (it weighs the median), it never fails a PR (refresh from the `[bdd-shard] <feature> <seconds>` lines of a green run)", () => {
     const missing = files.filter((f) => durations[f] === undefined);
-    expect(missing.length, `not in ci/bdd-durations.json: ${missing.slice(0, 10).join(", ")}`).toBeLessThanOrEqual(Math.floor(files.length * 0.05));
+    if (missing.length > 0) console.warn(`::warning::${missing.length} feature(s) not in ci/bdd-durations.json (weighed at the median): ${missing.slice(0, 10).join(", ")}`);
+    expect((assignBddShards(files, durations, 3) as string[][]).flat().length).toBe(files.length);
   });
 
   it("the three legs are balanced: heaviest <= 1.15 x the mean (or the mean plus the heaviest single feature)", () => {

@@ -371,13 +371,13 @@
   function _request(t, ch, d, tag) {
     var _cidOut = null;
     var prom = new Promise(function (resolve, reject) {
-      if (!_sock || _sock.readyState !== 1) { reject(new Error("ws-not-open")); return; }
+      if (!_sock || _sock.readyState !== 1) { var _e0 = new Error("ws-not-open"); _e0.code = "ws-not-open"; reject(_e0); return; }
       var cid = _nextCid();
       _cidOut = cid;
       _pending[cid] = { resolve: resolve, reject: reject, t: tag || t };
       var frame = { t: t, cid: cid, d: d || {} };
       if (ch) frame.ch = ch;
-      if (!_send(frame)) { delete _pending[cid]; reject(new Error("ws-send-failed")); }
+      if (!_send(frame)) { delete _pending[cid]; var _e1 = new Error("ws-send-failed"); _e1.code = "ws-send-failed"; reject(_e1); }
     });
     prom._cid = _cidOut;   // N-12: lets a caller that gave up (timeout) cancel the retained entry via cancelRequest()
     return prom;
@@ -670,6 +670,28 @@
         setTimeout(check, 150);
       })();
     });
+  }
+
+  // ORW-406 slice 2: is the page riding out a drop of a socket that WAS live (a front-end release, a wifi hop)? The reconnect loop is already running; a send should wait for it, not fail.
+  function isReconnecting() { return _everLive && _mode === "negotiating"; }
+
+  // ORW-406 slice 2: send a turn that waits out a reconnect gap. Waits (up to maxMs) for the socket, then sends. Retries ONLY when the frame provably never left the device
+  // (`ws-not-open` / `ws-send-failed`: the socket closed between ensure() and the send), reusing the SAME clientMsgId. A turn whose frame may have been transmitted (`ws-closed`
+  // after send) is NOT re-sent here - the server turn path has no per-clientMsgId de-dup (only the engine's noteMessage clock step is idempotent), so the caller's existing
+  // reconcile-from-history path decides. Rejects with the last error when the deadline passes.
+  function sendTurnWhenLive(payload, maxMs) {
+    var deadline = _now() + (maxMs > 0 ? maxMs : 45000);
+    function attempt() {
+      return ensure(Math.max(1, deadline - _now())).then(function (ok) {
+        if (!ok) { var e = new Error("ws-unavailable"); e.code = "ws-unavailable"; throw e; }
+        return sendTurn(payload).catch(function (err) {
+          var neverSent = err && (err.code === "ws-not-open" || err.code === "ws-send-failed");
+          if (neverSent && _now() < deadline) return attempt();
+          throw err;
+        });
+      });
+    }
+    return attempt();
   }
 
   function sendLayout(d) { return _send({ t: "layout", ch: "layout", d: d || {} }); }
@@ -1027,6 +1049,8 @@
     onFrame: onFrame,
     offFrame: offFrame,
     sendTurn: sendTurn,
+    sendTurnWhenLive: sendTurnWhenLive,
+    isReconnecting: isReconnecting,
     sendDecision: sendDecision,
     cancelRequest: cancelRequest,
     sendLayout: sendLayout,

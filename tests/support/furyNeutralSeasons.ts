@@ -1,0 +1,56 @@
+import { expect, it, describe } from "vitest";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { Orchestrator } from "../../src/composition/orchestrator";
+import { FakeClock } from "../../src/adapters/time/FakeClock";
+
+/**
+ * ORW-325 / 0135 - the Traitors' Fury flag must not change the season. The same seed played with the flag ON and OFF must crown the same winner with the same finalists and the same jury tally.
+ * Two leaks used to break this on about 1 seed in 4 (BDD 0135 lines 13 and 20): the blame beliefs (and their diffused copies) were candidates of the generic co-presence gossip spread, and the blame
+ * diffusion's own hidden events shifted the event-count the co-presence rolls are keyed on. Seed 16 diverged before the fix, and 7 and 8 stayed divergent until the per-purpose rng streams (ORW-334, #2607) took the co-presence rolls off the event count: 2026-11-14, seeds 1-30 are all neutral under this (shipping-like) profile, and the BDD profile too. Roles only.
+ *
+ * ORW-413: the 30 seeds were one file (277 s, the longest job of every engine run, and about 500 s under coverage), so they now live in three files of ten seeds
+ * (furyFlagNeutral.test.ts, furyFlagNeutral2.test.ts, furyFlagNeutral3.test.ts) that share this helper. Same 30 tests, same assertions.
+ */
+function playSeason(fury: boolean, seed: number) {
+  const reg = new GameSessionRegistry();
+  const user = `fury-neutral-${seed}`;
+  const sb = reg.sandboxFor(user);
+  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
+  sb.session.setJuryHouseEnabled(true);
+  sb.session.setTraitorsFuryEnabled(fury);
+  const orch = new Orchestrator(reg, new FakeClock(), { seed });
+  let finished = false;
+  for (let i = 0; i < 500 && !finished; i++) {
+    const adv = sb.session.advanceGame();
+    if (adv.pending) {
+      const p = adv.pending;
+      if (p.kind === "nominations") sb.session.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
+      else if (p.kind === "veto-decision") sb.session.submitDecision({ kind: "veto-decision", use: false });
+      else if (p.kind === "replacement") sb.session.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
+      else if (p.kind === "finale-statement") sb.session.submitDecision({ kind: "finale-statement", statement: "x" });
+      else if (p.kind === "finale-answer") sb.session.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
+      else if (p.kind === "juror-vote") sb.session.submitDecision({ kind: "juror-vote", vote: p.options[0]!.id });
+      else sb.session.submitDecision({ kind: p.kind, vote: p.options[0]!.id } as never);
+    }
+    finished = adv.finished;
+    if (!finished) orch.advance(user, "offscreen-tick");
+  }
+  expect(finished, `seed ${seed} fury=${fury}: the season finished within the budget`).toBe(true);
+  return sb.session;
+}
+
+
+export function defineFuryNeutralSeeds(from: number, to: number): void {
+  describe("ORW-325 - the Traitors' Fury flag is outcome-neutral", () => {
+    for (const seed of Array.from({ length: to - from + 1 }, (_, i) => from + i)) {
+      it(`seed ${seed}: the same winner, finalists and jury tally with the flag on and off`, () => {
+        const on = playSeason(true, seed).snapshot().live!;
+        const off = playSeason(false, seed).snapshot().live!;
+        expect(on.winner).toEqual(off.winner);
+        expect(on.finalTwo).toEqual(off.finalTwo);
+        expect(on.finale?.votes).toEqual(off.finale?.votes);
+        expect(on.evictionOrder).toEqual(off.evictionOrder);
+      }, 120_000);
+    }
+  });
+}

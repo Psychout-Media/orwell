@@ -369,7 +369,7 @@ The canonical rules the domain core implements:
 
 Orwell runs as **two co-located services in one container** — the TypeScript **engine** (MCP
 server) and the chat **front-end** (Python) — wired over local MCP, on a single Debian LXC on a
-Proxmox host. The repo is **private**, so the first install authenticates **once** with a
+Proxmox host. The repo is public, but the deploy path authenticates **once** with a
 fine-grained PAT (scope: this repo, *Contents: read-only*); the installer persists it under
 `/opt/orwell/data/.env` and **every later command runs the local checkout** — no GitHub fetch, no
 re-prompt.

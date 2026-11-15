@@ -343,3 +343,30 @@ def test_orw402_prompt_view_shows_full_engine_record_for_yesterday():
     assert all(ev in story for ev in events)             # the whole record, not the first 6
     assert "old1" not in story                           # older days stay compact (summary only)
     assert story.rstrip().endswith("; ".join(events))    # the record trails the day lines
+
+
+def test_orw402_a_failed_chunk_writes_nothing_so_the_day_is_retried():
+    """A long day is summarised chunk by chunk. If ONE chunk call comes back empty (a provider error mid-run), the day
+    must not be stored with a hole in it: the engine keeps the first authored text for good."""
+    ledger = [_day_entry(1)]
+    writes = []
+    calls = {"n": 0}
+
+    async def ledger_fn():
+        return ledger
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        writes.append((day, text))
+        return {"accepted": True}
+
+    async def flaky(messages):
+        calls["n"] += 1
+        return "" if calls["n"] == 2 else "a note about this part of the day"
+
+    hist = []
+    for i in range(40):
+        hist.append(_row("user", f"player line {i} " + "x" * 400, 1))
+        hist.append(_row("assistant", f"narration {i} " + "y" * 400, 1))
+    assert len(dc._chunks(dc.visible_day_text(hist, 1))) >= 3          # the control: this day really is chunked
+    r = _run(dc.condense_day("u", 1, llm_fn=flaky, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert not r["accepted"] and writes == []

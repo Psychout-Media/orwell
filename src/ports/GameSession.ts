@@ -517,6 +517,12 @@ export interface GameStateView {
    * is out of the house. Also feeds the "Where you are" gadget (L26).
    */
   whereabouts?: WhereaboutsView | null;
+  /**
+   * ORW-419 - the player's OWN move this turn, resolved by the engine from the player's words BEFORE the narrator ran
+   * (`resolvePlayerMove`): `{from, to}` room ids/names, or `{refused: true, reason}` when a house event pinned them. Absent when the
+   * player did not move this turn. Words and room names only, never a number. The narrator VOICES it; it never decides it.
+   */
+  playerMove?: PlayerMoveView;
   player: PlayerCard | null;
   house: HouseguestCard[];
   /** Deals the player is party to (0039) — fact + status only, never the hidden opinion numbers. */
@@ -1148,6 +1154,26 @@ export interface RecordLookExtrasResult {
   reason?: string;
 }
 
+/** ORW-407: the open-ledger write-back (a commitment or claim made to or by the player, free text). Exactly these four fields. */
+export interface RecordOpenLedgerReq {
+  /** Verbatim or near-verbatim from the narration, at most 240 characters. */
+  text: string;
+  /** `player` or a houseguest id. */
+  speaker: string;
+  addressedTo: string[];
+  /** A free string (at most 40 characters), never a closed list. */
+  kind: string;
+}
+
+export interface RecordOpenLedgerResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+  /** True when the same words by the same speaker were already kept. */
+  duplicate?: boolean;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -1162,7 +1188,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1861,6 +1887,16 @@ export interface HouseSearchView {
  * NEVER motives, numbers, hidden state, or the occupancy of non-adjacent rooms (you can't see
  * through walls — fog of war is gameplay).
  */
+/** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
+export type PlayerMoveView =
+  | { from: string; to: string; refused?: undefined }
+  | { refused: true; reason: string; from?: string; to?: string };
+
+/** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
+export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+/** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
+export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
+
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
@@ -2573,6 +2609,14 @@ export interface RecordCastProfileReq {
   vocation?: string;
   /** A real multi-sentence backstory (the presentable parts). */
   biography?: string;
+  /**
+   * ORW-388: a REPAIRED freeform identity concept. Genesis writes `identityConcept` once, before the card's gender,
+   * exact age and look are final; the authoring accept path mends a contradiction in it (a wrong pronoun, a wrong
+   * age, a look feature the look lacks, "Big Brother") and sends the mended text here. Folded ONLY onto a houseguest
+   * that already has an identityConcept (a repair, never an invention), capped at 300 characters, and refused when it
+   * names the player. Absent ⇒ the stored identity concept stands.
+   */
+  identityConcept?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
   physicalCharacteristics?: PhysicalCharacteristics;
   /**
@@ -3104,6 +3148,16 @@ export interface GameSession {
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null;
 
   /**
+   * ORW-419 (intent-first moves) - FE-driven INFRA lever (NOT a model lever, never named in the narrator prompt): resolve the player's OWN
+   * move from their message text, BEFORE the narrator runs, and perform it through the same code as `movePlayer` (so a comp/ceremony pin
+   * refuses it with an in-fiction reason and nothing else moves). Records the Vault-free `playerMove` on live state for this turn
+   * (persisted; cleared by the next resolve) and exposes it on `getGameState` / the moment view. No clear move => `playerMove: null`
+   * (the FE's post-reply move belt stays the fallback). Optional `expectedBeatSeq` CAS + `idempotencyKey` (a repeat key returns the
+   * prior result without re-moving).
+   */
+  resolvePlayerMove(req: ResolvePlayerMoveReq): ResolvePlayerMoveResult;
+
+  /**
    * ADR 0009 — RECORD a narrated houseguest relocation (the model narrates the open texture of who
    * wanders where; the engine records it, so the board agrees with the prose and there is never a
    * visible historic conflict). Mutates ONLY the open, player-facing occupancy — never the
@@ -3229,6 +3283,8 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
+  recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
 
   /**
    * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields

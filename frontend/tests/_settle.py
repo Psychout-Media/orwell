@@ -47,3 +47,17 @@ _FRAMES = "(n) => new Promise((resolve) => { let i = 0; const tick = () => { if 
 def frames(page, n=30):
     """Wait n animation frames of the PAGE (not wall-clock): the bounded window for a NEGATIVE assertion ('no dialog appeared') whose cause is synchronous or one awaited fetch away. Unlike `settle`, it does not wait for the page-wide pollers to go quiet (they never do on a live HUD page)."""
     return page.evaluate(_FRAMES, n)
+
+
+_APP_READY = "(names) => names.every((n) => !!window[n]) && !!document.getElementById('chat-history') && !document.getElementById('app-loader')"
+
+
+def app_ready(page, names=("chatModule",), timeout_ms=30000, settle_frames=45):
+    """ORW-414: wait for the EVENT instead of a fixed `wait_for_timeout(3500)  # module graph + async init`.
+
+    After `page.goto(..., wait_until="load")` the app is ready when the module globals the test drives exist (`names`, e.g. chatModule / sessionModule), the
+    chat box is mounted and the boot loader is gone; then `settle_frames` painted frames (the page's own clock, ~0.75 s at 60 fps) let the last async init
+    step land. A slow runner takes as long as it needs (up to `timeout_ms`); a fast one no longer sleeps 3.5 s per page. The string is a function expression
+    (the page CSP refuses a bare-expression `wait_for_function`)."""
+    page.wait_for_function(_APP_READY, arg=list(names), timeout=timeout_ms)
+    frames(page, settle_frames)

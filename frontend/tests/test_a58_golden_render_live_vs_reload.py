@@ -13,6 +13,8 @@ import threading
 
 import pytest
 
+from _settle import app_ready, frames
+
 from test_m0_3_midgen_join import STUB, _stack  # noqa: F401  (the shared real-stack fixture)
 from test_p0h_day1_clock_e2e import _session
 
@@ -68,7 +70,7 @@ def _send_and_snapshot(stack, entries, text, hold=False):
           window.WebSocket = function (...a) { const ws = new W(...a); ws.addEventListener('message', (e) => { try { const f = JSON.parse(e.data); window.__wsLog.push([f.t, f.ch || '', (f.d && (f.d.type || f.d.done && 'done' || f.d.reason)) || ''].join('/')); if (window.__wsLog.length > 60) window.__wsLog.shift(); } catch (_) {} }); return ws; };
           window.WebSocket.prototype = W.prototype; ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach((k) => { window.WebSocket[k] = W[k]; }); })();""")
         page.goto(stack["fe"] + "/", wait_until="load")
-        page.wait_for_timeout(2500)
+        app_ready(page)
         before = page.evaluate(SNAP)
         base_n = before["n"] if before else 0
         # ORW-251f: only the plain-reply case holds - it paints text DURING the stream. A producer aside is held behind the spinner until the stream FINISHES and paints whole then, so holding it just burned ~20s of the loop (and
@@ -129,7 +131,10 @@ def _send_and_snapshot(stack, entries, text, hold=False):
         assert live and live["footer"], f"the live turn never settled (no footer): wsLog={page.evaluate('() => (window.__wsLog || []).slice(-14)')} ws={page.evaluate('() => window.OrwellWs ? [window.OrwellWs.mode(), window.OrwellWs.isChatSubscribed()] : null')} active={page.evaluate('() => window.chatModule && window.chatModule.hasActiveStream ? window.chatModule.hasActiveStream() : null')} last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
         mid = mid or page.evaluate("window.__mid")
         page.reload(wait_until="load")
-        page.wait_for_timeout(3500)
+        app_ready(page)
+        # the reloaded history paints the assistant bubble from a fetch: wait for it (and for the page to go quiet), not a fixed 3.5 s
+        page.wait_for_function("() => Array.from(document.querySelectorAll('#chat-history .msg.msg-ai')).some((e) => e.style.display !== 'none' && ((e.querySelector('.body') || {}).textContent || '').trim())", timeout=30000)
+        frames(page, 45)
         reloaded = page.evaluate(SNAP)
         browser.close()
     return live, reloaded, mid

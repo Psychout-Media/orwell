@@ -845,6 +845,9 @@ import { onNarrowChange } from './platform.js';
   // C18: a hidden tab polls nothing; consecutive failures back the poll off (max 2 min).
   // E68: a SUCCESS resets the backoff — one blip must not degrade a live game to 2-minute polls.
   let _failures = 0;
+  let _failSince = 0;       // ORW-406: when the current run of failed polls began (0 = healthy)
+  let _staleCheck = null;
+  function _scheduleStaleCheck() { if (!_staleCheck) _staleCheck = setTimeout(() => { _staleCheck = null; refresh(); }, 10100 - (Date.now() - _failSince)); }
   function _pollDelay() { return Math.min(POLL_MS * Math.pow(2, _failures), 120000); }
 
   // 4.1.3: false = feed believed connected (the default). Announce on a genuine FLIP only.
@@ -882,11 +885,15 @@ import { onNarrowChange } from './platform.js';
       // values up and flag the feed as reconnecting — don't blink the readout out.
       if (window.OrwellReport) window.OrwellReport.fail("status-panel", "status-poll", _); // G11: fail open, never silent
       _failures += 1;
-      if (_shown) markStale(true);
+      if (!_failSince) _failSince = Date.now();
+      // ORW-406: the amber "feed offline" dot waits out a release-sized gap (10 s); the last-known readout stays up either way.
+      if (_shown && Date.now() - _failSince >= 10000) markStale(true);
+      else if (_shown) _scheduleStaleCheck();
       else hidePanel();
       return;
     }
     _failures = 0; // E68: recovered — poll at full cadence again
+    _failSince = 0;
     // G11 follow-up: a successful status poll is a confirmed engine contact — latch it so
     // any LATER fetch failure is reported as a genuine outage (INFO), not a startup race.
     if (window.OrwellReport && window.OrwellReport.markConnected) window.OrwellReport.markConnected();

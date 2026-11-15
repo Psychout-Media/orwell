@@ -1637,6 +1637,15 @@ else
       systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
     fi
     type update_restarted_sha_write >/dev/null 2>&1 && update_restarted_sha_write "$(git -C "$APP_DIR" rev-parse HEAD)"
+    # ORW-406 slice 3: warm before reporting complete (bounded; a timeout is logged and never fails the update).
+    if type update_wait_for_warm >/dev/null 2>&1; then
+      WARM_ENG_PORT="$(sed -n 's/^ORWELL_ENGINE_PORT=//p' "$ENV_FILE" 2>/dev/null | tail -n1 | tr -d '"'"'"' ')"
+      WARM_FE_PORT="$(sed -n 's/^ORWELL_PORT=//p' "$ENV_FILE" 2>/dev/null | tail -n1 | tr -d '"'"'"' ')"
+      [[ "$WARM_ENG_PORT" =~ ^[0-9]+$ ]] || WARM_ENG_PORT=8765
+      ops_progress_step 4 "warming the new build" 2>/dev/null || true
+      update_wait_for_warm "http://127.0.0.1:${WARM_ENG_PORT}/health" \
+        "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" || true
+    fi
     trap - EXIT
     ops_progress_done "updated — services restarting"
   fi
