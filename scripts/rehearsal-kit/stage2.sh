@@ -25,6 +25,8 @@ sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
 ( cd $WT; set -a; . /home/ryne/.config/orwell/secrets.env; set +a; unset OPENROUTER_API_KEY
   . deploy/orwell-env-defaults.sh
   eval "$(orwell_optin_env_defaults $RUN/engine-data | sed 's/^/export /')"
+  # RIG_ENV_OVERRIDE="ORWELL_X=0 ORWELL_Y=1": applied AFTER the deploy defaults, so a proof run can stage a known-bad build with one flag flipped (ORW-109).
+  for kv in ${RIG_ENV_OVERRIDE:-}; do case "$kv" in ORWELL_*=*) export "$kv";; esac; done
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
   export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE=/home/ryne/orwell/.orwell-data/models
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid
