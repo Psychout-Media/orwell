@@ -204,6 +204,68 @@ _RETRY_BACKOFF_S = 0.25      # base backoff; doubles each attempt (0.25s, 0.5s)
 # Gateway/proxy statuses that mean "the engine is momentarily unreachable behind the proxy", NOT a
 # real per-tool error (those carry a structured {"error": ...} body and become an EngineToolError).
 _TRANSIENT_STATUSES = frozenset({502, 503, 504})
+# ORW-404: the engine answers 503 {"code": "engine-restarting"} to NEW calls while it shuts down for a deploy.
+# That 503 is sent BEFORE any state change, so re-sending even a non-idempotent tool is safe. A restart takes a
+# few seconds (exit, boot, warm-up), far longer than the short blip retry above, so for THIS code only the call
+# keeps retrying for up to ~20 s total, waiting the engine's Retry-After (capped) between tries. A call with a
+# short timeout of its own (the framing / poll reads) never waits longer than that timeout: its budget is
+# min(20 s, its timeout). Past the budget it falls through to the normal "unreachable" path.
+_RESTART_WAIT_BUDGET_S = float(os.environ.get("ORWELL_ENGINE_RESTART_WAIT_S") or "20")
+_RESTART_RETRY_AFTER_CAP_S = 3.0   # longest single wait between restart retries
+_RESTART_RETRY_AFTER_DEFAULT_S = 1.0  # when the 503 carries no usable Retry-After
+_NEVER_SENT_RETRY_S = 1.0  # ORW-404: pause between tries while the engine refuses connections (no Retry-After exists)
+_monotonic = time.monotonic  # indirection so tests can drive a virtual clock
+# ORW-404: "the engine is DOWN, not restarting". A restart is short: the engine answers its restarting 503, exits,
+# boots and listens again within seconds. An OUTAGE is the engine not answering at all for longer than that. The
+# rule is about ELAPSED TIME, not about which call noticed: `_ENGINE_UNREACHABLE_SINCE` is the monotonic time of
+# the FIRST never-sent failure (refused / connect timeout) since the engine last answered anything, and ANY answer
+# clears it (a successful call, a structured tool error, the restarting 503, a successful health probe). Once the
+# engine has been unreachable for `_ENGINE_DOWN_AFTER_S` the outage is established: from then on a never-sent
+# error gets only the short retry (calls fail fast instead of each waiting its full budget) and does not arm the
+# "reconnecting" marker (the banner says down). Recovery needs no timer: the short retry still makes real
+# attempts, and the first answer clears the state.
+# - A short-budget call giving up (the 3 s framing read, the 8 s status poll) says nothing by itself: a 3 s read
+#   that fails during a 6 s restart must not make the rest of the turn fail fast. Only the elapsed time counts.
+# - A call that is ALREADY in its long wait when the outage becomes established finishes its own budget.
+# - The evidence goes stale. If nothing tried the engine for `_ENGINE_UNREACHABLE_STALE_S` after the last refusal
+#   (the player left, the page closed), nobody knows it stayed down, so the next refusal restarts the clock: a
+#   refusal from hours ago must not make the first call of a new session fail fast inside a restart.
+_ENGINE_DOWN_AFTER_S = float(os.environ.get("ORWELL_ENGINE_DOWN_AFTER_S") or "20")
+_ENGINE_UNREACHABLE_STALE_S = 300.0
+_ENGINE_UNREACHABLE_SINCE: float | None = None  # _monotonic() of the first never-sent failure since the last answer
+_ENGINE_UNREACHABLE_LAST: float | None = None   # _monotonic() of the most recent never-sent failure
+
+
+def _note_engine_unreachable() -> None:
+    """A connection was never established. Keeps the FIRST such moment since the engine last answered, unless the
+    previous refusal is so old that the unbroken outage is no longer known (then the clock restarts now)."""
+    global _ENGINE_UNREACHABLE_SINCE, _ENGINE_UNREACHABLE_LAST
+    now = _monotonic()
+    stale = _ENGINE_UNREACHABLE_LAST is not None and now - _ENGINE_UNREACHABLE_LAST > _ENGINE_UNREACHABLE_STALE_S
+    if _ENGINE_UNREACHABLE_SINCE is None or stale:
+        _ENGINE_UNREACHABLE_SINCE = now
+    _ENGINE_UNREACHABLE_LAST = now
+
+
+def _clear_engine_down() -> None:
+    """The engine answered something: it is listening, whatever it said."""
+    global _ENGINE_UNREACHABLE_SINCE, _ENGINE_UNREACHABLE_LAST
+    _ENGINE_UNREACHABLE_SINCE = None
+    _ENGINE_UNREACHABLE_LAST = None
+
+
+def _engine_down() -> bool:
+    """True once the engine has not answered for `_ENGINE_DOWN_AFTER_S` since its first refused connection:
+    a real outage, not a restart."""
+    return _ENGINE_UNREACHABLE_SINCE is not None and _monotonic() - _ENGINE_UNREACHABLE_SINCE >= _ENGINE_DOWN_AFTER_S
+
+
+def _restart_budget_s(timeout) -> float:
+    """The long-wait budget for a call: a plain number timeout caps it; None or anything else (e.g. a structured
+    httpx.Timeout) leaves the default budget."""
+    if isinstance(timeout, (int, float)) and not isinstance(timeout, bool):
+        return min(_RESTART_WAIT_BUDGET_S, timeout)
+    return _RESTART_WAIT_BUDGET_S
 _RECONNECTING_UNTIL = 0.0    # monotonic deadline; while now < this, a call is mid-retry
 _RECONNECTING_FOR_S = 8.0    # how long the soft state lingers after the last retry began
 
@@ -222,6 +284,43 @@ def reconnecting() -> bool:
     """True while the client is retrying a momentarily-unreachable engine — a soft, brief state the
     health banner renders as "reconnecting…" instead of a hard outage. A success clears it."""
     return time.monotonic() < _RECONNECTING_UNTIL
+
+
+def _restart_wait_s(exc: Exception) -> float | None:
+    """For the engine's "restarting" 503 return how long to wait before retrying (its Retry-After, capped);
+    None for anything else (every other error keeps the short retry)."""
+    if not (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 503):
+        return None
+    try:
+        body = exc.response.json()
+    except Exception:
+        return None
+    if not (isinstance(body, dict) and body.get("code") == "engine-restarting"):
+        return None
+    try:
+        wait = float(exc.response.headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        wait = _RESTART_RETRY_AFTER_DEFAULT_S
+    if wait != wait or wait <= 0:  # NaN / non-positive
+        wait = _RESTART_RETRY_AFTER_DEFAULT_S
+    return min(wait, _RESTART_RETRY_AFTER_CAP_S)
+
+
+# ORW-404: errors that PROVE the request never reached the engine (the connection was never established),
+# so re-sending is safe for ANY tool, mutating ones included. Deliberately NOT here: ReadError,
+# RemoteProtocolError, ReadTimeout, WriteError, a reset mid-response - those can happen after the engine
+# received (and maybe applied) the call, so they keep the short-blip retry exactly as before.
+_NEVER_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _long_wait_s(exc: Exception) -> float | None:
+    """How long to wait before the next try of the LONG restart wait, or None if this error does not get it:
+    the engine's restarting 503 (its Retry-After, capped) or a connection that was never established
+    (a flat 1 s - the engine is down between exit and boot)."""
+    wait = _restart_wait_s(exc)
+    if wait is None and isinstance(exc, _NEVER_SENT_ERRORS):
+        return _NEVER_SENT_RETRY_S
+    return wait
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -337,7 +436,11 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
             err = body.get("error")
         except Exception:
             err, body = None, None
-        if err is not None:
+        # ORW-404: a 503 with code "engine-restarting" is the engine refusing NEW work while it shuts down
+        # (nothing was applied). It is an OUTAGE, not an answer: fall through to raise_for_status so the
+        # retry loop treats it like a refused connection mid-restart and never records a failed turn.
+        restarting = r.status_code == 503 and isinstance(body, dict) and body.get("code") == "engine-restarting"
+        if err is not None and not restarting:
             # audit A-S5: carry the engine's STRUCTURED fields (`code`/`beatSeq`/`board`) through so
             # the stale-beat reconcile keys off a stable machine code, not the message prose. Absent
             # fields ⇒ None ⇒ the existing message-marker fallback still applies (byte-identical).
@@ -385,13 +488,47 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
     # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
     # Other wider-timeout pollers keep retrying every transient kind.
-    tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
+    _tnum = timeout if isinstance(timeout, (int, float)) and not isinstance(timeout, bool) else None  # a structured httpx.Timeout is not comparable
+    tight = _tnum is not None and (_tnum <= _FRAMING_TIMEOUT or (name == "gameStatus" and _tnum <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
-    for attempt in range(_RETRY_ATTEMPTS + 1):
+    started = _monotonic()
+    # The budget bounds the WAITING between attempts; the last attempt can add up to one call timeout on top
+    # (e.g. a ConnectTimeout against a host that drops packets), so the total can exceed the budget by one attempt.
+    restart_budget = _restart_budget_s(timeout)
+    long_waiting = False  # this call has begun its own long wait: it finishes its budget even if the outage becomes established meanwhile
+    attempt = -1
+    while True:
+        attempt += 1
         try:
             data = await _post_tool_once(path, name, args, user, timeout)
         except Exception as e:
             last_exc = e
+            # ORW-404: the engine is restarting (503 sent before any state change): ride it out, bounded by the
+            # call's own time budget, and do NOT spend the short-blip attempts on it.
+            # ORW-404: the same wait (one shared budget) for a connection that was never established: the engine is
+            # DOWN between exit and boot, so calls are refused rather than answered 503.
+            wait = _long_wait_s(e)
+            never_sent = isinstance(e, _NEVER_SENT_ERRORS)
+            if never_sent:
+                _note_engine_unreachable()
+            elif isinstance(e, (EngineToolError, httpx.HTTPStatusError)):
+                _clear_engine_down()  # an ANSWER (a tool error, a 5xx, the restarting 503): the engine is listening
+            if wait is not None and never_sent and not long_waiting and _engine_down():
+                wait = None  # the outage is established: a refused connection fails fast (short retry below)
+            if wait is not None:
+                remaining = restart_budget - (_monotonic() - started)
+                attempt -= 1
+                if remaining > 0:
+                    long_waiting = True
+                    _mark_reconnecting()
+                    await asyncio.sleep(min(wait, remaining))
+                    continue
+                attempt = _RETRY_ATTEMPTS  # budget spent: straight to the unreachable path below
+                # Gave up. The banner must say down, not reconnecting, when this was a real outage or a call that
+                # waited the whole restart budget. A SHORT-budget call giving up mid-restart leaves the marker to
+                # its own expiry, so the banner does not flash red while the next call rides the restart out.
+                if _engine_down() or restart_budget >= _RESTART_WAIT_BUDGET_S:
+                    _clear_reconnecting()
             # A read/connect TIMEOUT on a tight framing call already waited its full budget — don't
             # retry it (the framing layer's fallback prompt takes over fast). Other transient kinds
             # (refused, 5xx, empty body) fail fast and are cheap to retry even on the framing path.
@@ -399,7 +536,9 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             retryable = _is_transient(e) and not (tight and timed_out)
             if attempt < _RETRY_ATTEMPTS and retryable:
                 # Momentary blip — note the soft reconnecting state and back off briefly before retry.
-                _mark_reconnecting()
+                # (A refused connection inside the down window is an outage, not a blip: do not re-arm the marker.)
+                if not (never_sent and _engine_down()):
+                    _mark_reconnecting()
                 await asyncio.sleep(_RETRY_BACKOFF_S * (2 ** attempt))
                 continue
             # Out of retries (or a non-transient failure): record the banner error and re-raise.
@@ -417,11 +556,10 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
         else:
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
+            _clear_engine_down()   # ... and the "unreachable since" stamp
             if name in _MUTATING_OK_CLEARS:
                 _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
-    # Unreachable (the loop either returns or raises), but keep the type-checker honest.
-    raise last_exc if last_exc else EngineToolError("engine call failed")
 
 
 
@@ -1851,8 +1989,11 @@ async def engine_health_detail() -> dict:
             break
         except Exception as e:  # failsoft-ok: expected-empty (this IS the health reporter — a probe failure is REPORTED as {ok:False,error} to the FE banner, not swallowed)
             last_exc = e
+            if isinstance(e, _NEVER_SENT_ERRORS):
+                _note_engine_unreachable()  # ORW-404: the probe alone (an idle player) also establishes an outage
             if attempt < _RETRY_ATTEMPTS and _is_transient(e):
-                _mark_reconnecting()
+                if not (isinstance(e, _NEVER_SENT_ERRORS) and _engine_down()):
+                    _mark_reconnecting()  # (not while a real outage is already established)
                 await asyncio.sleep(_RETRY_BACKOFF_S * (2 ** attempt))
                 continue
             # Connection refused / DNS / timeout after retries: the most common real failure
@@ -1861,6 +2002,7 @@ async def engine_health_detail() -> dict:
             break
     if detail.get("ok"):
         _clear_reconnecting()  # the engine answered — any reconnecting state is over
+        _clear_engine_down()   # ... and so is any outage (ORW-404)
     _ir = integrity_refusal(None) or next((integrity_refusal(k if k != "__anon__" else None) for k in list(_INTEGRITY_REFUSAL)), None)
     if _ir:
         detail["integrityRefusal"] = {  # ORW-321: RED - the engine's checkpoint is refusing turns (Vault-free: kinds + an invariant name)

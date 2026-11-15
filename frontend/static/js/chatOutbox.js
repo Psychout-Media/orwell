@@ -597,6 +597,7 @@ export function _setOutboxDeps(deps) {
       }
       if (tag) tag.textContent = mode === 'offline' ? 'queued — offline' : (mode === 'sending' ? 'sending…' : 'queued'); // ORW-406: 'sending' = quiet wait out of a release-sized reconnect gap
       bubbleEl.classList.toggle('msg-queued-offline', mode === 'offline');
+      if (mode === 'sending' && bubbleEl.dataset) bubbleEl.dataset.deliveryState = 'sending'; // keep dataset.deliveryState in lockstep with the visible tag (review of #2719)
     } catch (_) {}
   }
 

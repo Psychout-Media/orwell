@@ -616,13 +616,16 @@
   function sendTurn(payload) {
     payload = payload || {};
     _ownTurnLive = true;
-    return _request("turn", "chat", {
+    var pr = _request("turn", "chat", {
       message: payload.message,
       clientMsgId: payload.clientMsgId,
       expectedBeatSeq: _beatFor(payload.expectedBeatSeq),
       attachments: payload.attachments || [],
       mode: payload.mode || "agent"
     }, "turn");
+    // A rejected turn (not-open, send failure, an error frame, a dead socket) is not a live local run: clear the flag so a later EMPTY re-attach is not delayed by four retries (review of #2661).
+    pr.catch(function () { _ownTurnLive = false; });
+    return pr;
   }
   function sendDecision(payload) {
     payload = payload || {};
@@ -673,7 +676,8 @@
   }
 
   // ORW-406 slice 2: is the page riding out a drop of a socket that WAS live (a front-end release, a wifi hop)? The reconnect loop is already running; a send should wait for it, not fail.
-  function isReconnecting() { return _everLive && _mode === "negotiating"; }
+  // A previously-live socket that is already non-open (mode still "ws", onclose not yet run) is reconnecting too: the page must wait for it, not refuse the turn (review of #2719).
+  function isReconnecting() { return _everLive && (_mode === "negotiating" || (_mode === "ws" && !!_sock && _sock.readyState !== 1)); }
 
   // ORW-406 slice 2: send a turn that waits out a reconnect gap. Waits (up to maxMs) for the socket, then sends. Retries ONLY when the frame provably never left the device
   // (`ws-not-open` / `ws-send-failed`: the socket closed between ensure() and the send), reusing the SAME clientMsgId. A turn whose frame may have been transmitted (`ws-closed`
@@ -681,12 +685,15 @@
   // reconcile-from-history path decides. Rejects with the last error when the deadline passes.
   function sendTurnWhenLive(payload, maxMs) {
     var deadline = _now() + (maxMs > 0 ? maxMs : 45000);
+    var sendFailures = 0;
     function attempt() {
       return ensure(Math.max(1, deadline - _now())).then(function (ok) {
         if (!ok) { var e = new Error("ws-unavailable"); e.code = "ws-unavailable"; throw e; }
         return sendTurn(payload).catch(function (err) {
           var neverSent = err && (err.code === "ws-not-open" || err.code === "ws-send-failed");
-          if (neverSent && _now() < deadline) return attempt();
+          // A deterministic send failure (for example JSON.stringify throwing in _send) must not spin in microtasks: back off 100 ms, and give up on ws-send-failed after 3 tries (review of #2719).
+          if (err && err.code === "ws-send-failed" && ++sendFailures > 3) throw err;
+          if (neverSent && _now() < deadline) return new Promise(function (r) { setTimeout(r, 100); }).then(attempt);
           throw err;
         });
       });
