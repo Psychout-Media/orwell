@@ -220,8 +220,18 @@ def test_a_counted_tool_in_the_log_with_nothing_counted_stays_red(_led):
 
 def test_the_arithmetic_must_close_over_the_whole_gap(_led):
     # 3 bumps: one counted-tool bump the ledger counted, two uncounted ones explained -> closes; with a stale-only allowance it does not
-    assert _classify(["noteMessage", "recordRoomCanon", "recordRoomCanon"], {"recordRoomCanon": 1}, counted=1, counted_writes=1)["kind"] == "counting-miss"
-    assert _classify(["noteMessage", "recordRoomCanon", "recordRoomCanon"], {"recordRoomCanon": 1}, counted=0, counted_writes=1)["kind"] == "unexplained"
+    assert _classify(["noteMessage", "recordRoomCanon", "recordRoomCanon"], {"noteMessage": 1, "recordRoomCanon": 1}, counted=1, counted_writes=1)["kind"] == "counting-miss"
+    assert _classify(["noteMessage", "recordRoomCanon", "recordRoomCanon"], {"noteMessage": 1, "recordRoomCanon": 1}, counted=0, counted_writes=1)["kind"] == "unexplained"
+
+
+def test_a_counted_write_does_not_lend_its_count_to_a_different_counted_tool(_led):
+    # this FE sent one noteMessage (counted) that landed without bumping; another window sent moveTo. The total matches (1 counted,
+    # 1 counted-tool bump) but the bump is not this FE's: per tool, moveTo bumped once and this FE never called it.
+    out = _classify(["moveTo", "recordRoomCanon"], {"noteMessage": 1, "recordRoomCanon": 1}, counted=1, counted_writes=1)
+    assert out["kind"] == "unexplained" and "moveTo x1, this FE called it 0 time(s)" in out["note"]
+    # the same shape with the counted tool this FE really called is a counting miss
+    ok = _classify(["noteMessage", "recordRoomCanon"], {"noteMessage": 1, "recordRoomCanon": 1}, counted=1, counted_writes=1)
+    assert ok["kind"] == "counting-miss"
 
 
 def test_the_same_named_write_from_elsewhere_is_red_end_to_end(_led, monkeypatch):

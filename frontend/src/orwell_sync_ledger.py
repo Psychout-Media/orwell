@@ -734,7 +734,8 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
     complete = beat_log.get("truncated") is False and len(bumps) == before - since
     # The rule (deliberately conservative). Every tool T in the gap must be (a) NOT one the ledger already counts, (b) dispatched by
     # this FE in the window at least once, (c) within MAX_BUMPS_PER_DISPATCH bumps per dispatch. Bumps of counted tools are only
-    # tolerated up to what the ledger counted (`counted_writes`), and the ledger's allowance plus the explained bumps must close the gap.
+    # tolerated up to what the ledger counted (`counted_writes`) AND, per tool, up to the number of times this FE called that tool in
+    # the window; the ledger's allowance plus the explained bumps must close the gap.
     problems: list[str] = []
     explained = 0
     counted_bumps = 0
@@ -742,6 +743,10 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
         calls = _clean_int(dispatched.get(t))
         if t in BUMPING_WRITES:
             counted_bumps += n
+            # Per tool, not only in total: a counted write of THIS FE that landed without bumping must not lend its count to
+            # a different counted tool that someone else sent (e.g. one noteMessage counted, a foreign moveTo in the gap).
+            if n > calls:
+                problems.append(f"{t} x{n}, this FE called it {calls} time(s) in the window")
         elif t == _OUTSIDE_A_TOOL_CALL or calls <= 0:
             problems.append(f"{t} x{n} (not dispatched by this FE in the window)")
         elif n > calls * MAX_BUMPS_PER_DISPATCH:
