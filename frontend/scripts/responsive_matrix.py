@@ -43,7 +43,15 @@ from pathlib import Path
 import httpx
 
 FE_DIR = Path(__file__).resolve().parents[1]
-PORT = int(os.environ.get("ORWELL_MATRIX_PORT", "8893"))
+def _free_port() -> int:
+    """ORW-414: ask the kernel for a free port (bind port 0) instead of a fixed one, so two matrix-driving tests can run at once."""
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+PORT = int(os.environ.get("ORWELL_MATRIX_PORT") or _free_port())
 FE = f"http://127.0.0.1:{PORT}"
 ENGINE_URL = os.environ.get("ORWELL_MATRIX_ENGINE", "")
 # J5-19 opt-in: drive the staged game to a FINISHED season so the endgame surfaces
@@ -411,8 +419,22 @@ def _close_drawer(page):
         pass
 
 
+def _settle_for_audit(page):
+    """ORW-414: the event wait that replaced a fixed `wait_for_timeout(2500)` before every audit. The page is settled when the boot loader is gone, the network has been idle
+    (bounded: a page with a live poller never goes idle, so the wait is never longer than the old 2.5 s) and a few dozen painted frames have passed (the page's own clock)."""
+    try:
+        page.wait_for_function("() => !document.getElementById('app-loader')", timeout=15000)
+    except Exception:  # failsoft-ok: a chrome-only page may never have had the loader; the idle + frame waits below still apply
+        pass
+    try:
+        page.wait_for_load_state("networkidle", timeout=2500)
+    except Exception:  # failsoft-ok: a poller keeps the network busy; the bound above equals the old fixed wait
+        pass
+    page.evaluate("(n) => new Promise((resolve) => { let i = 0; const tick = () => { if (++i >= n) resolve(true); else requestAnimationFrame(tick); }; requestAnimationFrame(tick); })", 30)
+
+
 def audit_page(page, vp_name, width, height, coarse, with_game):
-    page.wait_for_timeout(2500)
+    _settle_for_audit(page)
 
     # #1875: mount test chat content (bubbles, reasoning accordion, chyrons) so the
     # overlap / crowding / tap-target sweeps cover the chat transcript during staged runs.

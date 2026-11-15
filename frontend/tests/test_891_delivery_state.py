@@ -23,7 +23,6 @@ Run: cd frontend && .venv/bin/python -m pytest tests/test_891_delivery_state.py
 """
 
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -156,12 +155,7 @@ def test_new_helpers_exported_for_the_browser_gate():
 # Runtime — drive the REAL chat.js in headless chromium.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 def _log_tail(port, lines=40):
@@ -179,7 +173,7 @@ def _boot(env, port):
         stdout=open(f"/tmp/fe-891ds-{port}.log", "w"), stderr=subprocess.STDOUT,
     )
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             raise RuntimeError(
                 f"uvicorn exited early (exit status {proc.returncode}); log tail:\n{_log_tail(port)}"
@@ -188,7 +182,7 @@ def _boot(env, port):
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             return proc, base
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     proc.terminate()
     raise RuntimeError(f"server never became ready; log tail:\n{_log_tail(port)}")
 

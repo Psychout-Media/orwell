@@ -13,7 +13,9 @@ from src.secret_storage import decrypt, encrypt, is_encrypted
 
 log = logging.getLogger(__name__)
 
-DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrations.json")
+from src.constants import DATA_DIR as _DATA_DIR  # ORW-414: honours the opt-in ORWELL_DATA_DIR_FE
+
+DATA_FILE = os.path.join(_DATA_DIR, "integrations.json")
 
 # ---------------------------------------------------------------------------
 # Presets
@@ -471,7 +473,7 @@ def get_integrations_prompt() -> str:
 def migrate_from_settings() -> None:
     """If data/settings.json has miniflux_url and miniflux_api_key, create a
     Miniflux integration and clear those keys from settings."""
-    settings_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "settings.json")
+    settings_path = os.path.join(_DATA_DIR, "settings.json")
     if not os.path.exists(settings_path):
         return
 

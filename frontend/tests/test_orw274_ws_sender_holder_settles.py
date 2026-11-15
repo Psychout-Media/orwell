@@ -14,6 +14,8 @@ import os
 
 import pytest
 
+from _settle import app_ready
+
 from test_873_dedup_received import _app, _plant_dom, _assistant, _user, FRONTEND  # noqa: F401
 
 _HARNESS = r"""
@@ -53,7 +55,7 @@ def test_converged_but_unfinalized_streaming_sender_holder_is_finalized(_app):  
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_page()
         page.goto(_app + "/", wait_until="load", timeout=30000)
-        page.wait_for_timeout(3500)
+        app_ready(page, names=("chatModule", "sessionModule"))
         page.evaluate("(h) => { window.__serverHistory = h; }", _HIST)
         _plant_dom(page, _PLANT)
         result = page.evaluate(_HARNESS)

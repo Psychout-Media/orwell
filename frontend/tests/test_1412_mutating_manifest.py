@@ -87,6 +87,8 @@ READ_ONLY_TOOLS = frozenset({
     "recordRoomCanon",
     # ORW-407: `recordOpenLedger` is an FE-driven write-back of a narrated commitment/claim; the status HUD never renders it.
     "recordOpenLedger",
+    # ORW-407 slice 2: its resolve write-back and its read of the still-open entries; neither is rendered by the status HUD.
+    "resolveOpenLedger", "openLedgerHere",
     # ORW-369: the look-only write-back (wardrobe + onCamera of one houseguest); the status HUD never renders it.
     "recordLookExtras",
 })
@@ -167,7 +169,7 @@ def test_the_current_mutator_set_is_pinned():
     expected = {
         "advanceGame", "submitDecision", "updateCasting", "createCharacter",
         "recordInteraction", "runCompetition", "surfaceInformationTo", "diaryRoom", "recordImageBeat",
-        "moveTo", "moveHouseguest", "markHouseguestMet", "turnIn", "hangOut", "noteMessage",
+        "moveTo", "moveHouseguest", "markHouseguestMet", "turnIn", "hangOut", "noteMessage", "resolvePlayerMove",
         "makeDeal", "formAlliance", "joinAlliance", "askJuror",
         "exposeSecret", "tradeSecret", "confront", "accuseTie", "callInFavor",
         "manageSandbox", "raiseSpectatorChoice",

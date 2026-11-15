@@ -9,7 +9,6 @@ derived from the card's pending signature, so a lost-200 retry is a verbatim eng
 Run: cd frontend && .venv/bin/python -m pytest tests/test_n12_decision_submit_timeout.py
 """
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -17,6 +16,8 @@ import time
 import urllib.request
 
 import pytest
+
+from _settle import app_ready
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,12 +43,7 @@ def test_body_read_and_ws_pending_are_covered_in_source():
     assert "function cancelRequest" in _read("static/js/orwellWs.js")
 
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 @pytest.fixture(scope="module")
@@ -65,14 +61,14 @@ def _app():
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
                             cwd=FRONTEND, env=env, stdout=open(f"/tmp/fe-n12-{port}.log", "w"), stderr=subprocess.STDOUT)
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             pytest.skip("uvicorn exited early")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             break
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     else:
         proc.terminate()
         pytest.skip("server never became ready")
@@ -131,7 +127,7 @@ def test_a_hung_submit_times_out_visibly_and_is_retryable(_app):
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_page()
         page.goto(_app + "/", wait_until="load", timeout=30000)
-        page.wait_for_timeout(3500)
+        app_ready(page)
         r = page.evaluate(_HARNESS)
         browser.close()
     assert "error" not in r, r.get("error")

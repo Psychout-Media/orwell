@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+from _settle import app_ready
+
 from test_f3_drop_after_saved_no_recovery import _post_form, _stack  # noqa: F401
 
 pytestmark = pytest.mark.browser
@@ -30,7 +32,7 @@ def test_keyboard_tab_stops_in_the_composer_and_sidebar_show_a_visible_ring(_sta
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         page.goto(fbase + "/", wait_until="load", timeout=30000)
         page.wait_for_function("() => !!(window.sessionModule && window.sessionModule.selectSession)", timeout=15000)
-        page.wait_for_timeout(2500)
+        app_ready(page, names=("chatModule", "sessionModule"))
         page.focus("#message")
         stops = []
         for _ in range(40):

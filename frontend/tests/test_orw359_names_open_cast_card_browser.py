@@ -9,6 +9,8 @@ import zlib
 
 import pytest
 
+from _settle import frames
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 SHOTS = os.environ.get("ORW359_SHOTS")
@@ -131,7 +133,10 @@ FIT = """() => { const img = document.querySelector('#opv-img').getBoundingClien
 
 
 def _assert_whole_photo_visible(page):
-    page.wait_for_timeout(1000)  # the sheet/window entrance animation must have finished
+    # ORW-414: the entrance animation has finished when the photo's box stops moving (10 identical frames), not after a fixed 1 s
+    page.evaluate("""() => new Promise((resolve) => { const img = document.querySelector('#opv-img'); const t0 = performance.now(); let last = '', same = 0;
+      const tick = () => { const r = img.getBoundingClientRect(); const k = [r.left, r.top, r.width, r.height].join(); if (k === last) same++; else { same = 0; last = k; }
+        if (same >= 10 || performance.now() - t0 > 8000) resolve(true); else requestAnimationFrame(tick); }; requestAnimationFrame(tick); })""")
     f = page.evaluate(FIT)
     assert abs(f["w"] - f["h"]) <= 2 and f["w"] >= 300, f
     assert f["inBody"] and f["inView"] and not f["scrolls"], f
@@ -139,7 +144,8 @@ def _assert_whole_photo_visible(page):
 
 def _close_dossier(page):
     page.evaluate("(() => { const b = document.querySelector('#orwell-dossier .ow-btn-close, #orwell-dossier [aria-label=\"Close\"]'); if (b) b.click(); })()")
-    page.wait_for_timeout(500)
+    # ORW-414: closed means the dossier window is gone or hidden (the event), not 0.5 s later
+    page.wait_for_function("() => { const d = document.getElementById('orwell-dossier'); return !d || d.hidden || getComputedStyle(d).display === 'none' || getComputedStyle(d).visibility === 'hidden' || d.getBoundingClientRect().width === 0; }", timeout=8000)
 
 
 def test_names_and_faces_open_the_right_cast_card(fe):
@@ -161,7 +167,7 @@ def test_names_and_faces_open_the_right_cast_card(fe):
             # a re-sweep never duplicates
             before = page.evaluate("document.querySelectorAll('#r1 .ow-name-link').length")
             page.evaluate("window.OrwellChatNames.refresh(); window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")
-            page.wait_for_timeout(1500)
+            frames(page, 90)  # ORW-414: a negative check ("a re-sweep never duplicates") - a bounded window in the page's own frames, not a wall-clock sleep
             assert page.evaluate("document.querySelectorAll('#r1 .ow-name-link').length") == before
             assert page.evaluate("document.querySelectorAll('#r1 .ow-name-link .ow-name-link').length") == 0
             # the sender face carries the id and is a button
