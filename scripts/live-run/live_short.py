@@ -335,6 +335,10 @@ def score(turns, checks, check, turn_limit):
             elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5:
                 # ORW-347: a staged eviction night reads its ballots one per engine step (5 minutes each, up to 15 voters ~ 75 min, more when the reply also plays the goodbye steps) and a reply may play several steps. Same phase, same evening, never across a night: the scheduled ceremony playing out, not skipped time.
                 check(f"K1-clock-jump-ceremony[{t['label']}]", True, f"+{gap:.1f}h: the eviction night's ballots read inside one reply (5 min per staged step)", "note")
+            elif t.get("phase_before") == t.get("phase") == "veto-competition" and gap <= 1.5:
+                # ORW-281: the veto chip draw is its own morning mini ceremony and costs a ceremony's felt hours (~1h, daySchedule DURATION_CATEGORY "veto-draw": "ceremony"),
+                # so the reply that voices the draw moves the clock about an hour. Sanctioned, not skipped time.
+                check(f"K1-clock-jump-veto-draw[{t['label']}]", True, f"+{gap:.1f}h: the veto draw ceremony (ORW-281, about 1h)", "note")
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_

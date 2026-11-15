@@ -126,3 +126,11 @@ def test_the_report_carries_the_pass_bar_header_and_what_was_not_covered(tmp_pat
     md = (tmp_path / "report.md").read_text()
     assert "`abc12345`" in md and "UTC" in md and "Arizona" in md and "$0.12 of a $0.5 cap" in md
     assert "Checked against the Live Run Pass Bar" in md and "T13 zero clocks" in md and "Not covered by the short tier" in md
+
+
+def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
+    # ORW-281: the veto chip draw is a mini ceremony (about 1h of felt time), so its reply may move the clock about an hour on the veto morning.
+    turns = [_turn("veto-morning-1", "x", phase="veto-competition", phase_before="veto-competition", clock="8:00am, Day 4"),
+             _turn("veto-morning-2", "x", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
+    got = _score(turns)
+    assert "K1-no-skipped-time[veto-morning-2]" not in got and got["K1-clock-jump-veto-draw[veto-morning-2]"]["ok"]
