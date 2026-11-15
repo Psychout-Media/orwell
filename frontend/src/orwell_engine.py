@@ -1480,7 +1480,23 @@ async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
     played games only; changes no relationship number."""
     args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}
+    if entry.get("parties"):  # slice 2: a group pact (optional)
+        args["parties"] = list(entry["parties"])
+    if entry.get("about"):  # slice 2: who or what a claim concerns, free text (optional)
+        args["about"] = entry["about"]
     return await _call("recordOpenLedger", args, user=user)
+
+
+async def resolve_open_ledger(res: dict, user: str | None = None) -> dict:
+    """ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note (``resolveOpenLedger``).
+    Sends exactly ``{entryId, status, note}``; answers ``{accepted, reason?}``. Changes no relationship number."""
+    return await _call("resolveOpenLedger", {"entryId": res["entryId"], "status": res["status"], "note": res["note"]}, user=user)
+
+
+async def open_ledger_here(user: str | None = None) -> list:
+    """ORW-407 slice 2: the still-open entries that matter to those here now (``openLedgerHere``); at most 5, ``[]`` pre-game."""
+    out = await _call("openLedgerHere", {}, user=user)
+    return out if isinstance(out, list) else []
 
 
 async def whereabouts(user: str | None = None, search: bool = False):
