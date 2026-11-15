@@ -121,15 +121,22 @@ describe("ORW-381 side stream draws", () => {
 describe("ORW-381 no main-stream draw moved", () => {
   it("the cast (names, ages, stats), hidden profiles and threads are unchanged by the look deal (a pinned hash, re-pinned on purpose by the PR that says why: see the comment)", () => {
     // Everything except the seven physical look fields, over six seeds. The look deal runs on its own side
-    // stream, so this hash was identical before and after the change.
-    let all = "";
-    for (const seed of [1, 2, 3, 77, 2026, 4242]) {
-      const { npcs } = generateHouse(new SeededRandom(seed));
-      const l = generateCastDeepLayer(seed, npcs);
-      const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: v.biography, physicalCharacteristics: 0 }]));
-      all += JSON.stringify([npcs, pub, l.hidden, l.threads]);
-    }
-    expect(createHash("sha256").update(all).digest("hex")).toBe("f808eadab3030667f05300c1561a1e46c49670c756108a9f4f4339ecd2330f12"); // ORW-432 (on purpose): only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
+    // stream, so this hash was identical before and after the change. `blankText` also blanks the public background
+    // line and the floor biography built from it (ORW-458 changed only that text): that hash equals main's, so no draw moved.
+    const run = (blankText: boolean) => {
+      let all = "";
+      for (const seed of [1, 2, 3, 77, 2026, 4242]) {
+        const { npcs } = generateHouse(new SeededRandom(seed));
+        const l = generateCastDeepLayer(seed, npcs);
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: 0 }]));
+        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0 } })) : npcs;
+        all += JSON.stringify([cast, pub, l.hidden, l.threads]);
+      }
+      return createHash("sha256").update(all).digest("hex");
+    };
+    expect(run(true)).toBe("2d2b169fab03fcb30110d4031c4f9f544809700b1c3ca4b05c1b5c0bc85b5eec"); // identical on main and on the ORW-458 branch
+    // ORW-458 (on purpose): only the background text and the biography built from it moved. Before that, ORW-432: only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
+    expect(run(false)).toBe("47784456afb1c29f278da1f706f55715ca95bd7d3984cc330aecffad4d846b2b");
   });
 });
 
