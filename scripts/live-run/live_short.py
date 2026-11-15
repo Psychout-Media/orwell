@@ -398,6 +398,7 @@ def score(turns, checks, check, turn_limit):
     if prem:
         run, worst, last = 0, 0, None
         for t in prem:
+            if t.get("entrance_stage") not in (None, "entrances"): break  # everyone is in (the toast or later): a flat count is no longer a stall
             run = run + 1 if t["inside"] == last else 0; worst = max(worst, run); last = t["inside"]
         check("A2-arrivals-progress", worst < 6 and prem[-1]["inside"] > prem[0]["inside"], f"inside went {prem[0]['inside']} -> {prem[-1]['inside']} over {len(prem)} premiere messages; longest flat stretch {worst} messages")
     # (c) no ceremony voiced before the engine committed it: before nominations the engine has no nominees and no HOH, so ritual cues are phantom
