@@ -39,6 +39,53 @@ def test_ceiling_releases_the_caller_at_the_ceiling_not_after_the_cleanup():
     assert CEILING <= elapsed < CEILING + 0.5, elapsed  # the old wrapper waited ~CLEANUP_S longer (see the PR timings)
 
 
+def test_a_fast_stream_cannot_outrun_the_consumer():
+    """Review of #2752: an unbounded queue let a generator that never awaits run to completion before the consumer
+    got a single chunk (and starved the deadline). The producer may run only a few chunks ahead."""
+    produced = [0]
+
+    async def firehose():
+        for i in range(20000):
+            produced[0] += 1
+            yield i
+
+    async def go():
+        seen_ahead = []
+        async for _ in ca._bounded_stream(firehose(), wall_clock_s=5):
+            seen_ahead.append(produced[0] - len(seen_ahead) - 1)
+            if len(seen_ahead) >= 50:
+                break
+        return max(seen_ahead)
+
+    assert _run(go()) <= 8
+
+
+def test_an_abandoned_stream_cannot_write_after_the_cancel():
+    writes = []
+
+    async def slow():
+        try:
+            for i in range(1000):
+                await asyncio.sleep(0.01)
+                yield i
+        finally:
+            writes.append("closed")
+
+    async def go():
+        async for c in ca._bounded_stream(slow(), wall_clock_s=0.05):
+            pass
+
+    try:
+        _run(go())
+    except ca.AuthoringDeadline:
+        pass
+    else:
+        raise AssertionError("no deadline")
+    n = len(writes)
+    _run(asyncio.sleep(0.2))
+    assert len(writes) <= n + 1  # the cancelled pump finished its cleanup once and produced nothing further
+
+
 def test_a_fast_stream_is_unchanged_and_a_provider_error_still_surfaces():
     async def ok():
         for c in ("a", "b"):

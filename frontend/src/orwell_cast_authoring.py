@@ -241,7 +241,9 @@ async def _bounded_stream(agen, wall_clock_s: float = _AUTHORING_STREAM_WALL_CLO
     byte-identical; a clean end of stream just ends iteration."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + wall_clock_s
-    queue: asyncio.Queue = asyncio.Queue()
+    # A SMALL bounded queue (review of #2752): `put` suspends when the consumer is behind, so a generator that never
+    # awaits cannot monopolize the event loop or pile up chunks before the deadline check below gets to run.
+    queue: asyncio.Queue = asyncio.Queue(maxsize=4)
     _END = object()
 
     async def pump():
