@@ -6,7 +6,8 @@ import type { GameStateView } from "../../src/ports/GameSession";
 
 /** A9 H2 - the premiere prompt switches on `premiere.entrance`; absent => the old champagne-circle text, byte-identical. Roles only. */
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
-const PREMIERE_SHA = "d4316fbbc165847346e139d2da490694dd24f1cd6249cd4abf0dc88592f0f516";
+// ORW-466: re-pinned - the bedroom pick no longer names the stale "bedroom a"/"bedroom b" (the season's themed names come from the whereabouts).
+const PREMIERE_SHA = "af4060c03fd79323ff44cdcccb5e6b8df2a7c3e8dee5d79d7b60e3c29a0370a2";
 
 function board(): GameStateView {
   const s = new GameSessionAdapter();
