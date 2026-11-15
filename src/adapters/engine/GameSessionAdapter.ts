@@ -12116,7 +12116,7 @@ export class GameSessionAdapter implements GameSession {
       if (req.untilBandEnd === true) {
         const nowH = live.nightDepth ?? WAKE_HOUR;
         const edge = [CLOCK.phaseStartsHour.afternoon, CLOCK.phaseStartsHour.evening, CLOCK.phaseStartsHour.night, CLOCK.phaseStartsHour.lateNight].find((e) => e > nowH + 1e-6);
-        if (edge !== undefined) { const m = Math.max(5, Math.round((edge - nowH) * 60)); statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
+        if (edge !== undefined) { const m = (edge - nowH) * 60; /* exact: a floor or rounding could carry the clock past the edge (review of #2772) */ statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
       }
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },

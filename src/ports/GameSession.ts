@@ -2603,6 +2603,7 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
+/** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
 export interface HangOutView {
   /** false = nothing happened (no state change): see `reason`. */
