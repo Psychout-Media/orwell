@@ -97,7 +97,7 @@ def test_orw437_the_screen_reads_the_clock_from_the_state_projection_when_status
         return {"clockLabel": "4:10am, Day 3", "asleep": ["a"]}
 
     monkeypatch.setattr(oe, "game_status", real_shaped_status)
-    monkeypatch.setattr(oe, "get_game_state_polled", state)
+    monkeypatch.setattr(oe, "get_game_state", state)
     monkeypatch.setattr(ch, "_stash_overclaim_reground", lambda u, d: stashed.append(d))
     run = asyncio.get_event_loop().run_until_complete
     assert run(ch.screen_streamed_house_awake("u", "Everyone is already awake in the kitchen.")) is False and stashed

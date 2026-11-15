@@ -382,8 +382,8 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     Latency guard (C18): a TIGHT-timeout framing call (the chat-blocking get_game_state /
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
-    5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
-    # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
+    5xx, empty body) still retry cheaply; the other pollers (wider timeouts) retry every transient kind, while the `gameStatus` poll never retries a timeout."""
+    # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT: it is already a bounded wait, and a retry would only double it for a poll the HUD repeats anyway.
     # Other wider-timeout pollers keep retrying every transient kind.
     tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
@@ -1479,9 +1479,9 @@ async def knowledge_scope_manifest(user: str | None = None):
 
 async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
     """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
-    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those two cleaned fields into the
+    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those three cleaned fields into the
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
-    narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
+    narrator's appearance string. ``look["clear"]`` (a list of those three field names) clears stale fields. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
     for k in ("wardrobe", "onCamera", "photoHair"):
         if look.get(k):
@@ -1501,7 +1501,7 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
 
 async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
-    (``recordOpenLedger``). Sends exactly ``{text, speaker, addressedTo, kind}``; the engine re-validates, derives the
+    (``recordOpenLedger``). Sends ``{text, speaker, addressedTo, kind}`` plus, when present, ``parties`` (a group pact) and ``about`` (free text); the engine re-validates, derives the
     witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
     played games only; changes no relationship number."""
     args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}

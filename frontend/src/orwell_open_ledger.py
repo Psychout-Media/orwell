@@ -44,7 +44,8 @@ _SYSTEM = (
     '"parties":["<every id party to a group pact>"],"about":"<who or what a claim concerns: an id from the list, else a few words>"}],'
     '"resolutions":[{"entryId":"<id from the OPEN list>","status":"kept|broken|withdrawn","note":"<why, one short sentence>"}]} . '
     "parties and about are optional: leave them out when they do not apply. Only people from the PRESENT list may speak, be "
-    "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty. "
+    "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
+    "(use parties for a larger group pact). "
     "Copy what was said; invent nothing. Skip small talk and anything already finished in the scene. "
     "resolutions: ONLY for entries in the OPEN list, ONLY when this narration clearly shows that promise or claim kept, "
     "broken or taken back. "
@@ -64,7 +65,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
     ok_ids = set(allowed_ids) | {"player"}
     by_name = {str(n).strip().lower(): i for i, n in (known or {}).items() if str(n).strip()}
     out: list[dict] = []
-    seen: set[str] = set()
+    seen: set = set()  # (speaker, normalized text): the engine keeps identical words from different speakers as distinct entries
     for it in items if isinstance(items, list) else []:
         if not isinstance(it, dict):
             continue
@@ -72,7 +73,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         if not (isinstance(text, str) and isinstance(speaker, str) and isinstance(to, list) and isinstance(kind, str)):
             continue
         t = re.sub(r"\s+", " ", text).strip().strip('"').strip()
-        if not t or len(t) > TEXT_MAX_CHARS or t.lower() in seen:
+        if not t or len(t) > TEXT_MAX_CHARS or (speaker if isinstance(speaker, str) else "", t.lower()) in seen:
             continue
         if speaker not in ok_ids or any(not isinstance(a, str) or a not in ok_ids or a == speaker for a in to):
             continue
@@ -91,7 +92,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         ab = _norm(about, ABOUT_MAX_CHARS) if isinstance(about, str) else ""
         if ab:
             entry["about"] = ab if ab in (known or {}) else by_name.get(ab.lower(), ab)
-        seen.add(t.lower())
+        seen.add((speaker, t.lower()))
         out.append(entry)
         if len(out) >= MAX_ENTRIES_PER_TURN:
             break
@@ -161,12 +162,20 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
         for entry in clean_entries(parsed, {p["id"] for p in people}, known):
-            res = await write(entry)
+            try:  # review of #2721: one failing write must not discard the rest or misreport the count
+                res = await write(entry)
+            except Exception as e:
+                logger.debug(f"[open-ledger] write skipped: {e}")
+                continue
             if isinstance(res, dict) and res.get("accepted") is True:
                 accepted += 1
         if resolve is not None and opens:
             for r in clean_resolutions(parsed, {o["id"] for o in opens}):
-                res = await resolve(r)
+                try:
+                    res = await resolve(r)
+                except Exception as e:
+                    logger.debug(f"[open-ledger] resolve skipped: {e}")
+                    continue
                 if isinstance(res, dict) and res.get("accepted") is True:
                     accepted += 1
         return accepted
@@ -185,6 +194,10 @@ async def after_turn(narration: str, owner, endpoint_url, model, headers) -> int
     try:
         from src.orwell_show_brief import show_brief_enabled
         if not show_brief_enabled():
+            return 0
+        import os
+        # review of #2692 / #2721: ORWELL_OPEN_LEDGER=0 (the engine's flag, default on) also skips the whereabouts read and the extraction model call
+        if str(os.environ.get("ORWELL_OPEN_LEDGER", "")).strip().lower() in ("0", "false", "no", "off"):
             return 0
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe

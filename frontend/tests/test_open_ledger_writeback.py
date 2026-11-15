@@ -191,7 +191,7 @@ def test_resolution_failure_does_not_lose_the_entries_and_no_open_list_means_no_
     async def broken(_p):
         raise RuntimeError("engine down")
 
-    assert run(ol.capture_open_ledger(NARR, TWO, llm, write, None, [{"id": "open:1", "text": "t"}], broken)) == 0
+    assert run(ol.capture_open_ledger(NARR, TWO, llm, write, None, [{"id": "open:1", "text": "t"}], broken)) == 1  # review of #2721: the accepted entry still counts when a resolve fails
 
 
 def test_engine_wrappers_dispatch_the_slice2_tools(monkeypatch):
@@ -221,3 +221,41 @@ def test_the_loop_feeds_the_canon_and_ledger_hooks_the_player_visible_narration(
     calls = re.findall(r"await (_ol|_rc)\.after_turn\(([^,]+),", src)
     assert {c[0] for c in calls} == {"_ol", "_rc"}
     assert all(arg.strip() == "_turn_narration_visible" for _who, arg in calls), calls
+
+
+def test_orw437_open_ledger_here_is_a_pure_read_so_it_does_not_invalidate_the_cache():
+    """review of #2721: a read counted as a mutation sends a spurious game-updated ping and drops the read cache every turn."""
+    from src import engine_read_cache
+    assert "openLedgerHere" in engine_read_cache.PURE_READS
+
+
+def test_orw437_same_words_from_two_speakers_are_two_entries_and_one_failing_write_keeps_the_rest():
+    """review of #2721: the dedupe key is (speaker, text); one write raising does not discard the others or the count."""
+    present = [{"id": "npc:3", "name": "A"}, {"id": "npc:4", "name": "B"}]
+    reply = ('{"entries":[{"text":"I will keep you safe","speaker":"npc:3","addressedTo":["player"],"kind":"oath"},'
+             '{"text":"I will keep you safe","speaker":"npc:4","addressedTo":["player"],"kind":"oath"},'
+             '{"text":"I will keep you safe","speaker":"npc:3","addressedTo":["player"],"kind":"dup"}],"resolutions":[]}')
+    sent = []
+
+    async def llm(messages):
+        return reply
+
+    async def write(entry):
+        sent.append(entry["speaker"])
+        if entry["speaker"] == "npc:3":
+            raise RuntimeError("engine hiccup")
+        return {"accepted": True}
+
+    assert run(ol.capture_open_ledger(NARR, present, llm, write)) == 1
+    assert sent == ["npc:3", "npc:4"]
+
+
+def test_orw437_the_off_flag_skips_the_hook_before_any_read_or_model_call(monkeypatch):
+    monkeypatch.setenv("ORWELL_OPEN_LEDGER", "0")
+    from src import orwell_engine as oe
+    monkeypatch.setattr("src.orwell_show_brief.show_brief_enabled", lambda: True)
+
+    async def boom(user=None):
+        raise AssertionError("whereabouts must not be read when the ledger is off")
+    monkeypatch.setattr(oe, "whereabouts", boom)
+    assert run(ol.after_turn(NARR, "u", "http://x", "m", {})) == 0

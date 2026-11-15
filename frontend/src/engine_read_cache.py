@@ -35,7 +35,7 @@ CACHEABLE = frozenset({"getGameState", "gameStatus"})
 # own projection behind /knowledge and /dossier, `whereabouts` the presence read behind the two 25 s presence pollers.
 PURE_READS = frozenset({
     "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead", "seasonRecap",
-    "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView",
+    "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere",
 })
 
 

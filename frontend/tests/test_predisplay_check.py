@@ -92,3 +92,11 @@ def test_check_never_fetches_engine_state_and_skips_without_a_cached_state(monke
 def test_flag_off_counts_nothing(monkeypatch):
     monkeypatch.setenv("ORWELL_PREDISPLAY_CHECK", "0")
     assert asyncio.new_event_loop().run_until_complete(pc.check_and_count("It's 8:15.", "u")) == []
+
+
+def test_orw437_a_speaker_tag_inside_a_quotation_is_not_an_asleep_conflict():
+    """review of #2728 / #2700: the speaker-tag check matches the text outside quotes, so a quoted (or carried-open) tag never counts."""
+    from src import predisplay_check as pc
+    assert pc.asleep_conflicts('He reads aloud:\n"first line\n@[Sleeper Role] - hello\nlast line"', ["Sleeper Role"]) == []
+    assert pc.asleep_conflicts("@[Sleeper Role] - hello", ["Sleeper Role"], in_quote=True) == []
+    assert pc.asleep_conflicts("@[Sleeper Role] - hello", ["Sleeper Role"]) == ["Sleeper Role"]
