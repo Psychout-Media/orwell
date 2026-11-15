@@ -8913,6 +8913,8 @@ export class GameSessionAdapter implements GameSession {
   consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
   /** 0148: in-game hours the player's last nap slept, read-and-cleared by the orchestrator so the house lives them (unseen) on its existing per-turn off-screen machinery. */
   consumeNapHours(): number { const h = this.napPendingHours; this.napPendingHours = 0; if (h > 0) this.napAsleep = true; return h; }
+  /** 0148: a nap tick rolled the sandbox back to a fresh session mid-nap: mark the player asleep again for the remaining ticks (the flag is memory-only). */
+  resumeNapTicks(): void { this.napAsleep = true; }
   /** 0148: the orchestrator has lived the nap's hours - the player is awake again for every later read. */
   endNapTicks(): void { this.napAsleep = false; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */

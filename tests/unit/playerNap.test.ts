@@ -90,6 +90,28 @@ describe("0148 - the nap lever: waking", () => {
     near(r.slept, 1);
     near(priv(s).live.napHoursToday!, 1);
     expect((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(true);
+    // the slept hours are lived by the house during the nap's own commit, not carried past the event the nap woke for
+    expect((s as unknown as { napPendingHours: number }).napPendingHours, "nap hours consumed by the nap's commit").toBe(0);
+  });
+  it("a failed nap tick (sandbox rolled back to a fresh session) does not wake the player for the ticks after it", () => {
+    const { s, orch, reg } = setup();
+    at(s, 8);
+    type Adv = (user: string, trigger: string, opts?: unknown) => unknown;
+    const o = orch as unknown as { advance: Adv };
+    const orig = o.advance.bind(orch);
+    const asleepAtTick: boolean[] = [];
+    let ticks = 0;
+    o.advance = (user, trigger, opts) => {
+      if (trigger !== "offscreen-tick") return orig(user, trigger, opts);
+      asleepAtTick.push((reg.sandboxFor(user).session as unknown as { napAsleep: boolean }).napAsleep);
+      const out = orig(user, trigger, opts);
+      if (ticks++ === 0) reg.restore(user, reg.snapshot(user)); // what a faulted tick does: a fresh session built from the baseline
+      return out;
+    };
+    s.nap({ hours: 3 });
+    expect(asleepAtTick.length, "the nap lives more than one tick").toBeGreaterThan(1);
+    expect(asleepAtTick.every(Boolean), "the player is out of the awake set on every nap tick, before and after the rollback").toBe(true);
+    expect((reg.sandboxFor("u").session as unknown as { napAsleep: boolean }).napAsleep, "and awake again afterwards").toBe(false);
   });
   it("a nap steps to the event's exact hour: a wake 0.03h before it sleeps 0.03h, not a whole 0.1h step", () => {
     const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === false && quiet(x) && priv(x).live.beat === "veto-competition");
