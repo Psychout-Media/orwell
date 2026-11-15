@@ -387,3 +387,16 @@ def test_orw437_the_final_buffered_sentence_is_counted_and_a_wall_dropped_senten
     emitted, _cont, _stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, "Sleeper Role walks into the kitchen"]}], redo="X", flag="0", owner="orw437-count")
     assert "Sleeper Role walks" in emitted, "rewrite off: shown as today"
     assert pc.PREDISPLAY_COUNTS.get(pc.FACT_ASLEEP) == 1, pc.PREDISPLAY_COUNTS
+
+
+def test_orw437_a_later_round_still_drops_a_conflicting_unterminated_final_sentence_after_a_rewrite(monkeypatch):
+    """review of #2751: `_pd_rewrite_used` is turn-scoped, so once round 1 had withheld a sentence the flush drop pass was off for every later round. Round 2's unterminated conflicting
+    sentence must still be dropped, from the shown text and the stored text, while its three true sentences stay."""
+    calls = [{"name": "advanceGame", "arguments": "{}"}]
+    r2 = ["The morning moves on. ", "Rain taps the glass. ", "A cup is set down. ", "Sleeper Role walks into the kitchen"]
+    emitted, cont, stored, n_rounds = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "calls": calls}, {"deltas": r2}], redo=REDO.strip())
+    assert n_rounds >= 2 and cont == []
+    assert "Sleeper Role walks" not in emitted and "Sleeper Role walks" not in stored[1]
+    for kept in ("The morning moves on.", "Rain taps the glass.", "A cup is set down."):
+        assert kept in emitted and kept in stored[1]

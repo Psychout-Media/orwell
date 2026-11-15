@@ -8614,6 +8614,7 @@ async def _stream_agent_loop_impl(
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
+        _pd_rw_round = False  # ORW-408: THIS round withheld a sentence (the turn-scoped `_pd_rewrite_used` must not switch the tail check off for LATER rounds; review of #2751)
         _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
         native_tool_calls = []  # populated if model uses function calling
         # Reset doc streaming state per round
@@ -9245,6 +9246,7 @@ async def _stream_agent_loop_impl(
                                         if _pd_split is not None:
                                             _pd_rw_pending = _pd_split
                                             _pd_rewrite_used = True
+                                            _pd_rw_round = True
                                             _guarded_text = _pd_split.keep
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
@@ -9466,7 +9468,7 @@ async def _stream_agent_loop_impl(
                     await _pd_check_f(_guarded_text or "", owner, in_quote=_pd_qopen_f(_round_emitted_text))
                 except Exception:  # failsoft-ok: counter only
                     pass
-                if _pd_rw_cont or (not _pd_rewrite_used and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
+                if _pd_rw_cont or (not _pd_rw_round and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
                     try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
                         from src.predisplay_check import quote_open_after as _pd_qopen2
