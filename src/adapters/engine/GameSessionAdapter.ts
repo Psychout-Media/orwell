@@ -6849,6 +6849,7 @@ export class GameSessionAdapter implements GameSession {
       // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
       // target the still-floor cards.
       ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
       // I6 distinct-voices fix: the SAFE rendered voice-fingerprint clause (0084) the live `view()`
       // mapping now carries — keeps this pre-warm/portrait shape in sync with the live roster card
       // (this docstring's own "same shape" contract). A player-surface-safe STRING (dial vocab only),
@@ -7268,6 +7269,7 @@ export class GameSessionAdapter implements GameSession {
       if (!pub) continue;
       n.character.biography = pub.biography;
       n.character.physicalCharacteristics = pub.physicalCharacteristics;
+      n.character.castingType = { id: pub.castingType.id, label: pub.castingType.label, read: pub.castingType.read }; // ORW-381
       // 0063: GROUND the skin tone from the houseguest's ethnicity identity facet, so the structured
       // physical characteristics (which drive BOTH the narration and the portrait, L29/L23) agree with
       // the heritage the cast was guaranteed — the text and the picture never contradict the identity.
@@ -15113,6 +15115,7 @@ export class GameSessionAdapter implements GameSession {
         // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
         // target the still-floor cards.
         ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+        ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
         // I6 distinct-voices fix (NARR-15/PROMPT-2): a COMPACT, player-surface-SAFE voice-fingerprint
         // clause (0084), rendered from the controlled voice DIAL vocab only (register/rhythm/energy/
         // directness/humor/stress-tell) via `voiceFingerprint` — so distinct cadence reaches the narrator

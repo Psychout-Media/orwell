@@ -4,6 +4,7 @@ import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed, spreadFacet, dealPresentationFamilies } from "./characterFactory";
 import { STYLE_FAMILIES, familyForLabel } from "../domain/styleFamilies";
+import { dealCastingTypes, type CastingType } from "../domain/castingTypes";
 import type { Archetype, Character, Houseguest } from "./characterFactory";
 import { THREAD } from "./threadConstants";
 
@@ -54,6 +55,8 @@ export interface PublicDepth {
   /** A real multi-sentence backstory (not a one-liner) — the presentable parts. */
   biography: string;
   physicalCharacteristics: PhysicalCharacteristics;
+  /** ORW-381: the houseguest's casting type, dealt off its own `${seed}:casting-type` side stream. */
+  castingType: CastingType;
 }
 
 // ── HIDDEN: the §3 profile that never crosses the wall ────────────────────────────────────────────
@@ -153,44 +156,112 @@ export interface StoryThread {
 // ── Deterministic PUBLIC generation ───────────────────────────────────────────────────────────────
 // All pools are gender-neutral English with NO stat-key substring and NO float.
 
-const HEIGHT_BUILD = [
-  "tall and broad-shouldered", "short and compact", "average height, athletic",
-  "lanky and rangy", "petite and slight", "stocky and powerful", "tall and willowy",
-  "average height, soft and sturdy", "muscular and solid", "wiry and quick",
+// ORW-381: each build entry carries a fitness band. The band is picked from the houseguest's physical stat
+// with noise at creation (a hint, not a readout; Vault Wall exception 4, owner-ruled 2026-11-14). Only the
+// words below are ever stored: the band name and the stat never leave the engine. Neutral, flattering lines.
+export type BuildBand = "athletic" | "average" | "soft";
+const BUILD_ENTRIES: readonly { readonly desc: string; readonly band: BuildBand }[] = [
+  { desc: "tall and athletic", band: "athletic" },
+  { desc: "compact and muscular", band: "athletic" },
+  { desc: "lean and toned, a runner's build", band: "athletic" },
+  { desc: "broad-shouldered and strong", band: "athletic" },
+  { desc: "average height, athletic", band: "athletic" },
+  { desc: "wiry and quick", band: "athletic" },
+  { desc: "average height, trim", band: "average" },
+  { desc: "medium build, relaxed posture", band: "average" },
+  { desc: "tall and lean", band: "average" },
+  { desc: "short and compact", band: "average" },
+  { desc: "average height, easy build", band: "average" },
+  { desc: "average height, soft and sturdy", band: "soft" },
+  { desc: "petite and slight", band: "soft" },
+  { desc: "tall and slender", band: "soft" },
+  { desc: "slim, delicate-framed", band: "soft" },
+  { desc: "short and rounded, warm and solid", band: "soft" },
 ];
+const HEIGHT_BUILD: readonly string[] = BUILD_ENTRIES.map((e) => e.desc);
+/** The build words for tests that pin the list. */
+export const BUILD_WORDS: readonly string[] = HEIGHT_BUILD;
+/** The band of a stored build string (engine-side test helper; never projected). */
+export function buildBandOf(desc: string): BuildBand | undefined { return BUILD_ENTRIES.find((e) => e.desc === desc)?.band; }
+
+/**
+ * Pick each houseguest's build band from their physical stat plus noise: ONE `rng.int` per houseguest on the
+ * `${seed}:build-band` side stream. stat >= 0.65: athletic 70 / average 25 / soft 5; 0.45 to 0.65: average 60 /
+ * athletic 20 / soft 20; below 0.45: soft 60 / average 30 / athletic 10. Reads the hidden stat at creation only.
+ */
+export function dealBuildBands(rng: RandomnessSource, physicalStats: readonly number[]): BuildBand[] {
+  return physicalStats.map((stat) => {
+    const r = rng.int(100);
+    if (stat >= 0.65) return r < 70 ? "athletic" : r < 95 ? "average" : "soft";
+    if (stat >= 0.45) return r < 60 ? "average" : r < 80 ? "athletic" : "soft";
+    return r < 60 ? "soft" : r < 90 ? "average" : "athletic";
+  });
+}
+
+/** One `rng.int` per houseguest: an unused (cap-respecting) entry of the houseguest's band, else any unused one. */
+export function dealBuildSpread(
+  rng: RandomnessSource, count: number, bands: readonly BuildBand[] | undefined, maxEach: number,
+): string[] {
+  const uses = new Map<string, number>();
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const r = rng.int(1_000_000);
+    const open = BUILD_ENTRIES.filter((e) => (uses.get(e.desc) ?? 0) < maxEach);
+    const pool = open.length ? open : BUILD_ENTRIES;
+    const band = bands?.[i];
+    const inBand = band ? pool.filter((e) => e.band === band) : pool;
+    const from = inBand.length ? inBand : pool;
+    const v = from[Math.floor((r / 1_000_000) * from.length) % from.length]!.desc;
+    uses.set(v, (uses.get(v) ?? 0) + 1);
+    out.push(v);
+  }
+  return out;
+}
 const SKIN_TONE = [
   "deep brown skin", "warm tan complexion", "fair freckled skin", "olive complexion",
   "rich dark complexion", "golden-brown skin", "pale rosy complexion", "amber-toned skin",
   "medium brown skin", "light olive complexion",
 ];
-const HAIR_DESC = [
-  "tight natural curls, jet black", "long dark waves", "a close-cropped fade",
-  "a platinum-blond bob", "shoulder-length auburn hair", "a sleek black ponytail",
-  "short copper-red hair", "a salt-and-pepper buzzcut", "loose chestnut curls",
-  "braided dark hair", "a silver-streaked undercut", "honey-blond beach waves",
+// ORW-381: hair is dealt by AGE and never repeats inside a cast (MAX_PER_HAIR 1). Each entry is a neat,
+// positive cut-and-colour line tagged with the youngest and oldest age it may be dealt to. Gray, silver
+// and salt-and-pepper entries start at 40 (a 40+ houseguest may still draw a non-gray entry).
+interface HairEntry { readonly desc: string; readonly minAge: number; readonly maxAge: number }
+const H = (desc: string, minAge = 18, maxAge = 99): HairEntry => ({ desc, minAge, maxAge });
+const HAIR_ENTRIES: readonly HairEntry[] = [
+  H("tight natural curls, jet black"), H("long glossy dark waves"), H("a sharp close-cropped fade"),
+  H("a platinum-blond bob", 18, 45), H("shoulder-length auburn hair"), H("a sleek black ponytail"),
+  H("short copper-red hair"), H("loose chestnut curls"), H("neat braided dark hair"),
+  H("honey-blond beach waves", 18, 45), H("glossy chestnut curls to the shoulder"),
+  H("a clean side-parted dark crop"), H("a smooth espresso-brown bob"), H("a polished slicked-back black style"),
+  H("thick wavy dark-brown hair"), H("a tousled sandy-blond cut", 18, 45), H("a sleek caramel-highlighted lob"),
+  H("a tapered low fade with a twist-out top"), H("long straight jet-black hair"), H("a rich auburn pixie cut"),
+  H("neat locs past the shoulder"), H("a golden-blond swept-back style", 18, 45), H("a short natural dark afro"),
+  H("a bright strawberry-blond ponytail", 18, 40), H("a classic dark-brown side part"), H("a voluminous dark blowout"),
+  H("a salt-and-pepper buzzcut", 40), H("a silver-streaked swept-back style", 40),
+  H("a distinguished silver crop", 40), H("a sleek silver-gray bob", 40),
 ];
+/** The cleaned hair strings, for tests that pin the list. */
+export const HAIR_DESC: readonly string[] = HAIR_ENTRIES.map((e) => e.desc);
+const HAIR_GRAY = /\b(gray|grey|silver|salt-and-pepper)\b/i;
+/** True when a hair entry is a gray/silver/salt-and-pepper one (only dealt at 40+). */
+export function isGrayHair(desc: string): boolean { return HAIR_GRAY.test(desc); }
+
 const FACIAL = [
   "strong cheekbones", "a square jaw and deep-set eyes", "round soft features",
   "a sharp angular face", "an open friendly face", "heavy expressive eyebrows",
   "a narrow refined face", "a warm crinkle-eyed smile", "an even symmetrical face",
   "a broad expressive grin",
 ];
-// 2026-07-21 prompt audit (the cast-uniformity index case, part 2): the old 10-entry pool was 20%
-// tattoos and drawn per-NPC with NO cast-wide cap — measured over 40 seeds, the average floor cast
-// carried 3.1 tattoo-marks (worst 7) and 95% of casts dealt some mark 3+ times ("a half-sleeve
-// tattoo" on up to six houseguests). A real BB cast has maybe 3-5/16 with visible ink TOTAL (across
-// every axis), and most people's "distinguishing mark" is minor — or nothing. The pool is widened to
-// span scars/birthmarks/freckles/glasses/jewelry/teeth/dimples, tattoos stay 2 entries (~11%), and
-// "none notable" is deliberately repeated (same string): many real faces have no single salient mark.
-// The cast-wide deal below caps every NAMED mark at MAX_PER_MARK while "none…" stays uncapped.
+// ORW-381: marks are SIGNATURES, not flaws (no scars, birthmarks or chipped teeth). Each named mark is dealt
+// at most once per cast; about 60% of a cast gets "none notable". Two tattoo entries remain (the ink budget).
 const MARKS = [
-  "a faint scar above one eyebrow", "a half-sleeve tattoo", "a beauty mark on one cheek",
-  "freckles across the nose", "a small nose ring", "a gap-toothed grin",
-  "wire-rimmed glasses", "a small wrist tattoo", "a chipped front tooth",
-  "a birthmark along the jaw", "deep dimples", "a thin scar across the chin",
-  "a stud earring", "sun-weathered laugh lines",
-  "none notable", "none notable", "none notable", "none notable",
+  "deep dimples", "freckles across the nose", "a beauty mark on one cheek", "wire-rimmed glasses",
+  "a small nose stud", "a stud earring", "a small wrist tattoo", "a half-sleeve tattoo",
+  "a gap-toothed grin", "strong dark eyebrows", "a bright wide smile",
+  "none notable",
 ];
+/** Share of a cast dealt "none notable" (rounded to a whole count per cast). */
+const MARK_NONE_SHARE = 0.6;
 // ORW-360: the seeded style is no longer dealt from a second list. It is the `sample` of the houseguest's
 // OWN presentation family (src/domain/styleFamilies.ts), so the brief and the label always agree. The
 // rocker vibe stays ink-free; visible ink is the distinguishing-mark budget's alone (2026-07-21 audit).
@@ -200,7 +271,7 @@ const MARKS = [
 // bob" five times (the repetitive-cast bug). These are the L28-style SPREAD caps (the same discipline
 // skinTone/build/ethnicity already use via `spreadFacet`/`MAX_PER_*`): the cast is DEALT each facet with
 // each value used at most this many times, instead of independent per-NPC picks.
-export const MAX_PER_HAIR = 2;
+export const MAX_PER_HAIR = 1;
 export const MAX_PER_FACIAL = 2;
 // #1317 (cast portraits converge, root cause 2): `heightBuild`/`skinTone` were drawn with a BARE
 // per-NPC `rng.pick()` — no cast-wide spread cap — while hair/facial/style already got the L28-style
@@ -213,15 +284,15 @@ export const MAX_PER_SKIN_TONE = 2;
 // tattoos ×4" defect). Named marks are now dealt cast-wide at ≤2 each; "none notable" (deliberately
 // repeated in the pool — most faces have no salient mark) is EXEMPT from the cap, so a realistic
 // majority-plain cast stays legal.
-export const MAX_PER_MARK = 2;
+export const MAX_PER_MARK = 1;
 
 /** An age-look cue keyed off the houseguest's age band — keeps the look age-appropriate (0058 §3). */
 export function ageLookFor(age: number): string {
-  if (age < 25) return "youthful, early-twenties energy";
-  if (age < 32) return "fresh-faced, late-twenties look";
-  if (age < 40) return "settled, thirties presence";
-  if (age < 50) return "weathered, forties gravitas";
-  return "seasoned, distinguished older look";
+  if (age < 25) return "fresh, early-twenties energy";
+  if (age < 32) return "bright, late-twenties look";
+  if (age < 40) return "polished, thirties poise";
+  if (age < 50) return "fit and well-kept, forties ease, a few laugh lines";
+  return "distinguished, fit fifties, laugh lines and presence";
 }
 
 /**
@@ -241,21 +312,46 @@ export interface PhysicalSpread {
 }
 
 /**
- * Deal `count` distinguishing marks off a seeded rng: every NAMED mark is capped at `maxEach`
- * cast-wide (the spreadFacet discipline), while a "none…" draw is EXEMPT — most real faces have no
- * single salient mark, so the plain majority must stay legal. Deterministic per rng stream; the guard
- * budget relaxes rather than spins (unreachable in practice — the pool comfortably covers a 15-cast).
+ * ORW-381: deal `count` marks with exactly ONE `rng.int` per houseguest (fixed draws, no rejection loop).
+ * A cast gets round(MARK_NONE_SHARE * count) "none notable" slots, spread by sequential selection (slot i is
+ * plain with probability needed/remaining), the rest draw an unused NAMED mark (each at most `maxEach`
+ * times; once the named marks run out the slot is "none notable").
  */
-function dealMarksSpread(rng: RandomnessSource, count: number, maxEach: number): string[] {
-  const out: string[] = [];
+export function dealMarksSpread(rng: RandomnessSource, count: number, maxEach: number): string[] {
+  const named = MARKS.filter((m) => !/^none\b/i.test(m));
+  const none = MARKS.find((m) => /^none\b/i.test(m))!;
   const uses = new Map<string, number>();
+  let noneLeft = Math.round(MARK_NONE_SHARE * count);
+  const out: string[] = [];
   for (let i = 0; i < count; i++) {
-    let picked: string | undefined;
-    for (let g = 0; g < 400; g++) {
-      const v = rng.pick(MARKS);
-      if (/^none\b/i.test(v) || (uses.get(v) ?? 0) < maxEach) { picked = v; break; }
-    }
-    const v = picked ?? rng.pick(MARKS); // budget exhausted — take the draw rather than loop forever
+    const r = rng.int(1_000_000);
+    const remaining = count - i;
+    if (noneLeft > 0 && r * remaining < noneLeft * 1_000_000) { noneLeft--; out.push(none); continue; }
+    const open = named.filter((m) => (uses.get(m) ?? 0) < maxEach);
+    if (open.length === 0) { out.push(none); continue; }
+    const v = open[Math.floor((r / 1_000_000) * open.length) % open.length]!;
+    uses.set(v, (uses.get(v) ?? 0) + 1);
+    out.push(v);
+  }
+  return out;
+}
+
+/**
+ * ORW-381: deal hair by age with exactly ONE `rng.int` per houseguest and no rejection loop. Each draw maps
+ * onto the entries still unused AND allowed for that houseguest's age (gray/silver only at 40+); if none is
+ * left for that age it takes from all unused; past the list size it reuses (cap relaxes, unreachable at 30).
+ */
+export function dealHairSpread(rng: RandomnessSource, count: number, ages: readonly number[] | undefined, maxEach: number): string[] {
+  const uses = new Map<string, number>();
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const r = rng.int(1_000_000);
+    const age = ages?.[i];
+    const unused = HAIR_ENTRIES.filter((e) => (uses.get(e.desc) ?? 0) < maxEach);
+    const pool = unused.length ? unused : HAIR_ENTRIES;
+    const allowed = pool.filter((e) => (age === undefined ? !isGrayHair(e.desc) : age >= e.minAge && age <= e.maxAge));
+    const from = allowed.length ? allowed : pool;
+    const v = from[Math.floor((r / 1_000_000) * from.length) % from.length]!.desc;
     uses.set(v, (uses.get(v) ?? 0) + 1);
     out.push(v);
   }
@@ -269,11 +365,12 @@ function dealMarksSpread(rng: RandomnessSource, count: number, maxEach: number):
  * so widening what it draws here can never perturb any other seeded outcome.
  */
 export function dealCastPhysicalSpread(
-  rng: RandomnessSource, count: number, presentations?: readonly string[],
+  rng: RandomnessSource, count: number, presentations?: readonly string[], ages?: readonly number[],
+  buildBands?: readonly BuildBand[],
 ): PhysicalSpread[] {
-  const heightBuild = spreadFacet(rng, HEIGHT_BUILD, count, MAX_PER_HEIGHT_BUILD);
+  const heightBuild = dealBuildSpread(rng, count, buildBands, MAX_PER_HEIGHT_BUILD);
   const skinTone = spreadFacet(rng, SKIN_TONE, count, MAX_PER_SKIN_TONE);
-  const hair = spreadFacet(rng, HAIR_DESC, count, MAX_PER_HAIR);
+  const hair = dealHairSpread(rng, count, ages, MAX_PER_HAIR);
   const facial = spreadFacet(rng, FACIAL, count, MAX_PER_FACIAL);
   const mark = dealMarksSpread(rng, count, MAX_PER_MARK);
   // ORW-360: the style is the sample of the houseguest's own presentation family. A caller with no cast
@@ -303,7 +400,7 @@ export function generatePhysicalCharacteristics(
     // context falls back to the old independent per-NPC pick.
     heightBuild: spread ? spread.heightBuild : rng.pick(HEIGHT_BUILD),
     skinTone: spread ? spread.skinTone : rng.pick(SKIN_TONE),
-    hair: spread ? spread.hair : rng.pick(HAIR_DESC),
+    hair: spread ? spread.hair : rng.pick(HAIR_DESC.filter((h) => age >= 40 || !isGrayHair(h))),
     facialFeatures: spread ? spread.facial : rng.pick(FACIAL),
     // 2026-07-21 prompt audit: the mark rides the cast-wide capped deal when a spread is supplied (the
     // live path) — a lone regeneration without cast context keeps the per-NPC pick over the same pool.
@@ -1156,6 +1253,14 @@ export function generateCastDeepLayer(seed: number, npcs: readonly Houseguest[])
   // the 15-cast (the repetitive-cast bug), the same L28 discipline skinTone/build/ethnicity already use.
   const physicalSpread = dealCastPhysicalSpread(
     new SeededRandom(hashSeed(`${seed}:deep-physical-spread`)), npcs.length, npcs.map((n) => n.character.presentation),
+    npcs.map((n) => n.character.age),
+    // ORW-381: the build band leans to the hidden physical stat, picked here (engine-side, creation only) off
+    // its own `${seed}:build-band` stream; only the build WORDS reach the public facet.
+    dealBuildBands(new SeededRandom(hashSeed(`${seed}:build-band`)), npcs.map((n) => n.character.stats.physical)),
+  );
+  // ORW-381: one casting type per houseguest off its OWN side stream (no existing stream moves), by age only.
+  const castingTypes = dealCastingTypes(
+    new SeededRandom(hashSeed(`${seed}:casting-type`)), npcs.length, npcs.map((n) => n.character.age),
   );
   let ix = 0;
   for (const hg of npcs) {
@@ -1164,7 +1269,8 @@ export function generateCastDeepLayer(seed: number, npcs: readonly Houseguest[])
     const thrRng = new SeededRandom(hashSeed(`${seed}:deep-thread:${hg.name}`));
     pub[hg.id] = {
       biography: generateBiography(pubRng, hg.character),
-      physicalCharacteristics: generatePhysicalCharacteristics(pubRng, hg.character.age, physicalSpread[ix++]),
+      physicalCharacteristics: generatePhysicalCharacteristics(pubRng, hg.character.age, physicalSpread[ix]),
+      castingType: castingTypes[ix++]!,
     };
     // The narrative TEXT rides a DEDICATED per-NPC sub-stream (#392 RNG-isolation): the conditioned
     // secrets/goals/weakness draw off this key, NEVER `hidRng` — so the outcome-relevant `dayOnePerception`
