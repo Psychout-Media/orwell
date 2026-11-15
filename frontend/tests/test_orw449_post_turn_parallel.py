@@ -178,3 +178,45 @@ def test_the_flag_reads_default_on_and_obeys_the_global_off_switch(monkeypatch):
     monkeypatch.setenv("ORWELL_POST_TURN_PARALLEL", "1")
     monkeypatch.setenv("ORWELL_FLAGS_OFF", "1")
     assert al._post_turn_parallel_enabled() is False
+
+
+# ---- the property the parallel order depends on: the side records never carry or move the beat counter -----------------------
+
+def test_the_side_records_engine_calls_never_send_or_move_the_beat_counter(monkeypatch):
+    """A belt's engine write carries the front end's last-seen beat counter and is refused when it is stale. The side records now
+    land between belt writes, so they must (a) send no counter of their own and (b) never overwrite the front end's last-seen
+    value from their responses - an older value arriving late would make the NEXT belt write stale and drop its consequence."""
+    import src.orwell_engine as oe
+    from routes import chat_helpers as ch
+
+    sent = []
+
+    async def fake_call(name, args=None, user=None, timeout=None, **kw):
+        sent.append((name, dict(args or {})))
+        if name == "openLedgerHere":
+            return []
+        return {"accepted": True, "beatSeq": 3, "present": [], "room": "kitchen"}   # an OLDER counter than the one last seen
+
+    monkeypatch.setattr(oe, "_call", fake_call)
+    ch._refresh_beat_seq("u449", {"beatSeq": 7})                # what a belt write just left
+    assert ch.last_beat_seq("u449") == 7
+
+    async def run():
+        await oe.whereabouts(user="u449")
+        await oe.open_ledger_here(user="u449")
+        await oe.record_room_canon("kitchen", "a chipped blue mug on the sill", user="u449")
+        await oe.record_open_ledger({"text": "I will back you", "speaker": "npc:1", "addressedTo": ["player"], "kind": "promise"}, user="u449")
+        await oe.resolve_open_ledger({"entryId": "open:1", "status": "kept", "note": "done"}, user="u449")
+
+    asyncio.get_event_loop().run_until_complete(run())
+    assert [n for n, _ in sent] == ["whereabouts", "openLedgerHere", "recordRoomCanon", "recordOpenLedger", "resolveOpenLedger"]
+    assert all("expectedBeatSeq" not in a and "idempotencyKey" not in a for _, a in sent)
+    assert ch.last_beat_seq("u449") == 7                         # untouched by their (older) answers
+
+
+def test_the_side_record_tools_are_not_counted_as_beat_moving_writes():
+    from src import orwell_sync_ledger as ledger
+    for tool in ("recordRoomCanon", "recordOpenLedger", "resolveOpenLedger"):
+        assert tool in ledger.NON_BUMPING_WRITES and tool not in ledger.BUMPING_WRITES
+    for tool in ("whereabouts", "openLedgerHere"):
+        assert tool not in ledger.BUMPING_WRITES
