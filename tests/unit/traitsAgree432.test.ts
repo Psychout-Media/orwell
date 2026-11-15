@@ -152,7 +152,7 @@ describe("ORW-432 card check on seven live-shaped cards (role labels)", () => {
     { n: "mastermind, life of the party", archetype: "mastermind", strategyStyle: "strategic", demeanor: "cool, clipped, and quietly watchful", castingType: { label: "the life of the party" }, want: ["trait-casting-type"] },
     { n: "mastermind, jock", archetype: "mastermind", strategyStyle: "strategic", demeanor: "unhurried and unbothered, with a slow blink that reads as serene", castingType: { label: "the jock" }, want: ["trait-casting-type"] },
     { n: "peacemaker, gentle giant", archetype: "peacemaker", strategyStyle: "loyal", demeanor: "bouncy, loud, and instantly in your space", castingType: { label: "the gentle giant" }, want: ["trait-casting-type"] },
-    { n: "floater, diva", archetype: "floater", strategyStyle: "under-the-radar", demeanor: "wired and blunt, laughs loudest and cracks first", castingType: { label: "the diva" }, want: ["trait-casting-type"] },
+    { n: "floater, diva", archetype: "floater", strategyStyle: "under-the-radar", demeanor: "wired and blunt, laughs loudest and cracks first", castingType: { label: "the showstopper" }, want: ["trait-casting-type"] },
   ];
   for (const c of live) {
     it(`${c.n} card trips ${c.want.join(", ")}`, () => {
