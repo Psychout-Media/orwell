@@ -309,6 +309,18 @@ describe("ORW-380 — portrait photo brief v3", () => {
     expect(noGender).toContain("behind them.");
   });
 
+  it("worn / rough words never reach the prompt; a legacy prose appearance is cut like hair and carries no scar words", () => {
+    const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: {
+      ...facet, heightBuild: "rugged and tall", facialFeatures: "a rough jaw and tired eyes", hair: "worn dark curls, usually pinned",
+      wardrobe: ["a worn grey hoodie", "dark jeans"], style: "rough streetwear" } }, anchor).prompt;
+    expect(p).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);
+    expect(p).toContain("tall, a jaw and eyes");
+    expect(p).toContain("Hair: dark curls, neatly styled.");
+    const legacyP = buildPortraitPrompt(ID, "X", { ...base, appearance: "athletic, a scar over the left eye, close-cropped hair usually under a cap, a birthmark on the neck, a warm smile" }, anchor).prompt;
+    expect(legacyP).toContain("with athletic, close-cropped hair, a warm smile.");
+    expect(legacyP).not.toMatch(/scar|birthmark|usually/i);
+  });
+
   it("no name, job, character line, anchor, or the old random lines", () => {
     for (const p of [full, none, legacy]) {
       expect(p).not.toMatch(/Fixture One|podcaster|Character:|Occupation|Expression:|Framing:|Lighting:|Backdrop|Skin:|Build & hair|Facial structure/);

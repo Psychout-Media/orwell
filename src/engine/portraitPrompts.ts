@@ -115,6 +115,7 @@ const LIGHT_BY_SPOT: Record<string, readonly [string, string]> = {
 const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark|gap)\b/i;
 const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
 const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
+const WORN_WORD_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/gi;
 const HAIR_CUT_MARKERS = [", usually", " usually", " that ", " by ", " until "] as const;
 
 const PRONOUNS: Record<Gender | "none", { subj: string; obj: string; plural: boolean }> = {
@@ -145,6 +146,19 @@ export function trimWrittenHair(hair: string): string {
     if (i >= 0 && i < cut) cut = i;
   }
   return hair.slice(0, cut).replace(/[\s,;.]+$/, "").trim();
+}
+
+/** Strip the aging / rough words from a written facet part (the ageLook is dropped whole instead). */
+export function stripWornWords(t: string): string {
+  return t.replace(WORN_WORD_RE, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ")
+    .replace(/^[\s,;]+|[\s,;]+$/g, "").trim();
+}
+
+/** The prose `appearance` of a legacy character: cut like hair (no "usually ..." clauses), scar / birthmark / burn parts and worn words removed. */
+export function legacyAppearance(appearance: string): string {
+  const parts = appearance.split(/,|;/).map((x) => trimWrittenHair(x.trim()))
+    .filter((x) => x !== "" && !NOT_SENT_MARK_RE.test(x));
+  return stripWornWords(parts.join(", "));
 }
 
 /** Keep only the signature parts of a (possibly compound) distinguishing mark; scars, birthmarks, burns and chipped teeth are not sent. */
@@ -211,16 +225,17 @@ export function buildPortraitPrompt(
   let withClause: string;
   if (look) {
     const ageLook = clean(look.ageLook);
-    const bits = [look.skinTone, look.heightBuild, look.facialFeatures].map(clean).filter((x) => x !== "");
+    const bits = [look.skinTone, look.heightBuild, look.facialFeatures].map((x) => stripWornWords(clean(x))).filter((x) => x !== "");
     if (ageLook !== "" && !AGE_LOOK_BLOCK_RE.test(ageLook)) bits.push(ageLook);
     withClause = bits.length > 0 ? ` with ${bits.join(", ")}` : "";
   } else {
-    withClause = appearance.trim() !== "" ? ` with ${appearance.trim()}` : "";
+    const prose = legacyAppearance(appearance);
+    withClause = prose !== "" ? ` with ${prose}` : "";
   }
 
   // 3. Hair: the shoot-day line, or the written cut trimmed and neatened.
-  const photoHair = clean(look?.photoHair);
-  const writtenHair = look ? trimWrittenHair(clean(look.hair)) : "";
+  const photoHair = stripWornWords(clean(look?.photoHair));
+  const writtenHair = look ? stripWornWords(trimWrittenHair(clean(look.hair))) : "";
   const hairLine = photoHair !== "" ? sentence(`Hair: ${photoHair}`)
     : writtenHair !== "" ? sentence(`Hair: ${writtenHair}, neatly styled`) : "";
 
@@ -229,9 +244,9 @@ export function buildPortraitPrompt(
 
   // 5. Clothes.
   const wardrobe = Array.isArray(look?.wardrobe)
-    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => w.trim()).filter((w) => w !== "")
+    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripWornWords(w.trim())).filter((w) => w !== "")
     : [];
-  const styleText = clean(look?.style) !== "" ? clean(look?.style) : presentation.trim();
+  const styleText = stripWornWords(clean(look?.style) !== "" ? clean(look?.style) : presentation.trim());
   const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}`)
     : sentence(`Wearing clothes in this style: ${styleText}`);
 
