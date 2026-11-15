@@ -45,6 +45,8 @@ const MAX_FOLDS_PER_INTERACTION = 12;
  * happened) but move nothing. The budget re-opens when the loop advances to the next beat.
  */
 const MAX_FOLDS_PER_PAIR_PER_BEAT = 3;
+/** ORW-401: each further fold on an edge in one in-game window counts this fraction of the previous (1, 1/2, 1/4 ...). */
+const METER_RATIO = 0.5;
 
 export class EngineCommandsAdapter implements EngineCommands {
   /** Save-on-mutation hook (0030); the registry wires it to persist the user's snapshot. */
@@ -120,6 +122,15 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** E21: the beat window the fold budget counts within, plus the per-edge tallies inside it. */
   private foldBeatKey = "";
   private readonly foldCounts = new Map<string, number>();
+  /**
+   * ORW-401 (played games only): when wired, the window is the in-game day + part of day (`null` ⇒ clock off ⇒
+   * the legacy beat-keyed hard cap above). Folds are never refused; the nth fold on a directed edge in a window
+   * is scaled by METER_RATIO^(n-1) so a window's total has a fixed ceiling. Counts persist via `foldMeterState`.
+   */
+  private foldWindowProvider?: () => string | null;
+  private meterKey = "";
+  private readonly meterCounts = new Map<string, number>();
+  private readonly meterPending = new Map<string, number>();
   /**
    * IMG-NEW-1: the image-generation budget tallies (`IMAGE_BUDGET`). Generation is the most
    * expensive lever, so a per-TURN (beat-window) and per-WEEK ceiling bounds the in-game re-shoot
@@ -577,6 +588,7 @@ export class EngineCommandsAdapter implements EngineCommands {
       const listeners = awakeNamed.filter((id) => id !== PLAYER && id !== teller);
       if (teller !== PLAYER && awakeNamed.includes(teller) && listeners.length > 0) this.heardAboutMeSink({ teller, listeners, nature: req.heardAboutMe.nature });
     }
+    this.meterPending.clear(); // ORW-401: a scene's shrink factors apply to that scene's folds only
     this.onPersist?.(); // durable save (0030): events + the hidden layer survive a restart
     // A10/#591 — record the at-most-once key ONLY after a clean commit. Placed AFTER onPersist so a
     // persist failure (which rolls the whole commit back, including this in-memory event) leaves no key
@@ -601,7 +613,30 @@ export class EngineCommandsAdapter implements EngineCommands {
    * E21: roll the fold-budget window forward if the loop has advanced. The window is keyed off the
    * most recent recorded season beat (`season:` event) — a new beat re-opens every edge's budget.
    */
+  /** ORW-401: wire the in-game window key (day + part of day); `null` from it ⇒ legacy behaviour. */
+  setFoldWindowProvider(fn: () => string | null): void {
+    this.foldWindowProvider = fn;
+    this.rel?.setFoldMeter((from, to) => (this.foldWindowProvider?.() == null ? null : (this.meterPending.get(`${from}->${to}`) ?? 1)));
+  }
+
+  /** ORW-401: the persisted per-window counts (a restart must not refill them). Opaque counts only. */
+  foldMeterState(): { key: string; counts: Record<string, number> } | undefined {
+    if (!this.meterKey) return undefined;
+    return { key: this.meterKey, counts: Object.fromEntries(this.meterCounts) };
+  }
+
+  restoreFoldMeter(state: { key: string; counts: Record<string, number> } | undefined): void {
+    this.meterCounts.clear();
+    this.meterKey = state?.key ?? "";
+    for (const [k, v] of Object.entries(state?.counts ?? {})) this.meterCounts.set(k, v);
+  }
+
   private rollBeatWindow(): void {
+    const mk = this.foldWindowProvider?.() ?? null;
+    if (mk !== null) {
+      if (mk !== this.meterKey) { this.meterKey = mk; this.meterCounts.clear(); }
+      return;
+    }
     const key = this.currentBeatKey();
     if (key !== this.foldBeatKey) {
       this.foldBeatKey = key;
@@ -615,6 +650,12 @@ export class EngineCommandsAdapter implements EngineCommands {
    */
   private spendFoldBudget(from: EntityId, initiator: EntityId): boolean {
     const pair = `${from}->${initiator}`;
+    if (this.foldWindowProvider?.() != null) {
+      const n = this.meterCounts.get(pair) ?? 0;
+      this.meterCounts.set(pair, n + 1);
+      this.meterPending.set(pair, Math.pow(METER_RATIO, n));
+      return true;
+    }
     const spent = this.foldCounts.get(pair) ?? 0;
     if (spent >= MAX_FOLDS_PER_PAIR_PER_BEAT) return false;
     this.foldCounts.set(pair, spent + 1);
