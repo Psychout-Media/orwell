@@ -18,8 +18,9 @@ export interface BedClaim {
   readonly who: EntityId;
   readonly bed: BedId;
   readonly day: number;
-  /** move-in: claimed on move-in day in entrance order; leftover: the spot left over at the player's first bedtime (they never picked one). */
-  readonly why: "move-in" | "leftover";
+  /** move-in: claimed on move-in day in entrance order; leftover: the spot left over at the player's first bedtime (they never picked one); swap: traded with the spot's owner, who agreed;
+   *  move: a later move into a free spot (a goal, a falling-out, an evictee's empty bed). */
+  readonly why: "move-in" | "leftover" | "swap" | "move";
 }
 
 export interface BedsState {
