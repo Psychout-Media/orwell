@@ -250,17 +250,6 @@ def test_orw437_same_words_from_two_speakers_are_two_entries_and_one_failing_wri
     assert sent == ["npc:3", "npc:4"]
 
 
-def test_orw437_the_off_flag_skips_the_hook_before_any_read_or_model_call(monkeypatch):
-    monkeypatch.setenv("ORWELL_OPEN_LEDGER", "0")
-    from src import orwell_engine as oe
-    monkeypatch.setattr("src.orwell_show_brief.show_brief_enabled", lambda: True)
-
-    async def boom(user=None):
-        raise AssertionError("whereabouts must not be read when the ledger is off")
-    monkeypatch.setattr(oe, "whereabouts", boom)
-    assert run(ol.after_turn(NARR, "u", "http://x", "m", {})) == 0
-
-
 def test_entry_with_no_houseguest_is_dropped():
     # ORW-437 (review of #2692): player to player, or a player entry with no addressee, involves nobody in the house
     raw = {"entries": [
@@ -269,3 +258,86 @@ def test_entry_with_no_houseguest_is_dropped():
         {"text": "c", "speaker": "npc:3", "addressedTo": [], "kind": "k"},
     ]}
     assert [e["text"] for e in ol.clean_entries(raw, {"npc:3"})] == ["c"]
+
+
+# ---------------- review fixes: loud refusal when full, fence, deals, engine flag ----------------
+
+def _entries_llm(n):
+    texts = ["alpha one", "beta two", "gamma three"][:n]
+
+    async def llm(_m):
+        items = ",".join('{"text":"%s","speaker":"npc:3","addressedTo":["player"],"kind":"k"}' % t for t in texts)
+        return '{"entries":[%s]}' % items
+    return llm
+
+
+def test_full_refusal_is_recorded_loudly_once_per_turn(monkeypatch):
+    from src import log_rings
+    seen = []
+    monkeypatch.setattr(log_rings, "record_soft_failure", lambda cls, exc, **kw: seen.append((cls, kw)))
+
+    async def full(_p):
+        return {"accepted": False, "reason": "full"}
+
+    assert run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(3), full, owner="u1")) == 0
+    assert [c for c, _ in seen] == ["open-ledger:full"]  # three refusals, ONE record
+    assert seen[0][1].get("user") == "u1"
+
+
+def test_other_refusals_and_acceptances_do_not_record_full(monkeypatch):
+    from src import log_rings
+    seen = []
+    monkeypatch.setattr(log_rings, "record_soft_failure", lambda cls, exc, **kw: seen.append(cls))
+
+    async def other(_p):
+        return {"accepted": False, "reason": "not-present"}
+
+    async def ok(_p):
+        return {"accepted": True}
+
+    run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(2), other))
+    run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(2), ok))
+    assert seen == []
+
+
+def test_prompt_is_behind_the_untrusted_fence_and_leaves_deals_out():
+    from src.agent_loop import _EXTRACTION_UNTRUSTED_FENCE
+    prompts = []
+
+    async def llm(m):
+        prompts.append(m[0]["content"])
+        return '{"entries":[]}'
+
+    async def write(_p):
+        return {"accepted": True}
+
+    run(ol.capture_open_ledger(NARR, PRESENT, llm, write))
+    assert prompts[0].startswith(_EXTRACTION_UNTRUSTED_FENCE)
+    assert "recorded elsewhere as a deal" in prompts[0]
+
+
+def test_after_turn_stands_down_when_the_engine_has_the_ledger_off(monkeypatch):
+    from src import orwell_engine as oe
+    from src import orwell_show_brief as sb
+    monkeypatch.setattr(sb, "show_brief_enabled", lambda: True)
+    called = []
+
+    async def boom(*a, **k):
+        called.append(1)
+        return None
+
+    monkeypatch.setattr(oe, "whereabouts", boom)
+
+    async def none(*a, **k):
+        return []
+
+    monkeypatch.setattr(oe, "open_ledger_here", none)
+    monkeypatch.setitem(oe._ENGINE_FLAGS, "openLedger", False)
+    assert run(ol.after_turn(NARR, "u", "http://x", "m", {})) == 0
+    assert called == []  # no extraction, not even the presence read
+    monkeypatch.setitem(oe._ENGINE_FLAGS, "openLedger", True)
+    run(ol.after_turn(NARR, "u", "http://x", "m", {}))
+    assert called == [1]  # flag on: it carries on
+    monkeypatch.delitem(oe._ENGINE_FLAGS, "openLedger")
+    run(ol.after_turn(NARR, "u", "http://x", "m", {}))
+    assert called == [1, 1]  # flag unknown: fail open

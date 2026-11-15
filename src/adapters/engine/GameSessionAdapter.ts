@@ -37,7 +37,7 @@ import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTe
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
-import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent, dueTomorrow, finalHohPartOf } from "../../engine/daySchedule";
+import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, hoursUntilDue, beatFeltHours, todaysEvent, dueTomorrow, finalHohPartOf } from "../../engine/daySchedule";
 /** ORW-262: an eviction night / finale reveals over ~5 steps; its ~2h budget is spread across them for a played game. */
 const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
@@ -803,9 +803,9 @@ const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
  * outcome-neutral by construction — which is exactly why it ships behind its own flag, gated by the
  * calibration heavy-sims (juryReach / gradient / UAT run ON) rather than an on/off SHA256 identity.
  *
- * WITH IT UNSET (the default), `scheduleStoryThreads` never re-orders (it iterates the unchanged derive
- * order) ⇒ the seeded `juryReach`/gradient/UAT spine is BYTE-IDENTICAL to today AND to Phase-1 (proven by
- * `showrunnerReweight.test.ts`'s off-vs-today SHA256, on top of the still-green `showrunnerOutcomeNeutral`).
+ * WITH IT DISABLED (`ORWELL_SHOWRUNNER_REWEIGHT=0`/`false`/`off`; unset now means ON), `scheduleStoryThreads` never re-orders (it iterates the unchanged derive
+ * order) ⇒ the seeded `juryReach`/gradient/UAT spine is BYTE-IDENTICAL to the pre-reweight model AND to Phase-1 (proven by
+ * `showrunnerReweight.test.ts`'s off-vs-today SHA256, on top of the still-green `showrunnerOutcomeNeutral`). That byte-identical claim holds ONLY while it is disabled.
  * The reweight IMPLIES note composition (you cannot re-weight without a note): when ON it composes notes
  * itself, so `ORWELL_SHOWRUNNER_REWEIGHT=1` alone yields the full arc-pacing showrunner. Read once at
  * module load (like the sibling flags), with a PROCESS-GLOBAL static override (mirroring `secretPacing` /
@@ -2045,6 +2045,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
+      this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
       this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)
       // BEFORE the deferred `onPersist` above ran, so `out.beatSeq` was captured PRE-commit-funnel:
@@ -4846,6 +4847,7 @@ export class GameSessionAdapter implements GameSession {
    * Rebuild the (derived) soul recall index from the persisted arc after a restore (0030/0041). The
    * AUTHORITATIVE arc lives in each houseguest's `soul.memory`/`emotionalHistory` (persisted
    * losslessly with the house); the vector index is re-derived so `recall` keeps working post-restart.
+   * The `resume.indexRebuild` stall entry covers the synchronous enqueue only; the embedding work it queues finishes later and is attributed to `embed.call`.
    */
   private rebuildSoulIndex(): void {
     if (!this.house || !this.soul) return;
@@ -4854,7 +4856,8 @@ export class GameSessionAdapter implements GameSession {
     for (const hg of [this.house.player, ...this.house.npcs]) {
       for (const note of hg.soul.memory) { this.soul.recordToSoul(hg.id, note); notes++; }
     }
-    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes });
+    // This times only the synchronous ENQUEUE of the notes; the embeddings drain after it, asynchronously, and are timed as `embed.call`. `enqueueOnly` says so, so /health does not read it as the whole rebuild.
+    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes, enqueueOnly: 1 });
   }
 
   /** Engine/loop-internal: record the public ceremony facts the status panel projects. */
@@ -5409,6 +5412,12 @@ export class GameSessionAdapter implements GameSession {
     return overlay;
   }
 
+  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
+  foldWindowKey(): string | null {
+    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
+    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
+  }
+
   /**
    * The houseguests still AWAKE right now (ADR 0006 — the diegetic bound, the SOCIAL half of the sleep
    * economy). When the clock is running, anyone past their character-driven bedtime has turned in for
@@ -5420,12 +5429,6 @@ export class GameSessionAdapter implements GameSession {
    * reads no soul/Vault number.
    */
   /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
-  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
-  foldWindowKey(): string | null {
-    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
-    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
-  }
-
   awakeIds(): ReadonlySet<EntityId> | null {
     return this.awakeNow();
   }
@@ -5552,12 +5555,6 @@ export class GameSessionAdapter implements GameSession {
     if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === (this.live?.wakeHour ?? WAKE_HOUR)) this.nightConflicts.clear();
   }
 
-  /**
-   * The living houseguests who have TURNED IN for the night (ADR 0006) — the complement of the awake set
-   * among the NPCs. Vault-free and OBSERVABLE (you'd see who's no longer around / an empty bed); the
-   * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
-   * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
-   */
   /** ORW-383 - the houseguests who are UP and available now (day or night): the arrived, active NPCs in the awake set. Vault-free; `undefined` when the clock is off. */
   private awakeNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
@@ -5568,17 +5565,18 @@ export class GameSessionAdapter implements GameSession {
       .map((id) => ({ id, name: this.nameOf(id) }));
   }
 
-  /**
-   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
-   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom.
-   */
   /** ORW-383: OFF by default. Seating the asleep in bedrooms at wake clumps the house into three rooms and moves the seeded house-life mix about 4 points (bonding 44.9 -> 41.0 on the mix guard's seeds), which is the owner's agreed mix to re-agree, not mine; so it waits for that call. */
   private sleepersInBedEnabled = process.env.ORWELL_SLEEPERS_IN_BED === "1";
   setSleepersInBedEnabled(on: boolean): void { this.sleepersInBedEnabled = on; }
+  /**
+   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
+   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom. Called ONLY from `turnIn` (the player's own wake); the bitter-end clock wrap and `crossToNextDay` do not seat anyone (review of #2678: left for Ryne on ORW-437, the flag is still off pending the mix re-agreement).
+   */
   private seatInBedrooms(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
     if (!into || !this.sleepersInBedEnabled) return;
     const beds: Room[] = ["bedroom-a", "bedroom-b", "bedroom-c"];
-    const order = this.presenceActive();
+    // Index in the cast roster (it never shrinks), not the living roster: an eviction must not shift anyone else's bed.
+    const order = this.house ? this.house.npcs.map((n) => n.id) : this.presenceActive();
     for (const id of ids) {
       if (id === PLAYER || !into.has(id)) continue;
       const room = beds[Math.max(0, order.indexOf(id)) % beds.length]!;
@@ -5586,6 +5584,12 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /**
+   * The living houseguests who have TURNED IN for the night (ADR 0006) — the complement of the awake set
+   * among the NPCs. Vault-free and OBSERVABLE (you'd see who's no longer around / an empty bed); the
+   * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
+   * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
+   */
   private asleepNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
@@ -5789,7 +5793,8 @@ export class GameSessionAdapter implements GameSession {
         nearby: [],                       // no side rooms during a whole-house event
         turnsHere: this.presenceTenure?.get(me) ?? 0,
         companions: others.map((id) => ({ ...named(id), turnsHere: 0 })),
-        counts: this.headCounts(others.length),
+        // The player is counted in `room`/`house`: until their own entrance is staged they are not in the room, so publish no headcount then.
+        ...(notHere?.has(me) ? {} : { counts: this.headCounts(others.length) }),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
       };
@@ -6232,8 +6237,9 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      // ORW-368: `toastRemaining` ("N more after this batch") exists only once a batch has been released; before the first one there is no "this batch" to count from.
       // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
-      ...(pe.stage === "toast" ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
+      ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
       ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
     };
   }
@@ -8947,6 +8953,8 @@ export class GameSessionAdapter implements GameSession {
   consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
   /** 0148: in-game hours the player's last nap slept, read-and-cleared by the orchestrator so the house lives them (unseen) on its existing per-turn off-screen machinery. */
   consumeNapHours(): number { const h = this.napPendingHours; this.napPendingHours = 0; if (h > 0) this.napAsleep = true; return h; }
+  /** 0148: a nap tick rolled the sandbox back to a fresh session mid-nap: mark the player asleep again for the remaining ticks (the flag is memory-only). */
+  resumeNapTicks(): void { this.napAsleep = true; }
   /** 0148: the orchestrator has lived the nap's hours - the player is awake again for every later read. */
   endNapTicks(): void { this.napAsleep = false; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
@@ -11808,10 +11816,7 @@ export class GameSessionAdapter implements GameSession {
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
-        hoursUntilEvent: () => {
-          const mins = minutesUntilDue(live);
-          return mins === null ? null : mins / 60;
-        },
+        hoursUntilEvent: () => hoursUntilDue(live), // exact hours: the minute-rounded value could overshoot the event by up to a minute
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
         bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
@@ -11940,7 +11945,9 @@ export class GameSessionAdapter implements GameSession {
       let slept = 0;
       let wokenBy: "event" | "evening" | undefined;
       while (slept + 1e-9 < want) {
-        const step = Math.min(NAP.clockStepHours, want - slept);
+        // Clamp the step to the exact time left before a scheduled event (same night-gate rule as milestoneDue), so the wake lands ON the dot and no time past it counts as slept.
+        const untilEvent = hoursUntilDue(live);
+        const step = Math.min(NAP.clockStepHours, want - slept, untilEvent !== null && untilEvent > 1e-9 ? untilEvent : Infinity);
         advanceClockPerMessage(live, step);
         slept += step;
         if (milestoneDueOf(live) && (live.nightDepth ?? 0) < eveningStart - 1e-6) { wokenBy = "event"; break; } // an evening milestone is also the evening cut: that wake is "evening", never "event"
@@ -14737,7 +14744,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never)) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;

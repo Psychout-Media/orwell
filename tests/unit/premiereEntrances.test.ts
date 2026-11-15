@@ -128,6 +128,9 @@ describe("A9 engine entrances", () => {
       const shown = [...w.present, ...w.nearby.flatMap((r) => r.present), ...(w.companions ?? [])].map((x) => x.id);
       for (const id of shown) expect(outside.has(id) && id !== me).toBe(false);
       expect(w.present.length).toBe(pe.arrived - (pe.order.slice(0, pe.arrived).includes(me) ? 1 : 0));
+      // The headcount counts the player in the room, so it appears only once the player has walked in.
+      if (outside.has(me)) expect(w.counts).toBeUndefined();
+      else expect(w.counts!.room).toBe(w.present.length + 1);
       for (const a of s.socialInitiatives()) expect(outside.has(a.houseguest.id)).toBe(false);
       const view = s.premiereIntros()!;
       // ORW-196: still arriving => NOT complete; the un-arrived are `remaining` as anonymous placeholders.

@@ -48,10 +48,27 @@ _SYSTEM = (
     "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
     "(use parties for a larger group pact). "
     "Copy what was said; invent nothing. Skip small talk and anything already finished in the scene. "
+    "A formal agreement between the player and one houseguest (a mutual deal to protect, vote, or go to the end together) is "
+    "recorded elsewhere as a deal: leave it out, do not extract it as a pact or a promise. "
     "resolutions: ONLY for entries in the OPEN list, ONLY when this narration clearly shows that promise or claim kept, "
     "broken or taken back. "
     'Most turns have none: reply {"entries":[],"resolutions":[]} when unsure.'
 )
+
+
+def _system_prompt() -> str:
+    """The extraction prompt behind the repo's untrusted-data fence: the narration quotes the player's own words, so
+    text addressed to the extractor is data to judge, never an instruction (same fence as the other extractions)."""
+    from src.agent_loop import _EXTRACTION_UNTRUSTED_FENCE
+    return _EXTRACTION_UNTRUSTED_FENCE + _SYSTEM
+
+
+def _record_full(user: Optional[str]) -> None:
+    """The engine refused a write because the ledger is full (either bound). Loud, not silent: one soft failure with a
+    stable id, so it shows on the admin status page. Called at most once per turn."""
+    from src import log_rings
+    log_rings.record_soft_failure("open-ledger:full", RuntimeError("the engine refused an open-ledger write: full"),
+                                  corrected="the entry was not kept; resolve or withdraw old ones", user=user)
 
 
 def _norm(v: str, limit: int) -> str:
@@ -140,7 +157,7 @@ def _parse(reply: str) -> object:
 
 async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, write: WriteFn,
                               elsewhere: Optional[list[dict]] = None, open_items: Optional[list[dict]] = None,
-                              resolve: Optional[WriteFn] = None) -> int:
+                              resolve: Optional[WriteFn] = None, owner: Optional[str] = None) -> int:
     """Extract the narration's newly stated commitments, pacts, claims and plans, and any open entry it shows kept, broken
     or withdrawn, and write them back. ``present`` is the public presence list ``[{id, name}]`` (houseguests in the player's
     room); ``elsewhere`` the same for people nearby (a claim may be ABOUT them); ``open_items`` the engine's still-open
@@ -158,12 +175,13 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         if opens and resolve is not None:
             user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]}" for o in opens[:5]) + "\n"
         reply = await llm([
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:NARRATION_MAX_CHARS]}\n\nJSON:"},
         ])
         parsed = _parse(reply or "")
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
+        refused_full = False
         for entry in clean_entries(parsed, {p["id"] for p in people}, known):
             try:  # review of #2721: one failing write must not discard the rest or misreport the count
                 res = await write(entry)
@@ -174,6 +192,10 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
                 continue
             if isinstance(res, dict) and res.get("accepted") is True:
                 accepted += 1
+            elif isinstance(res, dict) and res.get("reason") == "full":
+                refused_full = True
+        if refused_full:
+            _record_full(owner)  # once per turn, however many writes were refused
         if resolve is not None and opens:
             for r in clean_resolutions(parsed, {o["id"] for o in opens}):
                 try:
@@ -202,9 +224,8 @@ async def after_turn(narration: str, owner, endpoint_url, model, headers) -> int
         from src.orwell_show_brief import show_brief_enabled
         if not show_brief_enabled():
             return 0
-        import os
-        # review of #2692 / #2721: ORWELL_OPEN_LEDGER=0 (the engine's flag, default on) also skips the whereabouts read and the extraction model call
-        if str(os.environ.get("ORWELL_OPEN_LEDGER", "")).strip().lower() in ("0", "false", "no", "off"):
+        from src import orwell_engine as _oe0
+        if not _oe0.engine_flag("openLedger", default=True):  # the engine has it off: every write would be refused. Unknown flag: carry on
             return 0
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
@@ -234,7 +255,7 @@ async def after_turn(narration: str, owner, endpoint_url, model, headers) -> int
         async def _resolve(payload: dict) -> dict:
             return await _oe.resolve_open_ledger(payload, user=owner)
 
-        return await capture_open_ledger(narration, present, _llm, _write, elsewhere, open_items, _resolve)
+        return await capture_open_ledger(narration, present, _llm, _write, elsewhere, open_items, _resolve, owner=owner)
     except Exception as e:
         logger.debug(f"[open-ledger] hook skipped: {e}")
         try:

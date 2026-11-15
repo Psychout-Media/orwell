@@ -41,6 +41,9 @@ describe("player momentum is off", () => {
         initiator: npc, witnessSet: [PLAYER, npc], toward: [PLAYER], content: `scene ${i}`, consequence: { edges: [{ toward: npc, direction: "cooler" }] },
       });
     }
-    expect(g.trajectoryOf(npc, PLAYER).phase).toBe("steady");
+    const arc = g.trajectoryOf(npc, PLAYER);
+    expect(arc.phase).toBe("steady");
+    expect(arc.momentum).toBe(0);
+    expect(JSON.stringify(g.snapshot())).not.toContain(`${npc}->${PLAYER}`);
   });
 });
