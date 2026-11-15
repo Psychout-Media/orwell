@@ -10,7 +10,7 @@ Two one-liners, run from the **Proxmox host shell**, in the spirit of the Proxmo
 community-scripts:
 
 ```bash
-# install (the repo is PRIVATE — ruling #17). EXPORT the token so the $(…) substitution — expanded
+# install (the repo is public, but the deploy path still uses a token — ruling #17). EXPORT the token so the $(…) substitution — expanded
 # by the OUTER shell — actually sees it; fetch via the GitHub contents API, not raw.githubusercontent
 # (which 404s for fine-grained PATs). Works with a fine-grained (Contents: Read) OR classic (repo) PAT.
 export GIT_TOKEN=github_pat_xxx

@@ -794,6 +794,7 @@
  "test_orw377_zero_clocks.py": 0.1,
  "test_orw378_portrait_parallel.py": 0.1,
  "test_orw379_no_wall_stamps.py": 15.0,
+ "test_orw383_night_widget_awake.py": 15.0,
  "test_orw44_s4b2_game_build_refuses_sse_routes.py": 0.1,
  "test_orw44_s4b_ws_bootstrap.py": 0.1,
  "test_orw44_s4c_sse_reader_invariants.py": 0.1,
