@@ -26,9 +26,18 @@ BASE_RED = ("an unaccounted beatSeq gap between turns — the board moved withou
 _MARK = 0
 
 
+def _reset_chat_globals():
+    """The process-global stale counter, desync map and last-beat map belong to whichever test ran before: start clean."""
+    from routes import chat_helpers as ch
+    ch.reset_stale_beat_rejections()
+    ch._DESYNC_REGROUND.pop("player", None)
+    ch._LAST_BEAT_SEQ.pop(ch._beat_seq_key("player"), None)
+
+
 @pytest.fixture
 def _led(tmp_path, monkeypatch):
     global _MARK
+    _reset_chat_globals()
     monkeypatch.setattr(ledger, "LEDGER_PATH", tmp_path / "ledger.json")
     dicts = (ledger._PENDING_STALE, ledger._LAST_BEAT_AFTER, ledger._PENDING_FE_WRITES, ledger._PENDING_BELTS,
              ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED, ledger._WINDOW_DISPATCHED)
@@ -40,6 +49,7 @@ def _led(tmp_path, monkeypatch):
     for d in dicts:
         d.clear()
     ledger._IN_TURN.clear()
+    _reset_chat_globals()
 
 
 def _reds():
