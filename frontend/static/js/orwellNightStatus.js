@@ -108,24 +108,34 @@
     el.querySelector("[data-role='phase']").innerHTML =
       '<span aria-hidden="true">' + emoji + "</span><span>" + esc(label) + "</span>";
 
-    // BODY: who has turned in for the night (Vault-free; the engine's observable `asleep` list).
+    // BODY (ORW-383, Ryne): who is AWAKE and available, day and night - not "N have turned in". The engine's observable `awake` list (Vault-free names); an older payload without it falls back to the
+    // turned-in list. The player is never listed.
+    const awakeList = Array.isArray(state.awake) ? state.awake : null;
     const asleep = Array.isArray(state.asleep) ? state.asleep : [];
     const body = el.querySelector("[data-role='body']");
-    if (!asleep.length) {
+    if (awakeList) {
+      if (!awakeList.length) {
+        body.innerHTML = '<span class="onight-quiet">Everyone has turned in.</span>';
+        el.removeAttribute("title");
+      } else {
+        const names = awakeList.map((p) => esc(firstName(p.name))).filter(Boolean).join(", ");
+        body.innerHTML = '<span class="onight-label">Awake (' + awakeList.length + "):</span> " + names;
+        el.setAttribute("title", awakeList.length + (awakeList.length === 1 ? " houseguest is" : " houseguests are") + " awake");
+      }
+    } else if (!asleep.length) {
       body.innerHTML = '<span class="onight-quiet">The whole house is still up.</span>';
       el.removeAttribute("title");
     } else {
       const names = asleep.map((p) => esc(firstName(p.name))).filter(Boolean).join(", ");
       body.innerHTML = '<span class="onight-label">Turned in (' + asleep.length + "):</span> " + names;
-      el.setAttribute(
-        "title",
-        asleep.length + (asleep.length === 1 ? " houseguest has" : " houseguests have") + " turned in for the night",
-      );
+      el.setAttribute("title", asleep.length + (asleep.length === 1 ? " houseguest has" : " houseguests have") + " turned in for the night");
     }
     // A11Y-1: announce the nightfall phase + sleep summary ONLY when it changes (not every poll).
-    const announce = asleep.length
-      ? (label + "; turned in: " + asleep.map((p) => firstName(p.name)).filter(Boolean).join(", "))
-      : (label + "; the whole house is still up");
+    const announce = awakeList
+      ? (awakeList.length ? (label + "; awake: " + awakeList.map((p) => firstName(p.name)).filter(Boolean).join(", ")) : (label + "; everyone has turned in"))
+      : (asleep.length
+        ? (label + "; turned in: " + asleep.map((p) => firstName(p.name)).filter(Boolean).join(", "))
+        : (label + "; the whole house is still up"));
     if (announce !== _lastAnnounced) {
       const ann = el.querySelector("[data-role='announce']");
       if (ann) ann.textContent = announce;

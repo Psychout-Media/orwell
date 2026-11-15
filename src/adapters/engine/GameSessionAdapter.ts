@@ -4808,7 +4808,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], awake: this.awakeNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -5143,6 +5143,7 @@ export class GameSessionAdapter implements GameSession {
     // observe loop, so a sighting into a zoned private room (the lounge) records this tick's seated zone.
     // `seatZones` only writes ids in zoned rooms, so a houseguest who left a zoned room simply drops out.
     this.presence = next;
+    { const awakeNow = this.awakeNow(); if (awakeNow) this.seatInBedrooms(this.presenceActive().filter((id) => !awakeNow.has(id)), next); } // ORW-383: sleepers are in bed
     this.presenceBase = nextBase;
     this.presenceTenure = tenure;
     this.presenceZone = nextZone;
@@ -5410,6 +5411,31 @@ export class GameSessionAdapter implements GameSession {
    * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
    * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
    */
+  /** ORW-383 - the houseguests who are UP and available now (day or night): the arrived, active NPCs in the awake set. Vault-free; `undefined` when the clock is off. */
+  private awakeNpcs(): NamedRef[] | undefined {
+    const awake = this.awakeNow();
+    if (!awake) return undefined;
+    const notHere = this.notYetArrived();
+    return this.presenceActive()
+      .filter((id) => id !== PLAYER && awake.has(id) && !notHere?.has(id))
+      .map((id) => ({ id, name: this.nameOf(id) }));
+  }
+
+  /**
+   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
+   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom.
+   */
+  private seatInBedrooms(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
+    if (!into) return;
+    const beds: Room[] = ["bedroom-a", "bedroom-b", "bedroom-c"];
+    const order = this.presenceActive();
+    for (const id of ids) {
+      if (id === PLAYER || !into.has(id)) continue;
+      const room = beds[Math.max(0, order.indexOf(id)) % beds.length]!;
+      if (into.get(id) !== room) { into.set(id, room); this.presenceTenure?.set(id, 0); }
+    }
+  }
+
   private asleepNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
@@ -11393,6 +11419,7 @@ export class GameSessionAdapter implements GameSession {
       // skipped). No-op unless the flag + in-game clock are live ⇒ byte-identical off. Records Vault-only.
       this.sweepDailyConfessionals(closingDay);
       playerTurnIn(this.live!, PLAYER);
+      this.seatInBedrooms(this.presenceActive()); // ORW-383: the night passed - everyone wakes in a bedroom, not where the evening left them
       this.accrueNightFatigue(); // the player chose bed — a genuine night-end; accrue before clearing conflicts
       this.rollNightConflicts();
       this.persist();
@@ -14926,7 +14953,7 @@ export class GameSessionAdapter implements GameSession {
       whereabouts: this.whereabouts(),
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], awake: this.awakeNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in
       ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1), dayNumber: this.live.dayNumber ?? 1 } : {}), // P0: the exact clock the narrator must use; ORW-345: + the day number the FE stamps on each saved row
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
