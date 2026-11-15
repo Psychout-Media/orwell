@@ -6,7 +6,7 @@ import { SqliteSaveStore } from "../adapters/sqlite/SqliteSaveStore";
 import { FileUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
 import { GameSessionAdapter } from "../adapters/engine/GameSessionAdapter";
 import type { Clock } from "../ports/Clock";
-import type { UserSaveStore } from "../ports/UserSaveStore";
+import type { UserSaveStore, SaveDurability } from "../ports/UserSaveStore";
 
 // ── the play-clock (real-time purge 2026-07-10, PO ruling) ──────────────────────────
 //
@@ -83,6 +83,12 @@ export interface Runtime {
    */
   warmSaved(): Promise<void>;
   warmStatus(): { warmed: boolean; warmMs: number | null };
+  /** ORW-404: the save-fsync backlog for `/health` (all zero when the store has none). */
+  saveDurability(): SaveDurability;
+  /** ORW-404: shutdown flush — fsync the newest un-synced save of every user, bounded. Never throws. */
+  flushSaves(timeoutMs?: number): void;
+  /** ORW-404: non-blocking shutdown flush; resolves by `timeoutMs` even if a sync never settles. Never rejects. */
+  flushSavesAsync(timeoutMs?: number): Promise<void>;
   /** The in-game clock's LIVE state (runtime FE flip, else the env default) — reported on `/health`. */
   timeOfDayStatus(): boolean;
 }
@@ -199,5 +205,12 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     warmSaved,
     warmStatus: () => ({ warmed: !warmPending || warmMs !== null, warmMs }),
     timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective(),
+    saveDurability: () => saveStore?.durability?.()
+      ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false },
+    flushSaves: (timeoutMs) => { try { saveStore?.flushDurable?.(timeoutMs); } catch { /* never block exit */ } },
+    flushSavesAsync: async (timeoutMs) => { try { await saveStore?.flushDurableAsync?.(timeoutMs); } catch { /* never block exit */ } },
   };
 }
+
+// ORW-404: the entrypoint composes the runtime only (audit E18), so the shutdown helper is re-exported here.
+export { createShutdown, DEFAULT_HARD_EXIT_MS } from "./shutdown";
