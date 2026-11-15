@@ -43,6 +43,8 @@ export interface FileSaveStoreOptions {
   nowMs?: () => number;
   /** Receives one line per failed background fsync (never throws into a save). */
   onError?: (line: string) => void;
+  /** Alarm (one onError line, at most once per `backlogAlarmMs` per user) when the oldest unsynced save is older than this. Default 60 000. */
+  backlogAlarmMs?: number;
 }
 
 /** Per-user-dir durability bookkeeping (in memory only; derived, never persisted). */
@@ -66,6 +68,10 @@ interface DirState {
   unsynced: { v: number; t: number }[];
   /** A checkpoint rename happened since the last directory fsync. */
   dirDirty: boolean;
+  /** Last time the backlog alarm fired for this user (null = never). */
+  lastAlarmAt: number | null;
+  /** The no-synced-save cap warning was already logged for this user. */
+  capWarned: boolean;
 }
 
 async function defaultSyncFile(path: string): Promise<void> {
@@ -78,15 +84,26 @@ async function defaultSyncFile(path: string): Promise<void> {
  * users sit in one FIFO, each at most once (the newest pending version per user wins).
  */
 const MAX_CONCURRENT_SYNCS = 2;
-interface SyncJob { st: DirState; run: (epoch: number) => void }
-const limiter = { epoch: 0, active: 0, queue: [] as SyncJob[] };
+/**
+ * One EXTRA slot used only for a never-synced user's first fsync (a user with no durable version yet
+ * must not wait behind stalled syncs of users who already have one). Such jobs also sit at the front.
+ */
+const FIRST_SYNC_EXTRA_SLOTS = 1;
+interface SyncJob { st: DirState; first: boolean; run: (epoch: number, extra: boolean) => void }
+const limiter = { epoch: 0, active: 0, extraActive: 0, queue: [] as SyncJob[] };
 
 function drainSyncQueue(): void {
-  while (limiter.active < MAX_CONCURRENT_SYNCS && limiter.queue.length > 0) {
-    const job = limiter.queue.shift()!;
-    job.st.queued = false;
-    limiter.active++;
-    job.run(limiter.epoch);
+  while (limiter.queue.length > 0) {
+    const head = limiter.queue[0]!; // never-synced jobs are kept at the front
+    let extra = false;
+    if (limiter.active >= MAX_CONCURRENT_SYNCS) {
+      if (!head.first || limiter.extraActive >= FIRST_SYNC_EXTRA_SLOTS) return;
+      extra = true;
+    }
+    limiter.queue.shift();
+    head.st.queued = false;
+    if (extra) limiter.extraActive++; else limiter.active++;
+    head.run(limiter.epoch, extra);
   }
 }
 
@@ -94,6 +111,7 @@ function drainSyncQueue(): void {
 export function resetSaveSyncLimiterForTests(): void {
   limiter.epoch++;
   limiter.active = 0;
+  limiter.extraActive = 0;
   limiter.queue.length = 0;
 }
 
@@ -109,6 +127,8 @@ export class FileSaveStore implements UserSaveStore {
   private static readonly CHECKPOINT_EVERY = 50;
   /** ...of which only the newest few are retained (the long-tail archive stays bounded). */
   private static readonly RETAIN_CHECKPOINTS = 3;
+  /** While a user has no durable version yet, keep every file up to this many (never below). */
+  private static readonly UNSYNCED_KEEP_CAP = 200;
 
   private readonly dataDir: string;
   private readonly fsyncMode: SaveFsyncMode;
@@ -118,6 +138,7 @@ export class FileSaveStore implements UserSaveStore {
   private readonly syncDirSync: (path: string) => void;
   private readonly nowMs: () => number;
   private readonly onError: (line: string) => void;
+  private readonly backlogAlarmMs: number;
   private readonly states = new Map<string, DirState>();
 
   constructor(dataDir?: string, opts: FileSaveStoreOptions = {}) {
@@ -132,6 +153,7 @@ export class FileSaveStore implements UserSaveStore {
     this.syncDirSync = opts.syncDirSync ?? defaultSyncFileSync;
     this.nowMs = opts.nowMs ?? (() => performance.now());
     this.onError = opts.onError ?? ((l) => console.error(l));
+    this.backlogAlarmMs = opts.backlogAlarmMs ?? 60_000;
   }
 
   /**
@@ -220,6 +242,7 @@ export class FileSaveStore implements UserSaveStore {
       // The directory fsync (amortized to checkpoints, F-EN-1 #1562) rides the background sync too.
       if (isCheckpoint) st.dirDirty = true;
       st.unsynced.push({ v: version, t: this.nowMs() });
+      this.checkBacklogAlarm(dir, st);
       st.pending = version; // coalesce: only the newest pending version is ever synced
       this.kick(dir, st);
     } else {
@@ -248,7 +271,7 @@ export class FileSaveStore implements UserSaveStore {
     if (!st) {
       st = {
         latest: existing[0] ?? 0, durable: 0, pending: null, inFlight: null, queued: false,
-        unsynced: [], dirDirty: false, bootVersions: null,
+        unsynced: [], dirDirty: false, bootVersions: null, lastAlarmAt: null, capWarned: false,
       };
       this.states.set(dir, st);
       if (existing.length > 0 && background) {
@@ -267,14 +290,28 @@ export class FileSaveStore implements UserSaveStore {
   private kick(dir: string, st: DirState): void {
     if (st.inFlight !== null || st.queued || st.pending === null) return;
     st.queued = true;
-    limiter.queue.push({ st, run: (epoch) => this.runSync(dir, st, epoch) });
+    const first = st.durable === 0;
+    const job: SyncJob = { st, first, run: (epoch, extra) => this.runSync(dir, st, epoch, extra) };
+    if (first) {
+      // never-synced users go ahead of everyone with a durable version (FIFO among themselves)
+      let i = 0;
+      while (i < limiter.queue.length && limiter.queue[i]!.first) i++;
+      limiter.queue.splice(i, 0, job);
+    } else {
+      limiter.queue.push(job);
+    }
     drainSyncQueue();
   }
 
-  private runSync(dir: string, st: DirState, epoch: number): void {
+  private releaseSlot(epoch: number, extra: boolean): void {
+    if (epoch !== limiter.epoch) return;
+    if (extra) limiter.extraActive--; else limiter.active--;
+  }
+
+  private runSync(dir: string, st: DirState, epoch: number, extra: boolean): void {
     const v = st.pending;
     if (v === null) {
-      if (epoch === limiter.epoch) limiter.active--;
+      this.releaseSlot(epoch, extra);
       return;
     }
     st.pending = null;
@@ -285,7 +322,7 @@ export class FileSaveStore implements UserSaveStore {
       .catch((e: unknown) => this.reportFailure(v, e))
       .finally(() => {
         st.inFlight = null;
-        if (epoch === limiter.epoch) limiter.active--;
+        this.releaseSlot(epoch, extra);
         this.kick(dir, st); // the newest save that landed meanwhile, behind other waiting users
         drainSyncQueue();
       })
@@ -337,6 +374,28 @@ export class FileSaveStore implements UserSaveStore {
     st.unsynced = st.unsynced.filter((u) => u.v > st.durable);
   }
 
+  /** Unsynced backlog size: versions behind the marker, or the saves awaiting their first fsync. */
+  private backlogOf(st: DirState): number {
+    return st.durable > 0 ? st.latest - st.durable : st.unsynced.length;
+  }
+
+  /**
+   * One alarm line (through `onError`) when the oldest unsynced save is older than `backlogAlarmMs`;
+   * at most once per `backlogAlarmMs` per user. No ids in the line. Never throws.
+   */
+  private checkBacklogAlarm(_dir: string, st: DirState): void {
+    const first = st.unsynced[0];
+    if (!first) return;
+    const now = this.nowMs();
+    const age = now - first.t;
+    if (age < this.backlogAlarmMs) return;
+    if (st.lastAlarmAt !== null && now - st.lastAlarmAt < this.backlogAlarmMs) return;
+    st.lastAlarmAt = now;
+    try {
+      this.onError(`[orwell] save.durability behind: oldest unsynced save is ${Math.round(age / 1000)}s old, ${st.unsynced.length} unsynced version(s)`);
+    } catch { /* logging must never break the game */ }
+  }
+
   /** Backlog view for `/health` (operational numbers only). Reports the user with the largest backlog. */
   durability(): SaveDurability {
     const now = this.nowMs();
@@ -345,18 +404,61 @@ export class FileSaveStore implements UserSaveStore {
     let worstLag = -1;
     let oldest = 0;
     let unsyncedUsers = 0;
-    for (const st of this.states.values()) {
-      const lag = st.latest - st.durable;
+    let pendingBoot = false;
+    for (const [dir, st] of this.states) {
+      const lag = this.backlogOf(st);
       if (lag > 0) {
         unsyncedUsers++;
         const first = st.unsynced[0];
         if (first) oldest = Math.max(oldest, Math.max(0, Math.round(now - first.t)));
+        this.checkBacklogAlarm(dir, st);
+        if (st.durable === 0) pendingBoot = true;
       }
       if (lag > worstLag || (lag === worstLag && st.latest > latest)) {
         worstLag = lag; latest = st.latest; durable = st.durable;
       }
     }
-    return { saveLatestVersion: latest, saveDurableVersion: durable, saveOldestUnsyncedAgeMs: oldest, saveUnsyncedUsers: unsyncedUsers };
+    // A marker of 0 means "nothing synced yet since boot", not "lag == version": say so explicitly.
+    return {
+      saveLatestVersion: latest, saveDurableVersion: durable, saveOldestUnsyncedAgeMs: oldest,
+      saveUnsyncedUsers: unsyncedUsers, saveDurabilityPending: pendingBoot && durable === 0,
+    };
+  }
+
+  /**
+   * Non-blocking shutdown flush: fsync (async) the newest version of every user with a backlog,
+   * largest backlog first, up to 3 at a time, and resolve by `timeoutMs` even if a sync never settles
+   * (a blocking fsyncSync cannot be interrupted and also blocks the hard-exit timer). Never rejects.
+   */
+  async flushDurableAsync(timeoutMs = 10_000): Promise<void> {
+    const todo = [...this.states.entries()]
+      .filter(([, st]) => st.latest > 0 && (st.latest > st.durable || st.dirDirty))
+      .sort((x, y) => this.backlogOf(y[1]) - this.backlogOf(x[1]));
+    if (todo.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"deadline">((res) => {
+      timer = setTimeout(() => res("deadline"), timeoutMs);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < todo.length) {
+        const [dir, st] = todo[next++]!;
+        try {
+          await this.syncFile(this.fileFor(dir, st.latest));
+          if (st.dirDirty) { try { await this.syncDir(dir); st.dirDirty = false; } catch { /* best-effort */ } }
+          this.markDurable(dir, st, st.latest);
+        } catch (e) {
+          try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
+        }
+      }
+    };
+    const all = Promise.all([worker(), worker(), worker()]).then(() => "done" as const);
+    const r = await Promise.race([all, deadline]);
+    if (timer) clearTimeout(timer);
+    if (r === "deadline") {
+      try { this.onError("[orwell] save.flush deadline reached; remaining saves not fsynced"); } catch { /* ignore */ }
+    }
   }
 
   /**
@@ -390,6 +492,17 @@ export class FileSaveStore implements UserSaveStore {
     // ORW-404: always keep the highest EXISTING version <= durable (the newest fully synced save),
     // never delete a version whose fsync is in flight, and keep everything that was on disk at boot
     // until one fsync has completed.
+    if (st.durable === 0) {
+      // No fsynced version is known for this user: every file may be unsynced, so keep them all up to
+      // a generous cap (never prune a never-synced user down to a few unsynced files).
+      const cap = FileSaveStore.UNSYNCED_KEEP_CAP;
+      if (existing.length <= cap) return;
+      for (const v of existing.slice(0, cap)) keep.add(v);
+      if (!st.capWarned) {
+        st.capWarned = true;
+        try { this.onError(`[orwell] save.prune running without a synced save: ${existing.length} unsynced versions, oldest being pruned`); } catch { /* ignore */ }
+      }
+    }
     const synced = existing.find((v) => v <= st.durable);
     if (synced !== undefined && st.durable > 0) keep.add(synced);
     if (st.inFlight !== null) keep.add(st.inFlight);

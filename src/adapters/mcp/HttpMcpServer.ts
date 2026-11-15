@@ -94,7 +94,7 @@ export interface HttpMcpOptions {
   /** ORW-406: boot warm-up readiness for `/health` (`warmed` + how long it took). Unset => reported warmed. */
   warmStatus?: () => { warmed: boolean; warmMs: number | null };
   /** ORW-404: the save-fsync backlog for `/health` (latest vs durable version, oldest un-synced age). */
-  saveStatus?: () => { saveLatestVersion: number; saveDurableVersion: number; saveOldestUnsyncedAgeMs: number; saveUnsyncedUsers: number };
+  saveStatus?: () => { saveLatestVersion: number; saveDurableVersion: number; saveOldestUnsyncedAgeMs: number; saveUnsyncedUsers: number; saveDurabilityPending?: boolean };
   /**
    * #1713 — the per-request RESPONSE BUDGET (ms): the hard bound on how long a queued tool call may
    * go unanswered before the transport answers a typed 503 (`code: "engine-busy"`) instead of holding
@@ -121,9 +121,9 @@ function warmFields(probe?: () => { warmed: boolean; warmMs: number | null }): {
 /** ORW-404: `/health` save-backlog fields; a broken probe reports zeros so it can never fail the liveness answer. */
 function saveFields(probe?: HttpMcpOptions["saveStatus"]): NonNullable<ReturnType<NonNullable<HttpMcpOptions["saveStatus"]>>> {
   try {
-    return probe?.() ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0 };
+    return probe?.() ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
   } catch {
-    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0 };
+    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
   }
 }
 

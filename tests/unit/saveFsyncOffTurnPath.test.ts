@@ -265,7 +265,7 @@ describe("ORW-404 — boot does not assume the on-disk tail is durable", () => {
 });
 
 describe("ORW-404 — global cap on background fsyncs", () => {
-  it("never runs more than 2 at once across users; newest version per user wins; queue is fair", async () => {
+  it("never runs more than 2 at once across users with a durable version; newest version per user wins; queue is fair", async () => {
     const dir = tmp();
     let active = 0;
     let maxActive = 0;
@@ -277,21 +277,25 @@ describe("ORW-404 — global cap on background fsyncs", () => {
     });
     const store = new FileSaveStore(dir, { fsyncMode: "background", syncFile, syncDir: async () => {} });
     const users = ["a", "b", "c", "d", "e"];
+    // Prime: every user gets a durable v1 (a never-synced user may use one extra slot; see the
+    // never-synced tests), so the cap below is the plain cap of 2.
     for (const u of users) store.saveFor(u, snap(1));
-    store.saveFor("a", snap(2));
-    store.saveFor("a", snap(3)); // a's pending coalesces to the newest
+    for (let i = 0; i < 20; i++) { waiters.splice(0).forEach((w) => w()); await settle(); }
+    calls.length = 0; maxActive = 0;
+    for (const u of users) store.saveFor(u, snap(2));
+    store.saveFor("a", snap(3));
+    store.saveFor("a", snap(4)); // a's pending coalesces to the newest
     expect(calls).toHaveLength(2);
     const vf = (u: string, v: number) => join(udir(dir, u), `v${String(v).padStart(6, "0")}.json`);
-    expect(calls).toEqual([vf("a", 1), vf("b", 1)]);
-    waiters[0]!(); await settle(); // a finishes: c (waiting longer) goes before a's newest
-    expect(calls[2]).toBe(vf("c", 1));
-    waiters[1]!(); await settle();
-    expect(calls[3]).toBe(vf("d", 1));
-    for (let i = 2; i < 12 && waiters.length > i; i++) { waiters[i]!(); await settle(); }
-    for (let i = 0; i < 20; i++) { waiters.forEach((w) => w()); await settle(); }
+    expect(calls).toEqual([vf("a", 2), vf("b", 2)]);
+    waiters.shift()!(); await settle(); // a finishes: c (waiting longer) goes before a's newest
+    expect(calls[2]).toBe(vf("c", 2));
+    waiters.shift()!(); await settle();
+    expect(calls[3]).toBe(vf("d", 2));
+    for (let i = 0; i < 20; i++) { waiters.splice(0).forEach((w) => w()); await settle(); }
     expect(maxActive).toBeLessThanOrEqual(2);
-    expect(calls.filter((c) => c.startsWith(udir(dir, "a")))).toEqual([vf("a", 1), vf("a", 3)]);
-    for (const u of users) expect(existsSync(vf(u, u === "a" ? 3 : 1))).toBe(true);
+    expect(calls.filter((c) => c.startsWith(udir(dir, "a")))).toEqual([vf("a", 2), vf("a", 4)]);
+    for (const u of users) expect(existsSync(vf(u, u === "a" ? 4 : 2))).toBe(true);
     expect(store.durability().saveUnsyncedUsers).toBe(0);
   });
 });

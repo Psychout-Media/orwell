@@ -18,6 +18,8 @@ export interface SaveDurability {
   /** Age (ms) of the oldest save not yet fsynced; 0 when none. */
   saveOldestUnsyncedAgeMs: number;
   saveUnsyncedUsers: number;
+  /** True while the reported user's marker is 0 because nothing has been synced yet since boot (not a lag). */
+  saveDurabilityPending?: boolean;
 }
 
 export interface UserSaveStore {
@@ -48,4 +50,6 @@ export interface UserSaveStore {
   durability?(): SaveDurability;
   /** ORW-404: synchronously harden every un-synced save before exit, bounded by `timeoutMs`. Optional. */
   flushDurable?(timeoutMs?: number): void;
+  /** ORW-404: non-blocking shutdown flush (async fsync, resolves by `timeoutMs` even if a sync never settles). Optional. */
+  flushDurableAsync?(timeoutMs?: number): Promise<void>;
 }
