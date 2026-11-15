@@ -340,6 +340,32 @@ async function handshake(hasRunFirst, runId) {
       resyncEvents.length);
   }
 
+  // ── scenario 12 (ORW-366): THIS window's own turn is in flight when its run-started edge arrives and the
+  // re-attach's ack is `hasRun:false` (the own-run race). It must RETRY the subscribe, never tear the live
+  // holder down with `orwell:ws-resync` (the vanished first casting reply).
+  {
+    const WS = boot();
+    await tick();
+    const resyncEvents = [];
+    global.window.addEventListener('orwell:ws-resync', function (e) { resyncEvents.push(e.detail); });
+    await handshake(false);
+    const before = chatSubs().length;
+    WS.sendTurn({ message: "hi", clientMsgId: "c1" });      // own turn in flight (its ack not yet back)
+    down({ t: "state", ch: "state", d: { beatSeq: 2, reason: "run-started" } });
+    await tick();
+    const first = chatSubs()[before];
+    assert(first, "the own run-started edge must re-attach");
+    down({ t: "ack", ch: "chat", cid: first.cid, d: { fromSeq: 0, headSeq: -1, hasRun: false } });
+    await tick();
+    assert(resyncEvents.length === 0, "an own-turn race must NOT resync (would tear the live holder down)");
+    await new Promise((r) => setTimeout(r, 450));
+    const retry = chatSubs()[before + 1];
+    assert(retry, "the empty ack must be retried while the own turn is live");
+    down({ t: "ack", ch: "chat", cid: retry.cid, d: { fromSeq: 0, headSeq: 0, hasRun: true, runId: "R1" } });
+    await tick();
+    assert(resyncEvents.length === 0, "the retry found the run; still no resync");
+  }
+
   console.log("OK");
   process.exit(0);
 })();
@@ -466,8 +492,13 @@ def test_reattach_self_heal_is_generation_guarded():
     # The ack callback must compare the captured generation against the CURRENT one and bail (a no-op)
     # on mismatch, BEFORE the existing hasRun/resync logic runs.
     then_block = body[body.index("_subscribeChat(0).then"):]
-    then_block = then_block[:then_block.index("}).catch")]
+    then_block = then_block[:then_block.index("_attach().catch")]
     assert "!==" in then_block or "!=" in then_block, \
         "the ack callback must compare the captured generation against the current one"
     assert then_block.index("_chatReattachGen") < then_block.index("hasRun === false"), \
         "the generation check must short-circuit BEFORE the hasRun:false resync logic runs"
+
+
+def test_own_turn_race_retries_instead_of_resync():
+    body = WS.split("function _onRunStarted")[1].split("\n  function ")[0]
+    assert "_ownTurnLive" in body, "ORW-366: an own-turn race must retry, not resync"

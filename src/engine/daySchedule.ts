@@ -57,6 +57,21 @@ export const MILESTONE_LABEL: Record<StructuralMilestone, string> = {
   "finale": "finale",
 };
 
+/**
+ * ORW-370 (Ryne, 11-15: the panel is "a guide to player on what to expect"): the three-part Final HOH (0128) runs as THREE competitions on the one `hoh-competition` milestone. The schedule
+ * (hold, due-ness, hours, narrator priming) is untouched - this only NAMES which part is next, so the panel can say "Final HOH part 2: this afternoon". Pure read; `null` for an ordinary
+ * HOH (not the final three, or the flag off). `threePartOn` is the session's flag (`ctx().finalHohThreePart`).
+ */
+export function finalHohPartOf(live: LiveSeasonState | null | undefined, threePartOn: boolean): 1 | 2 | 3 | null {
+  if (!threePartOn || !live || live.beat !== "hoh-competition" || live.active.length !== 3) return null;
+  return live.finalHohPart ?? 1;
+}
+
+/** The readable name of a milestone, naming the Final HOH part when there is one (narration priming + the HUD cue). */
+export function milestoneLabel(m: StructuralMilestone, finalHohPart?: 1 | 2 | 3 | null): string {
+  return m === "hoh-competition" && finalHohPart ? `Final HOH part ${finalHohPart}` : MILESTONE_LABEL[m];
+}
+
 const MILESTONE_BEATS: ReadonlySet<Beat> = new Set<Beat>(Object.keys(DAY_SCHEDULE) as Beat[]);
 
 /** The clock-HOUR (8..32) a day-phase begins at (mirrors the per-beat clock's phase bands). */

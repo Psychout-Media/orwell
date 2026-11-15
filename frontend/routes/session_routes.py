@@ -979,7 +979,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             rag=str(rag).lower() == "true",
             owner=user,
         )
-        session.headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+        # ORW-200: no key on the row; the server key is supplied at call time (resolve_session_headers).
         session_manager.save_sessions()
         from src.event_bus import fire_event
         fire_event("session_created", user)

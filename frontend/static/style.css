@@ -23179,3 +23179,5 @@ button.ow-history-more {
   padding: .5rem .75rem; margin: 0 0 .25rem 0; font-size: .9rem; line-height: 1.35;
   background: color-mix(in srgb, var(--accent) 14%, var(--bg)); color: var(--fg); border-bottom: 1px solid var(--accent);
 }
+
+body[data-zero-clocks] .role-timestamp:not(.role-timestamp-moment){display:none}
