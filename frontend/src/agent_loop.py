@@ -1856,7 +1856,7 @@ def _bedtime_tool_message(turn_in_output) -> str:
         if isinstance(rec, dict):
             rest = {k: v for k, v in data.items() if k != "dailyRecap"}
             head = json.dumps({"dailyRecap": rec}, ensure_ascii=False)
-            return (head + "\n" + json.dumps(rest, ensure_ascii=False))[:4000]
+            return (head + "\n" + json.dumps(rest, ensure_ascii=False))[:6000]
     except Exception:
         pass
     return raw[:4000]

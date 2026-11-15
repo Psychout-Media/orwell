@@ -546,7 +546,6 @@ def test_a78_the_positive_depends_on_its_own_cue_not_on_a_shadowing_one(monkeypa
 
 # ORW-437 (review of #2650): dialogue-tag grammar and the physical-line tail
 @pytest.mark.parametrize("line", [
-    '@[Other Delta] "Nom Alpha." She sighs and looks away. "Sit down."',          # capitalised pronoun tag
     '@[Other Delta] "Nom Alpha." Other Delta replies, flat. "Sit down."',          # replies
     '@[Other Delta] "Nom Alpha." The host answers it sharply. "Sit down."',        # the host + answers
 ])
@@ -557,5 +556,11 @@ def test_more_dialogue_tags_keep_the_vocative_exemption(line):
 
 def test_a_readout_without_end_punctuation_is_not_paired_with_the_next_line():
     # the unit ends its own physical line; the next line's words (a dialogue tag shape) must not turn it into a vocative
-    kept, out, _ = stripped('@[Hoh Person] "Nom Alpha"\nShe sighs and looks away.\n', ev_sig())
+    kept, out, _ = stripped('@[Hoh Person] "Nom Alpha"\nshe sighs and looks away.\n', ev_sig())
+    assert [o for o in out if "ballot" in o["reason"]]
+
+
+def test_a_capitalised_pronoun_after_a_quoted_name_is_not_a_dialogue_tag_in_a_ballot_phase():
+    # a phantom readout must not slip through ("@[Hoh Person] \"Nom Alpha.\" She sets the slip aside."): left for Ryne on ORW-437
+    kept, out, _ = stripped('@[Hoh Person] "Nom Alpha." She sets the slip aside.\n', ev_sig())
     assert [o for o in out if "ballot" in o["reason"]]

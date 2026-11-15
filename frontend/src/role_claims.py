@@ -295,7 +295,7 @@ def _is_bare_names(unit: str, roster: Iterable[str]) -> bool:
 
 _CLOSERS = "*_\"“”‘’`"
 _DIALOGUE_TAG_RE = re.compile(
-    r"^(?i:he|she|they|it)\b"  # review of #2650: a sentence-initial 'She sighs...' is capitalised
+    r"^(?:he|she|they|it)\b"  # lower-case only: a capitalised 'She ...' after a quoted name is NOT a tag in eviction / veto-ceremony phases (ADR 0005 trade-off, left for Ryne on ORW-437)
     r"|^[Tt]he\s+[a-z]+\s+(?:says?|said|asks?|asked|adds?|added|answers?|answered|repl(?:y|ies|ied)|respond(?:s|ed)?|continues?|continued|whispers?|whispered|murmurs?|murmured)\b"  # 'The host says ...' (speech verbs only: 'The host turns the next ballot over' is narration)
     r"|^(?:[A-Z][\w'’-]+\s+){1,3}(?:says?|said|asks?|asked|adds?|added|murmurs?|snaps?|laughs?|calls?|whispers?|tells?|tips?|looks?|turns?|nods?|shrugs?"
     r"|repl(?:y|ies|ied)|respond(?:s|ed)?|answers?|answered|continues?|continued|sighs?|sighed)\b")

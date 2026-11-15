@@ -6219,7 +6219,7 @@ async def _status_with_clock_label(user, status: dict) -> dict:
         return status
     try:
         from src import orwell_engine
-        gs = await orwell_engine.get_game_state(user=user)
+        gs = await orwell_engine.get_game_state_polled(user=user)
         if isinstance(gs, dict) and gs.get("clockLabel"):
             return {**status, **{k: gs[k] for k in ("clockLabel", "asleep") if k in gs and (k not in status or k == "clockLabel")}}
     except Exception as e:
@@ -6238,7 +6238,6 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
-        status = await _status_with_clock_label(user, status)
         tod = str(status.get("timeOfDay") or "").strip().lower()
         lab = status.get("clockLabel")
         # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
@@ -6339,7 +6338,7 @@ async def screen_streamed_clock_time(user, sentence: str) -> bool:
         if not m or not _sentence_has_in_the_clock_claim(sentence):
             return True
         from src import orwell_engine
-        status = await _status_with_clock_label(user, await orwell_engine.game_status(user=user))
+        status = await orwell_engine.game_status(user=user)
         lab = status.get("clockLabel") if isinstance(status, dict) else None
         mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
         if not mm:

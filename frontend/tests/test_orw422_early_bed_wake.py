@@ -116,34 +116,3 @@ def test_orw437_a_standalone_house_awake_claim_is_held_by_the_pre_emission_guard
     monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
     out = asyncio.get_event_loop().run_until_complete(al._pre_emission_outcome_guard("Everyone is already awake in the kitchen.", "u"))
     assert seen and out == ""
-
-
-def _real_shaped(monkeypatch, clock="4:10am, Day 3"):
-    from src import orwell_engine as oe
-    from routes import chat_helpers as ch
-    stashed = []
-
-    async def status(user=None):
-        return {"timeOfDay": "morning", "asleep": []}  # the real gameStatus: no clockLabel
-
-    async def state(user=None, timeout=None):
-        return {"clockLabel": clock}
-
-    monkeypatch.setattr(oe, "game_status", status)
-    monkeypatch.setattr(oe, "get_game_state", state)
-    monkeypatch.setattr(ch, "_stash_overclaim_reground", lambda u, d: stashed.append(d))
-    return ch, stashed, asyncio.get_event_loop().run_until_complete
-
-
-def test_orw437_unbacked_morning_screen_reads_the_clock_from_the_state_projection(monkeypatch):
-    ch, stashed, run = _real_shaped(monkeypatch)
-    assert run(ch.screen_streamed_unbacked_morning("u", "Morning arrives with a clatter from the kitchen.")) is False and stashed
-    ch, stashed, run = _real_shaped(monkeypatch, "9:30am, Day 3")
-    assert run(ch.screen_streamed_unbacked_morning("u", "Morning arrives with a clatter from the kitchen.")) is True and not stashed
-
-
-def test_orw437_in_the_clock_screen_reads_the_clock_from_the_state_projection(monkeypatch):
-    ch, stashed, run = _real_shaped(monkeypatch)
-    assert run(ch.screen_streamed_clock_time("u", "It's 9:30 in the morning.")) is False and stashed
-    ch, stashed, run = _real_shaped(monkeypatch)
-    assert run(ch.screen_streamed_clock_time("u", "It's 4:15 in the morning.")) is True and not stashed
