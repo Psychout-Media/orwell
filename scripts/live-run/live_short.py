@@ -192,6 +192,43 @@ def crossover(eng, play, check, chat):
     check("W3-hoh-next-in-the-afternoon", ds.get("next") == "hoh-competition" and ds.get("phase") == "afternoon", f"schedule next {ds.get('next')!r} at {ds.get('phase')!r} on {st.get('clockLabel')}")
     hdr = chat.page.evaluate("(() => { const s = [...document.querySelectorAll('#chat-history .role-timestamp-moment')].pop(); return s ? s.textContent : ''; })()")
     check("W10-the-bubble-header-shows-the-new-week", f"Week {st.get('week')}" in (hdr or ""), f"last bubble header {hdr!r} vs engine week {st.get('week')}")
+    widgets(eng, check, chat, "morning")
+    # N1 / N12: a daytime "go to bed" never ends the night (the bedtime gate); a nap may pass some hours but never reaches the evening or the next day.
+    d1 = eng.call("getGameState").get("dayNumber")
+    play("too-early-bed", "I'm exhausted. I'm going to bed now.")
+    st = eng.call("getGameState")
+    check("N1-a-daytime-goodnight-does-not-end-the-day", st.get("dayNumber") == d1 and st.get("timeOfDay") not in ("night", "late-night"), f"after a daytime goodnight: {st.get('clockLabel')} ({st.get('timeOfDay')}), was Day {d1}")
+    play("nap", "I go to my bedroom and take a nap.")
+    st = eng.call("getGameState")
+    check("N12-a-nap-stays-in-the-day", st.get("dayNumber") == d1 and st.get("timeOfDay") in ("morning", "afternoon", "early-morning"), f"after a nap: {st.get('clockLabel')} ({st.get('timeOfDay')}), was Day {d1}")
+    # N5: an EARLY bed (the start of the night) wakes before the house; on waking nobody is up and the widgets agree.
+    eng.tick_to_night("x-early")
+    d2 = eng.call("getGameState").get("dayNumber")
+    play("early-bed", "I'm turning in early tonight. Goodnight.")
+    st = eng.call("getGameState"); h = eng.hour()[0]
+    woke_early = st.get("dayNumber") == (d2 or 0) + 1 and h is not None and (h < 8 or 24 <= h < 32)
+    check("N5-an-early-bed-wakes-before-the-house", woke_early, f"after an early goodnight: {st.get('clockLabel')} (was Day {d2})")
+    if woke_early and (h % 24) < 6:
+        check("N5-nobody-is-up-on-an-early-wake", not (st.get("awake") or []), f"awake on waking: {[x.get('name') for x in st.get('awake') or []]}")
+    play("early-wake-look", "I get up quietly and look around the house.")
+    widgets(eng, check, chat, "early wake")
+
+
+def widgets(eng, check, chat, where):
+    """N7 / N8 in the browser: the Nightfall card lists who is awake (first names, ORW-383) and the Whereabouts card shows only houseguests the engine has with the player."""
+    st = eng.call("getGameState")
+    awake = [(x.get("name") or "").split()[0] for x in (st.get("awake") or []) if isinstance(x, dict)]
+    night = chat.page.evaluate("(document.getElementById('orwell-night') || {}).innerText || ''")
+    if night:
+        if awake: check(f"N7-widget-lists-the-awake[{where}]", all(n in night for n in awake) and "Turned in" not in night, f"widget {night[:120]!r} vs engine awake {awake}")
+        else: check(f"N7-widget-lists-the-awake[{where}]", "turned in" in night.lower(), f"widget {night[:120]!r}, engine: nobody awake")
+    pres = chat.page.evaluate("(document.getElementById('orwell-presence') || {}).innerText || ''")
+    w = st.get("whereabouts") or {}
+    with_me = {(x.get("name") or "").split()[0] for x in (w.get("present") or []) if isinstance(x, dict)}
+    asleep = {(x.get("name") or "").split()[0] for x in (st.get("asleep") or []) if isinstance(x, dict)}
+    if pres:
+        shown_asleep = sorted(n for n in asleep if n and n not in with_me and re.search(r"\b" + re.escape(n) + r"\b", pres.split("\n")[0]))
+        check(f"N8-whereabouts-shows-no-sleeper-with-me[{where}]", not shown_asleep, f"Whereabouts header {pres.split(chr(10))[0][:100]!r}; asleep shown with the player: {shown_asleep}")
 
 
 def main():
