@@ -131,11 +131,11 @@ export function swapBeds(state: BedsState, player: EntityId, owner: EntityId, ow
   if (mine) {
     state.owner[player] = theirs;
     state.owner[owner] = mine;
-    state.claims.push({ who: owner, bed: mine, day, why: "move-in" }, { who: player, bed: theirs, day, why: "move-in" });
+    state.claims.push({ who: owner, bed: mine, day, why: "swap" }, { who: player, bed: theirs, day, why: "swap" });
     return true;
   }
-  if (!ownerTo || !claimBed(state, owner, ownerTo, day, "move-in", inHouse, layout)) return false;
-  return claimBed(state, player, theirs, day, "move-in", inHouse, layout);
+  if (!ownerTo || !claimBed(state, owner, ownerTo, day, "swap", inHouse, layout)) return false;
+  return claimBed(state, player, theirs, day, "swap", inHouse, layout);
 }
 
 // ---- the player's own words -------------------------------------------------------------------------------------------------------------------------------

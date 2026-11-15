@@ -5718,7 +5718,9 @@ export class GameSessionAdapter implements GameSession {
     // How much the owner cares: their spot now (room + bedmate) against the one they would get, read without the two of them in each other's place.
     const away = new Set<EntityId>([PLAYER]);
     const care = spotScore(beds, owner, theirBed, living, r, share, away) - spotScore(beds, owner, theirNew, living, r, share, away);
-    const halfPartner = otherHalf(beds, theirBed, living, owner);
+    // The other half of the owner's double has a say - unless that half is the player themselves (asking is their consent).
+    const half = otherHalf(beds, theirBed, living, owner);
+    const halfPartner = half === PLAYER ? undefined : half;
     const verdict = decideSwap(owner, PLAYER, care, r, halfPartner);
     if (!verdict.accept) {
       this.playerBedNote = verdict.vetoedBy
