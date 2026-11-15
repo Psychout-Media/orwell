@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { clockBandFor, formatClockBandLabel } from "../../src/engine/timeOfDay";
+import { clockBandFor, formatClockBandLabel, isEarlyMorning } from "../../src/engine/timeOfDay";
 
 /**
  * ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never a clock time. PRESENTATION ONLY: the engine clock, day schedule, sleep debt and bedtime logic are untouched
@@ -24,9 +24,10 @@ function runToClock(s: GameSessionAdapter) { for (let i = 0; i < 80 && live(s).t
 
 describe("the eight spoken bands", () => {
   it("map the engine clock hour to a part of the day (incl. past midnight)", () => {
-    const cases: Array<[number, string]> = [[8, "morning"], [9.67, "morning"], [12, "midday"], [14, "afternoon"], [17, "evening"], [21, "night"], [24, "late night"], [27.08, "small hours"], [30, "early morning"]];
+    const cases: Array<[number, string]> = [[8, "morning"], [9.67, "morning"], [12, "midday"], [14, "afternoon"], [17, "evening"], [21, "night"], [24, "late night"], [25.99, "late night"], [26, "early morning"], [27.08, "early morning"], [30, "early morning"], [31.99, "early morning"], [32, "morning"]];
     for (const [h, b] of cases) expect(clockBandFor(h), String(h)).toBe(b);
-    expect(formatClockBandLabel(27.08, 5)).toBe("small hours, Day 5");
+    expect(formatClockBandLabel(27.08, 5)).toBe("early morning, Day 5");
+    expect(isEarlyMorning(25.99)).toBe(false); expect(isEarlyMorning(26)).toBe(true); expect(isEarlyMorning(31.99)).toBe(true); expect(isEarlyMorning(32)).toBe(false); expect(isEarlyMorning(undefined)).toBe(false);
   });
 });
 
@@ -65,5 +66,25 @@ describe("getMomentPrompt with zeroClocks", () => {
       return JSON.stringify({ trace, snap: s.snapshot().live });
     };
     expect(run(true)).toBe(run(false));
+  });
+});
+
+describe("ORW-392 - the HUD says Early morning past 2am, before the house's wake-up call", () => {
+  it("the status carries earlyMorning only in the late-night phase past 2am", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    try {
+      const s = new GameSessionRegistry().sandboxFor("early-morning").session as GameSessionAdapter & Record<string, any>;
+      s.createCharacter({ playerName: "P", seed: 7 });
+      s.setPerConversationClockEnabled(true);
+      s.advanceGame(); const l = (s as any).live; // the live state itself (a TEST-ONLY seam, like tests/support/dayTwoMorning.ts)
+      const at = (hour: number) => { l.timeOfDay = "late-night"; l.nightDepth = hour; return s.gameStatus() as any; };
+      expect(at(24.5).earlyMorning, "half past midnight is still late night").toBeUndefined();
+      expect(at(25.99).earlyMorning).toBeUndefined();
+      expect(at(26).earlyMorning).toBe(true);
+      expect(at(31.9).earlyMorning).toBe(true);
+      expect((s.getGameState() as any).earlyMorning).toBe(true);
+      l.timeOfDay = "morning"; l.nightDepth = 9;
+      expect((s.gameStatus() as any).earlyMorning).toBeUndefined();
+    } finally { GameSessionAdapter.setTimeOfDayEnabled(null); }
   });
 });
