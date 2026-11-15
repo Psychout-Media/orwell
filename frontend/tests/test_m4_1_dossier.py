@@ -54,7 +54,7 @@ def _seeded_state():
             {
                 "id": "npc:1", "name": "Alex", "status": "active",
                 "archetype": "The Strategist", "strategyStyle": "social", "vocation": "Chef",
-                "hometown": "Austin", "age": 29, "demeanor": "wry", "biography": "Loves puzzles.",
+                "hometown": "Austin", "age": 29, "demeanor": "wry", "biography": "Alex loves puzzles.",
                 # Vault-shaped fields that must NEVER reach the FE
                 "trustOfPlayer": 0.87, "threatLevel": 42, "secretGoal": VAULT_SENTINEL,
                 "confidence": 0.61, "distortion": 0.2,
@@ -133,7 +133,7 @@ def test_dossier_route_never_leaks_a_vault_shaped_field(monkeypatch):
     assert body["found"] is True
     assert body["name"] == "Alex"
     assert body["persona"]["archetype"] == "The Strategist"
-    assert body["persona"]["biography"] == "Loves puzzles."
+    assert body["persona"]["biography"] == "Alex loves puzzles."
     assert any(b["content"] == "Alex pulls you aside in the kitchen." for b in body["history"])
     assert body["deals"][0]["terms"] == "Won't nominate each other"
     assert body["alliances"][0]["name"] == "The Vault Alliance"
