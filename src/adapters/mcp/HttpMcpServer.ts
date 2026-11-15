@@ -207,6 +207,8 @@ export type DrainableServer = Server & {
   /** Resolves when no tool request is in flight, or after `timeoutMs`; never rejects. */
   drainInflight(timeoutMs: number): Promise<void>;
   inflightCount(): number;
+  /** Requests and queued jobs still running (shutdown notice). */
+  pendingDetail(): { requests: number; jobs: number };
 };
 
 export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options: HttpMcpOptions = {}): DrainableServer {
@@ -614,7 +616,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
       idleWaiters.push(fin);
     });
   };
-  return Object.assign(server, { drainInflight: drain, inflightCount: (): number => inflight });
+  return Object.assign(server, { drainInflight: drain, inflightCount: (): number => inflight, pendingDetail: () => ({ requests: inflight, jobs: jobsPending }) });
 }
 
 /**

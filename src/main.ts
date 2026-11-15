@@ -87,6 +87,7 @@ const shutdown = createShutdown({
   onStart: () => runtime.beginShutdown(),
   drain: () => httpServer.drainInflight(DEFAULT_DRAIN_MS),
   drainMs: DEFAULT_DRAIN_MS,
+  pending: () => httpServer.pendingDetail(),
   flush: () => runtime.flushSavesAsync(DEFAULT_FLUSH_MS), // drain (5 s) + flush (6 s) fit inside the hard exit (12 s)
   exit: (code) => process.exit(code),
   hardExitMs: DEFAULT_HARD_EXIT_MS,

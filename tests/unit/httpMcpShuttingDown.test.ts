@@ -228,3 +228,18 @@ describe("createShutdown exits exactly once (review of #2744)", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("a timed-out drain says what was still running (follow-up to #2768, M3)", () => {
+  it("logs one line with the job and request counts when the drain times out with work running, and none when it is clean", async () => {
+    const lines: string[] = [];
+    const base = { flush: async () => {}, exit: () => {}, hardExitMs: 5_000, drainMs: 30, log: (l: string) => { lines.push(l); } };
+    await createShutdown({ ...base, drain: () => new Promise<void>(() => {}), pending: () => ({ requests: 1, jobs: 2 }) })();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("2 job(s)");
+    expect(lines[0]).toContain("1 request(s)");
+    expect(lines[0]).toContain("saves may be missing");
+    lines.length = 0;
+    await createShutdown({ ...base, drain: async () => {}, pending: () => ({ requests: 0, jobs: 0 }) })();
+    expect(lines).toEqual([]);
+  });
+});
