@@ -73,7 +73,7 @@
         /* ORW-359: the photo is shown large, full width, square, above the name. When a photo
            exists it is a button that opens the full-size viewer (no right-click needed). */
         #orwell-dossier .od-portrait {
-          display: block; width: 100%; max-width: 320px; aspect-ratio: 1 / 1; box-sizing: border-box; flex: 0 0 auto; /* ORW-437: a height-limited sheet scrolls; it never squeezes the photo */
+          display: block; width: 100%; max-width: 320px; aspect-ratio: 1 / 1; box-sizing: border-box;
           border-radius: 10px; overflow: hidden; padding: 0; margin: 0 auto 0 0; position: relative;
           border: 1px solid var(--border, #355a66); background: rgba(255,255,255,.05);
         }
