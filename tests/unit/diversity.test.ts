@@ -475,7 +475,7 @@ describe("0063 — the portrait generator reflects the unique person (no private
     expect(pp.prompt).toContain(h.ethnicity!);              // heritage in the SUBJECT line
     expect(pp.prompt).toContain(String(h.age));             // the age look
     // gender presentation phrase appears (a man / a woman / nonbinary presentation)
-    expect(pp.prompt).toMatch(/a man|a woman|nonbinary/);
+    expect(pp.prompt).toMatch(/\b(?:man|woman|nonbinary person)\b/);
   });
 
   it("portrait prompts are DISTINCT across the cast (not a grid of siblings)", () => {
@@ -512,8 +512,8 @@ describe("0063 — the portrait generator reflects the unique person (no private
       "studio portrait",
     );
     expect(result.prompt).toContain("Korean American");
-    expect(result.prompt).toContain("a woman");
-    expect(result.prompt).toContain("deadpan and dry");
+    expect(result.prompt).toContain("34-year-old Korean American woman");
+    expect(result.prompt).toContain("She stands relaxed"); // v3 sends the demeanor only as a pose keyword (none matched)
   });
 });
 

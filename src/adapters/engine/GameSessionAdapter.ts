@@ -217,7 +217,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -3282,14 +3282,16 @@ export class GameSessionAdapter implements GameSession {
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
     if (req.physicalCharacteristics !== undefined) {
-      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, ...rest } = req.physicalCharacteristics as
-        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown };
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown };
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
+      const photoHair = cleanPhotoHair(rawPhotoHair);
       req = {
         ...req,
         physicalCharacteristics: {
           ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
+          ...(photoHair !== undefined ? { photoHair } : {}),
         },
       };
     }
@@ -14465,7 +14467,7 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, source: "web_search" };
   }
 
-  /** ORW-369: look-only write-back (wardrobe + onCamera for one existing houseguest); see the port. */
+  /** ORW-369: look-only write-back (wardrobe + onCamera + photoHair for one existing houseguest); see the port. */
   recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
     if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
     const target = this.house.npcs.find((n) => n.id === req.houseguestId);
@@ -14474,21 +14476,30 @@ export class GameSessionAdapter implements GameSession {
     if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
     const wardrobe = cleanWardrobe(req.wardrobe);
     const onCamera = cleanOnCamera(req.onCamera);
-    if (wardrobe === undefined && onCamera === undefined) return { accepted: false, fields: [], reason: "nothing-valid" };
+    const photoHair = cleanPhotoHair(req.photoHair);
+    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair"] as const;
+    const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
+    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
     const playerName = (this.house.player.name ?? "").trim();
-    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""}`.toLowerCase();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
-    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}) };
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}) };
     const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
     const fields: string[] = [];
     const next = { ...prior };
     if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
     if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
-    if (fields.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
-    target.character.physicalCharacteristics = next; // only the two keys differ; appearance / every other field untouched
+    if (photoHair !== undefined && guarded.photoHair === photoHair) { next.photoHair = photoHair; fields.push("photoHair"); }
+    // ORW-380: `clear` removes an old field the new writer left out (a stale scene-like line must not ship in the v3 prompt).
+    const cleared: string[] = [];
+    for (const c of clear) {
+      if (!fields.includes(c) && next[c] !== undefined) { delete next[c]; cleared.push(c); }
+    }
+    if (fields.length === 0 && cleared.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
+    target.character.physicalCharacteristics = next; // only the look keys differ; appearance / every other field untouched
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
-    return { accepted: true, fields };
+    return { accepted: true, fields, ...(cleared.length > 0 ? { cleared } : {}) };
   }
 
   /**
