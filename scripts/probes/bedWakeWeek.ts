@@ -7,7 +7,7 @@
  */
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
-import { wakeHourAfterBed } from "../../src/engine/timeOfDay";
+import { wakeHourAfterBed, sleepDeficitForBedHour } from "../../src/engine/timeOfDay";
 
 const MESSAGES = Number(process.argv[2] ?? 1300), SEEDS = Number(process.argv[3] ?? 12), FIRST = Number(process.argv[4] ?? 1); // argv[4]: the first seed (to split a sweep over processes)
 const BED_HOURS = [21, 22.5, 24, 25.5, 26.5]; // 9pm, 10:30pm, midnight, 1:30am, 2:30am (clock hours past midnight run 24..32)
@@ -33,6 +33,22 @@ async function main() {
     const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
     const mcp = reg.resolver()("player", user);
     const call = async <T>(n: string, a: Record<string, unknown> = {}): Promise<T> => (await mcp.callTool(n, a)) as T;
+    // A read-only TEST seam on the hidden sleep state (as in tests/unit): the probe never writes it and prints it only to this console.
+    type Sleep = { lastSleepDepth?: number; playerFatigue?: number };
+    const live = async (): Promise<Sleep> => ((await reg.sandboxFor(user)) as unknown as { session: { live?: Sleep } }).session.live ?? {};
+    let lastInHouse: number | null = null;
+    // Headcount -1: when the number of people in the house changes, it drops by exactly one (one eviction at a time) and the stated house count follows.
+    const checkEviction = async (where: string): Promise<void> => {
+      const st = await call<State & { house?: Array<{ status?: string }>; player?: { status?: string } }>("getGameState");
+      if (!Array.isArray(st.house) || st.phase === "premiere") return;
+      const inHouse = st.house.filter((r) => r.status === "active").length + (st.player?.status === "active" ? 1 : 0);
+      if (lastInHouse !== null && inHouse !== lastInHouse) {
+        rec("headcount -1: an eviction removes exactly one person", lastInHouse - inHouse === 1, `seed ${seed} ${where}: ${lastInHouse} -> ${inHouse}`);
+        const h = st.whereabouts?.counts?.house;
+        if (typeof h === "number") rec("headcount -1: the stated house count follows the eviction", h === inHouse, `seed ${seed} ${where}: house count ${h} vs ${inHouse} in`);
+      }
+      lastInHouse = inHouse;
+    };
     await call("createCharacter", { playerName: "The Player", seed, archetype: "floater" });
     let nights = 0, lastBedWeek = 1, msg = 0;
     const note = async (): Promise<void> => { await call("noteMessage", { messageId: `${user}-${msg++}` }); };
@@ -72,6 +88,7 @@ async function main() {
         if (st2.hoh?.id && (st2.week ?? 0) > hohWeek) { lastHoh = st2.hoh.id; hohWeek = st2.week ?? hohWeek; }
       }
       const adv = (await call<{ pending?: { kind: string; options?: Array<{ id: string }> }; held?: { next?: string; minutesUntil?: number } }>("advanceGame"));
+      await checkEviction(`message ${i}`);
       if (adv.pending) {
         const k = adv.pending.kind, o = (j: number) => adv.pending!.options?.[j]?.id;
         try {
@@ -98,7 +115,8 @@ async function main() {
       await checkState("before bed");
       const b = depthOf(before.clockLabel);
       const key = `${user}-bed-${nights}`;
-      const ti = await call<{ held?: unknown; dailyRecap?: unknown; weekChapter?: { week?: number } }>("turnIn", { idempotencyKey: key });
+      const meterBefore = (await live()).playerFatigue ?? 0;
+      const ti =await call<{ held?: unknown; dailyRecap?: unknown; weekChapter?: { week?: number } }>("turnIn", { idempotencyKey: key });
       if (!ti.held && nights % 4 === 0) {
         const dayA = (await call<State>("getGameState")).clockLabel;
         const ti2 = await call<{ held?: unknown }>("turnIn", { idempotencyKey: key });
@@ -116,6 +134,16 @@ async function main() {
         const early = a.h < 8 || (a.h >= 24 && a.h - 24 < 8);
         if (early && after.timeOfDay) rec("an early wake (before 8am) reads Early morning", after.earlyMorning === true || after.timeOfDay === "early-morning", `seed ${seed} night ${nights}: woke ${after.clockLabel}, timeOfDay ${after.timeOfDay}, earlyMorning ${String(after.earlyMorning)}`);
       }
+      if (b) { // sleep debt: tonight's debt is graded by the bed hour (0 by midnight, growing after), and a late night raises the multi-night meter
+        const sl = await live(), meterAfter = sl.playerFatigue ?? 0;
+        rec("sleep debt: the engine records the bed hour as the night's last-awake hour", typeof sl.lastSleepDepth === "number" && Math.abs(sl.lastSleepDepth - b.h) < 0.09, `seed ${seed} night ${nights}: bed ${b.h.toFixed(2)}h, recorded ${sl.lastSleepDepth}`);
+        const debt = sleepDeficitForBedHour(sl.lastSleepDepth ?? b.h);
+        rec("sleep debt: none for a bed by midnight, some for a bed after", b.h <= 24 ? debt === 0 : debt > 0, `seed ${seed} night ${nights}: bed ${b.h.toFixed(2)}h -> debt ${debt.toFixed(3)}`);
+        if (sl.playerFatigue !== undefined) {
+          rec("sleep debt: the multi-night meter moves once, at the bed", meterAfter !== meterBefore || (debt === 0 && meterBefore === 0), `seed ${seed} night ${nights}: meter ${meterBefore.toFixed(3)} -> ${meterAfter.toFixed(3)}`);
+          if (debt > meterBefore) rec("sleep debt: a night later than the running meter raises it", meterAfter > meterBefore, `seed ${seed} night ${nights}: debt ${debt.toFixed(3)}, meter ${meterBefore.toFixed(3)} -> ${meterAfter.toFixed(3)}`);
+        }
+      }
       rec("every bedtime carries a day recap", !!ti.dailyRecap, `seed ${seed} night ${nights}: bed ${before.clockLabel} (${before.phase}) had no dailyRecap`);
       const weekNow = after.week ?? before.week ?? 1;
       const chapterDue = (before.week ?? 1) > lastBedWeek;
@@ -125,10 +153,12 @@ async function main() {
       await checkState("after wake");
       // N5: before 6am nobody is up (an early riser's own wake can come before 8am - "no houseguest awake until their own wake" - so 6-8am is not checked here).
       if (a && ((a.h >= 24 && a.h - 24 < 6) || a.h < 6)) rec("N5 an early bed wakes alone (no houseguest awake before 6am)", (after.awake ?? []).length === 0, `seed ${seed} night ${nights}: woke ${after.clockLabel} with ${(after.awake ?? []).length} awake`);
-      if (nights % 3 === 1) { // N1: a goodnight right after waking (the morning) is refused and the clock does not move
-        const again = await call<{ held?: unknown }>("turnIn");
+      { // N1 / turnIn once: a second goodnight right after waking (a NEW key, so not a replay) is refused, the clock stays and the sleep meter does not move again
+        const m0 = (await live()).playerFatigue;
+        const again = await call<{ held?: unknown }>("turnIn", { idempotencyKey: `${key}-again` });
         const st3 = await call<State>("getGameState");
         rec("N1 a morning goodnight is refused and the clock stays", !!again.held && st3.clockLabel === after.clockLabel, `seed ${seed} night ${nights}: held ${!!again.held}, clock ${after.clockLabel} -> ${st3.clockLabel}`);
+        rec("turnIn once: a second bed the same night moves no sleep state", (await live()).playerFatigue === m0, `seed ${seed} night ${nights}: meter ${m0} -> ${(await live()).playerFatigue}`);
       }
       const ds = (await call<State>("getGameState")).daySchedule;
       if (before.phase === "hoh-competition" && (after.week ?? 0) > 1) {
