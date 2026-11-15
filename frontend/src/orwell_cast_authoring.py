@@ -73,12 +73,14 @@ PHOTO_SHEET_RULES = (
     "hold themselves, where they look, and one expression, in one to three short sentences of at most "
     "240 characters. It names exactly ONE spot from: kitchen, living room, dining room, backyard, "
     "lounge, a bedroom; pick the spot this person would be in, but not one that taken.spots shows "
-    "already used by 3 other houseguests. Eyes on the camera, unless the person is guarded or aloof "
-    "(then looking away is allowed). Hands at rest or doing ONE simple thing (arms folded, hands in "
-    "pockets, holding a mug, chin on fist, elbow propped). Mouth closed, smiling, or one open laugh "
-    "for the loudest personalities, never mid-word. At most one prop, and it is theirs, never a chore. "
-    "It ends with a read of who they are in 3-8 words, introduced by \"the one who\" (for example "
-    "\"the one who misses nothing\"). It is a still photograph, not a scene: no sequence of events, "
+    "already used by 3 other houseguests. Where the eyes go follows the person: on the camera for the open and "
+    "bold; off to one side, down, at something in the room or past the lens for the guarded, shy, distracted or "
+    "busy. Hands at rest or doing ONE simple thing (arms folded, hands in pockets, a hand on a knee, tucking hair, "
+    "adjusting a cuff, elbow propped). The expression follows the person too: smiling only if this person would; "
+    "a serious, wry, tired, guarded, amused-without-smiling or thoughtful face is as likely as a smile; never "
+    "mid-word. Usually no prop: a prop only when this person's job or life gives a reason, never a mug or cup, and "
+    "at most one. Only when the OPENING PATTERN line says closing read: yes, end with a read of who they are in 3-8 "
+    "words, introduced by \"the one who\"; otherwise end the line plainly. It is a still photograph, not a scene: no sequence of events, "
     "no speech, no chores, no other people. Never use these words: "
     + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
     "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
@@ -1929,7 +1931,9 @@ ONCAMERA_OPENINGS = ("the house spot", "the hands", "the gaze", "the lean or pos
 
 def opening_pattern(slot: int) -> dict:
     return {"identityConcept opens with": IDENTITY_OPENINGS[slot % len(IDENTITY_OPENINGS)],
-            "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)]}
+            "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)],
+            # ORW-480: about one card in three ends with a "the one who" read, so it is not on every line
+            "closing read": "yes" if slot % 3 == 0 else "no"}
 
 
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,

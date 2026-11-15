@@ -665,10 +665,10 @@
    "field": "wardrobe",
    "multi": true,
    "cap": {
-    "share": 0.27,
-    "min": 2
+    "share": 0.4,
+    "min": 3
    },
-   "note": "the kind of piece: the same piece on more than about 4 of 15 reads as one wardrobe",
+   "note": "the kind of piece: the same piece on more than about 6 of 15 reads as one wardrobe (blazer 3, vest 2, jeans 6 have their own)",
    "values": {
     "blazer": {
      "words": [
@@ -763,7 +763,11 @@
       "joggers",
       "sweatpants",
       "cargo"
-     ]
+     ],
+     "cap": {
+      "share": 0.5,
+      "min": 3
+     }
     },
     "shorts": {
      "words": [
@@ -1060,7 +1064,14 @@
   "flip flops",
   "wristwatch",
   "pocket square",
-  "strap"
+  "strap",
+  "runners",
+  "running shoes",
+  "shoes",
+  "kicks",
+  "waders",
+  "overalls",
+  "scrubs"
  ],
  "_matching": "A word matches as a whole word (an optional plural s/es allowed) anywhere in the field text, case-insensitive; a word ending in * is a stem (matches the start of a word). single kinds take the first value in table order that matches, else 'fallback'; multi kinds take every value that matches; colour (scope first-item, rule earliest) reads only the first wardrobe item and takes the value whose word comes earliest; role (rule head-noun) is the last word of the job title. A value's own cap overrides the kind cap; cap(n) = max(min, ceil(share*n))."
 }

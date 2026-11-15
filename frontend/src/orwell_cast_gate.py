@@ -17,6 +17,7 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
+REALISM_REWRITE_BUDGET = 5  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
 _SENT_END = re.compile(r"[.!?][\"'”’)\]]*(?=\s|$)")
@@ -232,6 +233,35 @@ def rewrite_message(codes: list) -> str:
             "look lacks, never \"Big Brother\"; include voice, physicalCharacteristics with wardrobe and an identityConcept.")
 
 
+_REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "room", "closing-read")
+_REALISM_WARDROBE_KINDS = ("garment", "colour")
+
+
+def _realism_tags(card: dict) -> dict:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.tag_card(card)
+    except Exception:  # failsoft-ok: the realism table never blocks a card
+        return {}
+
+
+_REALISM_ASK = {
+    "prop": lambda v: f"nothing in hand that reads as a {v} prop (no {v})",
+    "expression": lambda v: "no smile, grin or smirk: a serious, wry, guarded, thoughtful or amused-without-smiling face",
+    "smile-kind": lambda v: f"no {v} smile",
+    "gaze": lambda v: "eyes not on the lens: looking away, down, or at something in the room",
+    "pose": lambda v: f"not a {v} pose",
+    "room": lambda v: f"not in the {v.replace('-', ' ')}: another house spot",
+    "closing-read": lambda v: 'no closing "the one who ..." read',
+    "garment": lambda v: f"no {v.replace('-', ' ')} among the pieces",
+    "colour": lambda v: f"a main piece that is not in {v.replace('-', ' ')} tones",
+}
+
+
+def _realism_ask(kinds: dict) -> str:
+    return "; ".join(_REALISM_ASK.get(k, lambda v, k=k: f"no {v}")(v) for k, vals in kinds.items() for v in vals)
+
+
 class SeasonGate:
     """One run's tallies and the registry of accepted texts (for the cross-cast checks). Counts and codes only."""
 
@@ -239,6 +269,9 @@ class SeasonGate:
         self.user = user
         self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
         self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
+        self.realism_rewrites = 0  # casting-director rewrites asked this run (bounded by REALISM_REWRITE_BUDGET)
+        self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
+        self.n = 0  # the cast size, from the first card gated
         self.codes: dict = {}
         self.registry: dict = {}
 
@@ -255,12 +288,27 @@ class SeasonGate:
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
                "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:3]),
+               "tags": _realism_tags(card),
                "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
             if rec[key] and any(r.get(key) == rec[key] for o, r in self.registry.items() if o != hid):
                 self.count([code])
+        for kind, vals in self.realism_offenders(hid, card).items():
+            for v in vals:
+                self.count([f"realism-{kind}:{v}"])  # what the casting director found on this card, whether or not a rewrite cleared it
         self.registry[hid] = rec
+
+    def realism_offenders(self, hid: str, card: dict) -> dict:
+        """{kind: [value]} this card would add beyond the casting-director caps, against the cards already accepted (ORW-480)."""
+        n = self.n or 15
+        tags = _realism_tags(card)
+        earlier = [r.get("tags") or {} for o, r in self.registry.items() if o != hid]
+        try:
+            from src import orwell_cast_realism as _R
+            return _R.offenders_for(tags, earlier, n)
+        except Exception:  # failsoft-ok: the realism table never blocks a card
+            return {}
 
     def repeats(self, hid: str, profile: dict, npc: dict, cast) -> dict:
         """Which cast-level repetition this card would add against the cards already accepted: {"identity": opening,
@@ -273,6 +321,13 @@ class SeasonGate:
         first = str(card.get("name") or "").split(" ")[0]
         if first and re.search(r"\b%s\b" % re.escape(first), str(card.get("identityConcept") or "")):
             out["identity-name"] = first  # the identity line names the person: it is read beside the card, never needs the name
+        off = self.realism_offenders(hid, card)
+        cam = {k: v for k, v in off.items() if k in _REALISM_ONCAMERA_KINDS}
+        wd = {k: v for k, v in off.items() if k in _REALISM_WARDROBE_KINDS}
+        if cam:
+            out["realism-oncamera"] = cam
+        if wd:
+            out["realism-wardrobe"] = wd
         if ident_open and any(r.get("ident_open") == ident_open for o, r in self.registry.items() if o != hid):
             out["identity"] = ident_open
         if oncam_end and any(r.get("oncam_end") == oncam_end for o, r in self.registry.items() if o != hid):
@@ -294,7 +349,7 @@ class SeasonGate:
         per = ",".join(f"{k}={v}" for k, v in sorted(self.codes.items())) or "none"
         return (f"[cast-gate] season line: checked={self.checked} repaired={self.repaired} "
                 f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
-                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed}")
+                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-fixed={self.realism_fixed}")
 
     def log_summary(self) -> None:
         if self.checked:
@@ -318,6 +373,12 @@ def repetition_message(repeats: dict, taken: dict) -> str:
         used = "; ".join(f'"{x}"' for x in (taken.get("oncamera_endings") or [])[:8])
         parts.append(f'the physicalCharacteristics.onCamera line ends "{repeats["oncamera"]}", which another card already ends with'
                      f" (endings taken: {used}); end it a different way")
+    if "realism-oncamera" in repeats:
+        parts.append("the onCamera line repeats what other cards in this cast already show (" + _realism_ask(repeats["realism-oncamera"])
+                     + "); keep exactly one house spot, a still moment, the person's own pronoun and nothing that is not in their look")
+    if "realism-wardrobe" in repeats:
+        parts.append("the wardrobe repeats what other cards already wear (" + _realism_ask(repeats["realism-wardrobe"])
+                     + "); two or three real garments a shop sells, chosen from this person's job, hometown, age and money")
     return ("Only this needs fixing: " + " and ".join(parts) + ". Write the COMPLETE JSON object again with the same "
             "person: same name, pronouns, age, voice, biography and look; change nothing except the wording named above.")
 
@@ -348,6 +409,12 @@ def _oncamera_ok(cand: dict, npc: dict, cast) -> bool:
     return True
 
 
+def _wardrobe_ok(cand: dict, npc: dict) -> bool:
+    """A rewritten wardrobe passes the same look checks as a first-pass one (shape, real garments, pronouns, the taken main piece)."""
+    from src import orwell_cast_authoring as A
+    return not A.look_problems(cand, npc)
+
+
 def _identity_ok(text: str) -> bool:
     return isinstance(text, str) and 12 <= len(" ".join(text.split())) <= 250  # the same bounds a first-pass identity gets
 
@@ -357,8 +424,12 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     gate's budget. Only identityConcept and physicalCharacteristics.onCamera can change, and only when the new text passes
     the whole gate and no longer repeats; otherwise the card ships as it is, still carrying the non-blocking code."""
     rep = gate.repeats(hid, profile, npc, cast)
+    if gate.realism_rewrites >= REALISM_REWRITE_BUDGET:
+        rep = {k: v for k, v in rep.items() if not k.startswith("realism-")}  # the budget is spent: report only, the card ships as it is
     if not rep:
         return
+    if any(k.startswith("realism-") for k in rep):
+        gate.realism_rewrites += 1
     gate.rep_rewritten += 1
     try:
         fresh = await rewrite_fn(npc, ["rep"], message=repetition_message(rep, gate.taken_phrases(hid)))
@@ -370,10 +441,15 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     new_ident = fresh.get("identityConcept")
     new_phys = fresh.get("physicalCharacteristics")
     new_cam = new_phys.get("onCamera") if isinstance(new_phys, dict) else None
+    new_wd = new_phys.get("wardrobe") if isinstance(new_phys, dict) else None
+    has_cam = isinstance(new_cam, str) and new_cam.strip()
+    has_wd = isinstance(new_wd, list) and 2 <= len(new_wd) <= 3 and all(isinstance(x, str) and x.strip() for x in new_wd)
+    if "realism-oncamera" in rep and "oncamera" not in rep:
+        rep = {**rep, "oncamera": ""}  # the same line answers both asks
     # each repeated field is judged on its own: kept only when the new text passes the whole gate and no longer repeats
     for key, ok in (("identity", isinstance(new_ident, str) and new_ident.strip()),
                     ("identity-name", isinstance(new_ident, str) and new_ident.strip()),
-                    ("oncamera", isinstance(new_cam, str) and new_cam.strip())):
+                    ("oncamera", has_cam), ("realism-wardrobe", has_wd)):
         if key not in rep or not ok:
             continue
         cand = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
@@ -384,7 +460,10 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         else:
             base = cand.get("physicalCharacteristics")
             base = dict(base) if isinstance(base, dict) else dict((npc or {}).get("physicalCharacteristics") or {})
-            base["onCamera"] = new_cam
+            if key == "oncamera":
+                base["onCamera"] = new_cam
+            else:
+                base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
             cand["physicalCharacteristics"] = base
         mend(cand, npc, cast)
         if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):
@@ -393,13 +472,23 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
             continue
         if key == "oncamera" and not _oncamera_ok(cand, npc, cast):
             continue
+        if key == "realism-wardrobe" and not _wardrobe_ok(cand, npc):
+            continue
         still = gate.repeats(hid, cand, npc, cast)
-        asked = [k for k in rep if k.startswith("identity")] if key.startswith("identity") else [key]
-        if any(k in still for k in asked):
+        if key.startswith("identity"):
+            asked = [k for k in rep if k.startswith("identity")]
+        elif key == "oncamera":
+            asked = [k for k in ("oncamera", "realism-oncamera") if k in rep]
+        else:
+            asked = [key]
+        if any(k in still for k in asked):  # a realism dict is non-empty only while an offender remains (the asked one or a new one)
             continue  # it still repeats (or still names the person): that field ships as it is (fail open, the code is counted as before)
         profile.clear()
         profile.update(cand)
         gate.rep_fixed += 1
+        if key in ("realism-wardrobe",) or (key == "oncamera" and "realism-oncamera" in rep):
+            gate.realism_fixed += 1
+            gate.count(["realism-fixed"])
 
 
 async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn: Optional[RewriteFn]):
@@ -408,6 +497,7 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
     blocking is left not authored with a RED soft-fail (id + codes); non-blocking codes never hold a card back."""
     hid = str((npc or {}).get("id") or "")
     gate.checked += 1
+    gate.n = gate.n or len(cast or [])
     first = card_codes(profile, npc, cast, gate.registry)
     gate.count(first)
     if mend(profile, npc, cast):
