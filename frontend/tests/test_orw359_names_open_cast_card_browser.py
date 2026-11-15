@@ -15,8 +15,22 @@ SHOTS = os.environ.get("ORW359_SHOTS")
 
 
 def _png(size=1024):
-    row = b"\x00" + bytes([40, 90, 120]) * size
-    raw = row * size
+    """A fixture portrait with visible detail: a bright border, a face-like disc and a marker bar near the bottom edge, so a clipped photo shows."""
+    rows = []
+    for y in range(size):
+        r = bytearray(b"\x00")
+        for x in range(size):
+            if x < 24 or y < 24 or x >= size - 24 or y >= size - 24:
+                px = (255, 200, 0)
+            elif size - 120 <= y < size - 60 and 200 <= x < size - 200:
+                px = (230, 40, 40)
+            elif (x - size // 2) ** 2 + (y - size // 2 + 60) ** 2 < 230 ** 2:
+                px = (230, 190, 160)
+            else:
+                px = (40, 90, 120)
+            r += bytes(px)
+        rows.append(bytes(r))
+    raw = b"".join(rows)
 
     def chunk(t, d):
         c = struct.pack(">I", len(d)) + t + d
@@ -84,6 +98,15 @@ def _page(browser, fe, w, h):
     return page
 
 
+def _until(page, expr, timeout=8000):
+    """Poll a JS expression (page.wait_for_function evals a string, which the page CSP refuses)."""
+    for _ in range(max(1, timeout // 150)):
+        if page.evaluate(expr):
+            return
+        page.wait_for_timeout(150)
+    raise AssertionError("never became true: " + expr)
+
+
 def _rows(page):
     page.evaluate("(h) => { document.getElementById('chat-history').insertAdjacentHTML('beforeend', h); }", ROWS)
     page.wait_for_selector("#r1[data-ow-names]", timeout=8000)
@@ -91,13 +114,27 @@ def _rows(page):
 
 def _dossier_name(page):
     page.wait_for_selector("#orwell-dossier #od-name:visible", timeout=8000)
-    page.wait_for_function("document.querySelector('#od-name') && document.querySelector('#od-name').textContent.length > 0", timeout=8000) if False else None
     for _ in range(40):
         t = page.evaluate("(document.querySelector('#orwell-dossier #od-name')||{}).textContent || ''")
         if t:
             return t
         page.wait_for_timeout(150)
     return ""
+
+
+FIT = """() => { const img = document.querySelector('#opv-img').getBoundingClientRect();
+  const win = document.getElementById('orwell-portrait-viewer'); const body = win.querySelector('.ow-body');
+  const bb = body.getBoundingClientRect(); const wb = win.getBoundingClientRect();
+  return { w: img.width, h: img.height, inBody: img.left >= bb.left - 1 && img.right <= bb.right + 1 && img.top >= bb.top - 1 && img.bottom <= bb.bottom + 1,
+           inView: img.top >= 0 && img.bottom <= window.innerHeight && img.left >= 0 && img.right <= window.innerWidth,
+           scrolls: body.scrollHeight > body.clientHeight + 1 }; }"""
+
+
+def _assert_whole_photo_visible(page):
+    page.wait_for_timeout(1000)  # the sheet/window entrance animation must have finished
+    f = page.evaluate(FIT)
+    assert abs(f["w"] - f["h"]) <= 2 and f["w"] >= 300, f
+    assert f["inBody"] and f["inView"] and not f["scrolls"], f
 
 
 def _close_dossier(page):
@@ -139,26 +176,28 @@ def test_names_and_faces_open_the_right_cast_card(fe):
                 assert _dossier_name(page) == who, sel
                 if SHOTS and sel == "#bold1":
                     os.makedirs(SHOTS, exist_ok=True)
-                    page.screenshot(path=os.path.join(SHOTS, "after-desktop-1440-dossier-large-photo.png"))
+                    page.wait_for_timeout(1200)  # let the window animation and the photo settle
+                    page.screenshot(path=os.path.join(SHOTS, "after-desktop-1440-dossier-large-photo.png"), timeout=90000)
                 _close_dossier(page)
-                page.wait_for_function("!document.getElementById('orwell-dossier')", timeout=5000) if False else None
             # the dossier photo is big, a button, and opens the viewer at full size
             page.click("#r1 #bold1")
             _dossier_name(page)
-            page.wait_for_selector("#orwell-dossier button.od-portrait", timeout=5000)
-            w = page.evaluate("document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect().width")
-            assert w >= 280, w
-            assert page.get_attribute("#orwell-dossier button.od-portrait", "aria-label") == "View photo of Marcus Bell"
-            page.click("#orwell-dossier button.od-portrait")
+            page.wait_for_selector("#orwell-dossier .od-portrait button.od-photo-btn", timeout=5000)
+            w, hh = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
+            assert w >= 280 and hh >= 280 and abs(w - hh) <= 2, (w, hh)
+            assert page.get_attribute("#orwell-dossier .od-portrait button.od-photo-btn", "aria-label") == "View photo of Marcus Bell"
+            page.click("#orwell-dossier .od-portrait button.od-photo-btn")
             page.wait_for_selector("#orwell-portrait-viewer #opv-img", timeout=5000)
-            page.wait_for_function("document.querySelector('#opv-img').complete && document.querySelector('#opv-img').naturalWidth === 1024", timeout=8000)
+            _until(page, "document.querySelector('#opv-img').complete && document.querySelector('#opv-img').naturalWidth === 1024", 8000)
             assert page.get_attribute("#opv-img", "alt") == "Marcus Bell"
             assert page.get_attribute("#orwell-portrait-viewer", "aria-modal") == "true"
+            _assert_whole_photo_visible(page)
             if SHOTS:
-                page.screenshot(path=os.path.join(SHOTS, "after-desktop-1440-viewer-open.png"))
+                page.wait_for_timeout(1200)  # let the window animation and the photo settle
+                page.screenshot(path=os.path.join(SHOTS, "after-desktop-1440-viewer-open.png"), timeout=90000)
             page.keyboard.press("Escape")
             page.wait_for_selector("#orwell-portrait-viewer", state="detached", timeout=5000)
-            assert page.evaluate("document.activeElement && document.activeElement.classList.contains('od-portrait')"), "focus returns to the opener"
+            assert page.evaluate("document.activeElement && document.activeElement.classList.contains('od-photo-btn')"), "focus returns to the opener"
         finally:
             browser.close()
 
@@ -173,7 +212,7 @@ def test_evicted_photo_stays_grayscale_in_the_viewer(fe):
             page.wait_for_selector("#opv-img.opv-evicted", timeout=5000)
             assert "grayscale" in page.evaluate("getComputedStyle(document.querySelector('#opv-img')).filter")
             page.evaluate("window.OrwellPortraitViewer.open('npc:1', null)")  # singleton: retargets
-            page.wait_for_function("document.querySelector('#opv-img').alt === 'Dana Reyes'", timeout=5000)
+            _until(page, "document.querySelector('#opv-img').alt === 'Dana Reyes'", 5000)
             assert page.evaluate("document.querySelectorAll('#orwell-portrait-viewer').length") == 1
             assert page.evaluate("getComputedStyle(document.querySelector('#opv-img')).filter") == "none"
         finally:
@@ -188,6 +227,7 @@ def test_tile_expand_button_opens_only_the_viewer(fe):
             page = _page(browser, fe, 1440, 900)
             page.evaluate("window._orwellCastEnsure()")
             page.wait_for_selector("#orwell-cast .oc-hg .oc-expand:visible", timeout=10000)
+            _until(page, "[...document.querySelectorAll('#orwell-cast .oc-portrait img')].every(i => i.complete && i.naturalWidth > 0)", 10000)
             n = page.evaluate("document.querySelectorAll('#orwell-cast .oc-hg .oc-expand:not([hidden])').length")
             assert n == 5, "every tile with a photo, the player's own included"
             box = page.evaluate("(() => { const r = document.querySelector('#orwell-cast .oc-expand').getBoundingClientRect(); return [r.width, r.height]; })()")
@@ -195,7 +235,8 @@ def test_tile_expand_button_opens_only_the_viewer(fe):
             assert page.get_attribute("#orwell-cast .oc-hg >> nth=1 >> .oc-expand", "aria-label") == "View photo of Dana Reyes"
             if SHOTS:
                 os.makedirs(SHOTS, exist_ok=True)
-                page.screenshot(path=os.path.join(SHOTS, "after-desktop-1440-cast-tile-expand.png"))
+                page.wait_for_timeout(1200)  # let the window animation and the photo settle
+                page.screenshot(path=os.path.join(SHOTS, "after-desktop-1440-cast-tile-expand.png"), timeout=90000)
             page.click("#orwell-cast .oc-hg >> nth=1 >> .oc-expand")
             page.wait_for_selector("#orwell-portrait-viewer #opv-img", timeout=5000)
             assert page.evaluate("!document.getElementById('orwell-dossier')"), "the expand button must not open the dossier"
@@ -206,7 +247,7 @@ def test_tile_expand_button_opens_only_the_viewer(fe):
             assert _dossier_name(page) == "Marcus Bell"
             # player's own tile
             page.click("#orwell-cast .oc-hg >> nth=0 >> .oc-expand")
-            page.wait_for_function("document.querySelector('#opv-img') && document.querySelector('#opv-img').alt === 'Pat Quinn'", timeout=5000)
+            _until(page, "document.querySelector('#opv-img') && document.querySelector('#opv-img').alt === 'Pat Quinn'", 5000)
         finally:
             browser.close()
 
@@ -216,7 +257,7 @@ def test_phone_width_has_no_sideways_scroll_and_keyboard_only_path(fe):
     with sync_api.sync_playwright() as p:
         browser = p.chromium.launch()
         try:
-            page = _page(browser, fe, 412, 800)
+            page = _page(browser, fe, 412, 915)
             _rows(page)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no sideways scroll with linked names"
             # keyboard only: focus a name, Enter opens the dossier, focus the photo, Enter opens the viewer, Escape closes it
@@ -225,20 +266,23 @@ def test_phone_width_has_no_sideways_scroll_and_keyboard_only_path(fe):
             assert _dossier_name(page) == "Priya Nair"
             if SHOTS:
                 os.makedirs(SHOTS, exist_ok=True)
-                page.screenshot(path=os.path.join(SHOTS, "after-phone-412-dossier-large-photo.png"))
+                page.wait_for_timeout(1200)  # let the window animation and the photo settle
+                page.screenshot(path=os.path.join(SHOTS, "after-phone-412-dossier-large-photo.png"), timeout=90000)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no sideways scroll with the dossier open"
-            w = page.evaluate("document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect().width")
-            assert w >= 280, w
-            page.wait_for_selector("#orwell-dossier button.od-portrait", timeout=5000)
-            page.focus("#orwell-dossier button.od-portrait")
+            w, hh = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
+            assert w >= 280 and hh >= 280 and abs(w - hh) <= 2, (w, hh)
+            page.wait_for_selector("#orwell-dossier .od-portrait button.od-photo-btn", timeout=5000)
+            page.focus("#orwell-dossier .od-portrait button.od-photo-btn")
             page.keyboard.press("Enter")
             page.wait_for_selector("#orwell-portrait-viewer #opv-img", timeout=5000)
-            page.wait_for_function("document.querySelector('#opv-img').naturalWidth === 1024", timeout=8000)
+            _until(page, "document.querySelector('#opv-img').naturalWidth === 1024", 8000)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no sideways scroll with the viewer open"
+            _assert_whole_photo_visible(page)
             iw = page.evaluate("document.querySelector('#opv-img').getBoundingClientRect().width")
             assert iw <= 412, iw
             if SHOTS:
-                page.screenshot(path=os.path.join(SHOTS, "after-phone-412-viewer-open.png"))
+                page.wait_for_timeout(1200)  # let the window animation and the photo settle
+                page.screenshot(path=os.path.join(SHOTS, "after-phone-412-viewer-open.png"), timeout=90000)
             page.keyboard.press("Escape")
             page.wait_for_selector("#orwell-portrait-viewer", state="detached", timeout=5000)
             # Space also activates a name

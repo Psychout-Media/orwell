@@ -27,8 +27,12 @@
       "<style>" +
       "#" + WIN_ID + " { width: auto; max-width: 96vw; }" +
       "#" + WIN_ID + " .opv-body { display: flex; justify-content: center; }" +
-      "#" + WIN_ID + " .opv-img { display: block; max-width: min(92vw, 1024px); max-height: 80vh;" +
-      "  width: auto; height: auto; object-fit: contain; border-radius: 10px; }" +
+      // The kit caps .ow-body at min(70dvh, 560px) and scrolls past it; the viewer lifts that cap and
+      // sizes a SQUARE image to fit the viewport, so the whole photo is visible (object-fit: contain).
+      "#" + WIN_ID + " .ow-body { max-height: none; overflow: visible; }" +
+      "#" + WIN_ID + " .opv-img { display: block; aspect-ratio: 1 / 1; height: auto;" +
+      "  width: min(92vw, 1024px, calc(100dvh - 190px)); max-width: 100%; max-height: none;" +
+      "  object-fit: contain; border-radius: 10px; }" +
       "#" + WIN_ID + " .opv-img.opv-evicted { filter: grayscale(1); }" +
       "</style>" +
       '<div class="opv-body"><img class="opv-img" id="opv-img" alt=""></div>';
