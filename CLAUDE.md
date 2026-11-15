@@ -91,7 +91,7 @@ leak-prone build is a **failure state**, not a partial success.
    enforced in code at the port/tool boundary, *never* by prompt wording. The model "cannot
    leak what it never receives." **God Mode / admin is walled from the Vault too** (the human
    has never read it and must not be able to — spoilers ruin the game above all else).
-   **THREE sanctioned exceptions exist — and only these three.** (1) **owner-ruled DEBUG override: `producerVault`** — a live-Vault
+   **FOUR sanctioned exceptions exist — and only these four.** (1) **owner-ruled DEBUG override: `producerVault`** — a live-Vault
    *unseal* for operator debugging. It is deliberately quarantined and is NOT a hole in the wall for
    normal play: it lives in `DEBUG_VAULT_TOOLS` (the *only* `readsVault: true` registry — the literal
    `ToolDescriptor.readsVault: false` guard still holds for every advertised tool), is **out-of-band**
@@ -106,7 +106,7 @@ leak-prone build is a **failure state**, not a partial success.
    flag-gated off-by-default. Spec: `docs/design/2026-07-21-moonshot-round2-divergent-slate.md`
    §5 Q1. (3) **The 0048 post-season retrospective (owner-approved 2026-11-10, card 29: "This seems fine as is."):** after the
    winner is crowned and the season is over, the per-voter attribution of the secret eviction ballots unseals for the player's
-   look-back. Post-season only — never during play, never before the winner is crowned. Never extend Vault exposure beyond these three doors.
+   look-back. Post-season only — never during play, never before the winner is crowned. (4) **Build leans to the physical stat (owner-ruled 2026-11-14, Kevin: a houseguest's public build leans toward their physical competition stat at character creation: a hint, not a readout; words only, engine-side, never a number):** at creation the engine reads the hidden physical stat once, picks a fitness band with noise on its own `${seed}:build-band` side stream, and deals a build WORD of that band; only the words are stored on the public facet, and no number, band name or stat-derived field appears in any projection, tool result, log line or prompt. Never extend Vault exposure beyond these four doors.
 3. **Anti-sycophancy.** The deterministic core + seeded randomness decide outcomes; the LLM
    only *narrates*. Ground truth lives in the stores and is *queried*, never "remembered"
    and bent to please the player.

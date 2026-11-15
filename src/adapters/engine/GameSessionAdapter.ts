@@ -232,7 +232,7 @@ import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
 import { MANNER_GRADING, MANNER_THRESHOLDS, JURY_MEMORY } from "../../engine/juryConstants";
 import {
-  CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
+  CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
 import { COMP_EFFORT } from "../../engine/relationshipConstants";
@@ -506,7 +506,7 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  */
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
-const DAY_LEDGER_TEXT_CHARS = 900;
+const DAY_LEDGER_TEXT_CHARS = 3200; // ORW-402: a whole-day summary (up to ~400 words) plus its key list
 /** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
 const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
@@ -6877,6 +6877,7 @@ export class GameSessionAdapter implements GameSession {
       // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
       // target the still-floor cards.
       ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
       // I6 distinct-voices fix: the SAFE rendered voice-fingerprint clause (0084) the live `view()`
       // mapping now carries — keeps this pre-warm/portrait shape in sync with the live roster card
       // (this docstring's own "same shape" contract). A player-surface-safe STRING (dial vocab only),
@@ -7296,6 +7297,7 @@ export class GameSessionAdapter implements GameSession {
       if (!pub) continue;
       n.character.biography = pub.biography;
       n.character.physicalCharacteristics = pub.physicalCharacteristics;
+      n.character.castingType = { id: pub.castingType.id, label: pub.castingType.label, read: pub.castingType.read }; // ORW-381
       // 0063: GROUND the skin tone from the houseguest's ethnicity identity facet, so the structured
       // physical characteristics (which drive BOTH the narration and the portrait, L29/L23) agree with
       // the heritage the cast was guaranteed — the text and the picture never contradict the identity.
@@ -11365,10 +11367,34 @@ export class GameSessionAdapter implements GameSession {
     if (s.playedGame === true) {
       if (this.presenceTenure) for (const id of [...this.presenceTenure.keys()]) this.presenceTenure.set(id, 0);
       this.convoPartners = null;
+      this.driftFeelingsOvernight(s, day);
     }
     if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
     if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
+  }
+
+  /**
+   * ORW-401 follow-up: relationships must not polarise, so overnight each feeling the PLAYER is on either end of eases toward the middle (`OVERNIGHT_DRIFT.RATE` of the remaining distance),
+   * unless that edge moved during the day just closed (it was fed, so it holds). "Moved" = differs from the reference stored at the previous roll (a missing reference = the baseline). No rng; played games only.
+   */
+  private driftFeelingsOvernight(s: NonNullable<GameSessionAdapter["live"]>, day: number): void {
+    if (s.feelDriftDay !== undefined && day <= s.feelDriftDay) return;
+    const b = RELATIONSHIP_CONSTANTS.baseline;
+    const ref = s.feelRef ?? {};
+    const edges = this.rel.serialize().edges.filter((e) => e.from === PLAYER || e.to === PLAYER);
+    const held = new Set<string>();
+    for (const e of edges) {
+      const r = ref[`${e.from}->${e.to}`] ?? [b.trust, b.affinity, b.threat];
+      if (e.trust !== r[0] || e.affinity !== r[1] || e.threat !== r[2]) held.add(`${e.from}->${e.to}`);
+    }
+    this.rel.driftTowardBaseline(OVERNIGHT_DRIFT.RATE, (from, to) => (from === PLAYER || to === PLAYER) && !held.has(`${from}->${to}`));
+    const next: Record<string, [number, number, number]> = {};
+    for (const e of this.rel.serialize().edges) {
+      if (e.from === PLAYER || e.to === PLAYER) next[`${e.from}->${e.to}`] = [e.trust, e.affinity, e.threat];
+    }
+    s.feelRef = next;
+    s.feelDriftDay = day;
   }
 
   /**
@@ -15142,6 +15168,7 @@ export class GameSessionAdapter implements GameSession {
         // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
         // target the still-floor cards.
         ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+        ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
         // I6 distinct-voices fix (NARR-15/PROMPT-2): a COMPACT, player-surface-SAFE voice-fingerprint
         // clause (0084), rendered from the controlled voice DIAL vocab only (register/rhythm/energy/
         // directness/humor/stress-tell) via `voiceFingerprint` — so distinct cadence reaches the narrator
