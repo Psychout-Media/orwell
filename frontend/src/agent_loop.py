@@ -1994,6 +1994,37 @@ def _forced_tool_choice_for_bedtime(turn_tool_names, *, player_text, status, too
     return {"type": "function", "function": {"name": "turnIn"}}
 
 
+_BEDTIME_HELD_TIMES = frozenset({"morning", "afternoon", "evening"})
+
+
+def _bedtime_held_note(turn_tool_names, *, player_text, status):
+    """ORW-421 - the short system note for the HELD band, or None. Pure. When the player clearly goes to bed
+    in the morning/afternoon/evening (the engine's bedtime gate holds `turnIn` there; ORW-310 owns night and
+    late-night and `_bedtime_board_allows` is unchanged), the narrator used to write them asleep while the
+    clock never moved. The note asks it to voice that it is too early to sleep and not to call `turnIn`.
+    Same board gate as ORW-310 (started game, clock running, no player pending). Part-of-day words only."""
+    if os.getenv("ORWELL_FORCE_BEDTIME", "1") != "1":
+        return None
+    if "turnIn" in (turn_tool_names or set()):
+        return None
+    if not _player_means_going_to_bed(player_text):
+        return None
+    if not isinstance(status, dict):
+        return None
+    tod = str(status.get("timeOfDay") or "").strip().lower()
+    if tod not in _BEDTIME_HELD_TIMES:
+        return None
+    if status.get("started") is False or status.get("finished") or status.get("seasonOver"):
+        return None
+    pend = status.get("pending")
+    if isinstance(pend, dict) and (pend.get("kind") or "").strip():
+        return None
+    return (f"(Production note, not for the player.) The player tried to go to bed, but it is still the {tod} and the house is up: "
+            "the game will not let them sleep yet. Voice that they cannot settle (restless, the house still going) "
+            "and keep them awake. Do not write them falling asleep, do not narrate a night passing or a morning, "
+            "and do not call turnIn.")
+
+
 def _turn_in_applied(result) -> bool:
     """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
     refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
@@ -8534,6 +8565,12 @@ async def _stream_agent_loop_impl(
                     _bt_status = await _oe_bt.game_status(user=_force_owner)
                     _bt_choice = _forced_tool_choice_for_bedtime(
                         _bt_turn_tools, player_text=_bt_text, status=_bt_status, tools_sent=_tool_names_sent)
+                    if _bt_choice is None and "bedtime-held" not in _rejecter_fallback_sent:
+                        _bt_held = _bedtime_held_note(_bt_turn_tools, player_text=_bt_text, status=_bt_status)
+                        if _bt_held:  # ORW-421: success-gated - counted only once the note is in the messages
+                            _rejecter_fallback_sent.add("bedtime-held")
+                            messages.append({"role": "system", "content": _bt_held})
+                            _note_belt(owner, "bedtime-held-note")
                     if _bt_choice is not None and _model_honors_forced_tool_choice(model):
                         _forced_tool_choice = _bt_choice
                         _forced_belt_tool = "turnIn"
