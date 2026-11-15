@@ -104,11 +104,10 @@ pytestmark_browser = pytest.mark.browser
 
 
 def _select(page, sid):
-    """Open a chat the way the sidebar does. Two lessons (ORW-293):
-    1. Never await selectSession's promise in page.evaluate: these tests mock /api/history with page.route, and a pending promise collected under load
-       surfaces as 'Execution context was destroyed, most likely because of a navigation' (no navigation happened).
-    2. Never start a REDUNDANT selection: the page's own boot selection usually opens this same chat already. A second, un-awaited selectSession repaints
-       the current week LATE - after the test has picked a past week - and the view snaps back (main red at d1dbc361; Overseer A measured the two paints).
+    """Open a chat the way the sidebar does, without awaiting selectSession's promise in page.evaluate and without starting a redundant selection.
+    What is verified: under CI load an awaited `selectSession` promise did not settle in these tests (they mock /api/history with page.route), so the promise is held on
+    window and a flag is waited on instead; and the page's own boot selection usually opens this same chat already, so a second un-awaited selectSession can repaint the
+    current week after the test picked a past week. The underlying hang is NOT root-caused (open issue, ORW-375); this helper only avoids both patterns.
     So: select only when the page is not already on this chat, then wait until the chat has stopped changing (`_settled`)."""
     page.wait_for_function("() => !!(window.sessionModule && window.sessionModule.getCurrentSessionId)", timeout=15000)
     # When we DO select, the promise is held on window (so it can never be collected) and we wait for it to settle via a flag, never by awaiting it here.
@@ -182,9 +181,17 @@ def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  #
         _settled(page)
         page.evaluate("""(id) => { window.__raceDone = false;
           window.__raceP = Promise.resolve(window.sessionModule.selectSession(id)).finally(() => { window.__raceDone = true; }); }""", sid)
-        # the fade has started: the reload's history is in hand
-        page.wait_for_function("() => document.getElementById('chat-history').style.opacity === '0'", timeout=15000, polling=5)
-        page.select_option("#orwell-chapter-bar select", "1")
+        # the fade has started: the reload's history is in hand. The pick happens INSIDE the page, in the same task as the opacity poll (review of #2651: a
+        # Python round trip after the poll could land after the 120 ms fade and the race would never be exercised).
+        page.evaluate("""() => new Promise((resolve, reject) => {
+          const sel = document.querySelector('#orwell-chapter-bar select'); const t0 = performance.now();
+          (function poll() {
+            if (document.getElementById('chat-history').style.opacity === '0') {
+              sel.value = '1'; sel.dispatchEvent(new Event('change', {bubbles: true})); window.__pickedInFade = true; resolve(true);
+            } else if (performance.now() - t0 > 15000) { reject(new Error('the fade never started')); } else { requestAnimationFrame(poll); }
+          })();
+        })""")
+        assert page.evaluate("() => window.__pickedInFade === true")
         page.wait_for_function("() => window.__raceDone === true", timeout=15000)
         _settled(page)
         rows = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")
