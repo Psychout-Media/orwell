@@ -44,12 +44,12 @@ const minutesToNextEvent = (s: GameSessionAdapter): number => {
 
 Given("a played game on a quiet morning with the in-game clock running", function () {
   const b = park(this, CLOCK.phaseStartsHour.morning);
-  assert.ok(minutesToNextEvent(b.s!) > 4 * 60, "nothing is scheduled before the afternoon");
+  assert.ok(minutesToNextEvent(b.s!) >= 4 * 60, "nothing is scheduled before the afternoon");
 });
 Given("a played game on a quiet morning, {int} minutes before the afternoon", function (left: number) {
   const b = park(this, afternoon - left / 60);
   assert.equal(b.s!.gameStatus().timeOfDay, "morning");
-  assert.ok(minutesToNextEvent(b.s!) > left, "nothing is scheduled before the afternoon");
+  assert.ok(minutesToNextEvent(b.s!) >= left, "nothing is scheduled before the afternoon");
 });
 Given("a played game with the in-game clock running, {int} minutes before the next scheduled event", function (left: number) {
   const b = park(this, CLOCK.phaseStartsHour.morning);
@@ -82,11 +82,11 @@ When("the player says they will wait {int} minutes and nothing in the house inte
 });
 When("the player says they will wait out the rest of the morning and nothing in the house interrupts them", function () {
   const b = bag(this);
-  waitFor(b, { untilBandEnd: true }, Math.round((afternoon - b.startHour!) * 60));
+  waitFor(b, { untilBandEnd: true }, Math.min(180, Math.round((afternoon - b.startHour!) * 60))); // the three-hour cap applies to the rest of the band too
 });
 When("the player says they will wait {int} minutes or the rest of the morning and nothing in the house interrupts them", function (m: number) {
   const b = bag(this);
-  waitFor(b, { maxMinutes: m, untilBandEnd: true }, Math.min(m, Math.round((afternoon - b.startHour!) * 60)));
+  waitFor(b, { maxMinutes: m, untilBandEnd: true }, Math.min(m, 180, Math.round((afternoon - b.startHour!) * 60)));
 });
 When("the player says they will wait {int} minutes for the event", function (m: number) {
   const b = bag(this);

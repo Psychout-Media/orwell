@@ -130,7 +130,7 @@ Then("the game state carries no held-back signal", function () {
   assert.equal("approachHeld" in bag(this).replay!.view, false);
 });
 
-Then("the running streak is left untouched", function () {
+Then("the stretch is left untouched", function () {
   const s = bag(this).s!;
   assert.deepEqual(live(s).approachStreak, bag(this).replay!.streak, "a game nobody is playing wrote to the approach streak");
 });

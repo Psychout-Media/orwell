@@ -87,4 +87,4 @@ Feature: Conversation & scene system — the player's social game
     When that same message is replayed in a game nobody is playing
     Then the held houseguest now cuts into the conversation for that purpose
     And the game state carries no held-back signal
-    And the running streak is left untouched
+    And the stretch is left untouched

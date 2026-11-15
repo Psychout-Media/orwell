@@ -85,7 +85,7 @@ When("the player goes to bed early in the evening", function () {
 
 Then("the player wakes before the house's wake-up", function () {
   const h = hourOf((bag(this).s!.getGameState() as unknown as { clockLabel?: string }).clockLabel);
-  assert.ok(h !== null && h < 8, `the player woke at ${h}h, not before the 8am house wake-up`);
+  assert.ok(h !== null && Math.abs(h - 5) < 0.1, `a 9pm bed wakes the player at 5am (bed + 8 hours, before the 8am house wake-up); woke at ${h}h`);
 });
 
 Then("the status and the game state say early morning", function () {
@@ -98,7 +98,7 @@ Then("once the house is up the status no longer says early morning", function ()
   const s = bag(this).s!;
   for (let i = 0; i < 200; i++) {
     const h = hourOf((s.getGameState() as unknown as { clockLabel?: string }).clockLabel);
-    if (h !== null && h >= 8.5) break;
+    if (h !== null && h > 8) break; // the first moment past the house wake-up (the label rounds to the minute, so "8:00am" can still be a hair before 8)
     s.advanceClockPerConversation();
   }
   const h = hourOf((s.getGameState() as unknown as { clockLabel?: string }).clockLabel);

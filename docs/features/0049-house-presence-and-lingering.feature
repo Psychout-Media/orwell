@@ -115,7 +115,7 @@ Feature: House presence and lingering play
 
   # ORW-445 (merged in #2772): a stated wait reaches the clock. The front end reads the player's own wait ("half an hour", "a couple of hours",
   # "the rest of the afternoon") into a hang-out request; the engine moves the in-game clock by exactly that much, never more than three hours,
-  # and never past a scheduled event. Waits that a houseguest or production cuts short are covered by the hang-out's own scenarios.
+  # never past the end of the current part of the day when the player said "the rest of", and never past a scheduled event. Waits that a houseguest or production cuts short are covered by the hang-out's own scenarios.
   Scenario: A stated wait moves the clock by exactly that long
     Given a played game on a quiet morning with the in-game clock running
     When the player says they will wait 60 minutes and nothing in the house interrupts them
