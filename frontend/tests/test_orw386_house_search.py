@@ -152,3 +152,46 @@ def test_directive_tells_the_narrator_an_unarrived_houseguest_is_not_behind_a_do
     d = chat_helpers._house_search_directive(sv, "where is Marisol?")
     assert "Marisol Ashwood: has not walked into the house yet" in d
     assert "never place them in a room or behind a door" in d
+
+
+# --- ORW-462 (Kevin 2026-11-15): the search never sees through a door, and a named houseguest is always found ---
+
+def _closed_search():
+    return {"room": "backyard", "present": [], "nearby": [], "search": {"asleepCount": 0, "rooms": [], "houseguests": [
+        {"id": "npc:10", "name": "Miguel Ortega", "status": "unseen", "fact": "not in view; behind a door in the house (the player can open doors and look)"},
+        {"id": "npc:14", "name": "Marisol Vega", "status": "behind-door", "room": "bedroom-a", "access": "open", "action": "open the door to bedroom A and look", "fact": "bedroom A, door closed - open it to find them"},
+        {"id": "npc:11", "name": "Jett Wooten", "status": "told", "room": "diary-room", "access": "closed", "toldBy": {"id": "npc:15", "name": "Janelle Park"}, "fact": "diary room, door closed to the player - Janelle Park knows and can say so"},
+    ]}}
+
+
+def test_search_target_is_the_named_houseguest_from_the_roster():
+    gs = {"player": {"id": "player"}, "house": [{"id": "player", "name": "Pat Lee"}, {"id": "npc:10", "name": "Miguel Ortega"}, {"id": "npc:11", "name": "Jett Wooten"}]}
+    assert chat_helpers._search_target("Look for Miguel. Where is he?", gs) == "Miguel Ortega"
+    assert chat_helpers._search_target("where is jett wooten", gs) == "Jett Wooten"
+    assert chat_helpers._search_target("Check every room", gs) is None
+    assert chat_helpers._search_target("Where is Pat?", gs) is None  # the player is not searched for
+    assert chat_helpers._search_target(None, gs) is None and chat_helpers._search_target("Where is Miguel?", None) is None
+
+
+def test_directive_never_names_a_room_for_an_unseen_houseguest_and_says_doors_can_be_opened():
+    d = chat_helpers._house_search_directive(_closed_search(), "Where is everybody")
+    assert "Miguel Ortega: not in view" in d
+    assert "bedroom" not in d.split("Miguel Ortega: not in view")[1].split("\n")[0]
+    assert "Marisol Vega: bedroom A, door closed - open it to find them" in d
+    assert "Janelle Park knows and can say so" in d
+    voice = d.split("VOICE THIS")[1]
+    assert "can open doors and look" in voice and "cannot be found" in voice and "in their own voice" in voice
+    assert "Every other room has no awake houseguest" not in d  # out-of-view rooms are unknown, never "empty"
+
+
+def test_engine_wrapper_sends_looking_for_only_when_given(monkeypatch):
+    seen = []
+
+    async def call(name, args, user=None):
+        seen.append((name, args))
+        return None
+    monkeypatch.setattr(orwell_engine, "_call", call)
+    _run(orwell_engine.whereabouts(user=_USER, search=True))
+    _run(orwell_engine.whereabouts(user=_USER, search=True, looking_for="Miguel Ortega"))
+    _run(orwell_engine.whereabouts(user=_USER))
+    assert seen == [("whereabouts", {"search": True}), ("whereabouts", {"search": True, "lookingFor": "Miguel Ortega"}), ("whereabouts", {})]

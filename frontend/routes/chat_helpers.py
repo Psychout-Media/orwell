@@ -1259,6 +1259,21 @@ def _is_house_search(msg) -> bool:
     return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_FIND_RE.search(text))
 
 
+def _search_target(player_msg, game_state) -> Optional[str]:
+    """ORW-462: the houseguest the player's message names (full name, or a first name of more than two letters), from the engine's house roster, so the engine search can ALWAYS resolve that one person. None when nobody is named."""
+    if not isinstance(player_msg, str) or not isinstance(game_state, dict):
+        return None
+    msg = re.sub(r"\(\([^)]*\)\)", " ", player_msg, flags=re.DOTALL)
+    for h in game_state.get("house") or []:
+        full = str(h.get("name") or "").strip() if isinstance(h, dict) else ""
+        if not full or h.get("id") == (game_state.get("player") or {}).get("id"):
+            continue
+        first = full.split()[0]
+        if re.search(r"\b" + re.escape(full) + r"\b", msg, re.IGNORECASE) or (len(first) > 2 and re.search(r"\b" + re.escape(first) + r"\b", msg, re.IGNORECASE)):
+            return full
+    return None
+
+
 def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
     """ORW-386: the narrator's facts for a house-search turn, from the engine's `whereabouts.search`: the room of each NAMED houseguest (every awake one when the message names nobody), whether the player can
     walk in, who is asleep and how many, and each occupied room's roster. None without a usable search view (fail-open). Names + rooms only - nothing about activity or company, nothing from the Vault."""
@@ -1290,12 +1305,14 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
         lines.append(f"- Asleep right now: {ac} houseguest{'s' if ac != 1 else ''}" + (f" ({', '.join(asleep)})" if asleep else "") + ". Quote that number exactly or use no number at all.")
     rooms = [r for r in (sv.get("rooms") or []) if isinstance(r, dict) and r.get("room") and r.get("present")]
     if rooms:
-        lines.append("- Rooms with awake houseguests: " + "; ".join(
+        lines.append("- Rooms IN VIEW with awake houseguests: " + "; ".join(
             f"{str(r['room']).replace('-', ' ')}{' (door closed)' if r.get('access') == 'closed' else ''}: "
-            + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Every other room has no awake houseguest in it.")
+            + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Rooms out of view are not known: never say an out-of-view room is empty or name who is in it.")
     lines.append(
-        "VOICE THIS: report each houseguest in the room the game gives, in your own words. A houseguest behind a closed door is behind THAT door - name the room and the closed door; never say they are nowhere, that the house is hiding them, "
-        "or that a room is empty when the game lists someone in it. A houseguest the game says has not walked into the house yet is outside it (the premiere entrances): never place them in a room or behind a door. A houseguest in an open room can be walked to (the player chooses whether to go; do not march them there). Say nothing about what anyone is doing in there or "
+        "VOICE THIS: report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one (the player cannot see through doors). A houseguest listed 'not in view' is somewhere behind a door in the house: "
+        "name no room for them, never say they are nowhere, hidden, or cannot be found, and let the player know they can open doors and look. A houseguest the game says is behind a door you can open: name that room and that opening the door shows who is inside. "
+        "For the diary room or the HOH room (closed to the player) the game names a houseguest who can say where they are: have THAT houseguest say it in their own voice (\"Oh, he's in the diary room.\"), never as a readout, and the door stays closed. "
+        "A houseguest the game says has not walked into the house yet is outside it (the premiere entrances): never place them in a room or behind a door. A houseguest in view can be walked to (the player chooses whether to go; do not march them there). Say nothing about what anyone is doing in there or "
         "who they are with - you are not told, so never invent it. Count only with the numbers above.")
     return "\n".join(lines)
 
@@ -8745,7 +8762,9 @@ async def apply_game_framing(
         # ORW-386 - the player asks where someone is / searches the house: hand the narrator the engine's house search (each houseguest's room + whether the player can walk in) so it never invents closed doors.
         try:
             if _is_house_search(player_msg):
-                _search_wa = await asyncio.wait_for(orwell_engine.whereabouts(user=user, search=True), orwell_engine._FRAMING_TIMEOUT)
+                _target = _search_target(player_msg, game_state)
+                _search_kw = {"looking_for": _target} if _target else {}  # ORW-462: the named houseguest is always found
+                _search_wa = await asyncio.wait_for(orwell_engine.whereabouts(user=user, search=True, **_search_kw), orwell_engine._FRAMING_TIMEOUT)
                 _search_dir = _house_search_directive(_search_wa, player_msg)
                 if _search_dir:
                     gm_prompt = gm_prompt + "\n\n" + _search_dir
