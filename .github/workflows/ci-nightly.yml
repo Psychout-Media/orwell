@@ -130,7 +130,8 @@ jobs:
   # Plane card and the rule's card (ORW-229); whoever triages updates those cards.
   report:
     needs: [quarantined, bed-wake-probe]
-    if: always() && (needs.quarantined.result != 'success' || needs.bed-wake-probe.result != 'success') && github.event_name != 'pull_request'
+    # A cancelled run (a manual dispatch stopped by hand) is not a failing night: file only on a real failure.
+    if: always() && (needs.quarantined.result == 'failure' || needs.bed-wake-probe.result == 'failure') && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
