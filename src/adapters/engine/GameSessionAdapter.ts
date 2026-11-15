@@ -2045,6 +2045,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
+      this.captureSeenMoods(); // ORW-437: the deferred tail is the only persist a one-commit turn gets, so the moods seen in it are captured here too, before the state is saved
       this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
       this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)

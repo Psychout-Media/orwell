@@ -85,6 +85,22 @@ describe("runHangOut", () => {
     expect(r).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
     expect(w.log).toEqual([]);
   });
+  it("ORW-437: an event 30 seconds away is FIRED (the remainder is spent), not left un-due so every hang-out returns event-due forever", () => {
+    let hour = 11 + 59.5 / 60; // 11:59:30, event at 12:00
+    const probes: HangOutProbes = {
+      advance: (h) => { hour += h; },
+      hoursUntilEvent: () => Math.max(0, 12 - hour),
+      eventDue: () => hour + 1e-6 >= 12,
+      bedtime: () => false, pulled: () => null, approach: () => null, observed: () => null,
+    };
+    // Before the fix: eventDue stayed false and the 2nd call is identical to the 1st (a loop).
+    const r1 = runHangOut(probes, rng());
+    expect(r1.stopReason).toBe("event-due");
+    expect(probes.eventDue()).toBe(true);
+    expect(hour).toBeLessThanOrEqual(12 + 1e-6);
+    // The event has now fired once: the next call stops at once, spending nothing.
+    expect(runHangOut(probes, rng())).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
+  });
   it("float residue after real beats stops event-due with the minutes already spent", () => {
     let calls = 0;
     const w = world({ eventDue: () => false, hoursUntilEvent: () => (calls++ === 0 ? 5 : 1e-9) });
