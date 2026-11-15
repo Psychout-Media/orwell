@@ -129,7 +129,7 @@ describe("#1107 — eviction reveal forbids a fabricated full numeric vote tally
     expect(frag.toLowerCase()).toContain("more votes than there are legal voters");
     // and it spells out WHY (ORW-376: no fixed "16" - the engine states the live voter count in the hard constraints)
     expect(frag.toLowerCase()).toContain("the hoh and the nominees do not vote");
-    expect(frag).not.toMatch(/house is 16/);
+    expect(frag, "no hard-coded 16 (any wording) in the eviction fragment").not.toMatch(/\b16\b/);
     expect(frag.toLowerCase()).toContain("never state a number of votes that could not");
   });
 });
