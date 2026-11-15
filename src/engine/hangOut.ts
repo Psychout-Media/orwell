@@ -63,7 +63,11 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
     let beatMin = HANGOUT.beatMinutesBase + HANGOUT.beatMinutesStep * rng.int(HANGOUT.beatMinutesChoices);
     const until = p.hoursUntilEvent();
     // Float residue guard (the 11.999... stall): a sub-minute remainder IS the event - without this every beat clamps to ~0 minutes and burns the cap doing nothing.
-    if (until !== null && until * 60 < 1) return { stopReason: "event-due", beats: beat - 1, minutes: Math.round(minutes) };
+    if (until !== null && until * 60 < 1) {
+      // ORW-437: a REAL sub-minute remainder (more than the clock's own 1e-6 h tolerance) is spent now so the event fires once; returning without advancing left it un-due and every call repeated this stop.
+      if (until > 1e-6) { p.advance(until); minutes += until * 60; }
+      return { stopReason: "event-due", beats: beat - 1, minutes: Math.round(minutes) };
+    }
     if (until !== null) beatMin = Math.min(beatMin, Math.max(0, until) * 60); // never past the event
     if (target !== null) beatMin = Math.min(beatMin, target - minutes); // never past the stated target
     p.advance(beatMin / 60);
@@ -96,7 +100,7 @@ export function hangOutBedtime(hour: number, awakeNpcs: number, nightStartHour =
 export function hangOutStopLine(r: Pick<HangOutResult, "stopReason" | "detail">): string {
   const d = r.detail ?? {};
   switch (r.stopReason) {
-    case "event-due": return "Production is calling everyone: the scheduled event is on now.";
+    case "event-due": return "The house is being called together.";
     case "pulled": return d.by === "diary-room" ? "You are called to the Diary Room." : "Production pulls you aside.";
     case "npc-approach": return `${d.npc ?? "A housemate"} comes over to talk to you.`;
     case "observed": {
