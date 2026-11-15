@@ -59,3 +59,17 @@ describe("ORW-441 a they/them card: the verb after the pronoun agrees (review of
     expect(moment("woman", "With a grin, Namea leans on the counter in the kitchen.")).toContain("she leans on the counter");
   });
 });
+
+describe("ORW-441 they/them guard: -s adverbs and a comma after the name (follow-up)", () => {
+  const nb = (cam: string): string => moment("nonbinary", cam);
+  it("an adverb ending in -s keeps its s and the verb after it is conjugated", () => {
+    expect(nb("Namea always stands in the kitchen, arms folded.")).toContain("They always stand in the kitchen");
+    expect(nb("Namea sometimes leans on the counter in the kitchen.")).toContain("They sometimes lean on the counter");
+    expect(nb("Namea perhaps grins in the lounge.")).toContain("They perhaps grin in the lounge");
+    expect(nb("Namea nevertheless stands in the lounge.")).toContain("The houseguest nevertheless stands in the lounge");
+  });
+  it("a comma straight after the name uses 'The houseguest' (the verb is not next)", () => {
+    expect(nb("Namea, arms folded, stands in the lounge.")).toContain("The houseguest, arms folded, stands in the lounge");
+    expect(nb("Hands loose, Namea, arms folded, stands in the lounge.")).toContain("the houseguest, arms folded, stands");
+  });
+});
