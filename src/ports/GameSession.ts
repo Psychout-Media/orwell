@@ -548,6 +548,8 @@ export interface GameStateView {
   notorietyLegend?: string[];
   /** 0148: the one-shot "while you slept" read the narrator gets on the first prompt after a nap (Vault-free: where the player is, who is in the room, who came and went, the time of day). Absent otherwise. */
   whileYouSlept?: string;
+  /** 0148: a nap is open to the player right now (played game, clock running, morning or afternoon, no event or decision in the way). Only then does the narrator get the NAP line, so the fixed prompt pays nothing for it. Absent otherwise. */
+  napOpen?: true;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive

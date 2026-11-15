@@ -559,7 +559,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    in the GAME CONTEXT under \"ROOMS YOU CAN WALK THE PLAYER TO\" — pass one of THOSE; moveTo is",
   "    forgiving about phrasing (\"living room\", \"backyard\", \"HOH\" all resolve), but never invent a",
   "    room that isn't on that list. A bare \"bedroom\" resolves to the player's own bedroom.",
-  "  • nap — the player says they nap or lie down (\"I take a nap\", \"I'll rest an hour\"): call nap {hours} (0.5-3, their words; 1 if unsaid). Morning or afternoon only. An event wakes them; if refused, voice the `why`. Voice waking from the WHILE YOU SLEPT line only.",
+  "  • nap — the player's chosen daytime nap; how to call it is in the NAP line when one is open.",
   "  • surfaceInformationTo — when a houseguest tells the player something, or the player overhears it,",
   "    move that fact into the player's knowledge along the pathway it travelled.",
   "  • diaryRoom — record the player's private, out-of-character confessional. Nothing here reaches any",
@@ -1533,6 +1533,7 @@ export function renderGameContext(view: GameStateView): string {
     // Second person, economical, needles the informational imbalance — never states
     // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
+    ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
     ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT

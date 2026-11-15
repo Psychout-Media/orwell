@@ -11762,6 +11762,16 @@ export class GameSessionAdapter implements GameSession {
    * 0148: the one-shot "while you slept" read for the first moment prompt after a nap - where the player is, who is in the room now, who came and who left (compared with the room at the start of the nap) and the
    * time of day. Vault-free (open presence + names only); it never says what happened off-screen. Consumed once.
    */
+  /** 0148: would `nap` be accepted right now? The same gates `nap` applies (flag, a played game with the clock running, the player in the house and awake, morning or afternoon, no premiere, pending decision, house event or due milestone). Pure read. */
+  private napOpenNow(): boolean {
+    const live = this.live;
+    if (!this.napEnabled || !this.house || !live || !this.presence) return false;
+    if (live.finished || live.spectator || playerHasLeft(live, PLAYER) || live.playerRetired) return false;
+    if (!this.perConversationClockLive() || live.playedGame !== true || this.inPremiere()) return false;
+    if (live.pending || this.houseEventInSession() || milestoneDueOf(live)) return false;
+    return live.timeOfDay === "morning" || live.timeOfDay === "afternoon";
+  }
+
   private takeWhileYouSlept(): string | undefined {
     const live = this.live;
     const nw = live?.napWake;
@@ -14495,7 +14505,8 @@ export class GameSessionAdapter implements GameSession {
       : pk.length
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
-    const view = slept ? { ...view0, whileYouSlept: slept } : view0;
+    const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
+    const view = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)

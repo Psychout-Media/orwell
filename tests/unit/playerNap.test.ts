@@ -257,3 +257,16 @@ describe("0148 - persistence and the boundary", () => {
     return expect(sb.mcp.admin.callTool("nap", {})).rejects.toThrow();
   });
 });
+
+describe("0148 - the narrator's NAP line costs the fixed prompt nothing", () => {
+  it("the NAP instruction is in the narrator's context only while a nap is open (morning yes, evening no); the fixed prompt names the lever in one line", () => {
+    const { s } = setup();
+    at(s, 9);
+    expect(s.getMomentPrompt({}).systemPrompt).toContain("- NAP (open now):");
+    at(s, 18);
+    expect(s.getMomentPrompt({}).systemPrompt).not.toContain("- NAP (open now):");
+    s.setNapEnabled(false); at(s, 9);
+    expect(s.getMomentPrompt({}).systemPrompt).not.toContain("- NAP (open now):");
+    expect(BASE_GAME_MASTER_PROMPT).not.toContain("call nap {hours}"); // the how-to rides the per-turn line, not the fixed prompt
+  });
+});
