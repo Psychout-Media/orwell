@@ -171,3 +171,19 @@ def test_watch_pr_source_pins_for_the_gate_rerun_and_attempt_floor_fixes():
 def test_pr_overlap_reads_renames_and_paginates():
     src = (REPO / "scripts" / "ci" / "pr-overlap.sh").read_text()
     assert "previous_filename" in src and "--paginate" in src and "--limit 200" not in src
+
+
+def test_known_flake_matching_is_exact_not_a_substring():
+    # review of #2698: a listed `test_x` must not quarantine the longer `test_x_but_longer`.
+    assert parse.is_known_flake("tests/a.py::test_x", ["test_x"])
+    assert parse.is_known_flake("tests/a.py::test_x[p1]", ["test_x"])
+    assert parse.is_known_flake("tests/a.py::test_x[p1]", ["tests/a.py::test_x"])
+    assert not parse.is_known_flake("tests/a.py::test_x_but_longer", ["test_x"])
+
+
+def test_pr_overlap_and_quarantine_flakes_reject_bad_options():
+    import subprocess
+    r = subprocess.run(["bash", str(REPO / "scripts" / "ci" / "pr-overlap.sh"), "--pr"], capture_output=True, text=True, timeout=20)
+    assert r.returncode == 64 and "needs a number" in r.stderr
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "ci" / "quarantine-flakes.py"), "--runs", "0"], capture_output=True, text=True, timeout=20)
+    assert r.returncode == 2 and "must be positive" in r.stderr

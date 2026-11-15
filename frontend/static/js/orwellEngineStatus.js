@@ -7,7 +7,7 @@
 //     corrupt-save 500 or a failing action). The player sees ONE production-voiced line either way;
 //     the raw tool name + backend error (the actionable operator detail) goes to console + OrwellReport
 //     (the /admin/status failure ring), never into the player-visible banner body (MICRO-14/15).
-// Fail-open (if its own fetch fails, it shows the warning), no deps beyond the notice kit.
+// Fail-open (if its own FRONT-END health fetch fails, it shows the warning once the 10 s release grace has passed; an engine outage the front end reports, and the browser's offline event, show at once), no deps beyond the notice kit.
 //
 // #642 (owner add-on): the banner is a first-class OrwellNotice kit consumer — a "system-notice"
 // kind at the "top-banner" placement, so it shares the kit's chrome, ONE dismiss affordance (the

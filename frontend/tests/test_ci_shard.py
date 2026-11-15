@@ -119,14 +119,18 @@ def _real_test_files() -> list[str]:
 
 
 def test_committed_table_is_valid_and_matches_the_real_test_files():
-    """Hard guard over the REAL test files: no table entry for a file that is gone (refresh the table when deleting a test)."""
+    """Over the REAL test files: the table must be valid. An entry for a file that is gone only WARNS (ORW-413 PR 2: the splitter ignores it; the next refresh drops it)."""
     table = load_durations()
     assert os.path.exists(DURATIONS_PATH) and table, "frontend/tests/_ci_durations.json must exist and be non-empty"
     assert all(isinstance(v, float) and v >= 0 for v in table.values())
     on_disk = set(_real_test_files())
     stale = sorted(set(table) - on_disk)  # ORW-413 PR 2: deleting a test never needs a hand edit; a leftover entry is ignored by the splitter, so it only warns
     if stale:
-        print(f"::warning::_ci_durations.json has entries for deleted files (ignored; the next refresh drops them): {stale}")
+        msg = f"_ci_durations.json has entries for deleted files (ignored; the next refresh drops them): {stale}"
+        print(f"::warning::{msg}")
+        if os.environ.get("GITHUB_STEP_SUMMARY"):  # pytest hides stdout of a passing test, so the job summary is where the warning is seen
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+                fh.write(f"### Duration table warning\n{msg}\n")
     # A file WITHOUT an entry (a new test) is fine: it still runs and gets the explicit default weight (test count x mean seconds-per-test of the known files).
     # Refresh the table now and then (tests/_ci_refresh_durations.py); a missing entry only costs balance, never coverage.
 

@@ -848,7 +848,7 @@ import { onNarrowChange } from './platform.js';
   let _failSince = 0;       // ORW-406: when the current run of failed polls began (0 = healthy)
   let _staleCheck = null;
   try { window.addEventListener('offline', () => { if (_shown) markStale(true); }); } catch (_) { /* no window (node test) */ }
-  function _scheduleStaleCheck() { if (!_staleCheck) _staleCheck = setTimeout(() => { _staleCheck = null; refresh(); }, 10100 - (Date.now() - _failSince)); }
+  function _scheduleStaleCheck() { if (!_staleCheck) _staleCheck = setTimeout(() => { _staleCheck = null; if ((typeof document !== 'undefined' && document.hidden) || !_failSince) return; refresh(); }, 10100 - (Date.now() - _failSince)); }
   function _pollDelay() { return Math.min(POLL_MS * Math.pow(2, _failures), 120000); }
 
   // 4.1.3: false = feed believed connected (the default). Announce on a genuine FLIP only.

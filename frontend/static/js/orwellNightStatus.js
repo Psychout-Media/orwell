@@ -100,7 +100,7 @@
       const existing = document.getElementById(ID);
       if (existing && _gadget) { _gadget.hide(); existing.removeAttribute("title"); }
       _lastAnnounced = null;
-      _lastAwake = null;
+      if (state) _lastAwake = null; // a real state that says no clock is running clears the list; a failed fetch (state null) keeps the last known one (review of #2678)
       return;
     }
     const el = ensureEl();

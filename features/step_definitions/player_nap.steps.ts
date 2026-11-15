@@ -193,17 +193,21 @@ Then("no player-facing or admin view carries a rest number or the nap factor", f
 // --- the house-life + no-NPC + byte-identical scenarios need their own preparation -------------------------------------------------------
 Then("no houseguest ever naps", function () {
   const c = n(this);
+  // The engine's real per-NPC sleep state (the public `asleep` list of getGameState): a houseguest who naps would be listed asleep in a morning or afternoon phase.
+  const seen = (c as unknown as { daytimeAsleep?: string[] }).daytimeAsleep;
+  assert.ok(Array.isArray(seen), "the afternoons were sampled for sleepers");
+  assert.deepEqual(seen, [], "no houseguest is asleep in a morning or afternoon phase");
   for (const e of c.events as Array<{ initiator: string; content: string }>) if (e.initiator !== "player") assert.ok(!/\bnap(s|ped|ping)?\b/i.test(e.content), `an NPC napped: ${e.content}`);
 });
 When("many afternoons pass in played games", function () {
   const events: unknown[] = [];
+  const daytimeAsleep: string[] = [];
   for (const seed of [3, 5, 8]) {
     const g = setup(seed);
-    for (let i = 0; i < 40; i++) { g.s.advanceClockPerConversation(); if ((g.s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { const v = g.s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void g.s.submitDecision(req)); } }
+    for (let i = 0; i < 40; i++) { g.s.advanceClockPerConversation(); { const gs = g.s.getGameState() as { timeOfDay?: string; asleep?: Array<{ id: string }> }; if ((gs.timeOfDay === "morning" || gs.timeOfDay === "afternoon") && gs.asleep?.length) daytimeAsleep.push(...gs.asleep.map((a) => `${seed}:${gs.timeOfDay}:${a.id}`)); } if ((g.s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { const v = g.s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void g.s.submitDecision(req)); } }
     events.push(...g.sb.engine.events.queryAll());
-    for (const [id] of priv(g.s).presence) if (id !== "player") assert.equal((g.s as unknown as { npcNapHours?: unknown }).npcNapHours, undefined, id);
   }
-  n(this).events = events;
+  n(this).events = events; (n(this) as unknown as { daytimeAsleep: string[] }).daytimeAsleep = daytimeAsleep;
 });
 Then("a headless seeded season is byte-identical to one with the feature on and no nap taken", function () {
   const run = (on: boolean): string => {

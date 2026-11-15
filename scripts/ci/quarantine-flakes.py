@@ -149,6 +149,8 @@ def main() -> int:
     ap.add_argument("--repo", default="Psychout-Media/orwell")
     ap.add_argument("--workers", type=int, default=4, help="parallel run readers (default 4; keep it low, GitHub rate-limits bursts)")
     a = ap.parse_args()
+    if a.runs < 1 or a.workers < 1:
+        ap.error('--runs and --workers must be positive')
     runs = main_runs(a.repo, a.runs)
     print(f"reading {len(runs)} completed main runs, newest {runs[0]['databaseId'] if runs else '-'} ...", file=sys.stderr)
     per_run: dict[int, list[tuple[str, str]]] = {}

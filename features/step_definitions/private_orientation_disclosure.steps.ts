@@ -79,7 +79,7 @@ function trust(g: Game, t: number): void {
 /** The player and the houseguest share one room; everyone else is elsewhere ("alone together"). */
 function seatAlone(g: Game): void {
   const p = (g.sb.session as unknown as { presence?: Map<string, string> }).presence;
-  if (!p) return;
+  if (!p) throw new Error("seatAlone: the session has no presence map, so the 'alone together' precondition cannot be set up");
   const rooms = [...new Set(p.values())];
   const here = p.get(PLAYER) ?? rooms[0]!;
   const away = rooms.find((r) => r !== here) ?? here;

@@ -146,8 +146,11 @@ def load_flakes(path: str) -> list[str]:
 
 
 def is_known_flake(test: str, known: list[str]) -> bool:
-    """A failing test is a known flake when a listed id equals it or is contained in it (a bare name matches a full node id)."""
-    return any(k == test or k in test for k in known)
+    """A failing test is a known flake when a listed id equals it, or equals its node-name component (a bare name matches a full node id), with or without a parameter suffix.
+    Not a substring match: a listed `test_x` must never cover `test_x_but_longer` (review of #2698)."""
+    name = test.split("::")[-1]
+    base = name.split("[", 1)[0]
+    return any(k == test or k == name or k == base or test.startswith(k + "[") for k in known)
 
 
 def all_known_flakes(tests: list[str], known: list[str]) -> bool:

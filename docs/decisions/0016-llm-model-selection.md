@@ -188,7 +188,7 @@ API), and **persisted stores keep whatever they carry** — nothing is migrated 
 
 **Config + one transport route; the engine/closed set is untouched.** Kevin's decision (2026-11-14): switch
 portraits from Nano Banana (`google/gemini-3.1-flash-image`) to OpenAI GPT Image 2.6 Sunburst
-(`openai/gpt-image-2.6-sunburst`), first for portraits on the public text-to-image arena at medium quality,
+(`openai/gpt-image-2.6-sunburst`), for ALL generated portraits (the one image route, `frontend/src/orwell_portraits.py`), at medium quality,
 which is the `image_quality` default. `DEFAULT_SETTINGS.image_model` now carries it.
 
 - **Route:** OpenRouter serves this model on its Image API only (`POST {base}/images`, no chat-completions
